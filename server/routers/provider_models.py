@@ -128,6 +128,9 @@ class ProviderModelItem(BaseModel):
       两级倍率之积为 0 时不计费，不标）；``modified`` 用户改过对应的条目，不再随官方更新。
     - ``endpoint``：自定义供应商模型的调用端点键；内置供应商为 ``null``。
     - ``lifecycle``：所对应条目在今天的生命周期。已下线的模型仍在列表里，但不进入任何候选、也不能调用。
+    - ``min_app_version``：官方收录的模型标注的最低应用版本；没有标注、或不是官方收录的模型时为 ``null``。
+    - ``min_app_version_satisfied``：应用版本达到 ``min_app_version``。不满足的模型排在列表末尾，``enabled`` 与
+      ``is_default`` 为假，不进入任何候选、不作默认模型、也不能调用；不能启用，也没有模型设置可读（docs/adr/0103）。
     """
 
     model_id: str
@@ -141,6 +144,8 @@ class ProviderModelItem(BaseModel):
     price: PriceSummaryResponse | None
     lifecycle: LifecycleResponse
     endpoint: str | None = None
+    min_app_version: str | None = None
+    min_app_version_satisfied: bool = True
 
 
 class ProviderModelsResponse(BaseModel):
@@ -408,17 +413,25 @@ def _price(entry: CatalogEntry | None) -> PriceSummaryResponse | None:
 
 def _builtin_item(item: builtin_models.BuiltinModelItem, provider_multiplier: float) -> ProviderModelItem:
     view = item.view
+    return _builtin_view_item(view, provider_multiplier, enabled=item.enabled, is_default=item.is_default)
+
+
+def _builtin_view_item(
+    view: catalog.ProviderModelView, provider_multiplier: float, *, enabled: bool, is_default: bool
+) -> ProviderModelItem:
     return ProviderModelItem(
         model_id=view.model_id,
         api_model_name=view.api_model_name,
         display_name=view.entry.display_name if view.entry is not None else None,
         media_type=cast("MediaType", view.model.media_type),
-        enabled=item.enabled,
-        is_default=item.is_default,
+        enabled=enabled,
+        is_default=is_default,
         official=view.official,
         flags=_flags(view.entry, provider_multiplier * view.multiplier, view.lifecycle),
         price=_price(view.entry),
         lifecycle=_lifecycle(view.lifecycle),
+        min_app_version=view.min_app_version,
+        min_app_version_satisfied=view.min_app_version_satisfied,
     )
 
 
@@ -479,10 +492,22 @@ def _raise_for(exc: builtin_models.BuiltinModelError, _t: Translator) -> HTTPExc
     return HTTPException(status_code=404 if exc.not_found else 422, detail=_t(exc.code, **exc.params))
 
 
-async def _builtin_items(session: AsyncSession, provider_id: str) -> list[ProviderModelItem]:
+async def _builtin_items(
+    session: AsyncSession, provider_id: str, *, include_version_gated: bool = False
+) -> list[ProviderModelItem]:
+    """内置供应商的模型行。``include_version_gated`` 时在末尾加上应用版本不够的官方收录模型：只显示所需版本，
+    不启用、不作默认（docs/adr/0103）。"""
     provider_multiplier = await get_provider_multiplier(session, provider_id)
-    items = await builtin_models.list_builtin_models(session, provider_id)
-    return [_builtin_item(item, provider_multiplier) for item in items]
+    items = [
+        _builtin_item(item, provider_multiplier)
+        for item in await builtin_models.list_builtin_models(session, provider_id)
+    ]
+    if include_version_gated:
+        items += [
+            _builtin_view_item(view, provider_multiplier, enabled=False, is_default=False)
+            for view in catalog.version_gated_models(provider_id)
+        ]
+    return items
 
 
 @router.get("/{provider_id}/models", response_model=ProviderModelsResponse)
@@ -501,7 +526,7 @@ async def list_provider_models(
         )
     _require_builtin(provider_id, _t)
     return ProviderModelsResponse(
-        models=await _builtin_items(session, provider_id),
+        models=await _builtin_items(session, provider_id, include_version_gated=True),
         discoverable=builtin_discovery.is_discoverable(provider_id),
     )
 

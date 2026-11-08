@@ -52,7 +52,9 @@ async def test_overridden_generate_keeps_version_segment_of_raw_base_url(endpoin
     assert set(paths) == {"/google/v1/api/gemini-x/gen"}
 
 
-@pytest.mark.parametrize("endpoint", ["gemini-generate", "gemini-image", "gemini-tts", "gemini-video"])
+@pytest.mark.parametrize(
+    "endpoint", ["gemini-generate", "gemini-image", "gemini-tts", "gemini-video", "gemini-interactions-video"]
+)
 def test_requests_declare_google_strip_version_rule(endpoint: str):
     requests = get_endpoint_spec(endpoint).requests
 
@@ -105,3 +107,60 @@ class TestGeminiVideo:
             f"GET /google/v1/ops/{OPERATION}",
             "GET /google/v1beta/files/abc123:download?alt=media",
         ]
+
+
+@pytest.mark.parametrize("resume", [False, True])
+@pytest.mark.parametrize("overrides", [{}, {"submit": "/omni/{{ model }}", "poll": "/omni/jobs/{{ task_id }}"}])
+async def test_custom_omni_submit_resume_collect_and_meter(tmp_path: Path, resume: bool, overrides: dict[str, str]):
+    import base64
+
+    from tests.fakes import MP4_BYTES, captured_provider_job_ids
+    from tests.http_capture import request_json
+
+    completed = {
+        "id": "int-1",
+        "status": "completed",
+        "steps": [
+            {
+                "type": "model_output",
+                "content": [{"type": "video", "mime_type": "video/mp4", "data": base64.b64encode(MP4_BYTES).decode()}],
+            }
+        ],
+        "usage": {"output_tokens_by_modality": [{"modality": "video", "tokens": 86880}]},
+    }
+
+    model = "gemini-omni-1.2-flash"
+    provider = (
+        cast("Any", SimpleNamespace(provider_id="custom-g", base_url="https://new.example/changed/v1", api_key="k"))
+        if resume
+        else PROVIDER
+    )
+    backend = get_endpoint_spec("gemini-interactions-video").build_backend(provider, model, overrides)
+    request = VideoGenerationRequest(
+        prompt="猫",
+        output_path=tmp_path / "out.mp4",
+        duration_seconds=15,
+        task_id="db",
+        submitted_base_url="https://relay.example/google/" if resume else None,
+    )
+    submit = f"{BASE}/omni/{model}" if overrides else "https://relay.example/google/v1beta/interactions"
+    poll = f"{BASE}/omni/jobs/int-1" if overrides else "https://relay.example/google/v1beta/interactions/int-1"
+    with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids() as persisted:
+        create = router.post(submit).respond(200, json={"id": "int-1", "status": "in_progress"})
+        get = router.get(poll).respond(200, json=completed)
+        result = await backend.resume_video("int-1", request) if resume else await backend.generate(request)
+
+    assert get.call_count == 1
+    assert create.call_count == (0 if resume else 1)
+    if not resume:
+        assert request_json(create.calls.last.request)["model"] == model
+        assert create.calls.last.request.headers["x-goog-api-key"] == "k"
+        assert persisted[0]["job_id"] == "int-1"
+    assert request.output_path.read_bytes() == MP4_BYTES
+    assert result.model == model
+    assert result.usage_tokens == 86880
+    assert result.generate_audio is True
+    usage = backend.metered_usage(model, request, result)
+    assert usage.quantities["video_tokens"] == 86880
+    assert usage.dimensions["audio"] is True
+    assert backend.metered_usage(model, request).quantities["video_tokens"] == 86880

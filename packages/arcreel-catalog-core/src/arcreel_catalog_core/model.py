@@ -154,7 +154,7 @@ class BuiltinProviderModel:
     """内置供应商官方收录的一个供应商模型。
 
     ``entry`` 是「模型厂商/官方模型名」；只有引用两栖模型时才需要 ``media_type`` 指明是哪一个条目。
-    ``multiplier`` 是供应商模型倍率；``min_app_version`` 之下的应用版本不展示、也不启用它。``endpoint`` 是它挂接的
+    ``multiplier`` 是供应商模型倍率；``min_app_version`` 之下的应用版本不启用它，只在设置页列出所需版本。``endpoint`` 是它挂接的
     内置调用端点，取该供应商在条目媒体类型下的可选端点之一（见 ``endpoints.BUILTIN_PROVIDER_ENDPOINTS``）；
     缺失表示没有声明。同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
     """

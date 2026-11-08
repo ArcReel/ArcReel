@@ -172,6 +172,7 @@ class TestPrefill:
             ("grok", "video", "grok-imagine-video", "grok-video-classic"),
             ("vidu", "video", "viduq2", "vidu-video-q2"),
             ("vidu", "video", "viduq3-pro", "vidu-video-q3-pro"),
+            ("vidu", "video", "viduq4-preview", "vidu-video-q4"),
             ("kling", "video", "kling-v2-6", "kling-video-pro-audio"),
             # 只在新版 API 上提供的型号
             ("kling", "video", "kling-4.0", "kling-video-model-path"),
@@ -188,6 +189,8 @@ class TestPrefill:
             ("dashscope", "audio", "qwen3-tts-flash", "dashscope-tts"),
             ("dashscope", "audio", "cosyvoice-v3", "dashscope-tts"),
             ("gemini-aistudio", "video", "gemini-omni-1.1-flash", "gemini-interactions-video"),
+            ("gemini-aistudio", "video", "gemini-omni-1.2-flash", "gemini-interactions-video"),
+            ("gemini-vertex", "video", "gemini-omni-1.2-flash", "gemini-vertex-interactions-video"),
             ("gemini-vertex", "video", "gemini-omni-1.1-flash-preview", "gemini-vertex-interactions-video"),
             ("gemini-aistudio", "video", "veo-3.1-fast-generate-001", "gemini-video"),
             ("gemini-vertex", "video", "veo-3.1-generate-001", "gemini-vertex-video"),

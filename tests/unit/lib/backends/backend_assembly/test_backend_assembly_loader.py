@@ -20,7 +20,7 @@ from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
 from lib.catalog.query import factory_snapshot
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
-from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_min_app_version
 from tests.fakes import (
     captured_backend_construction,
     captured_openai_clients,
@@ -163,6 +163,27 @@ class TestAssembleBuiltinEndToEnd:
         assert built == []
         assert excinfo.value.code == "provider_unsupported_media"
         # 唯一 ready 的供应商没有可用的默认图片模型：自动推断找不到候选，不选中已下线的模型
+        with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
+            await resolver.resolve_image_backend(None, None, generation_type="t2i")
+
+    async def test_version_gated_default_is_neither_assembled_nor_resolved(self, db_factory, monkeypatch):
+        """目录默认模型的最低应用版本高于当前版本：点名调用与补默认都不装配它，按没有默认处理；自动推断同样跳过。"""
+        from lib.db.repositories.credential_repository import CredentialRepository
+
+        async with db_factory() as session:
+            await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-key")
+            await session.commit()
+        resolver = ConfigResolver(db_factory)
+        snapshot = factory_snapshot()
+        default = snapshot.builtin_providers["ark"].defaults["image"]
+        install_catalog(monkeypatch, with_min_app_version(snapshot, "ark", default, "999.0.0"))
+
+        with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as named:
+            await assemble_backend(provider_id="ark", media_type="image", model_id=default, resolver=resolver)
+        with captured_backend_construction() as built_default, pytest.raises(ModelNotInCatalogError) as missing:
+            await assemble_backend(provider_id="ark", media_type="image", model_id=None, resolver=resolver)
+        assert (built, built_default) == ([], [])
+        assert (named.value.code, missing.value.code) == ("model_not_in_provider_catalog", "provider_unsupported_media")
         with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
             await resolver.resolve_image_backend(None, None, generation_type="t2i")
 

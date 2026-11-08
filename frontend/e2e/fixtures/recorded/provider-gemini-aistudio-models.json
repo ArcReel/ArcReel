@@ -35,7 +35,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3-pro-image",
@@ -62,7 +64,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.1-flash-image",
@@ -87,19 +91,23 @@
         "lifecycle": {
           "status": "available",
           "shutdown_date": null,
-          "successor": null
+          "successor": "google/gemini-nano-banana-2.1"
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "veo-3.1-generate-preview",
         "api_model_name": "veo-3.1-generate-preview",
         "display_name": "Veo 3.1",
         "media_type": "video",
-        "enabled": true,
+        "enabled": false,
         "is_default": false,
         "official": true,
-        "flags": [],
+        "flags": [
+          "discontinued"
+        ],
         "price": {
           "currency": "USD",
           "items": [
@@ -112,21 +120,25 @@
           ]
         },
         "lifecycle": {
-          "status": "available",
-          "shutdown_date": null,
-          "successor": null
+          "status": "discontinued",
+          "shutdown_date": "2026-10-22",
+          "successor": "google/gemini-omni-1.1-flash"
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "veo-3.1-fast-generate-preview",
         "api_model_name": "veo-3.1-fast-generate-preview",
         "display_name": "Veo 3.1 Fast",
         "media_type": "video",
-        "enabled": true,
+        "enabled": false,
         "is_default": false,
         "official": true,
-        "flags": [],
+        "flags": [
+          "discontinued"
+        ],
         "price": {
           "currency": "USD",
           "items": [
@@ -139,21 +151,25 @@
           ]
         },
         "lifecycle": {
-          "status": "available",
-          "shutdown_date": null,
-          "successor": null
+          "status": "discontinued",
+          "shutdown_date": "2026-10-22",
+          "successor": "google/gemini-omni-1.1-flash"
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "veo-3.1-lite-generate-preview",
         "api_model_name": "veo-3.1-lite-generate-preview",
         "display_name": "Veo 3.1 Lite",
         "media_type": "video",
-        "enabled": true,
-        "is_default": true,
+        "enabled": false,
+        "is_default": false,
         "official": true,
-        "flags": [],
+        "flags": [
+          "discontinued"
+        ],
         "price": {
           "currency": "USD",
           "items": [
@@ -166,11 +182,13 @@
           ]
         },
         "lifecycle": {
-          "status": "available",
-          "shutdown_date": null,
-          "successor": null
+          "status": "discontinued",
+          "shutdown_date": "2026-10-22",
+          "successor": "google/gemini-omni-1.1-flash"
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.8-flash-tts",
@@ -203,7 +221,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.8-flash-lite-tts",
@@ -236,7 +256,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.1-flash-lite",
@@ -269,7 +291,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.1-pro-preview",
@@ -302,40 +326,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
-      },
-      {
-        "model_id": "gemini-3.5-flash",
-        "api_model_name": "gemini-3.5-flash",
-        "display_name": "Gemini 3.5 Flash",
-        "media_type": "text",
-        "enabled": true,
-        "is_default": false,
-        "official": true,
-        "flags": [],
-        "price": {
-          "currency": "USD",
-          "items": [
-            {
-              "meter": "uncached_input_tokens",
-              "min_price": 1.5,
-              "max_price": 1.5,
-              "per": 1000000
-            },
-            {
-              "meter": "output_tokens",
-              "min_price": 9,
-              "max_price": 9,
-              "per": 1000000
-            }
-          ]
-        },
-        "lifecycle": {
-          "status": "available",
-          "shutdown_date": null,
-          "successor": null
-        },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.5-flash-lite",
@@ -368,7 +361,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.6-flash",
@@ -401,40 +396,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
-      },
-      {
-        "model_id": "gemini-3.7-flash",
-        "api_model_name": "gemini-3.7-flash",
-        "display_name": "Gemini 3.7 Flash",
-        "media_type": "text",
-        "enabled": true,
-        "is_default": false,
-        "official": true,
-        "flags": [],
-        "price": {
-          "currency": "USD",
-          "items": [
-            {
-              "meter": "uncached_input_tokens",
-              "min_price": 0.75,
-              "max_price": 0.75,
-              "per": 1000000
-            },
-            {
-              "meter": "output_tokens",
-              "min_price": 3.75,
-              "max_price": 3.75,
-              "per": 1000000
-            }
-          ]
-        },
-        "lifecycle": {
-          "status": "available",
-          "shutdown_date": null,
-          "successor": null
-        },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-3.8-flash",
@@ -467,7 +431,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemini-4-argon",
@@ -500,7 +466,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemma-4-26b-a4b-it",
@@ -519,7 +487,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       },
       {
         "model_id": "gemma-4-31b-it",
@@ -538,7 +508,9 @@
           "shutdown_date": null,
           "successor": null
         },
-        "endpoint": null
+        "endpoint": null,
+        "min_app_version": null,
+        "min_app_version_satisfied": true
       }
     ],
     "discoverable": true

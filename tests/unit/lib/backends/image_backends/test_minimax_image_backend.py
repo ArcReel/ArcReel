@@ -222,18 +222,31 @@ class TestSubjectReference:
         assert subject[0]["type"] == "character"
         assert subject[0]["image_file"].startswith("data:image/png;base64,")
 
-    async def test_multiple_refs_truncated_to_first(self, tmp_path: Path):
-        download = AsyncMock()
+    async def test_multiple_refs_rejected_before_submit(self, tmp_path: Path):
         refs = [_make_ref(tmp_path, f"r{i}.png") for i in range(3)]
-        with _generation_route(_img_response(), download) as route:
+        with capture_http() as router:
             from lib.backends.image_backends.minimax import MiniMaxImageBackend
 
-            b = MiniMaxImageBackend(api_key="sk")
-            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=refs))
+            backend = MiniMaxImageBackend(api_key="sk")
+            from lib.backends.image_capabilities import gate_image_request
+            from lib.custom_provider.backends import CustomImageBackend
 
-        # image-01 单脸参考：仅取首张；声明的上限即实际下传张数，编排层按它裁剪后编号。
-        subject = request_json(route.calls.last.request)["subject_reference"]
-        assert len(subject) == (await b.reference_image_limit()) == 1
+            backend = CustomImageBackend(
+                provider_id="custom-1",
+                delegate=backend,
+                model=backend.model,
+                reference_limit_override=3,
+            )
+            await gate_image_request(backend, provider_id="custom-1", reference_count=3)
+            with pytest.raises(ImageCapabilityError) as exc:
+                await backend.generate(
+                    ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=refs)
+                )
+
+        assert exc.value.code == "image_reference_images_exceeded"
+        assert exc.value.params["limit"] == 1
+        assert exc.value.params["count"] == 3
+        assert not router.calls
 
     async def test_missing_ref_raises_unreadable(self, tmp_path: Path):
         from lib.backends.image_backends.minimax import MiniMaxImageBackend

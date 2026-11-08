@@ -26,6 +26,7 @@ resolution（1K/2K/4K）由 registry 声明驱动 UI 下拉与计费，不下传
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import ClassVar
@@ -156,7 +157,7 @@ class KlingImageBackend(KlingBackendBase):
             "model_name": payload.get("model_name"),
             "aspect_ratio": payload.get("aspect_ratio"),
             "n": payload.get("n"),
-            "reference_count": len(images) if isinstance(images, list) else 0,
+            "reference_count": len(images) if isinstance(images, list) else int(bool(images)),
             "prompt_len": len(prompt) if isinstance(prompt, str) else 0,
         }
 
@@ -168,7 +169,7 @@ class KlingImageBackend(KlingBackendBase):
         return per_image_usage(output_images=1, input_images=facts.reference_count)
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        payload = self._build_payload(request)
+        payload = await asyncio.to_thread(self._build_payload, request)
         logger.info("调用 Kling 图像 API payload=%s", self._safe_log_view(payload))
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._submit_task(client, _IMAGE_ENDPOINT, payload)
@@ -185,6 +186,7 @@ class KlingImageBackend(KlingBackendBase):
         await download_image_to_path(download_url, request.output_path)
         logger.info("Kling 图像下载完成: %s", request.output_path)
 
+        images = payload.get("image")
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=PROVIDER_KLING,
@@ -192,5 +194,33 @@ class KlingImageBackend(KlingBackendBase):
             image_uri=download_url,
             seed=request.seed,
             # 请求体不带分辨率，不报分辨率。
-            usage=per_image_usage(output_images=1, input_images=len(payload.get("image", []))),
+            usage=per_image_usage(
+                output_images=1, input_images=len(images) if isinstance(images, list) else int(bool(images))
+            ),
         )
+
+
+class KlingSingleImageBackend(KlingImageBackend):
+    """可灵单参考图通道：``image`` 是纯 base64 字符串。"""
+
+    CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = 1
+
+    def _build_payload(self, request: ImageGenerationRequest) -> dict:
+        limit = self.CHANNEL_REFERENCE_LIMIT
+        if limit is not None and len(request.reference_images) > limit:
+            raise ImageCapabilityError(
+                "image_reference_images_exceeded",
+                model=self._model,
+                limit=limit,
+                count=len(request.reference_images),
+            )
+        payload = super()._build_payload(request)
+        if images := payload.get("image"):
+            payload["image"] = images[0]
+        return payload
+
+
+KLING_IMAGE_BACKENDS: dict[str, type[KlingImageBackend]] = {
+    "kling-image": KlingImageBackend,
+    "kling-image-single": KlingSingleImageBackend,
+}

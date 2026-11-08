@@ -439,6 +439,35 @@ class TestSaveValidatesOpenOverrides:
         )
         assert resp.status_code == 201
 
+    def test_reference_audio_direct_accepted_on_vidu_q4(self, capability_client: TestClient):
+        """Vidu Q4 参考生视频把参考音频写进 sounds：保存直接参考音频覆盖应当成功。"""
+        resp = _post_provider(
+            capability_client,
+            [
+                _video_model(
+                    endpoint="vidu-video-q4",
+                    model_id="viduq4-preview",
+                    capability_overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 3},
+                )
+            ],
+        )
+        assert resp.status_code == 201
+
+    def test_reference_audio_direct_rejected_on_vidu_endpoint_without_sounds(self, capability_client: TestClient):
+        """同族的 Vidu Q3 Turbo 不收参考音频：开放只给真正下发 sounds 的端点，不按供应商族整体开放。"""
+        resp = _post_provider(
+            capability_client,
+            [
+                _video_model(
+                    endpoint="vidu-video-q3-turbo",
+                    model_id="viduq3-turbo",
+                    capability_overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 3},
+                )
+            ],
+        )
+        assert resp.status_code == 422
+        assert "reference_audio_mode" in resp.json()["detail"]
+
     def test_direct_without_positive_count_rejected(self, capability_client: TestClient):
         """合并后不变式：宣称支持音色输入却限 0 段的组合在写入侧就拒。
 

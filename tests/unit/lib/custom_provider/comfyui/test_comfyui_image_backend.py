@@ -16,7 +16,12 @@ import httpx
 import pytest
 
 from arcreel_market_core.endpoint_definition import validate_definition
-from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
+from lib.backends.image_backends.base import (
+    ImageCapability,
+    ImageCapabilityError,
+    ImageGenerationRequest,
+    ReferenceImage,
+)
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
@@ -201,28 +206,15 @@ class TestGenerate:
         assert result.seed == sent["prompt"]["3"]["inputs"]["seed"]
         assert result.image_uri == f"{BASE_URL}/view?filename=ArcReel_00001_.png&subfolder=&type=output"
 
-    async def test_only_as_many_references_as_there_are_slots_get_uploaded(self, tmp_path: Path):
-        """格子数就是这份 workflow 能收几张；多出来的图不会被任何节点读到。"""
-        definition = _definition(reference_slots=1)
-        references = []
-        for index in range(3):
-            path = tmp_path / f"ref{index}.png"
-            path.write_bytes(b"png")
-            references.append(ReferenceImage(path=str(path)))
+    async def test_excess_references_rejected_before_upload_or_submit(self, tmp_path: Path):
+        references = [ReferenceImage(path=str(tmp_path / f"ref{i}.png")) for i in range(3)]
+        with capture_http() as router, pytest.raises(ImageCapabilityError) as exc:
+            await _backend(_definition(reference_slots=1)).generate(_request(tmp_path, reference_images=references))
 
-        with capture_http() as router:
-            upload = router.post(f"{BASE_URL}/upload/image").mock(
-                return_value=httpx.Response(200, json={"name": "stored.png", "subfolder": "arcreel"})
-            )
-            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
-            router.get(f"{BASE_URL}/history/p-1").mock(
-                return_value=httpx.Response(200, json=_history({"9": _image_output()}))
-            )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
-
-            await _backend(definition).generate(_request(tmp_path, reference_images=references))
-
-        assert upload.call_count == 1
+        assert exc.value.code == "image_reference_images_exceeded"
+        assert exc.value.params["limit"] == 1
+        assert exc.value.params["count"] == 3
+        assert not router.calls
 
     async def test_a_text_to_image_generation_uploads_nothing(self, tmp_path: Path):
         with capture_http() as router:

@@ -20,11 +20,13 @@ from tests.http_capture import capture_http
         ("vidu-video-q3-fast", "img2video", 12, True),
         ("vidu-video-q3-reference", "reference2video", 12, True),
         ("vidu-video-q2", "text2video", 10, False),
-        ("vidu-video-q2-pro", "start-end2video", 8, False),
+        ("vidu-video-q2-pro", "start-end2video", 10, False),
+        ("vidu-video-q2-fast", "start-end2video", 10, False),
         ("vidu-video-q2-fast", "img2video", 10, False),
         ("vidu-video-q1", "text2video", 5, False),
         ("vidu-video-q1-classic", "img2video", 5, False),
         ("vidu-video-2", "img2video", 8, False),
+        ("vidu-video-q4", "reference2video", 12, True),
     ],
 )
 async def test_vidu_endpoint_request_and_metering_ignore_name(endpoint, route, seconds, audio, tmp_path):

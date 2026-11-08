@@ -1,16 +1,19 @@
 """KlingImageBackend 单元测试（respx 在 transport 层拦截，不打真实 HTTP）。
 
-覆盖：JWT / Bearer 双模式鉴权注入、请求体构建（文生图 / 图生图 image 数组）、参考图上限截断、
+覆盖：JWT / Bearer 双模式鉴权注入、请求体构建（文生图 / 图生图 image 数组）、参考图完整传输与单图超量拒绝、
 缺失参考图 fail-loud、脱敏日志视图、submit→轮询→取 image_url→下载端到端、失败终态、多图取首张。
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import re
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import NamedTuple
 
 import httpx
@@ -294,3 +297,69 @@ class TestRegistration:
         assert PROVIDER_KLING in get_registered_backends()
         backend = create_backend(PROVIDER_KLING, auth_mode="jwt", access_key="ak", secret_key=_SECRET)
         assert isinstance(backend, KlingImageBackend)
+
+
+@pytest.mark.parametrize("endpoint", ["kling-image", "kling-image-single"])
+@pytest.mark.parametrize("auth", ["jwt", "bearer", "custom"])
+@pytest.mark.parametrize("with_reference", [False, True])
+async def test_endpoint_request_shape_and_input_metering(tmp_path, endpoint, auth, with_reference):
+    from lib.backends.backend_assembly.loaded_config import LoadedConfig
+    from lib.backends.backend_assembly.specs import get_provider_spec
+    from lib.config.registry import PROVIDER_REGISTRY
+    from lib.custom_provider.endpoints import endpoint_reference_image_limit, get_endpoint_spec
+
+    if auth == "custom":
+        provider = SimpleNamespace(
+            provider_id="custom-test", api_key="static-key", base_url="https://api-beijing.klingai.com"
+        )
+        backend = get_endpoint_spec(endpoint).build_backend(provider, "kling-v3")
+    else:
+        credentials = {"access_key": "ak-1", "secret_key": _SECRET} if auth == "jwt" else {"api_key": "static-key"}
+        backend = get_provider_spec("kling", "image", endpoint).build_backend(
+            LoadedConfig(credentials=credentials, provider_meta=PROVIDER_REGISTRY["kling"], rate_limiter=None),
+            "kling-v3",
+        )
+    refs = [_ref(tmp_path, "a.png")] if with_reference else []
+    with _kling_image_api() as routes:
+        routes.submit.mock(return_value=_resp(_submit()))
+        routes.poll.mock(return_value=_resp(_query("succeed", urls=["https://x/final.png"])))
+        routes.download.mock(return_value=httpx.Response(200, content=b"png-bytes"))
+        result = await backend.generate(_request(tmp_path, reference_images=refs))
+        payload = json.loads(only_request(routes.submit).content)
+
+    assert payload["model_name"] == "kling-v3"
+    if with_reference:
+        encoded = base64.b64encode((tmp_path / "a.png").read_bytes()).decode()
+        assert payload["image"] == (encoded if endpoint == "kling-image-single" else [encoded])
+    else:
+        assert "image" not in payload
+    assert result.image_path.read_bytes() == b"png-bytes"
+    assert result.usage is not None
+    assert result.usage.quantities == {"output_images": 1, "input_images": int(with_reference)}
+    expected_limit = 1 if endpoint == "kling-image-single" else None
+    assert await backend.reference_image_limit() == expected_limit
+    assert endpoint_reference_image_limit(get_endpoint_spec(endpoint)) == expected_limit
+
+
+async def test_single_image_rejects_multiple_references_before_submit(tmp_path):
+    from lib.backends.image_backends.kling import KlingSingleImageBackend
+
+    backend = KlingSingleImageBackend(auth_mode="bearer", api_key="test-bearer")
+    refs = [_ref(tmp_path, "a.png"), _ref(tmp_path, "b.png")]
+    from lib.backends.image_capabilities import gate_image_request
+    from lib.custom_provider.backends import CustomImageBackend
+
+    backend = CustomImageBackend(
+        provider_id="custom-1",
+        delegate=backend,
+        model=backend.model,
+        reference_limit_override=2,
+    )
+    await gate_image_request(backend, provider_id="custom-1", reference_count=2)
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as exc:
+        await backend.generate(_request(tmp_path, reference_images=refs))
+
+    assert exc.value.code == "image_reference_images_exceeded"
+    assert exc.value.params["limit"] == 1
+    assert exc.value.params["count"] == 2
+    assert not router.calls

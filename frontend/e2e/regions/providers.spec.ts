@@ -89,6 +89,8 @@ const MODEL_LIST_STATES: ApiOverrides = {
           price: null,
           lifecycle: { status: "discontinued", shutdown_date: "2026-03-31", successor: null },
           endpoint: null,
+          min_app_version: null,
+          min_app_version_satisfied: true,
         },
       ],
     },
@@ -224,6 +226,8 @@ const customListItems = customProvider.models.map((m) => ({
       : null,
   lifecycle: { status: "available", shutdown_date: null, successor: null },
   endpoint: m.endpoint,
+  min_app_version: null,
+  min_app_version_satisfied: true,
 }));
 
 const KLING_ID = "kling-v2-6-master-image-to-video-pro-1080p";
@@ -473,13 +477,13 @@ defineRegionScenarios("供应商", [
     act: async (page) => {
       const models = page.getByRole("region", { name: "模型" });
       await models.scrollIntoViewIfNeeded();
-      await expect(models.getByText("已下线")).toBeVisible();
+      const legacy = models.getByRole("listitem").filter({ hasText: "gemini-2.0-flash-experimental-image-generation-legacy-2025-03-preview" });
+      await expect(legacy.getByText("已下线")).toBeVisible();
       await models.getByRole("button", { name: /已启用/ }).click();
       await expect(models.getByText("已下线")).toHaveCount(0);
       await expect(models.getByRole("switch").first()).toBeChecked();
       // 回到「全部」，截长名称与状态标记所在的行
       await models.getByRole("button", { name: /全部/ }).click();
-      const legacy = models.getByRole("listitem").filter({ hasText: "已下线" });
       await legacy.scrollIntoViewIfNeeded();
       await expect(legacy).toBeInViewport();
     },
@@ -615,6 +619,21 @@ defineRegionScenarios("供应商", [
     },
     // 下拉渲染在弹层里，截 Sheet 连同盖在上面的下拉一起看
     screenshot: { name: "providers-custom-endpoint-select", target: (page) => page.getByRole("dialog") },
+  },
+  {
+    name: "自定义视频模型可选择 Gemini Omni 端点，Vertex Omni 不在选项中",
+    path: CUSTOM_PROVIDER_PATH,
+    api: CUSTOM_PROVIDER_DETAIL,
+    ready: customDetailReady,
+    act: async (page) => {
+      const sheet = await openModelSheet(page, KLING_ID);
+      const trigger = sheet.getByRole("combobox", { name: "调用端点" });
+      await trigger.click();
+      const listbox = page.getByRole("listbox");
+      await expect(listbox.getByRole("option", { name: /^Vertex AI 视频 \(Omni\)/ })).toHaveCount(0);
+      await listbox.getByRole("option", { name: /^Gemini 视频 \(Omni\) POST/ }).click();
+      await expect(trigger).toContainText("Gemini 视频 (Omni)");
+    },
   },
   {
     name: "模型 Sheet：价格编辑器点开条件标签，选项留在视口内",

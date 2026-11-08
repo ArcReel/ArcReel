@@ -57,7 +57,7 @@ from lib.backends.providers import PROVIDER_MINIMAX
 
 register_backend(PROVIDER_MINIMAX, MiniMaxImageBackend)
 
-from lib.backends.image_backends.kling import KlingImageBackend
+from lib.backends.image_backends.kling import KLING_IMAGE_BACKENDS, KlingImageBackend
 from lib.backends.providers import PROVIDER_KLING
 
 register_backend(PROVIDER_KLING, KlingImageBackend)
@@ -72,5 +72,10 @@ from lib.backends.image_backends.agnes import AGNES_IMAGE_BACKENDS
 from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
 
-for _endpoint, _backend in {**SEEDREAM_BACKENDS, **DASHSCOPE_IMAGE_BACKENDS, **AGNES_IMAGE_BACKENDS}.items():
+for _endpoint, _backend in {
+    **SEEDREAM_BACKENDS,
+    **DASHSCOPE_IMAGE_BACKENDS,
+    **AGNES_IMAGE_BACKENDS,
+    **KLING_IMAGE_BACKENDS,
+}.items():
     register_backend(_endpoint, _backend)

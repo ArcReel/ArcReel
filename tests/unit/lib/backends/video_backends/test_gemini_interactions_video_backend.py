@@ -38,7 +38,9 @@ class _NoopRateLimiter:
 
 
 def _aistudio(**kwargs: Any) -> GeminiInteractionsVideoBackend:
-    return GeminiInteractionsVideoBackend(api_key="k", rate_limiter=_NoopRateLimiter(), video_model=MODEL, **kwargs)
+    return GeminiInteractionsVideoBackend(
+        api_key="k", rate_limiter=_NoopRateLimiter(), video_model=kwargs.pop("video_model", MODEL), **kwargs
+    )
 
 
 def _running(interaction_id: str = "int-1") -> dict[str, Any]:
@@ -87,10 +89,17 @@ def _b64(content: bytes) -> str:
 
 
 class TestSubmit:
+    @pytest.mark.parametrize("model", [MODEL, "gemini-omni-1.2-flash"])
     @pytest.mark.parametrize(
         ("inputs", "task", "images"),
         [
             pytest.param({}, "text_to_video", [], id="文生视频"),
+            pytest.param(
+                {"reference_images": [f"{i}.png" for i in range(6)]},
+                "reference_to_video",
+                [str(i).encode() for i in range(6)],
+                id="六张参考图透传",
+            ),
             pytest.param({"start_image": "first.png"}, "image_to_video", [b"first"], id="首帧"),
             pytest.param(
                 {"start_image": "first.png", "end_image": "last.png"},
@@ -104,7 +113,7 @@ class TestSubmit:
         ],
     )
     async def test_request_body_carries_task_images_and_video_format(
-        self, tmp_path: Path, inputs: dict[str, Any], task: str, images: list[bytes]
+        self, tmp_path: Path, inputs: dict[str, Any], task: str, images: list[bytes], model: str
     ):
         fields = _request_fields(tmp_path, inputs)
         request = VideoGenerationRequest(
@@ -118,10 +127,10 @@ class TestSubmit:
 
         with capture_http() as router, bounded_poll_clock():
             create = router.post(AISTUDIO_INTERACTIONS).respond(200, json=_completed())
-            await _aistudio().generate(request)
+            await _aistudio(video_model=model).generate(request)
 
         body = request_json(create.calls.last.request)
-        assert body["model"] == MODEL
+        assert body["model"] == model
         assert body["background"] is True
         assert body["generation_config"] == {"video_config": {"task": task}}
         assert body["response_format"] == {

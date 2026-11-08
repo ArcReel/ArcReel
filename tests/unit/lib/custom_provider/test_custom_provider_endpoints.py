@@ -82,6 +82,7 @@ class TestRegistry:
             "vidu-video-q1",
             "vidu-video-q1-classic",
             "vidu-video-2",
+            "vidu-video-q4",
             "openrouter-video",
             "xai-video",
             "dashscope-qwen-image",
@@ -98,12 +99,14 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-image",
+            "kling-image-single",
             "kling-video-pro-silent",
             "kling-video-pro-audio",
             "kling-video-audio",
             "kling-video-silent",
             "kling-video-model-path",
             "gemini-video",
+            "gemini-interactions-video",
             "openai-tts",
             "dashscope-tts",
             "dashscope-speech-synthesizer",
@@ -198,6 +201,7 @@ class TestRegistry:
             "minimax-h3",
             "kling-video-pro-silent",
             "gemini-video",
+            "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
@@ -228,6 +232,7 @@ class TestRegistry:
             "minimax-h3",
             "kling-video-pro-silent",
             "gemini-video",
+            "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
@@ -325,6 +330,7 @@ class TestRegistry:
             "dashscope-reference-voice-video",
             "dashscope-wan3-video",
             "minimax-h3",
+            "vidu-video-q4",
         }
 
     def test_audio_endpoint_spec(self):
@@ -362,6 +368,7 @@ class TestRegistry:
             "dashscope-qwen-image-edit",
             "minimax-image",
             "kling-image",
+            "kling-image-single",
             "ark-seedream-3",
             "ark-seedream-4",
         }
@@ -383,6 +390,7 @@ class TestRegistry:
             "vidu-video-q1",
             "vidu-video-q1-classic",
             "vidu-video-2",
+            "vidu-video-q4",
             "openrouter-video",
             "xai-video",
             "dashscope-video",
@@ -400,6 +408,7 @@ class TestRegistry:
             "kling-video-silent",
             "kling-video-model-path",
             "gemini-video",
+            "gemini-interactions-video",
         }
 
 
@@ -515,6 +524,7 @@ class TestInferEndpoint:
             ("viduq3-mix", "openai", "vidu-video-q3-reference"),
             ("viduq3-pro", "openai", "vidu-video-q3-pro"),
             ("viduq3-turbo", "openai", "vidu-video-q3-turbo"),
+            ("viduq4-preview", "openai", "vidu-video-q4"),
             ("viduq3-i2v", "openai", "vidu-video-generic"),
             ("proxy/viduq3-turbo", "openai", "vidu-video-q3-turbo"),
             # ── 阿里百炼 wan2.x / wan3.0 → 百炼异步视频端点（image 变体不受影响）──
@@ -744,6 +754,7 @@ def test_image_endpoint_registry_entries():
         "dashscope-qwen-image-edit",
         "minimax-image",
         "kling-image",
+        "kling-image-single",
         "ark-seedream-3",
         "ark-seedream-4",
     }
@@ -778,3 +789,23 @@ def test_existing_image_endpoints_have_full_capabilities():
     # Verify endpoint_spec_to_dict serializes capabilities to sorted list[str]
     serialized = endpoint_spec_to_dict(ENDPOINT_REGISTRY["openai-images"])
     assert serialized["image_capabilities"] == ["image_to_image", "text_to_image"]
+
+
+@pytest.mark.parametrize("discovery_format", ["google", "openai"])
+@pytest.mark.parametrize(
+    "model", ["gemini-omni-1.1-flash", "gemini-omni-1.2-flash", "proxy/Gemini-Omni-1.2-flash-preview"]
+)
+def test_omni_names_prefill_the_interactions_video_endpoint(model: str, discovery_format: str):
+    from lib.custom_provider.endpoints import infer_media_type
+
+    assert infer_endpoint(model, discovery_format) == "gemini-interactions-video"
+    assert infer_endpoint(model, discovery_format, "video") == "gemini-interactions-video"
+    assert infer_media_type(model, discovery_format) == "video"
+
+
+def test_vertex_interactions_is_not_a_custom_provider_endpoint():
+    from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS
+
+    assert "gemini-vertex-interactions-video" in PROVIDER_ONLY_ENDPOINTS
+    assert "gemini-vertex-interactions-video" not in ENDPOINT_REGISTRY
+    assert "gemini-interactions-video" not in PROVIDER_ONLY_ENDPOINTS
