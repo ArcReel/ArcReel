@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal
 
 import openai
 
-from arcreel_catalog_core import ImageFacts
+from arcreel_catalog_core import ImageFacts, ScaledOutputTokenBase
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES
 from lib.backends.image_backends.base import (
@@ -93,21 +93,36 @@ def _resolve_openai_params(
     return params
 
 
-def _output_token_bases(entry: CatalogEntry | None) -> Mapping[str, int]:
-    """条目收录的输出 token 估算基数（质量档 → 基数）；对应不上条目、不是图片条目或没收录时为空。"""
+def _output_token_rules(
+    entry: CatalogEntry | None,
+) -> tuple[Mapping[str, int], Mapping[str, ScaledOutputTokenBase]]:
+    """条目收录的输出 token 估算规则（普通基数、带系数基数）；对应不上条目、不是图片条目或没收录时为空。"""
     if entry is None or not isinstance(entry.facts, ImageFacts):
-        return {}
-    return entry.facts.output_token_bases
+        return {}, {}
+    return entry.facts.output_token_bases, entry.facts.output_token_scaled_bases
 
 
-def estimate_output_tokens(size: str, quality: str, bases: Mapping[str, int]) -> int | None:
-    """按尺寸、质量档与条目上的质量档基数估一张图的输出 token；基数里没有这个质量档或尺寸不是宽x高时返回 ``None``。
+def _round_half_up(value: float) -> int:
+    """四舍五入，恰好 .5 时进位，与官方计算器的 ``Math.round`` 一致；内置 ``round`` 恰好 .5 时取偶。"""
+    floor = math.floor(value)
+    return floor + 1 if value - floor >= 0.5 else floor
 
-    照搬官方「Calculating costs」计算器的公式（各质量档的基数由条目收录）：短边方向的块数 = 质量基数 ÷ 宽高比
+
+def estimate_output_tokens(
+    size: str,
+    quality: str,
+    bases: Mapping[str, int],
+    scaled_bases: Mapping[str, ScaledOutputTokenBase] | None = None,
+) -> int | None:
+    """按尺寸、质量档与条目上的估算规则估一张图的输出 token；两张表都没有这个质量档或尺寸不是宽x高时返回 ``None``。
+
+    照搬官方「Calculating costs」计算器的公式（各质量档的基数与系数由条目收录）：短边方向的块数 = 质量基数 ÷ 宽高比
     （四舍五入，恰好 .5 取偶），块数 = 基数 × 短边块数，token = ⌈块数 × (2,000,000 + 宽 × 高) ÷ 4,000,000⌉。
+    带系数基数的质量档再把这个整数乘系数，四舍五入（恰好 .5 进位）。两次取整不能合并：系数不能折进基数或块数。
     https://developers.openai.com/api/docs/guides/image-generation#calculating-costs
     """
-    base = bases.get(quality)
+    scaled_base = scaled_bases.get(quality) if scaled_bases else None
+    base = scaled_base.base if scaled_base is not None else bases.get(quality)
     width_text, sep, height_text = size.partition("x")
     if base is None or not sep or not width_text.isdigit() or not height_text.isdigit():
         return None
@@ -116,8 +131,9 @@ def estimate_output_tokens(size: str, quality: str, bases: Mapping[str, int]) ->
         return None
     scaled = base / (max(width, height) / min(width, height))
     floor = math.floor(scaled)
-    short_blocks = floor + floor % 2 if scaled - floor == 0.5 else math.floor(scaled + 0.5)
-    return math.ceil(base * short_blocks * (2_000_000 + width * height) / 4_000_000)
+    short_blocks = floor + floor % 2 if scaled - floor == 0.5 else _round_half_up(scaled)
+    tokens = math.ceil(base * short_blocks * (2_000_000 + width * height) / 4_000_000)
+    return tokens if scaled_base is None else _round_half_up(tokens * scaled_base.multiplier)
 
 
 def _token_usage(
@@ -196,16 +212,16 @@ class OpenAIImageBackend:
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        """预估用量：输出 token 按官方计算器公式与条目上的质量档基数估，条目没收录请求所用质量档时不报。
+        """预估用量：输出 token 按官方计算器公式与条目上的估算规则估，条目没收录请求所用质量档时不报。
 
-        请求所用质量档由档位映射决定（请求结构，见 :func:`_resolve_openai_params`），基数取模型对应的条目
+        请求所用质量档由档位映射决定（请求结构，见 :func:`_resolve_openai_params`），估算规则取模型对应的条目
         （``facts.entry``），不看模型名。提示词文字 token 记 0：费用页与整批预估拿不到提示词，这部分会偏低。
         文字输出与缓存在 Images API 上不发生，记 0。参考图的图片输入 token 无法从请求事实估出：没有参考图时记 0，有参考图时不报。
         """
         params = _resolve_openai_params(facts.image_size, facts.aspect_ratio)
         quality = params.get("quality")
         output = (
-            estimate_output_tokens(params["size"], quality, _output_token_bases(facts.entry))
+            estimate_output_tokens(params["size"], quality, *_output_token_rules(facts.entry))
             if quality is not None
             else None
         )
