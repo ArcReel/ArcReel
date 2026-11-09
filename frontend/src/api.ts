@@ -55,7 +55,8 @@ import type {
   AssetLibraryCredentialType,
   CreateAssetLibraryAccountPayload,
   NewImageTarget,
-  ObjectStorageConnection,
+  SavedObjectStorageConnection,
+  ObjectStorageCleanupResult,
   ObjectStorageSettings,
   ProviderAssetImportResult,
   ProviderAssetLink,
@@ -3495,12 +3496,12 @@ class API {
     return this.request("/object-storage/new-image-target", { method: "PUT", body: JSON.stringify({ target }) });
   }
 
-  static async saveObjectStorageConnection(data: SaveObjectStorageConnectionPayload): Promise<ObjectStorageConnection> {
+  static async saveObjectStorageConnection(data: SaveObjectStorageConnectionPayload): Promise<SavedObjectStorageConnection> {
     return this.request("/object-storage/connection", { method: "PUT", body: JSON.stringify(data) });
   }
 
-  static async deleteObjectStorageConnection(): Promise<void> {
-    return this.request("/object-storage/connection", { method: "DELETE" });
+  static async deleteObjectStorageConnection(deleteRemoteObjects = true): Promise<ObjectStorageCleanupResult> {
+    return this.request(`/object-storage/connection?delete_remote_objects=${deleteRemoteObjects}`, { method: "DELETE" });
   }
 
   static async checkObjectStorageConnection(): Promise<{ success: boolean }> {

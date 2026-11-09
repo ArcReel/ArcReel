@@ -11,7 +11,7 @@
   :data:`RELAY_EXPIRED_GRACE`，此后供应商已无法再用这个地址取图；
 - 从未签发下载地址的副本（写入失败或进程在写入中途退出）在 :data:`RELAY_UNSIGNED_GRACE` 后清理。
 
-删除失败按指数退避重试，原因记在记录上；连接已被改成另一个桶或删除时不删除，等连接恢复。
+删除失败按指数退避重试，原因记在记录上；连接离开桶时按用户选择删除或放弃，记录一并清除。
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from lib.db.base import utc_now
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.models.object_storage import ObjectStorageConnection, RelayObject
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
+from lib.material.formal_objects import connection_change_lock
 from lib.object_storage.client import ObjectStorageClient, ObjectStorageError
 from lib.object_storage.connection import config_from_connection
 
@@ -131,16 +132,10 @@ def _same_connection(relay: RelayObject, connection: ObjectStorageConnection | N
     )
 
 
-async def count_retained_relay_objects(session: AsyncSession) -> int:
-    """还没有清理的中转副本数量。"""
-    rows = await session.execute(select(RelayObject.id).where(RelayObject.state == "retained"))
-    return len(rows.all())
-
-
 async def sweep_relay_objects(session_factory: async_sessionmaker[AsyncSession], *, now: datetime | None = None) -> int:
     """删除保留期已过的中转副本，返回本轮删除的数量。失败的记下原因，按退避时间重试。"""
     now = now or utc_now()
-    async with session_factory() as session:
+    async with connection_change_lock(), session_factory() as session:
         stmt = select(RelayObject).where(RelayObject.state == "retained").order_by(RelayObject.id)
         candidates = list((await session.execute(stmt)).scalars())
         connection = await ObjectStorageConnectionRepository(session).get()
@@ -158,8 +153,7 @@ async def sweep_relay_objects(session_factory: async_sessionmaker[AsyncSession],
         for relay in due:
             relay.delete_attempts += 1
             if client is None or not _same_connection(relay, connection):
-                relay.last_error = "connection_changed"
-                relay.next_attempt_at = now + _RETRY_CAP
+                await session.delete(relay)
                 continue
             try:
                 await client.delete(relay.object_key)
@@ -188,7 +182,6 @@ __all__ = [
     "RELAY_PREFIX",
     "RELAY_UNSIGNED_GRACE",
     "RELAY_URL_TTL",
-    "count_retained_relay_objects",
     "mark_relay_signed",
     "record_relay_object",
     "relay_deletable_at",
