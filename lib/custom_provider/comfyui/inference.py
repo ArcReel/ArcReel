@@ -56,6 +56,10 @@ LIST_BINDING_KEYS = frozenset({"reference_images", "reference_audio"})
 #: 条目上记着 ``consumer``（这张图接到了谁的哪个入口）的语义键。
 CONSUMER_BINDING_KEYS = frozenset({"reference_images", "reference_audio"})
 
+#: 取值要由用户逐项填写的语义键：推断只列候选不选中。缺了取值过不了校验，自动选中会让原本能保存的
+#: 定义一进编辑器就存不了。
+CANDIDATE_ONLY_BINDING_KEYS = frozenset({"aspect_ratio"})
+
 #: 值本身是一张图的语义键：它们的落点只能是读图节点承载文件名的那个字段。与
 #: :data:`.bindings.IMAGE_BINDING_KEYS`（图像端点允许的语义键）不是一回事。
 IMAGE_VALUED_KEYS = frozenset({"start_image", "end_image", "reference_images"})
@@ -115,7 +119,7 @@ class BindingState(StrEnum):
     AUTO_SELECTED = "auto_selected"
     #: 最高分并列，不自动选，全部候选按分排序交用户挑。
     AMBIGUOUS = "ambiguous"
-    #: 一个候选也没有，允许用户从全部 ``(node, input)`` 手选。
+    #: 没有可直接采用的候选（一个也没有，或该键只列候选不选中），允许用户从全部 ``(node, input)`` 手选。
     NOT_FOUND = "not_found"
     #: 定义里该键是空列表：用户确认过这份 workflow 不支持这项语义，不再推断。
     UNSUPPORTED = "unsupported"
@@ -245,8 +249,6 @@ class BindingInference:
         """
         blocked = {BindingState.AMBIGUOUS, BindingState.NEEDS_CONFIRMATION}
         if any(result.state in blocked for result in self.keys.values()):
-            return False
-        if any(not target.get("values") for target in self.keys.get("aspect_ratio", _MISSING).selected_targets):
             return False
         landings = [
             landing
@@ -1007,6 +1009,9 @@ def _decide(key: str, scored: Sequence[Candidate], notes: tuple[Note, ...]) -> K
     if not scored:
         return KeyInference(BindingState.NOT_FOUND, (), notes)
     ranked = sorted(scored, key=lambda candidate: (-candidate.score, _node_order(candidate.node)))
+    if key in CANDIDATE_ONLY_BINDING_KEYS:
+        unselected = tuple(Candidate(c.target, c.signals, False, c.origin, c.depth) for c in ranked)
+        return KeyInference(BindingState.NOT_FOUND, unselected, notes)
     chosen = set(_pick(ranked, key))
     selected = tuple(
         Candidate(c.target, c.signals, index in chosen, c.origin, c.depth) for index, c in enumerate(ranked)

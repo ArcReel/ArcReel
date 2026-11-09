@@ -96,7 +96,6 @@ MESSAGES = {
     "task_fail_declarative_template_render_failed": "调用端点请求渲染失败：{detail}",
     "task_fail_declarative_response_extract_failed": "调用端点响应提取失败：{detail}",
     "task_fail_declarative_image_save_failed": "供应商已生成图片，但没能取回到本地；重新生成会再次计费：{detail}",
-    "task_fail_comfyui_binding_invalid": "节点绑定已失效，重新导入 workflow 并检查绑定",
     "task_fail_comfyui_reference_audio_invalid": "参考音频节点无法安全接线；检查绑定顺序、未绑定的音频输入和参考视频，并补齐必需的音频",
     "task_fail_comfyui_aspect_ratio_unmapped": "节点 {node} 没有画幅 {aspect_ratio} 的对应值，在节点绑定中补齐后重试",
     "task_fail_comfyui_image_drop_unsupported": "这份 workflow 的成片链路依赖节点 {node} 读入的图，参考图或首尾帧不足时无法改图，请补齐图片或改用别的 workflow",

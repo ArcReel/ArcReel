@@ -394,7 +394,7 @@
         }
       }
     },
-    "referenceImageTarget": {
+    "orderedMediaTarget": {
       "description": "参考素材写入目标：列表顺序即图片或音频序号。",
       "type": "object",
       "required": [
@@ -512,7 +512,7 @@
         "reference_images": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/referenceImageTarget"
+            "$ref": "#/$defs/orderedMediaTarget"
           }
         },
         "width": {
@@ -555,7 +555,7 @@
         "reference_audio": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/referenceImageTarget"
+            "$ref": "#/$defs/orderedMediaTarget"
           }
         },
         "aspect_ratio": {

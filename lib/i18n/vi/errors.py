@@ -98,7 +98,6 @@ MESSAGES = {
     "task_fail_declarative_template_render_failed": "Không thể kết xuất yêu cầu endpoint: {detail}",
     "task_fail_declarative_response_extract_failed": "Không thể trích xuất phản hồi endpoint: {detail}",
     "task_fail_declarative_image_save_failed": "Nhà cung cấp đã tạo ảnh nhưng không thể lưu về máy; tạo lại sẽ bị tính phí thêm lần nữa: {detail}",
-    "task_fail_comfyui_binding_invalid": "Liên kết node không hợp lệ; nhập lại workflow và kiểm tra liên kết",
     "task_fail_comfyui_reference_audio_invalid": "Không thể nối âm thanh tham chiếu an toàn; kiểm tra thứ tự liên kết, đầu vào âm thanh chưa liên kết và video tham chiếu, rồi bổ sung âm thanh bắt buộc",
     "task_fail_comfyui_aspect_ratio_unmapped": "Node {node} chưa có giá trị cho tỷ lệ {aspect_ratio}; thêm giá trị trong liên kết node rồi thử lại",
     "task_fail_comfyui_image_drop_unsupported": "Chuỗi tạo thành phẩm của workflow này phụ thuộc vào ảnh do node {node} đọc vào, nên không thể chỉnh lại đồ thị khi thiếu ảnh; hãy bổ sung ảnh hoặc dùng workflow khác",

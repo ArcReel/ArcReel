@@ -27,7 +27,7 @@ export function isRequiredBindingKey(key: ComfyuiBindingKey): boolean {
   return COMFYUI_REQUIRED_BINDING_KEYS.includes(key);
 }
 
-/** 参考图是一条有序列表：列表次序即参考图序号，勾选与取消都要按次序重排。 */
+/** 参考图与参考音频是有序列表：列表次序即素材序号，勾选与取消都要按次序重排。 */
 export function isListBindingKey(key: ComfyuiBindingKey): boolean {
   return key === "reference_images" || key === "reference_audio";
 }
@@ -347,11 +347,11 @@ export function saveBlockers(
   if (name === "" || name === placeholderName) blockers.push({ code: "placeholder_name" });
   for (const key of bindingKeysFor(definition.media_type)) {
     const targets = bindings[key];
-    if (key === "aspect_ratio" && targets?.some((target) =>
-      !target.values || Object.keys(target.values).length === 0 || Object.entries(target.values).some(
-        ([ratio, value]) => !/^[1-9][0-9]*:[1-9][0-9]*$/.test(ratio) || !value.trim(),
-      )
-    )) blockers.push({ code: "aspect_mapping", key });
+    // 比例键的格式只由服务端 schema 判定；这里只拦下界面能填出的空值。
+    if (key === "aspect_ratio" && targets?.some((target) => {
+      const values = Object.values(target.values ?? {});
+      return values.length === 0 || values.some((value) => !value.trim());
+    })) blockers.push({ code: "aspect_mapping", key });
     if (isRequiredBindingKey(key) && (targets === undefined || targets.length === 0)) {
       blockers.push({ code: "required_unbound", key });
       continue;
