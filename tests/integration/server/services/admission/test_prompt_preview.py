@@ -517,3 +517,37 @@ class TestPromptPreviewTool:
         assert outcome.value.video.text == shared["text"]
         assert "A tree sways in the breeze." in outcome.value.video.text
         assert outcome.value.storyboard_image.unavailable == "storyboard_script_required"
+
+    async def test_reference_project_reads_units_despite_residual_storyboard_items(
+        self, tmp_path, monkeypatch, set_video_request_facts
+    ):
+        """残留的分镜数组不改变路径：参考生视频项目按生成模式读 video_units，与执行期相同。"""
+        from tests.factories import make_video_request_facts
+
+        project_path = prepare_files(tmp_path)
+        pm = _drama_pm(project_path)
+        pm.project["generation_mode"] = "reference_video"
+        unit = {"unit_id": "E1U01", "text": "A tree sways in the breeze.", "duration_seconds": 8}
+        pm.script = {**pm.script, "video_units": [unit]}
+        _patch_execution(monkeypatch, pm, FakeGenerator())
+        set_video_request_facts(make_video_request_facts(route="reference_video"))
+
+        outcome = await self._call(pm, project_path, item_id="E1U01")
+
+        assert outcome.problem is None
+        assert outcome.value is not None
+        assert "A tree sways in the breeze." in outcome.value.video.text
+
+    async def test_stray_unit_in_storyboard_project_stays_not_found(self, tmp_path, monkeypatch):
+        """分镜图生视频项目不会按 video_units 生成，失配剧本的单元不能预览出一份不会发出的文本。"""
+        project_path = prepare_files(tmp_path)
+        pm = _drama_pm(project_path)
+        unit = {"unit_id": "E1U01", "text": "A tree sways in the breeze.", "duration_seconds": 8}
+        pm.script = {"episode": 1, "content_mode": "drama", "video_units": [unit]}
+        _patch_execution(monkeypatch, pm, FakeGenerator())
+
+        outcome = await self._call(pm, project_path, item_id="E1U01")
+
+        assert outcome.value is None
+        assert outcome.problem is not None
+        assert outcome.problem.code == "item_not_found"
