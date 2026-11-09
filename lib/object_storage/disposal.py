@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
+from typing import TYPE_CHECKING
 
 from sqlalchemy import String, cast, delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
+from lib.asset_library.links import IN_FLIGHT_STATES
 from lib.db.base import utc_now
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.models.object_storage import FormalObject, FormalObjectRef, ObjectStorageConnection, RelayObject
@@ -17,13 +19,20 @@ from lib.material.formal_objects import INGEST_HOLDER_PREFIX, object_key_lock
 from lib.object_storage.client import ObjectStorageClient, ObjectStorageError
 from lib.object_storage.connection import config_from_connection
 
+if TYPE_CHECKING:
+    from lib.asset_library.ingest import LocalFailureCode
+
+#: 连续这么多次网络失败后不再逐个尝试：Endpoint 不可达时每个请求都要等超时，处置期间又持有连接锁。
+DISPOSAL_NETWORK_FAILURE_LIMIT = 3
+_OBJECT_STORAGE_CHANGED: LocalFailureCode = "object_storage_changed"
+
 
 def _ingest_links(connection_id: int) -> Select[tuple[int]]:
     formal_ids = select(FormalObject.id).where(FormalObject.connection_id == connection_id)
     holders = select(FormalObjectRef.project_name).where(FormalObjectRef.object_id.in_(formal_ids))
     relay_links = select(RelayObject.link_id).where(RelayObject.connection_id == connection_id)
     return select(ProviderAssetLink.id).where(
-        ProviderAssetLink.state.in_({"pending", "submitting", "processing", "uncertain"}),
+        ProviderAssetLink.state.in_(IN_FLIGHT_STATES),
         (ProviderAssetLink.state == "pending")
         | (ProviderAssetLink.id.in_(relay_links))
         | ((INGEST_HOLDER_PREFIX + cast(ProviderAssetLink.id, String)).in_(holders)),
@@ -58,12 +67,16 @@ async def dispose_connection_objects(
         failures: Counter[str] = Counter()
         if delete_remote:
             client: ObjectStorageClient | None = None
+            network_failures = 0
             for row in [*formal, *relays]:
                 if row.state == "deleted":
                     continue
                 # 历史记录可能来自更早的桶；当前凭证不能按新桶解释旧定位。
                 if (row.endpoint, row.bucket) != (connection.endpoint, connection.bucket):
                     failures["unavailable"] += 1
+                    continue
+                if network_failures >= DISPOSAL_NETWORK_FAILURE_LIMIT:
+                    failures["network"] += 1
                     continue
                 try:
                     if client is None:
@@ -72,12 +85,15 @@ async def dispose_connection_objects(
                 except ObjectStorageError as exc:
                     if exc.kind != "not_found":
                         failures[exc.kind] += 1
+                    network_failures = network_failures + 1 if exc.kind == "network" else 0
+                else:
+                    network_failures = 0
         await session.execute(
             update(ProviderAssetLink)
             .where(ProviderAssetLink.id.in_(_ingest_links(connection.id)))
             .values(
                 state="failed",
-                error_code="object_storage_changed",
+                error_code=_OBJECT_STORAGE_CHANGED,
                 error_message=None,
                 settled_at=utc_now(),
                 next_check_at=None,

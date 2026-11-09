@@ -92,6 +92,15 @@ export function ObjectStorageBlock() {
   const patchSettings = useCallback((patch: Partial<ObjectStorageSettings>) => {
     setLoad((prev) => (prev.status === "ready" ? { status: "ready", settings: { ...prev.settings, ...patch } } : prev));
   }, []);
+  // 页面可能打开很久：对话框打开时取一次最新的入库任务数，取不到时保留已有数量，不打断编辑
+  const refreshPendingIngest = useCallback(async () => {
+    try {
+      const latest = await API.getObjectStorageConnection();
+      patchSettings({ pending_ingest_tasks: latest.pending_ingest_tasks });
+    } catch {
+      return;
+    }
+  }, [patchSettings]);
   const handleSaved = useCallback(
     (saved: SavedObjectStorageConnection) => {
       setCleanupFailures(saved.cleanup_failures);
@@ -156,8 +165,14 @@ export function ObjectStorageBlock() {
           connection={connection}
           test={test}
           onTest={() => void runTest()}
-          onEdit={() => setEditing(true)}
-          onDelete={() => setDeleting(true)}
+          onEdit={() => {
+            setEditing(true);
+            void refreshPendingIngest();
+          }}
+          onDelete={() => {
+            setDeleting(true);
+            void refreshPendingIngest();
+          }}
         />
       )}
 
@@ -357,7 +372,7 @@ function CleanupOptions({
           {t("object_storage_delete_remote_objects")}
         </label>
       </div>
-      <p className="text-sm text-muted-foreground">{t("object_storage_cleanup_desc")}</p>
+      <p className="text-sm text-muted-foreground">{t(checked ? "object_storage_cleanup_desc_checked" : "object_storage_cleanup_desc_unchecked")}</p>
       {pendingIngestTasks > 0 && (
         <p className="text-sm text-muted-foreground">
           {t("object_storage_pending_ingest", { count: pendingIngestTasks })}
@@ -418,6 +433,7 @@ function ObjectStorageDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteRemote, setDeleteRemote] = useState(true);
+  const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const creating = connection === null;
   const changesBucket =
     !!connection && (endpoint.trim() !== connection.endpoint || bucket.trim() !== connection.bucket);
@@ -431,7 +447,7 @@ function ObjectStorageDialog({
     accessKeyId !== "" ||
     secretAccessKey !== "";
 
-  const handleSubmit = useCallback(async (): Promise<boolean> => {
+  const submit = useCallback(async (): Promise<boolean> => {
     if (!complete) return false;
     setSubmitting(true);
     setError(null);
@@ -453,6 +469,20 @@ function ObjectStorageDialog({
       setSubmitting(false);
     }
   }, [complete, region, endpoint, bucket, accessKeyId, secretAccessKey, changesBucket, deleteRemote, onSaved]);
+
+  // 保存会立即删除旧桶里的文件，不可恢复，须先确认。「保存并离开」也走这里：确认前留在原处，不算保存成功
+  const handleSubmit = useCallback(async (): Promise<boolean> => {
+    if (!complete) return false;
+    if (changesBucket && deleteRemote) {
+      setConfirmingCleanup(true);
+      return false;
+    }
+    return submit();
+  }, [complete, changesBucket, deleteRemote, submit, setConfirmingCleanup]);
+
+  const confirmCleanup = async () => {
+    if (!(await submit())) setConfirmingCleanup(false);
+  };
 
   // 未保存的填写登记到离开拦截；关闭对话框也经它询问，不静默丢弃
   useLeaveGuard({ dirty, saving: submitting, save: handleSubmit, discard: onCancel });
@@ -553,6 +583,28 @@ function ObjectStorageDialog({
             </Button>
           </DialogFooter>
         </form>
+        <AlertDialog
+          open={confirmingCleanup}
+          onOpenChange={(next) => {
+            if (!next && !submitting) setConfirmingCleanup(false);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("object_storage_relocate_confirm_title")}</AlertDialogTitle>
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              <AlertDialogDescription>{t("object_storage_relocate_confirm_desc")}</AlertDialogDescription>
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={submitting}>{t("common:cancel")}</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" disabled={submitting} onClick={() => void confirmCleanup()}>
+                {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+                {t("object_storage_relocate_confirm_action")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );
