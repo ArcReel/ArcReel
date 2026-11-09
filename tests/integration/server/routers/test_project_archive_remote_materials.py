@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -18,14 +19,16 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from lib import db
 from lib.artifacts.version_manager import VersionManager
 from lib.asset_library.bindings import account_scope, confirm_binding, get_bindable_credential
 from lib.asset_library.generation_inputs import choose_reference_image_assets, reference_image_sources
@@ -402,17 +405,74 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
         assert formal.read_bytes() == IMAGE_A
 
 
+@contextmanager
+def _fail_get_during_connection_read(monkeypatch, bucket, sessions):
+    """Fail one SDK read while another download is executing its connection query."""
+    assert db.async_session_factory is sessions
+    engine = sessions.kw["bind"].sync_engine
+    query_started, release_query, get_started = Event(), Event(), Event()
+    invalidations = []
+    reads = 0
+
+    def pause_query():
+        query_started.set()
+        assert release_query.wait(10), "connection query was not cancelled"
+        return 1
+
+    def register_barrier(dbapi_connection, _record, _proxy):
+        dbapi_connection.create_function("archive_query_barrier", 0, pause_query)
+
+    def delay_second_read(conn, _cursor, statement, parameters, _context, _executemany):
+        nonlocal reads
+        if "FROM object_storage_connection" in statement:
+            reads += 1
+            if reads == 2:
+                # Let the first session finish rollback before occupying the shared driver queue.
+                assert conn.connection.dbapi_connection.run_async(lambda _: asyncio.to_thread(get_started.wait, 10))
+                statement += " AND archive_query_barrier() = 1"
+        return statement, parameters
+
+    def release_on_invalidate(_connection, _record, error):
+        invalidations.append(error)
+        release_query.set()
+
+    get_object = bucket.get_object
+
+    def fail_get(**kwargs):
+        get_started.set()
+        assert query_started.wait(10), "second connection query did not start"
+        return get_object(**kwargs)
+
+    event.listen(engine, "checkout", register_barrier)
+    event.listen(engine, "before_cursor_execute", delay_second_read, retval=True)
+    event.listen(engine, "invalidate", release_on_invalidate)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(bucket, "get_object", fail_get)
+            yield
+        assert db.async_session_factory is sessions
+        assert len(invalidations) == 1
+        assert isinstance(invalidations[0], asyncio.CancelledError)
+    finally:
+        release_query.set()
+        event.remove(engine, "checkout", register_barrier)
+        event.remove(engine, "before_cursor_execute", delay_second_read)
+        event.remove(engine, "invalidate", release_on_invalidate)
+
+
 async def test_export_fails_without_partial_archive_when_remote_content_is_unreadable(
-    monkeypatch, tmp_path, source_sessions
+    monkeypatch, tmp_path, file_db_factory
 ):
+    # Cancelled queries discard connections, so this scenario needs a persistent database.
     bucket = _memory_tos(monkeypatch)
-    with _source_instance(monkeypatch, tmp_path, source_sessions) as source:
-        await _use_storage(source_sessions, "object_storage", _connection(SOURCE_BUCKET, SOURCE_SK))
+    with _source_instance(monkeypatch, tmp_path, file_db_factory) as source:
+        await _use_storage(file_db_factory, "object_storage", _connection(SOURCE_BUCKET, SOURCE_SK))
         _upload(source.api, IMAGE_B)
         assert _cleanup(source.api) == 2
 
         bucket.fail.add("get")
-        assert _export(source.api, "full").status_code == 502
+        with _fail_get_during_connection_read(monkeypatch, bucket, file_db_factory):
+            assert _export(source.api, "full").status_code == 502
 
         bucket.fail.clear()
         [location] = list(bucket.objects)
