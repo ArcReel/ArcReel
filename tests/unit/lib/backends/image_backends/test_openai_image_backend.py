@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from arcreel_catalog_core import ScaledOutputTokenBase
 from lib.backends.image_backends import ImageCapabilityError
 from lib.backends.image_backends.base import (
     ImageCapability,
@@ -567,8 +568,12 @@ class TestModeGating:
             assert excinfo.value.params.get("detail") == "all reference images failed to open"
 
 
-def _image_entry(name: str, output_token_bases: dict[str, int] | None = None):
-    """测试用图片条目：只带输出 token 估算基数（质量档 → 基数），不依赖出厂快照。"""
+def _image_entry(
+    name: str,
+    output_token_bases: dict[str, int] | None = None,
+    output_token_scaled_bases: dict | None = None,
+):
+    """测试用图片条目：只带输出 token 估算规则（质量档 → 基数或带系数基数），不依赖出厂快照。"""
     from arcreel_catalog_core import CatalogEntry, ImageFacts
 
     return CatalogEntry(
@@ -576,13 +581,24 @@ def _image_entry(name: str, output_token_bases: dict[str, int] | None = None):
         name=name,
         media_type="image",
         display_name=name,
-        facts=ImageFacts(text_to_image=True, image_to_image=True, output_token_bases=output_token_bases or {}),
+        facts=ImageFacts(
+            text_to_image=True,
+            image_to_image=True,
+            output_token_bases=output_token_bases or {},
+            output_token_scaled_bases=output_token_scaled_bases or {},
+        ),
     )
 
 
 #: 官方计算器的质量档基数（arcreel-catalog 收录的 GPT Image 2 / GPT Image 2.5）。
 _GPT_IMAGE_2_BASES = {"low": 16, "medium": 48, "high": 96}
 _GPT_IMAGE_2_5_BASES = {"low": 16, "medium": 24, "high": 48, "xhigh": 64, "max": 96}
+#: GPT Image 2.6 的目录形状：系数为 1 的档写普通基数，低、中档写带系数基数。
+_GPT_IMAGE_2_6_BASES = {"high": 48, "xhigh": 64, "max": 96}
+_GPT_IMAGE_2_6_SCALED_BASES = {
+    "low": ScaledOutputTokenBase(base=16, multiplier=4.2),
+    "medium": ScaledOutputTokenBase(base=24, multiplier=3.3),
+}
 
 
 class TestOutputTokenEstimate:
@@ -685,3 +701,124 @@ class TestOutputTokenEstimate:
             )
         )
         assert "uncached_image_input_tokens" not in with_refs.quantities
+
+
+class TestScaledOutputTokenEstimate:
+    """带系数的质量档：先按基数走官方公式并向上取整，再乘系数，四舍五入（恰好 .5 进位）。
+
+    期望值由官方计算器的公式算出，不由实现反推：
+    https://developers.openai.com/api/docs/guides/image-generation#calculating-costs
+    组件 /_astro/GptImageTokenCalculator.react.Ul9pMTwf.js，2026-11-09 复核：
+    ``p=Math.ceil(f*(2e6+t*n)/4e6);return e==="gpt-image-2.6"?Math.round(p*l[r]):p``，
+    其中 ``l={low:4.2,medium:3.3,high:1,xhigh:1,max:1}``。
+    """
+
+    @pytest.mark.parametrize(
+        ("size", "quality", "tokens"),
+        [
+            pytest.param("1024x1024", "low", 823, id="方图-low"),
+            pytest.param("1024x1024", "medium", 1449, id="方图-medium"),
+            pytest.param("1536x1024", "low", 664, id="横图-low"),
+            pytest.param("1792x1008", "medium", 1056, id="横图-medium"),
+            pytest.param("1024x1536", "low", 664, id="竖图-low"),
+            pytest.param("1008x1792", "medium", 1056, id="竖图-medium"),
+            pytest.param("1024x1024", "high", 1756, id="系数为1的high"),
+            pytest.param("1024x1024", "xhigh", 3122, id="系数为1的xhigh"),
+            pytest.param("1024x1024", "max", 7024, id="系数为1的max"),
+            # 短边块数恰好 .5 时取偶：16 ÷ (1024÷672) = 10.5 → 10，token 108，108 × 4.2 = 453.6
+            pytest.param("672x1024", "low", 454, id="公式内部取偶-low"),
+            pytest.param("560x1280", "medium", 541, id="公式内部取偶-medium"),
+            # 乘系数后恰好 .5 时进位：165 × 3.3 = 544.5 → 545，145 × 3.3 = 478.5 → 479；round() 取偶会得到 544、478
+            pytest.param("544x1360", "medium", 545, id="结果恰好点五进位"),
+            pytest.param("496x1360", "medium", 479, id="结果恰好点五进位-奇数"),
+            # 先向上取整再乘系数：公式值 63.85 → 64，64 × 4.2 = 268.8 → 269；先乘系数会得到 268
+            pytest.param("480x1376", "low", 269, id="先取整后乘系数"),
+        ],
+    )
+    def test_matches_official_calculator(self, size: str, quality: str, tokens: int) -> None:
+        from lib.backends.image_backends.openai import estimate_output_tokens
+
+        assert estimate_output_tokens(size, quality, _GPT_IMAGE_2_6_BASES, _GPT_IMAGE_2_6_SCALED_BASES) == tokens
+
+    @pytest.mark.parametrize("folded_base", [67, 33])
+    def test_multiplier_cannot_be_folded_into_an_integer_base(self, folded_base: int) -> None:
+        """把系数折进整数基数（16 × 4.2 ≈ 67，或 16 × √4.2 ≈ 33）得不到官方的 823，基数在公式里会被平方。"""
+        from lib.backends.image_backends.openai import estimate_output_tokens
+
+        assert estimate_output_tokens("1024x1024", "low", {"low": folded_base}) != 823
+
+    def test_unknown_stays_unknown(self) -> None:
+        from lib.backends.image_backends.openai import estimate_output_tokens
+
+        assert estimate_output_tokens("1024x1024", "auto", _GPT_IMAGE_2_6_BASES, _GPT_IMAGE_2_6_SCALED_BASES) is None
+        assert estimate_output_tokens("1K", "low", _GPT_IMAGE_2_6_BASES, _GPT_IMAGE_2_6_SCALED_BASES) is None
+        assert estimate_output_tokens("0x1024", "low", _GPT_IMAGE_2_6_BASES, _GPT_IMAGE_2_6_SCALED_BASES) is None
+
+    def test_old_consumer_view_of_the_published_entry_keeps_low_and_medium_unknown(self) -> None:
+        """旧实例忽略带系数基数，只看到系数为 1 的档：低、中档保持未知，不会算出漏乘系数的低估值。"""
+        from lib.backends.image_backends.openai import estimate_output_tokens
+
+        assert estimate_output_tokens("1024x1024", "low", _GPT_IMAGE_2_6_BASES) is None
+        assert estimate_output_tokens("1024x1024", "medium", _GPT_IMAGE_2_6_BASES) is None
+        assert estimate_output_tokens("1024x1024", "high", _GPT_IMAGE_2_6_BASES) == 1756
+
+    @pytest.mark.parametrize(
+        ("image_size", "aspect_ratio", "size", "quality", "tokens"),
+        [
+            pytest.param("512px", "1:1", "512x512", "low", 609, id="512px方图"),
+            pytest.param("512px", "16:9", "1024x576", "low", 395, id="512px横图"),
+            pytest.param("512px", "9:16", "576x1024", "low", 395, id="512px竖图"),
+            pytest.param("1K", "1:1", "1024x1024", "medium", 1449, id="1K方图"),
+            pytest.param("1K", "16:9", "1792x1008", "medium", 1056, id="1K横图"),
+            pytest.param("1K", "9:16", "1008x1792", "medium", 1056, id="1K竖图"),
+            pytest.param("2K", "1:1", "1440x1440", "high", 2347, id="2K方图不乘系数"),
+        ],
+    )
+    @pytest.mark.parametrize("model", ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "relay-image-xyz"])
+    def test_estimate_usage_reads_rules_from_the_entry_for_any_model_name(
+        self, model: str, image_size: str, aspect_ratio: str, size: str, quality: str, tokens: int
+    ) -> None:
+        from lib.backends.image_backends.base import ImageRequestFacts
+        from lib.backends.image_backends.openai import OpenAIImageBackend
+
+        usage = OpenAIImageBackend.estimate_usage(
+            ImageRequestFacts(
+                model=model,
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
+                reference_count=0,
+                entry=_image_entry("gpt-image-2.6-sunburst", _GPT_IMAGE_2_6_BASES, _GPT_IMAGE_2_6_SCALED_BASES),
+            )
+        )
+
+        assert usage.dimensions == {"resolution": size, "quality": quality}
+        assert usage.quantities["image_output_tokens"] == tokens
+
+    async def test_reported_usage_is_billed_as_returned(self, tmp_path: Path) -> None:
+        """实际生成按响应 usage 记账：同一请求的估算值是 1449，上报多少就记多少。"""
+        b64_data = base64.b64encode(b"img").decode()
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(
+            return_value=_make_mock_image_response(
+                b64_data,
+                usage={
+                    "input_tokens": 12,
+                    "output_tokens": 999,
+                    "input_tokens_details": {"text_tokens": 12, "image_tokens": 0},
+                },
+            )
+        )
+
+        with captured_openai_clients(mock_client):
+            from lib.backends.image_backends.openai import OpenAIImageBackend
+
+            backend = OpenAIImageBackend(api_key="test-key", model="gpt-image-2.6-flare")
+            result = await backend.generate(
+                ImageGenerationRequest(
+                    prompt="p", output_path=tmp_path / "out.png", aspect_ratio="1:1", image_size="1K"
+                )
+            )
+
+        assert result.image_output_tokens == 999
+        assert result.usage is not None
+        assert result.usage.quantities["image_output_tokens"] == 999
