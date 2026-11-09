@@ -19,9 +19,7 @@
 发给 API 的模型名取 ``api_model_name``（registry 解耦键名与 API 名，供两栖模型共用 API 名），缺省回退
 到 registry 键名——不硬发键名，否则别名键会把 ``kling-v3-omni-image`` 误当 API 模型名。
 
-resolution（1K/2K/4K）由 registry 声明驱动 UI 下拉与计费，不下传请求体：可灵图像官方关键参数
-（model_name/prompt/image/aspect_ratio/n 等）未含 resolution 字段，与 KlingVideoBackend 一致只发
-已核实参数，避免猜测外部 API 结构。
+resolution 由模型目录声明可选档位，请求按 API 要求转为小写，计费维度使用大写档位。
 """
 
 from __future__ import annotations
@@ -114,6 +112,8 @@ class KlingImageBackend(KlingBackendBase):
             "aspect_ratio": request.aspect_ratio,
             "n": 1,
         }
+        if request.image_size:
+            payload["resolution"] = request.image_size.lower()
         images = self._encode_references(request.reference_images)
         if images:
             payload["image"] = images
@@ -165,8 +165,12 @@ class KlingImageBackend(KlingBackendBase):
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        """请求体不带分辨率（见模块说明），不报分辨率，按价目表的默认档计。"""
-        return per_image_usage(output_images=1, input_images=facts.reference_count)
+        """按实际发送的分辨率与参考图数预估用量。"""
+        return per_image_usage(
+            output_images=1,
+            input_images=facts.reference_count,
+            dimensions={"resolution": facts.image_size.upper()} if facts.image_size else None,
+        )
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         payload = await asyncio.to_thread(self._build_payload, request)
@@ -193,9 +197,10 @@ class KlingImageBackend(KlingBackendBase):
             model=self._model,
             image_uri=download_url,
             seed=request.seed,
-            # 请求体不带分辨率，不报分辨率。
             usage=per_image_usage(
-                output_images=1, input_images=len(images) if isinstance(images, list) else int(bool(images))
+                output_images=1,
+                input_images=len(images) if isinstance(images, list) else int(bool(images)),
+                dimensions={"resolution": payload["resolution"].upper()} if "resolution" in payload else None,
             ),
         )
 
