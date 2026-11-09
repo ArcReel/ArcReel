@@ -2170,6 +2170,13 @@ export default {
   'version_image_edit_badge': 'Đã chỉnh sửa',
   'version_audio_preview_label': 'Âm thanh thuyết minh phiên bản v{{version}}',
   'version_download_audio': 'Tải âm thanh xuống',
+  'version_delete_label': "Chuyển v{{version}} vào thùng rác dự án",
+  'version_delete_confirm': "Chuyển vào thùng rác dự án?",
+  'version_delete_confirm_label': "v{{version}}: Chuyển vào thùng rác dự án?",
+  'version_delete_current_hint': "Không thể xóa phiên bản hiện tại. Hãy chuyển sang phiên bản khác trước",
+  'version_delete_busy_hint': "Đang tạo hoặc chỉnh sửa, tạm thời không thể xóa phiên bản",
+  'version_moved_to_trash': "Đã chuyển v{{version}} vào thùng rác dự án, giữ trong 30 ngày",
+  'version_delete_failed': "Không thể xóa v{{version}}: {{message}}",
 
   // ProjectCard - more actions
   'more_actions': 'Thao tác khác',

@@ -2180,6 +2180,13 @@ export default {
   'version_image_edit_badge': 'Edited',
   'version_audio_preview_label': 'Narration audio version v{{version}}',
   'version_download_audio': 'Download audio',
+  'version_delete_label': "Move v{{version}} to project trash",
+  'version_delete_confirm': "Move to project trash?",
+  'version_delete_confirm_label': "v{{version}}: Move to project trash?",
+  'version_delete_current_hint': "The current version can't be deleted. Switch to another version first",
+  'version_delete_busy_hint': "Generation or editing in progress — versions can't be deleted right now",
+  'version_moved_to_trash': "v{{version}} moved to the project trash and kept for 30 days",
+  'version_delete_failed': "Could not delete v{{version}}: {{message}}",
 
   // ProjectCard - more actions
   'more_actions': 'More Actions',

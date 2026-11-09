@@ -614,7 +614,7 @@ class API {
     return response.blob();
   }
 
-  /** 把一个未引用文件移进项目回收站；其余角色由服务端拒绝。 */
+  /** 把一个未引用文件或非当前的历史版本移进项目回收站；其余角色由服务端拒绝。 */
   static async deleteFileViewEntry(projectName: string, path: string): Promise<{ record: TrashRecord }> {
     const query = new URLSearchParams({ path }).toString();
     return this.request(`/projects/${encodeURIComponent(projectName)}/file-view?${query}`, { method: "DELETE" });
