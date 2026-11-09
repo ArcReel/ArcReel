@@ -171,6 +171,7 @@ MESSAGES = {
     "narration_tts_model_invalid": "所选 TTS 模型不可用：请选择语音合成供应商下的模型",
     "narration_tts_voice_required": "选择 TTS 配音时必须填写旁白音色",
     "narration_tts_speed_invalid": "配音语速必须是正数",
+    "narration_tts_speed_out_of_range": "所选 TTS 模型的配音语速范围是 {minimum}～{maximum}，当前为 {speed}。请调整或清空配音语速",
     "narration_delivery_post_production": "本项目的旁白交付方式是后期配音，不生成旁白配音；如需 TTS 配音，请先在项目设置中改为 TTS 配音",
     "character_voice_binding_invalid": "角色声音绑定方式只能是「提示词约束」或「参考音频」",
     "video_poll_timeout_minimum": "视频轮询超时不能少于 60 秒",

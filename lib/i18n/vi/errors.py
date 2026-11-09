@@ -176,6 +176,7 @@ MESSAGES = {
     "narration_tts_model_invalid": "Mô hình TTS đã chọn không khả dụng; hãy chọn mô hình của nhà cung cấp tổng hợp giọng nói",
     "narration_tts_voice_required": "Khi chọn lồng tiếng TTS, cần nhập giọng đọc thuyết minh",
     "narration_tts_speed_invalid": "Tốc độ giọng đọc phải là số dương",
+    "narration_tts_speed_out_of_range": "Mô hình TTS đã chọn hỗ trợ tốc độ giọng đọc từ {minimum} đến {maximum}, giá trị hiện tại là {speed}. Hãy thay đổi hoặc xóa tốc độ giọng đọc",
     "narration_delivery_post_production": "Dự án này giao lời thuyết minh bằng lồng tiếng hậu kỳ nên ArcReel không tạo âm thanh thuyết minh; nếu cần lồng tiếng TTS, hãy đổi dự án sang lồng tiếng TTS trong cài đặt dự án trước",
     "character_voice_binding_invalid": "Cách ràng buộc giọng nhân vật chỉ có thể là theo mô tả hoặc âm thanh tham chiếu",
     "video_poll_timeout_minimum": "Thời gian chờ thăm dò video phải ít nhất 60 giây",
