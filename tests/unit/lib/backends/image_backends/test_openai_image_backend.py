@@ -18,7 +18,7 @@ from lib.backends.image_backends.base import (
 )
 from lib.backends.providers import PROVIDER_OPENAI
 from tests.fakes import captured_openai_clients
-from tests.http_capture import capture_http, only_request
+from tests.http_capture import capture_http, only_request, request_json
 
 
 def _make_mock_image_response(
@@ -187,7 +187,6 @@ class TestOpenAIImageBackend:
         edit_kwargs = mock_client.images.edit.call_args[1]
         assert "response_format" not in edit_kwargs
         # I2I 与 T2I 对称下传 size：默认 9:16 + image_size=None → 兜底 720 短边 → 720x1280。
-        # 修复前 images.edit 完全不传 size，比例被上游默认覆盖。
         assert edit_kwargs["size"] == "720x1280"
 
     async def test_empty_data_raises(self, tmp_path: Path):
@@ -293,26 +292,27 @@ class TestOpenAIImageBackend:
                 call_kwargs = mock_client.images.generate.call_args[1]
                 assert call_kwargs["quality"] == expected_quality, f"size={img_size}"
 
-    async def test_text_to_image_captures_usage(self, tmp_path: Path):
-        """SDK 返回 usage 时，结果应携带 token 拆分字段。"""
+    @pytest.mark.parametrize("model", ["gpt-image-2", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare"])
+    async def test_text_to_image_captures_usage(self, tmp_path: Path, model: str):
+        """SDK 返回 usage 时，结果携带实际 token 拆分字段，不用估算值替代。"""
         b64_data = base64.b64encode(b"img").decode()
-        mock_client = AsyncMock()
-        mock_client.images.generate = AsyncMock(
-            return_value=_make_mock_image_response(
-                b64_data,
-                usage={
-                    "input_tokens": 500,
-                    "output_tokens": 2200,
-                    "input_tokens_details": {"text_tokens": 500, "image_tokens": 0},
-                    # 不返回 output_tokens_details；img_out 应回退到顶层 output_tokens
-                },
+        with capture_http() as router:
+            route = router.post("https://api.openai.com/v1/images/generations").respond(
+                json={
+                    "created": 0,
+                    "data": [{"b64_json": b64_data}],
+                    "usage": {
+                        "input_tokens": 500,
+                        "output_tokens": 2200,
+                        "total_tokens": 2700,
+                        "input_tokens_details": {"text_tokens": 500, "image_tokens": 0},
+                        # 不返回 output_tokens_details；img_out 应回退到顶层 output_tokens
+                    },
+                }
             )
-        )
-
-        with captured_openai_clients(mock_client):
             from lib.backends.image_backends.openai import OpenAIImageBackend
 
-            backend = OpenAIImageBackend(api_key="test-key")
+            backend = OpenAIImageBackend(api_key="test-key", model=model)
             request = ImageGenerationRequest(
                 prompt="usage capture",
                 output_path=tmp_path / "out.png",
@@ -320,6 +320,13 @@ class TestOpenAIImageBackend:
                 image_size="1K",
             )
             result = await backend.generate(request)
+            assert request_json(only_request(route)) == {
+                "model": model,
+                "prompt": "usage capture",
+                "n": 1,
+                "size": "1008x1792",
+                "quality": "medium",
+            }
 
         assert result.text_input_tokens == 500
         assert result.image_input_tokens == 0
@@ -708,7 +715,6 @@ class TestScaledOutputTokenEstimate:
 
     期望值由官方计算器的公式算出，不由实现反推：
     https://developers.openai.com/api/docs/guides/image-generation#calculating-costs
-    组件 /_astro/GptImageTokenCalculator.react.Ul9pMTwf.js，2026-11-09 复核：
     ``p=Math.ceil(f*(2e6+t*n)/4e6);return e==="gpt-image-2.6"?Math.round(p*l[r]):p``，
     其中 ``l={low:4.2,medium:3.3,high:1,xhigh:1,max:1}``。
     """
@@ -793,32 +799,3 @@ class TestScaledOutputTokenEstimate:
 
         assert usage.dimensions == {"resolution": size, "quality": quality}
         assert usage.quantities["image_output_tokens"] == tokens
-
-    async def test_reported_usage_is_billed_as_returned(self, tmp_path: Path) -> None:
-        """实际生成按响应 usage 记账：同一请求的估算值是 1449，上报多少就记多少。"""
-        b64_data = base64.b64encode(b"img").decode()
-        mock_client = AsyncMock()
-        mock_client.images.generate = AsyncMock(
-            return_value=_make_mock_image_response(
-                b64_data,
-                usage={
-                    "input_tokens": 12,
-                    "output_tokens": 999,
-                    "input_tokens_details": {"text_tokens": 12, "image_tokens": 0},
-                },
-            )
-        )
-
-        with captured_openai_clients(mock_client):
-            from lib.backends.image_backends.openai import OpenAIImageBackend
-
-            backend = OpenAIImageBackend(api_key="test-key", model="gpt-image-2.6-flare")
-            result = await backend.generate(
-                ImageGenerationRequest(
-                    prompt="p", output_path=tmp_path / "out.png", aspect_ratio="1:1", image_size="1K"
-                )
-            )
-
-        assert result.image_output_tokens == 999
-        assert result.usage is not None
-        assert result.usage.quantities["image_output_tokens"] == 999
