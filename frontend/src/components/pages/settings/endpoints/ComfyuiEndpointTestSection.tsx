@@ -41,7 +41,7 @@ const NATIVE_RESOLUTION = "native";
 const DEFAULT_DURATION_SECONDS = 5;
 
 /** 能从节点绑定推出素材格子的三个语义键，按渲染次序。 */
-const ASSET_KEYS = ["start_image", "end_image", "reference_images"] as const;
+const ASSET_KEYS = ["start_image", "end_image", "reference_images", "reference_audio"] as const;
 
 type ComfyuiAssetKey = (typeof ASSET_KEYS)[number];
 
@@ -93,6 +93,8 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
   const { t } = useTranslation(["dashboard", "common"]);
   const idBase = useId();
   const isVideo = definition.media_type === "video";
+  const pixelsDriven = Boolean(definition.bindings.width?.length && definition.bindings.height?.length);
+  const aspectDriven = pixelsDriven || Boolean(definition.bindings.aspect_ratio?.length);
 
   const [prompt, setPrompt] = useState("");
   const [aspectRatio, setAspectRatio] = useState<string>(ASPECT_RATIOS[0]);
@@ -130,7 +132,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
     const picked: EndpointTestAssets = {};
     for (const { key } of assetSlots) {
       const files = assetFiles.current[key];
-      if (files?.length) picked[key] = files;
+      if (files?.length) picked[key === "reference_audio" ? "reference_audio_files" : key] = files;
     }
     return picked;
   }, [assetSlots]);
@@ -196,12 +198,14 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
         </TestField>
         <TestSelect
           label={t("ce_cf_test_aspect")}
+          disabled={!aspectDriven}
           value={aspectRatio}
           onValueChange={setAspectRatio}
           items={ASPECT_RATIOS.map((ratio) => ({ value: ratio, label: ratio }))}
         />
         <TestSelect
           label={t("ce_cf_test_resolution")}
+          disabled={!pixelsDriven}
           value={resolution}
           onValueChange={setResolution}
           items={[
@@ -239,7 +243,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
               label={
                 <>
                   {t(`ce_cf_key_${key}`)}
-                  {key === "reference_images" && (
+                  {(key === "reference_images" || key === "reference_audio") && (
                     <span className="font-normal text-muted-foreground">{t("ce_cf_test_slots", { n: slots })}</span>
                   )}
                 </>
@@ -248,8 +252,8 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
               <Input
                 id={id}
                 type="file"
-                accept="image/*"
-                multiple={key === "reference_images"}
+                accept={key === "reference_audio" ? "audio/*" : "image/*"}
+                multiple={key === "reference_images" || key === "reference_audio"}
                 onChange={(e) => {
                   assetFiles.current = { ...assetFiles.current, [key]: Array.from(e.target.files ?? []) };
                 }}

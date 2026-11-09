@@ -244,6 +244,10 @@ def _preview_media(
         start_image=_single_media(assets, bindings, "start_image", placeholder_missing=placeholder_missing),
         end_image=_single_media(assets, bindings, "end_image", placeholder_missing=placeholder_missing),
         reference_images=references,
+        reference_audio_files=tuple(
+            _summary("reference_audio_files", item.content)
+            for item in (assets.items("reference_audio_files") if assets else [])
+        ),
     )
 
 
