@@ -129,11 +129,12 @@ class MemoryBucket:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
         self.fail: set[str] = set()
+        self.fail_delete_keys: set[str] = set()
         self.calls: list[tuple[str, str]] = []
 
     def _check(self, op: str, key: str) -> None:
         self.calls.append((op, key))
-        if op in self.fail:
+        if op in self.fail or (op == "delete" and key in self.fail_delete_keys):
             raise _server_error(503, "ServiceUnavailable")
 
     def put_object(self, *, bucket: str, key: str, content: bytes, content_type: str | None = None):
@@ -754,6 +755,158 @@ async def test_connection_cannot_be_relocated_while_formal_objects_exist(api, se
     assert preview.status_code == 200  # 换密钥后旧对象仍按原桶读取
 
 
+@pytest.mark.parametrize("action", ["delete", "bucket", "endpoint"])
+@pytest.mark.parametrize("cleanup", [True, False])
+async def test_connection_departure_disposes_all_unprotected_records(api, sessions, bucket, action, cleanup):
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).is_success
+    async with sessions() as session:
+        conn = await ObjectStorageConnectionRepository(session).get()
+        assert conn is not None
+        for i, state in enumerate(["stored", "orphaned", "stored", "deleted"]):
+            row = FormalObject(
+                connection_id=conn.id,
+                endpoint=conn.endpoint,
+                bucket=conn.bucket,
+                object_key=f"arcreel-materials/{i}.png",
+                content_digest=str(i) * 64,
+                state=state,
+            )
+            session.add(row)
+            await session.flush()
+            if i == 2:
+                session.add(
+                    FormalObjectRef(object_id=row.id, project_name="ingest:42", content_version_id="cv", state="active")
+                )
+            if state != "deleted":
+                bucket.objects[(BUCKET, row.object_key)] = b"image"
+        session.add(
+            RelayObject(
+                connection_id=conn.id, endpoint=conn.endpoint, bucket=conn.bucket, object_key="arcreel-relay/new.png"
+            )
+        )
+        bucket.objects[(BUCKET, "arcreel-relay/new.png")] = b"relay"
+        bucket.objects[(BUCKET, "user-owned.png")] = b"untouched"
+        await session.commit()
+    if action == "delete":
+        response = api.delete(f"/api/v1/object-storage/connection?delete_remote_objects={str(cleanup).lower()}")
+    else:
+        change = {"bucket": "next-bucket"} if action == "bucket" else {"endpoint": "tos-next.example.invalid"}
+        response = api.put(
+            "/api/v1/object-storage/connection", json={**CONNECTION, **change, "delete_remote_objects": cleanup}
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["cleanup_failures"] == {}
+    assert await _objects(sessions) == []
+    assert await _refs(sessions) == []
+    async with sessions() as session:
+        assert list((await session.execute(select(RelayObject))).scalars()) == []
+    assert bucket.objects == (
+        {(BUCKET, "user-owned.png"): b"untouched"}
+        if cleanup
+        else {
+            (BUCKET, "user-owned.png"): b"untouched",
+            (BUCKET, "arcreel-materials/0.png"): b"image",
+            (BUCKET, "arcreel-materials/1.png"): b"image",
+            (BUCKET, "arcreel-materials/2.png"): b"image",
+            (BUCKET, "arcreel-relay/new.png"): b"relay",
+        }
+    )
+
+
+async def test_region_only_keeps_retention_and_partial_delete_failure_is_reported_once(api, sessions, bucket):
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).is_success
+    async with sessions() as session:
+        conn = await ObjectStorageConnectionRepository(session).get()
+        assert conn is not None
+        for key in ["arcreel-relay/ok", "arcreel-relay/denied"]:
+            session.add(RelayObject(connection_id=conn.id, endpoint=conn.endpoint, bucket=conn.bucket, object_key=key))
+            bucket.objects[(BUCKET, key)] = b"relay"
+        await session.commit()
+    moved = api.put("/api/v1/object-storage/connection", json={**CONNECTION, "region": "cn-shanghai"})
+    assert moved.is_success
+    assert moved.json()["cleanup_failures"] == {}
+    assert len(bucket.objects) == 2
+    assert bucket.calls == []
+    bucket.fail_delete_keys.add("arcreel-relay/denied")
+    deleted = api.delete("/api/v1/object-storage/connection")
+    assert deleted.json() == {"cleanup_failures": {"provider": 1}}
+    assert bucket.objects == {(BUCKET, "arcreel-relay/denied"): b"relay"}
+    async with sessions() as session:
+        assert list((await session.execute(select(RelayObject))).scalars()) == []
+    assert api.get("/api/v1/object-storage/connection").json()["connection"] is None
+
+
+@pytest.mark.parametrize("action", ["delete", "bucket"])
+async def test_connection_disposal_finishes_after_cancellation_during_remote_delete(
+    api, sessions, bucket, monkeypatch, action
+):
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).is_success
+    async with sessions() as session:
+        conn = await ObjectStorageConnectionRepository(session).get()
+        assert conn is not None
+        session.add(
+            RelayObject(connection_id=conn.id, endpoint=conn.endpoint, bucket=conn.bucket, object_key="arcreel-relay/x")
+        )
+        await session.commit()
+    bucket.objects[(BUCKET, "arcreel-relay/x")] = b"relay"
+    entered = asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    class PausedDelete:
+        def delete_object(self, **kwargs):
+            bucket.delete_object(**kwargs)
+            loop.call_soon_threadsafe(entered.set)
+            assert release.wait(timeout=10), "test did not release the delete"
+
+    use_object_storage_sdk(monkeypatch, lambda config: PausedDelete())
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://test") as client:
+        request = (
+            client.delete("/api/v1/object-storage/connection")
+            if action == "delete"
+            else client.put("/api/v1/object-storage/connection", json={**CONNECTION, "bucket": "next-bucket"})
+        )
+        deleting = asyncio.create_task(request)
+        try:
+            await asyncio.wait_for(entered.wait(), 10)
+            deleting.cancel()
+        finally:
+            release.set()
+        response = await asyncio.wait_for(deleting, 10)
+    assert response.status_code == 200, response.text
+    assert response.json()["cleanup_failures"] == {}
+    assert bucket.objects == {}
+    async with sessions() as session:
+        assert list((await session.execute(select(RelayObject))).scalars()) == []
+    connection = api.get("/api/v1/object-storage/connection").json()["connection"]
+    assert connection is None if action == "delete" else connection["bucket"] == "next-bucket"
+
+
+@pytest.mark.parametrize("kind", ["formal", "relay"])
+async def test_disposal_does_not_reinterpret_legacy_locations_against_the_current_bucket(api, sessions, bucket, kind):
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).is_success
+    key = "arcreel-materials/old" if kind == "formal" else "arcreel-relay/old"
+    async with sessions() as session:
+        conn = await ObjectStorageConnectionRepository(session).get()
+        assert conn is not None
+        values = {"connection_id": conn.id, "endpoint": conn.endpoint, "bucket": "previous-bucket", "object_key": key}
+        session.add(
+            FormalObject(**values, content_digest="f" * 64, state="orphaned")
+            if kind == "formal"
+            else RelayObject(**values)
+        )
+        await session.commit()
+    bucket.objects[(BUCKET, key)] = b"belongs-to-current-bucket"
+    response = api.delete("/api/v1/object-storage/connection")
+    assert response.status_code == 200, response.text
+    assert response.json() == {"cleanup_failures": {"unavailable": 1}}
+    assert bucket.objects == {(BUCKET, key): b"belongs-to-current-bucket"}
+    assert bucket.calls == []
+    assert await _objects(sessions) == []
+    async with sessions() as session:
+        assert list((await session.execute(select(RelayObject))).scalars()) == []
+
+
 UNREACHABLE_ENDPOINT = "tos-cn-beijing.test-unreachable.invalid"
 
 
@@ -787,46 +940,19 @@ def _fail_once_with_unreachable_endpoint(api: TestClient, content: bytes) -> Non
 async def test_failed_saves_on_a_wrong_endpoint_do_not_lock_the_connection(
     api, sessions, project, unreachable_endpoint
 ):
-    """写错 Endpoint 时保存失败的图片只等待补偿删除：能改正 Endpoint，这些对象标为脱离当前连接、不向新连接重试删除，
-    数量在连接设置里提示；之后同一张图片保存到改正后的桶。"""
     image = solid_png_bytes((90, 30, 200), size=(64, 64))
     _fail_once_with_unreachable_endpoint(api, image)
-    [orphan] = await _objects(sessions)
-    assert (orphan.state, orphan.last_error, orphan.endpoint) == ("orphaned", "network:", UNREACHABLE_ENDPOINT)
-    assert await _refs(sessions) == []
-    assert api.get("/api/v1/object-storage/connection").json()["unreleased_image_objects"] == 1
-
-    fixed = api.put("/api/v1/object-storage/connection", json=CONNECTION, headers={"Accept-Language": "zh"})
+    fixed = api.put("/api/v1/object-storage/connection", json=CONNECTION)
     assert fixed.status_code == 200, fixed.text
-    [detached] = await _objects(sessions)
-    assert (detached.state, detached.last_error, detached.object_key) == (
-        "orphaned",
-        "connection_changed",
-        orphan.object_key,
-    )
+    assert fixed.json()["cleanup_failures"] == {"network": 1}
+    assert await _objects(sessions) == []
+    assert await _refs(sessions) == []
     assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=1)) == 0
-    assert not any(op == "delete" for op, _key in unreachable_endpoint.calls)  # 不按同名 key 去新连接的桶里删除
-    assert api.get("/api/v1/object-storage/connection").json()["unreleased_image_objects"] == 1
-    # 脱离的对象不能再登记引用复活为已保存对象：它不在改正后的连接上
-    locator = ObjectLocator(detached.connection_id, detached.bucket, detached.object_key)
-    assert not await add_reference(locator, "asset-library:x", "cv-x", sessions)
-
+    assert not any(op == "delete" for op, _key in unreachable_endpoint.calls)
     assert api.put("/api/v1/object-storage/new-image-target", json={"target": "object_storage"}).is_success
     assert _upload(api, image).status_code == 200
     [saved] = await _objects(sessions)
-    assert (saved.state, saved.endpoint, saved.last_error) == ("stored", CONNECTION["endpoint"], None)
-    assert unreachable_endpoint.stored_keys() == [saved.object_key]
-    assert api.get("/api/v1/object-storage/connection").json()["unreleased_image_objects"] == 0
-
-    # 有引用的正式对象照旧挡住更换与删除，提示的数量只算这些对象
-    assert api.put("/api/v1/object-storage/new-image-target", json={"target": "local"}).is_success
-    moved = api.put(
-        "/api/v1/object-storage/connection",
-        json={**CONNECTION, "endpoint": UNREACHABLE_ENDPOINT},
-        headers={"Accept-Language": "zh"},
-    )
-    assert moved.status_code == 409
-    assert "1 个图片对象" in moved.json()["detail"]
+    assert (saved.state, saved.endpoint) == ("stored", CONNECTION["endpoint"])
     assert api.delete("/api/v1/object-storage/connection").status_code == 409
 
 
@@ -834,18 +960,15 @@ async def test_failed_saves_on_a_wrong_endpoint_do_not_block_deleting_the_connec
     api, sessions, project, unreachable_endpoint
 ):
     _fail_once_with_unreachable_endpoint(api, solid_png_bytes((20, 160, 60), size=(64, 64)))
-
     deleted = api.delete("/api/v1/object-storage/connection")
-    assert deleted.status_code == 204, deleted.text
-    [detached] = await _objects(sessions)
-    assert (detached.state, detached.last_error) == ("orphaned", "connection_changed")
-    settings = api.get("/api/v1/object-storage/connection").json()
-    assert (settings["connection"], settings["unreleased_image_objects"]) == (None, 1)
-
-    # 重新配置的连接是另一条连接：脱离的对象不向它重试删除
-    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).status_code == 200
-    assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=1)) == 0
-    assert not any(op == "delete" for op, _key in unreachable_endpoint.calls)
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["cleanup_failures"] == {"network": 1}
+    assert await _objects(sessions) == []
+    assert api.get("/api/v1/object-storage/connection").json() == {
+        "connection": None,
+        "new_image_target": "local",
+        "pending_ingest_tasks": 0,
+    }
 
 
 @pytest.mark.parametrize("held_by", ["uploading", "referenced_orphan"])
@@ -1835,7 +1958,7 @@ async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_ve
     assert record_b["storage"]["key"] == formal_object_key(record_b["content_digest"], ".png")
     assert bucket.stored_keys() == [record_b["storage"]["key"]]
 
-    # 中转副本单独计数，工作文件清理不碰它，也不删除正式对象
+    # 工作文件清理不碰中转副本，也不删除正式对象
     async with sessions() as session:
         connection = await ObjectStorageConnectionRepository(session).get()
         assert connection is not None
@@ -1845,9 +1968,11 @@ async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_ve
             )
         )
         await session.commit()
-    assert _settings()["retained_relay_objects"] == 1
+    async with sessions() as session:
+        assert len(list((await session.execute(select(RelayObject))).scalars())) == 1
     assert _cleanup(api)["removed"] == 1  # B 的快照工作文件
-    assert _settings()["retained_relay_objects"] == 1
+    async with sessions() as session:
+        assert len(list((await session.execute(select(RelayObject))).scalars())) == 1
     assert bucket.stored_keys() == [record_b["storage"]["key"]]
 
     # 切回本地之后恢复远端版本 B：沿用原定位，不新增内容版本，也不重新上传

@@ -44,8 +44,7 @@ const CONNECTION = {
 const LOCAL_ONLY = {
   connection: null,
   new_image_target: "local" as const,
-  retained_relay_objects: 0,
-  unreleased_image_objects: 0,
+  pending_ingest_tasks: 0,
 };
 
 function renderGuarded() {
@@ -101,6 +100,7 @@ describe("AssetLibrarySection", () => {
       access_key_id_masked: "TEST…0001",
       secret_access_key_masked: "tos-…0001",
       updated_at: "2026-11-03T00:00:00Z",
+      cleanup_failures: {},
     });
     const user = userEvent.setup();
     render(<AssetLibrarySection />);
@@ -119,6 +119,10 @@ describe("AssetLibrarySection", () => {
     expect(save).toBeDisabled();
     await user.type(within(dialog).getByLabelText("Access Key ID"), "TEST-TOS-AK-0001");
     await user.type(within(dialog).getByLabelText("Secret Access Key"), "tos-secret-0001");
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
+      ...LOCAL_ONLY,
+      connection: { ...CONNECTION, bucket: "arcreel-relay" },
+    });
     await user.click(save);
 
     expect(API.saveObjectStorageConnection).toHaveBeenCalledWith({
@@ -127,6 +131,7 @@ describe("AssetLibrarySection", () => {
       bucket: "arcreel-relay",
       access_key_id: "TEST-TOS-AK-0001",
       secret_access_key: "tos-secret-0001",
+      delete_remote_objects: undefined,
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByText("arcreel-relay")).toBeInTheDocument();
@@ -156,26 +161,38 @@ describe("AssetLibrarySection", () => {
     expect(within(targets).getByRole("radio", { name: /^对象存储/ })).toBeChecked();
   });
 
-  it("桶里还有未清理的中转副本与待删除图片对象时，编辑与删除连接前提示改动后需要手动清理", async () => {
+  it("改桶和删除时默认清理，提示未定论的入库任务；只改区域不提示", async () => {
     vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
       ...LOCAL_ONLY,
       connection: CONNECTION,
-      retained_relay_objects: 3,
-      unreleased_image_objects: 2,
+      pending_ingest_tasks: 3,
     });
     const user = userEvent.setup();
     render(<AssetLibrarySection />);
-
     await user.click(await screen.findByRole("button", { name: "编辑对象存储" }));
     const dialog = await screen.findByRole("dialog", { name: "编辑对象存储" });
-    expect(within(dialog).getByText(/桶里还有 3 个中转副本尚未清理/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/还有 2 个没有保存成功或不再使用的图片对象等待删除/)).toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    expect(within(dialog).queryByRole("checkbox")).not.toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText("区域"), "-2");
+    expect(within(dialog).queryByRole("checkbox")).not.toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText("桶名"), "-2");
+    expect(within(dialog).getByRole("checkbox")).toBeChecked();
+    expect(within(dialog).getByText(/有 3 个入库任务进行中/)).toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: "删除对象存储连接" }));
-    const confirm = await screen.findByRole("alertdialog");
-    expect(within(confirm).getByText(/桶里还有 3 个中转副本尚未清理/)).toBeInTheDocument();
-    expect(within(confirm).getByText(/还有 2 个没有保存成功或不再使用的图片对象等待删除/)).toBeInTheDocument();
+  it("删除时可放弃桶内文件，变更结果显示一次失败原因和数量", async () => {
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({ ...LOCAL_ONLY, connection: CONNECTION });
+    vi.spyOn(API, "deleteObjectStorageConnection").mockResolvedValue({ cleanup_failures: { denied: 2 } });
+    const user = userEvent.setup();
+    render(<AssetLibrarySection />);
+    await user.click(await screen.findByRole("button", { name: "删除对象存储连接" }));
+    const dialog = await screen.findByRole("alertdialog");
+    const cleanup = within(dialog).getByRole("checkbox", { name: "同时删除 ArcReel 写入桶里的待删除文件" });
+    expect(cleanup).toBeChecked();
+    await user.click(cleanup);
+    await user.click(within(dialog).getByRole("button", { name: "删除" }));
+    expect(await screen.findByText("没有删除权限：2 个文件")).toBeInTheDocument();
+    expect(API.deleteObjectStorageConnection).toHaveBeenCalledWith(false);
+    expect(screen.queryByText(CONNECTION.bucket)).not.toBeInTheDocument();
   });
 
   it("一条绑定提交时其他行不能并发修改，完成后恢复", async () => {
@@ -197,7 +214,11 @@ describe("AssetLibrarySection", () => {
     vi.mocked(API.getObjectStorageConnection).mockResolvedValue({ ...LOCAL_ONLY, connection: CONNECTION });
     const probe = createDeferred<void>();
     vi.spyOn(API, "checkObjectStorageConnection").mockReturnValue(probe.promise as never);
-    vi.spyOn(API, "saveObjectStorageConnection").mockResolvedValue({ ...CONNECTION, bucket: "new-relay" });
+    vi.spyOn(API, "saveObjectStorageConnection").mockResolvedValue({
+      ...CONNECTION,
+      bucket: "new-relay",
+      cleanup_failures: {},
+    });
     const user = userEvent.setup();
     render(<AssetLibrarySection />);
 
@@ -207,7 +228,15 @@ describe("AssetLibrarySection", () => {
     const bucket = within(dialog).getByLabelText("桶名");
     await user.clear(bucket);
     await user.type(bucket, "new-relay");
+    await user.click(within(dialog).getByRole("checkbox"));
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({
+      ...LOCAL_ONLY,
+      connection: { ...CONNECTION, bucket: "new-relay" },
+    });
     await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    expect(API.saveObjectStorageConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ delete_remote_objects: false }),
+    );
     expect(await screen.findByText("new-relay")).toBeInTheDocument();
 
     await act(async () => probe.resolve());
