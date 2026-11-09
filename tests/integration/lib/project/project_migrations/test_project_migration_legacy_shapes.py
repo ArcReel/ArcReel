@@ -21,6 +21,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifest,
     ProjectArtifactManifestAdapter,
 )
+from lib.artifacts.artifact_planner import plan_artifact_target_state
 from lib.project.asset_derivatives import derivative_artifact_key
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import (
@@ -55,10 +56,12 @@ from tests.legacy_project_shapes import (
     repoint_registered_asset_sheet,
     reuse_item_id_across_episodes,
     set_script_episode,
+    share_a_sheet_with_an_occupied_copy_target,
     share_asset_sheets,
     share_derivative_sheet,
     share_episode_script,
     share_reference_files,
+    share_reference_files_with_occupied_targets,
     write_legacy_ad_reference_video_project,
     write_legacy_reference_video_project,
     write_legacy_script_plan_project,
@@ -427,6 +430,153 @@ def test_copying_shared_reference_files_converges_after_a_failed_commit(
     assert _read_json(project_dir / "project.json")["products"]["茶"]["reference_images"] == ["products/refs/茶_1.png"]
     assert not (project_dir / "products" / "refs" / "茶_2.png").exists()
     assert len(list((project_dir / "characters" / "refs").glob("阿青.png.kept.*"))) == 1
+
+
+@pytest.mark.parametrize("from_version", [5, CURRENT_PROJECT_SCHEMA_VERSION - 1])
+def test_a_sheet_copy_preserves_the_original_image_referencing_its_target(tmp_path: Path, from_version: int) -> None:
+    manager = ProjectManager(tmp_path)
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    share_a_sheet_with_an_occupied_copy_target(project_dir)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = from_version
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    bob = _read_json(project_path)["characters"]["Bob"]
+    assert (project_dir / bob["character_sheet"]).read_bytes() == b"Alice-sheet"
+    assert (project_dir / bob["reference_image"]).read_bytes() == b"Bob-reference"
+    assert bob["character_sheet"] == "characters/Bob.png"
+    assert bob["reference_image"] == "characters/refs/Bob.png"
+    status = WorkflowStateService(manager).get_status("demo").artifacts["asset_sheets"]
+    assert "Bob" in status["character"]["current_ids" if from_version == 5 else "missing_ids"]
+
+
+@pytest.mark.parametrize("directory", ["refs", "refs_audio"])
+@pytest.mark.parametrize("currency", ["current", "stale", "missing"])
+def test_reference_copy_targets_preserve_all_fields_and_sheet_currency(
+    tmp_path: Path, directory: str, currency: str
+) -> None:
+    manager = ProjectManager(tmp_path)
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    share_reference_files_with_occupied_targets(project_dir, directory)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    key = ArtifactKey.asset_sheet("character", "Bob")
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    claim = plan_artifact_target_state(project_dir).entries[key]
+    if currency != "missing":
+        assert adapter.put_entry(key, claim)
+    if currency == "stale":
+        project["characters"]["Bob"]["description"] = "changed"
+        project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    bob = _read_json(project_path)["characters"]["Bob"]
+    assert (project_dir / bob["character_sheet"]).read_bytes() == b"Bob-sheet"
+    field = "reference_image" if directory == "refs" else "reference_audio"
+    assert (project_dir / bob[field]).read_bytes() == b"Alice-reference"
+    if directory == "refs_audio":
+        assert (project_dir / bob["reference_image"]).read_bytes() == b"Bob-sheet"
+    assert _sheet_status(project_dir, "character", "Bob", bob["character_sheet"]) == currency
+    expected = None if currency == "missing" else (bob["character_sheet"], claim.basis_digest)
+    assert _sheet_claim(project_dir, "character", "Bob") == expected
+    status = WorkflowStateService(manager).get_status("demo").artifacts["asset_sheets"]
+    assert "Bob" in status["character"][f"{currency}_ids"]
+
+
+def test_product_reference_lists_keep_distinct_reserved_copy_targets(tmp_path: Path) -> None:
+    manager = ProjectManager(tmp_path)
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    share_a_sheet_with_an_occupied_copy_target(project_dir)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project["products"] = {
+        "Tea": {
+            "description": "Tea",
+            "product_sheet": "characters/Alice.png",
+            "reference_images": ["products/Tea.png", "products/Tea.png", "characters/Bob.png"],
+        }
+    }
+    (project_dir / "products/Tea.png").write_bytes(b"Tea-reference")
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    tea = _read_json(project_path)["products"]["Tea"]
+    assert (project_dir / tea["product_sheet"]).read_bytes() == b"Alice-sheet"
+    assert [(project_dir / rel).read_bytes() for rel in tea["reference_images"]] == [
+        b"Tea-reference",
+        b"Tea-reference",
+        b"Bob-reference",
+    ]
+    assert len(set(tea["reference_images"])) == 3
+
+
+@pytest.mark.parametrize("failure", ["copy", "project"])
+def test_colliding_copy_targets_roll_back_every_file_and_retry_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    manager = ProjectManager(tmp_path)
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    share_reference_files_with_occupied_targets(project_dir, "refs_audio")
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    key = ArtifactKey.asset_sheet("character", "Bob")
+    claim = plan_artifact_target_state(project_dir).entries[key]
+    assert ProjectArtifactManifestAdapter(project_dir).put_entry(key, claim)
+    before = {path.relative_to(project_dir): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
+    write_json, write_bytes = legacy_shapes.atomic_write_json, legacy_shapes.atomic_write_bytes
+
+    def fail_on_project(path: Path, payload: Any) -> None:
+        if path.name == "project.json":
+            raise OSError("disk full")
+        write_json(path, payload)
+
+    def fail_on_copy(path: Path, payload: bytes) -> None:
+        if path == project_dir / "characters/refs/Bob.png":
+            raise OSError("disk full")
+        write_bytes(path, payload)
+
+    with monkeypatch.context() as patch:
+        if failure == "project":
+            patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project)
+        else:
+            patch.setattr(legacy_shapes, "atomic_write_bytes", fail_on_copy)
+        with pytest.raises(OSError, match="disk full"):
+            runner.migrate_project_dir(project_dir)
+    assert all((project_dir / rel).read_bytes() == data for rel, data in before.items())
+    assert not (project_dir / "characters/Bob.png").exists()
+    assert not (project_dir / "characters/refs/Bob.png").exists()
+    assert not list(project_dir.rglob("*.kept.*"))
+    report = load_migration_report(project_dir)
+    assert report is None or not report.adjusted
+
+    _migrate(project_dir)
+
+    bob = _read_json(project_path)["characters"]["Bob"]
+    assert (project_dir / bob["character_sheet"]).read_bytes() == b"Bob-sheet"
+    assert (project_dir / bob["reference_image"]).read_bytes() == b"Bob-sheet"
+    assert (project_dir / bob["reference_audio"]).read_bytes() == b"Alice-reference"
+    assert _sheet_claim(project_dir, "character", "Bob") == (bob["character_sheet"], claim.basis_digest)
+    assert _sheet_status(project_dir, "character", "Bob", bob["character_sheet"]) == "current"
+    assert len(list(project_dir.rglob("*.kept.*"))) == 1
+    after = {path.relative_to(project_dir): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
+    assert not runner.migrate_project_dir(project_dir)
+    assert {
+        path.relative_to(project_dir): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()
+    } == after
 
 
 def _sheet_claim(project_dir: Path, asset_type: str, name: str) -> tuple[str, str] | None:

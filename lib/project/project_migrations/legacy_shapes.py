@@ -19,7 +19,8 @@ v6→v7 的剧本改写、产物目标态规划（v7→v8 起的各步与归档�
   名下的衍生按资产合并的规则并进保留条目（迁走的衍生图搬到保留名下），各集剧本与草稿里指向只差
   大小写那条的引用改写为保留名。
 - **资产图、参考图或参考音频指向别的资产名下的文件**（旧版资产 PATCH 接受任意路径）：复制一份到本资产名下
-  并改指过去，原文件留给它的主人。本资产名下的落点已被另一份内容占着时，那一份先挪成保留副本。资产图的清单
+  并改指过去，原文件留给它的主人。落点仍被其他字段引用时，先统一规划这些字段的副本与改指，保持内容不变。
+  本资产名下的落点已被另一份内容占着时，那一份先挪成保留副本。资产图的清单
   登记随之改写：登记在旧路径上的换到副本（同字节，依据摘要不变），登记在落点上的描述的是被挪走的那份，撤掉。
   这些文件按名归属，之后的改名、删除与恢复只处理本资产名下的文件。
 - **剧本条目缺 id 或 id 重复**：缺的补新 id，重复的从第二条起换新 id（取号规则同新增条目）；换号
@@ -753,13 +754,13 @@ def _copy_shared_reference_files(work: _Work) -> None:
     """资产图与参考文件复制到本资产名下；互相引用时冻结源字节，引用提交失败则源文件与清单一并恢复供重试。"""
     fields = list(_named_file_fields(work))
     sources: dict[str, Path] = {}
-    for asset_type, name, entry, field_name in fields:
+    for _asset_type, _name, entry, field_name in fields:
         value = entry.get(field_name)
         for item in value if isinstance(value, list) else [value]:
             if not isinstance(item, str) or not item:
                 continue
             rel = _canonical_reference(work.project_dir, item)
-            if owns_named_file(ASSET_SPECS[asset_type], name, rel) or _named_file_owner(work.project, rel) is None:
+            if _named_file_owner(work.project, rel) is None:
                 continue
             if field_name == "reference_audio" and PurePosixPath(rel).parent != PurePosixPath("characters/refs_audio"):
                 continue
@@ -771,32 +772,63 @@ def _copy_shared_reference_files(work: _Work) -> None:
             source = try_safe_join(work.project_dir, rel)
             if source is not None and source.is_file():
                 sources[rel] = source
-    content = {rel: source.read_bytes() for rel, source in sources.items()}
+    content: dict[str, bytes] = {}
     before = len(work.adjusted)
     #: 改指到副本的资产图：（资产类型, 名字, 旧值, 副本路径）。
     sheets: list[tuple[str, str, str, str]] = []
+    planned: dict[str, tuple[bytes, MigrationAdjustment]] = {}
+    pending = [
+        (asset_type, name, entry, field_name, index, item)
+        for asset_type, name, entry, field_name in fields
+        for index, item in (
+            enumerate(entry[field_name]) if isinstance(entry.get(field_name), list) else [(None, entry.get(field_name))]
+        )
+    ]
+    # 新落点可能占用另一字段的源路径；继续规划受影响字段，直到每个引用都有稳定落点。
+    while pending:
+        remaining = []
+        for asset_type, name, entry, field_name, index, value in pending:
+            copied = _plan_reference_copy(
+                work,
+                asset_type,
+                name,
+                field_name,
+                value,
+                sources,
+                content,
+                planned,
+                siblings=entry[field_name] if index is not None else None,
+            )
+            if copied is None:
+                remaining.append((asset_type, name, entry, field_name, index, value))
+                continue
+            if index is not None:
+                entry[field_name][index] = copied
+            else:
+                entry[field_name] = copied
+                if field_name == ASSET_SPECS[asset_type].sheet_field:
+                    sheets.append((asset_type, name, cast(str, value), copied))
+        if len(remaining) == len(pending):
+            break
+        pending = remaining
     manifest = work.project_dir / MANIFEST_FILENAME
     try:
         with (
-            formal_write_transaction(work.project_dir / "project.json", manifest, *sources.values()),
+            formal_write_transaction(work.project_dir / "project.json", manifest, *(sources[rel] for rel in content)),
             contextlib.ExitStack() as copies,
         ):
-            for asset_type, name, entry, field_name in fields:
-                value = entry.get(field_name)
-                if isinstance(value, list):
-                    for index, item in enumerate(value):
-                        copied = _own_reference_copy(
-                            work, asset_type, name, field_name, item, content, copies, siblings=value
-                        )
-                        if copied is not None:
-                            value[index] = copied
-                elif (
-                    copied := _own_reference_copy(work, asset_type, name, field_name, value, content, copies)
-                ) is not None:
-                    entry[field_name] = copied
-                    if field_name == ASSET_SPECS[asset_type].sheet_field:
-                        sheets.append((asset_type, name, cast(str, value), copied))
-            if len(work.adjusted) > before:
+            for target_rel, (data, adjustment) in planned.items():
+                target = work.project_dir / target_rel
+                copies.enter_context(formal_write_transaction(target))
+                if target.is_symlink() or (target.exists() and not (target.is_file() and target.read_bytes() == data)):
+                    backup = work.rel(copies.enter_context(_displaced_copy(target, work.schema_version)))
+                    adjustment = adjustment.model_copy(update={"backup": backup})
+                if not target.is_file():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    atomic_write_bytes(target, data)
+                work.adjusted.append(adjustment)
+            if planned:
+                work.project_changed = True
                 _carry_sheet_claims(work, sheets)
                 _commit_project(work)
     except BaseException:
@@ -844,24 +876,26 @@ def _carry_sheet_claims(work: _Work, sheets: list[tuple[str, str, str, str]]) ->
         raise RuntimeError("artifact manifest changed while carrying an asset sheet claim")
 
 
-def _own_reference_copy(
+def _plan_reference_copy(
     work: _Work,
     asset_type: str,
     name: str,
     field_name: str,
     value: object,
-    sources: dict[str, bytes],
-    copies: contextlib.ExitStack,
+    sources: dict[str, Path],
+    frozen: dict[str, bytes],
+    planned: dict[str, tuple[bytes, MigrationAdjustment]],
     *,
     siblings: list[Any] | None = None,
 ) -> str | None:
-    """*value* 是别的资产名下的文件时复制到 *name* 名下，返回新路径；不必复制时返回 ``None``。"""
+    """规划跨资产副本与被副本占用的本资产引用；不必改指时返回 ``None``。"""
 
     spec = ASSET_SPECS[asset_type]
     if not isinstance(value, str) or not value:
         return None
     rel = _canonical_reference(work.project_dir, value)
-    if owns_named_file(spec, name, rel):
+    owned = owns_named_file(spec, name, rel)
+    if owned and rel not in planned:
         return None
     owner = _named_file_owner(work.project, rel)
     target_dir = PurePosixPath(spec.subdir)
@@ -870,8 +904,13 @@ def _own_reference_copy(
     # 参考音频只认角色参考音频目录里的文件，别处的值本就不生效，复制过来反倒让它生效。
     if owner is None or (field_name == "reference_audio" and PurePosixPath(rel).parent != target_dir):
         return None
-    content = sources.get(rel)
-    if content is None:
+    source = sources.get(rel)
+    if source is None:
+        return None
+    if rel not in frozen:
+        frozen[rel] = source.read_bytes()
+    content = frozen[rel]
+    if owned and planned[rel][0] == content:
         return None
     if any(
         (work.project_dir / directory).is_symlink()
@@ -880,29 +919,18 @@ def _own_reference_copy(
     ):
         raise ValueError(f"asset copy directory is a symlink: {target_dir}")
     stem, suffix = normalize_asset_name(name), PurePosixPath(rel).suffix
-    backup: str | None = None
     if siblings is None:
         target_rel = (target_dir / f"{stem}{suffix}").as_posix()
-        target = work.project_dir / target_rel
-        copies.enter_context(formal_write_transaction(target))
-        if target.is_symlink() or (target.exists() and not (target.is_file() and target.read_bytes() == content)):
-            backup = work.rel(copies.enter_context(_displaced_copy(target, work.schema_version)))
     else:
-        target_rel = _sequenced_copy_target(work, spec, target_dir, stem, suffix, content, siblings)
-        target = work.project_dir / target_rel
-        copies.enter_context(formal_write_transaction(target))
-    work.adjusted.append(
+        target_rel = _sequenced_copy_target(work, spec, target_dir, stem, suffix, content, siblings, planned)
+    planned[target_rel] = (
+        content,
         MigrationAdjustment(
             code="shared_reference_file_copied",
             file=target_rel,
-            backup=backup,
             params={"asset_type": asset_type, "name": name, "owner": owner[1], "from": rel},
-        )
+        ),
     )
-    if not target.is_file():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_bytes(target, content)
-    work.project_changed = True
     return target_rel
 
 
@@ -925,12 +953,13 @@ def _sequenced_copy_target(
     suffix: str,
     content: bytes,
     siblings: list[Any],
+    planned: dict[str, tuple[bytes, MigrationAdjustment]],
 ) -> str:
     """多图序列里新副本的落点：已有同字节、尚未登记的本资产文件就用它（重跑收敛），否则取最小的空闲序号。"""
 
     listed = {item.replace("\\", "/") for item in siblings if isinstance(item, str)}
     directory = work.project_dir.joinpath(*target_dir.parts)
-    taken: set[str] = set()
+    taken = {PurePosixPath(rel).stem for rel in planned if PurePosixPath(rel).parent == target_dir}
     for existing in sorted(directory.iterdir()) if directory.is_dir() else ():
         existing_rel = (target_dir / existing.name).as_posix()
         if not owns_named_file(spec, stem, existing_rel):
@@ -938,6 +967,7 @@ def _sequenced_copy_target(
         taken.add(normalize_asset_name(existing.stem))
         if (
             existing_rel not in listed
+            and existing_rel not in planned
             and existing.suffix == suffix
             and not existing.is_symlink()
             and existing.is_file()
