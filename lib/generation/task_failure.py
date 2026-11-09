@@ -135,6 +135,8 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in VIDEO_REQUEST_FACTS_FAILURE_CODES},
     **{code: code for code in PROVIDER_ASSET_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
+    # 配音语速超出所选模型的取值范围：提交前拒绝，没有发出计费请求。
+    "narration_tts_speed_out_of_range": "narration_tts_speed_out_of_range",
     # 内置供应商的模型引用不在模型清单中（已改名或从未收录）：引用原样保留，由用户重新选择。
     "model_not_in_provider_catalog": "model_not_in_provider_catalog",
     # 引用的模型已下线：带下线日期与官方后继，没有登记的那一句按 failure_message_key 换用省去它的文案。

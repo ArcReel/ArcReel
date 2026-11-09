@@ -176,6 +176,7 @@ MESSAGES = {
     "narration_tts_model_invalid": "The selected TTS model is unavailable; choose a model from a text-to-speech provider",
     "narration_tts_voice_required": "Enter a narration voice when narration is delivered with TTS voiceover",
     "narration_tts_speed_invalid": "Voice speed must be a positive number",
+    "narration_tts_speed_out_of_range": "The selected TTS model supports voice speeds from {minimum} to {maximum}, but the current value is {speed}. Change or clear the voice speed",
     "narration_delivery_post_production": "This project delivers narration as post-production voiceover, so ArcReel does not generate narration audio; switch the project to TTS voiceover in project settings first",
     "character_voice_binding_invalid": "Character voice binding must be either prompt-based or reference audio",
     "video_poll_timeout_minimum": "Video polling timeout must be at least 60 seconds",
