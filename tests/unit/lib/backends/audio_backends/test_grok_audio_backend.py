@@ -53,7 +53,7 @@ async def test_assembled_backend_sends_the_documented_request_without_a_model(tm
     assert request_json(submitted) == {
         "text": "你好世界",
         "voice_id": "eve",
-        "language": "zh",
+        "language": "auto",
         "output_format": {"codec": "wav"},
         "speed": 1.2,
     }
@@ -79,10 +79,13 @@ async def test_output_codec_follows_the_artifact_extension(tmp_path: Path, name:
 @pytest.mark.parametrize(
     ("language_type", "text", "expected"),
     [
-        ("Chinese", "你好世界", "zh"),
+        ("Chinese", "你好世界", "auto"),
         ("Chinese", "English narration only", "auto"),
         ("Chinese", "こんにちは世界", "auto"),
         ("Chinese", "안녕하세요 世界", "auto"),
+        ("Chinese", "東京出発、京都到着。", "auto"),
+        ("Chinese", "東京ﾀﾜｰ", "auto"),
+        ("Chinese", "Welcome to 北京, our next destination.", "auto"),
         ("English", "hello", "en"),
         ("japanese", "こんにちは", "ja"),
         ("Klingon", "nuqneH", "auto"),
@@ -133,9 +136,9 @@ def test_declares_speed_and_the_official_voice_list():
     backend = _backend()
     assert backend.capabilities == {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
     voices = {voice.id: voice.label for voice in backend.list_voices()}
-    assert len(voices) == 26
+    assert len(voices) == 28
     assert voices["eve"] == "Eve"
-    assert {"ara", "rex", "sal", "leo", "carina", "naksh"} <= set(voices)
+    assert {"ara", "rex", "sal", "leo", "carina", "naksh", "aurora", "liora"} <= set(voices)
 
 
 async def test_ambiguous_transport_failure_is_not_resubmitted(tmp_path: Path):

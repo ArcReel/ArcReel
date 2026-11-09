@@ -7,7 +7,6 @@ schema 依据 docs/api-docs/endpoints/grok-tts.md 所列官方文档。只服务
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
@@ -44,10 +43,8 @@ _MAX_SPEED = 1.5
 _SUPPORTED_CODECS = frozenset({"mp3", "wav", "pcm"})
 _FALLBACK_CODEC = "wav"
 
-# 内部语种名（DashScope ``language_type`` 的取值）→ 官方语言码。西班牙语和葡萄牙语上游要求带地区，
-# 内部值给不出地区，与未收录的语种一样走 auto。
+# Chinese 是配音链路的固定缺省值，不代表文本语种；西班牙语和葡萄牙语缺少上游要求的地区码，均走 auto。
 _LANGUAGE_CODES = {
-    "chinese": "zh",
     "english": "en",
     "japanese": "ja",
     "korean": "ko",
@@ -57,10 +54,8 @@ _LANGUAGE_CODES = {
     "italian": "it",
 }
 _AUTO_LANGUAGE = "auto"
-_HAN = re.compile(r"[㐀-鿿]")
-_KANA_OR_HANGUL = re.compile(r"[぀-ヿᄀ-ᇿ가-힯]")
 
-# 官方 ``GET /v1/tts/voices`` 列出的内置音色，出处见 docs/api-docs/endpoints/grok-tts.md。label 取官方展示名。
+# 官方 Text to Speech 的 Voices 表列出的内置音色，出处见 docs/api-docs/endpoints/grok-tts.md。
 # 新建项目预填列表首项，所以官方默认音色 eve 排在最前。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=voice_id.capitalize())
@@ -91,6 +86,8 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
         "castor",
         "naksh",
         "atlas",
+        "aurora",
+        "liora",
     )
 )
 
@@ -101,15 +98,8 @@ def _codec_for(output_path: Path) -> str:
 
 
 def _language_for(request: AudioSynthesisRequest) -> str:
-    """把内部语种名换成官方语言码。
-
-    配音链路的 ``language_type`` 目前恒为缺省值 Chinese，不代表文本的实际语种，所以只有文本确实是中文时才
-    发 ``zh``，其他文本交给 ``auto``，避免英文、日文等旁白被按中文合成。
-    """
-    code = _LANGUAGE_CODES.get(request.language_type.strip().lower(), _AUTO_LANGUAGE)
-    if code == "zh" and (not _HAN.search(request.text) or _KANA_OR_HANGUL.search(request.text)):
-        return _AUTO_LANGUAGE
-    return code
+    """把内部语种名换成官方语言码；缺省值交给上游自动识别。"""
+    return _LANGUAGE_CODES.get(request.language_type.strip().lower(), _AUTO_LANGUAGE)
 
 
 def _ensure_audio_body(resp: httpx.Response) -> bytes:
