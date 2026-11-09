@@ -851,6 +851,8 @@ def reference_preview_project(seeded_projects):
         ],
     }
     script["video_units"].append({**script["video_units"][0], "unit_id": "E1U04", "duration_seconds": 7})
+    script["video_units"].append({"unit_id": "E1U05", "text": 123, "duration_seconds": 8})
+    script["video_units"].append({**script["video_units"][0], "unit_id": "E1U06", "duration_seconds": "x"})
     (project_path / "scripts" / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False))
     activate_reference_project(
         project_path,
@@ -873,6 +875,8 @@ def reference_preview_project(seeded_projects):
         ("E1U04", None),
         ("E1U02", "reference_prompt_preview_missing"),
         ("E1U03", "reference_asset_unregistered"),
+        ("E1U05", "prompt_preview_invalid"),
+        ("E1U06", "prompt_preview_invalid"),
         ("E1U99", "item_not_found"),
     ],
 )

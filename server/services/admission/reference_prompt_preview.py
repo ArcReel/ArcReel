@@ -1,4 +1,4 @@
-"""参考生视频草稿的最终提示词，使用当前请求投影的实发参考图与能力。"""
+"""参考生视频单元的最终提示词，使用当前请求投影的实发参考图与能力。"""
 
 from collections.abc import Callable
 from pathlib import Path
