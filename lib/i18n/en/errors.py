@@ -98,7 +98,6 @@ MESSAGES = {
     "task_fail_declarative_template_render_failed": "Endpoint request rendering failed: {detail}",
     "task_fail_declarative_response_extract_failed": "Endpoint response extraction failed: {detail}",
     "task_fail_declarative_image_save_failed": "The provider generated the image, but it couldn't be saved locally; regenerating will be billed again: {detail}",
-    "task_fail_comfyui_binding_invalid": "Node bindings are invalid; reimport the workflow and check the bindings",
     "task_fail_comfyui_reference_audio_invalid": "Reference audio cannot be wired safely; check binding order, unbound audio inputs and reference videos, and supply required audio",
     "task_fail_comfyui_aspect_ratio_unmapped": "Node {node} has no value for aspect ratio {aspect_ratio}; add it to the node binding and retry",
     "task_fail_comfyui_image_drop_unsupported": "This workflow's output depends on the image read by node {node}, so it cannot be rewired for fewer images; supply the missing images or use another workflow",

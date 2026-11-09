@@ -94,7 +94,6 @@ def test_audio_capacity_and_pixel_resolution_are_derived_independently(definitio
     [
         "unsupported",
         "overflow",
-        "missing_node",
         "missing_mapping",
         "required_audio",
         "unbound_audio",
@@ -110,8 +109,6 @@ async def test_invalid_requests_fail_before_any_upload(definition, tmp_path, fau
     elif fault == "overflow":
         count = 4
         expected = VideoCapabilityError
-    elif fault == "missing_node":
-        del definition["workflow"]["501"]
     elif fault == "missing_mapping":
         del definition["bindings"]["aspect_ratio"][0]["values"]["9:16"]
     elif fault == "required_audio":
@@ -210,8 +207,12 @@ def test_enum_only_does_not_write_pixels_and_invalid_binding_fails(definition):
     assert built.workflow["115"]["inputs"]["megapixels"] == 0.4
     assert definition == before
     definition["bindings"]["aspect_ratio"][0]["input"] = "gone"
-    with pytest.raises(ComfyuiError, match="comfyui_binding_invalid"):
-        build_workflow(definition, prompt="p", aspect_ratio="16:9")
+    assert not validate_definition(definition).valid
+
+
+def test_reference_audio_binding_to_a_missing_node_is_rejected_on_save(definition):
+    del definition["workflow"]["501"]
+    assert not validate_definition(definition).valid
 
 
 @pytest.mark.parametrize("indirect", [False, True])
@@ -228,11 +229,24 @@ def test_background_soundtrack_is_not_inferred_as_reference_audio(indirect):
     assert built.workflow["99"]["inputs"]["audio"] == (["98", 0] if indirect else "background.wav")
 
 
-def test_inferred_aspect_requires_explicit_values_before_saving(definition):
+def test_inferred_aspect_is_only_offered_so_definitions_without_it_stay_savable(definition):
     del definition["bindings"]["aspect_ratio"]
     result = infer_bindings(definition)
-    assert result.keys["aspect_ratio"].selected_targets
-    assert not result.savable
+    aspect = result.keys["aspect_ratio"]
+    assert aspect.state is BindingState.NOT_FOUND
+    assert not aspect.selected_targets
+    assert [(candidate.node, candidate.input) for candidate in aspect.candidates] == [("115", "aspect_ratio")]
+    assert result.savable
+
+
+def test_preview_without_uploaded_audio_keeps_bound_slots_with_placeholders(definition):
+    params = EndpointTestParameters(model="ref2va", prompt="<Audio 1>")
+    preview = preview_comfyui_request(definition, params)
+    assert isinstance(preview.submit.body, dict)
+    graph = preview.submit.body["prompt"]
+    assert [graph[node]["inputs"]["audio"] for node in ("501", "502", "503")] == [
+        "<reference_audio_files not uploaded>"
+    ] * 3
 
 
 def test_indirect_audio_inputs_keep_order_and_reject_unbound_stale_audio(definition):

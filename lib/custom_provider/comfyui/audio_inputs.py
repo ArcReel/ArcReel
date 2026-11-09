@@ -29,21 +29,21 @@ def apply_reference_audio(
     if not targets:
         return ()
     rules = load_inference_rules("video")
+    port_rules = rules.consumer_ports.get("reference_audio", ())
     target_nodes = [str(target["node"]) for target in targets]
     output = str(targets_of(bindings.get("output"))[0]["node"])
     if not set(target_nodes).issubset(ancestors(workflow, output)):
         raise ComfyuiError("comfyui_reference_audio_invalid")
     # Autogrow 按编号消费，加载节点的编号与绑定次序都不能代替消费者的输入顺序。
     for node in workflow.values():
-        if node.get("class_type") != "MiniMaxH3ReferenceToVideo":
-            continue
         inputs = node.get("inputs", {})
-        if any(not name.rsplit("_", 1)[-1].isdigit() for name in inputs if name.startswith("ref_audios.ref_audio_")):
+        class_type = str(node.get("class_type"))
+        ports = [name for name in inputs if any(rule.matches(name, class_type) for rule in port_rules)]
+        if not ports:
+            continue
+        if any(not name.rsplit("_", 1)[-1].isdigit() for name in ports):
             raise ComfyuiError("comfyui_reference_audio_invalid")
-        ports = sorted(
-            (name for name in inputs if name.startswith("ref_audios.ref_audio_")),
-            key=lambda name: int(name.rsplit("_", 1)[-1]),
-        )
+        ports.sort(key=lambda name: int(name.rsplit("_", 1)[-1]))
         linked = []
         for name in ports:
             raw = inputs[name]

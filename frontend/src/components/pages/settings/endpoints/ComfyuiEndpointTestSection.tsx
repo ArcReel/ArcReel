@@ -22,6 +22,7 @@ import type {
   TrialRunStageState,
 } from "@/types";
 import { TRIAL_RUN_STAGES } from "@/types";
+import { isListBindingKey } from "./comfyui-bindings";
 import { RequestPreview, TestCard, TestField, TestSelect } from "./endpoint-test-primitives";
 import { useTrialRun } from "./use-trial-run";
 
@@ -40,7 +41,7 @@ const NATIVE_RESOLUTION = "native";
 /** 时长输入清空时按这个秒数发出，占位符把它写在空输入框里。 */
 const DEFAULT_DURATION_SECONDS = 5;
 
-/** 能从节点绑定推出素材格子的三个语义键，按渲染次序。 */
+/** 能从节点绑定推出素材格子的四个语义键，按渲染次序。 */
 const ASSET_KEYS = ["start_image", "end_image", "reference_images", "reference_audio"] as const;
 
 type ComfyuiAssetKey = (typeof ASSET_KEYS)[number];
@@ -243,7 +244,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
               label={
                 <>
                   {t(`ce_cf_key_${key}`)}
-                  {(key === "reference_images" || key === "reference_audio") && (
+                  {isListBindingKey(key) && (
                     <span className="font-normal text-muted-foreground">{t("ce_cf_test_slots", { n: slots })}</span>
                   )}
                 </>
@@ -253,7 +254,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
                 id={id}
                 type="file"
                 accept={key === "reference_audio" ? "audio/*" : "image/*"}
-                multiple={key === "reference_images" || key === "reference_audio"}
+                multiple={isListBindingKey(key)}
                 onChange={(e) => {
                   assetFiles.current = { ...assetFiles.current, [key]: Array.from(e.target.files ?? []) };
                 }}

@@ -246,7 +246,7 @@ describe("ComfyuiEndpointDetail", () => {
     expect(within(row("start_image")).getByText("未找到")).toBeInTheDocument();
     expect(within(row("end_image")).getByText("不支持")).toBeInTheDocument();
     expect(within(row("output")).getByText("必填未绑定")).toBeInTheDocument();
-    // 没被推断提到的语义键一并算未找到：reference_images、宽、高、帧数、帧率与 output 共 7 项。
+    // 没被推断提到的语义键一并算未找到：reference_audio、reference_images、aspect_ratio、宽、高、帧数、帧率，连同 start_image 与 output 共 9 项。
     expect(screen.getByText("已绑定 2 · 需选择 1 · 未找到 9 · 不支持 1")).toBeInTheDocument();
   });
 
@@ -665,6 +665,25 @@ describe("ComfyuiEndpointDetail", () => {
     expect(await screen.findByRole("button", { name: "渲染 /prompt 请求体" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "真实提交一次" })).toBeDisabled();
   });
+});
+
+it("offers an inferred aspect input without selecting it, so definitions without one stay savable", async () => {
+  const aspect: ComfyuiBindingTarget = { node: "115", input: "aspect_ratio", class_type: "ResolutionSelector" };
+  const draft = definition({ workflow: {
+    ...WORKFLOW,
+    "115": { class_type: "ResolutionSelector", inputs: { aspect_ratio: "16:9 (Widescreen)" } },
+  } });
+  renderDetail({ definition: draft, inference: inference({ bindings: {
+    prompt: picked(PROMPT), output: picked(OUTPUT),
+    aspect_ratio: { state: "not_found", candidates: [candidate(aspect)], notes: [] },
+  } }) });
+  expect(screen.queryByText("画幅绑定需要至少一个有效的对应值")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+
+  await userEvent.click(within(row("aspect_ratio")).getByRole("button"));
+  const group = screen.getByRole("group", { name: "候选落点" });
+  await userEvent.click(within(group).getAllByRole("checkbox")[0]);
+  expect(screen.getByText("画幅绑定需要至少一个有效的对应值")).toBeInTheDocument();
 });
 
 it("saves ordered audio and explicit aspect values, and passes both to reimport", async () => {

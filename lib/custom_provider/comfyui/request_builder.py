@@ -114,17 +114,9 @@ def build_workflow(
     media_type = "image" if definition.get("media_type") == "image" else "video"
 
     media = media or MediaInputs()
-    if bindings.get("reference_audio") or bindings.get("aspect_ratio"):
-        from arcreel_market_core.comfyui.validator import validate_comfyui_definition
-
-        diagnostics = validate_comfyui_definition(definition)
-        if not diagnostics.valid:
-            raise ComfyuiError("comfyui_binding_invalid")
     audio_dropped = apply_reference_audio(workflow, bindings, media.reference_audio_files)
     dropped = audio_dropped + _apply_media(workflow, bindings, media, load_inference_rules(media_type))
     for target in _targets(bindings.get("aspect_ratio")):
-        if str(target["node"]) not in workflow:
-            raise ComfyuiError("comfyui_binding_invalid")
         value = target["values"].get(aspect_ratio)
         if value is None:
             raise ComfyuiError("comfyui_aspect_ratio_unmapped", aspect_ratio=aspect_ratio, node=target["node"])

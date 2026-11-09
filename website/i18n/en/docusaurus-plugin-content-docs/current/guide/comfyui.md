@@ -89,7 +89,7 @@ For video endpoints, `reference_audio` is an ordered list of node bindings. Bind
 
 MiniMax H3 `ref_audios.ref_audio_*` inputs are rewired in binding order, independently of loader node IDs. All reference-audio inputs on that node must be bound, without reference videos that would consume audio numbers first. With zero or fewer audio files, only known optional inputs and their loaders are removed. Unsafe shapes fail before upload or submission, without reusing draft audio or repeating the final file. Nodes such as `MiniMaxH3AddGuide` require all bound inputs when safe omission cannot be established. This does not change storyboard character-voice consistency rules.
 
-Bind `aspect_ratio` to an enum input such as `ResolutionSelector.aspect_ratio`. Enter the node's accepted values for project ratios `16:9` and `9:16`, for example `16:9 (Widescreen)` and `9:16 (Portrait)`. The explicit `values` map is saved, exported and retained on reimport. API workflows do not include complete enum choices: ArcReel validates target identity and mapping structure, but cannot prove that a custom node accepts a value offline. An unmapped requested ratio fails before upload and submission.
+Bind `aspect_ratio` to an enum input such as `ResolutionSelector.aspect_ratio`. These inputs are only listed as candidates and are never selected automatically; an unbound workflow keeps its original value. After selecting one, enter the node's accepted values for project ratios `16:9` and `9:16`, for example `16:9 (Widescreen)` and `9:16 (Portrait)`. The explicit `values` map is saved, exported and retained on reimport. API workflows do not include complete enum choices: ArcReel validates target identity and mapping structure, but cannot prove that a custom node accepts a value offline. An unmapped requested ratio fails before upload and submission.
 
 Aspect-ratio bindings do not enable pixel-resolution control. Width and height must both be bound for that; when enum and pixel bindings coexist, they use the same project ratio. Different semantics cannot write the same input.
 
@@ -171,7 +171,6 @@ Test runs appear in the ComfyUI queue as `endpoint-test-…`, with a random suff
 | `comfyui_output_missing` | The bound output node emitted no file. Check that node and its upstream output chain |
 | `comfyui_output_type_mismatch` | The artifact extension is not in this endpoint's container whitelist. Rebind the node that exports the final media, or switch the save node to a supported format |
 | `comfyui_output_container_mismatch` | The extension matches, but the file contents are not a container this endpoint should output. Switch the save node to a supported format |
-| `comfyui_binding_invalid` | A node binding is no longer valid; reimport and repair it |
 | `comfyui_reference_audio_invalid` | Audio cannot be connected safely; check unbound inputs, reference videos and required audio |
 | `comfyui_aspect_ratio_unmapped` | The requested ratio has no mapped value; add it to the aspect-ratio binding |
 | `comfyui_image_drop_unsupported` | Removing a branch for a missing asset would affect the output. Supply the asset or use another workflow |

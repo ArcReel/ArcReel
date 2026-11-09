@@ -178,7 +178,6 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
     # 图片已出但没取回：图片不续跑，「重试下载」接不回原任务，重新生成是唯一的一步。
     "declarative_image_save_failed": GenerationAction.RETRY,
-    "comfyui_binding_invalid": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_reference_audio_invalid": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_aspect_ratio_unmapped": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_image_drop_unsupported": GenerationAction.CONFIGURE_PROVIDER,
