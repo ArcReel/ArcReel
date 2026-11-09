@@ -47,6 +47,7 @@ from lib.material.formal_objects import (
     MATERIAL_STORAGE_TARGET_SETTING,
     ObjectContentStorage,
     add_reference,
+    connection_change_lock,
     formal_object_key,
     holding_object_count,
     reconcile_and_collect,
@@ -56,6 +57,9 @@ from lib.material.formal_objects import (
 )
 from lib.material.storage import ObjectLocator
 from lib.material.work_files import ensure_content_version_file, hold_work_file
+from lib.object_storage.client import ObjectStorageClient
+from lib.object_storage.disposal import DISPOSAL_NETWORK_FAILURE_LIMIT
+from lib.object_storage.relay import sweep_relay_objects
 from lib.project import project_trash as project_trash_store
 from lib.project.asset_derivatives import derivative_artifact_id, derivative_sheet_relative_path
 from lib.project.asset_types import DERIVATIVES_FIELD
@@ -969,6 +973,114 @@ async def test_failed_saves_on_a_wrong_endpoint_do_not_block_deleting_the_connec
         "new_image_target": "local",
         "pending_ingest_tasks": 0,
     }
+
+
+async def test_unreachable_endpoint_bounds_disposal_network_attempts(api, sessions, monkeypatch):
+    """Endpoint 不可达时每个请求都要等超时：连续失败后不再逐个尝试，其余对象按同一原因报告，连接照常变更。"""
+    calls: list[str] = []
+
+    class _Unreachable:
+        def delete_object(self, *, bucket: str, key: str):
+            calls.append(key)
+            raise TosClientError("connection failed", ConnectionError("timed out"))
+
+    use_object_storage_sdk(monkeypatch, lambda config: _Unreachable())
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).is_success
+    async with sessions() as session:
+        conn = await ObjectStorageConnectionRepository(session).get()
+        assert conn is not None
+        for i in range(8):
+            session.add(
+                RelayObject(
+                    connection_id=conn.id, endpoint=conn.endpoint, bucket=conn.bucket, object_key=f"arcreel-relay/{i}"
+                )
+            )
+        await session.commit()
+    deleted = api.delete("/api/v1/object-storage/connection")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"cleanup_failures": {"network": 8}}
+    assert len(calls) == DISPOSAL_NETWORK_FAILURE_LIMIT
+    async with sessions() as session:
+        assert list((await session.execute(select(RelayObject))).scalars()) == []
+
+
+async def test_sweep_drops_orphan_records_left_by_an_earlier_connection(api, sessions, bucket):
+    """与当前连接不符的待删除记录无法履行删除：清除记录，不向当前桶发请求。"""
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).is_success
+    key = "arcreel-materials/legacy.png"
+    async with sessions() as session:
+        conn = await ObjectStorageConnectionRepository(session).get()
+        assert conn is not None
+        session.add(
+            FormalObject(
+                connection_id=conn.id + 1,
+                endpoint=conn.endpoint,
+                bucket=conn.bucket,
+                object_key=key,
+                content_digest="a" * 64,
+                state="orphaned",
+                last_error="connection_changed",
+            )
+        )
+        await session.commit()
+    bucket.objects[(BUCKET, key)] = b"belongs-to-current-bucket"
+    assert await sweep_formal_objects(sessions, now=utc_now() + timedelta(days=1)) == 0
+    assert await _objects(sessions) == []
+    assert bucket.calls == []
+
+
+async def test_deleted_objects_with_leftover_references_do_not_block_connection_changes(api, sessions, bucket):
+    """对象已从桶里删除，版本记录重算补上的引用不再说明它可读，不能永久挡住连接变更。"""
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).is_success
+    async with sessions() as session:
+        conn = await ObjectStorageConnectionRepository(session).get()
+        assert conn is not None
+        row = FormalObject(
+            connection_id=conn.id,
+            endpoint=conn.endpoint,
+            bucket=conn.bucket,
+            object_key="arcreel-materials/gone.png",
+            content_digest="b" * 64,
+            state="deleted",
+        )
+        session.add(row)
+        await session.flush()
+        session.add(FormalObjectRef(object_id=row.id, project_name="demo", content_version_id="cv", state="active"))
+        await session.commit()
+    deleted = api.delete("/api/v1/object-storage/connection")
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"cleanup_failures": {}}
+    assert await _objects(sessions) == []
+    assert await _refs(sessions) == []
+    assert bucket.calls == []
+
+
+async def test_relay_sweep_releases_the_connection_lock_between_objects(api, sessions, monkeypatch):
+    """逐个删除中转副本时连接锁按对象放开：慢桶不能让等待连接锁的一方排到整轮清理结束。"""
+    assert api.put("/api/v1/object-storage/connection", json=CONNECTION).is_success
+    async with sessions() as session:
+        conn = await ObjectStorageConnectionRepository(session).get()
+        assert conn is not None
+        for key in ["arcreel-relay/a", "arcreel-relay/b"]:
+            session.add(RelayObject(connection_id=conn.id, endpoint=conn.endpoint, bucket=conn.bucket, object_key=key))
+        await session.commit()
+
+    async def wait_for_lock() -> None:
+        async with connection_change_lock():
+            pass
+
+    waiters: list[asyncio.Task[None]] = []
+
+    async def delete(self: ObjectStorageClient, key: str) -> None:
+        if not waiters:
+            waiters.append(asyncio.create_task(wait_for_lock()))
+            await asyncio.sleep(0)
+            return
+        assert waiters[0].done()
+
+    monkeypatch.setattr(ObjectStorageClient, "delete", delete)
+    assert await sweep_relay_objects(sessions, now=utc_now() + timedelta(days=1)) == 2
+    await waiters[0]
 
 
 @pytest.mark.parametrize("held_by", ["uploading", "referenced_orphan"])

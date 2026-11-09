@@ -133,47 +133,54 @@ def _same_connection(relay: RelayObject, connection: ObjectStorageConnection | N
 
 
 async def sweep_relay_objects(session_factory: async_sessionmaker[AsyncSession], *, now: datetime | None = None) -> int:
-    """删除保留期已过的中转副本，返回本轮删除的数量。失败的记下原因，按退避时间重试。"""
+    """删除保留期已过的中转副本，返回本轮删除的数量。失败的记下原因，按退避时间重试。
+
+    连接锁按对象持有，与连接处置和入库上传串行，慢桶不会让等待连接锁的一方排到整轮结束。
+    """
     now = now or utc_now()
+    deleted = 0
+    for relay_id in await _due_relay_ids(session_factory, now):
+        async with connection_change_lock(), session_factory() as session:
+            relay = await session.get(RelayObject, relay_id)
+            if relay is None or relay.state != "retained":
+                continue
+            connection = await ObjectStorageConnectionRepository(session).get()
+            if connection is None or not _same_connection(relay, connection):
+                await session.delete(relay)
+            else:
+                deleted += await _delete_relay(relay, connection, now)
+            await session.commit()
+    return deleted
+
+
+async def _due_relay_ids(session_factory: async_sessionmaker[AsyncSession], now: datetime) -> list[int]:
     async with connection_change_lock(), session_factory() as session:
         stmt = select(RelayObject).where(RelayObject.state == "retained").order_by(RelayObject.id)
-        candidates = list((await session.execute(stmt)).scalars())
-        connection = await ObjectStorageConnectionRepository(session).get()
-        due: list[RelayObject] = []
-        for relay in candidates:
+        due: list[int] = []
+        for relay in (await session.execute(stmt)).scalars():
             if relay.next_attempt_at is not None and _aware(relay.next_attempt_at) > now:
                 continue
             link = await session.get(ProviderAssetLink, relay.link_id) if relay.link_id is not None else None
             if relay_deletable_at(relay, link) <= now:
-                due.append(relay)
-        if not due:
-            return 0
-        client = ObjectStorageClient(config_from_connection(connection)) if connection is not None else None
-        deleted = 0
-        for relay in due:
-            relay.delete_attempts += 1
-            if client is None or not _same_connection(relay, connection):
-                await session.delete(relay)
-                continue
-            try:
-                await client.delete(relay.object_key)
-            except ObjectStorageError as exc:
-                if exc.kind == "not_found":
-                    relay.state = "deleted"
-                    relay.deleted_at = now
-                    relay.last_error = None
-                    deleted += 1
-                    continue
-                relay.last_error = f"{exc.kind}:{exc.code}"[:128]
-                relay.next_attempt_at = now + _retry_delay(relay.delete_attempts)
-                logger.info("中转副本删除失败，稍后重试 relay=%s reason=%s", relay.id, relay.last_error)
-                continue
-            relay.state = "deleted"
-            relay.deleted_at = now
-            relay.last_error = None
-            deleted += 1
-        await session.commit()
-        return deleted
+                due.append(relay.id)
+        return due
+
+
+async def _delete_relay(relay: RelayObject, connection: ObjectStorageConnection, now: datetime) -> bool:
+    """删除一个到期的中转副本并更新记录；返回是否已删除，调用方负责提交。"""
+    relay.delete_attempts += 1
+    try:
+        await ObjectStorageClient(config_from_connection(connection)).delete(relay.object_key)
+    except ObjectStorageError as exc:
+        if exc.kind != "not_found":
+            relay.last_error = f"{exc.kind}:{exc.code}"[:128]
+            relay.next_attempt_at = now + _retry_delay(relay.delete_attempts)
+            logger.info("中转副本删除失败，稍后重试 relay=%s reason=%s", relay.id, relay.last_error)
+            return False
+    relay.state = "deleted"
+    relay.deleted_at = now
+    relay.last_error = None
+    return True
 
 
 __all__ = [

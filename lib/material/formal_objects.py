@@ -526,11 +526,15 @@ async def _delete_orphan(
     *,
     now: datetime | None = None,
 ) -> bool:
-    """删除一个待删除对象；调用方持有该对象的 key 锁并负责提交。返回是否已删除。"""
+    """删除一个待删除对象；调用方持有该对象的 key 锁并负责提交。返回是否已删除。
+
+    记录的连接、Endpoint 或桶与当前连接不符时无法履行删除：清除记录，不向当前桶按同名 key 删除。
+    """
     now = now or utc_now()
-    row.delete_attempts += 1
     if not same_connection(row, current):
+        await session.delete(row)
         return False
+    row.delete_attempts += 1
     if client is None:
         assert current is not None
         client = ObjectStorageClient(config_from_connection(current))
@@ -967,7 +971,7 @@ async def retain_formal_objects(
 
 
 async def holding_object_count(session: AsyncSession, connection_id: int) -> int:
-    """上传未确认，或有非入库引用的对象继续保护连接；调用方持有连接锁。"""
+    """上传未确认，或尚未删除且有非入库引用的对象继续保护连接；调用方持有连接锁。"""
     protected_ref = exists().where(
         FormalObjectRef.object_id == FormalObject.id,
         (~FormalObjectRef.project_name.startswith(INGEST_HOLDER_PREFIX)) | (FormalObjectRef.state == REF_PENDING),
@@ -977,7 +981,7 @@ async def holding_object_count(session: AsyncSession, connection_id: int) -> int
         .select_from(FormalObject)
         .where(
             FormalObject.connection_id == connection_id,
-            (FormalObject.state == "uploading") | protected_ref,
+            (FormalObject.state == "uploading") | ((FormalObject.state != "deleted") & protected_ref),
         )
     )
     return int((await session.execute(stmt)).scalar_one())

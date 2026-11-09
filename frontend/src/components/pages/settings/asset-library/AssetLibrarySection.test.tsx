@@ -179,6 +179,101 @@ describe("AssetLibrarySection", () => {
     expect(within(dialog).getByText(/有 3 个入库任务进行中/)).toBeInTheDocument();
   });
 
+  async function openBucketChange(
+    user: ReturnType<typeof userEvent.setup>,
+    renderSection: () => void = () => render(<AssetLibrarySection />),
+  ) {
+    vi.mocked(API.getObjectStorageConnection).mockResolvedValue({ ...LOCAL_ONLY, connection: CONNECTION });
+    vi.spyOn(API, "saveObjectStorageConnection").mockResolvedValue({ ...CONNECTION, cleanup_failures: {} });
+    renderSection();
+    await user.click(await screen.findByRole("button", { name: "编辑对象存储" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑对象存储" });
+    await user.type(within(dialog).getByLabelText("桶名"), "-2");
+    return dialog;
+  }
+
+  it("改桶默认清理时，保存先确认；取消不提交，焦点落在取消上", async () => {
+    const user = userEvent.setup();
+    const dialog = await openBucketChange(user);
+
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "保存连接并删除旧桶里的文件？" });
+    expect(API.saveObjectStorageConnection).not.toHaveBeenCalled();
+    await waitFor(() => expect(within(confirm).getByRole("button", { name: "取消" })).toHaveFocus());
+
+    await user.click(within(confirm).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(API.saveObjectStorageConnection).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "编辑对象存储" })).toBeInTheDocument();
+  });
+
+  it("在输入框按 Enter 提交改桶同样先确认，确认后才清理", async () => {
+    const user = userEvent.setup();
+    const dialog = await openBucketChange(user);
+
+    await user.type(within(dialog).getByLabelText("桶名"), "{Enter}");
+    const confirm = await screen.findByRole("alertdialog", { name: "保存连接并删除旧桶里的文件？" });
+    expect(API.saveObjectStorageConnection).not.toHaveBeenCalled();
+
+    await user.click(within(confirm).getByRole("button", { name: "保存并删除" }));
+    await waitFor(() =>
+      expect(API.saveObjectStorageConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ bucket: "old-relay-2", delete_remote_objects: true }),
+      ),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑对象存储" })).not.toBeInTheDocument());
+  });
+
+  it("确认清理后保存失败，错误显示在编辑对话框，修改保留", async () => {
+    const user = userEvent.setup();
+    const dialog = await openBucketChange(user);
+    vi.mocked(API.saveObjectStorageConnection).mockRejectedValueOnce(new Error("连接被占用"));
+
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "保存并删除" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    const editor = screen.getByRole("dialog", { name: "编辑对象存储" });
+    expect(await within(editor).findByRole("alert")).toHaveTextContent("连接被占用");
+    expect(within(editor).getByLabelText("桶名")).toHaveValue("old-relay-2");
+  });
+
+  it("离开拦截的保存并离开遇到改桶清理时，先确认，不直接删除", async () => {
+    const user = userEvent.setup();
+    const dialog = await openBucketChange(user, renderGuarded);
+
+    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "保存并离开" }));
+
+    expect(await screen.findByRole("alertdialog", { name: "保存连接并删除旧桶里的文件？" })).toBeInTheDocument();
+    expect(API.saveObjectStorageConnection).not.toHaveBeenCalled();
+  });
+
+  it("取消清理时，保存不再确认", async () => {
+    const user = userEvent.setup();
+    const dialog = await openBucketChange(user);
+    await user.click(within(dialog).getByRole("checkbox"));
+
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(API.saveObjectStorageConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ delete_remote_objects: false }),
+      ),
+    );
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("打开删除对话框时取最新的入库任务数", async () => {
+    vi.mocked(API.getObjectStorageConnection)
+      .mockResolvedValueOnce({ ...LOCAL_ONLY, connection: CONNECTION, pending_ingest_tasks: 0 })
+      .mockResolvedValue({ ...LOCAL_ONLY, connection: CONNECTION, pending_ingest_tasks: 2 });
+    const user = userEvent.setup();
+    render(<AssetLibrarySection />);
+    await user.click(await screen.findByRole("button", { name: "删除对象存储连接" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(await within(dialog).findByText(/有 2 个入库任务进行中/)).toBeInTheDocument();
+  });
+
   it("删除时可放弃桶内文件，变更结果显示一次失败原因和数量", async () => {
     vi.mocked(API.getObjectStorageConnection).mockResolvedValue({ ...LOCAL_ONLY, connection: CONNECTION });
     vi.spyOn(API, "deleteObjectStorageConnection").mockResolvedValue({ cleanup_failures: { denied: 2 } });
@@ -188,7 +283,14 @@ describe("AssetLibrarySection", () => {
     const dialog = await screen.findByRole("alertdialog");
     const cleanup = within(dialog).getByRole("checkbox", { name: "同时删除 ArcReel 写入桶里的待删除文件" });
     expect(cleanup).toBeChecked();
+    // 勾选与不勾选的说明各自准确，主说明不对 ArcReel 写入的文件作不删除承诺
+    expect(within(dialog).getByText(/勾选后，无引用的图片/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/未勾选时/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/桶里已有的对象不会被删除/)).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/不是 ArcReel 写入的对象不会被删除/)).toBeInTheDocument();
     await user.click(cleanup);
+    expect(within(dialog).getByText(/未勾选时，桶里 ArcReel 写入的这些文件不会被删除/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/勾选后，无引用的图片/)).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "删除" }));
     expect(await screen.findByText("没有删除权限：2 个文件")).toBeInTheDocument();
     expect(API.deleteObjectStorageConnection).toHaveBeenCalledWith(false);
