@@ -12,14 +12,12 @@ from lib.script.reference_video.request_projection import ReferenceUnitRequestPr
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 
 
-def render_reference_prompt_preview(
+def reference_prompt_preview_facts(
     *,
     project: dict,
     unit: dict,
     project_path: Path,
     projection: ReferenceUnitRequestProjection,
-    translate: Callable[..., str],
-    names: DisplayNames,
 ) -> dict[str, Any]:
     """只读渲染；时长待确认不妨碍查看文本，其他投影阻断项显式显示为不可用。
 
@@ -28,22 +26,23 @@ def render_reference_prompt_preview(
     result: dict[str, Any] = {
         "text": None,
         "unavailable": None,
+        "unavailable_params": {},
         "is_text_form": True,
         "references": [],
         "warnings": [],
     }
     blockers = [problem for problem in projection.blocking_problems if problem.code != DURATION_CONFIRMATION_CODE]
     if blockers:
-        result["unavailable"] = render_message(blockers[0].code, blockers[0].parameters(), translate, names)
+        result["unavailable"] = blockers[0].code
+        result["unavailable_params"] = blockers[0].parameters()
         return result
     request_facts = projection.request_facts
     if request_facts is None:
-        result["unavailable"] = translate(
-            "reference_capability_unavailable", capability=projection.hydrated_generation_type
-        )
+        result["unavailable"] = "reference_capability_unavailable"
+        result["unavailable_params"] = {"capability": projection.hydrated_generation_type}
         return result
     if not str(unit.get("text") or "").strip():
-        result["unavailable"] = translate("reference_prompt_preview_missing")
+        result["unavailable"] = "reference_prompt_preview_missing"
         return result
 
     rendered = render_video_unit_prompt(
@@ -64,7 +63,32 @@ def render_reference_prompt_preview(
         for asset in projection.request_assets
     ]
     result["warnings"] = [
-        *(render_message(problem.code, problem.parameters(), translate, names) for problem in projection.problems),
-        *(render_message(warning["key"], warning["params"], translate, names) for warning in rendered.warnings),
+        *({"key": problem.code, "params": problem.parameters()} for problem in projection.problems),
+        *rendered.warnings,
+    ]
+    return result
+
+
+def render_reference_prompt_preview(
+    *,
+    project: dict,
+    unit: dict,
+    project_path: Path,
+    projection: ReferenceUnitRequestProjection,
+    translate: Callable[..., str],
+    names: DisplayNames,
+) -> dict[str, Any]:
+    """将共享预览的原因码与警告渲染为 Web 文案。"""
+    result = reference_prompt_preview_facts(
+        project=project,
+        unit=unit,
+        project_path=project_path,
+        projection=projection,
+    )
+    params = result.pop("unavailable_params")
+    if result["unavailable"] is not None:
+        result["unavailable"] = render_message(result["unavailable"], params, translate, names)
+    result["warnings"] = [
+        render_message(warning["key"], warning["params"], translate, names) for warning in result["warnings"]
     ]
     return result
