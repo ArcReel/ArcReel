@@ -2772,6 +2772,7 @@ export default {
   'migration_adjustment_duplicate_asset_derivative_folded': 'Phái sinh “{{derivative}}” của nhân vật “{{name}}” trùng tên với phái sinh “{{into}}” của “{{kept}}”. Đã gộp vào “{{into}}”.',
   'migration_adjustment_duplicate_asset_references_rewritten': 'Trong {{episode}}, các tham chiếu đến {{assetType}} “{{name}}” đã được đổi thành “{{kept}}”.',
   'migration_adjustment_shared_reference_file_copied': '{{assetType}} “{{name}}” dùng tệp {{from}} thuộc “{{owner}}”. Đã sao chép thành {{file}} để dùng riêng.',
+  'migration_adjustment_missing_reference_preserved': '{{assetType}} “{{name}}” không đọc được {{from}}. Tham chiếu đã chuyển sang {{file}} và vẫn ở trạng thái thiếu; tệp chiếm đường dẫn đó được giữ làm bản sao lưu.',
   'migration_adjustment_placeholder_asset_added': 'Kịch bản dùng {{assetType}} “{{name}}” nhưng chưa được định nghĩa. Đã thêm một định nghĩa trống.',
   'migration_asset_type_character': 'nhân vật',
   'migration_asset_type_scene': 'bối cảnh',

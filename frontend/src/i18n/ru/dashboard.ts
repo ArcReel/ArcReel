@@ -2635,6 +2635,7 @@ export default {
   'migration_adjustment_duplicate_asset_derivative_folded': 'Производный вариант «{{derivative}}» персонажа «{{name}}» совпадает по названию с вариантом «{{into}}» у «{{kept}}». Он объединён с «{{into}}».',
   'migration_adjustment_duplicate_asset_references_rewritten': 'В {{episode}} ссылки на {{assetType}} «{{name}}» теперь указывают на «{{kept}}».',
   'migration_adjustment_shared_reference_file_copied': '{{assetType}} «{{name}}» использовал файл {{from}} из «{{owner}}». Теперь он использует собственную копию {{file}}.',
+  'migration_adjustment_missing_reference_preserved': '{{assetType}} «{{name}}» не мог прочитать {{from}}. Ссылка теперь указывает на {{file}}, который по-прежнему отсутствует; занимавший этот путь файл сохранён как резервная копия.',
   'migration_adjustment_placeholder_asset_added': 'В сценарии используется {{assetType}} «{{name}}», который не был определён. Для него добавлено пустое определение.',
   'migration_asset_type_character': 'персонаж',
   'migration_asset_type_scene': 'сцена',

@@ -753,30 +753,11 @@ def _named_file_fields(work: _Work) -> Iterator[tuple[str, str, dict[str, Any], 
 def _copy_shared_reference_files(work: _Work) -> None:
     """资产图与参考文件复制到本资产名下；互相引用时冻结源字节，引用提交失败则源文件与清单一并恢复供重试。"""
     fields = list(_named_file_fields(work))
-    sources: dict[str, Path] = {}
-    for _asset_type, _name, entry, field_name in fields:
-        value = entry.get(field_name)
-        for item in value if isinstance(value, list) else [value]:
-            if not isinstance(item, str) or not item:
-                continue
-            rel = _canonical_reference(work.project_dir, item)
-            if _named_file_owner(work.project, rel) is None:
-                continue
-            if field_name == "reference_audio" and PurePosixPath(rel).parent != PurePosixPath("characters/refs_audio"):
-                continue
-            path = PurePosixPath(rel)
-            if any(
-                (work.project_dir / part).is_symlink() for part in (path, *path.parents) if part != PurePosixPath(".")
-            ):
-                continue
-            source = try_safe_join(work.project_dir, rel)
-            if source is not None and source.is_file():
-                sources[rel] = source
-    content: dict[str, bytes] = {}
+    frozen: dict[str, bytes] = {}
     before = len(work.adjusted)
     #: 改指到副本的资产图：（资产类型, 名字, 旧值, 副本路径）。
     sheets: list[tuple[str, str, str, str]] = []
-    planned: dict[str, tuple[bytes, MigrationAdjustment]] = {}
+    planned: dict[str, tuple[bytes | None, MigrationAdjustment]] = {}
     pending = [
         (asset_type, name, entry, field_name, index, item)
         for asset_type, name, entry, field_name in fields
@@ -794,8 +775,7 @@ def _copy_shared_reference_files(work: _Work) -> None:
                 name,
                 field_name,
                 value,
-                sources,
-                content,
+                frozen,
                 planned,
                 siblings=entry[field_name] if index is not None else None,
             )
@@ -814,7 +794,9 @@ def _copy_shared_reference_files(work: _Work) -> None:
     manifest = work.project_dir / MANIFEST_FILENAME
     try:
         with (
-            formal_write_transaction(work.project_dir / "project.json", manifest, *(sources[rel] for rel in content)),
+            formal_write_transaction(
+                work.project_dir / "project.json", manifest, *(work.project_dir / rel for rel in frozen)
+            ),
             contextlib.ExitStack() as copies,
         ):
             for target_rel, (data, adjustment) in planned.items():
@@ -823,10 +805,11 @@ def _copy_shared_reference_files(work: _Work) -> None:
                 if target.is_symlink() or (target.exists() and not (target.is_file() and target.read_bytes() == data)):
                     backup = work.rel(copies.enter_context(_displaced_copy(target, work.schema_version)))
                     adjustment = adjustment.model_copy(update={"backup": backup})
-                if not target.is_file():
+                if data is not None and not target.is_file():
                     target.parent.mkdir(parents=True, exist_ok=True)
                     atomic_write_bytes(target, data)
-                work.adjusted.append(adjustment)
+                if data is not None or adjustment.backup is not None:
+                    work.adjusted.append(adjustment)
             if planned:
                 work.project_changed = True
                 _carry_sheet_claims(work, sheets)
@@ -882,36 +865,43 @@ def _plan_reference_copy(
     name: str,
     field_name: str,
     value: object,
-    sources: dict[str, Path],
     frozen: dict[str, bytes],
-    planned: dict[str, tuple[bytes, MigrationAdjustment]],
+    planned: dict[str, tuple[bytes | None, MigrationAdjustment]],
     *,
     siblings: list[Any] | None = None,
 ) -> str | None:
-    """规划跨资产副本与被副本占用的本资产引用；不必改指时返回 ``None``。"""
+    """规划跨资产副本与落点被副本占用的引用；不必改指时返回 ``None``。
+
+    引用本就读不到内容（文件缺失或路径含符号链接）而落点要写入副本时，改指到同样没有文件的本资产落点，
+    继续读作缺失；该落点已被占用时把占用文件挪成保留副本，并同步处理它的引用。
+    """
 
     spec = ASSET_SPECS[asset_type]
     if not isinstance(value, str) or not value:
         return None
     rel = _canonical_reference(work.project_dir, value)
-    owned = owns_named_file(spec, name, rel)
-    if owned and rel not in planned:
-        return None
+    collided = _planned_target_at(work.project_dir, rel, planned)
     owner = _named_file_owner(work.project, rel)
+    # 本资产名下或不归任何资产的路径原本不必复制，只有落点要写入副本时才让位。
+    stays_put = owns_named_file(spec, name, rel) or owner is None
+    if stays_put and collided is None:
+        return None
     target_dir = PurePosixPath(spec.subdir)
     if field_name != spec.sheet_field:
         target_dir /= _REFERENCE_FILE_SUBDIRS[field_name]
     # 参考音频只认角色参考音频目录里的文件，别处的值本就不生效，复制过来反倒让它生效。
-    if owner is None or (field_name == "reference_audio" and PurePosixPath(rel).parent != target_dir):
+    if field_name == "reference_audio" and PurePosixPath(rel).parent != target_dir:
         return None
-    source = sources.get(rel)
-    if source is None:
+    source = _copy_source(work.project_dir, rel)
+    if source is None and collided is None:
         return None
-    if rel not in frozen:
-        frozen[rel] = source.read_bytes()
-    content = frozen[rel]
-    if owned and planned[rel][0] == content:
-        return None
+    content: bytes | None = None
+    if source is not None:
+        if rel not in frozen:
+            frozen[rel] = source.read_bytes()
+        content = frozen[rel]
+        if stays_put and collided is not None and planned[collided][0] == content:
+            return None
     if any(
         (work.project_dir / directory).is_symlink()
         for directory in (target_dir, *target_dir.parents)
@@ -923,15 +913,51 @@ def _plan_reference_copy(
         target_rel = (target_dir / f"{stem}{suffix}").as_posix()
     else:
         target_rel = _sequenced_copy_target(work, spec, target_dir, stem, suffix, content, siblings, planned)
+    owner_name = owner[1] if owner is not None else planned[cast(str, collided)][1].params["name"]
     planned[target_rel] = (
         content,
         MigrationAdjustment(
-            code="shared_reference_file_copied",
+            code="shared_reference_file_copied" if content is not None else "missing_reference_preserved",
             file=target_rel,
-            params={"asset_type": asset_type, "name": name, "owner": owner[1], "from": rel},
+            params={"asset_type": asset_type, "name": name, "owner": owner_name, "from": rel},
         ),
     )
     return target_rel
+
+
+def _planned_target_at(
+    project_dir: Path, rel: str, planned: dict[str, tuple[bytes | None, MigrationAdjustment]]
+) -> str | None:
+    """*rel* 落在哪个副本落点上；大小写或 Unicode 不敏感的文件系统上，写法不同的路径可能是同一文件。"""
+
+    if rel in planned:
+        return rel
+    path = project_dir / rel
+    if not planned:
+        return None
+    return next(
+        (
+            target
+            for target in planned
+            if (
+                path.samefile(project_dir / target)
+                if path.exists() and (project_dir / target).exists()
+                # 悬空引用没有文件身份可比，保守预留大小写与 Unicode 等价写法，避免写入后接管它。
+                else normalize_asset_name(rel).casefold() == normalize_asset_name(target).casefold()
+            )
+        ),
+        None,
+    )
+
+
+def _copy_source(project_dir: Path, rel: str) -> Path | None:
+    """*rel* 可以作为复制来源时返回文件路径；不在项目内、路径含符号链接或不是文件时为 ``None``。"""
+
+    path = PurePosixPath(rel)
+    if any((project_dir / part).is_symlink() for part in (path, *path.parents) if part != PurePosixPath(".")):
+        return None
+    source = try_safe_join(project_dir, rel)
+    return source if source is not None and source.is_file() else None
 
 
 @contextlib.contextmanager
@@ -951,15 +977,20 @@ def _sequenced_copy_target(
     target_dir: PurePosixPath,
     stem: str,
     suffix: str,
-    content: bytes,
+    content: bytes | None,
     siblings: list[Any],
-    planned: dict[str, tuple[bytes, MigrationAdjustment]],
+    planned: dict[str, tuple[bytes | None, MigrationAdjustment]],
 ) -> str:
     """多图序列里新副本的落点：已有同字节、尚未登记的本资产文件就用它（重跑收敛），否则取最小的空闲序号。"""
 
     listed = {item.replace("\\", "/") for item in siblings if isinstance(item, str)}
     directory = work.project_dir.joinpath(*target_dir.parts)
-    taken = {PurePosixPath(rel).stem for rel in planned if PurePosixPath(rel).parent == target_dir}
+    # 序列里已声明的序号即使文件缺失也算占用，否则新副本会成为那一项读到的内容。
+    taken = {
+        normalize_asset_name(PurePosixPath(rel).stem)
+        for rel in (*planned, *listed)
+        if PurePosixPath(rel).parent == target_dir
+    }
     for existing in sorted(directory.iterdir()) if directory.is_dir() else ():
         existing_rel = (target_dir / existing.name).as_posix()
         if not owns_named_file(spec, stem, existing_rel):

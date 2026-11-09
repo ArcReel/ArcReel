@@ -283,6 +283,7 @@ export type WorkflowMigrationAdjustmentCode =
   | "duplicate_asset_derivative_merged"
   | "duplicate_asset_references_rewritten"
   | "shared_reference_file_copied"
+  | "missing_reference_preserved"
   | "placeholder_asset_added";
 
 export interface WorkflowMigrationAdjustment {

@@ -1256,6 +1256,15 @@ def share_a_sheet_with_an_occupied_copy_target(project_dir: Path) -> None:
     _write_json(project_path, project)
 
 
+def share_a_sheet_with_a_missing_reference_and_occupied_target(project_dir: Path) -> None:
+    """缺失原图指向资产图副本落点，原图自己的规范落点又被孤立文件占用。"""
+    share_a_sheet_with_an_occupied_copy_target(project_dir)
+    (project_dir / "characters/Bob.png").unlink()
+    target = project_dir / "characters/refs/Bob.png"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"orphan-reference")
+
+
 def share_reference_files_with_occupied_targets(project_dir: Path, directory: str) -> None:
     """参考图或音频副本的落点仍被资产图引用，音频落点还同时被原图引用。"""
     project_path = project_dir / "project.json"

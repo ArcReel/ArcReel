@@ -56,6 +56,7 @@ from tests.legacy_project_shapes import (
     repoint_registered_asset_sheet,
     reuse_item_id_across_episodes,
     set_script_episode,
+    share_a_sheet_with_a_missing_reference_and_occupied_target,
     share_a_sheet_with_an_occupied_copy_target,
     share_asset_sheets,
     share_derivative_sheet,
@@ -519,6 +520,153 @@ def test_product_reference_lists_keep_distinct_reserved_copy_targets(tmp_path: P
         b"Bob-reference",
     ]
     assert len(set(tea["reference_images"])) == 3
+
+
+@pytest.mark.parametrize("occupant", ["missing", "symlink"])
+def test_a_copy_does_not_become_the_content_of_an_unreadable_reference(tmp_path: Path, occupant: str) -> None:
+    manager = ProjectManager(tmp_path)
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    share_a_sheet_with_an_occupied_copy_target(project_dir)
+    target = project_dir / "characters/Bob.png"
+    target.unlink()
+    if occupant == "symlink":
+        (project_dir / "outside.bin").write_bytes(b"linked")
+        target.symlink_to(project_dir / "outside.bin")
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    bob = _read_json(project_path)["characters"]["Bob"]
+    assert (project_dir / bob["character_sheet"]).read_bytes() == b"Alice-sheet"
+    assert bob["reference_image"] == "characters/refs/Bob.png"
+    assert not (project_dir / bob["reference_image"]).exists()
+    assert not runner.migrate_project_dir(project_dir)
+
+
+@pytest.mark.parametrize("from_version", [5, CURRENT_PROJECT_SCHEMA_VERSION - 1])
+@pytest.mark.parametrize("spelling", ["Bob.png", "bob.png", "Bob.PNG", "Bo\u0301b.png"])
+@pytest.mark.parametrize("referenced", [False, True])
+def test_a_missing_reference_stays_missing_when_its_own_target_is_occupied(
+    tmp_path: Path, from_version: int, spelling: str, referenced: bool
+) -> None:
+    manager = ProjectManager(tmp_path)
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    share_a_sheet_with_a_missing_reference_and_occupied_target(project_dir)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = from_version
+    name = "Bób" if spelling == "Bo\u0301b.png" else "Bob"
+    bob = project["characters"].pop("Bob")
+    bob["reference_image"] = f"characters/{spelling}"
+    project["characters"][name] = bob
+    target = f"characters/refs/{name}{Path(spelling).suffix}"
+    (project_dir / "characters/refs/Bob.png").rename(project_dir / target)
+    if referenced:
+        project["characters"]["Alice"]["reference_image"] = target
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    migrated = _read_json(project_path)["characters"]
+    bob = migrated[name]
+    assert (project_dir / bob["character_sheet"]).read_bytes() == b"Alice-sheet"
+    assert bob["reference_image"] == f"characters/refs/{name}{Path(spelling).suffix}"
+    assert not (project_dir / bob["reference_image"]).exists()
+    if referenced:
+        assert (project_dir / migrated["Alice"]["reference_image"]).read_bytes() == b"orphan-reference"
+    report = load_migration_report(project_dir)
+    assert report is not None
+    backups = [project_dir / item.backup for item in report.adjusted if item.backup]
+    assert any(path.read_bytes() == b"orphan-reference" for path in backups)
+    status = WorkflowStateService(manager).get_status("demo").artifacts["asset_sheets"]
+    assert name in status["character"]["current_ids" if from_version == 5 else "missing_ids"]
+    after = {path.relative_to(project_dir): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
+    assert not runner.migrate_project_dir(project_dir)
+    assert {
+        path.relative_to(project_dir): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()
+    } == after
+
+
+def test_clearing_a_missing_references_target_rolls_back_on_commit_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = ProjectManager(tmp_path)
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    share_a_sheet_with_a_missing_reference_and_occupied_target(project_dir)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    before = {path.relative_to(project_dir): path.read_bytes() for path in project_dir.rglob("*") if path.is_file()}
+    write_json = legacy_shapes.atomic_write_json
+
+    def fail_on_project(path: Path, payload: Any) -> None:
+        if path == project_path:
+            raise OSError("disk full")
+        write_json(path, payload)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project)
+        with pytest.raises(OSError, match="disk full"):
+            runner.migrate_project_dir(project_dir)
+    assert all((project_dir / rel).read_bytes() == data for rel, data in before.items())
+    assert not (project_dir / "characters/Bob.png").exists()
+    assert not list(project_dir.rglob("*.kept.*"))
+
+    _migrate(project_dir)
+
+    bob = _read_json(project_path)["characters"]["Bob"]
+    assert (project_dir / bob["character_sheet"]).read_bytes() == b"Alice-sheet"
+    assert not (project_dir / bob["reference_image"]).exists()
+    assert [p.read_bytes() for p in project_dir.rglob("*.kept.*")] == [b"orphan-reference"]
+
+
+@pytest.mark.parametrize("spelling", ["characters/bob.png", "characters/Bob.PNG"])
+def test_a_differently_spelled_reference_to_the_copy_target_keeps_its_content(tmp_path: Path, spelling: str) -> None:
+    manager = ProjectManager(tmp_path)
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    share_a_sheet_with_an_occupied_copy_target(project_dir)
+    if not (project_dir / spelling).exists():
+        pytest.skip("filesystem distinguishes the two spellings, so they are different files")
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project["characters"]["Bob"]["reference_image"] = spelling
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    bob = _read_json(project_path)["characters"]["Bob"]
+    assert (project_dir / bob["character_sheet"]).read_bytes() == b"Alice-sheet"
+    assert (project_dir / bob["reference_image"]).read_bytes() == b"Bob-reference"
+
+
+def test_a_list_copy_skips_the_sequence_slot_of_a_missing_sibling(tmp_path: Path) -> None:
+    manager = ProjectManager(tmp_path)
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    share_a_sheet_with_an_occupied_copy_target(project_dir)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project["products"] = {
+        "Tea": {"description": "Tea", "reference_images": ["products/refs/Tea_1.png", "characters/Bob.png"]}
+    }
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    images = _read_json(project_path)["products"]["Tea"]["reference_images"]
+    assert images == ["products/refs/Tea_1.png", "products/refs/Tea_2.png"]
+    assert not (project_dir / images[0]).exists()
+    assert (project_dir / images[1]).read_bytes() == b"Bob-reference"
 
 
 @pytest.mark.parametrize("failure", ["copy", "project"])
