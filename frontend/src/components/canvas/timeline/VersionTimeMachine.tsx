@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useId, useState, type RefObject } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, Download, History } from "lucide-react";
+import { ChevronDown, Download, History, Loader2, Trash2 } from "lucide-react";
 import { cn } from "cn";
 import { API, type VersionInfo } from "@/api";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
+import { dismissOnEscape, dismissOnFocusLeave } from "@/utils/inline-confirm";
 import { useTrackWrite } from "@/components/canvas/lorebook/useAssetWrites";
 import { PresentationPlayer } from "@/components/shared/PresentationPlayer";
 
@@ -66,9 +67,216 @@ interface VersionSelection {
   version: number;
 }
 
+interface VersionDeleteButtonProps {
+  version: number;
+  /** 不可删除的原因（当前版本、资源占用）；非空时图标置灰并说明，保留聚焦让键盘和读屏读得到原因。 */
+  disabledReason: string | null;
+  /** 同一面板有别的版本写请求在途：暂时不可操作，请求结束即恢复，不另作说明。 */
+  blocked: boolean;
+  deleting: boolean;
+  onConfirm: () => Promise<void>;
+}
+
+/** 版本旁的删除图标：点一下原地变成确认按钮，再点才移入项目回收站；Esc 或焦点离开即取消。 */
+function VersionDeleteButton({ version, disabledReason, blocked, deleting, onConfirm }: VersionDeleteButtonProps) {
+  const { t } = useTranslation("dashboard");
+  const [confirming, setConfirming] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef(false);
+
+  useEffect(() => {
+    if (confirming) {
+      confirmRef.current?.focus();
+    } else if (returnFocusRef.current) {
+      returnFocusRef.current = false;
+      triggerRef.current?.focus();
+    }
+  }, [confirming]);
+
+  const dismiss = (returnFocus: boolean) => {
+    if (deleting) return;
+    returnFocusRef.current = returnFocus;
+    setConfirming(false);
+  };
+
+  if (confirming) {
+    return (
+      <Button
+        ref={confirmRef}
+        variant="destructive"
+        size="xs"
+        aria-label={t("version_delete_confirm_label", { version })}
+        // 确认期间版本变成当前版本或资源被占用时实时禁用；删除成功后这一项随版本移出而卸载
+        disabled={deleting || blocked || disabledReason !== null}
+        onBlur={(event) => dismissOnFocusLeave(event, dismiss)}
+        onKeyDown={(event) => dismissOnEscape(event, dismiss)}
+        onClick={(event) => {
+          // 双击图标的第二下落在同一位置，不算确认
+          if (event.detail > 1) return;
+          void onConfirm().finally(() => {
+            returnFocusRef.current = true;
+            setConfirming(false);
+          });
+        }}
+      >
+        {deleting ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
+        {t("version_delete_confirm")}
+      </Button>
+    );
+  }
+
+  const label = disabledReason ?? t("version_delete_label", { version });
+  return (
+    <span className={cn("inline-flex", disabledReason !== null && "cursor-not-allowed opacity-50")}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              ref={triggerRef}
+              variant="ghost"
+              size="icon-xs"
+              aria-label={label}
+              aria-disabled={disabledReason !== null || undefined}
+              disabled={blocked}
+              onClick={disabledReason === null ? () => setConfirming(true) : undefined}
+            />
+          }
+        >
+          <Trash2 aria-hidden />
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </span>
+  );
+}
+
+interface VersionDetailProps {
+  info: VersionInfo;
+  projectName: string;
+  resourceType: VersionTimeMachineProps["resourceType"];
+  resourceId: string;
+  readOnly: boolean;
+  busy: boolean;
+  writing: boolean;
+  restoringVersion: number | null;
+  onRestore: (version: number) => void;
+}
+
+/** 选中版本的预览卡片：媒体、生成说明，以及切换为当前版本的入口。 */
+function VersionDetail({
+  info,
+  projectName,
+  resourceType,
+  resourceId,
+  readOnly,
+  busy,
+  writing,
+  restoringVersion,
+  onRestore,
+}: VersionDetailProps) {
+  const { t } = useTranslation("dashboard");
+  const busyHintId = useId();
+  return (
+    <div className="flex flex-col gap-2 rounded-md bg-muted/50 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className="num text-sm font-medium">v{info.version}</span>
+          {info.source === "image_edit" && (
+            <Badge variant="outline">{t("version_image_edit_badge")}</Badge>
+          )}
+          <span className="num text-xs text-subtle-foreground">{info.created_at}</span>
+        </span>
+        {info.is_current ? (
+          <Badge variant="secondary">{t("current_version_badge")}</Badge>
+        ) : !readOnly && info.restorable !== false ? (
+          <Button
+            size="xs"
+            disabled={writing || busy}
+            aria-describedby={busy ? busyHintId : undefined}
+            onClick={() => onRestore(info.version)}
+          >
+            {restoringVersion === info.version ? t("switching_version") : t("switch_to_version")}
+          </Button>
+        ) : null}
+      </div>
+      {busy && !info.is_current && !readOnly && info.restorable !== false ? (
+        <p id={busyHintId} className="text-xs text-subtle-foreground">
+          {t("version_restore_busy_hint")}
+        </p>
+      ) : null}
+
+      {info.file_url &&
+        (resourceType === "videos" || resourceType === "reference_videos" ? (
+          <div className="aspect-video w-full overflow-hidden rounded-md bg-black">
+            {info.presentation_available !== true ? (
+              // eslint-disable-next-line jsx-a11y/media-has-caption -- 无法进入共享成片读取器的历史视频仅展示原始媒体
+              <video
+                src={info.file_url}
+                aria-label={t("version_preview_alt", { version: info.version })}
+                className="size-full object-contain"
+                controls
+                playsInline
+                preload="none"
+              />
+            ) : (
+              <PresentationPlayer
+                key={`${resourceType}:${resourceId}:${info.version}`}
+                projectName={projectName}
+                resourceType={resourceType}
+                resourceId={resourceId}
+                videoVersion={info.version}
+              />
+            )}
+          </div>
+        ) : resourceType === "audio" ? (
+          // eslint-disable-next-line jsx-a11y/media-has-caption -- 历史旁白的文字记录显示在同一预览卡片
+          <audio
+            src={info.file_url}
+            aria-label={t("version_audio_preview_label", { version: info.version })}
+            className="h-9 w-full"
+            controls
+            preload="metadata"
+          />
+        ) : (
+          <div
+            className={cn(
+              "flex w-full items-center justify-center rounded-md bg-background p-2",
+              getImagePreviewHeightClass(resourceType),
+            )}
+          >
+            <img
+              src={info.file_url}
+              alt={t("version_preview_alt", { version: info.version })}
+              className="max-h-full w-full object-contain"
+            />
+          </div>
+        ))}
+
+      {resourceType === "audio" && info.file_url && (
+        <a
+          href={info.file_url}
+          download
+          className={cn(buttonVariants({ variant: "outline", size: "xs" }), "self-start")}
+        >
+          <Download aria-hidden data-icon="inline-start" />
+          {t("version_download_audio")}
+        </a>
+      )}
+
+      <p className="line-clamp-4 text-xs text-subtle-foreground">
+        {info.prompt ||
+          (info.source === "manual_upload"
+            ? t("version_manual_upload")
+            : t("version_no_notes"))}
+      </p>
+    </div>
+  );
+}
+
 /**
  * 资源的历史版本：触发按钮打开弹层，列出版本号，选中一个即预览媒体与生成说明，
- * 非当前版本可切换为当前。弹层随触发按钮定位，滚动时跟随，不会自行关闭。
+ * 非当前版本可切换为当前或移入项目回收站。弹层随触发按钮定位，滚动时跟随，不会自行关闭。
  */
 export function VersionTimeMachine({
   projectName,
@@ -87,7 +295,6 @@ export function VersionTimeMachine({
   const { t } = useTranslation(["dashboard", "common"]);
   const track = useTrackWrite();
   const titleId = useId();
-  const busyHintId = useId();
   const resourcePath =
     resourceType === "storyboards" ? `storyboards/scene_${resourceId}.png` :
     resourceType === "videos" ? `videos/scene_${resourceId}.mp4` :
@@ -117,21 +324,35 @@ export function VersionTimeMachine({
       ? selection.version
       : null;
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
+  const [deletingVersion, setDeletingVersion] = useState<number | null>(null);
+  const writing = restoringVersion !== null || deletingVersion !== null;
+  const currentPillRef = useRef<HTMLButtonElement>(null);
+  const focusCurrentAfterDeleteRef = useRef(false);
+  // 删除失败后的补拉不切加载态：列表整块换成加载文字会丢掉键盘焦点
+  const silentReloadRef = useRef(false);
+  // 面板会随选中项复用：删除返回时资源可能已切换，结果不能落到另一份资源的列表上
+  const resourceKey = `${projectName}:${resourcePath}`;
+  const resourceKeyRef = useRef(resourceKey);
+  useEffect(() => {
+    resourceKeyRef.current = resourceKey;
+  }, [resourceKey]);
   const setOpen = (next: boolean) => {
-    if (!next && restoringVersion !== null) return;
+    if (!next && writing) return;
     if (controlled) onOpenChange?.(next);
     else setUncontrolledOpen(next);
   };
 
   const loadVersions = useCallback(async (signal: AbortSignal) => {
-    setLoading(true);
+    const silent = silentReloadRef.current;
+    silentReloadRef.current = false;
+    if (!silent) setLoading(true);
     try {
       const data = await API.getVersions(projectName, resourceType, resourceId, { signal });
       if (signal.aborted) return;
       setVersions(data.versions);
       setCurrentVersion(data.current_version);
     } catch {
-      if (!signal.aborted) setVersions([]);
+      if (!signal.aborted && !silent) setVersions([]);
     } finally {
       // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中复位；被 abort 时由接管的新一轮加载负责复位
       if (!signal.aborted) setLoading(false);
@@ -146,11 +367,18 @@ export function VersionTimeMachine({
     return () => controller.abort();
   }, [open, resourceId, resourceFp, reload, loadVersions]);
 
+  // 删除成功后焦点所在的按钮随版本移出而消失，交给当前版本（预览也回到它）
+  useEffect(() => {
+    if (!focusCurrentAfterDeleteRef.current) return;
+    focusCurrentAfterDeleteRef.current = false;
+    // 面板打开期间焦点可能已被用户移到别处，只接管确实丢失的焦点
+    if (document.activeElement === document.body) currentPillRef.current?.focus();
+  }, [versions]);
 
   async function handleRestore(version: number) {
     // disabled 是响应式的 restoringVersion/busy：面板打开期间资源转为占用中时随之更新，
     // 这里兜底防止禁用态生效前的一次点击仍发出恢复请求。
-    if (busy || restoringVersion !== null) return;
+    if (busy || writing) return;
     // 渲染快照之外再做一次新鲜读：状态已变、渲染未到的窗口里按钮仍可点。
     if (checkBusy?.()) {
       useAppStore.getState().pushToast(t("version_restore_busy_hint"), "error");
@@ -181,6 +409,55 @@ export function VersionTimeMachine({
     } finally {
       setRestoringVersion(null);
       onRestoringChange?.(false);
+    }
+  }
+
+  async function handleDelete(info: VersionInfo) {
+    const path = info.file;
+    // 占用期间不删：生成结算失败时要回退到上一个当前版本，版本记录被删后回退无处可去
+    if (!path || busy || writing) return;
+    if (checkBusy?.()) {
+      useAppStore.getState().pushToast(t("version_delete_busy_hint"), "error");
+      return;
+    }
+    const { version } = info;
+    const startedFor = resourceKey;
+    setDeletingVersion(version);
+    try {
+      await track((async () => {
+        const { record } = await API.deleteFileViewEntry(projectName, path);
+        useAppStore.getState().pushToast(t("version_moved_to_trash", { version }), "info", {
+          action: {
+            label: t("trash_restore"),
+            onClick: () => {
+              API.restoreTrashRecord(projectName, record.id)
+                .then(() => setReload((current) => current + 1))
+                .catch((error: unknown) => {
+                  useAppStore.getState().pushToast(t("trash_action_failed", { message: errMsg(error) }), "error");
+                })
+                .finally(() => useAppStore.getState().invalidateTrash());
+            },
+          },
+        });
+        if (resourceKeyRef.current !== startedFor) return;
+        focusCurrentAfterDeleteRef.current = true;
+        setVersions((current) => current.filter((v) => v.version !== version));
+        setSelection((current) =>
+          current?.projectName === projectName && current.resourcePath === resourcePath && current.version === version
+            ? currentVersion > 0 ? { ...current, version: currentVersion } : null
+            : current,
+        );
+      })());
+    } catch (err) {
+      useAppStore.getState().pushToast(t("version_delete_failed", { version, message: errMsg(err) }), "error");
+      // 失败多半因为列表已过期（别处切换了当前版本或已删除）
+      if (resourceKeyRef.current === startedFor) {
+        silentReloadRef.current = true;
+        setReload((current) => current + 1);
+      }
+    } finally {
+      setDeletingVersion(null);
+      useAppStore.getState().invalidateTrash();
     }
   }
 
@@ -247,107 +524,38 @@ export function VersionTimeMachine({
               }
             >
               {versions.map((v) => (
-                <ToggleGroupItem key={v.version} value={String(v.version)}>
-                  <span className="num">v{v.version}</span>
-                  {v.is_current ? <span aria-hidden className="size-1.5 rounded-full bg-primary" /> : null}
-                </ToggleGroupItem>
+                <div key={`${resourceKey}:${v.version}`} className="flex flex-wrap items-center">
+                  <ToggleGroupItem ref={v.is_current ? currentPillRef : undefined} value={String(v.version)}>
+                    <span className="num">v{v.version}</span>
+                    {v.is_current ? <span aria-hidden className="size-1.5 rounded-full bg-primary" /> : null}
+                  </ToggleGroupItem>
+                  {!readOnly && (v.is_current || v.file) ? (
+                    <VersionDeleteButton
+                      version={v.version}
+                      disabledReason={
+                        v.is_current ? t("version_delete_current_hint") : busy ? t("version_delete_busy_hint") : null
+                      }
+                      blocked={writing}
+                      deleting={deletingVersion === v.version}
+                      onConfirm={() => handleDelete(v)}
+                    />
+                  ) : null}
+                </div>
               ))}
             </ToggleGroup>
 
             {selectedInfo ? (
-              <div className="flex flex-col gap-2 rounded-md bg-muted/50 p-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                    <span className="num text-sm font-medium">v{selectedInfo.version}</span>
-                    {selectedInfo.source === "image_edit" && (
-                      <Badge variant="outline">{t("version_image_edit_badge")}</Badge>
-                    )}
-                    <span className="num text-xs text-subtle-foreground">{selectedInfo.created_at}</span>
-                  </span>
-                  {selectedInfo.is_current ? (
-                    <Badge variant="secondary">{t("current_version_badge")}</Badge>
-                  ) : !readOnly && selectedInfo.restorable !== false ? (
-                    <Button
-                      size="xs"
-                      disabled={restoringVersion !== null || busy}
-                      aria-describedby={busy ? busyHintId : undefined}
-                      onClick={() => void handleRestore(selectedInfo.version)}
-                    >
-                      {restoringVersion === selectedInfo.version ? t("switching_version") : t("switch_to_version")}
-                    </Button>
-                  ) : null}
-                </div>
-                {busy && !selectedInfo.is_current && !readOnly && selectedInfo.restorable !== false ? (
-                  <p id={busyHintId} className="text-xs text-subtle-foreground">
-                    {t("version_restore_busy_hint")}
-                  </p>
-                ) : null}
-
-                {selectedInfo.file_url &&
-                  (resourceType === "videos" || resourceType === "reference_videos" ? (
-                    <div className="aspect-video w-full overflow-hidden rounded-md bg-black">
-                      {selectedInfo.presentation_available !== true ? (
-                        // eslint-disable-next-line jsx-a11y/media-has-caption -- 无法进入共享成片读取器的历史视频仅展示原始媒体
-                        <video
-                          src={selectedInfo.file_url}
-                          aria-label={t("version_preview_alt", { version: selectedInfo.version })}
-                          className="size-full object-contain"
-                          controls
-                          playsInline
-                          preload="none"
-                        />
-                      ) : (
-                        <PresentationPlayer
-                          key={`${resourceType}:${resourceId}:${selectedInfo.version}`}
-                          projectName={projectName}
-                          resourceType={resourceType}
-                          resourceId={resourceId}
-                          videoVersion={selectedInfo.version}
-                        />
-                      )}
-                    </div>
-                  ) : resourceType === "audio" ? (
-                    // eslint-disable-next-line jsx-a11y/media-has-caption -- 历史旁白的文字记录显示在同一预览卡片
-                    <audio
-                      src={selectedInfo.file_url}
-                      aria-label={t("version_audio_preview_label", { version: selectedInfo.version })}
-                      className="h-9 w-full"
-                      controls
-                      preload="metadata"
-                    />
-                  ) : (
-                    <div
-                      className={cn(
-                        "flex w-full items-center justify-center rounded-md bg-background p-2",
-                        getImagePreviewHeightClass(resourceType),
-                      )}
-                    >
-                      <img
-                        src={selectedInfo.file_url}
-                        alt={t("version_preview_alt", { version: selectedInfo.version })}
-                        className="max-h-full w-full object-contain"
-                      />
-                    </div>
-                  ))}
-
-                {resourceType === "audio" && selectedInfo.file_url && (
-                  <a
-                    href={selectedInfo.file_url}
-                    download
-                    className={cn(buttonVariants({ variant: "outline", size: "xs" }), "self-start")}
-                  >
-                    <Download aria-hidden data-icon="inline-start" />
-                    {t("version_download_audio")}
-                  </a>
-                )}
-
-                <p className="line-clamp-4 text-xs text-subtle-foreground">
-                  {selectedInfo.prompt ||
-                    (selectedInfo.source === "manual_upload"
-                      ? t("version_manual_upload")
-                      : t("version_no_notes"))}
-                </p>
-              </div>
+              <VersionDetail
+                info={selectedInfo}
+                projectName={projectName}
+                resourceType={resourceType}
+                resourceId={resourceId}
+                readOnly={readOnly}
+                busy={busy}
+                writing={writing}
+                restoringVersion={restoringVersion}
+                onRestore={(version) => void handleRestore(version)}
+              />
             ) : (
               <p className="text-xs text-subtle-foreground">{t("version_click_hint")}</p>
             )}

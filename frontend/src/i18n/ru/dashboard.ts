@@ -2245,6 +2245,13 @@ export default {
   'version_image_edit_badge': 'Изменено',
   'version_audio_preview_label': 'Аудиоверсия закадрового текста v{{version}}',
   'version_download_audio': 'Скачать аудио',
+  'version_delete_label': "Переместить v{{version}} в корзину проекта",
+  'version_delete_confirm': "Переместить в корзину проекта?",
+  'version_delete_confirm_label': "v{{version}}: Переместить в корзину проекта?",
+  'version_delete_current_hint': "Текущую версию нельзя удалить. Сначала переключитесь на другую версию",
+  'version_delete_busy_hint': "Идёт генерация или редактирование, сейчас нельзя удалить версию",
+  'version_moved_to_trash': "v{{version}} перемещена в корзину проекта и будет храниться 30 дней",
+  'version_delete_failed': "Не удалось удалить v{{version}}: {{message}}",
 
   // ProjectCard - more actions
   'more_actions': 'Другие действия',

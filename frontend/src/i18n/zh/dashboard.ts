@@ -2179,6 +2179,13 @@ export default {
   'version_image_edit_badge': '编辑',
   'version_audio_preview_label': '旁白配音版本 v{{version}}',
   'version_download_audio': '下载音频',
+  'version_delete_label': "将 v{{version}} 移入项目回收站",
+  'version_delete_confirm': "移入项目回收站？",
+  'version_delete_confirm_label': "v{{version}}：移入项目回收站？",
+  'version_delete_current_hint': "当前版本不能删除，先切换到其他版本",
+  'version_delete_busy_hint': "生成或编辑进行中，暂无法删除版本",
+  'version_moved_to_trash': "v{{version}} 已移入项目回收站，保留 30 天",
+  'version_delete_failed': "无法删除 v{{version}}：{{message}}",
 
   // ProjectCard - more actions
   'more_actions': '更多操作',
