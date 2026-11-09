@@ -395,7 +395,7 @@
       }
     },
     "referenceImageTarget": {
-      "description": "参考图写入目标：列表顺序即参考图序号。",
+      "description": "参考素材写入目标：列表顺序即图片或音频序号。",
       "type": "object",
       "required": [
         "node",
@@ -426,7 +426,7 @@
           "const": "write"
         },
         "consumer": {
-          "description": "该读图节点接到谁的哪个入口；张数少于格子数时据此改图，而不是重复填充。",
+          "description": "该素材节点接到谁的哪个入口，供重导入与输入不足时检查。",
           "type": "object",
           "required": [
             "node",
@@ -551,6 +551,67 @@
             "$ref": "#/$defs/outputTarget"
           },
           "maxItems": 1
+        },
+        "reference_audio": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/referenceImageTarget"
+          }
+        },
+        "aspect_ratio": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/aspectRatioTarget"
+          }
+        }
+      }
+    },
+    "aspectRatioTarget": {
+      "description": "把一项语义写进节点某个输入的目标。",
+      "type": "object",
+      "required": [
+        "node",
+        "input",
+        "class_type",
+        "values"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "description": "workflow 里的节点 id。",
+          "$ref": "#/$defs/node"
+        },
+        "input": {
+          "description": "该节点 inputs 下的字段名。",
+          "type": "string",
+          "minLength": 1
+        },
+        "class_type": {
+          "description": "绑定时该节点的类型，只用于重导入重匹配与展示。",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "description": "绑定时该节点的 _meta.title，只用于重导入重匹配与展示。",
+          "type": "string"
+        },
+        "direction": {
+          "const": "write"
+        },
+        "values": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "pattern": "^[1-9][0-9]*:[1-9][0-9]*$",
+            "not": {
+              "pattern": "\\n"
+            }
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          }
         }
       }
     }

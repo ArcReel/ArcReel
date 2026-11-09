@@ -162,6 +162,9 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "declarative_response_extract_failed": "task_fail_declarative_response_extract_failed",
     "declarative_image_save_failed": "task_fail_declarative_image_save_failed",
     # 参考图或首尾帧不足时的改图失败：级联触到产物节点，这份 workflow 出片本身依赖那张图。
+    "comfyui_binding_invalid": "task_fail_comfyui_binding_invalid",
+    "comfyui_reference_audio_invalid": "task_fail_comfyui_reference_audio_invalid",
+    "comfyui_aspect_ratio_unmapped": "task_fail_comfyui_aspect_ratio_unmapped",
     "comfyui_image_drop_unsupported": "task_fail_comfyui_image_drop_unsupported",
     "comfyui_upload_failed": "task_fail_comfyui_upload_failed",
     "comfyui_node_errors": "task_fail_comfyui_node_errors",

@@ -62,12 +62,14 @@ export function TestSelect({
   label,
   value,
   items,
+  disabled,
   onValueChange,
   className,
 }: {
   label: string;
   value: string;
   items: TestSelectItem[];
+  disabled?: boolean;
   onValueChange: (value: string) => void;
   className?: string;
 }) {
@@ -79,6 +81,7 @@ export function TestSelect({
       </span>
       <Select
         items={items}
+        disabled={disabled}
         value={value}
         onValueChange={(next) => {
           if (typeof next === "string") onValueChange(next);

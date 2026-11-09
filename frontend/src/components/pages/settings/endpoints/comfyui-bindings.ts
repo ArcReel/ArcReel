@@ -29,7 +29,7 @@ export function isRequiredBindingKey(key: ComfyuiBindingKey): boolean {
 
 /** 参考图是一条有序列表：列表次序即参考图序号，勾选与取消都要按次序重排。 */
 export function isListBindingKey(key: ComfyuiBindingKey): boolean {
-  return key === "reference_images";
+  return key === "reference_images" || key === "reference_audio";
 }
 
 /**
@@ -39,7 +39,7 @@ export function isListBindingKey(key: ComfyuiBindingKey): boolean {
  * 就再也收不到尺寸与帧数了。
  */
 export function isMultiTargetBindingKey(key: ComfyuiBindingKey): boolean {
-  return key === "width" || key === "height" || key === "frames" || key === "fps";
+  return key === "aspect_ratio" || key === "width" || key === "height" || key === "frames" || key === "fps";
 }
 
 /** 无序多落点键的勾选与取消：在场即移除，不在场即追加，其余落点原样留着。 */
@@ -325,7 +325,7 @@ export function statusTally(statuses: ComfyuiRowStatus[]): {
 
 /** 一条挡住保存的原因：`key` 用来渲染语义键名，`code` 决定说哪一句。 */
 export interface ComfyuiSaveBlocker {
-  code: "required_unbound" | "needs_choice" | "needs_binding" | "target_taken" | "placeholder_name";
+  code: "required_unbound" | "needs_choice" | "needs_binding" | "target_taken" | "placeholder_name" | "aspect_mapping";
   key?: ComfyuiBindingKey;
   /** `target_taken` 专属：撞在同一格子上的另一个语义键。 */
   otherKey?: ComfyuiBindingKey;
@@ -347,6 +347,11 @@ export function saveBlockers(
   if (name === "" || name === placeholderName) blockers.push({ code: "placeholder_name" });
   for (const key of bindingKeysFor(definition.media_type)) {
     const targets = bindings[key];
+    if (key === "aspect_ratio" && targets?.some((target) =>
+      !target.values || Object.keys(target.values).length === 0 || Object.entries(target.values).some(
+        ([ratio, value]) => !/^[1-9][0-9]*:[1-9][0-9]*$/.test(ratio) || !value.trim(),
+      )
+    )) blockers.push({ code: "aspect_mapping", key });
     if (isRequiredBindingKey(key) && (targets === undefined || targets.length === 0)) {
       blockers.push({ code: "required_unbound", key });
       continue;
@@ -380,7 +385,7 @@ export function saveBlockers(
  * 正是它该有的样子；占位名只挡保存。
  */
 export function testRefused(blockers: readonly ComfyuiSaveBlocker[]): boolean {
-  return blockers.some((blocker) => blocker.code === "required_unbound" || blocker.code === "target_taken");
+  return blockers.some((blocker) => blocker.code === "required_unbound" || blocker.code === "target_taken" || blocker.code === "aspect_mapping");
 }
 
 /**
