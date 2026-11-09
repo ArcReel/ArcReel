@@ -31,7 +31,7 @@ interface VersionTimeMachineProps {
    */
   busy?: boolean;
   /**
-   * 恢复请求在途状态回传父级：`busy` 只做「外部占用 → 禁恢复」这一向，兄弟控件
+   * 版本恢复或删除的在途状态回传父级：`busy` 只做「外部占用 → 禁写入」这一向，兄弟控件
    * （生成、上传）还需反向知道恢复正在写同一个资源文件，否则恢复返回前它们仍可点，
    * 两个请求并发写同一路径、后完成者覆盖前者且双方都提示成功。
    */
@@ -423,6 +423,7 @@ export function VersionTimeMachine({
     const { version } = info;
     const startedFor = resourceKey;
     setDeletingVersion(version);
+    onRestoringChange?.(true);
     try {
       await track((async () => {
         const { record } = await API.deleteFileViewEntry(projectName, path);
@@ -457,6 +458,7 @@ export function VersionTimeMachine({
       }
     } finally {
       setDeletingVersion(null);
+      onRestoringChange?.(false);
       useAppStore.getState().invalidateTrash();
     }
   }
