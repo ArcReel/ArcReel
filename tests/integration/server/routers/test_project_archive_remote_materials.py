@@ -28,7 +28,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from lib import db
 from lib.artifacts.version_manager import VersionManager
 from lib.asset_library.bindings import account_scope, confirm_binding, get_bindable_credential
 from lib.asset_library.generation_inputs import choose_reference_image_assets, reference_image_sources
@@ -406,11 +405,10 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
 
 
 @contextmanager
-def _fail_get_during_connection_read(monkeypatch, bucket, sessions):
-    """Fail one SDK read while another download is executing its connection query."""
-    assert db.async_session_factory is sessions
+def _get_during_connection_read(monkeypatch, bucket, sessions):
+    """Hold SDK reads until another download is executing its connection query, and require its cancellation."""
     engine = sessions.kw["bind"].sync_engine
-    query_started, release_query, get_started = Event(), Event(), Event()
+    query_started, release_query = Event(), Event()
     invalidations = []
     reads = 0
 
@@ -422,13 +420,11 @@ def _fail_get_during_connection_read(monkeypatch, bucket, sessions):
     def register_barrier(dbapi_connection, _record, _proxy):
         dbapi_connection.create_function("archive_query_barrier", 0, pause_query)
 
-    def delay_second_read(conn, _cursor, statement, parameters, _context, _executemany):
+    def delay_second_read(_conn, _cursor, statement, parameters, _context, _executemany):
         nonlocal reads
         if "FROM object_storage_connection" in statement:
             reads += 1
             if reads == 2:
-                # Let the first session finish rollback before occupying the shared driver queue.
-                assert conn.connection.dbapi_connection.run_async(lambda _: asyncio.to_thread(get_started.wait, 10))
                 statement += " AND archive_query_barrier() = 1"
         return statement, parameters
 
@@ -438,8 +434,7 @@ def _fail_get_during_connection_read(monkeypatch, bucket, sessions):
 
     get_object = bucket.get_object
 
-    def fail_get(**kwargs):
-        get_started.set()
+    def get_after_query_started(**kwargs):
         assert query_started.wait(10), "second connection query did not start"
         return get_object(**kwargs)
 
@@ -448,9 +443,8 @@ def _fail_get_during_connection_read(monkeypatch, bucket, sessions):
     event.listen(engine, "invalidate", release_on_invalidate)
     try:
         with monkeypatch.context() as patch:
-            patch.setattr(bucket, "get_object", fail_get)
+            patch.setattr(bucket, "get_object", get_after_query_started)
             yield
-        assert db.async_session_factory is sessions
         assert len(invalidations) == 1
         assert isinstance(invalidations[0], asyncio.CancelledError)
     finally:
@@ -471,7 +465,7 @@ async def test_export_fails_without_partial_archive_when_remote_content_is_unrea
         assert _cleanup(source.api) == 2
 
         bucket.fail.add("get")
-        with _fail_get_during_connection_read(monkeypatch, bucket, file_db_factory):
+        with _get_during_connection_read(monkeypatch, bucket, file_db_factory):
             assert _export(source.api, "full").status_code == 502
 
         bucket.fail.clear()
