@@ -730,6 +730,7 @@ MESSAGES = {
     "grid_image_not_ready": "Multi-grid storyboard '{grid_id}' has no combined image yet; generate or upload one before splitting",
     "grid_generation_in_progress": "Multi-grid storyboard '{grid_id}' is being generated; wait for it to finish first",
     "version_delete_current": "{path} is the current version and cannot be deleted. Switch to another version first",
+    "version_delete_in_use": "The resource for {path} is being updated. Wait for it to finish before deleting history versions",
     "version_not_found": "Version {version} does not exist",
     "version_resource_not_found": "Resource '{resource_type}/{resource_id}' does not exist",
     "version_snapshot_path_unmanaged": "A '{resource_type}' version record points to an unmanaged snapshot path; the operation was refused",

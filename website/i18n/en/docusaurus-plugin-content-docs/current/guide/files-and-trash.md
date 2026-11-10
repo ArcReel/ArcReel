@@ -31,6 +31,8 @@ From a referenced file you can jump to the screen that owns it (assets, storyboa
 
 To delete an unreferenced file or a past version, select it and click **Move to project trash**. No confirmation dialog appears; the notification has a **Restore** button so you can undo right away. When you select several files, each file becomes its own deletion record, so you can restore one of them later. The snapshot of the current version cannot be deleted.
 
+While a generated result is being saved or rolled back, that resource's past versions cannot be deleted. Wait for the update to finish and try again. The same restriction applies to Agent deletions.
+
 ## Where deletions go {#where-deletions-go}
 
 - Deleting project content is no longer a hard delete. The confirmation dialogs for deleting an episode, deleting an asset, removing a storyboard, deleting a source file, deleting an edit timeline, and similar operations all state that the content moves to the project trash and is kept for 30 days.
