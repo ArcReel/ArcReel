@@ -43,6 +43,7 @@ def build_reference_units_split_prompt(
     text_supported_durations: list[int] | None = None,
     max_duration: int,
     max_reference_images: int | None,
+    max_reference_audio_count: int | None = None,
     default_duration: int | None,
     episode: int,
     source_kind: str = "novel",
@@ -70,6 +71,7 @@ def build_reference_units_split_prompt(
             注意力；两套不同时**两套都写**，不假定谁包含谁。
         max_duration: 单次视频生成的时长上限（秒），即档位最大值。
         max_reference_images: 单 unit 参考图上限；None 时不写入硬性数量约束。
+        max_reference_audio_count: 参考音频绑定时单 unit 说话人数上限；None 时不约束。
         default_duration: 用户项目偏好的默认秒数；须为 supported_durations 成员或 None。
         source_kind: 本集源文件类型；``"screenplay"`` 走提取分支（照用场次、台词逐字照搬），
             其余取值一律按 ``"novel"`` 渲染。
@@ -142,6 +144,7 @@ def build_reference_units_split_prompt(
         speech_unit=reading_unit_noun(source_language),
         max_duration=max_duration,
         max_reference_images=max_reference_images,
+        reference_audio_limit={"count": max_reference_audio_count} if max_reference_audio_count is not None else None,
         episode_target_duration=episode_target_duration,
         instructions=instructions,
     )
