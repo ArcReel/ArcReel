@@ -75,7 +75,7 @@ mcp__arcreel__get_video_capabilities({})
   **可用参考图**定桶：`hydrated_capability` 是实际会执行的桶，`allowed_durations` 是该桶生效档位，`problems` /
   `unavailable_references` 点名登记了却缺图的引用。引用的资产没有资产图时该单元按无引用档位执行，规划时不要把它当带图
 - `max_reference_images`：单个视频单元的参考图上限（即正文里去重后的 `@[名称]` 提及数上限）；为 null 时模型没有收录上限，不加硬性数量约束
-- `max_reference_audio_count`：当前视频模型的参考音频段数上限。`project.json` 的 `character_voice_binding` 为 `reference_audio` 且上限非 null 时，每个视频单元的说话人数不得超过它；按角色本体去重，衍生共享本体声音，角色未设参考音频时仍计数。超出时按说话人拆分镜头，分到不同视频单元；绑定方式为 `prompt` 或上限为 null 时不加此约束
+- `max_reference_audio_count`：当前视频模型的参考音频段数上限（null 为未收录，0 为不接受参考音频）。`voice_consistency` 为 `native`（角色声音绑定为参考音频，且当前模型接受参考音频）、`requested_generate_audio` 为 true 且上限大于 0 时，每个视频单元的说话人数不得超过它：按角色本体去重，衍生共享本体声音，角色未设参考音频时仍计数。超出时按说话人拆分镜头，分到不同视频单元。其余情况不加此约束
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 - `episode_target_duration`：用户在项目设置中指定的单集成片目标时长（秒，可能为 null）——本集各单元时长合计的**软目标**，据它决定本集拆多少个单元
 
@@ -193,7 +193,7 @@ mcp__arcreel__generate_script_plan({"episode_id": N, "source": "source/episode_N
 | 视频单元总数 | XX 个 |
 | 预计总时长 | X 分 X 秒 |
 | `@` 提及最大数（单个视频单元） | XX / max_reference_images |
-| 说话人数（参考音频绑定且上限非 null 时） | 不超过 max_reference_audio_count |
+| 说话人数（受参考音频上限约束时） | 不超过 max_reference_audio_count |
 | 本集新增资产 | XX 项（登记 a / 归并 b / 衍生 c / 不登记 d） |
 
 **文件已保存**: `drafts/episode_{N}/script_plan_reference_units.json`

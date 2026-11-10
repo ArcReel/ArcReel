@@ -625,7 +625,8 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
     """逐图挂载型 backend 下 warning 照常呈现：拆分阶段还没有参考图，那一位不该参与判定。
 
     开着 ``reference_audio_per_image`` 而不给参考图集合，会把每个说话人都判成「无画面可挂」，
-    那条 warning 不在容忍列表内会被丢弃——超出段数上限这类提示反而不见了。
+    那条 warning 不在容忍列表内会被丢弃——超出段数上限这类提示反而不见了。说话人数超限的单元
+    同时被规划约束拦下，超限提示随违约报告的降级提示段呈现。
     """
     rv_source(fake_ctx)
     fake_ctx.pm.project_payload["characters"] = {
@@ -645,21 +646,25 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
         fake_ctx, monkeypatch, [rv_unit("@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")]
     )
 
-    assert out.problem is None, out
-    assert "参考音频最多 1 段" in said(out)
+    assert out.problem is not None
+    text = said(out)
+    assert "说话人数 2 超过模型参考音频段数上限 1" in text
+    assert "参考音频最多 1 段" in text
 
 
 @pytest.mark.parametrize(
-    ("binding", "limit", "blocked"),
+    ("binding", "accepts_audio", "limit", "blocked"),
     [
-        ("reference_audio", 1, True),
-        ("reference_audio", 2, False),
-        ("reference_audio", None, False),
-        ("prompt", 1, False),
+        ("reference_audio", True, 1, True),
+        ("reference_audio", True, 2, False),
+        ("reference_audio", True, None, False),
+        ("prompt", True, 1, False),
+        # 绑定为参考音频但模型不收参考音频：生效上限为 0，没有音频可绑，不约束说话人数
+        ("reference_audio", False, 1, False),
     ],
 )
 async def test_planning_reference_audio_limit_from_catalog(
-    fake_ctx: ToolHarness, monkeypatch, db_factory, binding, limit, blocked
+    fake_ctx: ToolHarness, monkeypatch, db_factory, binding, accepts_audio, limit, blocked
 ) -> None:
     from arcreel_catalog_core import CatalogEntry, VideoFacts
     from lib.config.resolver import ConfigResolver
@@ -675,7 +680,7 @@ async def test_planning_reference_audio_limit_from_catalog(
             durations=(8,),
             max_reference_images=4,
             first_frame=True,
-            reference_audio=True,
+            reference_audio=accepts_audio,
             max_reference_audio_count=limit,
         ),
     )
@@ -692,11 +697,11 @@ async def test_planning_reference_audio_limit_from_catalog(
     fake_ctx.config_resolver = ConfigResolver(db_factory)
     capabilities = await run_declared_tool("get_video_capabilities", fake_ctx, {})
     assert capabilities.problem is None, capabilities
-    assert capabilities.value["max_reference_audio_count"] == limit
+    assert capabilities.value["max_reference_audio_count"] == (limit if accepts_audio else 0)
 
     dry = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
     assert dry.problem is None, dry
-    constrained = binding == "reference_audio" and limit is not None
+    constrained = binding == "reference_audio" and accepts_audio and limit is not None
     assert ("**参考音频上限**" in said(dry)) is constrained
     if constrained:
         assert f"不超过 {limit}" in said(dry)
