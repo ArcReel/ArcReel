@@ -32,6 +32,7 @@ import tempfile
 import uuid as _uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -282,10 +283,15 @@ def use_test_catalog_data(monkeypatch):
     出厂快照由发版 PR 刷新成目录数据仓库的最新数据，那边改数据时不跑本仓的测试；用例若读出厂快照，
     数据一变就在发版 PR 上失败。用例自己装入的目录数据（``install_catalog``）在本 fixture 之后生效。
     只有 ``tests/unit/lib/catalog/test_factory_snapshot.py`` 换回出厂快照，核对它本身的格式与可加载性。
-    """
-    from tests.catalog_support import install_catalog
 
-    install_catalog(monkeypatch, _test_catalog_data())
+    生命周期判定的「今天」同时固定为这份数据的数据集日期：数据冻结后，其中登记的关停日期不能随真实日期到来而让
+    用例改判已下线。需要跨过关停日期的用例自己调用 ``set_catalog_today``。
+    """
+    from tests.catalog_support import install_catalog, set_catalog_today
+
+    data = _test_catalog_data()
+    install_catalog(monkeypatch, data)
+    set_catalog_today(monkeypatch, datetime.fromisoformat(data.dataset_version).date())
 
 
 @pytest.fixture(autouse=True)

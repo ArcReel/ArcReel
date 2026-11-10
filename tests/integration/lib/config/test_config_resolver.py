@@ -4,8 +4,8 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import select
 
+from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.catalog.query import factory_snapshot
 from lib.config.resolver import (
     _VIDEO_LAYERED_KEYS,
     ConfigResolver,
@@ -659,7 +659,11 @@ def active_aistudio_veo(monkeypatch):
     install_catalog(
         monkeypatch,
         with_entry_changes(
-            factory_snapshot(), "gemini-aistudio", "veo-3.1-generate-preview", discontinued=False, shutdown_date=None
+            catalog.factory_snapshot(),
+            "gemini-aistudio",
+            "veo-3.1-generate-preview",
+            discontinued=False,
+            shutdown_date=None,
         ),
     )
 
