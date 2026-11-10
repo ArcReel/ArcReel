@@ -225,6 +225,32 @@ def write_legacy_retired_model_references_project(root: Path) -> Path:
     return project_dir
 
 
+def write_legacy_bare_provider_project(root: Path, *, schema_version: int = 19) -> Path:
+    """项目模型字段只写了内置供应商、没写模型（升级前运行时按目录默认模型补全）。
+
+    视频默认写裸 ``ark``，图片文生图桶是缺模型的脏值 ``openai/``，复杂档文本写裸 ``grok``；视频参考生桶写
+    没有视频推荐的 ``openai``，配音写自定义供应商的裸 id，图片默认是完整的 ``provider/model``。
+    """
+
+    project_dir = write_legacy_storyboard_project(root, name=f"legacy-bare-provider-v{schema_version}")
+    if schema_version > 7:
+        advance_project_schema(project_dir, to_version=schema_version)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project.update(
+        {
+            "video_backend": "ark",
+            "image_provider_t2i": "openai/",
+            "text_backend_complex": " grok ",
+            "video_provider_r2v": "openai",
+            "audio_backend": "custom-3",
+            "default_image_backend": "openai/gpt-image-2",
+        }
+    )
+    _write_json(project_path, project)
+    return project_dir
+
+
 def write_legacy_timeline_agent_turn_project(root: Path) -> Path:
     """schema 17 项目的剪辑时间线修订仍带 Agent 轮次字段（新建与编辑各一个修订）。"""
 
@@ -1737,6 +1763,7 @@ __all__ = [
     "share_reference_files",
     "without_version_content_digests",
     "write_legacy_ad_reference_video_project",
+    "write_legacy_bare_provider_project",
     "write_legacy_drama_storyboard_project",
     "write_legacy_episode_id_remnants_project",
     "write_legacy_item_id_reuse_project",

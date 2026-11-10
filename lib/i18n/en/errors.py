@@ -175,6 +175,7 @@ MESSAGES = {
     "narration_speed_must_be_positive": "Narration speed must be a positive number",
     "narration_delivery_required": "Narration delivery is required; switch between TTS voiceover and post-production voiceover",
     "narration_tts_model_required": "Choose a TTS model when narration is delivered with TTS voiceover",
+    "recommendation_changed_again": "The recommended model just changed again. Choose again.",
     "narration_tts_model_invalid": "The selected TTS model is unavailable; choose a model from a text-to-speech provider",
     "narration_tts_voice_required": "Enter a narration voice when narration is delivered with TTS voiceover",
     "narration_tts_speed_invalid": "Voice speed must be a positive number",

@@ -84,6 +84,9 @@ from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v1_to_v2_normalize_providers import (
     migrate_project_dict as normalize_legacy_providers,
 )
+from lib.project.project_migrations.v19_to_v20_bare_provider_models import (
+    migrate_project_dict as freeze_bare_provider_models,
+)
 from lib.project.project_schema import project_schema_is_current
 from lib.project.resource_paths import (
     CHARACTER_DERIVATIVE_RESOURCE_TYPE,
@@ -1740,8 +1743,9 @@ class ProjectArchiveService:
         # 偏移由之后的预检 / 执行取档承担。
         # provider 先在副本上归一化：本方法跑在 migrate_project_dir 之前，存量归档里可能还是
         # legacy 别名（如 gemini/…），registry 查不到会让档位解析落空，而迁移幂等、归一化之后
-        # 再无机会取档。归一化是纯函数且幂等，不影响随后的正式迁移。
-        normalized_project = normalize_legacy_providers(project_payload)
+        # 再无机会取档。只写了供应商的旧值同样先按当前推荐补上模型（v19→v20 的同一改写），否则查不到档位。
+        # 两步都是纯函数且幂等，不影响随后的正式迁移。
+        normalized_project = freeze_bare_provider_models(normalize_legacy_providers(project_payload))
         migrated, migration_warnings = migrate_unit_durations(
             raw_units, supported_durations=_registry_supported_durations(normalized_project)
         )

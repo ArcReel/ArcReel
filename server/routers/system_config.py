@@ -38,6 +38,7 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.catalog.lifecycle import Lifecycle, entry_lifecycle
+from lib.config import recommended_models
 from lib.config.model_setting_keys import GLOBAL_MODEL_SETTING_KEYS, MODEL_SETTING_MEDIA_TYPES
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
@@ -45,7 +46,7 @@ from lib.config.resolver import ConfigResolver
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
 from lib.db import async_session_factory, get_async_session
 from lib.i18n import DEFAULT_LOCALE, translate_or
-from lib.infra.api_errors import UnprocessableError
+from lib.infra.api_errors import ConflictError, UnprocessableError
 from lib.infra.httpx_shared import get_http_client
 from lib.market.sources import PROXY_PREFIX_SETTING
 from lib.speech.narration_config import parse_tts_backend
@@ -643,6 +644,65 @@ async def get_auto_backends() -> AutoBackendsResponse:
     return AutoBackendsResponse(
         **{purpose: f"{pair[0]}/{pair[1]}" if pair else None for purpose, pair in resolved.items()}
     )
+
+
+class RecommendationChangeItem(BaseModel):
+    """一处推荐变化：内置供应商在这个媒体类型下现在推荐 ``recommended``（``provider/model``）。
+
+    ``current`` 是这个媒体类型的全局默认模型，没有设置时为 None。
+    """
+
+    media_type: str
+    provider_id: str
+    recommended: str
+    current: str | None
+
+
+class RecommendationChangesResponse(BaseModel):
+    changes: list[RecommendationChangeItem]
+
+
+@router.get("/system/config/recommendation-changes", response_model=RecommendationChangesResponse)
+async def get_recommendation_changes(
+    session: AsyncSession = Depends(get_async_session),
+) -> RecommendationChangesResponse:
+    """内置供应商的推荐模型与已知推荐不同的地方：只提示，改不改由用户决定（docs/adr/0103）。"""
+    changes = await recommended_models.recommendation_changes(session)
+    return RecommendationChangesResponse(
+        changes=[
+            RecommendationChangeItem(
+                media_type=change.media_type,
+                provider_id=change.provider_id,
+                recommended=f"{change.provider_id}/{change.recommended_model}",
+                current=change.current,
+            )
+            for change in changes
+        ]
+    )
+
+
+class AcknowledgeRecommendationRequest(BaseModel):
+    """处理一条推荐变化：``apply`` 为真时改用推荐模型作为这个媒体类型的全局默认模型，否则保留当前设置。"""
+
+    media_type: Literal["text", "image", "video", "audio"]
+    recommended: str
+    apply: bool
+
+
+@router.post("/system/config/recommendation-changes/acknowledge", status_code=204)
+async def acknowledge_recommendation_change(
+    body: AcknowledgeRecommendationRequest,
+    session: AsyncSession = Depends(get_async_session),
+) -> None:
+    """记下这条推荐，之后不再提示；推荐在提示之后又变了时返回 409，界面重新读取提示。"""
+    provider_id, _, model = body.recommended.partition("/")
+    try:
+        await recommended_models.acknowledge_recommendation(
+            session, provider_id, body.media_type, model, apply=body.apply
+        )
+    except recommended_models.StaleRecommendationError as exc:
+        raise ConflictError("recommendation_changed_again") from exc
+    await session.commit()
 
 
 class NarrationDefaultsResponse(BaseModel):

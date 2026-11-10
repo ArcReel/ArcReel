@@ -806,7 +806,7 @@ class TestBackendCache:
         assert len(fake_assemble) == 2, "失效后须重建 backend"
 
     async def test_cached_backend_is_not_reused_once_the_model_is_discontinued(self, db_factory, monkeypatch):
-        """同一进程跨过关停日期：缓存里关停前构造的 backend 不再被取用，调用报下线，默认模型也不再沿用。"""
+        """同一进程跨过关停日期：缓存里关停前构造的 backend 不再被取用，调用报下线；没给模型的调用始终报错。"""
         default = catalog.default_model("ark", "image")
         assert default is not None
         install_catalog(
@@ -832,12 +832,14 @@ class TestBackendCache:
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
         use_backend_assembler(monkeypatch, _assemble)
-        resolver = ConfigResolver(db_factory)  # 没给模型时按目录默认与停用状态补默认模型
+        resolver = ConfigResolver(db_factory)
 
         set_catalog_today(monkeypatch, date(2026, 11, 23))
         explicit = await generation_context._get_or_create_image_backend("ark", {"model": default}, resolver)
-        implicit = await generation_context._get_or_create_image_backend("ark", {}, resolver)
-        assert (explicit.model, implicit.model, built) == (default, default, [default])
+        assert (explicit.model, built) == (default, [default])
+        # 没给模型时不按目录推荐补模型（docs/adr/0099）
+        with pytest.raises(ModelNotInCatalogError):
+            await generation_context._get_or_create_image_backend("ark", {}, resolver)
 
         set_catalog_today(monkeypatch, date(2026, 11, 24))
         with pytest.raises(ModelDiscontinuedError) as excinfo:

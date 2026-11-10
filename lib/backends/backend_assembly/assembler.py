@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINT_SPECS, builtin_model_endpoint, get_provider_endpoints
-from lib.catalog import builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
@@ -126,27 +125,20 @@ async def callable_model_key(
         return model_id
     if provider_id not in PROVIDER_REGISTRY:
         return model_id
-    model_id = await _builtin_model_or_default(provider_id, media_type, model_id, resolver)
+    model_id = _require_builtin_model(provider_id, media_type, model_id)
     if not submitted_job:
         catalog.reject_discontinued(provider_id, model_id, media_type)
     return model_id
 
 
-async def _builtin_model_or_default(
-    provider_id: str, media_type: str, model_id: str | None, resolver: ConfigResolver
-) -> str:
-    """``model_id`` 为 ``None`` 时取内置供应商在这个媒体类型下可用的默认模型（:func:`lib.catalog.builtin_models.default_builtin_model`）。
+def _require_builtin_model(provider_id: str, media_type: str, model_id: str | None) -> str:
+    """``model_id`` 为 ``None`` 时抛 ``ModelNotInCatalogError``：装配层不按目录推荐补模型（docs/adr/0099）。
 
-    默认模型只来自模型目录：没有可用的默认模型（没有指定、已下线、被用户停用或低于最低应用版本）时抛
-    ``ModelNotInCatalogError``，不落到 backend 构造函数里写死的模型名。
+    调用方的模型都来自用户设置的解析结果；没有模型时报错，不落到目录推荐或 backend 构造函数里写死的模型名。
     """
     if model_id is not None:
         return model_id
-    async with resolver._open_session() as (session, _):
-        default = await builtin_models.default_builtin_model(session, provider_id, media_type)
-    if default is None:
-        raise ModelNotInCatalogError(provider_id=provider_id, model_id="", media_type=media_type)
-    return default
+    raise ModelNotInCatalogError(provider_id=provider_id, model_id="", media_type=media_type)
 
 
 async def _callable_builtin_model(
@@ -154,13 +146,13 @@ async def _callable_builtin_model(
 ) -> str:
     """内置供应商这次调用实际使用的模型键，按今天的生命周期检查过可以调用。
 
-    ``model_id`` 为 ``None`` 时取可用的默认模型，没有时报错（:func:`_builtin_model_or_default`）。
+    ``model_id`` 为 ``None`` 时报错（:func:`_require_builtin_model`）。
     模型已下线抛 ``ModelDiscontinuedError``，不在清单里抛 ``ModelNotInCatalogError``（见
     :func:`lib.catalog.query.require_callable`）。生命周期按当天日期判定，复用 backend 实例的调用方取缓存前另行检查
     （``server.services.tasks.generation_context``）。``submitted_job`` 为真（续跑已提交的任务）时只查是否在清单里
     （:func:`lib.catalog.query.require_listed`）。
     """
-    model_id = await _builtin_model_or_default(provider_id, media_type, model_id, resolver)
+    model_id = _require_builtin_model(provider_id, media_type, model_id)
     if submitted_job:
         catalog.require_listed(provider_id, model_id, media_type)
     else:

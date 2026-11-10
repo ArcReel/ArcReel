@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from lib.config.resolver import ConfigResolver, ProviderModel
+import pytest
+
+from lib.config.resolver import ConfigResolver, NoAvailableProviderError, ProviderModel
 from lib.config.service import ProviderStatus
 
 
@@ -73,12 +75,12 @@ class TestResolveAudioProviderModel:
         result = await resolver._resolve_audio_provider_model(svc, None, None, None)
         assert result == ProviderModel("dashscope", "qwen3-tts-flash")
 
-    async def test_falls_back_to_auto_resolve(self):
-        # 无 payload / project / 全局设置 → auto-resolve 挑首个 ready 且支持 audio 的 provider
+    async def test_unset_settings_do_not_pick_a_catalog_recommendation(self, db_session):
+        # 无 payload / project / 全局设置 → 不按就绪供应商的目录推荐挑选（docs/adr/0099）
         resolver = ConfigResolver.__new__(ConfigResolver)
         svc = _FakeSvc(settings={}, ready=[_ready("dashscope", ["audio"])])
-        result = await resolver._resolve_audio_provider_model(svc, None, None, None)
-        assert result == ProviderModel("dashscope", "qwen3-tts-flash")
+        with pytest.raises(NoAvailableProviderError):
+            await resolver._resolve_audio_provider_model(svc, db_session, None, None)
 
 
 class TestResolveDefaultAudioBackend:
@@ -87,10 +89,11 @@ class TestResolveDefaultAudioBackend:
         svc = _FakeSvc(settings={"default_audio_backend": "dashscope/qwen3-tts-flash"})
         assert await resolver._resolve_default_audio_backend(svc, None) == ("dashscope", "qwen3-tts-flash")
 
-    async def test_empty_setting_auto_resolves(self):
+    async def test_empty_setting_does_not_pick_a_catalog_recommendation(self, db_session):
         resolver = ConfigResolver.__new__(ConfigResolver)
         svc = _FakeSvc(settings={}, ready=[_ready("dashscope", ["audio"])])
-        assert await resolver._resolve_default_audio_backend(svc, None) == ("dashscope", "qwen3-tts-flash")
+        with pytest.raises(NoAvailableProviderError):
+            await resolver._resolve_default_audio_backend(svc, db_session)
 
 
 class TestDefaultNarrationTts:
