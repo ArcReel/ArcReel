@@ -647,3 +647,65 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
 
     assert out.problem is None, out
     assert "参考音频最多 1 段" in said(out)
+
+
+@pytest.mark.parametrize(
+    ("binding", "limit", "blocked"),
+    [
+        ("reference_audio", 1, True),
+        ("reference_audio", 2, False),
+        ("reference_audio", None, False),
+        ("prompt", 1, False),
+    ],
+)
+async def test_planning_reference_audio_limit_from_catalog(
+    fake_ctx: ToolHarness, monkeypatch, db_factory, binding, limit, blocked
+) -> None:
+    from arcreel_catalog_core import CatalogEntry, VideoFacts
+    from lib.config.resolver import ConfigResolver
+    from tests.catalog_support import catalog_of, install_catalog
+
+    model = "doubao-seedance-2-0-260128"
+    entry = CatalogEntry(
+        maker="test",
+        name=model,
+        media_type="video",
+        display_name="Planning test",
+        facts=VideoFacts(
+            durations=(8,),
+            max_reference_images=4,
+            first_frame=True,
+            reference_audio=True,
+            max_reference_audio_count=limit,
+        ),
+    )
+    install_catalog(monkeypatch, catalog_of((entry,), {"ark": (f"test/{model}",)}))
+    rv_source(fake_ctx)
+    project = fake_ctx.pm.project_payload
+    project.update(
+        {
+            "character_voice_binding": binding,
+            "video_provider_r2v": f"ark/{model}",
+            "video_provider_i2v": f"ark/{model}",
+        }
+    )
+    fake_ctx.config_resolver = ConfigResolver(db_factory)
+    capabilities = await run_declared_tool("get_video_capabilities", fake_ctx, {})
+    assert capabilities.problem is None, capabilities
+    assert capabilities.value["max_reference_audio_count"] == limit
+
+    dry = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
+    assert dry.problem is None, dry
+    constrained = binding == "reference_audio" and limit is not None
+    assert ("**参考音频上限**" in said(dry)) is constrained
+    if constrained:
+        assert f"不超过 {limit}" in said(dry)
+
+    use_text_generator(monkeypatch, rv_generator_returning([rv_unit("门开了\n@[张三]{走。}\n@[李四]{好。}")]))
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
+    assert (out.problem is not None) is blocked, out
+    assert rv_script_plan_path(fake_ctx).exists() is not blocked
+    if blocked:
+        violations = read_rv_quarantine(fake_ctx)["violations"]
+        assert [v["code"] for v in violations] == ["speakers_over_limit"]
+        assert "请按说话人拆分镜头" in said(out)

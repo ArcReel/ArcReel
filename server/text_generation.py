@@ -106,6 +106,7 @@ from lib.script.script_models import (
 )
 from lib.script.script_skeleton import resolve_kind_items
 from lib.script.storyboard_mentions import render_storyboard_mention_warnings, storyboard_mention_warnings
+from lib.speech.character_voice import character_voice_binding
 from lib.speech.speech_composition import admit_script_unit
 from lib.speech.speech_rate import project_speech_rate_override
 from lib.workflow.operation_admission import (
@@ -1262,7 +1263,9 @@ def collect_reference_flat_violations(
         def _check_text_and_tier(
             la: str = label, tx: str = text, d: int = duration, with_images: bool = with_reference_images
         ) -> None:
-            validate_unit_text(la, tx, planning, max_refs=caps.max_refs)
+            validate_unit_text(
+                la, tx, planning, max_refs=caps.max_refs, max_reference_audio_count=caps.voice.max_reference_audio
+            )
             _validate_unit_duration_tier(la, d, has_references=with_images, caps=caps)
 
         violations.extend(
@@ -1731,6 +1734,9 @@ async def generate_reference_script_plan(
             text_supported_durations=split_caps.text_durations,
             max_duration=split_caps.max_duration,
             max_reference_images=split_caps.max_refs,
+            max_reference_audio_count=(
+                split_caps.voice.max_reference_audio if character_voice_binding(project) == "reference_audio" else None
+            ),
             default_duration=split_caps.default_duration,
             episode=episode,
             source_kind=cast(str | None, prompt_inputs["source_kind"]) or DEFAULT_SOURCE_KIND,
