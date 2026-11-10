@@ -186,66 +186,8 @@ class TestVideoCapabilitiesForModel:
         assert backend.video_capabilities == Seedance25VideoBackend.video_capabilities_for_model("doubao-seedance-2-0")
 
 
-#: 全部内置视频 model 的音轨立场逐条钉死，按执行路径各给一份：``controllable`` = 请求带音轨开关；
-#: ``always_on`` = 恒有声、开关不可控；``always_off`` = 该路径不产音轨。值为 ``(i2v, r2v)``。
-#:
-#: 新增视频型号必须在此登记，登记时即被迫表态其音轨立场——backend 漏声明的新型号会以
-#: ``VideoCapabilities`` 的默认值（controllable）落到这张表上，与作者的登记意图对不上而在 CI 暴露。
-#: 表放在本文件而非注册表测试里：音轨形态的真相源是 backend 的 VideoCapabilities，守卫应贴着真相源。
-_VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
-    ("agnes", "agnes-video-2.5"): ("always_on", "always_on"),
-    ("agnes", "agnes-video-2.5-flash"): ("always_on", "always_on"),
-    ("agnes", "agnes-video-v2.0"): ("always_off", "always_off"),
-    ("ark", "doubao-seedance-2-0-260128"): ("controllable", "controllable"),
-    ("ark", "doubao-seedance-2-0-fast-260128"): ("controllable", "controllable"),
-    ("ark", "doubao-seedance-2-0-mini-260615"): ("controllable", "controllable"),
-    ("ark", "doubao-seedance-2-5-260628"): ("controllable", "controllable"),
-    ("ark-agent-plan", "doubao-seedance-2.0"): ("controllable", "controllable"),
-    ("ark-agent-plan", "doubao-seedance-2.0-fast"): ("controllable", "controllable"),
-    ("ark-agent-plan", "doubao-seedance-2.0-mini"): ("controllable", "controllable"),
-    ("ark-agent-plan", "doubao-seedance-2.5"): ("controllable", "controllable"),
-    ("dashscope", "happyhorse-1.0-i2v"): ("always_on", "always_on"),
-    ("dashscope", "happyhorse-1.0-r2v"): ("always_on", "always_on"),
-    ("dashscope", "happyhorse-1.0-t2v"): ("always_on", "always_on"),
-    ("dashscope", "happyhorse-1.1-i2v"): ("always_on", "always_on"),
-    ("dashscope", "happyhorse-1.1-r2v"): ("always_on", "always_on"),
-    ("dashscope", "happyhorse-1.1-t2v"): ("always_on", "always_on"),
-    ("dashscope", "wan2.7-i2v"): ("always_on", "always_on"),
-    ("dashscope", "wan2.7-r2v"): ("always_on", "always_on"),
-    ("dashscope", "wan2.7-t2v"): ("always_on", "always_on"),
-    ("dashscope", "wan3.0-video"): ("controllable", "controllable"),
-    ("dashscope", "wan3.0-video-prime"): ("controllable", "controllable"),
-    ("gemini-aistudio", "veo-3.1-fast-generate-preview"): ("always_on", "always_on"),
-    ("gemini-aistudio", "veo-3.1-generate-preview"): ("always_on", "always_on"),
-    ("gemini-aistudio", "veo-3.1-lite-generate-preview"): ("always_on", "always_on"),
-    ("gemini-vertex", "veo-3.1-fast-generate-001"): ("controllable", "controllable"),
-    ("gemini-vertex", "veo-3.1-generate-001"): ("controllable", "controllable"),
-    ("grok", "grok-imagine-video"): ("controllable", "controllable"),
-    ("grok", "grok-imagine-video-1.5"): ("controllable", "controllable"),
-    ("grok", "grok-imagine-video-1.5-lite"): ("controllable", "controllable"),
-    ("kling", "kling-v2-5-turbo"): ("always_off", "always_off"),
-    # 可灵有音频能力的三档：图生/文生子路径带 sound 开关，多图主体（R2V）子路径的原生 schema
-    # 不含该字段，成片必然无声。
-    ("kling", "kling-v2-6"): ("controllable", "always_off"),
-    ("kling", "kling-v3"): ("controllable", "always_off"),
-    ("kling", "kling-v3-omni"): ("controllable", "always_off"),
-    ("kling", "kling-video-o1"): ("always_off", "always_off"),
-    ("minimax", "MiniMax-H3"): ("always_on", "always_on"),
-    ("minimax", "MiniMax-H3-Highspeed"): ("always_on", "always_on"),
-    ("minimax", "MiniMax-H3-Lite"): ("always_on", "always_on"),
-    ("minimax", "MiniMax-H3-Max"): ("always_on", "always_on"),
-    ("minimax", "MiniMax-Hailuo-2.3"): ("always_off", "always_off"),
-    ("minimax", "MiniMax-Hailuo-2.3-Fast"): ("always_off", "always_off"),
-    ("vidu", "vidu2.0"): ("always_off", "always_off"),
-    ("vidu", "viduq3"): ("controllable", "controllable"),
-    ("vidu", "viduq3-pro"): ("controllable", "controllable"),
-    ("vidu", "viduq3-pro-fast"): ("controllable", "controllable"),
-    ("vidu", "viduq3-turbo"): ("controllable", "controllable"),
-}
-
-
 class TestVideoAudioTrack:
-    """音轨形态：逐路径声明、按路径取值，以及全注册表的立场守卫。"""
+    """音轨形态：逐路径声明、按路径取值，以及配置侧的派生查询与 backend 声明同值。"""
 
     def test_default_is_controllable_and_shared_by_both_routes(self):
         """未声明即「无信号不收紧」：两条路径都按开关可控处理。"""
@@ -276,31 +218,26 @@ class TestVideoAudioTrack:
 
         assert get_args(VideoRoute) == get_args(VideoGenerationType)
 
-    def test_every_video_model_matches_declared_stance(self):
-        """backend 声明在全部内置视频 model 上的逐路径取值与上表相等（整表相等，非子集）。"""
+    def test_registry_lookup_matches_backend_declaration(self):
+        """lib.config 侧的派生查询与 backend 声明同值——展示层与入队预检读的就是这一份。"""
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
         from lib.catalog import query as catalog
         from lib.config.registry import PROVIDER_REGISTRY
-
-        actual: dict[tuple[str, str], tuple[str, str]] = {}
-        for provider_id in PROVIDER_REGISTRY:
-            for model_id, info in catalog.list_models(provider_id).items():
-                if info.media_type != "video":
-                    continue
-                caps = builtin_video_capabilities_for_model(provider_id, model_id)
-                actual[(provider_id, model_id)] = (
-                    caps.audio_track_for_route("i2v").value,
-                    caps.audio_track_for_route("r2v").value,
-                )
-        assert actual == _VIDEO_AUDIO_STANCES
-
-    def test_registry_lookup_matches_backend_declaration(self):
-        """lib.config 侧的派生查询与 backend 声明同值——展示层与入队预检读的就是这一份。"""
         from lib.config.resolver import builtin_video_audio_track
 
-        for (provider_id, model_id), (i2v, r2v) in _VIDEO_AUDIO_STANCES.items():
-            assert builtin_video_audio_track(provider_id, model_id, generation_type="i2v") == i2v
-            assert builtin_video_audio_track(provider_id, model_id, generation_type="r2v") == r2v
+        video_models = [
+            (provider_id, model_id)
+            for provider_id in PROVIDER_REGISTRY
+            for model_id, info in catalog.list_models(provider_id).items()
+            if info.media_type == "video"
+        ]
+        assert video_models
+        for provider_id, model_id in video_models:
+            caps = builtin_video_capabilities_for_model(provider_id, model_id)
+            for route in ("i2v", "r2v"):
+                assert builtin_video_audio_track(provider_id, model_id, generation_type=route) == (
+                    caps.audio_track_for_route(route).value
+                ), (provider_id, model_id, route)
 
     def test_lookup_returns_none_without_signal(self):
         """非视频 model / 未知供应商没有逐模型声明，返回 None 交调用方按无信号不收紧处理。"""

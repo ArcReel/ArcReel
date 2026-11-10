@@ -1,4 +1,10 @@
-"""目录查询的测试数据：在出厂快照上改写条目或换一份目录数据，再交给目录查询读取；按目录价目表给内置供应商的一次调用计价。"""
+"""目录查询的测试数据：换一份目录数据或在测试目录数据上改写条目，再交给目录查询读取；按目录价目表给内置供应商的一次调用计价。
+
+用例默认读测试目录数据（``tests/fixtures/catalog.json``，由根 conftest 装入），不读出厂快照：出厂快照随发版刷新成
+目录数据仓库的最新数据，测试断言的模型与取值不能跟着变。这份数据归测试所有，用例需要的数据变化改这份文件，或用
+本模块的 ``with_*``、``catalog_of`` 在用例内构造。只有 ``tests/unit/lib/catalog/test_factory_snapshot.py`` 读出厂快照，
+核对它本身的格式与可加载性。
+"""
 
 from __future__ import annotations
 
@@ -16,7 +22,7 @@ from lib.catalog import lifecycle, query
 
 
 def install_catalog(monkeypatch: pytest.MonkeyPatch, data: CatalogData) -> None:
-    """让目录查询在本用例内读 ``data``，代替出厂快照。"""
+    """让目录查询在本用例内读 ``data``，代替测试目录数据。"""
     monkeypatch.setattr(query, "factory_snapshot", lambda: data)
 
 

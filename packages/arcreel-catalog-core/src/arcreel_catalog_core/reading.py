@@ -334,6 +334,7 @@ class CatalogReader:
         if data.get("price") is not None:
             price = self.price_table(data["price"], known_media_type, _at(path, "price"))
             self.check_price_resolutions(price, facts, _at(path, "price"))
+            self.check_output_token_rules(price, facts, _at(path, "facts"))
         return CatalogEntry(
             maker=maker,
             name=name,
@@ -573,6 +574,17 @@ class CatalogReader:
                         "resolution_case_mismatch",
                         f"分辨率与条目声明的「{declared}」只差大小写",
                     )
+
+    def check_output_token_rules(self, price: PriceTable, facts: ModelFacts, path: str) -> None:
+        """按输出图片 token 计价的图片条目必须收录输出 token 估算规则：调用前只能靠它估出这一项的用量。"""
+        if not isinstance(facts, ImageFacts) or facts.output_token_bases or facts.output_token_scaled_bases:
+            return
+        if any(meter.meter == "image_output_tokens" for meter in price.meters):
+            self.flag(
+                path,
+                "missing_output_token_rules",
+                "按输出图片 token 计价时须收录 output_token_bases 或 output_token_scaled_bases，否则无法预估费用",
+            )
 
     def check_dimension_values(self, values: Mapping[str, object], dims: tuple[str, ...], path: str) -> None:
         for dim, value in values.items():

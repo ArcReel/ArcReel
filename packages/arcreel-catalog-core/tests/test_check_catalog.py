@@ -258,6 +258,35 @@ def test_quality_with_both_plain_and_scaled_base_is_rejected():
     assert _codes(data) == [("entries[2].facts.output_token_scaled_bases.low", "output_token_quality_overlap")]
 
 
+def _priced_by_output_tokens(data: dict[str, Any]) -> dict[str, Any]:
+    """把图片条目换成按输出图片 token 计价。"""
+    entry = data["entries"][2]
+    entry["price"]["meters"] = [{"meter": "image_output_tokens", "dims": [], "rows": [{"when": {}, "price": 30.0}]}]
+    return entry
+
+
+def test_image_priced_by_output_tokens_without_estimation_rules_is_rejected():
+    """按输出图片 token 计价、却没有收录估算规则的图片条目，调用前估不出费用。"""
+    data = catalog()
+    _priced_by_output_tokens(data)
+
+    assert _codes(data) == [("entries[2].facts", "missing_output_token_rules")]
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        pytest.param({"output_token_bases": {"medium": 48}}, id="普通基数"),
+        pytest.param({"output_token_scaled_bases": {"low": {"base": 16, "multiplier": 4.2}}}, id="带系数基数"),
+    ],
+)
+def test_image_priced_by_output_tokens_with_either_rule_table_has_no_issues(rules: dict[str, Any]):
+    data = catalog()
+    _priced_by_output_tokens(data)["facts"].update(rules)
+
+    assert _codes(data) == []
+
+
 def test_unknown_field_inside_scaled_base_is_reported():
     data = catalog()
     data["entries"][2]["facts"].update(

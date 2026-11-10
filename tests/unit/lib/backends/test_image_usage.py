@@ -18,6 +18,11 @@ _IMAGE_PROVIDERS = sorted(provider for provider, media_type in PROVIDER_SPEC_REG
 
 @pytest.mark.parametrize("provider_id", _IMAGE_PROVIDERS)
 def test_every_builtin_image_channel_estimates_text_to_image(provider_id: str) -> None:
+    """每条内置图片调用通道的预估用量都能按价目表计价。
+
+    读测试目录数据。发布数据里按输出图片 token 计价的条目是否收录了估算规则，由构建侧校验
+    （``missing_output_token_rules``）把关。
+    """
     model = next(
         key for key, info in catalog.list_models(provider_id).items() if info.media_type == "image" and not info.hidden
     )
