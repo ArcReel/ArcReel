@@ -7,7 +7,6 @@ export default {
   "image_reference_images_unreadable": "Model {{model}} has reference images that are missing or unreadable; generation aborted: {{names}}; check the reference image paths",
   "image_seedream_edits_unavailable": "The current call endpoint for model {{model}} does not support generation with reference images; change it to “Seedream (1K) / Seedream (2K)” in model settings and try again",
   "narration_tts_speed_out_of_range": "The selected TTS model supports voice speeds from {{minimum}} to {{maximum}}, but the current value is {{speed}}. Change or clear the voice speed",
-  "ref_payload_floor_exceeded": "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
   "video_aspect_ratio_not_supported": "Model {{model}} does not support aspect ratio {{aspect_ratio}} (only {{supported}}); choose a supported aspect ratio",
   "video_audio_switch_not_supported": "{{provider}}/{{model}} always produces audio and cannot be muted; turn the audio switch back on in settings and try again",
   "video_capability_missing_t2v": "{{provider}}/{{model}} does not support text-to-video; provide a first-frame image or switch to a model that supports text-to-video",
@@ -19,7 +18,7 @@ export default {
   "video_last_frame_requires_pro": "{{provider}}/{{model}} only supports first+last frame at the pro tier; switch to the pro tier or remove the last frame",
   "video_last_frame_unsupported": "{{provider}}/{{model}} does not support a last frame under the current configuration; generation aborted. Remove the shot's last frame, or switch to a model or tier that supports it",
   "video_prompt_too_long": "{{provider}}/{{model}} accepts prompts of at most {{limit}} characters but received {{count}}; the provider would silently truncate the excess, so generation was aborted. Shorten the prompt",
-  "video_reference_audio_duration_exceeded": "Model {{model}} supports at most {{limit}} seconds of combined reference audio but received {{total}} seconds; use fewer reference audio clips or shorter clips",
+  "video_reference_audio_duration_exceeded": "Model {{model}} supports at most {{limit, number}} seconds of combined reference audio but received {{total, number(minimumFractionDigits: 1; maximumFractionDigits: 1)}} seconds; use fewer reference audio clips or shorter clips",
   "video_reference_audio_exceeded": "Model {{model}} supports at most {{limit}} reference audio clips but received {{count}}; reduce the number of characters with reference audio",
   "video_reference_audio_format_unsupported": "Reference audio {{name}} has an unsupported format (only {{supported}}); use a different audio file",
   "video_reference_audio_slots_insufficient": "Model {{model}} attaches each reference audio clip to a reference asset, but only {{slots}} reference assets are available for {{count}} clips; add reference images for those characters, or reduce the number of characters with reference audio",
@@ -47,8 +46,8 @@ export default {
   'source_too_large': 'Source file "{{filename}}" is too large ({{size_mb}} MB > {{limit_mb}} MB)',
   'source_conflict': 'Source file "{{existing}}" already exists',
   // Image Capability
-  'image_endpoint_mismatch_no_i2i': 'Model {{model}} only supports text-to-image (no /v1/images/edits)',
-  'image_endpoint_mismatch_no_t2i': 'Model {{model}} only supports image-to-image (reference images required)',
+  'image_endpoint_mismatch_no_i2i': 'Model {{model}} only supports text-to-image (no /v1/images/edits); remove reference images or pick a model that supports image edits',
+  'image_endpoint_mismatch_no_t2i': 'Model {{model}} only supports image-to-image (reference images required); supply reference images or pick a model that supports text-to-image',
   // Fallback messages for the API layer and event streams (when the server gives no reason)
   'request_failed': 'Request failed',
   'session_expired': 'Your session has expired. Sign in again.',

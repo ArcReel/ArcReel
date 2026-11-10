@@ -13,7 +13,7 @@ import sys
 import tempfile
 import threading
 from collections.abc import Callable, Collection, Generator, Iterable, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -1459,41 +1459,44 @@ class VersionManager:
                             continue
                         if record.get("version") == resource_data.get("current_version"):
                             raise ConflictError("version_delete_current", path=snapshot_path)
-                        # 删除已持项目锁与版本锁：非阻塞取准入锁，避免与结算的取锁顺序互等。
-                        try:
-                            with generation_admission_lock_sync(
-                                project_name=self.project_path.name,
-                                script_file="",
-                                resource_id=resource_id,
-                                blocking=False,
-                            ):
-                                self._resolve_snapshot(resource_type, record)
-                                original = self.versions_file.read_bytes()
-                                del versions[index]
-                                self._save_versions(data)
-                                obj = {
-                                    "kind": "version",
-                                    "path": snapshot_path,
-                                    "resource_type": resource_type,
-                                    "resource_id": resource_id,
-                                    "version": record.get("version"),
-                                    "prompt": record.get("prompt", ""),
-                                    "metadata": {
-                                        key: value
-                                        for key, value in record.items()
-                                        # 摘要随记录保留：远端内容版本加回时据此确认字节仍是原对象的内容
-                                        if key not in {"version", "file", "prompt", _PREVIOUS_CURRENT_VERSION}
-                                    },
-                                }
-                                try:
-                                    trashed = project_trash.record_deletion(self.project_path, obj, [snapshot_path])
-                                except BaseException:
-                                    atomic_write_bytes(self.versions_file, original)
-                                    raise
-                                record_project_activity(self.project_path)
-                                return trashed
-                        except portalocker.AlreadyLocked as exc:
-                            raise ConflictError("version_delete_in_use", path=snapshot_path) from exc
+                        with ExitStack() as admission:
+                            # 删除已持项目锁与版本锁：非阻塞取准入锁，避免与结算的取锁顺序互等。
+                            try:
+                                admission.enter_context(
+                                    generation_admission_lock_sync(
+                                        project_name=self.project_path.name,
+                                        script_file="",
+                                        resource_id=resource_id,
+                                        blocking=False,
+                                    )
+                                )
+                            except portalocker.AlreadyLocked as exc:
+                                raise ConflictError("version_delete_in_use", path=snapshot_path) from exc
+                            self._resolve_snapshot(resource_type, record)
+                            original = self.versions_file.read_bytes()
+                            del versions[index]
+                            self._save_versions(data)
+                            obj = {
+                                "kind": "version",
+                                "path": snapshot_path,
+                                "resource_type": resource_type,
+                                "resource_id": resource_id,
+                                "version": record.get("version"),
+                                "prompt": record.get("prompt", ""),
+                                "metadata": {
+                                    key: value
+                                    for key, value in record.items()
+                                    # 摘要随记录保留：远端内容版本加回时据此确认字节仍是原对象的内容
+                                    if key not in {"version", "file", "prompt", _PREVIOUS_CURRENT_VERSION}
+                                },
+                            }
+                            try:
+                                trashed = project_trash.record_deletion(self.project_path, obj, [snapshot_path])
+                            except BaseException:
+                                atomic_write_bytes(self.versions_file, original)
+                                raise
+                            record_project_activity(self.project_path)
+                            return trashed
         raise NotFoundError("version_not_found", version=snapshot_path)
 
     def resource_records(self, resources: Iterable[tuple[str, str]]) -> dict[str, dict[str, Any]]:

@@ -8,7 +8,6 @@ export default {
   "image_reference_images_unreadable": "Mô hình {{model}} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {{names}}; hãy kiểm tra đường dẫn ảnh tham chiếu",
   "image_seedream_edits_unavailable": "Endpoint gọi hiện tại của mô hình {{model}} không hỗ trợ tạo ảnh có ảnh tham chiếu; hãy đổi thành «Seedream (1K) / Seedream (2K)» trong cài đặt mô hình rồi thử lại",
   "narration_tts_speed_out_of_range": "Mô hình TTS đã chọn hỗ trợ tốc độ giọng đọc từ {{minimum}} đến {{maximum}}, giá trị hiện tại là {{speed}}. Hãy thay đổi hoặc xóa tốc độ giọng đọc",
-  "ref_payload_floor_exceeded": "Ảnh tham chiếu quá lớn hoặc quá nhiều; ngay cả khi nén ở mức chất lượng thấp nhất vẫn vượt giới hạn kích thước yêu cầu của nhà cung cấp. Vui lòng giảm số lượng ảnh tham chiếu hoặc độ phân giải rồi thử lại",
   "video_aspect_ratio_not_supported": "Mô hình {{model}} không hỗ trợ tỷ lệ khung hình {{aspect_ratio}} (chỉ hỗ trợ {{supported}}); hãy chọn một tỷ lệ được hỗ trợ",
   "video_audio_switch_not_supported": "{{provider}}/{{model}} luôn tạo ra âm thanh và không thể tắt tiếng; hãy bật lại công tắc âm thanh trong cài đặt rồi thử lại",
   "video_capability_missing_t2v": "{{provider}}/{{model}} không hỗ trợ text-to-video; hãy cung cấp ảnh khung hình đầu hoặc chuyển sang mô hình có hỗ trợ text-to-video",
@@ -20,7 +19,7 @@ export default {
   "video_last_frame_requires_pro": "{{provider}}/{{model}} chỉ hỗ trợ khung đầu+cuối ở gói pro; hãy chuyển sang gói pro hoặc bỏ khung hình cuối",
   "video_last_frame_unsupported": "{{provider}}/{{model}} không hỗ trợ khung hình cuối với cấu hình hiện tại; đã hủy tạo. Hãy bỏ khung hình cuối của cảnh quay này, hoặc chuyển sang mô hình hoặc gói có hỗ trợ",
   "video_prompt_too_long": "{{provider}}/{{model}} chỉ chấp nhận câu lệnh tối đa {{limit}} ký tự nhưng nhận được {{count}}; phần vượt quá sẽ bị nhà cung cấp cắt bỏ âm thầm nên đã hủy tạo. Hãy rút ngắn câu lệnh",
-  "video_reference_audio_duration_exceeded": "Mô hình {{model}} hỗ trợ tổng thời lượng âm thanh tham chiếu tối đa {{limit}} giây nhưng nhận được {{total}} giây; hãy giảm số đoạn âm thanh tham chiếu hoặc dùng đoạn ngắn hơn",
+  "video_reference_audio_duration_exceeded": "Mô hình {{model}} hỗ trợ tổng thời lượng âm thanh tham chiếu tối đa {{limit, number}} giây nhưng nhận được {{total, number(minimumFractionDigits: 1; maximumFractionDigits: 1)}} giây; hãy giảm số đoạn âm thanh tham chiếu hoặc dùng đoạn ngắn hơn",
   "video_reference_audio_exceeded": "Mô hình {{model}} hỗ trợ tối đa {{limit}} đoạn âm thanh tham chiếu nhưng nhận được {{count}}; hãy giảm số nhân vật có âm thanh tham chiếu",
   "video_reference_audio_format_unsupported": "Âm thanh tham chiếu {{name}} có định dạng không được hỗ trợ (chỉ {{supported}}); hãy dùng tệp âm thanh khác",
   "video_reference_audio_slots_insufficient": "Mô hình {{model}} gắn mỗi đoạn âm thanh tham chiếu vào một tư liệu tham chiếu, nhưng chỉ có {{slots}} tư liệu cho {{count}} đoạn; hãy bổ sung ảnh tham chiếu cho các nhân vật đó, hoặc giảm số nhân vật có âm thanh tham chiếu",
@@ -48,8 +47,8 @@ export default {
   'source_too_large': 'Tệp nguồn "{{filename}}" quá lớn ({{size_mb}} MB > {{limit_mb}} MB)',
   'source_conflict': 'Tệp nguồn "{{existing}}" đã tồn tại',
   // Image Capability
-  'image_endpoint_mismatch_no_i2i': 'Mô hình {{model}} chỉ hỗ trợ text-to-image (không có /v1/images/edits)',
-  'image_endpoint_mismatch_no_t2i': 'Mô hình {{model}} chỉ hỗ trợ image-to-image (yêu cầu ảnh tham chiếu)',
+  'image_endpoint_mismatch_no_i2i': 'Mô hình {{model}} chỉ hỗ trợ text-to-image (không có /v1/images/edits); hãy bỏ ảnh tham chiếu hoặc chọn mô hình hỗ trợ chỉnh sửa ảnh',
+  'image_endpoint_mismatch_no_t2i': 'Mô hình {{model}} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image',
   // Thông báo dự phòng của tầng API và luồng sự kiện (khi máy chủ không nêu lý do)
   'request_failed': 'Yêu cầu thất bại',
   'session_expired': 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại',

@@ -8,7 +8,6 @@ export default {
   "image_reference_images_unreadable": "模型 {{model}} 有参考图缺失或无法读取，已中止生成：{{names}}；请检查参考图路径",
   "image_seedream_edits_unavailable": "模型 {{model}} 当前的调用端点不支持带参考图生成；请在模型设置里把调用端点改为「Seedream (1K) / Seedream (2K)」后重试",
   "narration_tts_speed_out_of_range": "所选 TTS 模型的配音语速范围是 {{minimum}}～{{maximum}}，当前为 {{speed}}。请调整或清空配音语速",
-  "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
   "video_aspect_ratio_not_supported": "模型 {{model}} 不支持 {{aspect_ratio}} 比例（仅支持 {{supported}}）；请选择支持的比例",
   "video_audio_switch_not_supported": "{{provider}}/{{model}} 的成片恒有声，无法关闭音频；请在设置中把音频开关改回开启后重试",
   "video_capability_missing_t2v": "{{provider}}/{{model}} 不支持文生视频；请提供首帧图，或换一个支持文生视频的模型",
@@ -20,7 +19,7 @@ export default {
   "video_last_frame_requires_pro": "{{provider}}/{{model}} 的首尾帧仅在 pro 档生效；请切换到 pro 档，或移除尾帧",
   "video_last_frame_unsupported": "{{provider}}/{{model}} 当前配置不支持尾帧，已中止生成；请移除该分镜的尾帧，或改用支持尾帧的模型/档位",
   "video_prompt_too_long": "{{provider}}/{{model}} 的提示词最多 {{limit}} 个字符，当前 {{count}} 个；超出部分会被供应商静默截断，已中止生成。请缩短提示词",
-  "video_reference_audio_duration_exceeded": "模型 {{model}} 参考音频总时长最多 {{limit}} 秒，当前合计 {{total}} 秒；请减少参考音频段数或换用更短的音频",
+  "video_reference_audio_duration_exceeded": "模型 {{model}} 参考音频总时长最多 {{limit, number}} 秒，当前合计 {{total, number(minimumFractionDigits: 1; maximumFractionDigits: 1)}} 秒；请减少参考音频段数或换用更短的音频",
   "video_reference_audio_exceeded": "模型 {{model}} 最多支持 {{limit}} 段参考音频，收到 {{count}} 段；请减少带参考音频的角色数量",
   "video_reference_audio_format_unsupported": "参考音频 {{name}} 的格式不受支持（仅支持 {{supported}}）；请更换音频文件",
   "video_reference_audio_slots_insufficient": "模型 {{model}} 的参考音频需逐段挂在参考素材上，当前只有 {{slots}} 个参考素材却收到 {{count}} 段音频；请为这些角色补齐参考图，或减少带参考音频的角色数量",
@@ -48,8 +47,8 @@ export default {
   'source_too_large': '源文件「{{filename}}」过大（{{size_mb}} MB > {{limit_mb}} MB）',
   'source_conflict': '源文件「{{existing}}」已存在',
   // Image Capability
-  'image_endpoint_mismatch_no_i2i': '模型 {{model}} 仅支持文生图（不支持 /v1/images/edits）',
-  'image_endpoint_mismatch_no_t2i': '模型 {{model}} 仅支持图生图（必须传参考图）',
+  'image_endpoint_mismatch_no_i2i': '模型 {{model}} 仅支持文生图（不支持 /v1/images/edits）；请去掉参考图或换一个支持图生图的模型',
+  'image_endpoint_mismatch_no_t2i': '模型 {{model}} 仅支持图生图（必须传参考图）；请提供参考图或换一个支持文生图的模型',
   // 接口层与事件流的兜底文案（服务端没有给出原因时）
   'request_failed': '请求失败',
   'session_expired': '认证已过期，请重新登录',
