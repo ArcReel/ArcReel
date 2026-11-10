@@ -13,6 +13,7 @@ from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, Provide
 from lib.backends.artifact_download_guard import IMAGE_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.backend_runtime import stream_to_file
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
+from lib.backends.image_errors import ImageCapabilityError as ImageCapabilityError
 from lib.billing.metering import Usage
 from lib.infra.async_thread import run_noninterruptible_sync
 
@@ -203,17 +204,3 @@ class ImageOutputFormatError(RuntimeError):
     def __init__(self, *, model: str, media_type: str) -> None:
         self.params = {"model": model, "media_type": media_type}
         super().__init__(f"{self.code}: model={model} media_type={media_type}")
-
-
-class ImageCapabilityError(RuntimeError):
-    """图像后端能力不匹配（endpoint mismatch / generator gating 共用）。
-
-    不携带本地化字符串，只带稳定 code + 上下文 params；
-    路由层直接 _t(code, **params) 渲染，Worker 则按 code + params 落 task.error_message，
-    文案留到读侧按 Accept-Language 渲染。
-    """
-
-    def __init__(self, code: str, **params) -> None:
-        self.code = code
-        self.params = params
-        super().__init__(code)
