@@ -17,7 +17,6 @@ from lib.backends.backend_assembly.specs import PROVIDER_SPEC_REGISTRY
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
-from lib.catalog.query import factory_snapshot
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_min_app_version
@@ -124,7 +123,7 @@ class TestAssembleBuiltinEndToEnd:
         install_catalog(
             monkeypatch,
             with_entry_changes(
-                factory_snapshot(),
+                catalog.factory_snapshot(),
                 "ark",
                 SEEDREAM_LITE,
                 shutdown_date=date(2026, 11, 24),
@@ -152,7 +151,7 @@ class TestAssembleBuiltinEndToEnd:
             await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-key")
             await session.commit()
         resolver = ConfigResolver(db_factory)
-        snapshot = factory_snapshot()
+        snapshot = catalog.factory_snapshot()
         default = snapshot.builtin_providers["ark"].defaults["image"]
         resolved = await resolver.resolve_image_backend(None, None, generation_type="t2i")
         assert (resolved.provider_id, resolved.model_id) == ("ark", default)
@@ -174,7 +173,7 @@ class TestAssembleBuiltinEndToEnd:
             await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-key")
             await session.commit()
         resolver = ConfigResolver(db_factory)
-        snapshot = factory_snapshot()
+        snapshot = catalog.factory_snapshot()
         default = snapshot.builtin_providers["ark"].defaults["image"]
         install_catalog(monkeypatch, with_min_app_version(snapshot, "ark", default, "999.0.0"))
 
@@ -508,7 +507,7 @@ class TestAssembleCustomEndToEnd:
         install_catalog(
             monkeypatch,
             with_entry_changes(
-                factory_snapshot(),
+                catalog.factory_snapshot(),
                 "ark",
                 SEEDREAM_LITE,
                 shutdown_date=date(2026, 11, 24),

@@ -22,7 +22,7 @@ worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文�
 
 ## 模型目录的测试数据
 
-根 conftest 让目录查询读测试目录数据 `tests/fixtures/catalog.json`，不读出厂快照 `lib/catalog/snapshot/`。出厂快照由发版 PR 刷新成目录数据仓库的最新数据，那边改数据时不跑本仓的测试，用例断言出厂快照里的模型或取值，就会在发版 PR 上失败。用例需要的目录数据变化，用 `tests/catalog_support.py` 的 `install_catalog`、`catalog_of` 与 `with_*` 在用例内构造，或修改测试目录数据。只有 `tests/unit/lib/catalog/test_factory_snapshot.py` 换回出厂快照，核对它本身的格式与可加载性。发布数据必须满足的约束写进 `arcreel_catalog_core` 的构建侧校验，由目录数据仓库在合入与发布时检查。
+根 conftest 让目录查询读测试目录数据 `tests/fixtures/catalog.json`，不读出厂快照 `lib/catalog/snapshot/`。出厂快照由发版 PR 刷新成目录数据仓库的最新数据，那边改数据时不跑本仓的测试，用例断言出厂快照里的模型或取值，就会在发版 PR 上失败。用例需要的目录数据变化，用 `tests/catalog_support.py` 的 `install_catalog`、`catalog_of` 与 `with_*` 在用例内构造，或修改测试目录数据。只有 `tests/unit/lib/catalog/test_factory_snapshot.py` 换回出厂快照，核对它本身的格式与可加载性。生命周期判定的「今天」同时固定为测试目录数据的数据集日期，其中登记的关停日期不会随真实日期到来而改变用例结果；需要跨过关停日期的用例自己调用 `set_catalog_today`。发布数据必须满足的约束写进 `arcreel_catalog_core` 的构建侧校验，由目录数据仓库在合入与发布时检查。
 
 ## 事件循环阻塞护栏
 

@@ -23,7 +23,6 @@ from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_m
 from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES, ImageCapability
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
-from lib.catalog.query import factory_snapshot
 from lib.config.resolver import ConfigResolver, ProviderModel, VideoBucketCapabilityError, VoiceConsistency
 from lib.custom_provider import make_provider_id
 from lib.db.models.config import SystemSetting
@@ -627,7 +626,7 @@ class TestVideoRequestFacts:
         install_catalog(
             monkeypatch,
             with_entry_changes(
-                factory_snapshot(),
+                catalog.factory_snapshot(),
                 "gemini-aistudio",
                 "veo-3.1-generate-preview",
                 discontinued=False,
@@ -813,7 +812,7 @@ class TestBackendCache:
         install_catalog(
             monkeypatch,
             with_entry_changes(
-                factory_snapshot(), "ark", default, shutdown_date=date(2026, 11, 24), successor="bytedance/next"
+                catalog.factory_snapshot(), "ark", default, shutdown_date=date(2026, 11, 24), successor="bytedance/next"
             ),
         )
         built: list[str | None] = []
@@ -856,7 +855,7 @@ class TestBackendCache:
         install_catalog(
             monkeypatch,
             with_entry_changes(
-                factory_snapshot(),
+                catalog.factory_snapshot(),
                 "ark",
                 SEEDREAM_LITE,
                 shutdown_date=date(2026, 11, 24),
