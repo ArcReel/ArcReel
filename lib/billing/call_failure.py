@@ -5,8 +5,8 @@
 ``error_params`` 留空——读侧原样展示。
 
 与 :mod:`lib.generation.task_failure` 的任务失败码**不共用枚举**：那一套的码要在 ``lib/i18n`` 的 errors
-表里各有一条服务端译文（``FAILURE_CODE_KEYS`` 强制登记），渲染发生在任务读接口内；这里的四个码
-是供应商调用的失败分类，渲染在前端。混进同一枚举会让两侧互相要求对方登记自己的码。
+表里各有一条服务端译文（``FAILURE_CODE_KEYS`` 强制登记），渲染发生在任务读接口内；这里的枚举
+是供应商调用的失败分类，渲染在前端。领域异常另保留自身的 code/params，不混入分类枚举。
 
 序列化形式沿用那边的 ``[code] {json}``——机器码加一个 JSON 参数字典，参数值须是 JSON 原生值。
 只是 ``api_calls`` 已有 ``error_code`` / ``error_params`` 两列，两半分列存放，不再拼成一个字符串
@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -24,7 +25,10 @@ from typing import Any
 import httpx
 from openai import APITimeoutError
 
+from arcreel_market_core.video_backend_contract import VideoCapabilityError
 from lib.backends.http_status_errors import ArtifactDownloadError
+from lib.backends.image_errors import ImageCapabilityError
+from lib.infra.api_errors import ApiError
 
 
 class CallErrorCode(StrEnum):
@@ -73,7 +77,8 @@ def classify_call_failure(exc: BaseException | str) -> CallFailure:
     顺序即优先级：产物下载失败先判——下载耗尽的根因常是一次超时或一个 HTTP 状态，但对用户而言
     它是「下载失败」（可重试取件），不是一次超时的生成。其余三类互不重叠，沿 ``__cause__`` 链
     逐层判：提交阶段的歧义态包装之类的外层异常自身不带可分类的信息，根因在它包住的那一层。
-    ``error_message`` 始终取最外层的原文。
+    ``error_message`` 始终取最外层的原文。未命中供应商分类时，API 与图片、视频能力异常保留
+    自身的机器码与参数，供详情按当前语言渲染。
 
     也收失败原文：resume 补账的部分出口只拿得到一段文本而没有异常对象。分类依据全在异常的
     类型与属性上，文本没有可判的信号，因而只留原文——与认不出的异常同一结果。
@@ -88,6 +93,13 @@ def classify_call_failure(exc: BaseException | str) -> CallFailure:
         if classified is not None:
             code, params = classified
             return CallFailure(message, code, params)
+    if isinstance(exc, ApiError | ImageCapabilityError | VideoCapabilityError):
+        code = exc.key if isinstance(exc, ApiError) else exc.code
+        try:
+            params = json.loads(json.dumps(exc.params, default=str))
+        except (TypeError, ValueError, RecursionError):
+            return CallFailure(message)
+        return CallFailure(message, code, params)
     return CallFailure(message)
 
 

@@ -185,10 +185,31 @@ class TestUnclassified:
         assert failure.error_params is None
         assert failure.error_message == "provider ark has no video capacity"
 
-    def test_capability_code_is_not_mistaken_for_a_provider_error_code(self) -> None:
-        # 仓库内的能力异常同样带 ``code`` 属性，但那是任务失败码，不属于调用失败分类。
+    def test_capability_code_is_preserved_without_becoming_a_provider_category(self) -> None:
         exc = VideoCapabilityError(code="video_duration_invalid", duration=99)
 
         failure = classify_call_failure(exc)
 
+        assert failure.error_code == "video_duration_invalid"
+        assert failure.error_params == {"duration": 99}
+
+
+class TestDomainParams:
+    def test_non_json_parameter_uses_the_task_encoding_string_fallback(self, tmp_path) -> None:
+        from lib.infra.api_errors import BadRequestError
+
+        failure = classify_call_failure(BadRequestError("invalid_input", path=tmp_path))
+
+        assert failure.error_code == "invalid_input"
+        assert failure.error_params == {"path": str(tmp_path)}
+
+    def test_unserializable_params_keep_the_original_failure(self) -> None:
+        from lib.infra.api_errors import BadRequestError
+
+        params: dict[str, object] = {}
+        params["self"] = params
+        failure = classify_call_failure(BadRequestError("invalid_input", detail=params))
+
+        assert failure.error_message == "invalid_input"
         assert failure.error_code is None
+        assert failure.error_params is None
