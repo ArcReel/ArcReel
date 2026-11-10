@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import { useProjectsStore } from "@/stores/projects-store";
+import { API } from "@/api";
+import { createDeferred } from "@/test/deferred";
 import { MediaCard } from "./MediaCard";
 
 function renderCard(props: Partial<Parameters<typeof MediaCard>[0]> = {}) {
@@ -38,6 +40,33 @@ describe("MediaCard storyboard image", () => {
 });
 
 describe("MediaCard upload", () => {
+  it.each(["success", "failure"])("blocks sibling writes until version deletion settles (%s)", async (outcome) => {
+    const pending = createDeferred<Awaited<ReturnType<typeof API.deleteFileViewEntry>>>();
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "storyboards",
+      resource_id: "E1S01",
+      current_version: 2,
+      versions: [1, 2].map((version) => ({
+        version, filename: `v${version}.png`, file: `versions/storyboards/E1S01_v${version}.png`,
+        created_at: "2026-02-01", file_size: 1, is_current: version === 2,
+      })),
+    });
+    vi.spyOn(API, "deleteFileViewEntry").mockReturnValue(pending.promise);
+    renderCard({ onUpload: vi.fn(), onGenerate: vi.fn(), onRestore: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: /版本/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "将 v1 移入项目回收站" }));
+    fireEvent.click(screen.getByRole("button", { name: "v1：移入项目回收站？" }));
+
+    expect(screen.getByRole("button", { name: "上传分镜图" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /生成分镜/ })).toBeDisabled();
+    await act(async () => {
+      if (outcome === "success") pending.resolve({ record: { id: "rec-1" } } as Awaited<ReturnType<typeof API.deleteFileViewEntry>>);
+      else pending.reject(new Error("delete failed"));
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "上传分镜图" })).toBeEnabled());
+    expect(screen.getByRole("button", { name: /生成分镜/ })).toBeEnabled();
+  });
+
   it("invokes onUpload with the selected file", () => {
     const onUpload = vi.fn();
     const { container } = renderCard({ onUpload });

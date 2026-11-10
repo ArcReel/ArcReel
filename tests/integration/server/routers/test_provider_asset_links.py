@@ -59,6 +59,7 @@ from server.routers import (
     characters,
     derivative_uploads,
     files,
+    object_storage,
     project_trash,
     provider_asset_links,
     versions,
@@ -188,6 +189,7 @@ def api(sessions, project) -> Generator[TestClient]:
         derivative_uploads.router,
         versions.router,
         provider_asset_links.router,
+        object_storage.router,
         asset_library.router,
         characters.router,
         project_trash.router,
@@ -377,8 +379,9 @@ async def _holders(sessions) -> set[tuple[str, str]]:
         return {(ref.project_name, ref.state) for ref in (await session.execute(select(FormalObjectRef))).scalars()}
 
 
+@pytest.mark.parametrize("departure", [False, True])
 async def test_processing_ingest_keeps_its_signed_formal_object_after_the_source_is_purged(
-    api, sessions, bucket, monkeypatch
+    api, sessions, bucket, monkeypatch, departure
 ):
     """入库任务处理中，来源资产被删除并彻底清除：签名的正式对象由入库任务的引用保留到地址过期之后，再统一回收。"""
     bind_session_factory(monkeypatch, sessions)
@@ -403,6 +406,18 @@ async def test_processing_ingest_keeps_its_signed_formal_object_after_the_source
     assert await _holders(sessions) == {(ingest.ingest_holder(job["id"]), "active")}
     assert bucket["delete_calls"] == []
     assert list(bucket["objects"]) == [("relay-bucket", formal_key)]
+
+    if departure:
+        assert api.put("/api/v1/object-storage/new-image-target", json={"target": "local"}).is_success
+        assert api.get("/api/v1/object-storage/connection").json()["pending_ingest_tasks"] == 1
+        response = api.delete("/api/v1/object-storage/connection")
+        assert response.status_code == 200, response.text
+        assert response.json()["cleanup_failures"] == {}
+        assert await _holders(sessions) == set()
+        assert (await _link(sessions, job["id"])).state == "failed"
+        assert bucket["objects"] == {}
+        assert bucket["delete_calls"] == [formal_key]
+        return
 
     # 地址过期再过宽限期，供应商已无法取图：撤下入库任务的引用，对象失去全部引用后回收
     await _run(sessions, control, t0 + ingest.RELAY_URL_TTL + timedelta(hours=1, minutes=1))
@@ -762,30 +777,123 @@ async def test_concurrent_upload_of_the_same_version_is_a_conflict(api, sessions
     assert [link["id"] for link in _panel(api)["links"]] == [first["id"]]
 
 
-async def test_relay_is_not_deleted_after_the_connection_moves_to_another_bucket(api, sessions, bucket):
+async def test_connection_change_reports_and_fails_ingest_before_upload_starts(api, sessions, bucket):
+    account_id = await _configure(sessions)
+    _upload_sheet(api, solid_png_bytes((3, 3, 3), size=(400, 400)))
+    version = _panel(api)["content_version"]
+    job = _start_upload(api, account_id)
+    assert api.get("/api/v1/object-storage/connection").json()["pending_ingest_tasks"] == 1
+    response = api.delete("/api/v1/object-storage/connection?delete_remote_objects=false")
+    assert response.status_code == 200, response.text
+    failed = await _link(sessions, job["id"])
+    assert (failed.state, failed.error_code, failed.next_check_at) == ("failed", "object_storage_changed", None)
+    assert _panel(api)["content_version"] == version
+    assert bucket["objects"] == {}
+    assert bucket["delete_calls"] == []
+
+
+async def test_connection_change_clears_relay_and_fails_processing_ingest(api, sessions, bucket):
     account_id = await _configure(sessions)
     _upload_sheet(api, solid_png_bytes((3, 3, 3), size=(400, 400)))
     job = _start_upload(api, account_id)
-    control = ControlPlane(asset_status=[{"Status": "Active"}])
+    control = ControlPlane()
     t0 = utc_now()
     await _run(sessions, control, t0)
-    await _run(sessions, control, t0 + timedelta(minutes=1))
-    assert (await _link(sessions, job["id"])).state == "active"
-
-    async with sessions() as session:
-        await ObjectStorageConnectionRepository(session).save(
-            kind="tos",
-            region="cn-beijing",
-            endpoint="tos-cn-beijing.volces.com",
-            bucket="another-bucket",
-            access_key_id=None,
-            secret_access_key=None,
-        )
-        await session.commit()
+    assert (await _link(sessions, job["id"])).state == "processing"
+    assert api.get("/api/v1/object-storage/connection").json()["pending_ingest_tasks"] == 1
+    changed = api.put(
+        "/api/v1/object-storage/connection",
+        json={
+            "region": "cn-beijing",
+            "endpoint": "tos-cn-beijing.volces.com",
+            "bucket": "another-bucket",
+        },
+    )
+    assert changed.status_code == 200, changed.text
+    assert await _relays(sessions) == []
+    failed = await _link(sessions, job["id"])
+    assert (failed.state, failed.error_code, failed.next_check_at) == ("failed", "object_storage_changed", None)
+    assert bucket["objects"] == {}
+    assert len(bucket["delete_calls"]) == 1
     await _run(sessions, control, t0 + timedelta(hours=2))
-    [relay] = await _relays(sessions)
-    assert (relay.state, relay.last_error) == ("retained", "connection_changed")
-    assert bucket["delete_calls"] == []
+    assert (await _link(sessions, job["id"])).state == "failed"
+    assert api.get("/api/v1/object-storage/connection").json()["pending_ingest_tasks"] == 0
+    assert _panel(api)["content_version"] is not None
+
+
+async def test_late_provider_poll_cannot_revive_ingest_failed_by_connection_disposal(api, sessions, bucket):
+    account_id = await _configure(sessions)
+    _upload_sheet(api, solid_png_bytes((3, 3, 3), size=(400, 400)))
+    job = _start_upload(api, account_id)
+    t0 = utc_now()
+    await _run(sessions, ControlPlane(), t0)
+    entered, release = asyncio.Event(), asyncio.Event()
+    control = ControlPlane(asset_status=[{"Status": "Active"}])
+
+    async def paused_poll(request):
+        if request.url.params.get("Action") == "GetAsset":
+            entered.set()
+            await release.wait()
+        return control(request)
+
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=paused_poll)
+        polling = asyncio.create_task(ingest.run_once(sessions, now=t0 + timedelta(minutes=1)))
+        try:
+            await asyncio.wait_for(entered.wait(), 10)
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://test") as client:
+                result = await client.delete("/api/v1/object-storage/connection")
+                assert result.status_code == 200, result.text
+        finally:
+            release.set()
+        await asyncio.wait_for(polling, 10)
+    link = await _link(sessions, job["id"])
+    assert (link.state, link.error_code, link.next_check_at) == ("failed", "object_storage_changed", None)
+    assert bucket["objects"] == {}
+
+
+async def test_connection_disposal_waits_for_relay_upload_and_clears_its_records(api, sessions, bucket, monkeypatch):
+    account_id = await _configure(sessions)
+    _upload_sheet(api, solid_png_bytes((3, 3, 3), size=(400, 400)))
+    job = _start_upload(api, account_id)
+    entered, trying, acquired = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    class PausedTos(MemoryTos):
+        def put_object(self, **kwargs):
+            result = super().put_object(**kwargs)
+            loop.call_soon_threadsafe(entered.set)
+            assert release.wait(timeout=10), "test did not release the upload"
+            return result
+
+    use_object_storage_sdk(monkeypatch, lambda config: PausedTos(bucket))
+    shared_lock = ingest.connection_change_lock()
+
+    acquire = shared_lock.acquire
+
+    async def observed_acquire():
+        trying.set()
+        result = await acquire()
+        acquired.set()
+        return result
+
+    uploading = asyncio.create_task(_run(sessions, ControlPlane(), utc_now()))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=api.app), base_url="http://test") as client:
+        try:
+            await asyncio.wait_for(entered.wait(), 10)
+            monkeypatch.setattr(shared_lock, "acquire", observed_acquire)
+            deleting = asyncio.create_task(client.delete("/api/v1/object-storage/connection"))
+            await asyncio.wait_for(trying.wait(), 10)
+            assert not acquired.is_set()
+        finally:
+            release.set()
+        response = await asyncio.wait_for(deleting, 10)
+        await asyncio.wait_for(uploading, 10)
+    assert response.status_code == 200, response.text
+    assert await _relays(sessions) == []
+    assert bucket["objects"] == {}
+    assert (await _link(sessions, job["id"])).state == "failed"
 
 
 async def test_upload_requires_an_image_and_object_storage(api, sessions, bucket):

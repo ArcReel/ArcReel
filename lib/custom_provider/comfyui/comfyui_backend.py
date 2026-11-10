@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from pathlib import Path
@@ -28,6 +29,7 @@ from uuid import uuid4
 import httpx
 
 from arcreel_market_core.video_backend_contract import (
+    ReferenceAudioMode,
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
@@ -101,10 +103,32 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         slots = derive_video_capabilities(self._definition).max_reference_images
         if count > slots:
             raise VideoCapabilityError("video_reference_images_exceeded", model=self._model, limit=slots, count=count)
+        # 预检使用本地引用占位，不上传：无效绑定、欠填或缺失画幅必须在所有外部写入前失败。
+        if (
+            request.reference_audio_files
+            or self._definition["bindings"].get("reference_audio")
+            or self._definition["bindings"].get("aspect_ratio")
+        ):
+            await asyncio.to_thread(
+                build_workflow,
+                self._definition,
+                prompt=request.prompt,
+                aspect_ratio=request.aspect_ratio,
+                resolution=request.resolution,
+                duration_seconds=request.duration_seconds,
+                media=MediaInputs(
+                    start_image=str(request.start_image) if request.start_image else None,
+                    end_image=str(request.end_image) if request.end_image else None,
+                    reference_images=tuple(str(path) for path in request.reference_images or []),
+                    reference_audio_files=tuple(str(path) for path in request.reference_audio_files or []),
+                ),
+                seed=request.seed,
+            )
         job_label = request.task_id or self._job_label or uuid4().hex
         async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
             media = await self._upload_media(http, request, job_label=job_label)
-            built = build_workflow(
+            built = await asyncio.to_thread(
+                build_workflow,
                 self._definition,
                 prompt=request.prompt,
                 aspect_ratio=request.aspect_ratio,
@@ -215,11 +239,20 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         references: list[str] = []
         for index, path in enumerate(request.reference_images or []):
             references.append(
-                await self._client.upload_image(
+                await self._client.upload_media(
                     http, path, filename=upload_filename(job_label, "reference_images", path, index)
                 )
             )
-        return MediaInputs(start_image=start, end_image=end, reference_images=tuple(references))
+        audio = []
+        for index, path in enumerate(request.reference_audio_files or []):
+            audio.append(
+                await self._client.upload_media(
+                    http, path, filename=upload_filename(job_label, "reference_audio", path, index)
+                )
+            )
+        return MediaInputs(
+            start_image=start, end_image=end, reference_images=tuple(references), reference_audio_files=tuple(audio)
+        )
 
     async def _upload_one(
         self,
@@ -232,7 +265,7 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
     ) -> str | None:
         if path is None or not _targets(bindings.get(key)):
             return None
-        return await self._client.upload_image(http, path, filename=upload_filename(job_label, key, path))
+        return await self._client.upload_media(http, path, filename=upload_filename(job_label, key, path))
 
 
 def _targets(raw: object) -> list[Mapping[str, Any]]:
@@ -247,7 +280,7 @@ def binding_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabiliti
     （``endpoints.comfyui_endpoint_spec``）与 backend 自己的声明共用这一份，两处不各写一份——
     它们各自喂给能力闸门的不同一段，说的却必须是同一件事。
 
-    参考音频三项与 ``max_prompt_chars`` 保持默认：绑定表里没有对应的语义键。
+    参考音频段数只从绑定推导；总时长与 ``max_prompt_chars`` 没有依据，保持未声明。
     """
     bound = derive_video_capabilities(definition)
     return VideoCapabilities(
@@ -256,4 +289,6 @@ def binding_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabiliti
         last_frame=bound.last_frame,
         max_reference_images=bound.max_reference_images,
         audio_track=VideoAudioMode(bound.audio_track),
+        reference_audio_mode=ReferenceAudioMode.DIRECT if bound.max_reference_audio_count else ReferenceAudioMode.NONE,
+        max_reference_audio_count=bound.max_reference_audio_count,
     )

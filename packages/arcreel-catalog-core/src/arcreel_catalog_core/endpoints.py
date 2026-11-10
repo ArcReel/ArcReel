@@ -106,6 +106,7 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
         "gemini-interactions-video": BuiltinEndpoint("video", since="0.35.1"),
         "gemini-vertex-interactions-video": BuiltinEndpoint("video", since="0.35.1"),
         "vidu-video-q4": BuiltinEndpoint("video", since="0.35.1"),
+        "grok-tts": BuiltinEndpoint("audio", since="0.35.1"),
     }
 )
 
@@ -157,6 +158,7 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
             "text": _single("grok-chat"),
             "image": _single("grok-image"),
             "video": ProviderEndpointOptions(("grok-video-classic", "grok-video-mixed"), "grok-video-classic"),
+            "audio": _single("grok-tts"),
         },
         "kling": {
             "image": ProviderEndpointOptions(("kling-image", "kling-image-single"), "kling-image"),

@@ -55,7 +55,8 @@ import type {
   AssetLibraryCredentialType,
   CreateAssetLibraryAccountPayload,
   NewImageTarget,
-  ObjectStorageConnection,
+  SavedObjectStorageConnection,
+  ObjectStorageCleanupResult,
   ObjectStorageSettings,
   ProviderAssetImportResult,
   ProviderAssetLink,
@@ -614,7 +615,7 @@ class API {
     return response.blob();
   }
 
-  /** 把一个未引用文件移进项目回收站；其余角色由服务端拒绝。 */
+  /** 把一个未引用文件或非当前的历史版本移进项目回收站；其余角色由服务端拒绝。 */
   static async deleteFileViewEntry(projectName: string, path: string): Promise<{ record: TrashRecord }> {
     const query = new URLSearchParams({ path }).toString();
     return this.request(`/projects/${encodeURIComponent(projectName)}/file-view?${query}`, { method: "DELETE" });
@@ -3495,12 +3496,12 @@ class API {
     return this.request("/object-storage/new-image-target", { method: "PUT", body: JSON.stringify({ target }) });
   }
 
-  static async saveObjectStorageConnection(data: SaveObjectStorageConnectionPayload): Promise<ObjectStorageConnection> {
+  static async saveObjectStorageConnection(data: SaveObjectStorageConnectionPayload): Promise<SavedObjectStorageConnection> {
     return this.request("/object-storage/connection", { method: "PUT", body: JSON.stringify(data) });
   }
 
-  static async deleteObjectStorageConnection(): Promise<void> {
-    return this.request("/object-storage/connection", { method: "DELETE" });
+  static async deleteObjectStorageConnection(deleteRemoteObjects = true): Promise<ObjectStorageCleanupResult> {
+    return this.request(`/object-storage/connection?delete_remote_objects=${deleteRemoteObjects}`, { method: "DELETE" });
   }
 
   static async checkObjectStorageConnection(): Promise<{ success: boolean }> {

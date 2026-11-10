@@ -237,6 +237,52 @@ def test_build_side_rejects(mutation: Callable[[dict[str, Any]], None], expected
     assert _codes(data) == [expected]
 
 
+def test_valid_output_token_scaled_bases_have_no_issues():
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        output_token_bases={"high": 48},
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2}, "medium": {"base": 24, "multiplier": 3.3}},
+    )
+
+    assert _codes(data) == []
+
+
+def test_quality_with_both_plain_and_scaled_base_is_rejected():
+    """同一质量档同时写进两张表时，不认识新字段的旧实例会按普通基数算出不带系数的低估值。"""
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        output_token_bases={"low": 16, "high": 48},
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2}},
+    )
+
+    assert _codes(data) == [("entries[2].facts.output_token_scaled_bases.low", "output_token_quality_overlap")]
+
+
+def test_unknown_field_inside_scaled_base_is_reported():
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2, "rounding": "ceil"}}
+    )
+
+    assert _codes(data) == [("entries[2].facts.output_token_scaled_bases.low.rounding", "unknown_field")]
+
+
+@pytest.mark.parametrize(
+    ("multiplier", "code"),
+    [
+        pytest.param(0, "invalid_positive_number", id="零"),
+        pytest.param(-1, "invalid_positive_number", id="负数"),
+        pytest.param(10**400, "invalid_positive_number", id="超出浮点范围"),
+        pytest.param(True, "invalid_positive_number", id="布尔值"),
+    ],
+)
+def test_invalid_multiplier_is_reported(multiplier: object, code: str):
+    data = catalog()
+    data["entries"][2]["facts"].update(output_token_scaled_bases={"low": {"base": 16, "multiplier": multiplier}})
+
+    assert _codes(data) == [("entries[2].facts.output_token_scaled_bases.low.multiplier", code)]
+
+
 def test_price_rows_for_resolutions_beyond_entry_facts_are_allowed():
     """条目声明之外的档位照常定价：存量设置或 Agent 入参仍可能带着它们进入计费。"""
     data = catalog()

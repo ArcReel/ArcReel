@@ -585,6 +585,7 @@ PROVIDER_ONLY_ENDPOINTS: Mapping[str, str] = {
     "agnes-video-2-5": "video",
     "gemini-vertex-video": "video",
     "gemini-vertex-interactions-video": "video",
+    "grok-tts": "audio",
 }
 
 #: 简单族的 image/video/audio：(provider_id, media_type) → 端点名。
@@ -595,6 +596,7 @@ _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
     ("minimax", "image"): "minimax-image",
     ("openai", "video"): "openai-video",
     ("minimax", "audio"): "minimax-tts",
+    ("grok", "audio"): "grok-tts",
 }
 
 # gemini 两个 provider_id → backend_type，每个 × image/video/audio 登记一行。
