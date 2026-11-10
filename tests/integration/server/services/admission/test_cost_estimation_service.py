@@ -2672,6 +2672,69 @@ class TestImageBatchEstimate:
         assert estimated.total == {"USD": pytest.approx(2 * 1756 * 30 / 1_000_000)}
         assert estimated.unpriced_count == 0
 
+    async def test_openai_scaled_output_tokens_flow_into_the_batch_estimate(self, db_factory, monkeypatch):
+        from arcreel_catalog_core import ScaledOutputTokenBase
+        from lib.catalog import query
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+        from tests.catalog_support import install_catalog, with_entry_facts
+
+        install_catalog(
+            monkeypatch,
+            with_entry_facts(
+                query.factory_snapshot(),
+                "openai",
+                "gpt-image-2",
+                output_token_bases={"high": 48, "xhigh": 64, "max": 96},
+                output_token_scaled_bases={
+                    "low": ScaledOutputTokenBase(base=16, multiplier=4.2),
+                    "medium": ScaledOutputTokenBase(base=24, multiplier=3.3),
+                },
+            ),
+        )
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "1K"}},
+        }
+
+        estimated = await estimate_image_batch_cost(
+            project, ["t2i", "t2i"], aspect_ratio="1:1", resolver=ConfigResolver(db_factory), session_factory=db_factory
+        )
+
+        # 1K → medium、1:1 → 1024x1024：官方计算器（GPT Image 2.6）1449 个输出 token × $30/百万
+        assert estimated.total == {"USD": pytest.approx(2 * 1449 * 30 / 1_000_000)}
+        assert estimated.unpriced_count == 0
+
+    async def test_openai_quality_without_any_base_stays_unpriced(self, db_factory, monkeypatch):
+        """旧实例看到的 2.6 条目只有 high/xhigh/max 基数：1K（medium）记为未定价，不按 0 估。"""
+        from lib.catalog import query
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+        from tests.catalog_support import install_catalog, with_entry_facts
+
+        install_catalog(
+            monkeypatch,
+            with_entry_facts(
+                query.factory_snapshot(),
+                "openai",
+                "gpt-image-2",
+                output_token_bases={"high": 48, "xhigh": 64, "max": 96},
+            ),
+        )
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "1K"}},
+        }
+
+        estimated = await estimate_image_batch_cost(
+            project, ["t2i", "t2i"], aspect_ratio="1:1", resolver=ConfigResolver(db_factory), session_factory=db_factory
+        )
+
+        assert estimated.total == {}
+        assert estimated.unpriced_count == 2
+
     async def test_unknown_reference_count_is_unpriced_when_references_are_billed(self, db_factory):
         from server.services.admission.cost_estimation import estimate_image_batch_cost
 

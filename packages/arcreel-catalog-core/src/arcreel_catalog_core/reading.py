@@ -30,6 +30,7 @@ from .model import (
     ModelFacts,
     PriceRow,
     PriceTable,
+    ScaledOutputTokenBase,
     TextFacts,
     VideoFacts,
     matching_entries,
@@ -96,7 +97,14 @@ _ENTRY_FIELDS = frozenset(
 _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
     "image": frozenset(
-        {"text_to_image", "image_to_image", "resolutions", "max_reference_images", "output_token_bases"}
+        {
+            "text_to_image",
+            "image_to_image",
+            "resolutions",
+            "max_reference_images",
+            "output_token_bases",
+            "output_token_scaled_bases",
+        }
     ),
     "video": frozenset(
         {
@@ -114,6 +122,7 @@ _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
     ),
     "audio": frozenset(),
 }
+_SCALED_OUTPUT_TOKEN_BASE_FIELDS = frozenset({"base", "multiplier"})
 _CONSTRAINT_FIELDS = frozenset({"by_resolution", "with_reference_images"})
 _PRICE_FIELDS = frozenset({"currency", "meters"})
 _METER_FIELDS = frozenset({"meter", "dims", "rows", "defaults", "free_allowance", "cjk_double"})
@@ -351,13 +360,23 @@ class CatalogReader:
                     max_output_tokens=self.positive_int(data, "max_output_tokens", path),
                 )
             case "image":
+                output_token_bases = self.output_token_bases(
+                    data.get("output_token_bases"), _at(path, "output_token_bases")
+                )
+                scaled_path = _at(path, "output_token_scaled_bases")
+                scaled_bases = self.output_token_scaled_bases(data.get("output_token_scaled_bases"), scaled_path)
+                for quality in scaled_bases.keys() & output_token_bases.keys():
+                    self.flag(
+                        _at(scaled_path, quality),
+                        "output_token_quality_overlap",
+                        "同一质量档不能同时写在普通基数和带系数基数中，旧实例会按普通基数漏乘系数",
+                    )
                 return ImageFacts(
                     text_to_image=self.flag_value(data, "text_to_image", path),
                     image_to_image=self.flag_value(data, "image_to_image", path),
                     max_reference_images=self.nonnegative_int(data, "max_reference_images", path),
-                    output_token_bases=self.output_token_bases(
-                        data.get("output_token_bases"), _at(path, "output_token_bases")
-                    ),
+                    output_token_bases=output_token_bases,
+                    output_token_scaled_bases=scaled_bases,
                     resolutions=self.texts(data.get("resolutions"), _at(path, "resolutions")),
                 )
             case "video":
@@ -403,6 +422,26 @@ class CatalogReader:
                 result[quality] = base
             else:
                 self.reject(_at(path, quality), "invalid_positive_int", "应为正整数")
+        return result
+
+    def output_token_scaled_bases(self, raw: object, path: str) -> Mapping[str, ScaledOutputTokenBase]:
+        data = {} if raw is None else self.obj(raw, path)
+        result: dict[str, ScaledOutputTokenBase] = {}
+        for quality, item in data.items():
+            if not is_valid_dimension_value("quality", quality):
+                self.reject(path, "invalid_text", "质量档应为非空字符串")
+                continue
+            item_path = _at(path, quality)
+            rule = self.obj(item, item_path)
+            self.known_fields(rule, item_path, _SCALED_OUTPUT_TOKEN_BASE_FIELDS)
+            base = self.positive_int(rule, "base", item_path)
+            if rule.get("base") is None:
+                self.reject(_at(item_path, "base"), "invalid_positive_int", "应为正整数")
+            multiplier = _as_float(rule.get("multiplier"))
+            if multiplier is None or not math.isfinite(multiplier) or multiplier <= 0:
+                self.reject(_at(item_path, "multiplier"), "invalid_positive_number", "应为正的有限数")
+            elif base is not None:
+                result[quality] = ScaledOutputTokenBase(base=base, multiplier=multiplier)
         return result
 
     def duration_constraints(

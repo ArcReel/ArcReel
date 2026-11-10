@@ -165,6 +165,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     # Seedream 挂在 OpenAI 图片端点上：改选方舟 Seedream 端点即可。
     "image_seedream_edits_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "provider_unsupported_media": GenerationAction.CONFIGURE_PROVIDER,
+    "narration_tts_speed_out_of_range": GenerationAction.FIX_INPUT,
     "model_not_in_provider_catalog": GenerationAction.CONFIGURE_PROVIDER,
     "model_discontinued": GenerationAction.CONFIGURE_PROVIDER,
     # 上游按确定性 4xx 拒了这个请求：原样重发只会被同样拒绝，还要再付一次。
@@ -177,6 +178,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
     # 图片已出但没取回：图片不续跑，「重试下载」接不回原任务，重新生成是唯一的一步。
     "declarative_image_save_failed": GenerationAction.RETRY,
+    "comfyui_reference_audio_invalid": GenerationAction.CONFIGURE_PROVIDER,
+    "comfyui_aspect_ratio_unmapped": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_image_drop_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     # 传不上去多半是地址、凭据或磁盘的一次性问题，重发同一请求可能就好了。
     "comfyui_upload_failed": GenerationAction.RETRY,
