@@ -992,7 +992,7 @@ class TestProjectArchiveService:
             }
             assert (pm.get_project_path("demo") / current_file.relative_to(project_dir)).is_file()
 
-    def test_official_round_trip_rekeys_claims_to_repaired_formal_paths(self, tmp_path):
+    def test_official_round_trip_rekeys_claims_when_original_formal_file_is_missing(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         project = pm.load_project("demo")
@@ -1004,7 +1004,6 @@ class TestProjectArchiveService:
         adapter = ProjectArtifactManifestAdapter(project_dir)
         before = adapter.get_entry(key)
         assert before is not None
-        _write_bytes(project_dir / "characters" / "legacy.png", b"legacy")
         project = pm.load_project("demo")
         project["characters"]["Hero"]["character_sheet"] = "characters/legacy.png"
         project["characters"]["Hero"]["description"] = "Changed after generation"
@@ -1349,6 +1348,93 @@ class TestProjectArchiveService:
         assert result.project["title"] == "Demo"
         assert result.project_name != "demo"
         assert (pm.get_project_path(result.project_name) / "project.json").exists()
+
+    def test_import_preserves_borrowed_asset_bytes_when_canonical_files_exist(self, tmp_path):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 18
+        project["characters"] = {
+            "Alice": {"description": "Alice", "character_sheet": "characters/Alice.png"},
+            "Bob": {
+                "description": "Bob",
+                "character_sheet": "characters/Alice.png",
+                "reference_image": "characters/Bob.png",
+            },
+        }
+        _write_bytes(project_dir / "characters/Alice.png", b"alice-sheet")
+        _write_bytes(project_dir / "characters/Bob.png", b"bob-reference")
+        _write_json(project_dir / "project.json", project)
+        archive_path = tmp_path / "borrowed.zip"
+        _make_manual_zip(project_dir, archive_path)
+        target = ProjectManager(tmp_path / "imported")
+
+        result = ProjectArchiveService(target).import_project_archive(
+            archive_path, uploaded_filename="borrowed.zip", confirm_report=True
+        )
+
+        imported_dir = target.get_project_path(result.project_name)
+        bob = result.project["characters"]["Bob"]
+        assert (imported_dir / bob["character_sheet"]).read_bytes() == b"alice-sheet"
+        assert (imported_dir / bob["reference_image"]).read_bytes() == b"bob-reference"
+
+    @pytest.mark.parametrize("path_state", ["collision", "canonical", "missing_canonical", "missing_source"])
+    def test_import_preserves_asset_and_script_media_content(self, tmp_path, path_state):
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 18
+        project["scenes"] = {"Temple": {"description": "Temple"}}
+        script = _build_episode_payload()
+        assets = script["segments"][0]["generated_assets"]
+        fields = [
+            (project["characters"]["Hero"], "character_sheet", "characters/Hero.png"),
+            (project["characters"]["Hero"], "reference_image", "characters/refs/Hero.png"),
+            (project["characters"]["Hero"], "reference_audio", "characters/refs_audio/Hero.wav"),
+            (project["scenes"]["Temple"], "scene_sheet", "scenes/Temple.png"),
+            (project["props"]["Key"], "prop_sheet", "props/Key.png"),
+            (assets, "storyboard_image", "storyboards/scene_E1S01.png"),
+            (assets, "video_clip", "videos/scene_E1S01.mp4"),
+            (assets, "narration_audio", "audio/segment_E1S01.wav"),
+        ]
+        expected = {}
+        for payload, field, canonical in fields:
+            source = f"borrowed/{field}{Path(canonical).suffix}"
+            expected[field] = f"original-{field}".encode()
+            payload[field] = canonical if path_state == "canonical" else source
+            if path_state != "missing_source":
+                _write_bytes(project_dir / payload[field], expected[field])
+            if path_state != "missing_canonical":
+                _write_bytes(
+                    project_dir / canonical,
+                    b"different-canonical" if path_state == "collision" else expected[field],
+                )
+            elif (project_dir / canonical).exists():
+                (project_dir / canonical).unlink()
+        project["style_image"] = "borrowed/style.png"
+        _write_bytes(project_dir / "borrowed/style.png", b"original-style")
+        _write_json(project_dir / "project.json", project)
+        _write_json(project_dir / "scripts/episode_1.json", script)
+        archive_path = tmp_path / "media.zip"
+        _make_manual_zip(project_dir, archive_path)
+        target = ProjectManager(tmp_path / "imported")
+
+        result = ProjectArchiveService(target).import_project_archive(
+            archive_path, uploaded_filename="media.zip", confirm_report=True
+        )
+
+        imported_dir = target.get_project_path(result.project_name)
+        imported_script = json.loads((imported_dir / "scripts/episode_1.json").read_text(encoding="utf-8"))
+        project = result.project
+        imported_fields = {
+            **project["characters"]["Hero"],
+            **project["scenes"]["Temple"],
+            **project["props"]["Key"],
+            **imported_script["segments"][0]["generated_assets"],
+        }
+        for field, content in expected.items():
+            assert (imported_dir / imported_fields[field]).read_bytes() == content, field
+        assert (imported_dir / project["style_image"]).read_bytes() == b"original-style"
 
     @pytest.mark.parametrize("schema_version", [0, 1])
     def test_import_minimal_legacy_archive_has_no_backup_warnings(self, tmp_path, schema_version):

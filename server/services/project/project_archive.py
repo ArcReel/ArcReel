@@ -1941,6 +1941,9 @@ class ProjectArchiveService:
         resolved_raw = self._resolve_existing_relative(project_dir, normalized_value)
 
         if canonical_path.exists():
+            # 有效的原引用优先，规范落点可能属于另一字段的不同内容。
+            if resolved_raw and resolved_raw != canonical_rel:
+                return False
             if normalized_value != canonical_rel:
                 payload[field_name] = canonical_rel
                 diagnostics.add(
