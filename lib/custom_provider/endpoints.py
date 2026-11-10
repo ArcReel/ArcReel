@@ -1491,6 +1491,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
         # 两个运输位与声明式端点同处理：从 caps 反推，而不是各写一份判据。
         end_image_capable=caps.last_frame if caps is not None else False,
+        reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
         definition=definition,
     )
     validate_video_caps_declaration(spec)
