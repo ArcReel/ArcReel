@@ -31,9 +31,9 @@ async def test_black_freeze_and_cut_signals_cover_the_synthesised_intervals(clip
     # 黑屏必然静止，但不重复计入卡帧段；视频以定格收尾，卡帧延续到片尾。
     assert [(span.start, span.end) for span in signals.freeze] == [pytest.approx((3.0, 5.0))]
     assert signals.cuts == pytest.approx((1.0, 2.0, 3.0))
-    assert [(shot.start, shot.end) for shot in signals.shots] == pytest.approx(
-        [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)]
-    )
+    assert [(shot.start, shot.end) for shot in signals.shots] == [
+        pytest.approx(span) for span in [(0.0, 1.0), (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)]
+    ]
 
 
 async def test_a_plain_moving_clip_has_no_signals(tmp_path: Path) -> None:
