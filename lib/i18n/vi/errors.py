@@ -732,6 +732,7 @@ MESSAGES = {
     "grid_image_not_ready": "Phân cảnh đa lưới '{grid_id}' chưa có ảnh ghép; hãy tạo hoặc tải lên trước khi tách",
     "grid_generation_in_progress": "Phân cảnh đa lưới '{grid_id}' đang được tạo; vui lòng đợi hoàn tất trước khi thao tác",
     "version_delete_current": "{path} là phiên bản hiện tại nên không thể xóa. Hãy chuyển sang phiên bản khác trước",
+    "version_delete_in_use": "Tài nguyên của {path} đang được cập nhật. Hãy đợi hoàn tất trước khi xóa phiên bản lịch sử",
     "version_not_found": "Phiên bản {version} không tồn tại",
     "version_resource_not_found": "Tài nguyên '{resource_type}/{resource_id}' không tồn tại",
     "version_snapshot_path_unmanaged": "Bản ghi phiên bản '{resource_type}' trỏ tới đường dẫn ảnh chụp không được quản lý; thao tác đã bị từ chối",

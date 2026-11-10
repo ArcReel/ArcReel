@@ -19,7 +19,10 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, ClassVar, assert_never
 
+import portalocker
+
 from lib.artifacts.formal_write import formal_write_transaction
+from lib.generation.generation_admission import generation_admission_lock_sync
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.infra.content_digest import sha256_file
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
@@ -1440,7 +1443,8 @@ class VersionManager:
     def delete_history_version(self, snapshot_path: str) -> "TrashRecord":
         """把快照路径为 ``snapshot_path`` 的一条历史版本移进项目回收站，返回删除记录；当前版本不能这样删除。
 
-        调用方持有项目锁（``project_metadata_lock``）。恢复时它作为该资源的一条历史版本加回。
+        调用方持有项目锁（``project_metadata_lock``）。资源选择与结算期间拒绝删除，保留回退目标。
+        恢复时它作为该资源的一条历史版本加回。
         """
         # 回收站模块依赖本模块（恢复时加回历史版本），只能在这里导入。
         from lib.project import project_trash
@@ -1455,31 +1459,41 @@ class VersionManager:
                             continue
                         if record.get("version") == resource_data.get("current_version"):
                             raise ConflictError("version_delete_current", path=snapshot_path)
-                        self._resolve_snapshot(resource_type, record)
-                        original = self.versions_file.read_bytes()
-                        del versions[index]
-                        self._save_versions(data)
-                        obj = {
-                            "kind": "version",
-                            "path": snapshot_path,
-                            "resource_type": resource_type,
-                            "resource_id": resource_id,
-                            "version": record.get("version"),
-                            "prompt": record.get("prompt", ""),
-                            "metadata": {
-                                key: value
-                                for key, value in record.items()
-                                # 摘要随记录保留：远端内容版本加回时据此确认字节仍是原对象的内容
-                                if key not in {"version", "file", "prompt", _PREVIOUS_CURRENT_VERSION}
-                            },
-                        }
+                        # 删除已持项目锁与版本锁：非阻塞取准入锁，避免与结算的取锁顺序互等。
                         try:
-                            trashed = project_trash.record_deletion(self.project_path, obj, [snapshot_path])
-                        except BaseException:
-                            atomic_write_bytes(self.versions_file, original)
-                            raise
-                        record_project_activity(self.project_path)
-                        return trashed
+                            with generation_admission_lock_sync(
+                                project_name=self.project_path.name,
+                                script_file="",
+                                resource_id=resource_id,
+                                blocking=False,
+                            ):
+                                self._resolve_snapshot(resource_type, record)
+                                original = self.versions_file.read_bytes()
+                                del versions[index]
+                                self._save_versions(data)
+                                obj = {
+                                    "kind": "version",
+                                    "path": snapshot_path,
+                                    "resource_type": resource_type,
+                                    "resource_id": resource_id,
+                                    "version": record.get("version"),
+                                    "prompt": record.get("prompt", ""),
+                                    "metadata": {
+                                        key: value
+                                        for key, value in record.items()
+                                        # 摘要随记录保留：远端内容版本加回时据此确认字节仍是原对象的内容
+                                        if key not in {"version", "file", "prompt", _PREVIOUS_CURRENT_VERSION}
+                                    },
+                                }
+                                try:
+                                    trashed = project_trash.record_deletion(self.project_path, obj, [snapshot_path])
+                                except BaseException:
+                                    atomic_write_bytes(self.versions_file, original)
+                                    raise
+                                record_project_activity(self.project_path)
+                                return trashed
+                        except portalocker.AlreadyLocked as exc:
+                            raise ConflictError("version_delete_in_use", path=snapshot_path) from exc
         raise NotFoundError("version_not_found", version=snapshot_path)
 
     def resource_records(self, resources: Iterable[tuple[str, str]]) -> dict[str, dict[str, Any]]:

@@ -669,6 +669,7 @@ MESSAGES = {
     "grid_image_not_ready": "多宫格分镜图 '{grid_id}' 尚无联合图，请先生成或上传后再切分",
     "grid_generation_in_progress": "多宫格分镜图 '{grid_id}' 正在生成中，请等待完成后再操作",
     "version_delete_current": "{path} 是当前版本，不能删除：先切换到其他版本",
+    "version_delete_in_use": "{path} 所属资源正在更新，暂时无法删除历史版本：请等待更新结束后重试",
     "version_not_found": "版本 {version} 不存在",
     "version_resource_not_found": "资源 '{resource_type}/{resource_id}' 不存在",
     "version_snapshot_path_unmanaged": "'{resource_type}' 的版本记录指向非托管的快照路径，已拒绝该操作",
