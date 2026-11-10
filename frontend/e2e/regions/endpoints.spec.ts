@@ -224,3 +224,31 @@ defineRegionScenarios("调用端点", [
     screenshot: { name: "endpoints-import-dialog", target: (page) => page.getByRole("dialog") },
   },
 ]);
+
+const comfyuiRecord = (
+  JSON.parse(readFileSync(join(RECORDED_DIR, "comfyui-audio-aspect-create.json"), "utf8")) as RecordedResponse
+).body;
+
+defineRegionScenarios("ComfyUI 节点绑定", [{
+  name: "参考音频排序与画幅对应值展开后仍可编辑，分辨率保持固定",
+  path: `${ENDPOINTS_PATH}&endpoint=ce-1`,
+  api: {
+    "GET /api/v1/custom-endpoints": { status: 200, body: { endpoints: [comfyuiRecord] } },
+    "POST /api/v1/custom-endpoints/validate?exclude_id=1": VALID,
+  },
+  ready: async (page) => {
+    await page.getByRole("textbox", { name: "端点名称" }).waitFor();
+  },
+  act: async (page) => {
+    for (const key of ["reference_audio", "aspect_ratio"]) {
+      const row = page.locator("div.grid").filter({ has: page.locator("span.font-mono", { hasText: new RegExp(`^${key}$`) }) });
+      await row.getByRole("button").click();
+    }
+    await page.getByRole("textbox", { name: "16:9 对应值", exact: true }).fill("16:9 (Widescreen)");
+    await page.getByRole("textbox", { name: "9:16 对应值", exact: true }).fill("9:16 (Portrait)");
+    await page.getByRole("button", { name: "上移", exact: true }).nth(1).click();
+    await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
+    await expect(page.getByRole("combobox", { name: "画幅比例", exact: true })).toBeEnabled();
+    await expect(page.getByRole("combobox", { name: "分辨率", exact: true })).toBeDisabled();
+  },
+}]);

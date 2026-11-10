@@ -134,7 +134,7 @@ export default {
   resolution_default_placeholder: "Mặc định (chưa đặt)",
   resolution_native_placeholder: "Gốc của workflow ({{value}})",
   resolution_endpoint_fixed_placeholder: "Do workflow quyết định",
-  resolution_fixed_hint: "Workflow này có kích thước cố định: chiều rộng/cao không liên kết với node nào, nên tỉ lệ và độ phân giải không có tác dụng. Hãy sửa liên kết node để thay đổi.",
+  resolution_fixed_hint: "Độ phân giải pixel của workflow này cố định: chiều rộng và chiều cao chưa được liên kết đồng thời. Chỉnh liên kết node để điều chỉnh độ phân giải.",
   duration_not_driven_notice: "Thời lượng do endpoint cố định: workflow quyết định độ dài mỗi đoạn.",
   tab_custom_desc: "Tải lên ảnh tham chiếu phong cách để AI phân tích. Sau khi tải lên, mẫu phong cách không còn được dùng.",
   upload_reference: "Tải lên ảnh tham chiếu phong cách",

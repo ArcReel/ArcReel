@@ -12,14 +12,18 @@ export interface ObjectStorageConnection {
 /** 新增图片内容版本的保存位置（全局设置，缺省本地）。 */
 export type NewImageTarget = "local" | "object_storage";
 
-/** 「对象存储」块读取的全部状态：连接、新增图片保存位置，以及尚未清理的中转副本与待删除图片对象数量。 */
+/** 对象存储连接及新增图片保存位置。 */
 export interface ObjectStorageSettings {
   connection: ObjectStorageConnection | null;
   new_image_target: NewImageTarget;
-  retained_relay_objects: number;
-  /** 没有任何引用、还没有删除的图片对象（多为保存失败留下的）；更换桶或 Endpoint、删除连接后不再自动删除。 */
-  unreleased_image_objects: number;
+  pending_ingest_tasks: number;
 }
+
+export interface ObjectStorageCleanupResult {
+  cleanup_failures: Record<string, number>;
+}
+
+export type SavedObjectStorageConnection = ObjectStorageConnection & ObjectStorageCleanupResult;
 
 /** 保存对象存储连接；已有连接时两个密钥字段留空表示保留已保存的值。 */
 export interface SaveObjectStorageConnectionPayload {
@@ -28,6 +32,7 @@ export interface SaveObjectStorageConnectionPayload {
   bucket: string;
   access_key_id?: string;
   secret_access_key?: string;
+  delete_remote_objects?: boolean;
 }
 
 export type AssetLibrarySite = "volcengine" | "byteplus";

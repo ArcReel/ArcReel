@@ -92,6 +92,13 @@ function adjustmentText(t: TFunction, item: WorkflowMigrationAdjustment, episode
         assetType: assetTypeLabel(t, params.asset_type),
         name: params.name,
       });
+    case "missing_reference_preserved":
+      return t("dashboard:migration_adjustment_missing_reference_preserved", {
+        assetType: assetTypeLabel(t, params.asset_type),
+        name: params.name,
+        from: params.from ?? "",
+        file: item.file ?? "",
+      });
   }
 }
 

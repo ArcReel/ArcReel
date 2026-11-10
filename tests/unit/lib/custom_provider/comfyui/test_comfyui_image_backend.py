@@ -455,3 +455,19 @@ class TestStoppingTheRemote:
                 await _backend().generate(_request(tmp_path))
 
         assert interrupt.call_count == 1
+
+
+async def test_missing_aspect_mapping_fails_before_image_upload(tmp_path):
+    definition = _definition(reference_slots=1)
+    definition["workflow"]["30"] = {"class_type": "ResolutionSelector", "inputs": {"aspect_ratio": "landscape"}}
+    definition["bindings"]["aspect_ratio"] = [
+        {
+            "node": "30",
+            "input": "aspect_ratio",
+            "class_type": "ResolutionSelector",
+            "values": {"16:9": "landscape"},
+        }
+    ]
+    with capture_http() as router, pytest.raises(ComfyuiError, match="comfyui_aspect_ratio_unmapped"):
+        await _backend(definition).generate(_request(tmp_path, reference_images=[tmp_path / "image.png"]))
+    assert not router.calls

@@ -41,6 +41,16 @@ def test_dump_does_not_invent_unrecorded_model_facts(factory):
             amphibious_image_entry,
             {"max_reference_images": 16, "output_token_bases": {"low": 16, "medium": 48, "high": 96}},
         ),
+        (
+            amphibious_image_entry,
+            {
+                "output_token_bases": {"high": 48},
+                "output_token_scaled_bases": {
+                    "low": {"base": 16, "multiplier": 4.2},
+                    "medium": {"base": 24, "multiplier": 3.3},
+                },
+            },
+        ),
         (amphibious_image_entry, {"max_reference_images": 0, "image_to_image": False}),
         (
             video_entry,

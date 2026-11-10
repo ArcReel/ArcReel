@@ -625,6 +625,7 @@ class TestRegistryShape:
         assert audio_keys == {
             ("dashscope", "audio"),
             ("minimax", "audio"),
+            ("grok", "audio"),
             ("gemini-aistudio", "audio"),
             ("gemini-vertex", "audio"),
         }

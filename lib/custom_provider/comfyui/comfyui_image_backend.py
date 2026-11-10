@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from pathlib import Path
@@ -116,10 +117,21 @@ class ComfyuiImageBackend:
             raise ImageCapabilityError(
                 "image_reference_images_exceeded", model=self._model, limit=self._reference_slots, count=count
             )
+        if self._definition["bindings"].get("aspect_ratio"):
+            await asyncio.to_thread(
+                build_workflow,
+                self._definition,
+                prompt=request.prompt,
+                aspect_ratio=request.aspect_ratio,
+                resolution=request.image_size,
+                media=MediaInputs(reference_images=tuple(str(path) for path in request.reference_images)),
+                seed=request.seed,
+            )
         job_label = self._job_label or uuid4().hex
         async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
             media = await self._upload_media(http, request, job_label=job_label)
-            built = build_workflow(
+            built = await asyncio.to_thread(
+                build_workflow,
                 self._definition,
                 prompt=request.prompt,
                 aspect_ratio=request.aspect_ratio,
@@ -163,7 +175,7 @@ class ComfyuiImageBackend:
         for index, reference in enumerate(request.reference_images):
             path = Path(reference.path)
             references.append(
-                await self._client.upload_image(
+                await self._client.upload_media(
                     http, path, filename=upload_filename(job_label, "reference_images", path, index)
                 )
             )

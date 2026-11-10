@@ -131,7 +131,7 @@ export default {
   resolution_default_placeholder: "Default (unset)",
   resolution_native_placeholder: "Workflow native ({{value}})",
   resolution_endpoint_fixed_placeholder: "Decided by the workflow",
-  resolution_fixed_hint: "This workflow has a fixed frame size: width/height are not bound to any node, so aspect ratio and resolution do not apply. Change it by editing the node bindings.",
+  resolution_fixed_hint: "This workflow has fixed pixel resolution: width and height are not both bound. Edit node bindings to control resolution.",
   duration_not_driven_notice: "Duration is fixed by the endpoint: the workflow decides how long each clip is.",
   tab_custom_desc: "Upload a style reference image for AI to analyze. Once uploaded, the style template is no longer used.",
   upload_reference: "Upload style reference",

@@ -393,4 +393,5 @@ export default {
   'provider_asset_link_failure_content_unavailable': 'Файл версии изображения отсутствует; ничего не отправлено.',
   'provider_asset_link_failure_content_changed': 'Файл версии изображения больше не совпадает со своей записью; ничего не отправлено.',
   'provider_asset_link_failure_relay_upload_failed': 'Не удалось загрузить в объектное хранилище; ничего не отправлено. Проверьте подключение к объектному хранилищу, затем отвяжите и загрузите снова.',
+  "provider_asset_link_failure_object_storage_changed": "Подключение к объектному хранилищу изменено или удалено, приём остановлен. Оригинал остаётся в ArcReel. Отвяжите изображение и загрузите его снова.",
 } satisfies Record<keyof typeof enAssets, string> & Record<string, string>;

@@ -1237,6 +1237,53 @@ def write_legacy_shared_reference_project(root: Path, *, padded_names: bool = Fa
     return project_dir
 
 
+def share_a_sheet_with_an_occupied_copy_target(project_dir: Path) -> None:
+    """Bob 的资产图借用 Alice，Bob 的原图仍引用将被资产图副本占用的落点。"""
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    project["characters"] = {
+        "Alice": {"description": "Alice", "character_sheet": "characters/Alice.png"},
+        "Bob": {
+            "description": "Bob",
+            "character_sheet": "characters/Alice.png",
+            "reference_image": "characters/Bob.png",
+        },
+    }
+    for rel, content in (("characters/Alice.png", b"Alice-sheet"), ("characters/Bob.png", b"Bob-reference")):
+        path = project_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    _write_json(project_path, project)
+
+
+def share_a_sheet_with_a_missing_reference_and_occupied_target(project_dir: Path) -> None:
+    """缺失原图指向资产图副本落点，原图自己的规范落点又被孤立文件占用。"""
+    share_a_sheet_with_an_occupied_copy_target(project_dir)
+    (project_dir / "characters/Bob.png").unlink()
+    target = project_dir / "characters/refs/Bob.png"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"orphan-reference")
+
+
+def share_reference_files_with_occupied_targets(project_dir: Path, directory: str) -> None:
+    """参考图或音频副本的落点仍被资产图引用，音频落点还同时被原图引用。"""
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    field = "reference_image" if directory == "refs" else "reference_audio"
+    source, target = f"characters/{directory}/Alice.png", f"characters/{directory}/Bob.png"
+    project["characters"] = {
+        "Alice": {"description": "Alice", field: source},
+        "Bob": {"description": "Bob", "character_sheet": target, field: source},
+    }
+    if directory == "refs_audio":
+        project["characters"]["Bob"]["reference_image"] = target
+    for rel, content in ((source, b"Alice-reference"), (target, b"Bob-sheet")):
+        path = project_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    _write_json(project_path, project)
+
+
 def share_reference_files(project_dir: Path) -> dict[str, bytes]:
     """旧版资产 PATCH 接受任意路径，参考图与参考音频可以指向别的资产名下的文件。
 
