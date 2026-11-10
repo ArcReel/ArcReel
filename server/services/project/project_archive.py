@@ -543,7 +543,7 @@ class ProjectArchiveService:
                     project_name=project_name,
                     scope=scope,
                 )
-        except Exception:
+        except BaseException:
             archive_path.unlink(missing_ok=True)  # hard-delete: temp -- 导出失败的半成品归档
             raise
         finally:
@@ -878,57 +878,57 @@ class ProjectArchiveService:
     ) -> tuple[tempfile.TemporaryDirectory[str], Path, dict[str, Any], ArchiveDiagnostics]:
         source_dir = self.project_manager.get_project_path(project_name)
         temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
-        snapshot_dir = Path(temp_dir.name) / project_name
-        source_manifest_entries = self._capture_stable_visible_tree(source_dir, snapshot_dir)
         try:
+            snapshot_dir = Path(temp_dir.name) / project_name
+            source_manifest_entries = self._capture_stable_visible_tree(source_dir, snapshot_dir)
             self._verify_remote_content(snapshot_dir, scope)
+            snapshot_versions_path = snapshot_dir / "versions" / "versions.json"
+            snapshot_versions = self._load_json_file(snapshot_versions_path)
+            if isinstance(snapshot_versions, dict) and self._drop_remote_locators(snapshot_versions):
+                self._write_json_file(snapshot_versions_path, snapshot_versions)
+
+            diagnostics = self._repair_project_tree(snapshot_dir)
+            # 源项目已在当前 schema 上，正文就位，与导入路径共用同一遍提及自愈。
+            self._repair_unit_mentions_tree(snapshot_dir, diagnostics)
+            diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
+
+            # 从源目录收集非标准顶层条目，记录到诊断中（即使已被过滤不导出）
+            excluded_entries = self._collect_pass_through_entries(source_dir)
+            for entry in excluded_entries:
+                diagnostics.add(
+                    "warnings",
+                    "non_standard_entry_excluded",
+                    ValidationMessage("arch_non_standard_entry_excluded", {"entry": entry}),
+                    location=entry,
+                )
+
+            snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
+            artifact_manifest = None
+            if isinstance(snapshot_project, dict) and project_schema_is_current(snapshot_project):
+                if source_manifest_entries is None:
+                    raise ArtifactManifestError("archive snapshot has no matching Artifact Manifest state")
+                artifact_manifest = encode_artifact_manifest_payload(
+                    snapshot_preserved_artifact_manifest(
+                        snapshot_dir,
+                        source_manifest_entries,
+                        # 仅当前版本的包只带选中版本的快照（CURRENT_EXPORT_VERSION_RETENTION）
+                        ships_unselected_versions=scope == "full",
+                    )
+                )
+            manifest = self._build_archive_manifest(
+                project_name,
+                snapshot_project,
+                scope=scope,
+                # 归档内的诊断快照是随包分发的数据，按默认语言渲染——导入方与导出方的语言未必相同，
+                # 面向请求的渲染只发生在 router 边界。
+                diagnostics=diagnostics.to_export_payload(),
+                pass_through_entries=excluded_entries,
+                artifact_manifest=artifact_manifest,
+            )
+            return temp_dir, snapshot_dir, manifest, diagnostics
         except BaseException:
             temp_dir.cleanup()
             raise
-        snapshot_versions_path = snapshot_dir / "versions" / "versions.json"
-        snapshot_versions = self._load_json_file(snapshot_versions_path)
-        if isinstance(snapshot_versions, dict) and self._drop_remote_locators(snapshot_versions):
-            self._write_json_file(snapshot_versions_path, snapshot_versions)
-
-        diagnostics = self._repair_project_tree(snapshot_dir)
-        # 源项目已在当前 schema 上，正文就位，与导入路径共用同一遍提及自愈。
-        self._repair_unit_mentions_tree(snapshot_dir, diagnostics)
-        diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
-
-        # 从源目录收集非标准顶层条目，记录到诊断中（即使已被过滤不导出）
-        excluded_entries = self._collect_pass_through_entries(source_dir)
-        for entry in excluded_entries:
-            diagnostics.add(
-                "warnings",
-                "non_standard_entry_excluded",
-                ValidationMessage("arch_non_standard_entry_excluded", {"entry": entry}),
-                location=entry,
-            )
-
-        snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
-        artifact_manifest = None
-        if isinstance(snapshot_project, dict) and project_schema_is_current(snapshot_project):
-            if source_manifest_entries is None:
-                raise ArtifactManifestError("archive snapshot has no matching Artifact Manifest state")
-            artifact_manifest = encode_artifact_manifest_payload(
-                snapshot_preserved_artifact_manifest(
-                    snapshot_dir,
-                    source_manifest_entries,
-                    # 仅当前版本的包只带选中版本的快照（CURRENT_EXPORT_VERSION_RETENTION）
-                    ships_unselected_versions=scope == "full",
-                )
-            )
-        manifest = self._build_archive_manifest(
-            project_name,
-            snapshot_project,
-            scope=scope,
-            # 归档内的诊断快照是随包分发的数据，按默认语言渲染——导入方与导出方的语言未必相同，
-            # 面向请求的渲染只发生在 router 边界。
-            diagnostics=diagnostics.to_export_payload(),
-            pass_through_entries=excluded_entries,
-            artifact_manifest=artifact_manifest,
-        )
-        return temp_dir, snapshot_dir, manifest, diagnostics
 
     def _build_archive_manifest(
         self,
