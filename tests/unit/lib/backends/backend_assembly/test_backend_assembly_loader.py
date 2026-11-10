@@ -143,8 +143,8 @@ class TestAssembleBuiltinEndToEnd:
             "successor": "bytedance/doubao-seedream-5-0-pro",
         }
 
-    async def test_default_resolution_skips_a_discontinued_default(self, db_factory, monkeypatch):
-        """目录默认模型已下线：装配不取它、也不落到 backend 写死的模型名；自动推断同样跳过这个供应商。"""
+    async def test_version_gated_model_is_not_assembled(self, db_factory, monkeypatch):
+        """模型的最低应用版本高于当前版本：点名调用也不装配它。"""
         from lib.db.repositories.credential_repository import CredentialRepository
 
         async with db_factory() as session:
@@ -152,57 +152,17 @@ class TestAssembleBuiltinEndToEnd:
             await session.commit()
         resolver = ConfigResolver(db_factory)
         snapshot = catalog.factory_snapshot()
-        default = snapshot.builtin_providers["ark"].defaults["image"]
-        resolved = await resolver.resolve_image_backend(None, None, generation_type="t2i")
-        assert (resolved.provider_id, resolved.model_id) == ("ark", default)
-
-        install_catalog(monkeypatch, with_entry_changes(snapshot, "ark", default, shutdown_date=date(2026, 1, 1)))
-        with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
-            await assemble_backend(provider_id="ark", media_type="image", model_id=None, resolver=resolver)
-        assert built == []
-        assert excinfo.value.code == "provider_unsupported_media"
-        # 唯一 ready 的供应商没有可用的默认图片模型：自动推断找不到候选，不选中已下线的模型
-        with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
-            await resolver.resolve_image_backend(None, None, generation_type="t2i")
-
-    async def test_version_gated_default_is_neither_assembled_nor_resolved(self, db_factory, monkeypatch):
-        """目录默认模型的最低应用版本高于当前版本：点名调用与补默认都不装配它，按没有默认处理；自动推断同样跳过。"""
-        from lib.db.repositories.credential_repository import CredentialRepository
-
-        async with db_factory() as session:
-            await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-key")
-            await session.commit()
-        resolver = ConfigResolver(db_factory)
-        snapshot = catalog.factory_snapshot()
-        default = snapshot.builtin_providers["ark"].defaults["image"]
-        install_catalog(monkeypatch, with_min_app_version(snapshot, "ark", default, "999.0.0"))
+        model = snapshot.builtin_providers["ark"].defaults["image"]
+        install_catalog(monkeypatch, with_min_app_version(snapshot, "ark", model, "999.0.0"))
 
         with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as named:
-            await assemble_backend(provider_id="ark", media_type="image", model_id=default, resolver=resolver)
-        with captured_backend_construction() as built_default, pytest.raises(ModelNotInCatalogError) as missing:
-            await assemble_backend(provider_id="ark", media_type="image", model_id=None, resolver=resolver)
-        assert (built, built_default) == ([], [])
-        assert (named.value.code, missing.value.code) == ("model_not_in_provider_catalog", "provider_unsupported_media")
-        with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
-            await resolver.resolve_image_backend(None, None, generation_type="t2i")
+            await assemble_backend(provider_id="ark", media_type="image", model_id=model, resolver=resolver)
+        assert built == []
+        assert named.value.code == "model_not_in_provider_catalog"
 
-    async def test_missing_model_takes_the_catalog_default(self, db_factory):
+    async def test_missing_model_is_rejected_without_taking_the_recommendation(self, db_factory):
+        """没给模型的装配报错，不按目录推荐补模型，也不落到 backend 写死的模型名（docs/adr/0099）。"""
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
-        resolver = ConfigResolver(db_factory)
-        with captured_backend_construction() as built:
-            await assemble_backend(provider_id="ark", media_type="video", model_id=None, resolver=resolver)
-        assert built[0]["kwargs"]["model"] == "doubao-seedance-2-0-mini-260615"
-
-    async def test_missing_model_skips_a_disabled_default(self, db_factory):
-        """用户停用了目录默认模型：没给模型的装配不取它，按没有默认模型报错，不构造 backend。"""
-        from lib.db.models.builtin_provider_model import BuiltinProviderModelState
-
-        await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
-        async with db_factory() as session:
-            session.add(
-                BuiltinProviderModelState(provider_id="ark", model_id="doubao-seedance-2-0-mini-260615", enabled=False)
-            )
-            await session.commit()
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
             await assemble_backend(provider_id="ark", media_type="video", model_id=None, resolver=resolver)

@@ -52,6 +52,18 @@ def with_min_app_version(data: CatalogData, provider_id: str, api_model_name: st
     return replace(data, builtin_providers=providers)
 
 
+def with_recommendation(
+    data: CatalogData, provider_id: str, media_type: str, api_model_name: str | None
+) -> CatalogData:
+    """改写内置供应商在这个媒体类型下的推荐模型（目录里的默认模型）；``None`` 即去掉这一项。"""
+    listing = data.builtin_providers[provider_id]
+    defaults = {key: value for key, value in listing.defaults.items() if key != media_type}
+    if api_model_name is not None:
+        defaults[media_type] = api_model_name
+    providers = {**data.builtin_providers, provider_id: replace(listing, defaults=defaults)}
+    return replace(data, builtin_providers=providers)
+
+
 def with_entry_facts(data: CatalogData, provider_id: str, api_model_name: str, **changes: Any) -> CatalogData:
     """改写供应商模型所引用条目的模型事实（``facts`` 上的字段）。"""
     listing = data.builtin_providers[provider_id]

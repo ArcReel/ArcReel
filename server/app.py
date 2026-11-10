@@ -410,6 +410,35 @@ async def lifespan(app: FastAPI):
             len(source_migration_summary),
         )
 
+    # 目录查询的三层数据先于项目迁移装入：v19→v20 迁移按此刻生效的推荐模型固化项目里的裸供应商，
+    # 与升级前运行时补全的模型一致（docs/adr/0099）。这三步只读库、装入内存，不依赖之后的步骤。
+    # 官方同步取回的目录数据装入目录查询；读不到时暂用出厂快照，等下一轮同步
+    try:
+        from lib.catalog.official_sync import load_synced_data
+
+        async with async_session_factory() as session:
+            await load_synced_data(session)
+    except Exception:
+        logger.exception("loading synced catalog data failed (non-fatal)")
+
+    # 用户修改的模型条目副本并进目录查询；读不到时这些条目暂按官方数据，其余照常
+    try:
+        from lib.catalog.user_entries import reload_user_entries
+
+        async with async_session_factory() as session:
+            await reload_user_entries(session)
+    except Exception:
+        logger.exception("loading user-modified catalog entries failed (non-fatal)")
+
+    # 内置供应商下用户添加的模型并进目录查询；读不到时这些模型暂不可用，其余模型照常
+    try:
+        from server.routers.provider_models import reload_user_added_models
+
+        async with async_session_factory() as session:
+            await reload_user_added_models(session)
+    except Exception:
+        logger.exception("loading user-added built-in provider models failed (non-fatal)")
+
     # Run any pending project.json schema migrations (file-based).
     # Both calls are synchronous filesystem walks — offload to a worker thread
     # so they don't block the event loop during uvicorn startup.
@@ -469,6 +498,16 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("text tier settings migration failed (non-fatal): %s", exc)
 
+    # 默认模型固化（docs/adr/0099）：没有全局默认模型设置的媒体类型，写入旧版自动挑选此刻会选中的模型。
+    # 放在 JSON→DB 与文本档位迁移之后（它们也写全局默认模型），目录数据已在前面装入。只跑一次。
+    try:
+        from lib.config.recommended_models import freeze_effective_defaults
+
+        async with async_session_factory() as session:
+            await freeze_effective_defaults(session)
+    except Exception:
+        logger.exception("freezing effective default models failed (non-fatal)")
+
     # 官方市场源 seed：不存在则插入，地址常量变了就同步；不抓取
     try:
         from lib.market.sources import seed_official_source
@@ -477,33 +516,6 @@ async def lifespan(app: FastAPI):
             await seed_official_source(session)
     except Exception as exc:
         logger.warning("official market source seed failed (non-fatal): %s", exc)
-
-    # 官方同步取回的目录数据装入目录查询；读不到时暂用出厂快照，等下一轮同步
-    try:
-        from lib.catalog.official_sync import load_synced_data
-
-        async with async_session_factory() as session:
-            await load_synced_data(session)
-    except Exception:
-        logger.exception("loading synced catalog data failed (non-fatal)")
-
-    # 用户修改的模型条目副本并进目录查询；读不到时这些条目暂按官方数据，其余照常
-    try:
-        from lib.catalog.user_entries import reload_user_entries
-
-        async with async_session_factory() as session:
-            await reload_user_entries(session)
-    except Exception:
-        logger.exception("loading user-modified catalog entries failed (non-fatal)")
-
-    # 内置供应商下用户添加的模型并进目录查询；读不到时这些模型暂不可用，其余模型照常
-    try:
-        from server.routers.provider_models import reload_user_added_models
-
-        async with async_session_factory() as session:
-            await reload_user_added_models(session)
-    except Exception:
-        logger.exception("loading user-added built-in provider models failed (non-fatal)")
 
     # 把 agent_runtime_profile 物化到存量项目（文件 I/O → worker 线程）
     from lib.project.project_manager import get_project_manager

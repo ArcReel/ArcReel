@@ -62,11 +62,13 @@ class TestGetModelVideoCapabilities:
             resp = client.get("/api/v1/providers/video-capabilities")
         assert resp.status_code == 422
 
-    def test_malformed_video_backend_returns_400(self, monkeypatch):
+    @pytest.mark.parametrize("value", ["no-such-provider", "grok"])
+    def test_malformed_video_backend_returns_400(self, monkeypatch, value):
+        """拆不出 ``provider/model`` 的值报 400；裸内置供应商也不按目录推荐补模型（docs/adr/0099）。"""
         with _client(monkeypatch, MagicMock()) as client:
-            resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": "no-such-provider"})
+            resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": value})
         assert resp.status_code == 400
-        assert resp.json()["detail"] == zh_errors.MESSAGES["video_backend_malformed"].format(value="no-such-provider")
+        assert resp.json()["detail"] == zh_errors.MESSAGES["video_backend_malformed"].format(value=value)
 
     def test_resolver_value_error_returns_localized_422(self, monkeypatch):
         resolver_instance = MagicMock()
@@ -198,7 +200,7 @@ class TestRealResolverResponse:
         assert body["generation_mode"] is None
         assert body["duration_constraints"]["resolution"] is None
 
-    @pytest.mark.parametrize("candidate", ["grok/grok-imagine-video", "grok"])
+    @pytest.mark.parametrize("candidate", ["grok/grok-imagine-video"])
     def test_candidate_identity_and_default_constraints(self, real_resolver_client, candidate):
         with real_resolver_client as client:
             response = client.get("/api/v1/providers/video-capabilities", params={"video_backend": candidate})

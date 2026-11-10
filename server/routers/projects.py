@@ -812,8 +812,8 @@ async def get_video_capabilities(
 
     `video_backend`（"provider/model"）用于设置表单里尚未保存的候选模型：不带该参数时按已
     落盘配置解析，带上则按候选模型 × 本项目的生成模式解析，使 voice_consistency 等二维派生值
-    对应用户当前选中的模型而非上一次保存的模型；候选身份先过所属桶能力闸。裸 provider（无 "/"）按其 registry
-    默认视频 model 补全，与 project.json 存量裸 provider 覆盖同口径（见 `_parse_project_provider`）。
+    对应用户当前选中的模型而非上一次保存的模型；候选身份先过所属桶能力闸。裸 provider（无 "/"）报
+    `video_backend_malformed`，不按目录推荐补模型。
 
     `resolution` / `uses_reference_images` 是表单里编辑中的未保存值：`uses_reference_images` 决定
     按哪个任务类型桶解析（缺省按项目生成模式），`resolution` 作为「覆盖分辨率」交给该桶的视频请求

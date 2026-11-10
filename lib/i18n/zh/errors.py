@@ -170,6 +170,7 @@ MESSAGES = {
     "narration_speed_must_be_positive": "旁白语速必须是正数",
     "narration_delivery_required": "旁白交付方式是必填项，只能在 TTS 配音与后期配音之间切换",
     "narration_tts_model_required": "选择 TTS 配音时必须指定 TTS 模型",
+    "recommendation_changed_again": "推荐模型刚刚又有变化，请重新选择",
     "narration_tts_model_invalid": "所选 TTS 模型不可用：请选择语音合成供应商下的模型",
     "narration_tts_voice_required": "选择 TTS 配音时必须填写旁白音色",
     "narration_tts_speed_invalid": "配音语速必须是正数",

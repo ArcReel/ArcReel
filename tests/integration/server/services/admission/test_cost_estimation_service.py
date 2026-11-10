@@ -1927,7 +1927,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
-            "video_backend": "ark",
+            "video_backend": "ark/doubao-seedance-2-0-mini-260615",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }

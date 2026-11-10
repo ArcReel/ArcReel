@@ -28,7 +28,6 @@ from lib.backends.backend_assembly.specs import (
 )
 from lib.backends.input_limits import InputLimit
 from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
-from lib.catalog import builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
@@ -98,7 +97,7 @@ def _split_pair(raw: object) -> tuple[str, str] | None:
     """解析 ``"<provider>/<model>"`` → (provider, model)；不合法返回 None。
 
     provider 或 model 为空/纯空白（如 ``"openai/"`` / ``"/m"``）均视为不合法返回 None，
-    交由调用方走裸供应商补默认 model 或回退——避免把空 model 带到执行层。"""
+    交由调用方按裸供应商报错或回退——避免把空 model 带到执行层。"""
     if not isinstance(raw, str) or "/" not in raw:
         return None
     provider, model = raw.split("/", 1)
@@ -117,31 +116,18 @@ def _bare_provider(raw: object) -> str | None:
     return raw.strip().rstrip("/").strip() or None
 
 
-def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | None:
-    """解析 project.json 的 provider 字段，兼容裸供应商覆盖；纯读目录、不查 DB。
+def _parse_project_provider(raw: object) -> tuple[str, str] | None:
+    """解析 project.json 的 provider 字段：只认 ``"provider/model"``，其余（含裸供应商）为 None。
 
-    - ``"provider/model"`` → (provider, model)
-    - 裸 ``"provider"``（registry 中存在且有该 media_type 默认 model）→ (provider, 默认 model)
-    - 其余 → None（交由全局默认解析）
-
-    裸供应商经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
-    pin 住该供应商并补全其默认 model，避免静默回退到全局默认的**另一**供应商。供没有配置库会话的同步路径使用；
-    解析骨架另按用户的停用状态补默认（``ConfigResolver._resolve_layered_backend``）。"""
-    pair = _split_pair(raw)
-    if pair is not None:
-        return pair
-    provider = _bare_provider(raw)
-    if provider is not None:
-        model = catalog.default_model(provider, media_type)
-        if model is not None:
-            return provider, model
-    return None
+    运行时不按目录推荐补全裸供应商（docs/adr/0099）：存量裸供应商由 v19→v20 项目迁移固化为
+    ``provider/model``。供没有配置库会话的同步路径使用。"""
+    return _split_pair(raw)
 
 
-def _reject_bare_builtin_without_default(provider: str, media_type: str) -> None:
-    """项目层的裸内置供应商在该媒体类型下没有可用的默认模型（如 openai 已无视频模型、默认模型已下线或被停用）时报错。
+def _reject_bare_builtin_provider(provider: str, media_type: str) -> None:
+    """项目层只写了内置供应商、没写模型（迁移没能固化的裸供应商）时报错。
 
-    报「不在模型清单中」让用户重新选择，不回退到另一供应商去生成和计费。
+    报「不在模型清单中」让用户重新选择，不按目录推荐补模型，也不回退到另一供应商去生成和计费。
     """
     if provider in PROVIDER_REGISTRY:
         raise ModelNotInCatalogError(provider_id=provider, model_id="", media_type=media_type)
@@ -163,16 +149,13 @@ def _trusted_payload_provider(provider_id: object) -> str | None:
     return None
 
 
-async def _payload_model_or_default(
-    session: AsyncSession, raw_model: object, provider_id: str, media_type: str
-) -> str | None:
-    """payload 显式 model（非空字符串）优先；缺失则补该 provider 可用的默认 model（已下线或被用户停用的不算）。
+def _payload_model(raw_model: object) -> str | None:
+    """payload 显式 model（非空字符串）；缺失时为 None，由调用方回退 project/global。
 
-    避免「半截 payload」（只有 provider、缺 model）把空 model 带到执行层。补不出默认 model 时
-    返回 None，由调用方回退 project/global。"""
+    「半截 payload」（只有 provider、缺 model）不按目录推荐补模型（docs/adr/0099），也不把空 model 带到执行层。"""
     if isinstance(raw_model, str) and raw_model.strip():
         return raw_model.strip()
-    return await builtin_models.default_builtin_model(session, provider_id, media_type)
+    return None
 
 
 @dataclass(frozen=True)
@@ -333,7 +316,7 @@ def project_video_backend_ids(
     for key in (keys.project_bucket_key, keys.project_default_key):
         if key is None:
             continue
-        parsed = _parse_project_provider(project.get(key), "video")
+        parsed = _parse_project_provider(project.get(key))
         if parsed is not None:
             return parsed
     return None
@@ -600,7 +583,7 @@ def duration_endpoint_fixed_reason(fixed: bool) -> str | None:
 
 
 class NoAvailableProviderError(ValueError):
-    """自动推断未找到可用供应商。"""
+    """各层都没有模型设置，也没有可用的自定义供应商默认模型。"""
 
 
 class VisionCapabilityError(ValueError):
@@ -1209,12 +1192,11 @@ class ConfigResolver:
         project: dict | None,
         keys: _LayeredBackendKeys,
     ) -> tuple[str, str]:
-        """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
+        """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自定义供应商默认模型。
 
-        媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。项目层
-        字段兼容裸供应商覆盖（补该供应商可用的默认模型，已下线或被用户停用的不算，补不出时报错）；全局层要求 ``provider/model``
-        完整形态。payload 层与运行时身份收敛（如视频自定义供应商的有效身份收敛）不属于
-        骨架，由各媒体的调用方在骨架外处理。
+        媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。各层都要求 ``provider/model``
+        完整形态；项目层只写了内置供应商的报错，不按目录推荐补模型（docs/adr/0099）。payload 层与运行时身份收敛
+        （如视频自定义供应商的有效身份收敛）不属于骨架，由各媒体的调用方在骨架外处理。
         """
         if project:
             for project_key in (keys.project_bucket_key, keys.project_default_key):
@@ -1227,10 +1209,7 @@ class ConfigResolver:
                     if pair is not None:
                         return pair
                     continue
-                default = await builtin_models.default_builtin_model(session, provider, keys.media_type)
-                if default is not None:
-                    return provider, default
-                _reject_bare_builtin_without_default(provider, keys.media_type)
+                _reject_bare_builtin_provider(provider, keys.media_type)
         settings = await svc.get_all_settings()
         if keys.global_bucket_key is not None:
             raw = settings.get(keys.global_bucket_key, "")
@@ -1268,7 +1247,7 @@ class ConfigResolver:
         if payload:
             provider_id = _trusted_payload_provider(payload.get("image_provider"))
             if provider_id is not None:
-                model = await _payload_model_or_default(session, payload.get("image_model"), provider_id, "image")
+                model = _payload_model(payload.get("image_model"))
                 if model is not None:
                     selected = ProviderModel(provider_id, model)
         if selected is None:
@@ -1526,7 +1505,7 @@ class ConfigResolver:
         if payload:
             provider_id = _trusted_payload_provider(payload.get("audio_provider"))
             if provider_id is not None:
-                model = await _payload_model_or_default(session, payload.get("audio_model"), provider_id, "audio")
+                model = _payload_model(payload.get("audio_model"))
                 if model is not None:
                     return ProviderModel(provider_id, model)
         provider_id, model_id = await self._resolve_layered_backend(svc, session, project, _AUDIO_LAYERED_KEYS)
@@ -1897,22 +1876,15 @@ class ConfigResolver:
         media_type: str,
         generation_type: str | None = None,
     ) -> tuple[str, str]:
-        """遍历 PROVIDER_REGISTRY（按注册顺序），找到第一个 ready 且支持该 media_type 的供应商。
+        """各层都没有设置时的最后一层：自定义供应商上用户设为默认的模型。
+
+        不读目录里内置供应商的推荐模型（docs/adr/0099）：推荐只在供应商首次配置、升级固化与用户确认时写进
+        用户设置（``lib.config.recommended_models``），目录推荐变化不会改动生成用的模型。
 
         自定义兜底与默认回退共用同一份按桶过滤（``lib.custom_provider.default_models``）：带桶时
         只有具备该桶的默认模型算候选，否则 t2i 与 i2i 会静默拿到同一行。跨供应商的多个候选取第
         一个（各供应商各设默认是常态，与「同一供应商同桶两个默认」不同）。
         """
-        statuses = await svc.get_all_providers_status()
-        ready = {s.name: s for s in statuses if s.status == "ready"}
-
-        for provider_id in PROVIDER_REGISTRY:
-            if provider_id not in ready:
-                continue
-            # 供应商一级的默认只在没有任何默认模型设置时用于自动挑选；已下线时目录不给默认，用户停用了它也不挑。
-            model_id = catalog.default_model(provider_id, media_type)
-            if model_id is not None and model_id not in ready[provider_id].disabled_models:
-                return provider_id, model_id
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 这些符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
@@ -1929,5 +1901,5 @@ class ConfigResolver:
             return make_provider_id(candidates[0].provider_id), candidates[0].model_id
 
         raise NoAvailableProviderError(
-            f"未找到可用的 {media_type} 供应商。请在「全局设置 → 供应商」页面配置至少一个供应商。"
+            f"没有设置 {media_type} 默认模型。请在「全局设置 → 默认模型」中选择，或先在「全局设置 → 供应商」配置供应商。"
         )

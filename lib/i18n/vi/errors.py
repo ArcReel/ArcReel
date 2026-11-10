@@ -175,6 +175,7 @@ MESSAGES = {
     "narration_speed_must_be_positive": "Tốc độ thuyết minh phải là số dương",
     "narration_delivery_required": "Cách giao lời thuyết minh là bắt buộc; chỉ có thể chuyển giữa lồng tiếng TTS và lồng tiếng hậu kỳ",
     "narration_tts_model_required": "Khi chọn lồng tiếng TTS, cần chọn mô hình TTS",
+    "recommendation_changed_again": "Mô hình đề xuất vừa thay đổi lần nữa. Hãy chọn lại.",
     "narration_tts_model_invalid": "Mô hình TTS đã chọn không khả dụng; hãy chọn mô hình của nhà cung cấp tổng hợp giọng nói",
     "narration_tts_voice_required": "Khi chọn lồng tiếng TTS, cần nhập giọng đọc thuyết minh",
     "narration_tts_speed_invalid": "Tốc độ giọng đọc phải là số dương",

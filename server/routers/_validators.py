@@ -16,13 +16,10 @@ from lib.infra.api_errors import BadRequestError
 def split_video_backend_query(video_backend: str) -> tuple[str, str]:
     """把能力查询的 ``video_backend`` 查询参数拆成 ``(provider_id, model_id)``。
 
-    裸 provider（无 "/"）按其在模型目录中的默认视频 model 补全，与 project.json 存量裸 provider
-    覆盖同口径（见 ``_parse_project_provider``）；拆不出两段时抛 ``BadRequestError``
-    （``video_backend_malformed``）。
+    只接受 ``provider/model``：裸 provider 不按目录推荐补模型（docs/adr/0099），与解析链同口径。拆不出两段时抛
+    ``BadRequestError``（``video_backend_malformed``）。
     """
-    provider_id, sep, model_id = video_backend.partition("/")
-    if not sep:
-        provider_id, model_id = video_backend, catalog.default_model(video_backend, "video") or ""
+    provider_id, _, model_id = video_backend.partition("/")
     if not provider_id or not model_id:
         raise BadRequestError("video_backend_malformed", value=video_backend)
     return provider_id, model_id
@@ -94,7 +91,7 @@ async def require_audio_switch_supported(project: dict, generation_type: VideoGe
 def validate_backend_value(value: str, field_name: str) -> None:
     """校验 ``provider/model`` 格式的 backend 字段值。
 
-    只接受规范 provider id（``PROVIDER_REGISTRY`` 的 key 或 ``custom-`` 前缀）。legacy provider 名
+    只接受 ``provider/model`` 完整形态与规范 provider id（``PROVIDER_REGISTRY`` 的 key 或 ``custom-`` 前缀）。legacy provider 名
     （``gemini``/``aistudio``/``vertex``/``seedance``）一律拒绝——它们是待清除的历史数据，由一次性项目迁移
     转为规范 id 后即不再被接受（见 ``docs/adr/0001``）。
 
@@ -107,8 +104,7 @@ def validate_backend_value(value: str, field_name: str) -> None:
             字段名只进诊断信息，不进面向使用者的摘要。
     """
     if "/" not in value:
-        if value in PROVIDER_REGISTRY:
-            return  # 裸 registry id（无 model），下游按全局默认补全
+        # 裸 registry id（无 model）同样拒绝：运行时不按目录推荐补模型（docs/adr/0099）
         raise BadRequestError("invalid_backend_format").with_diagnostic(f"field: {field_name}")
     provider_id, model_id = value.split("/", 1)
     if provider_id not in PROVIDER_REGISTRY and not provider_id.startswith("custom-"):
