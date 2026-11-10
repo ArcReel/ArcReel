@@ -25,6 +25,7 @@ from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
+    ImageRequestFacts,
     ReferenceImage,
 )
 from lib.backends.image_backends.kling import KlingImageBackend
@@ -227,7 +228,7 @@ class TestGenerateHappyPath:
         assert result.provider == PROVIDER_KLING
         assert result.image_uri == "https://x/final.png"
         assert result.image_path.read_bytes() == b"png-bytes"
-        # 请求体不带分辨率，不报分辨率
+        # 未选择分辨率时不报分辨率
         assert result.usage is not None
         assert result.usage.dimensions == {}
         assert result.usage.quantities == {"output_images": 1, "input_images": 0}
@@ -302,7 +303,23 @@ class TestRegistration:
 @pytest.mark.parametrize("endpoint", ["kling-image", "kling-image-single"])
 @pytest.mark.parametrize("auth", ["jwt", "bearer", "custom"])
 @pytest.mark.parametrize("with_reference", [False, True])
-async def test_endpoint_request_shape_and_input_metering(tmp_path, endpoint, auth, with_reference):
+@pytest.mark.parametrize(
+    ("model", "image_size", "resolution"),
+    [
+        ("kling-v3", "1K", "1k"),
+        ("kling-v3", "2K", "2k"),
+        ("kling-v3-omni", "1K", "1k"),
+        ("kling-v3-omni", "2K", "2k"),
+        ("kling-v3-omni", "4K", "4k"),
+        ("kling-image-o1", "1K", "1k"),
+        ("kling-image-o1", "2K", "2k"),
+        ("kling-image-o1", "2k", "2k"),
+        ("kling-image-o1", None, None),
+    ],
+)
+async def test_endpoint_request_shape_and_input_metering(
+    tmp_path, endpoint, auth, with_reference, model, image_size, resolution
+):
     from lib.backends.backend_assembly.loaded_config import LoadedConfig
     from lib.backends.backend_assembly.specs import get_provider_spec
     from lib.config.registry import PROVIDER_REGISTRY
@@ -312,22 +329,33 @@ async def test_endpoint_request_shape_and_input_metering(tmp_path, endpoint, aut
         provider = SimpleNamespace(
             provider_id="custom-test", api_key="static-key", base_url="https://api-beijing.klingai.com"
         )
-        backend = get_endpoint_spec(endpoint).build_backend(provider, "kling-v3")
+        backend = get_endpoint_spec(endpoint).build_backend(provider, model)
     else:
         credentials = {"access_key": "ak-1", "secret_key": _SECRET} if auth == "jwt" else {"api_key": "static-key"}
         backend = get_provider_spec("kling", "image", endpoint).build_backend(
             LoadedConfig(credentials=credentials, provider_meta=PROVIDER_REGISTRY["kling"], rate_limiter=None),
-            "kling-v3",
+            model,
         )
     refs = [_ref(tmp_path, "a.png")] if with_reference else []
     with _kling_image_api() as routes:
         routes.submit.mock(return_value=_resp(_submit()))
         routes.poll.mock(return_value=_resp(_query("succeed", urls=["https://x/final.png"])))
         routes.download.mock(return_value=httpx.Response(200, content=b"png-bytes"))
-        result = await backend.generate(_request(tmp_path, reference_images=refs))
+        result = await backend.generate(_request(tmp_path, reference_images=refs, image_size=image_size))
         payload = json.loads(only_request(routes.submit).content)
 
-    assert payload["model_name"] == "kling-v3"
+    assert payload["model_name"] == model
+    if resolution is None:
+        assert "resolution" not in payload
+    else:
+        assert payload["resolution"] == resolution
+    dimensions = {"resolution": resolution.upper()} if resolution else {}
+    assert result.usage is not None
+    assert result.usage.dimensions == dimensions
+    estimate = KlingImageBackend.estimate_usage(
+        ImageRequestFacts(model=model, aspect_ratio="9:16", image_size=image_size, reference_count=int(with_reference))
+    )
+    assert estimate == result.usage
     if with_reference:
         encoded = base64.b64encode((tmp_path / "a.png").read_bytes()).decode()
         assert payload["image"] == (encoded if endpoint == "kling-image-single" else [encoded])

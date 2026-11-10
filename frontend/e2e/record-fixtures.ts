@@ -2,6 +2,7 @@
 // 在临时数据目录里启动后端、创建演示项目，按 RECORDINGS 逐个请求并写入 e2e/fixtures/recorded/。
 // 时间戳、临时数据目录、仓库检出路径、令牌与项目修订号改写成固定值，重录后只有接口形状的变化会出现在 diff 里。
 // 后端改动接口形状的 PR 同时重录。
+import { COMFYUI_AUDIO_ASPECT } from "./fixtures/comfyui.ts";
 import { spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -42,6 +43,7 @@ const LOGIN: Recording = {
 };
 
 const RECORDINGS: Recording[] = [
+  { file: "comfyui-audio-aspect-infer", method: "POST", path: "/api/v1/custom-endpoints/comfyui/infer", json: COMFYUI_AUDIO_ASPECT },
   { file: "auth-status", method: "GET", path: "/api/v1/auth/status", anonymous: true },
   LOGIN,
   { file: "system-config", method: "GET", path: "/api/v1/system/config" },
@@ -139,6 +141,7 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-grids", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grids` },
   // 集页剪辑视图：演示集还没有视频，也就没有剪辑时间线，显示空状态；有剪辑时间线的读取结果与出片现状由场景替换。
   { file: "project-demo-edit-timelines", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/edit-timelines?episode=1` },
+  { file: "comfyui-audio-aspect-create", method: "POST", path: "/api/v1/custom-endpoints", json: COMFYUI_AUDIO_ASPECT },
 ];
 
 // 资产库里的演示资产：两个角色、一个场景、一个道具，都没有图片。

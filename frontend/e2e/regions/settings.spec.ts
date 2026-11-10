@@ -34,7 +34,10 @@ function manyModelsOverrides(): ApiOverrides {
   };
   const [video, image, text, audio] = ["video", "image", "text", "audio"].map(longModels);
   const modelNames = Object.fromEntries(
-    [...video, ...image, ...text, ...audio].map((id, i) => [id, `超长模型名称 ${i + 1} · 高清长时长电影级生成（预览版）`]),
+    [...video, ...image, ...text, ...audio].map((id, i) => [
+      id,
+      `超长模型名称 ${i + 1} · 高清长时长电影级生成（预览版）`,
+    ]),
   );
   return {
     [`GET /api/v1/system/tts-model-capabilities?backend=${encodeURIComponent(audio[5])}`]: {
@@ -88,7 +91,11 @@ const LONG_RELEASE: ApiOverrides = {
         name: "0.33.0",
         body: [
           "## 新功能",
-          ...Array.from({ length: 24 }, (_, i) => `- 第 ${i + 1} 项改进：分镜画布在矮窗口下保留完整的编辑区域，长提示词不再撑开内容列，并补齐键盘操作`),
+          ...Array.from(
+            { length: 24 },
+            (_, i) =>
+              `- 第 ${i + 1} 项改进：分镜画布在矮窗口下保留完整的编辑区域，长提示词不再撑开内容列，并补齐键盘操作`,
+          ),
           "",
           "## 升级说明",
           "升级前请备份数据目录。完整说明见 https://github.com/ArcReel/ArcReel/releases/tag/v0.33.0-with-a-very-long-anchor-for-wrapping-checks",
@@ -118,8 +125,7 @@ const REMOTE_STORAGE: ApiOverrides = {
         updated_at: "2026-01-01T07:00:00Z",
       },
       new_image_target: "object_storage",
-      retained_relay_objects: 12,
-      unreleased_image_objects: 0,
+      pending_ingest_tasks: 12,
     },
   },
 };
@@ -204,7 +210,10 @@ defineRegionScenarios("全局设置", [
       await expect(flagged).toHaveText(["供应商", "ArcReel Agent"]);
       await expect(page.getByRole("note", { name: "配置不完整" })).toBeInViewport();
     },
-    screenshot: { name: "settings-config-issue-notice", target: (page) => page.getByRole("note", { name: "配置不完整" }) },
+    screenshot: {
+      name: "settings-config-issue-notice",
+      target: (page) => page.getByRole("note", { name: "配置不完整" }),
+    },
   },
   {
     name: "没有可用供应商时，默认模型各通道显示空状态并链接到供应商",
@@ -230,7 +239,10 @@ defineRegionScenarios("全局设置", [
     },
     act: async (page) => {
       const main = page.getByRole("main");
-      await expect(main.getByRole("button", { name: /按用途指定模型/ }).first()).toHaveAttribute("aria-expanded", "true");
+      await expect(main.getByRole("button", { name: /按用途指定模型/ }).first()).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(main.getByRole("spinbutton", { name: "配音语速（可选）" })).toBeInViewport();
     },
@@ -324,15 +336,31 @@ defineRegionScenarios("全局设置", [
     screenshot: { name: "settings-asset-library-remote", target: (page) => page.getByRole("main") },
   },
   {
-    name: "素材库与存储：编辑连接时提示桶里还有未清理的中转副本",
+    name: "素材库与存储：改桶时确认清理并提示进行中的入库任务",
     path: ASSET_LIBRARY,
     api: REMOTE_STORAGE,
     ready: assetLibraryReady,
     act: async (page) => {
       await page.getByRole("button", { name: "编辑对象存储" }).click();
       const dialog = page.getByRole("dialog", { name: "编辑对象存储" });
-      await expect(dialog.getByText(/桶里还有 12 个中转副本尚未清理/)).toBeVisible();
+      await expect(dialog.getByRole("checkbox")).toHaveCount(0);
+      await dialog.getByLabel("桶名").fill("next-bucket");
+      await expect(dialog.getByRole("checkbox")).toBeChecked();
+      await expect(dialog.getByText(/有 12 个入库任务进行中/)).toBeVisible();
       await expect(dialog.getByRole("button", { name: "保存" })).toBeInViewport();
+    },
+  },
+  {
+    name: "素材库与存储：删除连接时确认清理并提示进行中的入库任务",
+    path: ASSET_LIBRARY,
+    api: REMOTE_STORAGE,
+    ready: assetLibraryReady,
+    act: async (page) => {
+      await page.getByRole("button", { name: "删除对象存储连接" }).click();
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog.getByRole("checkbox")).toBeChecked();
+      await expect(dialog.getByText(/有 12 个入库任务进行中/)).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "删除", exact: true })).toBeInViewport();
     },
   },
   {

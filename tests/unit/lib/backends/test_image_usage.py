@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from arcreel_catalog_core import ScaledOutputTokenBase
 from lib.backends.backend_assembly.specs import PROVIDER_SPEC_REGISTRY
 from lib.backends.image_backends.base import ImageRequestFacts
 from lib.backends.image_usage import estimate_builtin_image_usage
@@ -83,6 +84,20 @@ def test_output_tokens_are_estimated_from_the_bases_on_the_model_entry(monkeypat
     install_catalog(monkeypatch, with_entry_facts(snapshot, "openai", "gpt-image-2", output_token_bases=bases))
     # 1K → medium、1:1 → 1024x1024：官方计算器 1756 个输出 token
     assert estimate_builtin_image_usage("openai", facts).quantities["image_output_tokens"] == 1756
+
+
+def test_output_tokens_are_estimated_from_scaled_bases_on_the_model_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """带系数基数走同一条估算路径；官方计算器 1024x1024、medium（GPT Image 2.6）为 1449。"""
+    facts = ImageRequestFacts(model="gpt-image-2", aspect_ratio="1:1", image_size="1K", reference_count=0)
+    scaled = {"medium": ScaledOutputTokenBase(base=24, multiplier=3.3)}
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog.factory_snapshot(), "openai", "gpt-image-2", output_token_bases={}, output_token_scaled_bases=scaled
+        ),
+    )
+
+    assert estimate_builtin_image_usage("openai", facts).quantities["image_output_tokens"] == 1449
 
 
 @pytest.mark.parametrize(

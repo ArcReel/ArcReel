@@ -51,10 +51,14 @@ TITLE_MARKER_PREFIX = "arcreel:"
 READ_ONLY_BINDING_KEYS = frozenset({"fps"})
 
 #: 候选即有序格子、并列不算歧义的语义键。
-LIST_BINDING_KEYS = frozenset({"reference_images"})
+LIST_BINDING_KEYS = frozenset({"reference_images", "reference_audio"})
 
 #: 条目上记着 ``consumer``（这张图接到了谁的哪个入口）的语义键。
-CONSUMER_BINDING_KEYS = frozenset({"reference_images"})
+CONSUMER_BINDING_KEYS = frozenset({"reference_images", "reference_audio"})
+
+#: 取值要由用户逐项填写的语义键：推断只列候选不选中。缺了取值过不了校验，自动选中会让原本能保存的
+#: 定义一进编辑器就存不了。
+CANDIDATE_ONLY_BINDING_KEYS = frozenset({"aspect_ratio"})
 
 #: 值本身是一张图的语义键：它们的落点只能是读图节点承载文件名的那个字段。与
 #: :data:`.bindings.IMAGE_BINDING_KEYS`（图像端点允许的语义键）不是一回事。
@@ -115,7 +119,7 @@ class BindingState(StrEnum):
     AUTO_SELECTED = "auto_selected"
     #: 最高分并列，不自动选，全部候选按分排序交用户挑。
     AMBIGUOUS = "ambiguous"
-    #: 一个候选也没有，允许用户从全部 ``(node, input)`` 手选。
+    #: 没有可直接采用的候选（一个也没有，或该键只列候选不选中），允许用户从全部 ``(node, input)`` 手选。
     NOT_FOUND = "not_found"
     #: 定义里该键是空列表：用户确认过这份 workflow 不支持这项语义，不再推断。
     UNSUPPORTED = "unsupported"
@@ -634,6 +638,9 @@ class _Engine:
             class_type = class_type_of(node)
             if self._gated_out(node):
                 continue
+            # 成片背景音也由 LoadAudio 读取，只有已知参考输入才可自动认领。
+            if key == "reference_audio" and self.consumer_of(key, node_id) is None:
+                continue
             for name in node_inputs(node):
                 if not rules.accepts(name, class_type):
                     continue
@@ -677,6 +684,8 @@ class _Engine:
         if rules is None:
             return
         for node_id, node in _nodes(self.workflow):
+            if key == "reference_audio" and self.consumer_of(key, node_id) is None:
+                continue
             source = self.rules.constant_nodes.get(class_type_of(node))
             if source is None or is_link(node_inputs(node).get(source)):
                 continue
@@ -835,8 +844,10 @@ class _Engine:
             target["direction"] = "read"
         if key == "seed":
             target["policy"] = "random"
-        # 只有参考图的条目声明了 consumer（schema 里 writeTarget 是 additionalProperties: false）：
+        # 只有参考素材的条目声明了 consumer（schema 里 writeTarget 是 additionalProperties: false）：
         # 别的键附上它，推断出来的结果就存不回去。与 _refresh_consumer 同一道口径。
+        if key == "reference_audio" and consumer is None:
+            consumer = self.consumer_of(key, node_id)
         if consumer is not None and key in CONSUMER_BINDING_KEYS:
             target["consumer"] = _consumer_entry(consumer)
         return target
@@ -998,6 +1009,9 @@ def _decide(key: str, scored: Sequence[Candidate], notes: tuple[Note, ...]) -> K
     if not scored:
         return KeyInference(BindingState.NOT_FOUND, (), notes)
     ranked = sorted(scored, key=lambda candidate: (-candidate.score, _node_order(candidate.node)))
+    if key in CANDIDATE_ONLY_BINDING_KEYS:
+        unselected = tuple(Candidate(c.target, c.signals, False, c.origin, c.depth) for c in ranked)
+        return KeyInference(BindingState.NOT_FOUND, unselected, notes)
     chosen = set(_pick(ranked, key))
     selected = tuple(
         Candidate(c.target, c.signals, index in chosen, c.origin, c.depth) for index, c in enumerate(ranked)
