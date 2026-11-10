@@ -63,30 +63,20 @@ class TestSourceTextAnchor:
 
 
 class TestUnitText:
-    @pytest.mark.parametrize(
-        ("binding", "limit", "blocked"),
-        [
-            ("reference_audio", 1, True),
-            ("reference_audio", 2, False),
-            ("reference_audio", None, False),
-            ("prompt", 1, False),
-        ],
-    )
-    def test_reference_audio_speaker_limit(self, binding, limit, blocked):
-        project = {**PROJECT, "character_voice_binding": binding}
+    @pytest.mark.parametrize(("limit", "blocked"), [(1, True), (2, False), (None, False)])
+    def test_speaker_limit(self, limit, blocked):
         text = "门开了\n@[李明]{走。}\n@[王五]{好。}"
         if blocked:
             with pytest.raises(DraftViolation, match="说话人数 2 超过模型参考音频段数上限 1") as exc:
-                validate_unit_text("unit E1U01", text, project, max_refs=None, max_reference_audio_count=limit)
+                validate_unit_text("unit E1U01", text, PROJECT, max_refs=None, max_speakers=limit)
             assert exc.value.code == "speakers_over_limit"
             assert exc.value.label == "unit E1U01"
         else:
-            assert validate_unit_text("unit E1U01", text, project, max_refs=None, max_reference_audio_count=limit) == []
+            assert validate_unit_text("unit E1U01", text, PROJECT, max_refs=None, max_speakers=limit) == []
 
-    def test_reference_audio_counts_identity_once(self):
-        project = {**DERIVATIVE_PROJECT, "character_voice_binding": "reference_audio"}
+    def test_speaker_limit_counts_identity_once(self):
         text = "门开了\n@[李明]{走。}\n@[李明/劲装]{快走。}"
-        assert validate_unit_text("unit E1U01", text, project, max_refs=None, max_reference_audio_count=1) == []
+        assert validate_unit_text("unit E1U01", text, DERIVATIVE_PROJECT, max_refs=None, max_speakers=1) == []
 
     def test_mixed_speech_is_a_structured_planning_violation(self):
         with pytest.raises(DraftViolations) as exc_info:
