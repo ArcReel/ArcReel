@@ -268,6 +268,11 @@ describe("UsageRecordsSection detail", () => {
       params: { duration: 7, supported: "5, 10" },
       message: "视频时长 7s 不在该模型支持的时长（5, 10）内",
     },
+    {
+      code: "video_reference_audio_duration_exceeded",
+      params: { model: "m", limit: 15, total: 16.04 },
+      message: "模型 m 参考音频总时长最多 15 秒，当前合计 16.0 秒；请减少参考音频段数或换用更短的音频",
+    },
   ])("localizes $code with the recorded parameters", async ({ code, params, message }) => {
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
       makeUsageRecordDetail({ id: 42, status: "failed", error_code: code, error_params: params, error_message: code }),

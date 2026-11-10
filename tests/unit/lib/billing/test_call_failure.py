@@ -203,6 +203,15 @@ class TestDomainParams:
         assert failure.error_code == "invalid_input"
         assert failure.error_params == {"path": str(tmp_path)}
 
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")], ids=["nan", "inf"])
+    def test_non_finite_params_keep_the_original_failure(self, value: float) -> None:
+        # NaN / Infinity 不是 JSON 原生值，PostgreSQL 的 JSON 列拒收，失败结算会写不进去。
+        failure = classify_call_failure(VideoCapabilityError(code="video_duration_invalid", duration=value))
+
+        assert failure.error_message == "video_duration_invalid"
+        assert failure.error_code is None
+        assert failure.error_params is None
+
     def test_unserializable_params_keep_the_original_failure(self) -> None:
         from lib.infra.api_errors import BadRequestError
 

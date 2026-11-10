@@ -3,7 +3,7 @@
 import pytest
 
 from arcreel_market_core.video_backend_contract import VideoCapabilityError
-from lib.backends.image_backends.base import ImageCapabilityError
+from lib.backends.image_errors import ImageCapabilityError
 from lib.billing.ledger import Ledger
 from lib.db.repositories.usage_repo import UsageRepository
 from lib.infra.api_errors import BadRequestError

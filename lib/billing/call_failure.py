@@ -96,7 +96,7 @@ def classify_call_failure(exc: BaseException | str) -> CallFailure:
     if isinstance(exc, ApiError | ImageCapabilityError | VideoCapabilityError):
         code = exc.key if isinstance(exc, ApiError) else exc.code
         try:
-            params = json.loads(json.dumps(exc.params, default=str))
+            params = json.loads(json.dumps(exc.params, default=str, allow_nan=False))
         except (TypeError, ValueError, RecursionError):
             return CallFailure(message)
         return CallFailure(message, code, params)
