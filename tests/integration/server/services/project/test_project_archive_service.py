@@ -992,7 +992,14 @@ class TestProjectArchiveService:
             }
             assert (pm.get_project_path("demo") / current_file.relative_to(project_dir)).is_file()
 
-    def test_official_round_trip_rekeys_claims_when_original_formal_file_is_missing(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("legacy_exists", "formal_path"),
+        [(False, "characters/Hero.png"), (True, "characters/legacy.png")],
+    )
+    def test_official_round_trip_keeps_claims_on_the_formal_file_the_field_reads(
+        self, tmp_path, legacy_exists, formal_path
+    ):
+        """原引用读不到时 claim 随字段改键到规范落点；原引用有效时字段与 claim 都留在原文件。"""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         project = pm.load_project("demo")
@@ -1004,6 +1011,8 @@ class TestProjectArchiveService:
         adapter = ProjectArtifactManifestAdapter(project_dir)
         before = adapter.get_entry(key)
         assert before is not None
+        if legacy_exists:
+            _write_bytes(project_dir / "characters" / "legacy.png", b"legacy")
         project = pm.load_project("demo")
         project["characters"]["Hero"]["character_sheet"] = "characters/legacy.png"
         project["characters"]["Hero"]["description"] = "Changed after generation"
@@ -1020,23 +1029,24 @@ class TestProjectArchiveService:
         with zipfile.ZipFile(archive_path) as archive:
             archive_manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
             archived_entry = archive_manifest["artifact_manifest"]["entries"][key.encode()]
-            content_digest = hashlib.sha256(archive.read("demo/characters/Hero.png")).hexdigest()
+            content_digest = hashlib.sha256(archive.read(f"demo/{formal_path}")).hexdigest()
             assert archived_entry == {
-                "artifact_path": "characters/Hero.png",
+                "artifact_path": formal_path,
                 "basis_digest": before.basis_digest,
                 "content_digest": content_digest,
             }
         shutil.rmtree(project_dir)
 
-        ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
+        result = ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="demo.zip")
 
         imported_dir = pm.get_project_path("demo")
+        assert result.project["characters"]["Hero"]["character_sheet"] == formal_path
         assert ProjectArtifactManifestAdapter(imported_dir).get_entry(key) == ArtifactManifestEntry(
-            artifact_path="characters/Hero.png",
+            artifact_path=formal_path,
             basis_digest=before.basis_digest,
         )
         assert (
-            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path="characters/Hero.png").status
+            ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path=formal_path).status
             is ArtifactStatus.STALE
         )
 

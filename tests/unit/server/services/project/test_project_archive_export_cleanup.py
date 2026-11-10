@@ -10,6 +10,7 @@ from lib.artifacts.artifact_manifest import ArtifactManifestError
 from lib.project.project_manager import ProjectManager
 from server.services.project import project_archive
 from server.services.project.project_archive import ProjectArchiveService
+from tests.fakes import use_private_tempdir
 
 
 @pytest.mark.parametrize("operation", ["export_project", "get_export_diagnostics"])
@@ -40,7 +41,7 @@ async def test_export_preparation_failure_cleans_snapshot(
         def fail(*args, **kwargs):
             raise error
 
-        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        use_private_tempdir(monkeypatch, tmp_path)
         monkeypatch.setattr(project_archive.tempfile, "TemporaryDirectory", track_snapshot)
         if failure_point == "copy":
             monkeypatch.setattr(project_archive.shutil, "copystat", fail)

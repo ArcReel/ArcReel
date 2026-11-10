@@ -1790,7 +1790,7 @@ class ProjectArchiveService:
             ):
                 changed = True
 
-            # 缩略图无版本历史，仅在 canonical 文件存在时规范化路径
+            # 缩略图无版本历史：只在原引用读不到且 canonical 文件存在时改指 canonical
             if self._repair_path_to_canonical(
                 project_dir,
                 assets,
