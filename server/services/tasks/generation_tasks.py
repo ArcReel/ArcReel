@@ -1818,6 +1818,7 @@ async def execute_grid_task(
                 reference_images=reference_images,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
+                quality=ctx.image.quality,
                 before_submit=_before_submit,
                 formal_output=True,
                 task_id=task_id,

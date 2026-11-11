@@ -90,6 +90,9 @@ class ImageGenerationRequest:
     reference_images: list[ReferenceImage] = field(default_factory=list)
     aspect_ratio: str = "9:16"
     image_size: str | None = None
+    #: 用户选择的画质，已按模型的有效画质可选值求过（见 :func:`lib.backends.image_capabilities.effective_image_quality`）：
+    #: 为 ``None`` 时调用通道沿用自己的既有做法（OpenAI Images 按分辨率档位推出 ``quality``）。
+    quality: str | None = None
     project_name: str | None = None
     seed: int | None = None
     #: 供应商响应的诊断回调，与 ``VideoGenerationRequest`` 同形。只有需要逐阶段留痕的调用方
@@ -112,6 +115,8 @@ class ImageRequestFacts:
     image_size: str | None = None
     reference_count: int | None = 0
     entry: CatalogEntry | None = None
+    #: 生效的画质，含义同 :attr:`ImageGenerationRequest.quality`，预估与执行取同一个值。
+    quality: str | None = None
 
 
 #: 内置调用通道的预估函数：按请求事实推出会发送的请求字段与用量，与 ``generate`` 构造请求用同一套变换。

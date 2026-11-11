@@ -22,6 +22,7 @@ def _image_ctx(
     resolution="2K",
     backend_model=None,
     max_reference_images=None,
+    quality=None,
 ):
     """把 image lane 解析产物拼成假 GenerationContext，替换 resolve_generation_context 单点。
 
@@ -36,6 +37,7 @@ def _image_ctx(
             backend_model=backend_model if backend_model is not None else model,
             resolution=resolution,
             max_reference_images=max_reference_images,
+            quality=quality,
         ),
     )
 
@@ -305,6 +307,45 @@ class TestExecuteGridTask:
         assert updated_grid_data["grid_image_path"] == f"grids/{grid.id}.png"
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
+
+    @pytest.mark.parametrize("quality", ["low", None])
+    async def test_grid_request_carries_the_lane_quality(self, project_with_script, grid_json, quality):
+        """宫格图把 image lane 上生效的画质交给生成器，与档位各取各的来源；没有画质时传 ``None``。"""
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        grid_image_path = project_with_script / "grids" / f"{grid_json.id}.png"
+        Image.new("RGB", (400, 400)).save(grid_image_path, format="PNG")
+        mock_generator = MagicMock()
+        mock_generator.versions = _FormalVersions()
+        mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.tasks.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator, quality=quality),
+            ),
+        ):
+            mock_pm = MagicMock()
+            mock_pm.get_project_path.return_value = project_with_script
+            mock_pm.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            mock_pm.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+            )
+            mock_pm.update_scene_asset.return_value = {}
+            mock_pm_fn.return_value = mock_pm
+
+            await execute_grid_task(
+                "test-project",
+                grid_json.id,
+                {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                user_id="test-user",
+            )
+
+        call = mock_generator.generate_image_async.call_args.kwargs
+        assert (call["image_size"], call["quality"]) == ("2K", quality)
 
     @pytest.mark.parametrize("status_before_claim", ["pending", "failed"])
     async def test_provider_changed_since_claim_restores_the_grid_and_skips_the_provider(

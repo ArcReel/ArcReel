@@ -467,6 +467,7 @@ async def run_formal_image_task(
             reference_images=reference_images,
             aspect_ratio=plan.aspect_ratio,
             image_size=ctx.image.resolution,
+            quality=ctx.image.quality,
             formal_output=True,
             task_id=task_id,
             commit_formal_output=commit_formal_output,

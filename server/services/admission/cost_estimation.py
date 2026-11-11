@@ -7,7 +7,7 @@ import logging
 import re
 from collections import Counter
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -17,6 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.backends.backend_assembly.specs import builtin_video_metered_usage
 from lib.backends.image_backends.base import ImageRequestFacts
+from lib.backends.image_capabilities import (
+    builtin_image_quality_options,
+    custom_image_quality_options,
+    effective_image_quality,
+)
 from lib.backends.image_usage import estimate_builtin_image_usage
 from lib.billing.catalog_pricing import is_builtin_provider, price_builtin_call
 from lib.billing.metering import Priced, Usage
@@ -24,6 +29,7 @@ from lib.billing.multipliers import get_provider_multiplier
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
+    project_image_quality,
     video_bucket_for_generation_mode,
 )
 from lib.custom_provider.metering import CustomPriceSource, load_custom_price_source
@@ -235,18 +241,24 @@ def _quote_image(
     image_size: str | None,
     aspect_ratio: str,
     reference_count: int | None,
+    stored_quality: str | None,
 ) -> tuple[float, str] | None:
     """一张图的预估费用；未定价时返回 ``None``。
 
     内置供应商与结算同一个目录查询与计算器，用量由调用通道按请求事实推出；``image_size`` 是执行时会下发的
     分辨率档，没有就不下发，不另设计价保底档。自定义供应商（``price`` 是它的报价来源）按所对应条目的价目表
-    计价，用量取调用端点的预估声明或通用口径。
+    计价，用量取调用端点的预估声明或通用口径。``stored_quality`` 是项目为这个模型存的画质，与执行时同经
+    :func:`effective_image_quality` 按有效画质可选值换成生效的画质。
     """
     facts = ImageRequestFacts(
         model=model, aspect_ratio=aspect_ratio, image_size=image_size, reference_count=reference_count
     )
     if is_builtin_provider(provider):
         try:
+            facts = replace(
+                facts,
+                quality=effective_image_quality(stored_quality, builtin_image_quality_options(provider, model)),
+            )
             usage = estimate_builtin_image_usage(provider, facts)
         except ValueError:
             logger.debug("无法推出 image 预估用量 provider=%s model=%s", provider, model, exc_info=True)
@@ -262,6 +274,11 @@ def _quote_image(
         return (cost.amount, cost.currency) if isinstance(cost, Priced) else None
     if price is None:
         return None
+    if price.endpoint_spec is not None:
+        options = custom_image_quality_options(
+            model, endpoint_spec=price.endpoint_spec, entry_binding=price.pricing.entry_binding
+        )
+        facts = replace(facts, quality=effective_image_quality(stored_quality, options))
     cost = price.price(
         model=model,
         media_type="image",
@@ -428,6 +445,8 @@ class CostEstimationService:
             # 键不同（此处 registry ``model_id``，执行侧构造后的 backend 型号），两者分叉的供应
             # 商上估价档位可能与实际渲染档位不一致。
             image_resolution = await resolve_image_resolution(r, project_data)
+            # 画质与分辨率同一个 T2I 槽身份；是否生效在 ``_quote_image`` 里与执行同一个函数判定。
+            image_quality = project_image_quality(project_data, image_provider, image_model)
             grid_allow_large = large_grid_allowed(image_resolution)
 
             # 视频按任务类型桶解析（``docs/adr/0054``），与执行扣费同一个模型：图生视频 / 宫格算
@@ -531,6 +550,7 @@ class CostEstimationService:
             image_size=image_resolution,
             aspect_ratio=aspect_ratio,
             reference_count=0,
+            stored_quality=image_quality,
         )
         grid_quotes: dict[str, tuple[float, str] | None] = {}
 
@@ -544,6 +564,7 @@ class CostEstimationService:
                     image_size=grid_image_size(image_resolution, image_provider, image_model),
                     aspect_ratio=grid_aspect_ratio,
                     reference_count=0,
+                    stored_quality=image_quality,
                 )
             return grid_quotes[grid_aspect_ratio]
 
@@ -1126,6 +1147,7 @@ async def _quote_image_lane(
                 aspect_ratio=aspect_ratio,
                 # 图生图只知道走参考图，不知道几张：需要参考图张数的价目表记为未定价。
                 reference_count=0 if lane == "t2i" else None,
+                stored_quality=project_image_quality(project, provider, model),
             )
     except (ValueError, SQLAlchemyError):
         logger.debug("无法估算这批图片的费用 lane=%s", lane, exc_info=True)
