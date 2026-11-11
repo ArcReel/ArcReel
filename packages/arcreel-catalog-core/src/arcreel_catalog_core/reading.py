@@ -104,6 +104,7 @@ _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
             "max_reference_images",
             "output_token_bases",
             "output_token_scaled_bases",
+            "qualities",
         }
     ),
     "video": frozenset(
@@ -372,6 +373,17 @@ class CatalogReader:
                         "output_token_quality_overlap",
                         "同一质量档不能同时写在普通基数和带系数基数中，旧实例会按普通基数漏乘系数",
                     )
+                qualities_path = _at(path, "qualities")
+                qualities = self.texts(data.get("qualities"), qualities_path)
+                if output_token_bases or scaled_bases:
+                    for index, quality in enumerate(qualities):
+                        if quality not in output_token_bases and quality not in scaled_bases:
+                            self.flag(
+                                f"{qualities_path}[{index}]",
+                                "quality_without_output_token_rule",
+                                "收录了输出 token 估算规则时，每个画质取值都要在普通基数或带系数基数中有规则，"
+                                "否则选了这个画质无法预估费用",
+                            )
                 return ImageFacts(
                     text_to_image=self.flag_value(data, "text_to_image", path),
                     image_to_image=self.flag_value(data, "image_to_image", path),
@@ -379,6 +391,7 @@ class CatalogReader:
                     output_token_bases=output_token_bases,
                     output_token_scaled_bases=scaled_bases,
                     resolutions=self.texts(data.get("resolutions"), _at(path, "resolutions")),
+                    qualities=qualities,
                 )
             case "video":
                 durations = self.durations(data.get("durations"), _at(path, "durations"))

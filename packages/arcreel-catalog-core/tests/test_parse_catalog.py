@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from catalog_factories import catalog
+from catalog_factories import amphibious_image_entry, catalog
 
 from arcreel_catalog_core import (
     CatalogFormatError,
@@ -239,6 +239,53 @@ def test_output_token_scaled_bases_default_to_empty():
 
     assert isinstance(facts, ImageFacts)
     assert facts.output_token_scaled_bases == {}
+
+
+@pytest.mark.parametrize(
+    ("raw_qualities", "expected"),
+    [
+        pytest.param(["low", "medium", "high"], ("low", "medium", "high"), id="按数据里的顺序读入"),
+        pytest.param(["low", "low"], ("low", "low"), id="重复取值实例侧接受"),
+        pytest.param(None, (), id="null 表示未收录"),
+    ],
+)
+def test_image_qualities_are_read_in_declared_order(raw_qualities: object, expected: tuple[str, ...]):
+    data = catalog()
+    data["entries"][2]["facts"]["qualities"] = raw_qualities
+
+    facts = parse_catalog(data).entries[2].facts
+
+    assert isinstance(facts, ImageFacts)
+    assert facts.qualities == expected
+
+
+def test_image_qualities_default_to_empty_when_missing():
+    facts = parse_entry(amphibious_image_entry()).facts
+
+    assert isinstance(facts, ImageFacts)
+    assert facts.qualities == ()
+
+
+@pytest.mark.parametrize(
+    "raw_qualities",
+    [
+        pytest.param("low", id="字符串标量"),
+        pytest.param({"low": True}, id="对象"),
+        pytest.param(["low", ""], id="空字符串"),
+        pytest.param(["low", 1], id="非字符串的数组项"),
+        pytest.param([None], id="数组项为空"),
+    ],
+)
+def test_malformed_image_qualities_are_rejected(raw_qualities: object):
+    data = catalog()
+    data["entries"][2]["facts"]["qualities"] = raw_qualities
+    entry = amphibious_image_entry()
+    entry["facts"]["qualities"] = raw_qualities
+
+    with pytest.raises(CatalogFormatError):
+        parse_catalog(data)
+    with pytest.raises(CatalogFormatError):
+        parse_entry(entry)
 
 
 def test_amphibious_listing_resolves_to_entry_of_its_media_type():

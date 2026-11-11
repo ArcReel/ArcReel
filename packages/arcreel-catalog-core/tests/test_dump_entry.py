@@ -52,6 +52,18 @@ def test_dump_does_not_invent_unrecorded_model_facts(factory):
             },
         ),
         (amphibious_image_entry, {"max_reference_images": 0, "image_to_image": False}),
+        (amphibious_image_entry, {"qualities": ["standard", "hd"]}),
+        (
+            amphibious_image_entry,
+            {
+                "qualities": ["low", "medium", "high"],
+                "output_token_bases": {"high": 48},
+                "output_token_scaled_bases": {
+                    "low": {"base": 16, "multiplier": 4.2},
+                    "medium": {"base": 24, "multiplier": 3.3},
+                },
+            },
+        ),
         (
             video_entry,
             {
@@ -88,6 +100,14 @@ def test_dump_preserves_optional_model_facts(factory, additions):
     assert dumped["facts"] == raw["facts"]
     assert parse_entry(dumped) == entry
     assert check_entry(dumped) == []
+
+
+@pytest.mark.parametrize("qualities", [None, []], ids=["null", "空数组"])
+def test_dump_omits_unrecorded_image_qualities(qualities: object):
+    raw = amphibious_image_entry()
+    raw["facts"]["qualities"] = qualities
+
+    assert dump_entry(parse_entry(raw))["facts"] == amphibious_image_entry()["facts"]
 
 
 def test_dump_preserves_lifecycle_fields():
