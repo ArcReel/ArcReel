@@ -12,7 +12,7 @@ key，不能用作查询键；model 是唯一真实漂移轴（自定义供应�
 ``backend_name`` / ``backend_model``（backend 报告的实际身份）两组字段。
 
 backend 实例缓存随本模块承载：缓存是 server 执行层关切（``docs/adr/0039``「缓存留在调用方」），
-供应商配置变更路由经 ``invalidate_backend_cache()`` 统一失效。
+供应商配置变更路由与官方目录同步装入新数据后（``server.app.start_catalog_sync``）经 ``invalidate_backend_cache()`` 统一失效。
 """
 
 from __future__ import annotations
@@ -108,7 +108,7 @@ _backend_cache = _BackendCache()
 
 
 def invalidate_backend_cache() -> None:
-    """清空 Backend 实例缓存。在供应商配置变更后调用。"""
+    """清空 Backend 实例缓存。在供应商配置变更、官方目录同步装入新数据后调用。"""
     _backend_cache.invalidate()
 
 
