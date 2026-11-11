@@ -643,6 +643,20 @@ class TestMediaGenerator:
 
         assert any(o["status"] == "failed" for o in gen.ledger.outcomes)
 
+    @pytest.mark.parametrize("quality", ["low", None])
+    async def test_image_request_carries_quality_and_size_separately(self, tmp_path, quality):
+        """生效的画质写进图片请求，与分辨率档位互不改写；不传时请求不带画质。"""
+        gen = _build_generator(tmp_path)
+        backend = _FakeImageBackend()
+        gen._image_backend = backend
+
+        await gen.generate_image_async(
+            prompt="p", resource_type="storyboards", resource_id="E1S01", image_size="2K", quality=quality
+        )
+
+        [request] = backend.calls
+        assert (request.image_size, request.quality) == ("2K", quality)
+
     async def test_call_records_store_artifact_path_relative_to_project(self, tmp_path):
         gen = _build_generator(tmp_path)
 

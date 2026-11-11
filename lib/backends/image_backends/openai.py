@@ -64,12 +64,16 @@ def _quality_for(image_size: str | None) -> str | None:
 def _resolve_openai_params(
     image_size: str | None,
     aspect_ratio: str,
+    quality: str | None = None,
 ) -> dict[str, str]:
     """按「比例优先、清晰度其次」算出 {size, quality}。
 
     比例永远来自 aspect_ratio；image_size（档位 / 自定义 WxH / None）只决定清晰度短边，
     自定义 WxH 剥离其自带比例（取 min 当短边）。image_size=None 时按默认 720P 短边兜底，
     仍下传精确比例 size——不再回退 SDK 默认（否则中转网关会用自家默认比例，丢掉项目比例）。
+
+    ``quality`` 是用户选择、已按有效画质可选值求过的画质：给出时原样发送，不对照条目取值；没有时按档位映射推出，
+    档位未设置或是自定义 WxH 时不发送。
     """
     short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
     w, h = aspect_size(
@@ -87,7 +91,7 @@ def _resolve_openai_params(
             _GPT_IMAGE_STABLE_LONG_EDGE,
         )
     params: dict[str, str] = {"size": f"{w}x{h}"}
-    quality = _quality_for(image_size)
+    quality = quality or _quality_for(image_size)
     if quality:
         params["quality"] = quality
     return params
@@ -175,6 +179,8 @@ class OpenAIImageBackend:
     #: 内置供应商按缺省的 ``both`` 构造；自定义端点按 mode 收窄，通道事实由端点声明。
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _MAX_REFERENCE_IMAGES
+    #: 接受显式画质：请求带 ``quality`` 时原样发送，内置 ``openai-images`` 与自定义的三个 OpenAI Images 端点共用。
+    CHANNEL_ACCEPTS_QUALITY: ClassVar[bool] = True
 
     _MODE_TO_CAPS: ClassVar[dict[str, set[ImageCapability]]] = {
         "both": {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE},
@@ -214,11 +220,11 @@ class OpenAIImageBackend:
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
         """预估用量：输出 token 按官方计算器公式与条目上的估算规则估，条目没收录请求所用质量档时不报。
 
-        请求所用质量档由档位映射决定（请求结构，见 :func:`_resolve_openai_params`），估算规则取模型对应的条目
+        请求所用质量档与执行同源（:func:`_resolve_openai_params`）：``facts.quality`` 给出时取它，否则按档位映射，估算规则取模型对应的条目
         （``facts.entry``），不看模型名。提示词文字 token 记 0：费用页与整批预估拿不到提示词，这部分会偏低。
         文字输出与缓存在 Images API 上不发生，记 0。参考图的图片输入 token 无法从请求事实估出：没有参考图时记 0，有参考图时不报。
         """
-        params = _resolve_openai_params(facts.image_size, facts.aspect_ratio)
+        params = _resolve_openai_params(facts.image_size, facts.aspect_ratio, facts.quality)
         quality = params.get("quality")
         output = (
             estimate_output_tokens(params["size"], quality, *_output_token_rules(facts.entry))
@@ -252,7 +258,7 @@ class OpenAIImageBackend:
             "prompt": request.prompt,
             "n": 1,
         }
-        params = _resolve_openai_params(request.image_size, request.aspect_ratio)
+        params = _resolve_openai_params(request.image_size, request.aspect_ratio, request.quality)
         kwargs.update(params)
         logger.info("调用 %s 图片 SDK (T2I) kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         response = await self._client.images.generate(**kwargs)
@@ -288,7 +294,7 @@ class OpenAIImageBackend:
             "image": image_files,
             "prompt": request.prompt,
         }
-        params = _resolve_openai_params(request.image_size, request.aspect_ratio)
+        params = _resolve_openai_params(request.image_size, request.aspect_ratio, request.quality)
         edit_kwargs.update(params)
         logger.info(
             "调用 %s 图片 SDK (I2I) kwargs=%s",

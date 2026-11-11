@@ -674,6 +674,7 @@ class MediaGenerator:
         task_id: str | None = None,
         commit_formal_output: Callable[[Path, Path, Mapping[str, Any]], int] | None = None,
         before_submit: Callable[[], Awaitable[None]] | None = None,
+        quality: str | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -686,6 +687,7 @@ class MediaGenerator:
             reference_images: 参考图片列表
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             image_size: 图片尺寸，默认不传（由 backend/SDK 决定）
+            quality: 生效的画质（见 ``ImageGenerationRequest.quality``），默认不传，调用通道按分辨率档位推出
             **version_metadata: 额外元数据
 
         Returns:
@@ -770,6 +772,7 @@ class MediaGenerator:
                             reference_images=[ReferenceImage(path=str(c.path)) for c in compressed],
                             aspect_ratio=aspect_ratio,
                             image_size=image_size,
+                            quality=quality,
                             project_name=self.project_name,
                         )
                     )

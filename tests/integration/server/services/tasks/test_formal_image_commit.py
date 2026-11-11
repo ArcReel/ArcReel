@@ -85,6 +85,24 @@ class TestGenerationTasks:
         assert kwargs["artifact_path"] == "storyboards/scene_E1S01.png"
         assert isinstance(kwargs["basis"], ArtifactBasis)
 
+    @pytest.mark.parametrize("quality", ["low", None])
+    async def test_storyboard_request_carries_the_lane_quality(self, tmp_path, monkeypatch, quality):
+        """正式分镜图把 image lane 上生效的画质交给生成器，分辨率档位照旧；没有画质时传 ``None``。"""
+        project_path = prepare_files(tmp_path)
+        fake_generator = FakeGenerator()
+        use_project_manager(monkeypatch, _FakePM(project_path))
+        use_generation_context(
+            monkeypatch, fake_resolve_ctx(fake_generator, image_resolution="1K", image_quality=quality)
+        )
+        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *args, **kwargs: None)
+
+        await generation_tasks.execute_storyboard_task(
+            "demo", "E1S01", {"script_file": "episode_1.json", "prompt": "direct prompt"}
+        )
+
+        call = fake_generator.image_calls[0]
+        assert (call["image_size"], call["quality"]) == ("1K", quality)
+
     async def test_schema8_storyboard_refuses_unclaimed_asset_sheets_before_provider(self, tmp_path, monkeypatch):
         """资产图文件在但清单未登记即不可用：生成在解析供应商之前被拒，一次报全；未登记的上一分镜图只是略去。"""
 
