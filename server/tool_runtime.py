@@ -1344,7 +1344,7 @@ class PromptPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     script: str = Field(min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json")
-    item_id: str = Field(min_length=1, description="分镜条目 id（segment_id / scene_id / shot_id / unit_id），如 E1S01")
+    item_id: str = Field(min_length=1, description="条目 id（segment_id / scene_id / shot_id / unit_id），如 E1S01")
 
 
 async def get_prompt_preview(
@@ -1369,7 +1369,7 @@ async def get_prompt_preview(
             scope.project_name, filename, request.value.item_id, projects=services.projects
         )
     except ScriptItemNotFound:
-        return ToolOutcome(problem=ToolProblem("item_not_found", f"剧本中不存在分镜 {request.value.item_id}"))
+        return ToolOutcome(problem=ToolProblem("item_not_found", f"剧本中不存在条目 {request.value.item_id}"))
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
     except (TypeError, ValueError) as exc:

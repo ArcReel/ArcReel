@@ -453,7 +453,7 @@ export function ComfyuiBindingTable({
                         targets={targets}
                         onToggle={(candidate) => {
                           if (isListBindingKey(key)) {
-                            const ordered = toggleListTarget(candidates, targets ?? [], candidate.target);
+                            const ordered = toggleListTarget(key === "reference_audio" ? [] : candidates, targets ?? [], candidate.target);
                             onChange(key, ordered.length > 0 ? ordered : undefined);
                             return;
                           }
@@ -466,6 +466,41 @@ export function ComfyuiBindingTable({
                         }}
                       />
                     )}
+                    {key === "reference_audio" && targets?.map((target, targetIndex) => (
+                      <div key={`${target.node}.${target.input}`} className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs">{t("ce_cf_audio_order", { n: targetIndex + 1 })}</span>
+                        <TargetLabel target={target} />
+                        <Button size="xs" variant="ghost" disabled={targetIndex === 0} onClick={() => {
+                          const next = [...targets];
+                          [next[targetIndex - 1], next[targetIndex]] = [next[targetIndex], next[targetIndex - 1]];
+                          onChange(key, next);
+                        }}>{t("ce_cf_move_up")}</Button>
+                        <Button size="xs" variant="ghost" onClick={() => onChange(key, targets.filter((_, i) => i !== targetIndex))}>
+                          {t("ce_cf_remove_target")}
+                        </Button>
+                      </div>
+                    ))}
+                    {key === "aspect_ratio" && targets?.map((target, targetIndex) => (
+                      <div key={`${target.node}.${target.input}`} className="flex flex-wrap items-center gap-3">
+                        <TargetLabel target={target} />
+                        {Array.from(new Set(["16:9", "9:16", ...Object.keys(target.values ?? {})])).map((ratio) => (
+                          <label key={ratio} className="flex items-center gap-2 text-xs text-muted-foreground">
+                            {t("ce_cf_aspect_value", { ratio })}
+                            <Input
+                              value={target.values?.[ratio] ?? ""}
+                              placeholder={t("ce_cf_aspect_value_placeholder")}
+                              onChange={(event) => {
+                                const values = { ...target.values };
+                                if (event.target.value) values[ratio] = event.target.value;
+                                else delete values[ratio];
+                                onChange(key, targets.map((item, i) => i === targetIndex ? { ...item, values } : item));
+                              }}
+                              className="w-48"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    ))}
                     <div className="flex flex-wrap items-center gap-3">
                       <ManualPicker
                         bindingKey={key}
@@ -474,7 +509,7 @@ export function ComfyuiBindingTable({
                           const current = targets ?? [];
                           if (isListBindingKey(key)) {
                             if (current.some((entry) => sameTarget(entry, target))) return;
-                            onChange(key, toggleListTarget(candidates, current, target));
+                            onChange(key, toggleListTarget(key === "reference_audio" ? [] : candidates, current, target));
                             return;
                           }
                           if (!isMultiTargetBindingKey(key)) {

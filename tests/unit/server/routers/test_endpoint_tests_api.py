@@ -276,6 +276,25 @@ class TestPreviewRequest:
         assert resp.json()["submit"]["body"]["image"] == "<data:image/png;base64, 1024 bytes>"
 
 
+class TestComfyuiPreviewAudio:
+    def test_audio_the_workflow_cannot_take_is_a_400(self, client: TestClient):
+        resp = client.post(
+            "/api/v1/custom-endpoints/preview-request",
+            data={
+                "payload": json.dumps(
+                    {
+                        "definition": comfyui_endpoint_definition(),
+                        "parameters": PARAMETERS,
+                        "credentials": COMFYUI_CREDENTIALS,
+                    }
+                )
+            },
+            files={"reference_audio_files": ("voice.wav", b"x", "audio/wav")},
+        )
+
+        assert resp.status_code == 400, resp.text
+
+
 class TestAssetLimits:
     def test_more_files_than_the_cap_are_rejected(self, client: TestClient):
         files = [("reference_images", (f"r{i}.png", b"x", "image/png")) for i in range(17)]

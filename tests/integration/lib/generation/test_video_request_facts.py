@@ -8,7 +8,8 @@ import pytest
 from sqlalchemy import update
 
 from arcreel_catalog_core import DurationConstraints
-from lib.catalog.query import catalog_data, factory_snapshot
+from lib.catalog import query as catalog
+from lib.catalog.query import catalog_data
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -33,7 +34,7 @@ def resolver(db_factory, monkeypatch) -> ConfigResolver:
     # 请求事实用例单独验证档位与能力，不受模型关停日期影响。
     install_catalog(
         monkeypatch,
-        with_entry_changes(factory_snapshot(), VEO_PROVIDER, VEO_MODEL, discontinued=False, shutdown_date=None),
+        with_entry_changes(catalog.factory_snapshot(), VEO_PROVIDER, VEO_MODEL, discontinued=False, shutdown_date=None),
     )
     return ConfigResolver(db_factory)
 

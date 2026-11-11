@@ -230,7 +230,7 @@ def _preview_media(
 
     ``placeholder_missing`` 为 True 时（独立预览），绑定了却没上传的格子按声明生成占位摘要：
     留空会让改图那一步把这些读图节点连同下游删掉，预览出来的就是一份缺了半条链路的图，而真发时
-    用户是会带上素材的。参考图只按**实际上传的张数**填——张数少于格子数正是会触发改图的那种输入，
+    用户是会带上素材的。参考音频同样按绑定段数占位。参考图只按**实际上传的张数**填——张数少于格子数正是会触发改图的那种输入，
     删了哪些节点由换算说明给出，这一格恰恰是预览最该说清的事。
     """
     bindings: Mapping[str, Any] = definition.get("bindings") or {}
@@ -240,10 +240,18 @@ def _preview_media(
         references = tuple(_summary("reference_images", item.content) for item in uploaded[:slots])
     else:
         references = tuple(_placeholder("reference_images") for _ in range(slots)) if placeholder_missing else ()
+    uploaded_audio = assets.items("reference_audio_files") if assets else []
+    if uploaded_audio:
+        audio = tuple(_summary("reference_audio_files", item.content) for item in uploaded_audio)
+    elif placeholder_missing:
+        audio = tuple(_placeholder("reference_audio_files") for _ in _targets(bindings.get("reference_audio")))
+    else:
+        audio = ()
     return MediaInputs(
         start_image=_single_media(assets, bindings, "start_image", placeholder_missing=placeholder_missing),
         end_image=_single_media(assets, bindings, "end_image", placeholder_missing=placeholder_missing),
         reference_images=references,
+        reference_audio_files=audio,
     )
 
 

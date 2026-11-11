@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from arcreel_catalog_core import ScaledOutputTokenBase
 from lib.backends.backend_assembly.specs import PROVIDER_SPEC_REGISTRY
 from lib.backends.image_backends.base import ImageRequestFacts
 from lib.backends.image_usage import estimate_builtin_image_usage
@@ -17,6 +18,11 @@ _IMAGE_PROVIDERS = sorted(provider for provider, media_type in PROVIDER_SPEC_REG
 
 @pytest.mark.parametrize("provider_id", _IMAGE_PROVIDERS)
 def test_every_builtin_image_channel_estimates_text_to_image(provider_id: str) -> None:
+    """每条内置图片调用通道的预估用量都能按价目表计价。
+
+    读测试目录数据。发布数据里按输出图片 token 计价的条目是否收录了估算规则，由构建侧校验
+    （``missing_output_token_rules``）把关。
+    """
     model = next(
         key for key, info in catalog.list_models(provider_id).items() if info.media_type == "image" and not info.hidden
     )
@@ -83,6 +89,20 @@ def test_output_tokens_are_estimated_from_the_bases_on_the_model_entry(monkeypat
     install_catalog(monkeypatch, with_entry_facts(snapshot, "openai", "gpt-image-2", output_token_bases=bases))
     # 1K → medium、1:1 → 1024x1024：官方计算器 1756 个输出 token
     assert estimate_builtin_image_usage("openai", facts).quantities["image_output_tokens"] == 1756
+
+
+def test_output_tokens_are_estimated_from_scaled_bases_on_the_model_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """带系数基数走同一条估算路径；官方计算器 1024x1024、medium（GPT Image 2.6）为 1449。"""
+    facts = ImageRequestFacts(model="gpt-image-2", aspect_ratio="1:1", image_size="1K", reference_count=0)
+    scaled = {"medium": ScaledOutputTokenBase(base=24, multiplier=3.3)}
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog.factory_snapshot(), "openai", "gpt-image-2", output_token_bases={}, output_token_scaled_bases=scaled
+        ),
+    )
+
+    assert estimate_builtin_image_usage("openai", facts).quantities["image_output_tokens"] == 1449
 
 
 @pytest.mark.parametrize(

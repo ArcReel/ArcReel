@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import tempfile
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
@@ -1108,6 +1109,16 @@ class HangingProcess:
     async def communicate(self) -> tuple[bytes, None]:
         await self.wait()
         return b"", None
+
+
+def use_private_tempdir(monkeypatch, root: Path) -> Path:
+    """让 ``tempfile`` 的默认临时根指向用例私有目录 *root* 并返回它。
+
+    进程共享的系统 tempdir 会被并行用例或其他 worktree 写入；断言「临时产物已清理」的用例要在私有目录里观察。
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(tempfile, "tempdir", str(root))
+    return root
 
 
 def use_project_manager(monkeypatch, pm: Any) -> None:

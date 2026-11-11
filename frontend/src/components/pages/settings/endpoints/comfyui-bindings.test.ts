@@ -136,8 +136,8 @@ describe("bindingKeysFor", () => {
   it("drops the two frames and the timeline pair for an image endpoint", () => {
     expect(bindingKeysFor("image")).not.toContain("start_image");
     expect(bindingKeysFor("image")).not.toContain("frames");
-    expect(bindingKeysFor("image")).toHaveLength(7);
-    expect(bindingKeysFor("video")).toHaveLength(11);
+    expect(bindingKeysFor("image")).toHaveLength(8);
+    expect(bindingKeysFor("video")).toHaveLength(13);
   });
 });
 

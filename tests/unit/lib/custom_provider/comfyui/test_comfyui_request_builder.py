@@ -619,3 +619,51 @@ def _masher_definition() -> dict[str, Any]:
     for target in definition["bindings"]["reference_images"]:
         target["consumer"]["class_type"] = "SomeCustomImageMasher"
     return definition
+
+
+@pytest.mark.parametrize("count", [0, 1, 3])
+def test_reference_audio_rewires_api_slots_in_binding_order_without_stale_audio(count):
+    import json
+    from pathlib import Path
+
+    definition = comfyui_endpoint_definition()
+    definition["workflow"] = json.loads((Path(__file__).parent / "data/minimax_h3_ref2va.json").read_text())
+    definition["bindings"] = {
+        "prompt": [{"node": "138", "input": "value", "class_type": "PrimitiveStringMultiline"}],
+        "output": [{"node": "92", "class_type": "SaveVideo"}],
+        "reference_audio": [
+            {"node": node, "input": "audio", "class_type": "LoadAudio"} for node in ("501", "502", "503")
+        ],
+    }
+    built = _build(
+        definition,
+        prompt="<Audio 1> then <Audio 2>",
+        media=MediaInputs(reference_audio_files=[f"uploaded-{i}.wav" for i in range(count)]),
+    )
+    inputs = built.workflow["136"]["inputs"]
+    audio_ports = sorted(key for key in inputs if key.startswith("ref_audios."))
+    assert len(audio_ports) == count
+    assert [built.workflow[inputs[key][0]]["inputs"]["audio"] for key in audio_ports] == [
+        f"uploaded-{i}.wav" for i in range(count)
+    ]
+    assert built.workflow["138"]["inputs"]["value"] == "<Audio 1> then <Audio 2>"
+    assert definition["workflow"]["501"]["inputs"]["audio"] == "old-1.wav"
+
+
+@pytest.mark.parametrize(("ratio", "value"), [("16:9", "landscape"), ("9:16", "portrait")])
+def test_aspect_mapping_and_pixel_bindings_use_the_same_ratio(ratio, value):
+    definition = comfyui_endpoint_definition()
+    definition["workflow"]["20"] = {"class_type": "RatioNode", "inputs": {"ratio": "draft"}}
+    definition["bindings"]["aspect_ratio"] = [
+        {
+            "node": "20",
+            "input": "ratio",
+            "class_type": "RatioNode",
+            "values": {"16:9": "landscape", "9:16": "portrait"},
+        }
+    ]
+    built = _build(definition, aspect_ratio=ratio, resolution="720p")
+    assert built.workflow["20"]["inputs"]["ratio"] == value
+    assert (built.width > built.height) == (ratio == "16:9")
+    with pytest.raises(ComfyuiError, match="comfyui_aspect_ratio_unmapped"):
+        _build(definition, aspect_ratio="1:1")
