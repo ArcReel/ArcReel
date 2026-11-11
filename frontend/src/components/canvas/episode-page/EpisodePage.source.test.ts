@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { EpisodeMeta, ProjectData } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
-import { showsEpisodeSource } from "./episode-view";
+import { canViewEpisodeSource, showsEpisodeSource } from "./episode-view";
 
 function project(episode: Partial<EpisodeMeta> | null, contentMode = "narration"): ProjectData {
   return {
@@ -37,5 +37,34 @@ describe("showsEpisodeSource", () => {
   it("广告/短片与演示项目没有源文可切，不呈现", () => {
     expect(showsEpisodeSource(project({}, "ad"), 3, null, false)).toBe(false);
     expect(showsEpisodeSource(project({}), 3, null, true)).toBe(false);
+  });
+});
+
+describe("canViewEpisodeSource", () => {
+  it.each(["own", "whole_source"] as const)("已有正式剧本且账本记为有原文（%s）时提供入口", (origin) => {
+    expect(canViewEpisodeSource(project({ source_origin: origin }), 3, SCRIPT, false)).toBe(true);
+  });
+
+  it("账本没写来源时按原文范围推断", () => {
+    expect(canViewEpisodeSource(project({ source_range: { source_file: "source/novel.txt" } }), 3, SCRIPT, false)).toBe(true);
+    expect(canViewEpisodeSource(project({}), 3, SCRIPT, false)).toBe(false);
+  });
+
+  it("账本记为无原文的集不提供入口", () => {
+    expect(canViewEpisodeSource(project({ source_origin: "none" }), 3, SCRIPT, false)).toBe(false);
+  });
+
+  it("还没有正式剧本时不提供入口，原文由脚本规划视图呈现", () => {
+    expect(canViewEpisodeSource(project({ source_origin: "own" }), 3, null, false)).toBe(false);
+  });
+
+  it("项目里没有这一集，或项目数据还没加载时不提供入口", () => {
+    expect(canViewEpisodeSource(project({ source_origin: "own" }), 4, SCRIPT, false)).toBe(false);
+    expect(canViewEpisodeSource(null, 3, SCRIPT, false)).toBe(false);
+  });
+
+  it("广告/短片与演示项目不提供入口", () => {
+    expect(canViewEpisodeSource(project({ source_origin: "own" }, "ad"), 3, SCRIPT, false)).toBe(false);
+    expect(canViewEpisodeSource(project({ source_origin: "own" }), 3, SCRIPT, true)).toBe(false);
   });
 });

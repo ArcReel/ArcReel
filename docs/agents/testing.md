@@ -20,6 +20,10 @@
 
 worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文档站在各自目录 `pnpm install --frozen-lockfile`。把主检出的 `.testmondata` 复制进 worktree 可以跳过 testmon 的首次建库；文件里记录的是按代码指纹索引的覆盖关系，与当前代码不一致的部分会被当作改动重跑。标了 `local_port` 的用例在禁止绑定本地端口的沙箱里会被跳过并注明原因，完整测试需要在允许绑定端口的环境里运行一次。根 conftest 为测试进程设置 `PYTHON_DOTENV_DISABLED=1`，不读取任何 `.env`，worktree 根不必为挡住主检出的 `.env` 再放一份空文件；验证 `.env` 读取规则的用例自行 `delenv`。
 
+## 模型目录的测试数据
+
+根 conftest 让目录查询读测试目录数据 `tests/fixtures/catalog.json`，不读出厂快照 `lib/catalog/snapshot/`。出厂快照由发版 PR 刷新成目录数据仓库的最新数据，那边改数据时不跑本仓的测试，用例断言出厂快照里的模型或取值，就会在发版 PR 上失败。用例需要的目录数据变化，用 `tests/catalog_support.py` 的 `install_catalog`、`catalog_of` 与 `with_*` 在用例内构造，或修改测试目录数据。只有 `tests/unit/lib/catalog/test_factory_snapshot.py` 换回出厂快照，核对它本身的格式与可加载性。生命周期判定的「今天」同时固定为测试目录数据的数据集日期，其中登记的关停日期不会随真实日期到来而改变用例结果；需要跨过关停日期的用例自己调用 `set_catalog_today`。发布数据必须满足的约束写进 `arcreel_catalog_core` 的构建侧校验，由目录数据仓库在合入与发布时检查。
+
 ## 事件循环阻塞护栏
 
 根 conftest 加载 `tests/blocking_guard`：同步与异步用例全程记录 lib/server 代码在事件循环线程上的阻塞调用（含同步 `TestClient` 背后的应用线程），用例结束时豁免清单外的违规让该用例失败，失败信息给出条目和调用栈。调用栈由内向外列出 lib/server/tests 帧，前面按真实调用顺序附上阻塞点到第一个仓库帧之间最内层的几条非仓库帧（标准库与第三方包，路径取包内相对形式，超出的注明省略条数），用来分辨业务代码 `await` 处被调起的非仓库代码里是谁在阻塞。条目是离阻塞点最近的 lib/server async 函数（`<文件>::<限定名>`），阻塞发生在 `tests/` 下的替身里也一样：换成生产依赖后，同一位置同样会阻塞事件循环。替身误报时，按生产实现的线程契约修替身：能用内存实现的就改成内存实现；替身的职责本身就要落盘的（后端写产物、模拟并发写方、调用会写正式文件的生产回调），把这段 I/O 放进 `asyncio.to_thread`。外层没有 lib/server async 函数的阻塞（测试函数直接调用同步 lib 代码）不计。

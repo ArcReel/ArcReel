@@ -371,4 +371,5 @@ export default {
   "provider_asset_link_failure_content_unavailable": "图片版本文件不存在，没有提交入库。",
   "provider_asset_link_failure_content_changed": "图片版本文件与记录不一致，没有提交入库。",
   "provider_asset_link_failure_relay_upload_failed": "上传到对象存储失败，没有提交入库。检查对象存储连接后，解除关联并重新上传。",
+  "provider_asset_link_failure_object_storage_changed": "对象存储连接已更换或删除，入库已停止。原图仍在 ArcReel，解除关联后可重新上传。",
 } satisfies Record<keyof typeof enAssets, string>;

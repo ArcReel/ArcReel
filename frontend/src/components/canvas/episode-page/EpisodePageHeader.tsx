@@ -34,6 +34,7 @@ function DisabledViewTab({ view, label }: { view: EpisodeView; label: string }) 
  */
 export function EpisodePageHeader({
   head,
+  sourceEntry,
   progress,
   tabs,
   view,
@@ -42,6 +43,8 @@ export function EpisodePageHeader({
   onActionsSlot,
 }: {
   head: ReactNode;
+  /** 只读的「查看原文」入口，本集没有可查看的原文时不渲染内容。 */
+  sourceEntry: ReactNode;
   /** 制作进度入口；演示项目没有。 */
   progress: ReactNode;
   tabs: EpisodeViewTab[];
@@ -63,6 +66,7 @@ export function EpisodePageHeader({
     <header className="shrink-0 border-b border-border">
       <div className="flex h-11 items-center gap-3 px-4">
         {head}
+        {sourceEntry}
         {progress}
       </div>
       <div className="flex h-10 items-center gap-3 px-4">

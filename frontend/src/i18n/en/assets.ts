@@ -369,4 +369,5 @@ export default {
   "provider_asset_link_failure_content_unavailable": "The image version file is missing; nothing was submitted.",
   "provider_asset_link_failure_content_changed": "The image version file no longer matches its record; nothing was submitted.",
   "provider_asset_link_failure_relay_upload_failed": "Uploading to object storage failed; nothing was submitted. Check the object storage connection, then unlink and upload again.",
+  "provider_asset_link_failure_object_storage_changed": "The object storage connection changed or was removed, so ingest stopped. The original image remains in ArcReel. Unlink and upload again.",
 };

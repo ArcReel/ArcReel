@@ -1591,7 +1591,7 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     expect(picker).toBeDisabled();
     expect(picker).toHaveAttribute("placeholder", "workflow 原生（480p）");
     // 禁用原因要有一行可见说明，不能只靠 title。
-    expect(screen.getByText(/此 workflow 尺寸固定：宽高没有绑定到节点/)).toBeInTheDocument();
+    expect(screen.getByText(/此 workflow 的像素分辨率固定：宽高没有同时绑定到节点/)).toBeInTheDocument();
   });
 
   it("says the workflow decides the size when there is no literal to name", async () => {
