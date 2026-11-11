@@ -13,8 +13,11 @@ export interface RecommendationNoticeProps {
   providerNames: Record<string, string>;
   /** "provider/model" → 当前语言下的模型名；缺键退回 model id。 */
   modelNames: Record<string, string>;
-  /** 处理完（或推荐又变了）之后调用：上层重取配置与提示。 */
-  onResolved: () => Promise<void> | void;
+  /**
+   * 处理完（或推荐又变了）之后调用：上层重取配置与提示。`applied` 表示服务端已把推荐写成全局默认，
+   * 上层要把它并入未保存修改，否则之后保存别的字段会把旧默认模型写回去。
+   */
+  onResolved: (change: RecommendationChange, applied: boolean) => Promise<void> | void;
 }
 
 function modelName(value: string, modelNames: Record<string, string>): string {
@@ -38,14 +41,16 @@ export function RecommendationNotice({ change, providerNames, modelNames, onReso
 
   const resolve = async (apply: boolean) => {
     setPending(true);
+    let applied = false;
     try {
       await API.acknowledgeRecommendation(change, apply);
+      applied = apply;
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
       setPending(false);
     }
-    await onResolved();
+    await onResolved(change, applied);
   };
 
   return (

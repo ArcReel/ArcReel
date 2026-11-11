@@ -91,7 +91,7 @@ async def require_audio_switch_supported(project: dict, generation_type: VideoGe
 def validate_backend_value(value: str, field_name: str) -> None:
     """校验 ``provider/model`` 格式的 backend 字段值。
 
-    只接受 ``provider/model`` 完整形态与规范 provider id（``PROVIDER_REGISTRY`` 的 key 或 ``custom-`` 前缀）。legacy provider 名
+    只接受 ``provider/model`` 完整形态，provider 部分须是规范 provider id（``PROVIDER_REGISTRY`` 的 key 或 ``custom-`` 前缀）。legacy provider 名
     （``gemini``/``aistudio``/``vertex``/``seedance``）一律拒绝——它们是待清除的历史数据，由一次性项目迁移
     转为规范 id 后即不再被接受（见 ``docs/adr/0001``）。
 

@@ -1120,7 +1120,7 @@ class TestFilesRouter:
             assert bad_style_ext.status_code == 400
 
     @pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
-    def test_style_image_without_text_provider(self, tmp_path, monkeypatch, file_db_factory, locale):
+    def test_style_image_without_a_default_text_model(self, tmp_path, monkeypatch, file_db_factory, locale):
         from lib.backends.text_backends.factory import create_text_backend_for_task
         from lib.i18n import MESSAGES
 
@@ -1144,8 +1144,8 @@ class TestFilesRouter:
 
         assert response.status_code == 400, response.text
         assert response.json() == {
-            "detail": MESSAGES[locale]["text_provider_not_configured"],
-            "diagnostic": {"code": "text_provider_not_configured"},
+            "detail": MESSAGES[locale]["text_default_model_not_set"],
+            "diagnostic": {"code": "text_default_model_not_set"},
         }
         assert pm.load_project("demo") == before
         assert (project_dir / "style_reference.png").read_bytes() == original_image

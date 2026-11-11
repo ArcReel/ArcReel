@@ -101,8 +101,8 @@ async def callable_model_key(
 
     缓存里的实例可能构造于关停日期之前，命中缓存会绕过 :func:`assemble_backend` 里的检查，所以调用方在查缓存前调用本函数。
 
-    - 内置供应商：``model_id`` 为 ``None`` 时取可用的默认模型（已下线或被用户停用的不算，没有时抛 ``ModelNotInCatalogError``，与装配同一口径），
-      返回定下的模型键；已下线抛 ``ModelDiscontinuedError``。这里刻意不查「是否在清单里」，完整检查在真正构造时执行。
+    - 内置供应商：``model_id`` 为 ``None`` 时抛 ``ModelNotInCatalogError``，不按目录推荐补模型（docs/adr/0099），与装配同一口径；
+      返回模型键；已下线抛 ``ModelDiscontinuedError``。这里刻意不查「是否在清单里」，完整检查在真正构造时执行。
     - 自定义供应商：按装载同一条规则（``lib.custom_provider.loader.select_custom_model``）定下模型行，显式引用的模型已下线、
       或回退后没有未下线的默认模型时同样报错；``model_id`` 原样返回（默认模型按任务类型桶分槽，键里另有桶）。
     - 未登记的供应商原样返回，由装配报错。

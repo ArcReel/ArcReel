@@ -2639,14 +2639,14 @@ class TestArchiveDiagnosticsLocalization:
         assert any("notes.txt" in message and re.search(r"[一-鿿]", message) for message in messages)
 
 
-def test_an_archive_exported_at_schema_18_keeps_storyboards_and_grids_current_after_import(tmp_path, monkeypatch):
+def test_an_archive_exported_at_schema_18_keeps_storyboards_and_grids_current_after_import(tmp_path):
     """信封里的 claim 与原地升级一样经迁移链平移：v18→v19 改了分镜图与宫格的依据口径，导入后它们仍是 current。"""
     source = ProjectManager(tmp_path / "source")
     write_legacy_named_reference_bases_project(source.projects_dir, name="demo")
-    # 模拟 schema 18 发行版的导出器：它把 18 当作当前版本，把清单放进信封。
-    monkeypatch.setattr(project_archive_module, "project_schema_is_current", lambda _project: True)
-    archive_path, _ = ProjectArchiveService(source).export_project("demo")
-    monkeypatch.undo()
+    # 模拟 schema 18 发行版的导出器：它把 18 当作当前版本，把清单放进信封。只撤销这一处替换，其余 fixture 的替换保留。
+    with pytest.MonkeyPatch.context() as exporter:
+        exporter.setattr(project_archive_module, "project_schema_is_current", lambda _project: True)
+        archive_path, _ = ProjectArchiveService(source).export_project("demo")
     with zipfile.ZipFile(archive_path) as archive:
         assert "artifact_manifest" in json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
     target = ProjectManager(tmp_path / "target")

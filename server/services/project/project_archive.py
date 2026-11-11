@@ -46,6 +46,7 @@ from lib.asset_library.links import (
     archivable_links,
 )
 from lib.catalog import query as catalog
+from lib.config import pre_upgrade_recommendations
 from lib.config.resolver import VideoGenerationType, project_video_backend_ids
 from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.infra.api_errors import BadGatewayError
@@ -83,6 +84,10 @@ from lib.project.project_migration_report import (
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v1_to_v2_normalize_providers import (
     migrate_project_dict as normalize_legacy_providers,
+)
+from lib.project.project_migrations.v19_to_v20_bare_provider_models import (
+    BareProviderModels,
+    installed_bare_provider_models,
 )
 from lib.project.project_migrations.v19_to_v20_bare_provider_models import (
     migrate_project_dict as freeze_bare_provider_models,
@@ -146,6 +151,31 @@ def provider_asset_link_archive_on(
 ) -> ProviderAssetLinkArchive:
     """给工作线程里的导出与导入用的关联读写：投回 ``bridge`` 的事件循环执行，只能在工作线程里使用。"""
     return _LinkArchiveOnLoop(bridge, session_factory)
+
+
+ImportRecommendations = Callable[[], BareProviderModels]
+
+
+def _no_bare_provider_models(provider_id: str, media_type: str) -> str | None:
+    return None
+
+
+def import_recommendations_on(
+    bridge: EventLoopBridge, session_factory: async_sessionmaker[AsyncSession]
+) -> ImportRecommendations:
+    """导入这一刻的推荐模型（当前目录、当前版本、去掉停用的），补全归档里只写了内置供应商的模型字段。
+
+    投回 ``bridge`` 的事件循环查停用状态，只能在工作线程里使用。
+    """
+
+    def _load() -> BareProviderModels:
+        async def _query() -> pre_upgrade_recommendations.RecommendationTable:
+            async with session_factory() as session:
+                return await pre_upgrade_recommendations.current_recommendations(session)
+
+        return bridge.run(_query()).model
+
+    return _load
 
 
 logger = logging.getLogger(__name__)
@@ -411,6 +441,7 @@ class ProjectArchiveService:
         retire_project: RetireProject | None = None,
         formal_commit: FormalCommit | None = None,
         provider_asset_links: ProviderAssetLinkArchive | None = None,
+        import_recommendations: ImportRecommendations | None = None,
     ):
         """``retire_project`` 收尾覆盖导入替换掉的现有项目，覆盖现有项目时必需。
 
@@ -419,11 +450,17 @@ class ProjectArchiveService:
 
         ``provider_asset_links`` 读写归档携带的供应商素材关联（:func:`provider_asset_link_archive_on`）；缺省时导出
         不带关联，导入也不写入。
+
+        ``import_recommendations`` 给出导入这一刻的推荐模型（:func:`import_recommendations_on`），补全旧归档里只写了
+        内置供应商的模型字段；缺省时按启动时装入的升级前推荐补全。
         """
         self.project_manager = project_manager
         self._retire_project = retire_project
         self._formal_commit = formal_commit
         self._provider_asset_links = provider_asset_links
+        self._import_recommendations = import_recommendations
+        # 每次导入开始时取一次，修复与迁移用同一份
+        self._bare_provider_models: BareProviderModels | None = None
         self.validator = DataValidator(projects_dir=str(project_manager.projects_dir))
 
     @asynccontextmanager
@@ -707,6 +744,7 @@ class ProjectArchiveService:
                 errors=[ValidationMessage("arch_conflict_policy_unsupported", {"value": conflict_policy})],
             )
 
+        self._bare_provider_models = self._import_recommendations() if self._import_recommendations else None
         try:
             with zipfile.ZipFile(archive_path) as archive:
                 members = self._scan_archive_members(archive)
@@ -759,7 +797,7 @@ class ProjectArchiveService:
                     except _ARTIFACT_ACTIVATION_ERRORS as exc:
                         self._raise_artifact_activation_validation_error(diagnostics, exc)
                     try:
-                        migrate_project_dir(staging_dir)
+                        migrate_project_dir(staging_dir, bare_provider_models=self._bare_provider_models)
                     except Exception as exc:
                         self._raise_migration_validation_error(diagnostics, exc)
                     if preserved_manifest is not None and staged:
@@ -1743,9 +1781,12 @@ class ProjectArchiveService:
         # 偏移由之后的预检 / 执行取档承担。
         # provider 先在副本上归一化：本方法跑在 migrate_project_dir 之前，存量归档里可能还是
         # legacy 别名（如 gemini/…），registry 查不到会让档位解析落空，而迁移幂等、归一化之后
-        # 再无机会取档。只写了供应商的旧值同样先按当前推荐补上模型（v19→v20 的同一改写），否则查不到档位。
+        # 再无机会取档。只写了供应商的旧值同样先按导入这一刻的推荐补上模型（v19→v20 的同一改写），否则查不到档位。
         # 两步都是纯函数且幂等，不影响随后的正式迁移。
-        normalized_project = freeze_bare_provider_models(normalize_legacy_providers(project_payload))
+        normalized_project = freeze_bare_provider_models(
+            normalize_legacy_providers(project_payload),
+            self._bare_provider_models or installed_bare_provider_models() or _no_bare_provider_models,
+        )
         migrated, migration_warnings = migrate_unit_durations(
             raw_units, supported_durations=_registry_supported_durations(normalized_project)
         )

@@ -70,6 +70,14 @@ const MEDIA_MODEL_KEYS = [
 
 type MediaModelFields = Pick<SystemConfigPatch, (typeof MEDIA_MODEL_KEYS)[number]>;
 
+/** 推荐变化「切换」写入的全局默认模型字段，与服务端 `GLOBAL_DEFAULT_KEYS` 一致。 */
+const RECOMMENDATION_DEFAULT_KEYS = {
+  text: "default_text_backend",
+  image: "default_image_backend",
+  video: "default_video_backend",
+  audio: "default_audio_backend",
+} as const satisfies Record<RecommendationChange["media_type"], (typeof MEDIA_MODEL_KEYS)[number]>;
+
 function fieldsFrom(settings: SystemConfigSettings | null): MediaModelFields {
   const fields: Record<string, unknown> = {};
   if (settings) for (const key of MEDIA_MODEL_KEYS) fields[key] = settings[key];
@@ -208,15 +216,21 @@ export function MediaModelSection() {
     [fetchConfig, reloadCandidates],
   );
   const unit = useEditUnit({ source, save: saveFields });
-  // 推荐变化处理后，服务端可能已改了全局默认模型：与保存后一样重取配置、候选与配置问题
-  const onRecommendationResolved = useCallback(async () => {
-    useCapabilitiesStore.getState().invalidate();
-    await fetchConfig();
-    void reloadCandidates();
-    void useConfigStatusStore.getState().refresh();
-  }, [fetchConfig, reloadCandidates]);
   const fields = unit.value;
   const setFields = unit.setValue;
+  // 推荐变化处理后，服务端可能已改了全局默认模型：与保存后一样重取配置、候选与配置问题。
+  // 切换写进的默认模型同时并入未保存修改：其余字段有修改时，表单保留修改而不采用重取的配置，
+  // 不并入的话这一字段仍是旧模型，下次保存会把它写回去。
+  const onRecommendationResolved = useCallback(
+    async (change: RecommendationChange, applied: boolean) => {
+      if (applied) setFields((prev) => ({ ...prev, [RECOMMENDATION_DEFAULT_KEYS[change.media_type]]: change.recommended }));
+      useCapabilitiesStore.getState().invalidate();
+      await fetchConfig();
+      void reloadCandidates();
+      void useConfigStatusStore.getState().refresh();
+    },
+    [fetchConfig, reloadCandidates, setFields],
+  );
   // 默认音频模型留空（自动选择）时不列音色：实际模型由运行时推断，列出某一家的音色会误导
   const audioVoices = useTtsModelCapabilities(fields.default_audio_backend ?? "")?.voices ?? [];
 

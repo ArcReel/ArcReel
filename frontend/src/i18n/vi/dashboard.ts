@@ -2151,6 +2151,7 @@ export default {
   'reference_unit_tier_unknown_hint': '{{reason}}. Hãy chọn mô hình {{bucket}} khả dụng trong cài đặt dự án hoặc sửa cấu hình mô hình tại Cài đặt → Nhà cung cấp.',
   'reference_unit_tier_reason_unsupported': 'Mô hình hiện tại không hỗ trợ {{bucket}}',
   'reference_unit_tier_reason_removed': 'Mô hình {{bucket}} đã bị xóa hoặc tắt',
+  'reference_unit_tier_reason_not_selected': 'Mô hình {{bucket}} trong cài đặt dự án chỉ chọn nhà cung cấp, chưa chọn mô hình',
   'reference_unit_tier_reason_discontinued': 'Mô hình {{bucket}} đã ngừng hoạt động',
   'reference_unit_tier_reason_missing_tiers': 'Mô hình {{bucket}} chưa khai báo mức thời lượng',
   'reference_unit_tier_reason_invalid_tiers': 'Mức thời lượng của mô hình {{bucket}} không hợp lệ',
