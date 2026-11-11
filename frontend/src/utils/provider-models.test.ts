@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
-import type { ProviderInfo } from "@/types";
+import type { CustomProviderInfo, ProviderInfo } from "@/types";
 import {
   catalogDurations,
   getCustomProviderModels,
   getProviderModels,
   lookupCatalogVideoAudio,
+  lookupQualities,
   lookupVideoAudioControl,
 } from "./provider-models";
 
@@ -65,6 +66,7 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         default: false,
         supported_durations: [8, 4, 6],
         resolutions: ["720p", "1080p", "4k"],
+        qualities: [],
         audio_track: "controllable",
         reference_route_audio_track: "controllable",
         voice_consistency: "soft",
@@ -76,6 +78,7 @@ const VEO_PROVIDERS: ProviderInfo[] = [
         default: false,
         supported_durations: [5, 8, 10],
         resolutions: ["720p", "1080p"],
+        qualities: [],
         audio_track: "controllable",
         reference_route_audio_track: "controllable",
         voice_consistency: "soft",
@@ -191,5 +194,39 @@ describe("catalogDurations", () => {
     expect(catalogDurations(VEO_PROVIDERS, custom, "custom-3/relay-video")).toEqual([5, 10]);
     // 没有覆盖时时长由模型条目给出，前端查不到
     expect(catalogDurations(VEO_PROVIDERS, custom, "custom-3/plain-video")).toBeNull();
+  });
+});
+
+describe("lookupQualities", () => {
+  const providers: ProviderInfo[] = [
+    {
+      ...VEO_PROVIDERS[0],
+      id: "openai",
+      models: {
+        "gpt-image-2": {
+          ...VEO_PROVIDERS[0].models["seedance-like"],
+          media_type: "image",
+          qualities: ["medium", "low", "high"],
+        },
+      },
+    },
+  ];
+  const custom = [
+    { id: 4, models: [{ model_id: "gpt-image-2", qualities: ["high"] }] },
+  ] as unknown as CustomProviderInfo[];
+
+  it("returns the builtin model's qualities in the order the server sent them", () => {
+    expect(lookupQualities(providers, "openai/gpt-image-2")).toEqual(["medium", "low", "high"]);
+  });
+
+  it("reads a custom provider's model row", () => {
+    expect(lookupQualities(providers, "custom-4/gpt-image-2", custom)).toEqual(["high"]);
+  });
+
+  it("returns an empty list for unknown models, providers and malformed strings", () => {
+    expect(lookupQualities(providers, "openai/unknown")).toEqual([]);
+    expect(lookupQualities(providers, "nobody/gpt-image-2")).toEqual([]);
+    expect(lookupQualities(providers, "custom-4/gpt-image-2")).toEqual([]);
+    expect(lookupQualities(providers, "")).toEqual([]);
   });
 });

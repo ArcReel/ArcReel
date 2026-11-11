@@ -359,6 +359,7 @@ describe("MediaModelSection", () => {
             default: true,
             supported_durations: [8],
             resolutions: [],
+            qualities: [],
             reference_route_audio_track: audio.audio_track,
             ...audio,
             voice_consistency: audio.audio_track === "always_off" ? "none" : "soft",
