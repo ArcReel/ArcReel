@@ -38,6 +38,7 @@ def _facts(facts: ModelFacts) -> dict[str, object]:
                         for quality, rule in facts.output_token_scaled_bases.items()
                     }
                     or None,
+                    "qualities": list(facts.qualities) or None,
                 },
             )
             return raw
