@@ -6,6 +6,7 @@
 import type {
   AssistantSessionResumedPayload,
   EpisodeScript,
+  ModelSettingEntry,
   NarrationDelivery,
   ProjectChangeBatchPayload,
   ProjectDeletedPayload,
@@ -241,7 +242,7 @@ export interface CreateProjectPayload {
   text_backend_simple?: string | null;
   text_backend_complex?: string | null;
   default_text_backend?: string | null;
-  model_settings?: Record<string, { resolution?: string | null }>;
+  model_settings?: Record<string, ModelSettingEntry>;
   /** 旁白交付方式；服务端缺省后期配音。 */
   narration_delivery?: NarrationDelivery;
   /** TTS 快照（仅 use_tts）：省略的字段由服务端以全局默认预填。 */

@@ -31,6 +31,7 @@ function model(overrides: Partial<CustomProviderModelInfo>): CustomProviderModel
     is_default: true,
     is_enabled: true,
     resolution: null,
+    qualities: [],
     multiplier: 1,
     entry_binding: null,
     matched_entry: null,
