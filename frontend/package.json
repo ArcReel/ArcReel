@@ -94,7 +94,8 @@
       "mermaid": "11.16.1",
       "esbuild": "0.28.1",
       "lodash-es": "4.18.1",
-      "@lobehub/icons>@lobehub/ui": "-"
+      "@lobehub/icons>@lobehub/ui": "-",
+      "playwright-core": "$@playwright/test"
     }
   }
 }

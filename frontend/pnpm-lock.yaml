@@ -9,6 +9,7 @@ overrides:
   esbuild: 0.28.1
   lodash-es: 4.18.1
   '@lobehub/icons>@lobehub/ui': '-'
+  playwright-core: 1.63.0
 
 importers:
 
@@ -98,7 +99,7 @@ importers:
     devDependencies:
       '@axe-core/playwright':
         specifier: ^4.13.0
-        version: 4.13.0(playwright-core@1.65.0)
+        version: 4.13.0(playwright-core@1.63.0)
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.11.0(jiti@2.7.0))
@@ -241,7 +242,7 @@ packages:
   '@axe-core/playwright@4.13.0':
     resolution: {integrity: sha512-6YLx+kxXu5GJceG4ozFg+33a2EMTdjYwWGloJ3sb9Kta5pp+ZNS53uxGVog5JetIY8s++P5UrtX+cri+u0VAVg==}
     peerDependencies:
-      playwright-core: '>= 1.0.0'
+      playwright-core: 1.63.0
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -4434,11 +4435,6 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  playwright-core@1.65.0:
-    resolution: {integrity: sha512-vNSKgH6YqtN7cdT/L334zo0a+YwkrpicyrHJlWWPIm/Q+Nn2SWInil01oT0mbu96U4GgoRtCYQD9CzJQgju+lA==}
-    engines: {node: '>=20'}
-    hasBin: true
-
   playwright@1.63.0:
     resolution: {integrity: sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==}
     engines: {node: '>=20'}
@@ -5541,10 +5537,10 @@ snapshots:
 
   '@astrojs/compiler@4.0.0': {}
 
-  '@axe-core/playwright@4.13.0(playwright-core@1.65.0)':
+  '@axe-core/playwright@4.13.0(playwright-core@1.63.0)':
     dependencies:
       axe-core: 4.13.0
-      playwright-core: 1.65.0
+      playwright-core: 1.63.0
 
   '@babel/code-frame@7.29.7':
     dependencies:
@@ -10103,8 +10099,6 @@ snapshots:
 
   playwright-core@1.63.0: {}
 
-  playwright-core@1.65.0: {}
-
   playwright@1.63.0:
     dependencies:
       playwright-core: 1.63.0
@@ -10202,7 +10196,7 @@ snapshots:
       oxc-resolver: 11.24.2
       oxlint: 1.81.0
       oxlint-plugin-react-doctor: 0.9.22
-      playwright-core: 1.65.0
+      playwright-core: 1.63.0
       prompts: 2.4.2
       typescript: 5.9.3
       yaml: 2.9.1
