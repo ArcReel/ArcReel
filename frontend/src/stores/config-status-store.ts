@@ -29,10 +29,12 @@ async function getConfigStatus(): Promise<{
 }> {
   const issues: ConfigIssue[] = [];
 
-  const [{ providers }, { providers: customProviders }, configRes] = await Promise.all([
+  const [{ providers }, { providers: customProviders }, configRes, autoBackends] = await Promise.all([
     API.getProviders(),
     API.listCustomProviders(),
     API.getSystemConfig(),
+    // 读不到时不判「没有默认模型」：宁可漏报，不误报
+    API.getAutoBackends().catch(() => null),
   ]);
 
   // Check any provider supports each required media type.
@@ -76,6 +78,42 @@ async function getConfigStatus(): Promise<{
       section: "providers",
       label: "text_provider_not_configured",
     });
+  }
+
+  // 有供应商、却没有默认模型：内置供应商的推荐只在首次配置时写进默认模型设置，运行时不按推荐挑选
+  // （docs/adr/0099），默认模型留空又没有自定义供应商默认模型可用时，生成会失败。
+  // 默认模型或全部细分项（任务类型桶、文本档位）设了即算设置；自动选择预览选得出模型（自定义供应商默认模型）也算。
+  const settings = configRes.settings;
+  const defaultModels = [
+    {
+      type: "video",
+      layers: [settings.default_video_backend, settings.default_video_backend_i2v, settings.default_video_backend_r2v],
+      auto: [autoBackends?.i2v, autoBackends?.r2v],
+    },
+    {
+      type: "image",
+      layers: [settings.default_image_backend, settings.default_image_backend_t2i, settings.default_image_backend_i2i],
+      auto: [autoBackends?.t2i, autoBackends?.i2i],
+    },
+    {
+      type: "text",
+      layers: [settings.default_text_backend, settings.text_backend_simple, settings.text_backend_complex],
+      auto: [autoBackends?.text, autoBackends?.text],
+    },
+  ] as const;
+  const isSet = (value: string | undefined) => !!value?.includes("/");
+  for (const { type, layers, auto } of defaultModels) {
+    const [base, ...subs] = layers;
+    // 每个细分项都要有着落：自己设了、默认层设了，或自动选择选得出
+    const covered = subs.every((sub, index) => isSet(sub) || isSet(base) || !!auto[index]);
+    if (autoBackends && hasMediaType(type) && !covered) {
+      issues.push({
+        key: `no-default-${type}-model`,
+        section: "default-models",
+        label: `${type}_default_model_not_set`,
+        description: "default_model_not_set_desc",
+      });
+    }
   }
 
   // audio 是可选能力（仅旁白/解说用），缺失不进 issues 红点；

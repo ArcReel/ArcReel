@@ -277,11 +277,14 @@ export function UsageRecordDetailModal({
   providerLabel,
   onClose,
 }: UsageRecordDetailModalProps) {
-  const { t, i18n } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common", "errors"]);
   const [rawOpen, setRawOpen] = useState(false);
 
   const media = detail ? MEDIA_META[detail.media_type] : null;
   const phraseKey = failurePhraseKey(detail?.error_code ?? null);
+  const domainKey = detail?.error_code && detail.error_params && i18n.exists(`errors:${detail.error_code}`)
+    ? `errors:${detail.error_code}`
+    : null;
   const retryAfter = detail?.error_params?.retry_after_seconds;
   const failureStatus = detail?.error_params?.status;
   const purpose = purposeKey(detail?.purpose ?? null);
@@ -349,7 +352,9 @@ export function UsageRecordDetailModal({
                       <p className="text-sm text-destructive">
                         {phraseKey
                           ? t(`dashboard:${phraseKey}`)
-                          : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
+                          : domainKey
+                            ? t(domainKey, { ...detail.error_params })
+                            : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
                       </p>
                       {phraseKey && detail.error_message && (
                         <p className="num text-xs break-words text-muted-foreground">{detail.error_message}</p>

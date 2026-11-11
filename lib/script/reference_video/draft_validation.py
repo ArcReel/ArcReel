@@ -206,13 +206,19 @@ def validate_unit_text(
     *,
     unit_id: str | None = None,
     max_refs: int | None,
+    max_speakers: int | None = None,
     tolerated_speakers: Collection[str] = (),
 ) -> list[ReferenceResource]:
     """校验一个 unit 的正文并机械派生参考图引用。
 
-    覆盖四类阻断违约：正文为空或只有发声记号、引用语法误用（花括号、写坏的引用、缺花
+    覆盖的阻断违约：正文为空或只有发声记号、引用语法误用（花括号、写坏的引用、缺花
     括号的台词）、``@[名称]`` 未登记（含台词记号的说话人位与它写下的衍生）、参考图数超模型
-    上限。正文是唯一落盘物，派生结果只服务本次校验与能力判定，不写回。
+    上限、说话人数超规划期上限。正文是唯一落盘物，派生结果只服务本次校验与能力判定，不写回。
+
+    ``max_speakers`` 是规划期单个视频单元的说话人数上限，取
+    :attr:`~lib.script.reference_video.voice_settings.VoiceRenderSettings.planning_speaker_limit`（参考音频
+    会随请求挂出时才非 None）；None 不约束。说话人按 :func:`dialogue_speakers` 计数：按角色本体去重，
+    角色未设参考音频时同样计入，口径比渲染层截断更严，补设参考音频后不必重新拆分。
 
     ``tolerated_speakers`` 里的说话人不要求已登记：正式正文里确认过的说话人可以是未登记的
     群演，执行时该行不绑声音、按原文发送。
@@ -272,6 +278,13 @@ def validate_unit_text(
         raise DraftViolation(
             f"{label} 的参考图数 {len(refs)} 超过模型上限 {max_refs}；请把次要角色融入背景描述（不用 `@` 引用）",
             code="refs_over_limit",
+            label=label,
+        )
+    if max_speakers is not None and (speaker_count := len(dialogue_speakers(text))) > max_speakers:
+        raise DraftViolation(
+            f"{label} 的说话人数 {speaker_count} 超过模型参考音频段数上限 {max_speakers}；"
+            "请按说话人拆分镜头，使每个视频单元的说话人数不超过上限",
+            code="speakers_over_limit",
             label=label,
         )
     canonical_unit_id = unit_id if unit_id is not None else label.removeprefix("unit ").strip()

@@ -30,6 +30,7 @@ from lib.billing.multipliers import (
 )
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
+from lib.config.recommended_models import seed_provider_recommendations
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import (
@@ -679,6 +680,8 @@ async def create_credential(
         access_key=body.access_key,
         secret_key=body.secret_key,
     )
+    if cred.is_active:
+        await seed_provider_recommendations(session, provider_id)
     await session.commit()
     await _invalidate_caches(request)
     return _cred_to_response(cred)
@@ -822,6 +825,8 @@ async def upload_vertex_credential(
 
     dest = DataRootLayout.current().vertex_credential_path(cred.id)
     await run_sync_transaction(_write_vertex_credential_file, dest, contents)
+    if cred.is_active:
+        await seed_provider_recommendations(session, "gemini-vertex")
 
     await session.commit()
     await _invalidate_caches(request)

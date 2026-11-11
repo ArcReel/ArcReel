@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from lib.catalog.query import factory_snapshot
+from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_worker import GenerationWorker
@@ -22,7 +22,7 @@ from tests.integration.lib.generation.worker_support import (
 @pytest.mark.parametrize("legacy", [False, True], ids=["enqueue", "legacy-null"])
 @pytest.mark.parametrize("image_capacity", [0, 1], ids=["claim-failure", "execution-failure"])
 async def test_bare_provider_without_default_keeps_failure_provider(db_factory, monkeypatch, legacy, image_capacity):
-    snapshot = factory_snapshot()
+    snapshot = catalog.factory_snapshot()
     default_model = snapshot.builtin_providers["ark"].defaults["image"]
     install_catalog(monkeypatch, with_entry_changes(snapshot, "ark", default_model, discontinued=True))
     project = {"image_provider_t2i": "ark"}
@@ -74,7 +74,10 @@ async def test_bare_provider_without_default_keeps_failure_provider(db_factory, 
     assert failed is not None
     assert failed["status"] == "failed"
     assert failed["provider_id"] == "ark"
-    assert parse_failure(failed["error_message"]) == (
-        "provider_unsupported_media",
-        {"provider_id": "ark", "media_type": "image"},
+    # 认领时供应商没有图片容量，按不支持该媒体类型失败；执行时解析到只写了供应商的项目字段，提示选定模型
+    expected = (
+        ("model_not_selected", {"provider": "ark"})
+        if image_capacity
+        else ("provider_unsupported_media", {"provider_id": "ark", "media_type": "image"})
     )
+    assert parse_failure(failed["error_message"]) == expected

@@ -37,6 +37,8 @@ import type {
   ProjectDeletedPayload,
   AssistantSessionResumedPayload,
   AutoBackendsResponse,
+  RecommendationChange,
+  RecommendationChangesResponse,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
   NarrationDefaultsResponse,
@@ -453,6 +455,24 @@ class API {
   /** 「自动选择」的实际模型：各用途在全部层留空时后端自动选中的模型，供应商配置变化后需重取。 */
   static async getAutoBackends(options: { signal?: AbortSignal } = {}): Promise<AutoBackendsResponse> {
     return this.request("/system/config/auto-backends", { signal: options.signal });
+  }
+
+  /** 内置供应商的推荐模型与已知推荐不同的地方（docs/adr/0099）：在默认模型旁提示，由用户决定是否切换。 */
+  static async getRecommendationChanges(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<RecommendationChangesResponse> {
+    return this.request("/system/config/recommendation-changes", { signal: options.signal });
+  }
+
+  /**
+   * 处理一条推荐变化：`apply` 为真时把推荐设为这个媒体类型的全局默认模型，否则保留当前设置；之后不再提示。
+   * 推荐在提示之后又变了时 409。
+   */
+  static async acknowledgeRecommendation(change: RecommendationChange, apply: boolean): Promise<void> {
+    await this.request("/system/config/recommendation-changes/acknowledge", {
+      method: "POST",
+      body: JSON.stringify({ media_type: change.media_type, recommended: change.recommended, apply }),
+    });
   }
 
   /** 新建 TTS 项目的预填值（全局默认的 TTS 模型、音色与语速）。 */

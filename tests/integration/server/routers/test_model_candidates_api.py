@@ -24,7 +24,6 @@ from lib.backends.generation_type_buckets import builtin_model_buckets, custom_m
 from lib.catalog import query as catalog
 from lib.catalog.builtin_models import disabled_builtin_models, disabled_without_state, list_builtin_models
 from lib.catalog.errors import ModelDiscontinuedError
-from lib.catalog.query import factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
@@ -217,7 +216,9 @@ class TestBuiltinBucketFiltering:
 
     def test_hidden_models_absent_from_every_list(self, make_client, monkeypatch):
         hidden_id = DS_R2V.split("/", 1)[1]
-        install_catalog(monkeypatch, with_entry_changes(factory_snapshot(), "dashscope", hidden_id, discontinued=True))
+        install_catalog(
+            monkeypatch, with_entry_changes(catalog.factory_snapshot(), "dashscope", hidden_id, discontinued=True)
+        )
         with make_client(["dashscope"]) as client:
             body = client.get(CANDIDATES_URL).json()
         assert DS_R2V not in body["video"]["default"]
@@ -227,7 +228,7 @@ class TestBuiltinBucketFiltering:
     def test_version_gated_models_absent_from_every_list(self, make_client, monkeypatch):
         """最低应用版本高于当前版本的模型不进默认层与任何任务类型桶。"""
         gated_id = DS_R2V.split("/", 1)[1]
-        install_catalog(monkeypatch, with_min_app_version(factory_snapshot(), "dashscope", gated_id, "999.0.0"))
+        install_catalog(monkeypatch, with_min_app_version(catalog.factory_snapshot(), "dashscope", gated_id, "999.0.0"))
         with make_client(["dashscope"]) as client:
             body = client.get(CANDIDATES_URL).json()
         assert DS_I2V_ONLY in body["video"]["default"]
@@ -244,7 +245,7 @@ class TestBuiltinBucketFiltering:
         model_id = DS_R2V.split("/", 1)[1]
         install_catalog(
             monkeypatch,
-            with_entry_changes(factory_snapshot(), "dashscope", model_id, shutdown_date=date(2026, 11, 24)),
+            with_entry_changes(catalog.factory_snapshot(), "dashscope", model_id, shutdown_date=date(2026, 11, 24)),
         )
         set_catalog_today(monkeypatch, date(2026, 11, 23))
         with make_client(["dashscope"], with_model_states=True) as client:
@@ -379,7 +380,7 @@ class TestCustomProviderBucketFiltering:
         model_id = DS_R2V.split("/", 1)[1]
         install_catalog(
             monkeypatch,
-            with_entry_changes(factory_snapshot(), "dashscope", model_id, shutdown_date=date(2026, 11, 24)),
+            with_entry_changes(catalog.factory_snapshot(), "dashscope", model_id, shutdown_date=date(2026, 11, 24)),
         )
         entry = catalog.provider_model_entry("dashscope", model_id, "video")
         assert entry is not None
@@ -441,7 +442,7 @@ class TestFilteredCandidates:
     ):
         """滤掉的模型带着不满足的能力维度；进了桶的不列；不在默认层的（已下线）也不列，不报为能力不满足。"""
         factory, _engine = session_factory_and_engine
-        data = with_entry_facts(factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=0)
+        data = with_entry_facts(catalog.factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=0)
         install_catalog(monkeypatch, with_entry_changes(data, "dashscope", "wan2.7-t2v", discontinued=True))
         with make_client(["dashscope", "grok", "vidu"]) as client:
             await _seed_custom_models(
@@ -492,7 +493,9 @@ def _entry_ref(option: str, media_type: str = "video") -> str:
 def _retire(monkeypatch, option: str, *, successor: str | None, shutdown: date = date(2026, 11, 24)) -> None:
     """让 ``option`` 所引的条目在 2026-11-24 关停、后继为 ``successor``，今天取关停前一天。"""
     provider_id, model_id = option.split("/", 1)
-    data = with_entry_changes(factory_snapshot(), provider_id, model_id, shutdown_date=shutdown, successor=successor)
+    data = with_entry_changes(
+        catalog.factory_snapshot(), provider_id, model_id, shutdown_date=shutdown, successor=successor
+    )
     install_catalog(monkeypatch, data)
     set_catalog_today(monkeypatch, date(2026, 11, 23))
 
@@ -572,7 +575,7 @@ class TestLifecycleNotices:
 
     def test_discontinued_successor_is_not_offered(self, make_client, monkeypatch):
         data = with_entry_changes(
-            factory_snapshot(),
+            catalog.factory_snapshot(),
             "dashscope",
             DS_I2V_ONLY.split("/", 1)[1],
             shutdown_date=date(2026, 11, 24),
@@ -655,7 +658,7 @@ class TestUnlistedReferenceNotices:
 
     def test_retained_discontinued_entry_with_successor_gets_the_full_notice(self, make_client, monkeypatch):
         data = with_entry_changes(
-            factory_snapshot(),
+            catalog.factory_snapshot(),
             "dashscope",
             DS_I2V_ONLY.split("/", 1)[1],
             shutdown_date=date(2026, 10, 22),
@@ -672,7 +675,9 @@ class TestUnlistedReferenceNotices:
         assert notice["switch_targets"] == {"default": DS_R2V, "i2v": DS_R2V, "r2v": DS_R2V}
 
     def test_retained_discontinued_entry_without_successor_is_named_discontinued(self, make_client, monkeypatch):
-        data = with_entry_changes(factory_snapshot(), "dashscope", DS_I2V_ONLY.split("/", 1)[1], discontinued=True)
+        data = with_entry_changes(
+            catalog.factory_snapshot(), "dashscope", DS_I2V_ONLY.split("/", 1)[1], discontinued=True
+        )
         install_catalog(monkeypatch, _unlisted(data, DS_I2V_ONLY))
         use_project_manager(monkeypatch, _Projects({"p1": {"title": "P1", "video_provider_i2v": DS_I2V_ONLY}}))
         with make_client(["dashscope"]) as client:

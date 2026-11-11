@@ -69,6 +69,21 @@ export type GenerationTypeBucket = "t2i" | "i2i" | "i2v" | "r2v";
  */
 export type AutoBackendsResponse = Record<GenerationTypeBucket | "text", string | null>;
 
+/**
+ * 一处推荐变化：内置供应商在这个媒体类型下现在推荐 `recommended`（provider/model）。
+ * `current` 是这个媒体类型的全局默认模型，没有设置时为 null。只提示，改不改由用户决定。
+ */
+export interface RecommendationChange {
+  media_type: "text" | "image" | "video" | "audio";
+  provider_id: string;
+  recommended: string;
+  current: string | null;
+}
+
+export interface RecommendationChangesResponse {
+  changes: RecommendationChange[];
+}
+
 /** 任务类型桶滤掉模型时不满足的能力维度，键与能力接口同名。 */
 export type BucketDimension = "text_to_image" | "image_to_image" | "max_reference_images" | "first_frame";
 

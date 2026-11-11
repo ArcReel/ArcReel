@@ -167,6 +167,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "provider_unsupported_media": GenerationAction.CONFIGURE_PROVIDER,
     "narration_tts_speed_out_of_range": GenerationAction.FIX_INPUT,
     "model_not_in_provider_catalog": GenerationAction.CONFIGURE_PROVIDER,
+    "model_not_selected": GenerationAction.CONFIGURE_PROVIDER,
     "model_discontinued": GenerationAction.CONFIGURE_PROVIDER,
     # 上游按确定性 4xx 拒了这个请求：原样重发只会被同样拒绝，还要再付一次。
     "provider_rejected": GenerationAction.FIX_INPUT,

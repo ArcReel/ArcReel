@@ -139,6 +139,8 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "narration_tts_speed_out_of_range": "narration_tts_speed_out_of_range",
     # 内置供应商的模型引用不在模型清单中（已改名或从未收录）：引用原样保留，由用户重新选择。
     "model_not_in_provider_catalog": "model_not_in_provider_catalog",
+    # 项目模型字段只写了内置供应商、没有选定模型（迁移补全不了的旧值）：由用户重新选择。
+    "model_not_selected": "model_not_selected",
     # 引用的模型已下线：带下线日期与官方后继，没有登记的那一句按 failure_message_key 换用省去它的文案。
     "model_discontinued": "model_discontinued",
     # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进

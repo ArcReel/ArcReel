@@ -193,7 +193,7 @@ class TestRealResolverResponse:
         assert constraints["allowed"] == [8]
         assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
-    @pytest.mark.parametrize("candidate", ["grok/grok-imagine-video", "grok"])
+    @pytest.mark.parametrize("candidate", ["grok/grok-imagine-video"])
     def test_candidate_identity_and_project_preferences(self, client, candidate):
         with client:
             response = client.get("/api/v1/projects/ready/video-capabilities", params={"video_backend": candidate})

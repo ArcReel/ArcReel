@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import i18n from "@/i18n";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageRecordsStore } from "@/stores/usage-records-store";
 import {
@@ -13,7 +14,8 @@ import {
 import { renderUsageRecordsSection } from "./usage-test-utils";
 
 describe("UsageRecordsSection detail", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh");
     useUsageRecordsStore.setState(useUsageRecordsStore.getInitialState(), true);
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
@@ -248,6 +250,72 @@ describe("UsageRecordsSection detail", () => {
 
     // 输入与产出两组都无数据：显示「无记录」而不是消失或报错。
     expect(screen.getAllByText("无记录")).toHaveLength(2);
+  });
+
+  it.each([
+    {
+      code: "narration_tts_speed_out_of_range",
+      params: { minimum: 0.7, maximum: 1.5, speed: 0.5 },
+      message: "所选 TTS 模型的配音语速范围是 0.7～1.5，当前为 0.5。请调整或清空配音语速",
+    },
+    {
+      code: "image_reference_images_exceeded",
+      params: { model: "m", limit: 1, count: 2 },
+      message: "模型 m 最多支持 1 张参考图，本次请求带了 2 张，未提交生成；请重新生成",
+    },
+    {
+      code: "video_duration_not_supported",
+      params: { duration: 7, supported: "5, 10" },
+      message: "视频时长 7s 不在该模型支持的时长（5, 10）内",
+    },
+    {
+      code: "video_reference_audio_duration_exceeded",
+      params: { model: "m", limit: 15, total: 16.04 },
+      message: "模型 m 参考音频总时长最多 15 秒，当前合计 16.0 秒；请减少参考音频段数或换用更短的音频",
+    },
+  ])("localizes $code with the recorded parameters", async ({ code, params, message }) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, status: "failed", error_code: code, error_params: params, error_message: code }),
+    );
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(message)).toBeInTheDocument();
+    expect(dialog.queryByText(code)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { error_code: null, error_params: null, error_message: "narration_tts_speed_out_of_range" },
+    { error_code: "future_error", error_params: {}, error_message: "original failure" },
+  ])("preserves legacy or unknown failure text: $error_message", async (failure) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, status: "failed", ...failure }),
+    );
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(failure.error_message)).toBeInTheDocument();
+    expect(dialog.queryByText(/\{\{/)).not.toBeInTheDocument();
+  });
+
+  it("updates the domain reason in all four languages without refetching", async () => {
+    const getRecord = vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({
+        id: 42, status: "failed", error_code: "narration_tts_speed_out_of_range",
+        error_params: { minimum: 0.7, maximum: 1.5, speed: 0.5 },
+        error_message: "narration_tts_speed_out_of_range",
+      }),
+    );
+    renderUsageRecordsSection("section=usage&record=42");
+    await screen.findByRole("dialog");
+    for (const [language, message] of [
+      ["zh", "所选 TTS 模型的配音语速范围是 0.7～1.5，当前为 0.5。请调整或清空配音语速"],
+      ["en", "The selected TTS model supports voice speeds from 0.7 to 1.5, but the current value is 0.5. Change or clear the voice speed"],
+      ["vi", "Mô hình TTS đã chọn hỗ trợ tốc độ giọng đọc từ 0.7 đến 1.5, giá trị hiện tại là 0.5. Hãy thay đổi hoặc xóa tốc độ giọng đọc"],
+      ["ru", "Выбранная модель TTS поддерживает скорость голоса от 0.7 до 1.5, текущее значение: 0.5. Измените или очистите скорость голоса"],
+    ]) {
+      await act(() => i18n.changeLanguage(language));
+      expect(await screen.findByText(message)).toBeInTheDocument();
+    }
+    expect(getRecord).toHaveBeenCalledTimes(1);
   });
 
   it("renders the failure phrase above the raw message", async () => {
