@@ -12,4 +12,6 @@
 - **`pyproject.toml` 与 `frontend/package.json` 的 `version` 字段由 release-please 维护**，视为只读。
 - **shadcn 原语随依赖升级。** Dependabot 只升级 npm 包，不会重新生成 `frontend/src/components/ui/*.tsx`。`@base-ui/react` 与 `shadcn` 的 minor、patch 升级归入 `shadcn-stack` 分组；major 升级单独开 PR，在同一个 PR 中对已安装组件逐个运行 `pnpm exec shadcn add <组件> --diff`，手动合并上游改动，保留带注释说明的本地改动。遇到原语缺陷时，先用 `add --diff` 确认上游是否已经修复。
 
+- **`playwright-core` 由 override 跟随 `@playwright/test` 的版本。** `frontend/package.json` 的 `"playwright-core": "$@playwright/test"` 让 `@axe-core/playwright` 的 peer 与 `react-doctor` 等间接依赖都解析到同一份 `playwright-core`。去掉它后，间接依赖可能拉入更新的 `playwright-core`，e2e 中会出现两套 `Page` 类型，`pnpm typecheck` 报 `TS2739`。升级 `@playwright/test` 时 override 自动跟随，无需改动。
+
 - **供应商图标只使用 `@lobehub/icons/es/*/components/{Color,Mono}` 的独立 SVG 入口。** `frontend/package.json` 的定向 override 排除该包的 `@lobehub/ui` peer；这些入口只依赖 React，不使用其 UI 组件，避免自动引入另一套 UI 与动效依赖。若改用 Avatar、组合入口或其他依赖 `@lobehub/ui` 的组件，先复核此约束。
