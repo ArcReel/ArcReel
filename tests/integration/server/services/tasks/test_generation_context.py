@@ -13,23 +13,19 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import cast
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from PIL import Image
 from sqlalchemy import update
 
 from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.base import VoiceOption
-from lib.backends.backend_assembly import assemble_backend
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model, get_provider_spec
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
-    ImageGenerationRequest,
-    ReferenceImage,
 )
-from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
 from lib.config.resolver import (
@@ -39,6 +35,7 @@ from lib.config.resolver import (
     VideoBucketCapabilityError,
     VoiceConsistency,
 )
+from lib.config.service import ConfigService
 from lib.custom_provider import make_provider_id
 from lib.db.models.config import SystemSetting
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -63,7 +60,8 @@ from server.services.tasks.generation_context import (
 )
 from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_entry_facts
 from tests.factories import make_video_request_facts
-from tests.fakes import bind_session_factory, captured_openai_clients, use_backend_assembler, use_project_manager
+from tests.fakes import bind_session_factory, use_backend_assembler, use_project_manager
+from tests.http_capture import capture_http, only_request, request_form_fields, request_json
 
 
 def _registry_video_model(provider_id: str) -> str:
@@ -1210,76 +1208,55 @@ class TestValueObjectAssembly:
 _QUALITIES = ("low", "medium", "high")
 
 
-def _image_response() -> MagicMock:
-    datum = MagicMock()
-    datum.b64_json = base64.b64encode(b"img").decode()
-    datum.url = None
-    response = MagicMock(spec=["data", "usage"])
-    response.data = [datum]
-    response.usage = None
-    return response
-
-
-def _sdk_client() -> AsyncMock:
-    client = AsyncMock()
-    client.images.generate = AsyncMock(return_value=_image_response())
-    client.images.edit = AsyncMock(return_value=_image_response())
-    return client
-
-
 def _with_qualities(monkeypatch) -> None:
     install_catalog(
         monkeypatch, with_entry_facts(catalog.factory_snapshot(), "openai", "gpt-image-2", qualities=_QUALITIES)
     )
 
 
-def _recording_assembler(monkeypatch) -> list:
-    """组装后端改为记下构造出的实例：内置 openai 直接构造真实的 OpenAI Images 调用通道（不读凭据），其余走真实组装。"""
-    built: list = []
-
-    async def _assemble(*, provider_id, media_type, model_id, **kwargs):
-        if provider_id == "openai":
-            backend = OpenAIImageBackend(api_key="k", model=model_id)
-        else:
-            backend = await assemble_backend(
-                provider_id=provider_id, media_type=media_type, model_id=model_id, **kwargs
-            )
-        built.append(backend)
-        return backend
-
-    use_backend_assembler(monkeypatch, _assemble)
-    return built
-
-
-async def _send(backend, lane: ImageLaneResult, client: AsyncMock, tmp_path: Path, *, refs: bool) -> dict:
-    """按 lane 的分辨率与画质发一次请求，返回交给 SDK 的 ``size`` 与 ``quality``。"""
-    references: list[ReferenceImage] = []
+async def _send(
+    ctx: GenerationContext, tmp_path: Path, *, refs: bool, base_url: str = "https://api.openai.com/v1"
+) -> dict:
+    """经过真实生成器和 SDK，返回 HTTP 请求中的尺寸与画质。"""
+    references: list[Path] = []
     if refs:
         ref = tmp_path / "ref.png"
-        ref.write_bytes(b"\x89PNG\r\n\x1a\n")
-        references = [ReferenceImage(path=str(ref))]
-    await backend.generate(
-        ImageGenerationRequest(
+        Image.new("RGB", (64, 64)).save(ref)
+        references = [ref]
+    with capture_http() as router:
+        path = "edits" if refs else "generations"
+        route = router.post(f"{base_url}/images/{path}").respond(
+            json={"created": 0, "data": [{"b64_json": base64.b64encode(b"img").decode()}]}
+        )
+        output, version = await ctx.generator.generate_image_async(
             prompt="p",
-            output_path=tmp_path / "out.png",
+            resource_type="storyboards",
+            resource_id="E1S01",
             reference_images=references,
             aspect_ratio="9:16",
-            image_size=lane.resolution,
-            quality=lane.quality,
+            image_size=ctx.image.resolution,
+            quality=ctx.image.quality,
         )
-    )
-    call = (client.images.edit if refs else client.images.generate).call_args.kwargs
-    return {key: call[key] for key in ("size", "quality") if key in call}
+        request = only_request(route)
+        fields = request_form_fields(request) if refs else request_json(request)
+    assert output.read_bytes() == b"img"
+    assert version >= 1
+    return {key: fields[key] for key in ("size", "quality") if key in fields}
 
 
 class TestImageQuality:
+    @pytest.fixture(autouse=True)
+    async def provider_credentials(self, patched_session_factory):
+        async with patched_session_factory() as session:
+            for provider in ("openai", "vidu"):
+                await ConfigService(session).set_provider_config(provider, "api_key", "test-key")
+            await session.commit()
+
     @pytest.mark.parametrize("generation_type", ["t2i", "i2i"])
     async def test_builtin_openai_sends_the_stored_quality_with_the_tier_size(
         self, patched_session_factory, project_env, monkeypatch, tmp_path, generation_type
     ):
         _with_qualities(monkeypatch)
-        built = _recording_assembler(monkeypatch)
-        client = _sdk_client()
 
         async def _sent(resolution: str, quality: str) -> dict:
             generation_context.reset_backend_cache_for_tests()
@@ -1287,11 +1264,10 @@ class TestImageQuality:
                 f"image_provider_{generation_type}": "openai/gpt-image-2",
                 "model_settings": {"openai/gpt-image-2": {"resolution": resolution, "quality": quality}},
             }
-            with captured_openai_clients(client):
-                ctx = await resolve_generation_context(
-                    "demo", None, project=project, image=ImageLaneRequest(generation_type=generation_type)
-                )
-            return await _send(built[-1], ctx.image, client, tmp_path, refs=generation_type == "i2i")
+            ctx = await resolve_generation_context(
+                "demo", None, project=project, image=ImageLaneRequest(generation_type=generation_type)
+            )
+            return await _send(ctx, tmp_path, refs=generation_type == "i2i")
 
         assert await _sent("1K", " low ") == {"size": "1008x1792", "quality": "low"}
         assert await _sent("1K", "high") == {"size": "1008x1792", "quality": "high"}
@@ -1303,18 +1279,15 @@ class TestImageQuality:
     async def test_stored_quality_is_ignored_without_options(
         self, patched_session_factory, project_env, monkeypatch, tmp_path
     ):
-        """条目未收录画质取值：存值不生效，``quality`` 仍按档位推出，与改动前相同。"""
-        built = _recording_assembler(monkeypatch)
-        client = _sdk_client()
+        """条目未收录画质取值：存值不生效，``quality`` 按档位推出（1K → medium）。"""
         project = {
             "image_provider_t2i": "openai/gpt-image-2",
             "model_settings": {"openai/gpt-image-2": {"resolution": "1K", "quality": "low"}},
         }
-        with captured_openai_clients(client):
-            ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
 
         assert ctx.image.quality is None
-        assert await _send(built[-1], ctx.image, client, tmp_path, refs=False) == {
+        assert await _send(ctx, tmp_path, refs=False) == {
             "size": "1008x1792",
             "quality": "medium",
         }
@@ -1323,17 +1296,14 @@ class TestImageQuality:
         self, patched_session_factory, project_env, monkeypatch, tmp_path
     ):
         _with_qualities(monkeypatch)
-        built = _recording_assembler(monkeypatch)
-        client = _sdk_client()
         project = {
             "image_provider_t2i": "openai/gpt-image-2",
             "model_settings": {"openai/gpt-image-2": {"resolution": "2K"}},
         }
-        with captured_openai_clients(client):
-            ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
 
         assert ctx.image.quality is None
-        assert await _send(built[-1], ctx.image, client, tmp_path, refs=False) == {
+        assert await _send(ctx, tmp_path, refs=False) == {
             "size": "1440x2560",
             "quality": "high",
         }
@@ -1350,8 +1320,6 @@ class TestImageQuality:
         self, patched_session_factory, project_env, monkeypatch, tmp_path, endpoint, paths
     ):
         _with_qualities(monkeypatch)
-        built = _recording_assembler(monkeypatch)
-        client = _sdk_client()
         provider_id = await _seed_custom_image_provider(
             patched_session_factory, [{"model_id": "gpt-image-2", "endpoint": endpoint, "is_default": True}]
         )
@@ -1364,11 +1332,10 @@ class TestImageQuality:
                 "image_provider_i2i": key,
                 "model_settings": {key: {"resolution": resolution, "quality": quality}},
             }
-            with captured_openai_clients(client):
-                ctx = await resolve_generation_context(
-                    "demo", None, project=project, image=ImageLaneRequest(generation_type="i2i" if refs else "t2i")
-                )
-            return await _send(built[-1], ctx.image, client, tmp_path, refs=refs)
+            ctx = await resolve_generation_context(
+                "demo", None, project=project, image=ImageLaneRequest(generation_type="i2i" if refs else "t2i")
+            )
+            return await _send(ctx, tmp_path, refs=refs, base_url="https://relay.test/v1")
 
         for refs, supported in ((False, paths["generate"]), (True, paths["edit"])):
             if not supported:
@@ -1385,19 +1352,20 @@ class TestImageQuality:
     ):
         """OpenRouter 调用通道不接受显式画质：条目收录了画质取值、项目存了画质，lane 也不带画质。"""
         _with_qualities(monkeypatch)
-        _recording_assembler(monkeypatch)
         provider_id = await _seed_custom_image_provider(
             patched_session_factory, [{"model_id": "gpt-image-2", "endpoint": "openrouter-images", "is_default": True}]
         )
         key = f"{provider_id}/gpt-image-2"
         project = {"image_provider_t2i": key, "model_settings": {key: {"resolution": "1K", "quality": "low"}}}
 
-        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+        with capture_http() as router:
+            router.get("https://relay.test/v1/images/models").respond(json={"data": []})
+            ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
 
         assert (ctx.image.resolution, ctx.image.quality) == ("1K", None)
 
     async def test_channel_without_explicit_quality_ignores_the_stored_value(
-        self, patched_session_factory, project_env, fake_assemble, monkeypatch
+        self, patched_session_factory, project_env, monkeypatch
     ):
         """非 OpenAI 兼容的调用通道：条目收录了画质取值、项目存了画质，lane 也不带画质，请求不含它。"""
         install_catalog(

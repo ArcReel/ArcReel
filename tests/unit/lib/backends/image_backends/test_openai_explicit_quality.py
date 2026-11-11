@@ -7,26 +7,15 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from arcreel_catalog_core import CatalogEntry, ImageFacts
 from lib.backends.image_backends.base import ImageGenerationRequest, ImageRequestFacts, ReferenceImage
 from lib.backends.image_backends.openai import OpenAIImageBackend
-from tests.fakes import captured_openai_clients
+from tests.http_capture import capture_http, only_request, request_form_fields, request_json
 
 _BASES = {"low": 16, "medium": 48, "high": 96}
-
-
-def _response() -> MagicMock:
-    datum = MagicMock()
-    datum.b64_json = base64.b64encode(b"img").decode()
-    datum.url = None
-    response = MagicMock(spec=["data", "usage"])
-    response.data = [datum]
-    response.usage = None
-    return response
 
 
 def _entry() -> CatalogEntry:
@@ -42,16 +31,17 @@ def _entry() -> CatalogEntry:
 
 
 async def _sent(tmp_path: Path, *, image_size: str | None, quality: str | None, edit: bool) -> dict:
-    """一次生成实际交给 SDK 的 ``size`` 与 ``quality``（没发时不在结果里）。"""
-    client = AsyncMock()
-    client.images.generate = AsyncMock(return_value=_response())
-    client.images.edit = AsyncMock(return_value=_response())
+    """真实 SDK 序列化后发出的 ``size`` 与 ``quality``（没发时不在结果里）。"""
     refs: list[ReferenceImage] = []
     if edit:
         ref = tmp_path / "ref.png"
         ref.write_bytes(b"\x89PNG\r\n\x1a\n")
         refs = [ReferenceImage(path=str(ref))]
-    with captured_openai_clients(client):
+    with capture_http() as router:
+        path = "edits" if edit else "generations"
+        route = router.post(f"https://api.openai.com/v1/images/{path}").respond(
+            json={"created": 0, "data": [{"b64_json": base64.b64encode(b"img").decode()}]}
+        )
         backend = OpenAIImageBackend(api_key="k")
         await backend.generate(
             ImageGenerationRequest(
@@ -63,8 +53,9 @@ async def _sent(tmp_path: Path, *, image_size: str | None, quality: str | None, 
                 quality=quality,
             )
         )
-    call = (client.images.edit if edit else client.images.generate).call_args.kwargs
-    return {key: call[key] for key in ("size", "quality") if key in call}
+        request = only_request(route)
+        fields = request_form_fields(request) if edit else request_json(request)
+    return {key: fields[key] for key in ("size", "quality") if key in fields}
 
 
 @pytest.mark.parametrize("edit", [False, True], ids=["generate", "edit"])
