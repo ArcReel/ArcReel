@@ -2226,6 +2226,7 @@ export default {
   'reference_unit_tier_unknown_hint': '{{reason}}. Настройте доступную модель для режима {{bucket}} в настройках проекта или исправьте модель в разделе «Настройки → Провайдеры».',
   'reference_unit_tier_reason_unsupported': 'Текущая модель не поддерживает режим {{bucket}}',
   'reference_unit_tier_reason_removed': 'Модель для режима {{bucket}} удалена или отключена',
+  'reference_unit_tier_reason_not_selected': 'В настройках проекта для режима {{bucket}} выбран только провайдер, без модели',
   'reference_unit_tier_reason_discontinued': 'Модель для режима {{bucket}} снята с поддержки',
   'reference_unit_tier_reason_missing_tiers': 'У модели для режима {{bucket}} нет градаций длительности',
   'reference_unit_tier_reason_invalid_tiers': 'У модели для режима {{bucket}} некорректные градации длительности',

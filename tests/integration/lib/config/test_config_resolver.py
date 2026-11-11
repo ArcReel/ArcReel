@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
+from lib.config.recommended_models import FROZEN_SETTING_KEY
 from lib.config.resolver import (
     _VIDEO_LAYERED_KEYS,
     ConfigResolver,
@@ -37,6 +38,10 @@ def _ready_with_vertex_video() -> list[ProviderStatus]:
         _make_ready_provider("gemini-aistudio", ["text", "image", "video"]),
         _make_ready_provider("gemini-vertex", ["video"]),
     ]
+
+
+#: 升级固化已完成、各媒体类型升级前的选择都能还原：没有默认模型设置时可以落到自定义供应商的默认模型。
+_FROZEN = {FROZEN_SETTING_KEY: "[]"}
 
 
 class _FakeConfigService:
@@ -164,7 +169,7 @@ class TestDefaultBackends:
     async def test_video_backend_without_settings_does_not_read_catalog_recommendations(self, db_factory, ready):
         """DB 无值、也没有自定义供应商默认模型时报错：就绪的内置供应商不按目录推荐被挑中（docs/adr/0099）。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={}, ready_providers=ready)
+        fake_svc = _FakeConfigService(settings=_FROZEN, ready_providers=ready)
         async with db_factory() as session:
             with pytest.raises(NoAvailableProviderError, match="没有设置 video 默认模型"):
                 await resolver._resolve_default_video_backend(fake_svc, session)
@@ -181,7 +186,7 @@ class TestDefaultBackends:
     async def test_image_backend_without_settings_does_not_read_catalog_recommendations(self, db_factory):
         """DB 无值时不按就绪内置供应商的目录推荐挑选（docs/adr/0099）。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={})
+        fake_svc = _FakeConfigService(settings=_FROZEN)
         async with db_factory() as session:
             with pytest.raises(NoAvailableProviderError, match="没有设置 image 默认模型"):
                 await resolver._resolve_default_image_backend(fake_svc, session)
@@ -195,7 +200,7 @@ class TestDefaultBackends:
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        fake_svc = _FakeConfigService(settings=_FROZEN, ready_providers=[])
         async with db_factory() as session:
             provider = CustomProvider(
                 display_name="Prov", discovery_format="openai", base_url="https://api.example.com", api_key="k"
@@ -1042,7 +1047,7 @@ class TestResolveImageBackend:
         fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
         with pytest.raises(ModelNotInCatalogError) as exc_info:
             await resolver._resolve_image_provider_model(fake_svc, db_session, {"image_provider_t2i": value}, {}, "t2i")
-        assert exc_info.value.code == "provider_unsupported_media"
+        assert (exc_info.value.code, exc_info.value.params) == ("model_not_selected", {"provider": "openai"})
 
     async def test_project_unknown_bare_provider_falls_through(self):
         """裸 provider 不在 registry（无默认 model 可补）→ 退回全局默认。"""
@@ -1108,7 +1113,7 @@ class TestLayeredBackendSkeleton:
             project["img_default"] = "p-def/m"
 
         resolver = ConfigResolver.__new__(ConfigResolver)
-        resolver._auto_resolve_backend = AsyncMock(return_value=("custom-1", "m"))  # type: ignore[method-assign]  # 测试替身替换实例方法
+        resolver._auto_resolve_backend = AsyncMock(return_value=("custom-1", "m"))
         fake_svc = _FakeConfigService(settings=settings)
         result = await resolver._resolve_layered_backend(fake_svc, None, project, self._keys())
 
@@ -1254,7 +1259,7 @@ class TestResolveVideoBackend:
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        fake_svc = _FakeConfigService(settings=_FROZEN, ready_providers=[])
         async with db_factory() as session:
             provider = CustomProvider(
                 display_name="Relay", discovery_format="openai", base_url="https://example.com", api_key="xxx"
@@ -1353,7 +1358,7 @@ class TestResolveVideoBackendBuckets:
 
     async def test_nothing_configured_does_not_pick_a_catalog_recommendation(self, db_session):
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={}, ready_providers=_ready_with_vertex_video())
+        fake_svc = _FakeConfigService(settings=_FROZEN, ready_providers=_ready_with_vertex_video())
         with pytest.raises(NoAvailableProviderError):
             await resolver._resolve_video_provider_model(fake_svc, db_session, None, None, "i2v")
 
@@ -1604,7 +1609,7 @@ class TestTextBackendTierResolution:
             expected = self._AUTO
 
         resolver = ConfigResolver.__new__(ConfigResolver)
-        resolver._auto_resolve_backend = AsyncMock(return_value=self._AUTO)  # type: ignore[method-assign]  # 测试替身替换实例方法
+        resolver._auto_resolve_backend = AsyncMock(return_value=self._AUTO)
         fake_svc = _FakeConfigService(settings=settings)
         with patch("lib.config.resolver.get_project_manager") as mock_pm:
             mock_pm.return_value.load_project.return_value = project
@@ -2010,7 +2015,7 @@ class TestAutoResolvedBackendsPreview:
     async def test_ready_builtin_providers_are_not_previewed(self, db_factory):
         """就绪的内置供应商不按目录推荐进入预览，与执行期一致（docs/adr/0099）。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={}, ready_providers=_ready_with_vertex_video())
+        fake_svc = _FakeConfigService(settings=_FROZEN, ready_providers=_ready_with_vertex_video())
         async with db_factory() as session:
             preview = await resolver._resolve_auto_backends(fake_svc, session)
             executed = await self._execution_pairs(resolver, fake_svc, session)
@@ -2023,7 +2028,7 @@ class TestAutoResolvedBackendsPreview:
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        fake_svc = _FakeConfigService(settings=_FROZEN, ready_providers=[])
         async with db_factory() as session:
             provider = CustomProvider(
                 display_name="Prov", discovery_format="openai", base_url="https://api.example.com", api_key="k"

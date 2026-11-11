@@ -1,15 +1,20 @@
 """v19→v20 迁移：项目模型字段里只写了内置供应商、没写模型的旧值，固化为 ``provider/model``。
 
-升级前的运行时把这类裸供应商（含 ``"openai/"`` 这样缺模型的脏值）按模型目录里该供应商当时的默认模型补全，
-目录一同步，生成用的模型就可能变。现在目录里的默认模型只作推荐，运行时不再补全（docs/adr/0099），本步按
-此刻生效的推荐写下模型，升级前后生成用的模型不变，之后不再随目录变化。
+升级前的运行时把这类裸供应商（含 ``"openai/"`` 这样缺模型的脏值）按模型目录里该供应商的默认模型补全，
+默认模型已下线、被用户停用或被最低应用版本挡住时报错。现在目录里的默认模型只作推荐，运行时不再补全
+（docs/adr/0099），本步按升级前的版本会补全的模型写下来，升级前后生成用的模型不变，之后不再随目录变化。
 
-与其他改写模型引用的迁移步（v16→v17、v17→v18 用冻结的映射）不同，本步读当前目录：要固化的正是升级这一刻
-实例上生效的值。启动时目录的三层数据先于项目迁移装入（``server.app``），归档导入与回收站恢复时目录已就绪。
-本步不查用户的停用状态（迁移没有配置库会话）：推荐模型被用户停用的，升级前报错，升级后仍会在调用时报错。
+补全用哪个模型由调用方给出（:data:`BareProviderModels`），迁移本身不读目录也不查库：
 
-该供应商在这一媒体类型下没有推荐模型时原样保留，运行时与升级前一样报「不在模型清单中」，由用户重新选择。
-自定义供应商的裸 id 原样保留：升级前它不补模型，解析直接落到下一层。只改 ``project.json``，备份由 runner 负责。
+- 启动期迁移、回收站与已删除项目的恢复、迁移重试：读升级时记下的升级前推荐
+  （``lib.config.pre_upgrade_recommendations``，启动时经 :func:`install_bare_provider_models` 装入）。
+- 归档导入：读导入这一刻的推荐（当前目录、当前版本、去掉停用的），由导入入口经参数传入。归档不带它在原实例上
+  补全的模型，按目标实例此刻的推荐补全。
+
+给不出模型的（升级前就会报错的：没有推荐、推荐已下线或被停用；以及还原不了升级前推荐的）原样保留，运行时报
+「没有选定模型」，由用户重新选择，不会变成可以执行的模型。自定义供应商的裸 id 原样保留：升级前它不补模型，
+解析直接落到下一层。还没有装入补全来源时本步报错，项目留在 v19，下次启动重试。只改 ``project.json``，备份由
+runner 负责。
 """
 
 from __future__ import annotations
@@ -20,7 +25,6 @@ from pathlib import Path
 from typing import Any
 
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.catalog import query as catalog
 from lib.config.model_setting_keys import MODEL_SETTING_MEDIA_TYPES, PROJECT_MODEL_SETTING_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.infra.json_io import atomic_write_json
@@ -28,7 +32,21 @@ from lib.project.project_schema import parse_project_schema_version
 
 TARGET_SCHEMA_VERSION = 20
 
-Recommend = Callable[[str, str], str | None]
+#: ``(provider_id, media_type)`` → 补全用的模型键；给不出时为 ``None``，该字段原样保留。
+BareProviderModels = Callable[[str, str], str | None]
+
+# 启动时装入的补全来源（升级前的推荐）。单元素列表当信箱。
+_installed: list[BareProviderModels | None] = [None]
+
+
+def install_bare_provider_models(models: BareProviderModels | None) -> None:
+    """装入没有显式传入补全来源时使用的那一份（启动时装入升级前的推荐）。"""
+    _installed[0] = models
+
+
+def installed_bare_provider_models() -> BareProviderModels | None:
+    """启动时装入的补全来源；还没有装入时为 ``None``。"""
+    return _installed[0]
 
 
 def _bare_builtin_provider(value: object) -> str | None:
@@ -42,35 +60,47 @@ def _bare_builtin_provider(value: object) -> str | None:
     return provider if provider in PROVIDER_REGISTRY else None
 
 
-def migrate_project_dict(project: Mapping[str, Any], recommend: Recommend = catalog.default_model) -> dict[str, Any]:
-    """纯函数：把裸内置供应商的模型字段改写为 ``provider/推荐模型``。幂等。
+def migrate_project_dict(project: Mapping[str, Any], models: BareProviderModels) -> dict[str, Any]:
+    """纯函数：把裸内置供应商的模型字段改写为 ``provider/model``，模型由 ``models`` 给出。幂等。
 
-    ``recommend(provider_id, media_type)`` 给出推荐模型，默认取当前目录。不改 schema_version（由文件级 migrate 提交时写入）。
+    不改 schema_version（由文件级 migrate 提交时写入）。
     """
     migrated = dict(project)
     for key in PROJECT_MODEL_SETTING_KEYS:
         provider = _bare_builtin_provider(migrated.get(key))
         if provider is None:
             continue
-        model = recommend(provider, MODEL_SETTING_MEDIA_TYPES[key])
+        model = models(provider, MODEL_SETTING_MEDIA_TYPES[key])
         if model is not None:
             migrated[key] = f"{provider}/{model}"
     return migrated
 
 
-def migrate_v19_to_v20(project_dir: Path) -> None:
+def migrate_v19_to_v20(project_dir: Path, *, bare_provider_models: BareProviderModels | None = None) -> None:
     """v19→v20 文件级迁移。单次原子写，崩溃可重试（要么旧值要么新值，无半态）。"""
 
     project_file = Path(project_dir) / "project.json"
     if not project_file.is_file():
         return
+    models = bare_provider_models or _installed[0]
+    if models is None:
+        raise RuntimeError("还没有装入补全裸供应商的推荐模型，v19→v20 迁移留到下次启动")
     with project_metadata_lock(project_dir):
         project = json.loads(project_file.read_bytes())
         if not isinstance(project, dict):
             raise ValueError("project.json 必须是对象")
         if parse_project_schema_version(project) >= TARGET_SCHEMA_VERSION:
             return
-        atomic_write_json(project_file, {**migrate_project_dict(project), "schema_version": TARGET_SCHEMA_VERSION})
+        atomic_write_json(
+            project_file, {**migrate_project_dict(project, models), "schema_version": TARGET_SCHEMA_VERSION}
+        )
 
 
-__all__ = ["TARGET_SCHEMA_VERSION", "migrate_project_dict", "migrate_v19_to_v20"]
+__all__ = [
+    "TARGET_SCHEMA_VERSION",
+    "BareProviderModels",
+    "install_bare_provider_models",
+    "installed_bare_provider_models",
+    "migrate_project_dict",
+    "migrate_v19_to_v20",
+]

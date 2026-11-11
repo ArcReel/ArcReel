@@ -2160,6 +2160,7 @@ export default {
   'reference_unit_tier_unknown_hint': '{{reason}}；请在项目设置中配置可用的{{bucket}}模型，或在「设置 → 供应商」中修复模型配置。',
   'reference_unit_tier_reason_unsupported': '当前模型不支持{{bucket}}',
   'reference_unit_tier_reason_removed': '{{bucket}}模型已删除或停用',
+  'reference_unit_tier_reason_not_selected': '项目设置里的{{bucket}}模型只选了供应商，没有选定模型',
   'reference_unit_tier_reason_discontinued': '{{bucket}}模型已下线',
   'reference_unit_tier_reason_missing_tiers': '{{bucket}}模型未声明时长档位',
   'reference_unit_tier_reason_invalid_tiers': '{{bucket}}模型的时长档位无效',

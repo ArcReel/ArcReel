@@ -26,6 +26,17 @@ def install_catalog(monkeypatch: pytest.MonkeyPatch, data: CatalogData) -> None:
     monkeypatch.setattr(query, "factory_snapshot", lambda: data)
 
 
+def install_synced_catalog(request: pytest.FixtureRequest, data: CatalogData) -> None:
+    """让目录查询在本用例内把 ``data`` 当作已装入的官方同步数据（与出厂快照取数据集版本较新的那份）。"""
+    query.install_synced_data(data)
+    request.addfinalizer(lambda: query.install_synced_data(None))
+
+
+def with_dataset_version(data: CatalogData, dataset_version: str) -> CatalogData:
+    """换掉目录数据的数据集版本。"""
+    return replace(data, dataset_version=dataset_version)
+
+
 def set_catalog_today(monkeypatch: pytest.MonkeyPatch, day: date) -> None:
     """让目录读模型在本用例内把 ``day`` 当作今天（UTC 日期），判定生命周期用；可在用例中途再次调用跨日。"""
     monkeypatch.setattr(lifecycle, "utc_today", lambda: day)

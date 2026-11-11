@@ -295,6 +295,22 @@ def use_test_catalog_data(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def installed_bare_provider_models():
+    """v19→v20 迁移的补全来源换成测试目录此刻的推荐（不查停用状态），用例结束后还原。
+
+    生产环境由应用启动装入升级前的推荐（``lib.config.pre_upgrade_recommendations``）；只走迁移链、不起应用的用例
+    没有这一步。要验证补全来源本身的用例自己装入（``install_bare_provider_models``）或传入。
+    """
+    from lib.catalog import query as catalog
+    from lib.project.project_migrations import v19_to_v20_bare_provider_models as v19_to_v20
+
+    previous = v19_to_v20.installed_bare_provider_models()
+    v19_to_v20.install_bare_provider_models(catalog.default_model)
+    yield
+    v19_to_v20.install_bare_provider_models(previous)
+
+
+@pytest.fixture(autouse=True)
 def offline_official_catalog_sync(isolated_data_root, monkeypatch):
     """应用 lifespan 启动的模型目录官方同步换成不发请求的空任务。
 

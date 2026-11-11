@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import pytest
 
+from lib.config.recommended_models import FROZEN_SETTING_KEY
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError, ProviderModel
 from lib.config.service import ProviderStatus
+
+#: 升级固化已完成、升级前的选择都能还原：没有默认模型设置时才会走到最后一层，而不是在固化标记处就报错。
+_FROZEN = {FROZEN_SETTING_KEY: "[]"}
 
 
 def _ready(name: str, media_types: list[str]) -> ProviderStatus:
@@ -78,7 +82,7 @@ class TestResolveAudioProviderModel:
     async def test_unset_settings_do_not_pick_a_catalog_recommendation(self, db_session):
         # 无 payload / project / 全局设置 → 不按就绪供应商的目录推荐挑选（docs/adr/0099）
         resolver = ConfigResolver.__new__(ConfigResolver)
-        svc = _FakeSvc(settings={}, ready=[_ready("dashscope", ["audio"])])
+        svc = _FakeSvc(settings=_FROZEN, ready=[_ready("dashscope", ["audio"])])
         with pytest.raises(NoAvailableProviderError):
             await resolver._resolve_audio_provider_model(svc, db_session, None, None)
 
@@ -91,7 +95,7 @@ class TestResolveDefaultAudioBackend:
 
     async def test_empty_setting_does_not_pick_a_catalog_recommendation(self, db_session):
         resolver = ConfigResolver.__new__(ConfigResolver)
-        svc = _FakeSvc(settings={}, ready=[_ready("dashscope", ["audio"])])
+        svc = _FakeSvc(settings=_FROZEN, ready=[_ready("dashscope", ["audio"])])
         with pytest.raises(NoAvailableProviderError):
             await resolver._resolve_default_audio_backend(svc, db_session)
 

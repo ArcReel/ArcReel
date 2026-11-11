@@ -1498,8 +1498,9 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
     except HTTPException:
         raise
     except NoAvailableProviderError as exc:
-        raise BadRequestError("text_provider_not_configured").with_diagnostic(
-            {"code": "text_provider_not_configured"}
+        # 没有文本默认模型（有没有配置供应商都一样）：指引到默认模型设置，不是供应商页
+        raise BadRequestError("text_default_model_not_set").with_diagnostic(
+            {"code": "text_default_model_not_set"}
         ) from exc
     except VisionCapabilityError as e:
         raise BadRequestError(

@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.catalog import query as catalog
-from lib.config.recommended_models import seed_provider_recommendations
+from lib.config.recommended_models import FROZEN_SETTING_KEY, seed_provider_recommendations
 from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.db.repositories.credential_repository import CredentialRepository
@@ -42,6 +42,7 @@ def recommendation_client(db_factory) -> Iterator[TestClient]:
 async def changed_recommendation(db_factory, monkeypatch) -> str:
     """ark 首次配置时写入推荐，之后目录把推荐图片模型换成 ``NEXT_IMAGE``；返回原来的全局默认图片模型。"""
     async with db_factory() as session:
+        await ConfigService(session).set_setting(FROZEN_SETTING_KEY, "1")
         await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark")
         await seed_provider_recommendations(session, "ark")
         await session.commit()

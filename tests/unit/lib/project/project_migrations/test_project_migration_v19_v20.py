@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from lib.project.project_migrations.v19_to_v20_bare_provider_models import migrate_project_dict, migrate_v19_to_v20
 
 _RECOMMENDED = {("ark", "video"): "seedance-x", ("grok", "text"): "grok-x", ("openai", "image"): "image-x"}
@@ -73,3 +75,28 @@ def test_file_migration_bumps_the_schema_then_is_a_noop(tmp_path: Path) -> None:
     (project_dir / "project.json").write_text(json.dumps({**migrated, "video_backend": "grok"}), encoding="utf-8")
     migrate_v19_to_v20(project_dir)
     assert _load(project_dir)["video_backend"] == "grok"
+
+
+def test_without_a_completion_source_the_step_fails_and_leaves_the_project_at_v19(tmp_path: Path) -> None:
+    """升级前的推荐还没有记下（启动时那一步失败）：本步报错，项目留在 v19 等下次启动重试，不替用户挑模型。"""
+    from lib.project.project_migrations.v19_to_v20_bare_provider_models import install_bare_provider_models
+
+    install_bare_provider_models(None)
+    project_dir = _write(tmp_path, {"schema_version": 19, "video_backend": "ark"})
+
+    with pytest.raises(RuntimeError):
+        migrate_v19_to_v20(project_dir)
+    assert _load(project_dir) == {"schema_version": 19, "video_backend": "ark"}
+
+
+def test_an_explicit_completion_source_takes_precedence(tmp_path: Path) -> None:
+    """归档导入传入导入这一刻的推荐，不用启动时装入的那一份。"""
+    project_dir = _write(tmp_path, {"schema_version": 19, "video_backend": "ark", "image_provider_t2i": "openai"})
+
+    migrate_v19_to_v20(project_dir, bare_provider_models=_recommend)
+
+    assert _load(project_dir) == {
+        "schema_version": 20,
+        "video_backend": "ark/seedance-x",
+        "image_provider_t2i": "openai/image-x",
+    }

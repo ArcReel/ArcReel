@@ -23,7 +23,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
+from lib.config.resolver import ConfigResolver, NoAvailableProviderError, video_bucket_for_generation_mode
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
@@ -309,6 +309,9 @@ async def _require_audio_provider_configured(project: dict) -> str:
     except ModelNotInCatalogError:
         # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
         raise
+    except NoAvailableProviderError as exc:
+        # 没有旁白配音的默认模型：指引到默认模型设置，不是供应商页
+        raise BadRequestError("audio_default_model_not_set") from exc
     except ValueError as exc:
         raise BadRequestError("audio_provider_not_configured") from exc
     return resolved.provider_id
