@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import functools
 import json
+import os
 import re
 import subprocess
 import sys
@@ -35,7 +37,19 @@ BATCH = 40
 def execute(
     cmd: tuple[str, ...], cwd: Path | None = None, stdin: str | None = None
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=cwd, input=stdin, capture_output=True, text=True)
+    env = None
+    if cmd[0] == "gh":  # gh 默认仓库可以与 origin 不同：读写都钉在 origin 指向的仓库上
+        env = {**os.environ, "GH_REPO": origin_repo()}
+    return subprocess.run(cmd, cwd=cwd, input=stdin, capture_output=True, text=True, env=env)
+
+
+@functools.cache
+def origin_repo() -> str:
+    url = run("git", "remote", "get-url", "origin").strip()
+    match = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", url)
+    if not match:
+        sys.exit(f"origin 不是 GitHub 仓库：{url}")
+    return match.group(1)
 
 
 def run(*cmd: str, cwd: Path | None = None, check: bool = True, stdin: str | None = None) -> str:
@@ -109,7 +123,7 @@ PR_FIELDS = f"number title headRefName closingIssuesReferences(first: 5) {{ node
 
 def graphql(aliases: dict[str, str]) -> dict[str, dict]:
     """分批执行带别名的 repository 查询；查询失败即退出，避免把失败当成「没有归属」。"""
-    owner, name = run("gh", "repo", "view", "--json", "owner,name", "-q", '.owner.login + " " + .name').split()
+    owner, name = origin_repo().split("/")
     found: dict[str, dict] = {}
     keys = list(aliases)
     for offset in range(0, len(keys), BATCH):
@@ -117,8 +131,13 @@ def graphql(aliases: dict[str, str]) -> dict[str, dict]:
         query = f'{{ repository(owner: "{owner}", name: "{name}") {{\n{body}\n}} }}'
         result = execute(("gh", "api", "graphql", "-f", f"query={query}"))
         try:
-            data = json.loads(result.stdout)["data"]["repository"]
+            response = json.loads(result.stdout)
+            data = response["data"]["repository"]
+            # 编号查不到是正常结果；其余错误（如限流）会让部分结果为空，不能当成「没有归属」
+            failed = [e for e in response.get("errors", []) if e.get("type") != "NOT_FOUND"]
         except (ValueError, KeyError, TypeError):
+            data, failed = None, []
+        if data is None or failed:
             sys.exit(f"查询 GitHub 失败，无法归并主题：\n{result.stderr.strip() or result.stdout.strip()}")
         found.update({key: node for key, node in data.items() if node})
     return found
