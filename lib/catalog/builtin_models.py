@@ -40,7 +40,7 @@ class BuiltinModelItem:
 
     @property
     def is_default(self) -> bool:
-        """官方数据指定的默认模型，且没有被停用、没有下线。"""
+        """官方数据推荐的模型（目录里的供应商默认模型），且没有被停用、没有下线。"""
         return self.enabled and self.view.model.default
 
 
@@ -69,11 +69,11 @@ async def list_builtin_models(session: AsyncSession, provider_id: str) -> list[B
     ]
 
 
-async def default_builtin_model(session: AsyncSession, provider_id: str, media_type: str) -> str | None:
-    """内置供应商在该媒体类型下实际可用的默认模型键：目录指定的默认模型，已下线或被用户停用时为 ``None``。
+async def recommended_builtin_model(session: AsyncSession, provider_id: str, media_type: str) -> str | None:
+    """内置供应商在该媒体类型下可用的推荐模型键：目录指定的默认模型，已下线或被用户停用时为 ``None``。
 
-    没有给模型的调用（裸供应商覆盖、缺模型的 payload、装配层）都经这里补默认，``None`` 即按没有指定默认模型处理；
-    与自动挑选（``ProviderStatus.disabled_models``）同一口径。不是内置供应商时同样为 ``None``。
+    推荐只写进用户自己的默认模型设置（``lib.config.recommended_models``），运行时解析不经这里补模型
+    （docs/adr/0099）。不是内置供应商时同样为 ``None``。
     """
     model_id = catalog.default_model(provider_id, media_type)  # 已下线的默认模型目录不给
     if model_id is None:
@@ -90,7 +90,7 @@ def disabled_without_state(provider_id: str) -> frozenset[str]:
 async def disabled_builtin_models(session: AsyncSession) -> dict[str, frozenset[str]]:
     """每个内置供应商不作候选的模型键：停用的，加上已下线的（用户手动启用过也算）。
 
-    全局设置、项目设置与任务类型桶的候选，以及没有默认模型设置时的自动挑选，只来自其余模型。
+    全局设置、项目设置与任务类型桶的候选只来自其余模型。
     """
     rows: dict[tuple[str, str], BuiltinProviderModelState] = {
         (row.provider_id, row.model_id): row for row in await BuiltinProviderModelRepository(session).list_all()

@@ -57,6 +57,7 @@ describe("MediaModelSection", () => {
     vi.restoreAllMocks();
     mockConfig();
     vi.spyOn(API, "getAutoBackends").mockResolvedValue(NO_AUTO);
+    vi.spyOn(API, "getRecommendationChanges").mockResolvedValue({ changes: [] });
     vi.spyOn(API, "getModelCandidates").mockResolvedValue(
       CANDIDATES as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>,
     );
@@ -75,6 +76,76 @@ describe("MediaModelSection", () => {
     expect(sections.every((d) => d.getAttribute("aria-expanded") === "false")).toBe(true);
     // 界面文案不出现内部术语
     expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
+  });
+
+  it("shows a changed recommendation under the default model and lets the user switch or keep", async () => {
+    const user = userEvent.setup();
+    const change = {
+      media_type: "video" as const,
+      provider_id: "ark",
+      recommended: "ark/seedance",
+      current: "gemini/veo-3",
+    };
+    const getChanges = vi
+      .spyOn(API, "getRecommendationChanges")
+      .mockResolvedValueOnce({ changes: [change] })
+      .mockResolvedValue({ changes: [] });
+    const acknowledge = vi.spyOn(API, "acknowledgeRecommendation").mockResolvedValue();
+    const patch = vi.spyOn(API, "updateSystemConfig");
+
+    render(<MediaModelSection />);
+
+    expect(await screen.findByText("ark 现在推荐 seedance，当前使用 veo-3")).toBeInTheDocument();
+    // 只提示，不替用户改：没有经保存栏改动全局默认模型
+    expect(patch).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "切换到 seedance" }));
+
+    expect(acknowledge).toHaveBeenCalledWith(change, true);
+    // 处理后重取配置与提示，提示随之消失
+    await waitFor(() => expect(getChanges).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText("ark 现在推荐 seedance，当前使用 veo-3")).not.toBeInTheDocument());
+  });
+
+  it("keeps a switched recommendation when other unsaved edits are saved afterwards", async () => {
+    const user = userEvent.setup();
+    const change = {
+      media_type: "image" as const,
+      provider_id: "openai",
+      recommended: "openai/gpt-image-edit",
+      current: "gemini/nano-banana",
+    };
+    vi.spyOn(API, "getRecommendationChanges")
+      .mockResolvedValueOnce({ changes: [change] })
+      .mockResolvedValue({ changes: [] });
+    // 切换由服务端写入全局默认：之后重取的配置带着新的图片默认模型
+    vi.spyOn(API, "acknowledgeRecommendation").mockImplementation(async () => {
+      mockConfig({ default_image_backend: change.recommended });
+    });
+    const patch = vi.spyOn(API, "updateSystemConfig").mockResolvedValue(CONFIG as never);
+    render(<MediaModelSection />);
+
+    const timeout = await screen.findByRole("textbox", { name: "视频轮询超时（秒）" });
+    await user.clear(timeout);
+    await user.type(timeout, "7200");
+    await user.click(screen.getByRole("button", { name: "切换到 gpt-image-edit" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "切换到 gpt-image-edit" })).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    // 只提交未保存的超时，不把旧图片默认模型写回去
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ video_poll_timeout_seconds: 7200 }));
+  });
+
+  it("offers a new recommendation when the default model is empty", async () => {
+    const user = userEvent.setup();
+    const change = { media_type: "image" as const, provider_id: "openai", recommended: "openai/gpt-image-edit", current: null };
+    vi.spyOn(API, "getRecommendationChanges").mockResolvedValue({ changes: [change] });
+    const acknowledge = vi.spyOn(API, "acknowledgeRecommendation").mockResolvedValue();
+
+    render(<MediaModelSection />);
+
+    expect(await screen.findByText("openai 推荐 gpt-image-edit 作为默认模型")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "暂不设置" }));
+    expect(acknowledge).toHaveBeenCalledWith(change, false);
   });
 
   it("saves the global video polling timeout", async () => {

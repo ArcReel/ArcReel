@@ -104,3 +104,17 @@ def test_a_reference_image_binding_may_record_its_consumer():
 
 def _schema_errors(definition: dict[str, Any]) -> Any:
     return Draft202012Validator(load_schema()).iter_errors(definition)
+
+
+def test_audio_and_explicit_aspect_mapping_are_saved_in_bindings():
+    definition = comfyui_endpoint_definition()
+    definition["bindings"]["reference_audio"] = [{"node": "10", "input": "audio", "class_type": "LoadAudio"}]
+    definition["bindings"]["aspect_ratio"] = [
+        {
+            "node": "11",
+            "input": "aspect_ratio",
+            "class_type": "ResolutionSelector",
+            "values": {"16:9": "16:9 (Widescreen)", "9:16": "9:16 (Portrait)"},
+        }
+    ]
+    assert list(_schema_errors(definition)) == []

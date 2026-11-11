@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from alembic import command
 from lib.catalog import query as catalog
 from lib.catalog.builtin_models import disabled_builtin_models
-from lib.catalog.query import factory_snapshot
 from tests.catalog_support import install_catalog, with_entry_changes
 
 _HIDDEN = {"agnes-2.0-flash", "agnes-image-2.1-flash", "agnes-video-v2.0"}
@@ -65,7 +64,7 @@ def test_hidden_models_stay_disabled_when_entry_no_longer_discontinued(
     revision, _parent = migration_revisions("*_builtin_provider_model.py")
     command.upgrade(cfg, revision)
     command.upgrade(cfg, "head")
-    data = factory_snapshot()
+    data = catalog.factory_snapshot()
     for model_id in _HIDDEN:
         data = with_entry_changes(data, "agnes", model_id, discontinued=False)
     install_catalog(monkeypatch, data)

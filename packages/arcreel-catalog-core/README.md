@@ -47,7 +47,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
   - 生命周期表示模型厂商层面的退役，对所有供应商（包括自定义供应商）都适用。
 - `facts` 是模型事实，按媒体类型取不同字段：
   - `text`：`image_input`、`structured_output`、`max_output_tokens`；
-  - `image`：`text_to_image`、`image_to_image`、`resolutions`（可选分辨率档位），以及可选的 `max_reference_images`、`output_token_bases`；
+  - `image`：`text_to_image`、`image_to_image`、`resolutions`（可选分辨率档位），以及可选的 `max_reference_images`、`output_token_bases`、`output_token_scaled_bases`；
   - `video`：`durations`（可选时长，必填）、`resolutions`、`duration_constraints`
     （`by_resolution` 按分辨率收窄可选时长，`with_reference_images` 是使用参考图时允许的时长），以及可选的 `max_reference_images`、`text_to_video`、`first_frame`、`last_frame`、`reference_audio`、`max_reference_audio_count`、`max_reference_audio_total_seconds`；
   - `audio`：无。
@@ -59,6 +59,9 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 - 视频的 `text_to_video`、`first_frame`、`last_frame`、`reference_audio` 是可选布尔值，分别表示是否接受文生视频、首帧、尾帧、参考音频。显式 `false` 与缺失不同。
 - `max_reference_audio_count` 是参考音频数量上限（非负整数）；`max_reference_audio_total_seconds` 是多段参考音频合计时长上限（非负有限数，单位为秒）。显式 `0` 与缺失不同。`reference_audio` 为 `true` 时，`max_reference_audio_count` 不能为 `0`。
 - 图片的 `output_token_bases` 是质量档到正整数估算基数的映射，例如 `{"low": 16, "medium": 48, "high": 96}`；未收录时为空映射，写出时省略。分辨率档到请求 `quality` 的映射属于端点代码，不记在条目上。
+- 图片的 `output_token_scaled_bases` 是质量档到带系数基数的映射，例如 `{"low": {"base": 16, "multiplier": 4.2}}`，`base` 为正整数，`multiplier` 为正的有限数。适用于估算结果要再乘系数的质量档：先按 `base` 算出整数 token，再乘 `multiplier` 并四舍五入（恰好 .5 时进位），系数不能折进基数。未收录时为空映射，写出时省略，此时质量档只按 `output_token_bases` 估算，不乘系数；两个字段都没有的质量档不估算。
+- 价目表含 `image_output_tokens` 计量项的图片条目，必须在 `output_token_bases` 或 `output_token_scaled_bases` 中至少收录一个质量档，否则调用前估不出这一项的用量；构建侧校验拒绝两者都缺的条目。
+- 同一质量档只能写在 `output_token_bases` 或 `output_token_scaled_bases` 其中之一，构建侧校验拒绝重复。不认识 `output_token_scaled_bases` 的旧实例会忽略这个字段，带系数的质量档在旧实例上保持未估算；写进 `output_token_bases` 则会算出漏乘系数的结果。
 
 ### 价目表
 

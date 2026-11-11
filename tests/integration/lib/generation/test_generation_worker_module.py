@@ -70,7 +70,10 @@ class TestExtractProvider:
 
     async def test_image_payload_provider(self):
         """payload 携带历史 image_provider → 投影取到。"""
-        task = {"payload": {"image_provider": "gemini-vertex"}, "task_type": "storyboard"}
+        task = {
+            "payload": {"image_provider": "gemini-vertex", "image_model": "gemini-3.1-flash-image"},
+            "task_type": "storyboard",
+        }
         assert await _extract_provider(task) == "gemini-vertex"
 
     @pytest.mark.usefixtures("patch_empty_db")

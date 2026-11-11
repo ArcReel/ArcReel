@@ -229,6 +229,20 @@ const NO_SCRIPT_PLAN: ApiOverrides = {
   },
 };
 
+// 逐集上传的集：账本记为自带原文，原文很长，还带一段没有空格的长串。
+const LONG_SOURCE = `${"夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过。\n".repeat(120)}${"无空格长串".repeat(120)}`;
+const OWN_SOURCE: ApiOverrides = {
+  ...API,
+  "GET /api/v1/projects/demo": {
+    status: 200,
+    body: {
+      ...project,
+      project: { ...project.project, episodes: [{ ...project.project.episodes[0], source_origin: "own" }] },
+    },
+  },
+  "GET /api/v1/projects/demo/source/episode_1.txt": { status: 200, body: LONG_SOURCE },
+};
+
 // 两行页头：44px 与 40px 两行加 1px 底边。
 const HEADER_HEIGHT = 85;
 
@@ -342,6 +356,26 @@ defineRegionScenarios("集页页头", [
       await page.getByRole("button", { name: "这一集的更多操作" }).click();
       await expect(page.getByRole("menuitem", { name: "删除这一集" })).toBeVisible();
       await waitForEntrance(page.getByRole("menu"));
+    },
+  },
+  {
+    name: "查看原文：长原文只在弹层正文里滚动，页头高度不变",
+    path: EPISODE_PATH,
+    api: OWN_SOURCE,
+    ready: pageReady,
+    act: async (page) => {
+      await clearAgentOverlay(page);
+      expect((await box(header(page))).height).toBeCloseTo(HEADER_HEIGHT, 0);
+      await page.getByRole("button", { name: "查看原文" }).click();
+      const dialog = page.getByRole("dialog", { name: "本集原文" });
+      await waitForEntrance(dialog);
+      const body = dialog.getByRole("region", { name: "本集原文" });
+      await expect(body.getByText("巡夜人提着灯", { exact: false })).toBeVisible();
+      await expect(dialog.getByRole("textbox")).toHaveCount(0);
+      const scroll = await body.evaluate((el) => ({ client: el.clientHeight, height: el.scrollHeight }));
+      expect(scroll.height).toBeGreaterThan(scroll.client);
+      const rect = await box(dialog);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(viewport(page).height);
     },
   },
   {
