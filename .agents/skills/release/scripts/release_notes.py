@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 HEADING = "### 🌟 版本亮点"
+MARK = "### 🌟 "  # 历史版本的亮点标题文字不同（Highlights、重点功能），以 🌟 识别
 VERSION_HEADER = re.compile(r"^## \[(\d+\.\d+\.\d+)\]")
 ENTRY = re.compile(r"^\* (?:\*\*(?P<scope>[^*]+):\*\* )?(?P<body>.*)$")
 COMMIT_LINK = re.compile(r" \(\[[0-9a-f]{7,}\]\([^)]*/commit/([0-9a-f]{40})\)\)")
@@ -104,7 +105,7 @@ def parse_entries(section: list[str]) -> list[Entry]:
             category = line[4:].strip()
             continue
         match = ENTRY.match(line)
-        if not match or category == HEADING[4:]:
+        if not match or category.startswith("🌟"):
             continue
         body = match.group("body")
         head, _, closes = body.partition(", closes ")
@@ -244,7 +245,7 @@ def cmd_themes(args: argparse.Namespace) -> None:
 
 def highlight_span(section: list[str]) -> tuple[int, int] | None:
     """节内亮点块的 [起, 止) 行号，止于下一个三级标题。"""
-    start = next((i for i, line in enumerate(section) if line.strip() == HEADING), None)
+    start = next((i for i, line in enumerate(section) if line.startswith(MARK)), None)
     if start is None:
         return None
     end = next((i for i in range(start + 1, len(section)) if section[i].startswith("### ")), len(section))
@@ -253,8 +254,8 @@ def highlight_span(section: list[str]) -> tuple[int, int] | None:
 
 def read_block(path: Path) -> list[str]:
     block = path.read_text(encoding="utf-8").strip().splitlines()
-    if not block or block[0].strip() != HEADING:
-        sys.exit(f"确认稿第一行必须是「{HEADING}」")
+    if not block or not block[0].startswith(MARK):
+        sys.exit(f"确认稿第一行必须是亮点标题，如「{HEADING}」")
     if any(line.startswith("#") for line in block[1:]):
         sys.exit("确认稿只能有亮点标题这一个标题")
     if not any(line.startswith("* ") for line in block):
@@ -281,7 +282,7 @@ def verify(text: str, version: str, block: list[str], where: str) -> None:
     start, end = section_bounds(lines, version)
     section = lines[start:end]
     span = highlight_span(section)
-    count = sum(1 for line in section if line.strip() == HEADING)
+    count = sum(1 for line in section if line.startswith(MARK))
     if count != 1 or span is None or "\n".join(section[span[0] : span[1]]).strip() != "\n".join(block):
         sys.exit(f"校验失败：{where} 中 {version} 的亮点与确认稿不一致（标题出现 {count} 次）")
     print(f"✓ {where}：{version} 有且只有一个亮点块，与确认稿逐字一致")
