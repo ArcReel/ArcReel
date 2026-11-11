@@ -2854,7 +2854,7 @@ class TestSelectedImageQuality:
             ("2K", "low", ("low", "medium", "high"), 205),
             # 未选择画质：按档位推出（1K → medium）
             ("1K", None, ("low", "medium", "high"), 1234),
-            # 条目未收录画质取值：忽略存值，与改动前相同
+            # 条目未收录画质取值：忽略存值，按档位推出（1K → medium）
             ("1K", "low", (), 1234),
         ],
     )
