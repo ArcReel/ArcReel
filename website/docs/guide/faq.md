@@ -149,10 +149,10 @@ uv run uvicorn server.app:app --port 1241
 Agent 派发子智能体时，可以要求子智能体在隔离的 worktree 中运行。ArcReel 让子智能体与 Agent 共用项目目录，Claude Code 会先用 git 确认这个目录可以作为隔离目录，确认不了就拒绝这次派发。按报错中的原因处理：
 
 - **`git could not be run to resolve it`**：运行环境里没有 git。官方镜像从 v0.37.0 起内置 git，Docker 部署更新镜像即可，步骤见[Docker 怎样更新](#docker-update)。从源码启动时，安装 git 后重启后端。
-- **`git resolves its working tree to …`**：项目目录位于 ArcReel 源码仓库内。从源码启动且使用默认数据根 `projects/` 时会出现这种情况。把数据根移到源码仓库之外：
+- **`git resolves its working tree to …`**：项目目录位于 ArcReel 源码仓库内。从源码启动时，默认数据根 `projects/` 就在源码仓库内。把数据根移到源码仓库之外：
   1. 停止后端。
-  2. 把源码仓库中的整个 `projects/` 目录移到仓库之外，例如 `~/arcreel-data`。这个目录里还有默认 SQLite 数据库、日志和 Vertex 凭据，需要整体移动。
-  3. 在 `.env` 中设置 `ARCREEL_DATA_DIR`，值为新目录的绝对路径。
+  2. 把数据根整个目录移到源码仓库之外，例如 `~/arcreel-data`。没有设置过 `ARCREEL_DATA_DIR` 时，数据根是源码仓库中的 `projects/`。数据根里还有默认 SQLite 数据库、日志和 Vertex 凭据，需要整体移动。
+  3. 把 `ARCREEL_DATA_DIR` 设为新目录的绝对路径。通常写在 `.env` 中；如果启动环境（如 shell 或 systemd 服务配置）已经设置了这个变量，改那里的值，否则 `.env` 中的值不会生效。
   4. 启动后端。已有的 Agent 会话会在启动时自动关联到新路径。
 
 ## 供应商、模型与 API {#providers-models-api}

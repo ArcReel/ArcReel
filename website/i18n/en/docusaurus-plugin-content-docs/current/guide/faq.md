@@ -149,10 +149,10 @@ You can also run `uv run python -m server.app`. It does not enable reload on Win
 When the Agent dispatches a subagent, it can ask for the subagent to run in an isolated worktree. ArcReel has subagents share the project directory with the Agent, and Claude Code first uses git to confirm that this directory can serve as the isolated directory; if it cannot confirm this, it refuses the dispatch. Handle it according to the reason in the error:
 
 - **`git could not be run to resolve it`**: git is not available in the runtime environment. Official images include git starting with v0.37.0; for Docker deployments, update the image as described in [How do I update Docker?](#docker-update). When starting from source, install git and restart the backend.
-- **`git resolves its working tree to …`**: the project directory is inside the ArcReel source repository. This happens when starting from source with the default data root `projects/`. Move the data root outside the source repository:
+- **`git resolves its working tree to …`**: the project directory is inside the ArcReel source repository. When starting from source, the default data root `projects/` is inside the source repository. Move the data root outside the source repository:
   1. Stop the backend.
-  2. Move the entire `projects/` directory out of the source repository, for example to `~/arcreel-data`. This directory also holds the default SQLite database, logs, and Vertex credentials, so move it as a whole.
-  3. In `.env`, set `ARCREEL_DATA_DIR` to the absolute path of the new directory.
+  2. Move the entire data root directory out of the source repository, for example to `~/arcreel-data`. If `ARCREEL_DATA_DIR` has never been set, the data root is `projects/` in the source repository. The data root also holds the default SQLite database, logs, and Vertex credentials, so move it as a whole.
+  3. Set `ARCREEL_DATA_DIR` to the absolute path of the new directory. This usually goes in `.env`; if the startup environment (such as the shell or a systemd service configuration) already sets this variable, change it there, otherwise the value in `.env` does not take effect.
   4. Start the backend. Existing Agent sessions are linked to the new path automatically at startup.
 
 ## Providers, models, and APIs {#providers-models-api}
