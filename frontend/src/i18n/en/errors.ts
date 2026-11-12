@@ -1,5 +1,9 @@
 
 export default {
+  "text_default_model_not_set": "No default text model is set: choose one in Settings → Default models; if no provider is configured yet, add one in Settings → Providers first",
+  "audio_default_model_not_set": "No default narration voice-over model is set: choose one in Settings → Default models; if no text-to-speech capable provider is configured yet, add one in Settings → Providers first",
+  "image_default_model_not_set": "No default image model is set: choose one in Settings → Default models",
+  "video_default_model_not_set": "No default video model is set: choose one in Settings → Default models",
   "provider_asset_link_failed": "Image {{index}} ({{name}}) failed to ingest into the provider asset library ({{error_code}}), so it cannot be generated. Unlink it under Upload to provider asset library on the asset card and upload again, or unlink it to send the image itself instead",
   "provider_asset_link_processing": "Image {{index}} ({{name}}) is still being ingested into the provider asset library, so it cannot be generated yet. Generate once the upload is available, or unlink it under Upload to provider asset library on the asset card to send the image itself instead",
   "provider_input_image_rejected": "The provider's review rejected an input image in this request ({{error_code}}). You can upload the asset images involved to the provider asset library and generate again once they are available",

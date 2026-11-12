@@ -124,6 +124,7 @@ class GenerationAction(StrEnum):
     REPLAN_UNIT = "replan_unit"
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
+    CONFIGURE_DEFAULT_MODEL = "configure_default_model"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
     RETRY_ARTIFACT_DOWNLOAD = "retry_artifact_download"
     """产物已在供应商侧生成、只是没取回来：接续原任务取件，不重新提交、不再计费。"""
@@ -138,6 +139,10 @@ class GenerationAction(StrEnum):
 # again for the same rejection. The coverage test in
 # ``tests/unit/lib/generation/test_generation_result.py`` is the drift guard.
 _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
+    "text_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
+    "audio_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
+    "image_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
+    "video_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
     "internal_server_error": GenerationAction.RETRY,
     "needs_replan": GenerationAction.REPLAN_UNIT,
     "reference_duration_confirmation_required": GenerationAction.CONFIRM_REQUEST_DURATION,
@@ -1082,6 +1087,7 @@ _ACTION_LABELS: dict[GenerationAction, str] = {
     GenerationAction.REPLAN_UNIT: "需重新规划内容",
     GenerationAction.CONFIRM_REQUEST_DURATION: "需确认时长档位",
     GenerationAction.CONFIGURE_PROVIDER: "需配置供应商",
+    GenerationAction.CONFIGURE_DEFAULT_MODEL: "需设置默认模型",
     GenerationAction.REPAIR_ARTIFACT_STATE: "需修复产物状态",
     GenerationAction.RETRY_ARTIFACT_DOWNLOAD: "需重试下载，不必重新生成",
     GenerationAction.RETRY_PROJECT_MIGRATION: "需重试项目迁移",

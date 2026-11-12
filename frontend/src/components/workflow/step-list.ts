@@ -11,7 +11,7 @@ import type {
   WorkflowPlan,
   WorkflowPlanStep,
 } from "@/types/workflow";
-import { ROUTE_APP_SETTINGS, WORKSPACE_ROUTE_PRODUCTS, episodeEditViewPath } from "@/app-routes";
+import { ROUTE_APP_SETTINGS, settingsSectionPath, WORKSPACE_ROUTE_PRODUCTS, episodeEditViewPath } from "@/app-routes";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
 import type { EpisodeSurface } from "@/stores/episode-surface-store";
 import { formatNameList } from "@/utils/list-format";
@@ -166,6 +166,7 @@ const ADMISSION_ACTIONS = new Set<WorkflowNextAction["type"]>([
   "replan_unit",
   "confirm_request_duration",
   "configure_provider",
+  "configure_default_model",
   "repair_artifact_state",
   "retry_artifact_download",
 ]);
@@ -963,6 +964,13 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         };
       }
       return { ...base, detail: t("workflow:next_detail_wait_for_task") };
+    case "configure_default_model":
+      return {
+        ...base,
+        primary: [
+          { key: "settings", label: t("workflow:act_configure_default_model"), kind: "nav", intent: { type: "route", path: `~${settingsSectionPath("default-models")}` } },
+        ],
+      };
     case "configure_provider":
       return {
         ...base,

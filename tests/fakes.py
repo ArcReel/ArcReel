@@ -1191,6 +1191,11 @@ def use_text_generator(monkeypatch, create: Callable[..., Any]) -> None:
     monkeypatch.setattr("lib.backends.text_generator.TextGenerator.create", create)
 
 
+def use_text_backend_sessions(monkeypatch, factory) -> None:
+    """文本 backend 工厂经 *factory* 解析真实模型配置，不替换模型解析器。"""
+    monkeypatch.setattr("lib.backends.text_backends.factory.async_session_factory", factory)
+
+
 def bind_session_factory(monkeypatch, factory) -> None:
     """把 ``lib.db.async_session_factory`` 指向给定的 session 工厂（通常是 conftest 的 ``db_factory``）。
 

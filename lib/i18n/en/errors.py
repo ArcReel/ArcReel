@@ -177,6 +177,8 @@ MESSAGES = {
     "narration_tts_model_required": "Choose a TTS model when narration is delivered with TTS voiceover",
     "recommendation_changed_again": "The recommended model just changed again. Choose again.",
     "model_not_selected": "A model setting in this project names only the provider {provider} and no model; re-select a model in Project Settings",
+    "image_default_model_not_set": "No default image model is set: choose one in Settings → Default models",
+    "video_default_model_not_set": "No default video model is set: choose one in Settings → Default models",
     "text_default_model_not_set": "No default text model is set: choose one in Settings → Default models; if no provider is configured yet, add one in Settings → Providers first",
     "audio_default_model_not_set": "No default narration voice-over model is set: choose one in Settings → Default models; if no text-to-speech capable provider is configured yet, add one in Settings → Providers first",
     "narration_tts_model_invalid": "The selected TTS model is unavailable; choose a model from a text-to-speech provider",

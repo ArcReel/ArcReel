@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
+import ruWorkflow from "@/i18n/ru/workflow";
 import enWorkflow from "@/i18n/en/workflow";
 import viWorkflow from "@/i18n/vi/workflow";
 import zhWorkflow from "@/i18n/zh/workflow";
 import { WORKFLOW_ACTION_TYPES } from "@/types/workflow";
 
-const CATALOGS = { en: enWorkflow, vi: viWorkflow, zh: zhWorkflow } as const;
+const CATALOGS = { ru: ruWorkflow, en: enWorkflow, vi: viWorkflow, zh: zhWorkflow } as const;
 
 describe("下一步动作的文案覆盖", () => {
   it.each(Object.keys(CATALOGS))("%s 为每个受控动作备了文案", (locale) => {

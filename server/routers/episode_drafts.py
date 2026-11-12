@@ -135,6 +135,10 @@ def _raise_repair_problem(problem: ToolProblem, episode: int) -> NoReturn:
         raise ConflictError("draft_repair_task_active").with_diagnostic(problem.params or {})
     if problem.code in {"draft_not_found", "invalid_request", "doc_type_not_applicable", *_CONFLICT_KEYS}:
         _raise_draft_error(DraftWorkflowError(problem.code, problem.detail), episode)
+    if problem.code == "text_default_model_not_set":
+        raise UnprocessableError(problem.code, **(problem.params or {})).with_diagnostic(
+            {"code": problem.code, "params": problem.params or {}}
+        )
     # 其余是提交失败（任务队列不可用等），草稿未动。
     logger.warning("草稿 AI 修复未能提交 episode=%s code=%s：%s", episode, problem.code, problem.detail)
     raise UnprocessableError("draft_repair_failed").with_diagnostic({"code": problem.code})

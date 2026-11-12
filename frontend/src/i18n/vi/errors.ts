@@ -1,6 +1,10 @@
 import type enErrors from "@/i18n/en/errors";
 
 export default {
+  "text_default_model_not_set": "Chưa đặt mô hình văn bản mặc định: hãy chọn trong Cài đặt → Mô hình mặc định; nếu chưa cấu hình nhà cung cấp nào, hãy thêm trong Cài đặt → Nhà cung cấp trước",
+  "audio_default_model_not_set": "Chưa đặt mô hình lồng tiếng thuyết minh mặc định: hãy chọn trong Cài đặt → Mô hình mặc định; nếu chưa cấu hình nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói, hãy thêm trong Cài đặt → Nhà cung cấp trước",
+  "image_default_model_not_set": "Chưa đặt mô hình hình ảnh mặc định: hãy chọn trong Cài đặt → Mô hình mặc định",
+  "video_default_model_not_set": "Chưa đặt mô hình video mặc định: hãy chọn trong Cài đặt → Mô hình mặc định",
   "provider_asset_link_failed": "Ảnh {{index}} ({{name}}) nhập vào thư viện tư liệu của nhà cung cấp thất bại ({{error_code}}) nên không thể tạo. Gỡ liên kết trong mục Tải lên thư viện tư liệu nhà cung cấp trên thẻ tư liệu rồi tải lên lại, hoặc gỡ liên kết để gửi ảnh thường",
   "provider_asset_link_processing": "Ảnh {{index}} ({{name}}) vẫn đang được nhập vào thư viện tư liệu của nhà cung cấp nên chưa thể tạo. Hãy tạo khi tư liệu đã sẵn sàng, hoặc gỡ liên kết trong mục Tải lên thư viện tư liệu nhà cung cấp trên thẻ tư liệu để gửi ảnh thường",
   "provider_input_image_rejected": "Nhà cung cấp không duyệt ảnh đầu vào của yêu cầu này ({{error_code}}). Bạn có thể tải các ảnh tư liệu liên quan lên thư viện tư liệu của nhà cung cấp rồi tạo lại khi tư liệu đã sẵn sàng",

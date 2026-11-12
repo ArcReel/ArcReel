@@ -23,6 +23,7 @@ from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextOutpu
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
 from lib.backends.text_generator import TextGenerator
 from lib.catalog.errors import ModelNotInCatalogError
+from lib.config.resolver import NoAvailableProviderError
 from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.content_digest import unprefixed
 from lib.infra.text_utils import strip_json_code_fences
@@ -199,14 +200,14 @@ class DraftRepair:
     ) -> dict[str, Any]:
         """修复并按保存口径重判；返回值同 ``DraftWorkflow.save``。
 
-        违约已清零的草稿不调用模型，直接采用。写回草稿之前的失败（读源文、调用模型、回复形状
-        不符等）都抛 ``draft_repair_failed``，草稿不变；回复被截断时原样抛出
-        ``TextOutputTruncatedError``，草稿同样不变。写回之后的失败照常抛出保存阶段的错误码。
+        违约已清零的草稿不调用模型，直接采用。模型配置与输出截断异常原样抛出，草稿不变；
+        写回前的其他失败（读源文、调用模型、回复形状不符等）抛 ``draft_repair_failed``。
+        写回之后的失败照常抛出保存阶段的错误码。
         """
         try:
             content = await self._repaired_content(episode, doc_type, base_revision, instructions)
-        except (DraftWorkflowError, TextOutputTruncatedError, ModelNotInCatalogError):
-            # 引用的模型已不在供应商清单中是可重选的配置问题：原样抛出，由调用方带「去配置供应商」呈现
+        except (DraftWorkflowError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
+            # 模型配置问题保留身份，由调用方给出对应的设置入口。
             raise
         except Exception as exc:
             raise DraftWorkflowError("draft_repair_failed", f"AI 修复未完成：{exc}") from exc

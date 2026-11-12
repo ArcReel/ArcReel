@@ -177,6 +177,8 @@ MESSAGES = {
     "narration_tts_model_required": "Khi chọn lồng tiếng TTS, cần chọn mô hình TTS",
     "recommendation_changed_again": "Mô hình đề xuất vừa thay đổi lần nữa. Hãy chọn lại.",
     "model_not_selected": "Một thiết lập mô hình trong dự án chỉ chọn nhà cung cấp {provider} mà chưa chọn mô hình; hãy chọn lại mô hình trong Cài đặt dự án",
+    "image_default_model_not_set": "Chưa đặt mô hình hình ảnh mặc định: hãy chọn trong Cài đặt → Mô hình mặc định",
+    "video_default_model_not_set": "Chưa đặt mô hình video mặc định: hãy chọn trong Cài đặt → Mô hình mặc định",
     "text_default_model_not_set": "Chưa đặt mô hình văn bản mặc định: hãy chọn trong Cài đặt → Mô hình mặc định; nếu chưa cấu hình nhà cung cấp nào, hãy thêm trong Cài đặt → Nhà cung cấp trước",
     "audio_default_model_not_set": "Chưa đặt mô hình lồng tiếng thuyết minh mặc định: hãy chọn trong Cài đặt → Mô hình mặc định; nếu chưa cấu hình nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói, hãy thêm trong Cài đặt → Nhà cung cấp trước",
     "narration_tts_model_invalid": "Mô hình TTS đã chọn không khả dụng; hãy chọn mô hình của nhà cung cấp tổng hợp giọng nói",

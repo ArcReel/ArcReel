@@ -76,7 +76,7 @@ from server.tool_runtime import (
     repair_draft,
 )
 from tests.factories import register_project_sources
-from tests.fakes import FakeTextGenerator, refuse_resume_execution, use_text_generator
+from tests.fakes import FakeTextGenerator, refuse_resume_execution, use_text_backend_sessions, use_text_generator
 
 
 def _admit_text_operations(projects: ProjectManager, project_name: str) -> None:
@@ -1237,3 +1237,118 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
     assert batch.done is True
     assert batch.members[0].status == "failed"
     assert draft_path.exists()
+
+
+@pytest.mark.usefixtures("video_request_facts")
+@pytest.mark.parametrize(
+    ("project_name", "content_mode", "generation_mode", "handler", "expected_task_type"),
+    [
+        ("script", "ad", "storyboard", "script", "text_episode_script"),
+        ("drama", "drama", "storyboard", "script_plan", "text_drama_script_plan"),
+        ("narration", "narration", "storyboard", "script_plan", "text_narration_script_plan"),
+        ("reference", "narration", "reference_video", "script_plan", "text_reference_script_plan"),
+        ("planning", "narration", "storyboard", "plan", "text_episode_plan"),
+    ],
+)
+async def test_missing_text_default_survives_submission_execution_and_persistence(
+    tmp_path: Path,
+    file_db_factory,
+    monkeypatch: pytest.MonkeyPatch,
+    project_name: str,
+    content_mode: str,
+    generation_mode: str,
+    handler: str,
+    expected_task_type: str,
+) -> None:
+    projects = ProjectManager(tmp_path / "projects")
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
+    projects.create_project(project_name, content_mode=content_mode)
+    projects.create_project_metadata(project_name, project_name, "", content_mode)
+    projects.update_project(project_name, lambda project: project.update(generation_mode=generation_mode))
+    _admit_text_operations(projects, project_name)
+    use_text_backend_sessions(monkeypatch, file_db_factory)
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+
+    async def execute(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
+        del claimed_provider_id
+        return await execute_queued_text_task(task)
+
+    worker = await _start_text_worker(queue, execute)
+    try:
+        services = Services(
+            projects=projects,
+            workflow_planner=object(),
+            capabilities=ConfigResolver(file_db_factory),
+            queue=queue,
+        )
+        scope = ProjectScope(project_name=project_name, data_root=projects.data_root)
+        caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
+        if handler == "script":
+            outcome = await generate_episode_script(
+                ToolRequest(GenerateEpisodeScriptRequest(episode_id=1)), scope, caller, services
+            )
+        elif handler == "script_plan":
+            outcome = await generate_script_plan(
+                ToolRequest(GenerateScriptPlanRequest(episode_id=1)), scope, caller, services
+            )
+        else:
+            outcome = await plan_episodes(ToolRequest(PlanEpisodesRequest()), scope, caller, services)
+
+        assert outcome.problem is None
+        batch = outcome.value
+        assert batch is not None
+        task_id = batch.members[0].task_id
+        assert task_id is not None
+
+        task = await wait_for_task(task_id, 0.01, queue=queue)
+    finally:
+        await worker.stop()
+    assert task["task_type"] == expected_task_type
+    assert task["status"] == "failed"
+    problem = problem_from_task_failure(task["error_message"])
+    assert (problem.code, problem.action.value, problem.params) == (
+        "text_default_model_not_set",
+        "configure_default_model",
+        {"media_type": "text"},
+    )
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_missing_text_default_during_draft_repair_keeps_original_bytes(
+    file_db_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
+    path = quarantine_path(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+    before = path.read_bytes()
+    use_text_backend_sessions(monkeypatch, file_db_factory)
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+    services = Services(
+        projects=projects, workflow_planner=object(), capabilities=ConfigResolver(file_db_factory), queue=queue
+    )
+
+    async def execute(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
+        del claimed_provider_id
+        return await execute_queued_text_task(task)
+
+    worker = await _start_text_worker(queue, execute)
+    try:
+        submitted = await repair_draft(
+            ToolRequest(RepairDraftRequest(episode_id=1, doc_type="narration_script_plan", base_revision=revision)),
+            ProjectScope(project_name="demo", data_root=projects.data_root),
+            CallerContext(user_id=DEFAULT_USER_ID, source="webui"),
+            services,
+        )
+        assert submitted.value is not None, submitted.problem
+        task_id = submitted.value.members[0].task_id
+        assert task_id is not None
+        task = await wait_for_task(task_id, 0.01, queue=queue)
+    finally:
+        await worker.stop()
+    assert path.read_bytes() == before
+    problem = problem_from_task_failure(task["error_message"])
+    assert (problem.code, problem.action.value, problem.params) == (
+        "text_default_model_not_set",
+        "configure_default_model",
+        {"media_type": "text"},
+    )

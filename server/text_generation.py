@@ -26,7 +26,7 @@ from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextOutpu
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
 from lib.backends.text_generator import TextGenerator
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, NoAvailableProviderError
 from lib.episode.episode_ids import describe_episode_for_agent
 from lib.episode.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
@@ -1090,7 +1090,7 @@ async def generate_drama_script_plan(
         return TextGenerationResult(
             drama_script_plan_result_text(script_plan_path.relative_to(project_path), raw_scenes, action="生成")
         )
-    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
+    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
@@ -1861,7 +1861,7 @@ async def generate_reference_script_plan(
                 action="拆分",
             )
         )
-    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
+    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
@@ -2009,7 +2009,7 @@ async def generate_narration_script_plan(
         return TextGenerationResult(
             narration_script_plan_result_text(script_plan_path.relative_to(project_path), raw_segments, action="拆分")
         )
-    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
+    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc

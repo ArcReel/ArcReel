@@ -130,6 +130,10 @@ PROVIDER_ASSET_FAILURE_CODES: frozenset[str] = frozenset(
 # Stable failure code -> i18n errors key. The code is agent-facing and persisted
 # in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
+    "text_default_model_not_set": "text_default_model_not_set",
+    "audio_default_model_not_set": "audio_default_model_not_set",
+    "image_default_model_not_set": "image_default_model_not_set",
+    "video_default_model_not_set": "video_default_model_not_set",
     "internal_server_error": "internal_server_error",
     **{code: code for code in CAPABILITY_FAILURE_CODES},
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},

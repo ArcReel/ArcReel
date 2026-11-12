@@ -265,6 +265,26 @@ class TestTaskErrorLocalization:
                 assert "{" not in row["error_message"]
                 assert (row["error_code"], row["error_params"]) == (code, params)
 
+    def test_missing_text_default_is_localized_in_both_task_failure_formats(self, monkeypatch):
+        from lib.config.resolver import NoAvailableProviderError
+        from lib.generation.generation_result import encode_generation_problem, problem_from_task_failure
+        from lib.generation.task_failure_encoding import encode_task_failure_message
+        from lib.i18n import _
+
+        encoded = encode_task_failure_message(NoAvailableProviderError("固定中文诊断", media_type="text"))
+        items = [
+            {"task_id": "direct", "error_message": encoded},
+            {"task_id": "queued", "error_message": encode_generation_problem(problem_from_task_failure(encoded))},
+        ]
+        client = self._client(monkeypatch, _RenderQueue(items=items))
+        for locale in ("zh", "en", "vi", "ru"):
+            rows = client.get("/api/v1/tasks", headers={"Accept-Language": locale}).json()["items"]
+            for row in rows:
+                assert row["error_code"] == "text_default_model_not_set"
+                assert row["error_params"] == {"media_type": "text"}
+                assert row["error_message"] == _("text_default_model_not_set", locale=locale)
+                assert "固定中文诊断" not in row["error_message"]
+
     def test_episode_planning_failure_is_localized_without_the_diagnostic_detail(self, monkeypatch):
         from lib.generation.generation_result import GenerationAction, GenerationProblem, encode_generation_problem
 

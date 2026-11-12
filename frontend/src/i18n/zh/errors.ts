@@ -1,6 +1,10 @@
 import type enErrors from '../en/errors';
 
 export default {
+  "text_default_model_not_set": "还没有设置文本默认模型：请在「全局设置 → 默认模型」中选择；还没有配置供应商时，先在「全局设置 → 供应商」配置",
+  "audio_default_model_not_set": "还没有设置旁白配音的默认模型：请在「全局设置 → 默认模型」中选择；还没有配置支持语音合成的供应商时，先在「全局设置 → 供应商」配置",
+  "image_default_model_not_set": "还没有设置图片默认模型：请在「全局设置 → 默认模型」中选择",
+  "video_default_model_not_set": "还没有设置视频默认模型：请在「全局设置 → 默认模型」中选择",
   "provider_asset_link_failed": "图片{{index}}（{{name}}）在供应商素材库的入库失败（{{error_code}}），不能生成。在资产卡片的「上传到供应商素材库」中解除关联后重新上传，或解除关联后改发普通图片",
   "provider_asset_link_processing": "图片{{index}}（{{name}}）在供应商素材库的入库尚未完成，暂时不能生成。等入库可用后再生成，或在资产卡片的「上传到供应商素材库」中解除关联，改发普通图片",
   "provider_input_image_rejected": "供应商审核未通过这次请求的输入图片（{{error_code}}）。可以把相关资产图上传到供应商素材库，等入库可用后重新生成",
