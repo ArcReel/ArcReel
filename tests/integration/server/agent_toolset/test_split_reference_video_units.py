@@ -141,6 +141,7 @@ async def test_fetch_reference_split_caps_reports_unavailable_i2v_as_text_proble
     assert caps.text_durations == []
     assert caps.durations == [6, 10]
     assert caps.text_problem is not None
+    assert caps.text_voice is None
     assert caps.text_problem.code == "reference_capability_unavailable"
     assert caps.text_problem.parameters() == {"capability": "i2v"}
 
@@ -226,6 +227,7 @@ async def test_reference_split_planning_reports_unavailable_i2v_instead_of_r2v_f
     assert caps.reference_durations == list(range(3, 16))
     assert caps.text_durations == []
     assert caps.text_problem is not None
+    assert caps.text_voice is None
     assert caps.text_problem.code == "reference_capability_unavailable"
     assert caps.text_problem.parameters() == {"capability": "i2v"}
     assert caps.text_problem.action == "configure_video_model"
@@ -714,3 +716,74 @@ async def test_planning_reference_audio_limit_from_catalog(
         violations = read_rv_quarantine(fake_ctx)["violations"]
         assert [v["code"] for v in violations] == ["speakers_over_limit"]
         assert "请按说话人拆分镜头" in said(out)
+
+
+@pytest.mark.parametrize(
+    ("i2v_accepts_audio", "i2v_limit", "r2v_limit", "blocked_without_images", "blocked_with_images"),
+    [(False, 1, 1, False, True), (True, 1, 2, True, False), (True, 3, 1, False, True)],
+)
+@pytest.mark.parametrize("with_images", [False, True])
+async def test_planning_speaker_limit_follows_unit_bucket(
+    fake_ctx: ToolHarness,
+    monkeypatch,
+    db_factory,
+    i2v_accepts_audio,
+    i2v_limit,
+    r2v_limit,
+    blocked_without_images,
+    blocked_with_images,
+    with_images,
+) -> None:
+    from arcreel_catalog_core import CatalogEntry, VideoFacts
+    from lib.config.resolver import ConfigResolver
+    from tests.catalog_support import catalog_of, install_catalog
+
+    entries = tuple(
+        CatalogEntry(
+            maker="test",
+            name=name,
+            media_type="video",
+            display_name=name,
+            facts=VideoFacts(
+                durations=(8,),
+                max_reference_images=4,
+                first_frame=True,
+                reference_audio=accepts_audio,
+                max_reference_audio_count=limit,
+            ),
+        )
+        for name, accepts_audio, limit in [
+            ("with-images", True, r2v_limit),
+            ("without-images", i2v_accepts_audio, i2v_limit),
+        ]
+    )
+    install_catalog(monkeypatch, catalog_of(entries, {"ark": ("test/with-images", "test/without-images")}))
+    rv_source(fake_ctx)
+    fake_ctx.pm.project_payload.update(
+        {
+            "character_voice_binding": "reference_audio",
+            "video_provider_r2v": "ark/with-images",
+            "video_provider_i2v": "ark/without-images",
+        }
+    )
+    if with_images:
+        rv_character_sheet(fake_ctx, "张三", claimed=True)
+    fake_ctx.config_resolver = ConfigResolver(db_factory)
+    dry = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
+    assert dry.problem is None, dry
+    prompt = said(dry)
+    assert f"带可用参考图的视频单元的说话人数（按角色本体去重，衍生共享本体声音）不超过 {r2v_limit}" in prompt
+    without_rule = "无可用参考图的视频单元的说话人数"
+    assert (without_rule in prompt) is i2v_accepts_audio
+    if i2v_accepts_audio:
+        assert f"{without_rule}（按角色本体去重，衍生共享本体声音）不超过 {i2v_limit}" in prompt
+    text = ("@[张三] 起身" if with_images else "门开了") + "\n@[张三]{走。}\n@[李四]{好。}"
+    use_text_generator(monkeypatch, rv_generator_returning([rv_unit(text)]))
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
+    blocked = blocked_with_images if with_images else blocked_without_images
+    assert (out.problem is not None) is blocked, out
+    assert rv_script_plan_path(fake_ctx).exists() is not blocked
+    if blocked:
+        violations = read_rv_quarantine(fake_ctx)["violations"]
+        assert [v["code"] for v in violations] == ["speakers_over_limit"]
+        assert "说话人数 2 超过模型参考音频段数上限 1" in said(out)

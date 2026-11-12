@@ -385,8 +385,19 @@ def test_split_prompt_screenplay_branch_extracts_instead_of_adapting():
 
 @pytest.mark.parametrize("limit", [2, None])
 def test_split_prompt_speaker_limit(limit):
-    prompt = _split_prompt(max_speakers=limit)
+    prompt = _split_prompt(reference_max_speakers=limit, text_max_speakers=limit)
     assert ("**参考音频上限**" in prompt) is (limit is not None)
     if limit is not None:
         assert f"不超过 {limit}" in prompt
         assert "按说话人拆分镜头" in prompt
+
+
+@pytest.mark.parametrize(("reference_limit", "text_limit"), [(2, 1), (None, 1), (2, None)])
+def test_split_prompt_distinguishes_speaker_limits_by_reference_images(reference_limit, text_limit):
+    prompt = _split_prompt(reference_max_speakers=reference_limit, text_max_speakers=text_limit)
+    for state, limit in [("带可用参考图", reference_limit), ("无可用参考图", text_limit)]:
+        rule = f"**参考音频上限**：{state}的视频单元的说话人数"
+        assert (rule in prompt) is (limit is not None)
+        if limit is not None:
+            assert f"{rule}（按角色本体去重，衍生共享本体声音）不超过 {limit}" in prompt
+    assert "**参考音频上限**：一个视频单元" not in prompt
