@@ -2550,6 +2550,7 @@ export default {
   'agent_status_running': 'Agent đang chạy',
   'agent_status_waiting_answer': 'Agent đang chờ bạn trả lời',
   'workspace_nav_label': 'Điều hướng không gian làm việc',
+  'workspace_back_to_projects': 'Quay lại danh sách dự án',
   'project_switcher_current': 'Dự án hiện tại',
   'project_switcher_new': 'Dự án mới…',
   'project_switcher_label': 'Chuyển dự án (hiện tại: {{name}})',

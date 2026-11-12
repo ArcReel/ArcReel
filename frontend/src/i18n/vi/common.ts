@@ -43,6 +43,8 @@ export default {
   'page_load_failed': 'Không tải được trang. Hãy kiểm tra kết nối rồi tải lại',
   'reload_page': 'Tải lại',
   'close': 'Đóng',
+  'open_navigation': 'Mở điều hướng',
+  'close_navigation': 'Đóng điều hướng',
   'jump_to_latest': 'Đến tin mới nhất',
   'jump_to_start': 'Về đầu',
   'unsaved_changes': 'Có thay đổi chưa lưu',

@@ -407,6 +407,179 @@ body {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
 }
 
+/* 移动端（<768px）基础适配。
+   - 视口高度用 dvh：地址栏收起/展开时不跳动，键盘弹出时内容不被遮挡。
+   - 触控目标：WCAG 2.5.8 要求 24×24；移动端把交互控件抬到 44×44（Apple HIG）——图标按钮靠
+     min-width/min-height 撑开命中区，文字按钮靠 min-height，不改变桌面端密度。
+   - 安全区：刘海与手势条用 env(safe-area-inset-*)，只在移动端生效。
+   - 输入框 16px：iOS Safari 在字号小于 16px 时聚焦会自动放大页面。 */
+@media (max-width: 47.999rem) {
+    html {
+        -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+        overscroll-behavior-y: none;
+    }
+
+    /* 图标按钮撑到 44px 命中区。按尺寸类匹配而不是按 data-slot：分裂按钮里的下拉触发器
+       渲染成 dropdown-menu-trigger，按 slot 匹配会漏掉它，导致同一组按钮一大一小。 */
+    :where(a, button, [role="button"])[class*="size-10"],
+    :where(a, button, [role="button"])[class*="size-9"],
+    :where(a, button, [role="button"])[class*="size-8"],
+    :where(a, button, [role="button"])[class*="size-7"],
+    :where(a, button, [role="button"])[class*="size-6"] {
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+    }
+
+    /* 分裂按钮：组内两个按钮同宽同高，图标态的文字按钮也补齐到 44px */
+    :where([data-slot="button-group"]) > :where(button, a, [role="button"]) {
+        min-width: 2.75rem;
+    }
+
+    /* 分段开关（Tab、筛选）：文字宽窄不一，统一抬到 44px 见方，连排时不出现窄条 */
+    :where([data-slot="toggle-group-item"], [data-slot="tabs-trigger"]) {
+        min-width: 2.75rem;
+    }
+
+    /* 文字按钮与开关：抬到 44px 高，横向内边距留出拇指余量。
+       借用 buttonVariants 外观的链接（`<Link className={buttonVariants(...)}>`）不是 button 元素，
+       靠类名里的 `group/button` 认出来，否则它们会比旁边的按钮矮一截。 */
+    :where(
+        button,
+        [role="button"],
+        [data-slot="button"],
+        [data-slot="toggle"],
+        [data-slot="toggle-group-item"],
+        a[class*="group/button"]
+    ) {
+        min-height: 2.75rem;
+        /* 两三个字的短按钮（筛选、分页）加上 44px 下限，连排时不再是一排窄条 */
+        min-width: 2.75rem;
+    }
+
+    /* 表单控件：16px 字号避免 iOS 聚焦缩放，命中区同高。
+       输入组（搜索框、带图标的输入）整体抬高，内部输入框继承组高。 */
+    :where([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"], [data-slot="input-group"]) {
+        min-height: 2.75rem;
+    }
+
+    :where([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"], [data-slot="input-group-control"]) {
+        font-size: 1rem;
+    }
+
+    /* 输入组内的输入框撑满组高：只抬组高而输入框仍是 32px 时，点击落点仍偏小。 */
+    :where([data-slot="input-group-control"]) {
+        min-height: 2.75rem;
+    }
+
+    /* 导航列表的链接整行可点：设置侧栏、二级栏这些条目在触屏上按行命中。 */
+    :where(nav a[href]) {
+        min-height: 2.75rem;
+    }
+
+    /* 表单密集的页面（设置）在移动档整体收小字号：一屏能多放两三条信息。
+       正文 12.5px、辅助 11px、区块标题 15px——仍高于「需要眯眼」的下限。
+       输入框不在收小范围内：它们必须保持 16px，否则 iOS 聚焦时会自动放大页面。 */
+    /* 容器本身也降一档：没写字号类的文字（纯 <p>、<li>、<label>）默认继承 16px，
+       只覆盖工具类会漏掉它们。 */
+    :where([data-mobile-compact-text]) {
+        font-size: 0.8125rem;
+        line-height: 1.125rem;
+    }
+
+    :where([data-mobile-compact-text]) :is(.text-xs):not(input, textarea, select) {
+        font-size: 0.6875rem;
+        line-height: 0.9375rem;
+    }
+
+    :where([data-mobile-compact-text]) :is(.text-sm):not(input, textarea, select) {
+        font-size: 0.75rem;
+        line-height: 1rem;
+    }
+
+    :where([data-mobile-compact-text]) :is(.text-base):not(input, textarea, select) {
+        font-size: 0.8125rem;
+        line-height: 1.125rem;
+    }
+
+    :where([data-mobile-compact-text]) :is(.text-lg):not(input, textarea, select) {
+        font-size: 0.875rem;
+        line-height: 1.1875rem;
+    }
+
+    :where([data-mobile-compact-text]) :is(.text-xl):not(input, textarea, select) {
+        font-size: 0.9375rem;
+        line-height: 1.25rem;
+    }
+
+    :where([data-mobile-compact-text]) :is(.text-2xl):not(input, textarea, select) {
+        font-size: 1.0625rem;
+        line-height: 1.4375rem;
+    }
+
+    /* 调用端点详情（DetailPane dense）：表单控件与分节内边距比通用移动档再压一档，
+       字号与内置端点详情（12～13px）对齐，输入框不再以 16px/44px 的体量独占一屏。
+       选择器写满两级属性而不是 :where()：这里的字号要压过 compact-text 的 .text-sm / .text-base 规则。
+       这里是唯一允许输入框低于 16px 的地方——用户明确要求方框随字号收小；
+       iOS 聚焦时可能轻微放大，换行编辑不受影响。 */
+    [data-detail-dense] [data-slot="input"],
+    [data-detail-dense] [data-slot="textarea"],
+    [data-detail-dense] [data-slot="select-trigger"] {
+        font-size: 0.8125rem;
+        line-height: 1.125rem;
+        min-height: 2.25rem;
+        padding-inline: 0.625rem;
+    }
+
+    [data-detail-dense] [data-slot="textarea"] {
+        padding-block: 0.375rem;
+    }
+
+    [data-detail-dense] [data-slot="toggle-group-item"] {
+        min-height: 2.25rem;
+        min-width: 2.25rem;
+        font-size: 0.8125rem;
+    }
+
+    /* 页面顶栏与底部操作条让开刘海与手势条 */
+    :where([data-slot="mobile-safe-top"]) {
+        padding-top: env(safe-area-inset-top);
+    }
+
+    :where([data-slot="mobile-safe-bottom"]) {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+}
+
+/* 移动端抽屉与全屏层的滑入方向：从左滑入的是导航，从右滑入的是 Agent 面板。 */
+@utility mobile-sheet-left {
+    animation: mobile-sheet-left-in var(--duration-base) var(--easing-emphasized);
+}
+
+@utility mobile-sheet-right {
+    animation: mobile-sheet-right-in var(--duration-base) var(--easing-emphasized);
+}
+
+@keyframes mobile-sheet-left-in {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes mobile-sheet-right-in {
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
 /* 剪辑视图 BGM 片段：两端按实际淡入淡出画成渐变，--fade-in / --fade-out 是渐变平台的起止位置（百分比）。 */
 @utility bgm-fade {
     background: linear-gradient(

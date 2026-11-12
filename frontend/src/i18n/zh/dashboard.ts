@@ -2614,6 +2614,7 @@ export default {
   'agent_status_running': 'Agent 正在运行',
   'agent_status_waiting_answer': 'Agent 在等你回答',
   'workspace_nav_label': '工作区导航',
+  'workspace_back_to_projects': '返回项目列表',
   'shot_detail_save_first': '请先保存或放弃当前修改',
   'shot_leave_title': '「{{id}}」有未保存的修改',
   'shot_saved_not_refreshed': '修改已写入，但没能载入最新剧本，请刷新页面后再生成',

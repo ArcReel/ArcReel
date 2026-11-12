@@ -283,7 +283,7 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
       // 保存栏与正文的表单列同宽同起点（正文 max-w-190 含左右各 24px 内边距），宽窗口下不横跨整栏
       footer={<SaveBar unit={unit} className="max-w-178" />}
     >
-      <div className="flex max-w-190 flex-col gap-8 px-6 py-6">
+      <div className="flex max-w-190 flex-col gap-5 px-4 py-4 @md/page:gap-8 @md/page:px-6 @md/page:py-6">
         <CredentialList
           providerId={providerId}
           supportsBaseUrl={detail.supports_base_url}

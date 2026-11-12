@@ -2699,6 +2699,7 @@ export default {
   'agent_status_running': 'Агент работает',
   'agent_status_waiting_answer': 'Агент ждёт вашего ответа',
   'workspace_nav_label': 'Навигация по рабочему пространству',
+  'workspace_back_to_projects': 'Назад к проектам',
   'shot_detail_save_first': 'Сначала сохраните или отмените изменения',
   'shot_leave_title': '«{{id}}»: есть несохранённые изменения',
   'shot_saved_not_refreshed': 'Изменения записаны, но последний сценарий загрузить не удалось. Обновите страницу перед генерацией',

@@ -62,8 +62,11 @@ export function LoginPage() {
   };
 
   return (
-    <div data-testid="login-page" className="relative flex h-dvh overflow-y-auto bg-background p-4 text-foreground">
-      <div className="m-auto flex w-full max-w-sm flex-col gap-6 rounded-xl border bg-card p-8 shadow-overlay">
+    <div
+      data-testid="login-page"
+      className="relative flex h-dvh overflow-y-auto bg-background p-4 text-foreground" data-slot="mobile-safe-bottom"
+    >
+      <div className="m-auto flex w-full max-w-sm flex-col gap-6 rounded-xl border bg-card p-6 shadow-overlay @md/page:p-8">
         <div className="flex flex-col items-center gap-1.5 text-center">
           <h1 className="flex items-center gap-2 font-editorial text-3xl tracking-tight">
             <picture className="dark:hidden">

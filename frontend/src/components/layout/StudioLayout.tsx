@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
+import { ChevronLeft, X } from "lucide-react";
 import { usePanelRef, type LayoutChangedMeta, type PanelSize } from "react-resizable-panels";
 import { cn } from "cn";
 import { ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { AgentCopilot } from "@/components/copilot/AgentCopilot";
+import { useMobileTier } from "@/hooks/useMobileTier";
 import { useTaskRefresh } from "@/hooks/useTaskRefresh";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { useProjectsStore } from "@/stores/projects-store";
 import { DemoAssistantPanel } from "@/onboarding/DemoAssistantPanel";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { isDemoProject } from "@/onboarding/demo-project";
+import { ROUTE_APP_PROJECTS } from "@/app-routes";
 import {
   ASSISTANT_PANEL_DEFAULT_WIDTH,
   ASSISTANT_PANEL_MAX_WIDTH,
@@ -72,6 +76,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   useProjectEventsSSE(sseProjectName);
 
   const compact = useCompactTier();
+  const mobile = useMobileTier();
   const storeOpen = useAppStore((s) => s.assistantPanelOpen);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
   const agentWidth = useAppStore((s) => s.assistantPanelWidth);
@@ -225,6 +230,36 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     document.getElementById(AGENT_PANEL_TOGGLE_ID)?.focus();
   }, [agentOpen]);
 
+  // 移动档首屏不展开 Agent：桌面端默认展开是为了并排看画布，移动端它会整屏盖住画布。
+  // 只在进入移动档时收起一次（不写回用户偏好），用户随后主动打开仍照常生效。
+  useEffect(() => {
+    if (mobile) useAppStore.getState().setAssistantPanelOpen(false);
+  }, [mobile]);
+
+  // 移动档的侧栏是抽屉：切换路由后自动收起，否则点完导航项抽屉会盖住新页面。
+  const mobileSidebarOpen = useAppStore((s) => s.mobileSidebarOpen);
+  const setMobileSidebarOpen = useAppStore((s) => s.setMobileSidebarOpen);
+  useEffect(() => {
+    if (!mobile) return;
+    setMobileSidebarOpen(false);
+  }, [location, mobile, setMobileSidebarOpen]);
+  // 离开移动档时清掉抽屉状态，避免回到桌面档后残留「已打开」。
+  useEffect(() => {
+    if (!mobile) setMobileSidebarOpen(false);
+  }, [mobile, setMobileSidebarOpen]);
+
+  // 移动档抽屉：Esc 关闭，打开时锁住背景滚动。
+  useEffect(() => {
+    if (!mobile || !mobileSidebarOpen) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      setMobileSidebarOpen(false);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [mobile, mobileSidebarOpen, setMobileSidebarOpen]);
+
   // 紧凑档的覆盖层是非模态的：焦点在面板内时 Esc 收起面板。监听挂在 document 的冒泡阶段，面板内的控件先处理自己的 Esc
   useEffect(() => {
     if (!overlay || !agentOpen) return;
@@ -245,6 +280,61 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       <TaskFailureListener projectName={sseProjectName} />
       <ScriptGenerationNoticeListener />
       <GlobalHeader />
+      {mobile ? (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <main className="@container/canvas relative isolate flex h-full min-w-0 flex-col">{children}</main>
+          {mobileSidebarOpen && (
+            <div className="absolute inset-0 z-overlay" role="presentation">
+              {/* 抽屉遮罩：点击收起，键盘用户经 Esc 或抽屉内的关闭按钮收起 */}
+              <div
+                aria-hidden
+                className="absolute inset-0 bg-scrim"
+                onClick={() => setMobileSidebarOpen(false)}
+              />
+              <div
+                id="workspace-mobile-sidebar"
+                role="dialog"
+                aria-modal="true"
+                aria-label={t("workspace_nav_label")}
+                className="mobile-sheet-left absolute inset-y-0 left-0 flex w-[min(85vw,20rem)] flex-col border-r border-border bg-sidebar shadow-overlay"
+              >
+                <div data-slot="mobile-safe-top" className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1">
+                  {/* 顶栏在移动档不单留「回项目列表」，入口放在抽屉标题栏：进入工作区后随时能退回大厅。 */}
+                  <Link
+                    href={`~${ROUTE_APP_PROJECTS}`}
+                    aria-label={t("workspace_back_to_projects")}
+                    className={buttonVariants({ variant: "ghost", size: "icon" })}
+                  >
+                    <ChevronLeft aria-hidden />
+                  </Link>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{t("workspace_nav_label")}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("common:close_navigation")}
+                    onClick={() => setMobileSidebarOpen(false)}
+                  >
+                    <X aria-hidden />
+                  </Button>
+                </div>
+                <div className="min-h-0 flex-1">
+                  <AssetSidebar collapsed={false} onCollapsedChange={() => setMobileSidebarOpen(false)} />
+                </div>
+              </div>
+            </div>
+          )}
+          {/* 移动档的 Agent 面板是整屏层：不挤压画布，覆盖其上。
+              关闭按钮由面板自己的标题栏提供，这里不再加一条重复的标题栏。 */}
+          {agentOpen && (
+            <div
+              data-slot="mobile-safe-top"
+              className="absolute inset-0 z-overlay flex flex-col bg-popover"
+            >
+              <div className="min-h-0 flex-1">{demoMode ? <DemoAssistantPanel /> : <AgentCopilot />}</div>
+            </div>
+          )}
+        </div>
+      ) : (
       <ResizablePanelGroup className="min-h-0 flex-1" onLayoutChanged={handleLayoutChanged}>
         <ResizablePanel
           id="workspace-sidebar"
@@ -320,6 +410,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
           </aside>
         </ResizablePanel>
       </ResizablePanelGroup>
+      )}
     </div>
   );
 }

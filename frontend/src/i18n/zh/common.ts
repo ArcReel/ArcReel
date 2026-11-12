@@ -43,6 +43,8 @@ export default {
   'page_load_failed': '页面加载失败，请检查网络后重新加载',
   'reload_page': '重新加载',
   'close': '关闭',
+  'open_navigation': '打开导航菜单',
+  'close_navigation': '关闭导航菜单',
   'jump_to_latest': '跳到最新',
   'jump_to_start': '回到开头',
   'unsaved_changes': '有未保存的修改',

@@ -60,7 +60,11 @@ function DialogContent({
         data-slot="dialog-content"
         data-size={size}
         className={cn(
-          "fixed top-1/2 left-1/2 z-overlay flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl bg-popover text-sm text-popover-foreground shadow-overlay ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:max-w-lg data-[size=lg]:max-w-2xl data-[size=sm]:max-w-sm data-[size=xl]:max-w-4xl data-[size=wizard]:h-[min(760px,calc(100dvh-48px))] data-[size=wizard]:max-w-180 data-[size=viewer]:h-[calc(100dvh-2rem)] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // 移动档贴底弹出：宽度占满、上圆角、最大高度留出刘海，操作按钮在拇指可及范围内。
+          "fixed z-overlay flex flex-col overflow-hidden bg-popover text-sm text-popover-foreground shadow-overlay ring-1 ring-foreground/10 duration-100 outline-none",
+          "max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:max-h-[calc(100dvh-2rem)] max-md:w-full max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-t-xl max-md:rounded-b-none",
+          "md:top-1/2 md:left-1/2 md:max-h-[calc(100dvh-2rem)] md:w-[calc(100%-2rem)] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-xl",
+          "data-[size=default]:md:max-w-lg data-[size=lg]:md:max-w-2xl data-[size=sm]:md:max-w-sm data-[size=xl]:md:max-w-4xl data-[size=wizard]:md:h-[min(760px,calc(100dvh-48px))] data-[size=wizard]:md:max-w-180 data-[size=viewer]:md:h-[calc(100dvh-2rem)] data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
@@ -92,7 +96,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       // 不随 Body 滚动；右侧给关闭按钮留位
-      className={cn("flex shrink-0 flex-col gap-1.5 border-b px-5 py-4 pr-12", className)}
+      className={cn("flex shrink-0 flex-col gap-1.5 border-b px-4 py-3 pr-12 md:px-5 md:py-4", className)}
       {...props}
     />
   )
@@ -104,7 +108,7 @@ function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-body"
       className={cn(
-        "relative min-h-0 flex-1 overflow-y-auto px-5 py-4 [scrollbar-gutter:stable]",
+        "relative min-h-0 flex-1 overflow-y-auto px-4 py-3 [scrollbar-gutter:stable] md:px-5 md:py-4",
         className
       )}
       {...props}
@@ -124,9 +128,9 @@ function DialogFooter({
   return (
     <div
       data-slot="dialog-footer"
-      // 固定在底部、不随 Body 滚动；只支持桌面端，按钮恒为一行靠右
+      // 固定在底部、不随 Body 滚动；桌面端按钮一行靠右，移动端铺满整行便于点按。
       className={cn(
-        "flex shrink-0 items-center justify-end gap-2 border-t bg-muted/50 px-5 py-3",
+        "flex shrink-0 flex-wrap items-center justify-end gap-2 border-t bg-muted/50 px-4 py-3 max-md:[&>[data-slot=button]]:flex-1 max-md:pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-5",
         className
       )}
       {...props}

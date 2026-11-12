@@ -1,7 +1,8 @@
-import { useId, type ReactNode } from "react";
+import { useContext, useId, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Link } from "wouter";
 import { cn } from "cn";
+import { SidebarDrawerModeContext } from "./PageShell";
 
 export interface PageSidebarItem {
   id: string;
@@ -31,12 +32,21 @@ interface PageSidebarProps {
   replace?: boolean;
 }
 
-/** 页面外壳的侧栏：贴左、独立滚动，标准档 224px、紧凑档 200px。 */
+/**
+ * 页面外壳的侧栏：贴左、独立滚动，标准档 224px、紧凑档 200px。
+ *
+ * 移动档（<768px）不占文档流：外壳把它渲染进左侧抽屉，宽度撑满抽屉，隐藏边框。
+ * 抽屉的开合由外壳控制，这里只负责内容与 `variant` 决定的排布。
+ */
 export function PageSidebar({ label, groups, activeId, replace }: PageSidebarProps) {
+  const inDrawer = useContext(SidebarDrawerModeContext);
   return (
     <nav
       aria-label={label}
-      className="relative flex w-50 shrink-0 flex-col gap-5 overflow-y-auto border-r border-border px-3 py-4 xl:w-56"
+      className={cn(
+        "relative flex shrink-0 flex-col gap-5 overflow-y-auto px-3 py-4",
+        inDrawer ? "h-full w-full" : "w-50 border-r border-border xl:w-56",
+      )}
     >
       {groups.map((group) => (
         <SidebarGroup key={group.id} group={group} activeId={activeId} replace={replace} />

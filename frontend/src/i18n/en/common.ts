@@ -42,6 +42,8 @@ export default {
   'page_load_failed': 'This page failed to load. Check your connection and reload',
   'reload_page': 'Reload',
   'close': 'Close',
+  'open_navigation': 'Open navigation',
+  'close_navigation': 'Close navigation',
   'jump_to_latest': 'Jump to latest',
   'jump_to_start': 'Jump to start',
   'unsaved_changes': 'Unsaved changes',

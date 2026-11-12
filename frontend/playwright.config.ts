@@ -11,7 +11,7 @@ const PORT = Number(process.env.E2E_PORT ?? DEFAULT_E2E_PORT);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const OUTPUT_DIR = process.env.E2E_OUTPUT_DIR ?? "./test-results";
 
-// 验收视口：从最低支持的 1024×600 到验收上限 2560×1440。
+// 桌面验收视口：从最低支持的 1024×600 到验收上限 2560×1440。
 const VIEWPORTS = [
   { width: 1024, height: 600 },
   { width: 1280, height: 600 },
@@ -19,6 +19,17 @@ const VIEWPORTS = [
   { width: 1920, height: 1080 },
   { width: 2560, height: 1440 },
 ];
+
+// 移动视口：iPhone SE 到主流安卓机。移动档的定义是视口窄于 768px（`(max-width: 47.999rem)`），
+// 正好 768px 的竖屏平板落在桌面档，另由平板套件覆盖，避免用桌面布局去套移动端的断言。
+const MOBILE_VIEWPORTS = [
+  { name: "375x667", width: 375, height: 667 },
+  { name: "390x844", width: 390, height: 844 },
+  { name: "414x896", width: 414, height: 896 },
+];
+
+// 平板竖屏：移动档边界之上的最小宽度，验证桌面档在这个宽度下不溢出。
+const TABLET_VIEWPORTS = [{ name: "768x1024", width: 768, height: 1024 }];
 
 const isCI = Boolean(process.env.CI);
 
@@ -54,6 +65,19 @@ export default defineConfig({
       name: `${viewport.width}x${viewport.height}`,
       testMatch: "regions/**/*.spec.ts",
       use: { viewport },
+    })),
+    // 移动端套件：独立目录与独立视口，不参与桌面截图基线。
+    ...MOBILE_VIEWPORTS.map((viewport) => ({
+      name: `mobile-${viewport.name}`,
+      testMatch: "mobile/**/*.spec.ts",
+      testIgnore: "mobile/tablet.spec.ts",
+      use: { viewport: { width: viewport.width, height: viewport.height }, hasTouch: true, isMobile: true },
+    })),
+    // 平板套件：同一目录的 tablet.spec.ts，跑在移动档边界之上的视口。
+    ...TABLET_VIEWPORTS.map((viewport) => ({
+      name: `tablet-${viewport.name}`,
+      testMatch: "mobile/tablet.spec.ts",
+      use: { viewport: { width: viewport.width, height: viewport.height }, hasTouch: true },
     })),
   ],
   webServer: {
