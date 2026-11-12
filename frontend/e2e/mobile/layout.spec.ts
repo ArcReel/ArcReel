@@ -103,7 +103,7 @@ test.describe("移动端：登录页", () => {
     await expectNoHorizontalScroll(page);
     await expectTouchTargets(page);
     await page.getByLabel("用户名").fill("admin");
-    await page.getByLabel("密码").fill("qq928820655");
+    await page.getByLabel("密码").fill("wrong-password");
     await expect(page.getByRole("button", { name: "登录" })).toBeEnabled();
   });
 });
