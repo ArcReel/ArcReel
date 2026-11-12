@@ -21,6 +21,7 @@ from arcreel_market_core.video_backend_contract import ReferenceAudioMode, audio
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
+from lib.backends.image_capabilities import custom_image_quality_options
 from lib.catalog.model_id import has_dot_segment
 from lib.catalog.query import binding_key, find_bound_entry
 from lib.config.model_setting_keys import PROJECT_MODEL_SETTING_KEYS
@@ -313,6 +314,9 @@ class ModelResponse(BaseModel):
     # 对应到的条目摘要（maker / name / media_type / display_name / priced）；对应不上条目时为 None，
     # 这个模型的调用记为未定价。
     matched_entry: dict[str, object] | None = None
+    # 图片模型的有效画质可选值（条目的画质取值与调用端点是否接受显式画质两侧求值，见
+    # lib.backends.image_capabilities.custom_image_quality_options），按条目里的顺序；没有或端点解析不出时为空。
+    qualities: list[str] = []
 
 
 class ProviderResponse(BaseModel):
@@ -531,6 +535,11 @@ def _model_to_response(
         entry_binding=m.entry_binding,
         matched_entry=(
             matched_entry_summary(m.model_id, media_type, m.entry_binding) if media_type is not None else None
+        ),
+        qualities=(
+            list(custom_image_quality_options(m.model_id, endpoint_spec=endpoint_spec, entry_binding=m.entry_binding))
+            if endpoint_spec is not None and endpoint_spec.media_type == "image"
+            else []
         ),
     )
 

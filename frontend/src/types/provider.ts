@@ -28,6 +28,9 @@ export interface ModelInfoResponse {
   // 端点按上下文算好回传（见 types/project.ts::DurationConstraints），前端不持有规则。
   supported_durations: number[];
   resolutions: string[];
+  // 图片模型的有效画质可选值：条目收录且调用端点接受显式画质时才非空，顺序即条目顺序，原样展示。
+  // 非图片模型与不接受显式画质的端点为空数组。见 utils/provider-models.ts::lookupQualities。
+  qualities: string[];
   // 成片音轨形态（可控 / 恒有声 / 恒无声），按执行路径各给一份：同一 model 在图生与参考生两条
   // 子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带音轨开关，成片必然无声）。
   // 服务端从 backend 的 VideoCapabilities 派生，前端只取值、不合成三态；非视频 model 恒

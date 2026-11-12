@@ -287,6 +287,52 @@ def test_image_priced_by_output_tokens_with_either_rule_table_has_no_issues(rule
     assert _codes(data) == []
 
 
+def test_image_qualities_covered_by_either_rule_table_have_no_issues():
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        qualities=["low", "medium", "high"],
+        output_token_bases={"high": 48},
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2}, "medium": {"base": 24, "multiplier": 3.3}},
+    )
+
+    assert _codes(data) == []
+
+
+def test_image_qualities_are_unchecked_when_entry_has_no_output_token_rules():
+    """按张计价的条目没有估算规则，也可以收录画质取值。"""
+    data = catalog()
+    data["entries"][2]["facts"]["qualities"] = ["standard", "hd"]
+
+    assert _codes(data) == []
+
+
+def test_image_quality_without_output_token_rule_is_rejected():
+    """收录了估算规则时，每个可选画质都要能预估费用。"""
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        qualities=["low", "medium", "high", "max"],
+        output_token_bases={"medium": 48, "high": 96},
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2}},
+    )
+
+    assert _codes(data) == [("entries[2].facts.qualities[3]", "quality_without_output_token_rule")]
+
+
+def test_duplicate_image_quality_is_rejected():
+    data = catalog()
+    data["entries"][2]["facts"]["qualities"] = ["low", "high", "low"]
+
+    assert _codes(data) == [("entries[2].facts.qualities[2]", "duplicate_value")]
+
+
+@pytest.mark.parametrize("entry_index", [0, 1, 3], ids=["文本", "视频", "音频"])
+def test_qualities_on_non_image_entry_is_an_unknown_field(entry_index: int):
+    data = catalog()
+    data["entries"][entry_index].setdefault("facts", {})["qualities"] = ["low", "high"]
+
+    assert _codes(data) == [(f"entries[{entry_index}].facts.qualities", "unknown_field")]
+
+
 def test_unknown_field_inside_scaled_base_is_reported():
     data = catalog()
     data["entries"][2]["facts"].update(

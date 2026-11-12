@@ -22,6 +22,7 @@ from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.gemini_shared import VERTEX_SCOPES
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.backends.image_capabilities import builtin_image_quality_options
 from lib.billing.multipliers import (
     PROVIDER_MULTIPLIER_KEY,
     get_default_provider_multiplier,
@@ -104,6 +105,10 @@ class ModelInfoResponse(BaseModel):
     # 前端，规则只在 lib.config.resolver 一处。
     supported_durations: list[int] = []
     resolutions: list[str] = []
+    # 图片模型的有效画质可选值（条目的画质取值与调用端点是否接受显式画质两侧求值，见
+    # lib.backends.image_capabilities.builtin_image_quality_options），按条目里的顺序；没有时为空。
+    # 项目把选择存在 model_settings["<供应商>/<模型>"].quality。
+    qualities: list[str] = []
     # 成片音轨形态（``VideoAudioMode``：可控 / 恒有声 / 恒无声），按执行路径各给一份——同一
     # model 在图生与参考生两条子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带
     # 音轨开关）。设置页按当前生效的桶取对应字段决定开关是否可交互，能力线渲染按「非恒无声即
@@ -399,6 +404,14 @@ def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
     return caps.reference_audio_mode.value
 
 
+def _image_quality_options(provider_id: str, model_id: str) -> list[str]:
+    """内置供应商图片模型的有效画质可选值；查不到图片调用端点时为空。"""
+    try:
+        return list(builtin_image_quality_options(provider_id, model_id))
+    except ValueError:
+        return []
+
+
 @router.get("", response_model=ProvidersListResponse)
 async def list_providers(
     _t: Translator,
@@ -419,6 +432,7 @@ async def list_providers(
             )
             models[mid] = ModelInfoResponse(
                 **minfo,
+                qualities=_image_quality_options(s.name, mid) if minfo.get("media_type") == "image" else [],
                 audio_track=audio_track,
                 reference_route_audio_track=reference_route_audio_track,
                 # generation_mode / character_voice_binding 均为 None：目录端点无项目上下文，按非

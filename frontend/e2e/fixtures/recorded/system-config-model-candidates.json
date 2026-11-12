@@ -27,6 +27,225 @@
     },
     "provider_names": {},
     "model_names": {},
-    "lifecycle": {}
+    "lifecycle": {
+      "gemini-aistudio/veo-3.1-generate-preview": {
+        "status": "discontinued",
+        "shutdown_date": "2026-10-22",
+        "successor": "google/gemini-omni-1.1-flash",
+        "successor_name": "Gemini Omni Flash",
+        "switch_targets": {
+          "default": null,
+          "i2v": null,
+          "r2v": null
+        }
+      },
+      "gemini-aistudio/veo-3.1-fast-generate-preview": {
+        "status": "discontinued",
+        "shutdown_date": "2026-10-22",
+        "successor": "google/gemini-omni-1.1-flash",
+        "successor_name": "Gemini Omni Flash",
+        "switch_targets": {
+          "default": null,
+          "i2v": null,
+          "r2v": null
+        }
+      },
+      "gemini-aistudio/veo-3.1-lite-generate-preview": {
+        "status": "discontinued",
+        "shutdown_date": "2026-10-22",
+        "successor": "google/gemini-omni-1.1-flash",
+        "successor_name": "Gemini Omni Flash",
+        "switch_targets": {
+          "default": null,
+          "i2v": null,
+          "r2v": null
+        }
+      },
+      "gemini-vertex/gemini-3.7-flash": {
+        "status": "retiring",
+        "shutdown_date": "2027-01-28",
+        "successor": "google/gemini-3.8-flash",
+        "successor_name": "Gemini 3.8 Flash",
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "ark/doubao-seedream-5-0-lite-260128": {
+        "status": "retiring",
+        "shutdown_date": "2026-11-24",
+        "successor": "bytedance/doubao-seedream-5-0-pro",
+        "successor_name": "Seedream 5.0 Pro",
+        "switch_targets": {
+          "default": null,
+          "t2i": null,
+          "i2i": null
+        }
+      },
+      "ark/doubao-seedream-5-0-260128": {
+        "status": "retiring",
+        "shutdown_date": "2026-11-24",
+        "successor": "bytedance/doubao-seedream-5-0-pro",
+        "successor_name": "Seedream 5.0 Pro",
+        "switch_targets": {
+          "default": null,
+          "t2i": null,
+          "i2i": null
+        }
+      },
+      "ark/doubao-seedream-4-5-251128": {
+        "status": "retiring",
+        "shutdown_date": "2026-11-24",
+        "successor": "bytedance/doubao-seedream-5-0-pro",
+        "successor_name": "Seedream 5.0 Pro",
+        "switch_targets": {
+          "default": null,
+          "t2i": null,
+          "i2i": null
+        }
+      },
+      "ark/doubao-seedream-4-0-250828": {
+        "status": "retiring",
+        "shutdown_date": "2026-11-24",
+        "successor": null,
+        "successor_name": null,
+        "switch_targets": {
+          "default": null,
+          "t2i": null,
+          "i2i": null
+        }
+      },
+      "ark/doubao-seed-2-0-pro-260215": {
+        "status": "retiring",
+        "shutdown_date": "2026-11-24",
+        "successor": "bytedance/doubao-seed-2.1-lite",
+        "successor_name": "豆包 Seed 2.1 Lite",
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "ark/doubao-seed-2-0-code-preview-260215": {
+        "status": "retiring",
+        "shutdown_date": "2026-11-24",
+        "successor": "bytedance/doubao-seed-evolving",
+        "successor_name": "豆包 Seed Evolving",
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "openai/o3-pro": {
+        "status": "retiring",
+        "shutdown_date": "2026-12-11",
+        "successor": "openai/gpt-5.6-sol",
+        "successor_name": "GPT-5.6 Sol",
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "openai/gpt-5.3-codex": {
+        "status": "retiring",
+        "shutdown_date": "2027-04-01",
+        "successor": "openai/gpt-6-sol",
+        "successor_name": "GPT-6 Sol",
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "openai/gpt-5.4-nano": {
+        "status": "retiring",
+        "shutdown_date": "2027-04-01",
+        "successor": "openai/gpt-6-luna",
+        "successor_name": "GPT-6 Luna",
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "dashscope/qwen3-max": {
+        "status": "discontinued",
+        "shutdown_date": "2026-10-10",
+        "successor": "alibaba/qwen3.7-max",
+        "successor_name": "Qwen3.7 Max",
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "dashscope/qwen-image-edit-plus": {
+        "status": "discontinued",
+        "shutdown_date": "2026-10-10",
+        "successor": "alibaba/qwen-image-3.0",
+        "successor_name": "Qwen Image 3.0",
+        "switch_targets": {
+          "default": null,
+          "t2i": null,
+          "i2i": null
+        }
+      },
+      "dashscope/qwen-image-edit-max": {
+        "status": "discontinued",
+        "shutdown_date": "2026-10-10",
+        "successor": "alibaba/qwen-image-3.0",
+        "successor_name": "Qwen Image 3.0",
+        "switch_targets": {
+          "default": null,
+          "t2i": null,
+          "i2i": null
+        }
+      },
+      "dashscope/qwen3.6-max-preview": {
+        "status": "discontinued",
+        "shutdown_date": "2026-10-10",
+        "successor": "alibaba/qwen3.7-max",
+        "successor_name": "Qwen3.7 Max",
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "dashscope/qwen3.5-plus": {
+        "status": "retiring",
+        "shutdown_date": "2027-01-19",
+        "successor": "alibaba/qwen3.8-flash",
+        "successor_name": "Qwen3.8 Flash",
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "minimax/MiniMax-M2.5-highspeed": {
+        "status": "retiring",
+        "shutdown_date": "2026-11-18",
+        "successor": null,
+        "successor_name": null,
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "minimax/MiniMax-M2.7-highspeed": {
+        "status": "retiring",
+        "shutdown_date": "2026-11-18",
+        "successor": null,
+        "successor_name": null,
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "agnes/agnes-2.0-flash": {
+        "status": "discontinued",
+        "shutdown_date": null,
+        "successor": null,
+        "successor_name": null,
+        "switch_targets": {
+          "default": null
+        }
+      },
+      "agnes/agnes-video-v2.0": {
+        "status": "discontinued",
+        "shutdown_date": null,
+        "successor": null,
+        "successor_name": null,
+        "switch_targets": {
+          "default": null,
+          "i2v": null,
+          "r2v": null
+        }
+      }
+    }
   }
 }

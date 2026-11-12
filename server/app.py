@@ -29,10 +29,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.datastructures import Headers
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.gzip import GZipResponder, IdentityResponder
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -51,7 +53,7 @@ from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.infra.data_root_layout_migration import migrate_data_root_layout
 from lib.infra.env_init import warn_if_env_diverges_from_file
 from lib.infra.ffmpeg import log_ffmpeg_status
-from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
+from lib.infra.httpx_shared import get_http_client, shutdown_http_client, startup_http_client
 from lib.infra.logging_config import (
     attach_file_handler,
     migrate_legacy_log_dir,
@@ -125,6 +127,7 @@ from server.routers import (
 from server.routers import auth as auth_router
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.project_events import ProjectEventService
+from server.services.tasks.generation_context import invalidate_backend_cache
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 
@@ -563,7 +566,7 @@ async def lifespan(app: FastAPI):
     # 卡顿探针放在启动步骤之后：迁移等启动期同步工作不算线上卡顿，避免误报。
     stall_probe = start_loop_stall_probe()
     # 模型目录的官方同步：启动时检查一次，之后每天一次；随应用关停取消
-    catalog_sync = start_official_sync(async_session_factory)
+    catalog_sync = start_catalog_sync(async_session_factory)
     # 项目回收站与已删除项目的过期清理：启动时清一次，之后定期清理；随应用关停取消
     from server.services.project.trash_expiry import start_trash_expiry, stop_trash_expiry
 
@@ -888,6 +891,19 @@ mount_remote_mcp(app, remote_mcp_host)
 
 def create_generation_worker() -> GenerationWorker:
     return GenerationWorker(executor=execute_generation_task, resume_executor=execute_resume_video_task)
+
+
+def start_catalog_sync(
+    session_factory: async_sessionmaker[AsyncSession],
+    http_client: Callable[[], httpx.AsyncClient] = get_http_client,
+) -> asyncio.Task[None] | None:
+    """启动模型目录的官方同步；装入新数据后清 backend 实例缓存。
+
+    自定义供应商的 backend 在构造时由目录注入画质可选值、参考图上限与能力，内置视频 backend 绑定构造时的条目，
+    都随实例缓存；设置接口与费用预估每次现读目录。不清缓存的话，同步后执行与预估会用两份不同的数据。
+    worker 的容量表不在这里重载，现有实例的并发上限不随同步变化。
+    """
+    return start_official_sync(session_factory, http_client, on_applied=invalidate_backend_cache)
 
 
 @app.get("/health")

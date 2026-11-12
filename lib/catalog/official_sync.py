@@ -6,6 +6,9 @@
 
 停止跟随官方的条目由目录合成跳过（用户副本照旧替换官方条目）；上游删除的条目保留本地最后一个版本；内置供应商的
 供应商模型清单整份取新数据。官方数据收录了用户添加的同名模型时，目录查询改用官方版本，只保留启用状态。
+
+装入新数据后调用 ``on_applied``：按目录数据构造、随实例缓存的东西由调用方在这里失效（应用启动时由 ``server.app``
+注入）。数据集未变化或这一次作废时不调用。
 """
 
 from __future__ import annotations
@@ -145,8 +148,9 @@ async def _record(
 async def sync_once(
     session_factory: async_sessionmaker[AsyncSession],
     http_client: Callable[[], httpx.AsyncClient] = get_http_client,
+    on_applied: Callable[[], None] | None = None,
 ) -> None:
-    """检查一次：数据集版本比本地新时取回并整批应用。失败只记下原因，本地目录不变。"""
+    """检查一次：数据集版本比本地新时取回并整批应用，随后调用 ``on_applied``。失败只记下原因，本地目录不变。"""
     async with session_factory() as session:
         proxy_prefix = await SystemSettingRepository(session).get(PROXY_PREFIX_SETTING)
     try:
@@ -165,15 +169,20 @@ async def sync_once(
         return
     await _record(session_factory, error=None, applied=(data.dataset_version, stored))
     catalog.install_synced_data(data)
+    # 紧跟装入、中间没有 await：先失效再装入的话，空档里按旧数据构造的实例会写回失效后的缓存
+    if on_applied is not None:
+        on_applied()
     logger.info("官方同步已应用数据集 %s", data.dataset_version)
 
 
 async def _sync_loop(
-    session_factory: async_sessionmaker[AsyncSession], http_client: Callable[[], httpx.AsyncClient]
+    session_factory: async_sessionmaker[AsyncSession],
+    http_client: Callable[[], httpx.AsyncClient],
+    on_applied: Callable[[], None] | None,
 ) -> None:
     while True:
         try:
-            await sync_once(session_factory, http_client)
+            await sync_once(session_factory, http_client, on_applied)
         except Exception as exc:
             logger.warning("官方同步异常，等下一轮", exc_info=True)
             # 只更新进程内状态：异常可能就出在数据库上。诊断信息照样能看到这次失败
@@ -186,13 +195,14 @@ async def _sync_loop(
 def start_official_sync(
     session_factory: async_sessionmaker[AsyncSession],
     http_client: Callable[[], httpx.AsyncClient] = get_http_client,
+    on_applied: Callable[[], None] | None = None,
 ) -> asyncio.Task[None] | None:
-    """立即检查一次，之后每天一次；离线录制设 ARCREEL_SKIP_CATALOG_SYNC=1 跳过网络同步。"""
+    """立即检查一次，之后每天一次；每次装入新数据后调用 ``on_applied``。离线录制设 ARCREEL_SKIP_CATALOG_SYNC=1 跳过网络同步。"""
     if os.getenv("ARCREEL_SKIP_CATALOG_SYNC") == "1":
         logger.info("ARCREEL_SKIP_CATALOG_SYNC=1，跳过官方目录同步")
         return None
     return asyncio.get_running_loop().create_task(
-        _sync_loop(session_factory, http_client), name="catalog-official-sync"
+        _sync_loop(session_factory, http_client, on_applied), name="catalog-official-sync"
     )
 
 

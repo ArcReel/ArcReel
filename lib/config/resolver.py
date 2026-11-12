@@ -497,12 +497,25 @@ def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> 
     return _clean_resolution(legacy, field=f"video_model_settings.{model_id}.resolution")
 
 
-def _clean_resolution(value: object, *, field: str) -> str | None:
-    """非空字符串 → 去空白后的值；其余（含非字符串）→ None。"""
+def project_image_quality(project: dict, provider_id: str, model_id: str) -> str | None:
+    """项目为这个图片执行模型选择的画质（``model_settings["<供应商>/<模型>"].quality``）；未选择为 ``None``。
+
+    键规则与分辨率相同（docs/adr/0054）。只读项目这一层，没有 legacy 表与自定义供应商默认值的回落；清洗同
+    :func:`_clean_resolution`：非字符串与空白串按未选择，去首尾空白，不做大小写归一。存值是否生效由
+    :func:`lib.backends.image_capabilities.effective_image_quality` 按模型的有效画质可选值判定。
+    """
+    key = f"{provider_id}/{model_id}"
+    model_settings = _safe_dict(project.get("model_settings"), field="model_settings")
+    value = _safe_dict(model_settings.get(key), field=f"model_settings.{key}").get("quality")
+    return _clean_resolution(value, field=f"model_settings.{key}.quality", setting="quality")
+
+
+def _clean_resolution(value: object, *, field: str, setting: str = "resolution") -> str | None:
+    """非空字符串 → 去空白后的值；其余（含非字符串）→ None。``setting`` 只用于告警文字。"""
     if value is None or value == "":
         return None
     if not isinstance(value, str):
-        logger.warning("project %s is %s, expected str; treating resolution as unset", field, type(value).__name__)
+        logger.warning("project %s is %s, expected str; treating %s as unset", field, type(value).__name__, setting)
         return None
     return value.strip() or None
 

@@ -8,22 +8,34 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import cast
 
 import pytest
+from PIL import Image
 from sqlalchemy import update
 
 from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model, get_provider_spec
-from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES, ImageCapability
+from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
+    ImageCapability,
+)
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
-from lib.config.resolver import ConfigResolver, ProviderModel, VideoBucketCapabilityError, VoiceConsistency
+from lib.config.resolver import (
+    ConfigResolver,
+    ImageBucketCapabilityError,
+    ProviderModel,
+    VideoBucketCapabilityError,
+    VoiceConsistency,
+)
+from lib.config.service import ConfigService
 from lib.custom_provider import make_provider_id
 from lib.db.models.config import SystemSetting
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -46,9 +58,10 @@ from server.services.tasks.generation_context import (
     VideoLaneResult,
     resolve_generation_context,
 )
-from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_entry_facts
 from tests.factories import make_video_request_facts
 from tests.fakes import bind_session_factory, use_backend_assembler, use_project_manager
+from tests.http_capture import capture_http, only_request, request_form_fields, request_json
 
 
 def _registry_video_model(provider_id: str) -> str:
@@ -1186,3 +1199,180 @@ class TestValueObjectAssembly:
         )
         with pytest.raises(VideoRequestFactsError, match="video_capability_unavailable"):
             _ = lane.is_silent
+
+
+# ---------------------------------------------------------------------------
+# 画质：项目存值经两侧求值后进入请求（docs/adr/0104）
+# ---------------------------------------------------------------------------
+
+_QUALITIES = ("low", "medium", "high")
+
+
+def _with_qualities(monkeypatch) -> None:
+    install_catalog(
+        monkeypatch, with_entry_facts(catalog.factory_snapshot(), "openai", "gpt-image-2", qualities=_QUALITIES)
+    )
+
+
+async def _send(
+    ctx: GenerationContext, tmp_path: Path, *, refs: bool, base_url: str = "https://api.openai.com/v1"
+) -> dict:
+    """经过真实生成器和 SDK，返回 HTTP 请求中的尺寸与画质。"""
+    references: list[Path] = []
+    if refs:
+        ref = tmp_path / "ref.png"
+        Image.new("RGB", (64, 64)).save(ref)
+        references = [ref]
+    with capture_http() as router:
+        path = "edits" if refs else "generations"
+        route = router.post(f"{base_url}/images/{path}").respond(
+            json={"created": 0, "data": [{"b64_json": base64.b64encode(b"img").decode()}]}
+        )
+        output, version = await ctx.generator.generate_image_async(
+            prompt="p",
+            resource_type="storyboards",
+            resource_id="E1S01",
+            reference_images=references,
+            aspect_ratio="9:16",
+            image_size=ctx.image.resolution,
+            quality=ctx.image.quality,
+        )
+        request = only_request(route)
+        fields = request_form_fields(request) if refs else request_json(request)
+    assert output.read_bytes() == b"img"
+    assert version >= 1
+    return {key: fields[key] for key in ("size", "quality") if key in fields}
+
+
+class TestImageQuality:
+    @pytest.fixture(autouse=True)
+    async def provider_credentials(self, patched_session_factory):
+        async with patched_session_factory() as session:
+            for provider in ("openai", "vidu"):
+                await ConfigService(session).set_provider_config(provider, "api_key", "test-key")
+            await session.commit()
+
+    @pytest.mark.parametrize("generation_type", ["t2i", "i2i"])
+    async def test_builtin_openai_sends_the_stored_quality_with_the_tier_size(
+        self, patched_session_factory, project_env, monkeypatch, tmp_path, generation_type
+    ):
+        _with_qualities(monkeypatch)
+
+        async def _sent(resolution: str, quality: str) -> dict:
+            generation_context.reset_backend_cache_for_tests()
+            project = {
+                f"image_provider_{generation_type}": "openai/gpt-image-2",
+                "model_settings": {"openai/gpt-image-2": {"resolution": resolution, "quality": quality}},
+            }
+            ctx = await resolve_generation_context(
+                "demo", None, project=project, image=ImageLaneRequest(generation_type=generation_type)
+            )
+            return await _send(ctx, tmp_path, refs=generation_type == "i2i")
+
+        assert await _sent("1K", " low ") == {"size": "1008x1792", "quality": "low"}
+        assert await _sent("1K", "high") == {"size": "1008x1792", "quality": "high"}
+        assert await _sent("2K", "low") == {"size": "1440x2560", "quality": "low"}
+        # 不在可选值内照发；存量 512px 原样进入请求
+        assert await _sent("1K", "LOW") == {"size": "1008x1792", "quality": "LOW"}
+        assert await _sent("512px", "medium") == {"size": "576x1024", "quality": "medium"}
+
+    async def test_stored_quality_is_ignored_without_options(
+        self, patched_session_factory, project_env, monkeypatch, tmp_path
+    ):
+        """条目未收录画质取值：存值不生效，``quality`` 按档位推出（1K → medium）。"""
+        project = {
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "1K", "quality": "low"}},
+        }
+        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+
+        assert ctx.image.quality is None
+        assert await _send(ctx, tmp_path, refs=False) == {
+            "size": "1008x1792",
+            "quality": "medium",
+        }
+
+    async def test_unselected_quality_keeps_the_tier_mapping(
+        self, patched_session_factory, project_env, monkeypatch, tmp_path
+    ):
+        _with_qualities(monkeypatch)
+        project = {
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "2K"}},
+        }
+        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+
+        assert ctx.image.quality is None
+        assert await _send(ctx, tmp_path, refs=False) == {
+            "size": "1440x2560",
+            "quality": "high",
+        }
+
+    @pytest.mark.parametrize(
+        ("endpoint", "paths"),
+        [
+            ("openai-images", {"generate": True, "edit": True}),
+            ("openai-images-generations", {"generate": True, "edit": False}),
+            ("openai-images-edits", {"generate": False, "edit": True}),
+        ],
+    )
+    async def test_custom_openai_images_endpoints_send_the_stored_quality(
+        self, patched_session_factory, project_env, monkeypatch, tmp_path, endpoint, paths
+    ):
+        _with_qualities(monkeypatch)
+        provider_id = await _seed_custom_image_provider(
+            patched_session_factory, [{"model_id": "gpt-image-2", "endpoint": endpoint, "is_default": True}]
+        )
+        key = f"{provider_id}/gpt-image-2"
+
+        async def _sent(resolution: str, quality: str, *, refs: bool) -> dict:
+            generation_context.reset_backend_cache_for_tests()
+            project = {
+                "image_provider_t2i": key,
+                "image_provider_i2i": key,
+                "model_settings": {key: {"resolution": resolution, "quality": quality}},
+            }
+            ctx = await resolve_generation_context(
+                "demo", None, project=project, image=ImageLaneRequest(generation_type="i2i" if refs else "t2i")
+            )
+            return await _send(ctx, tmp_path, refs=refs, base_url="https://relay.test/v1")
+
+        for refs, supported in ((False, paths["generate"]), (True, paths["edit"])):
+            if not supported:
+                # 端点没有实现的路径保持原有拒绝：任务类型桶解析时就不接受这个模型
+                with pytest.raises(ImageBucketCapabilityError):
+                    await _sent("1K", "low", refs=refs)
+                continue
+            assert await _sent("1K", "low", refs=refs) == {"size": "1008x1792", "quality": "low"}
+            assert await _sent("1K", "high", refs=refs) == {"size": "1008x1792", "quality": "high"}
+            assert await _sent("2K", "low", refs=refs) == {"size": "1440x2560", "quality": "low"}
+
+    async def test_openrouter_endpoint_offers_no_quality_choice(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
+        """OpenRouter 调用通道不接受显式画质：条目收录了画质取值、项目存了画质，lane 也不带画质。"""
+        _with_qualities(monkeypatch)
+        provider_id = await _seed_custom_image_provider(
+            patched_session_factory, [{"model_id": "gpt-image-2", "endpoint": "openrouter-images", "is_default": True}]
+        )
+        key = f"{provider_id}/gpt-image-2"
+        project = {"image_provider_t2i": key, "model_settings": {key: {"resolution": "1K", "quality": "low"}}}
+
+        with capture_http() as router:
+            router.get("https://relay.test/v1/images/models").respond(json={"data": []})
+            ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+
+        assert (ctx.image.resolution, ctx.image.quality) == ("1K", None)
+
+    async def test_channel_without_explicit_quality_ignores_the_stored_value(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
+        """非 OpenAI 兼容的调用通道：条目收录了画质取值、项目存了画质，lane 也不带画质，请求不含它。"""
+        install_catalog(
+            monkeypatch, with_entry_facts(catalog.factory_snapshot(), "vidu", "viduq2", qualities=_QUALITIES)
+        )
+        project = {"image_provider_t2i": "vidu/viduq2", "model_settings": {"vidu/viduq2": {"quality": "low"}}}
+
+        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+
+        assert ctx.image.quality is None

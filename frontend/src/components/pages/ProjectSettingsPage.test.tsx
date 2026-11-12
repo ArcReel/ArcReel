@@ -446,6 +446,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
           default: true,
           supported_durations: [5, 8],
           resolutions: ["720p", "1080p"],
+          qualities: [],
           audio_track: "controllable",
           reference_route_audio_track: "controllable",
           voice_consistency: "soft",
@@ -457,6 +458,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
           default: true,
           supported_durations: [],
           resolutions: ["720p", "1080p"],
+          qualities: [],
           audio_track: "always_off",
           reference_route_audio_track: "always_off",
           voice_consistency: "none",
@@ -474,7 +476,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
         capabilities: [], credential_count: 0,
         models: { [id === "gemini" ? "veo-3" : "seedance"]: {
           display_name: id, media_type: "video", capabilities: [], default: true,
-          supported_durations: [8], resolutions: ["720p", "1080p"],
+          supported_durations: [8], resolutions: ["720p", "1080p"], qualities: [],
           audio_track: "controllable", reference_route_audio_track: "controllable", voice_consistency: "soft",
         } },
       })),
@@ -584,6 +586,163 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
         "openai/gpt-image": { resolution: "1080p" },
         "gemini/nano-banana": { resolution: "1080p" },
       }),
+    });
+  });
+});
+
+describe("ProjectSettingsPage – model_settings quality", () => {
+  const imageModel = (qualities: string[]) => ({
+    display_name: "GPT Image", media_type: "image", capabilities: [], default: false,
+    supported_durations: [], resolutions: ["1K", "2K"], qualities,
+    audio_track: "always_off", reference_route_audio_track: "always_off", voice_consistency: "none",
+  });
+  const QUALITY_PROVIDERS = [
+    {
+      id: "gemini", display_name: "Gemini", description: "", status: "ready", media_types: ["video"],
+      capabilities: [], credential_count: 0,
+      models: { "veo-3": {
+        display_name: "Veo 3", media_type: "video", capabilities: [], default: true,
+        supported_durations: [8], resolutions: ["720p", "1080p"], qualities: [],
+        audio_track: "controllable", reference_route_audio_track: "controllable", voice_consistency: "soft",
+      } },
+    },
+    {
+      id: "openai", display_name: "OpenAI", description: "", status: "ready", media_types: ["image"],
+      capabilities: [], credential_count: 0,
+      models: { "gpt-image-2": imageModel(["low", "medium", "high"]), "gpt-image-1": imageModel(["low", "high"]) },
+    },
+  ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>;
+
+  beforeEach(() => {
+    mockConfig({
+      ...FAKE_CONFIG_WITH_DEFAULTS,
+      options: { ...FAKE_CONFIG_WITH_DEFAULTS.options, image_backends: ["openai/gpt-image-2", "openai/gpt-image-1"] },
+    });
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue(QUALITY_PROVIDERS);
+  });
+
+  const qualityPicker = () => screen.findByRole("combobox", { name: "画质" });
+  const pick = async (user: ReturnType<typeof userEvent.setup>, trigger: HTMLElement, option: string | RegExp) => {
+    await user.click(trigger);
+    await user.click(await screen.findByRole("option", { name: option }));
+  };
+
+  it("shows the stored quality and saves a quality-only change under the executing model", async () => {
+    const updateSpy = mockProject({
+      default_image_backend: "openai/gpt-image-2",
+      model_settings: { "openai/gpt-image-2": { resolution: "1K", quality: "medium" } },
+    });
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=models");
+
+    const picker = await qualityPicker();
+    expect(picker).toHaveTextContent("medium");
+    await pick(user, picker, "low");
+    expect(within(sidebar()).getByRole("link", { name: /^模型.*有未保存的修改/ })).toBeInTheDocument();
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    // 视频执行模型（全局默认）的那一项是既有的写法：没有存值时写 null 分辨率
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: {
+        "gemini/veo-3": { resolution: null },
+        "openai/gpt-image-2": { resolution: "1K", quality: "low" },
+      },
+    });
+  });
+
+  it("drops the quality key when the auto entry is picked again", async () => {
+    const updateSpy = mockProject({
+      default_image_backend: "openai/gpt-image-2",
+      model_settings: { "openai/gpt-image-2": { resolution: "2K", quality: "high" } },
+    });
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=models");
+
+    await pick(user, await qualityPicker(), "自动（按分辨率档位）");
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    const saved = updateSpy.mock.calls[0][1].model_settings?.["openai/gpt-image-2"];
+    expect(saved).toEqual({ resolution: "2K" });
+    expect(saved).not.toHaveProperty("quality");
+  });
+
+  it("keeps model A's quality after switching to model B and saving", async () => {
+    const updateSpy = mockProject({
+      default_image_backend: "openai/gpt-image-2",
+      model_settings: { "openai/gpt-image-2": { resolution: "1K", quality: "high" } },
+    });
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=models");
+
+    expect(await qualityPicker()).toHaveTextContent("high");
+    await pick(user, screen.getByRole("combobox", { name: /^默认图片模型$/ }), /gpt-image-1/);
+    // 换了执行模型：画质回到未选择
+    expect(await qualityPicker()).toHaveTextContent("自动（按分辨率档位）");
+    await pick(user, await qualityPicker(), "low");
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        default_image_backend: "openai/gpt-image-1",
+        model_settings: {
+          "gemini/veo-3": { resolution: null },
+          "openai/gpt-image-2": { resolution: "1K", quality: "high" },
+          "openai/gpt-image-1": { resolution: null, quality: "low" },
+        },
+      }),
+    );
+  });
+
+  it("keeps an image model's quality when only a video resolution changes", async () => {
+    const updateSpy = mockProject({
+      video_backend: "gemini/veo-3",
+      default_image_backend: "openai/gpt-image-2",
+      model_settings: {
+        "gemini/veo-3": { resolution: "720p" },
+        "openai/gpt-image-2": { resolution: "2K", quality: "high" },
+        // 别的图片模型上存的画质，本表单不显示它，也不能被整表写入抹掉
+        "openai/gpt-image-1": { resolution: "1K", quality: "low" },
+      },
+    });
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=models");
+
+    await qualityPicker();
+    const [videoResolution] = screen.getAllByRole("combobox", { name: "分辨率" });
+    await pick(user, videoResolution, "1080p");
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: {
+        "gemini/veo-3": { resolution: "1080p" },
+        "openai/gpt-image-2": { resolution: "2K", quality: "high" },
+        "openai/gpt-image-1": { resolution: "1K", quality: "low" },
+      },
+    });
+  });
+
+  it("shows a stale stored quality and resolution without rewriting them", async () => {
+    const updateSpy = mockProject({
+      default_image_backend: "openai/gpt-image-2",
+      model_settings: { "openai/gpt-image-2": { resolution: "512px", quality: "LOW" } },
+    });
+    renderAt("/app/projects/demo/settings?tab=models");
+
+    expect(await qualityPicker()).toHaveTextContent("LOW");
+    expect(screen.getByText(/已保存的画质 LOW/)).toBeInTheDocument();
+    expect(screen.getByText(/已保存的分辨率 512px/)).toBeInTheDocument();
+    expect(within(sidebar()).getByRole("link", { name: /^模型/ })).not.toHaveAccessibleName(/有未保存的修改/);
+
+    fireEvent.click(screen.getByRole("button", { name: "恢复自动" }));
+    fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: { "gemini/veo-3": { resolution: null }, "openai/gpt-image-2": { resolution: null } },
     });
   });
 });

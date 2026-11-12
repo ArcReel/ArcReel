@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 // Stub URL object APIs not available in jsdom
 globalThis.URL.createObjectURL ??= vi.fn(() => "blob:mock");
@@ -426,6 +427,43 @@ describe("CreateProjectModal", () => {
     );
     const payload = vi.mocked(API.createProject).mock.calls[0][0] as { model_settings?: Record<string, unknown> };
     expect(payload.model_settings).toBeUndefined();
+  });
+
+  it("writes the image quality picked on step 2 into model_settings under the executing image model", async () => {
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...mockSysConfig,
+      settings: { ...mockSysConfig.settings, default_image_backend: "openai/gpt-image-2" },
+      options: { ...mockSysConfig.options, image_backends: ["openai/gpt-image-2"] },
+    } as never);
+    vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [
+        ...mockProviders.providers,
+        {
+          id: "openai", display_name: "OpenAI", description: "", status: "ready" as const,
+          media_types: ["image"], capabilities: [], credential_count: 0,
+          models: {
+            "gpt-image-2": {
+              display_name: "GPT Image 2", media_type: "image", capabilities: [], default: true,
+              supported_durations: [], resolutions: ["1K", "2K"], qualities: ["low", "medium", "high"],
+            },
+          },
+        },
+      ],
+    } as never);
+
+    const user = userEvent.setup();
+    render(<CreateProjectModal />);
+    fillBasics();
+    clickNext();
+    await user.click(await screen.findByRole("combobox", { name: "画质" }));
+    await user.click(await screen.findByRole("option", { name: "high" }));
+    expect(screen.getByRole("combobox", { name: "画质" })).toHaveTextContent("high");
+    clickNext();
+    fireEvent.click(await screen.findByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    const payload = vi.mocked(API.createProject).mock.calls[0][0] as { model_settings?: Record<string, unknown> };
+    expect(payload.model_settings).toEqual({ "openai/gpt-image-2": { quality: "high" } });
   });
 
   it("shows an error toast and stays on step 3 when createProject fails", async () => {

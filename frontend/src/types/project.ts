@@ -186,6 +186,8 @@ export const DEFAULT_CHARACTER_VOICE_BINDING: CharacterVoiceBinding = "prompt";
 
 export interface ModelSettingEntry {
   resolution?: string | null;
+  /** 图片画质；缺席、null 或空白都按未选择，此时后端按分辨率档位推出画质。 */
+  quality?: string | null;
 }
 
 export interface ProjectData {
