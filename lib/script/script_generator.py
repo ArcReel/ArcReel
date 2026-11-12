@@ -86,7 +86,12 @@ from lib.script.draft_quarantine import (
     quarantine_path,
     read_quarantine,
 )
-from lib.script.draft_violation import locate_violations, locate_violations_by_id, schema_violations
+from lib.script.draft_violation import (
+    SCHEMA_ERROR_PARAM,
+    locate_violations,
+    locate_violations_by_id,
+    schema_violations,
+)
 from lib.script.item_excerpt import find_item
 from lib.script.plan_new_assets import (
     NEW_ASSETS_FIELD,
@@ -2140,7 +2145,11 @@ class ScriptGenerator:
                     DraftViolation(
                         f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}",
                         code="schema_invalid",
-                        params={"path": "content", "detail": "prompt_authoring"},
+                        params={
+                            "path": "content",
+                            "detail": "prompt_authoring",
+                            SCHEMA_ERROR_PARAM: {"type": "prompt_authoring_unreadable"},
+                        },
                     )
                 ]
             )

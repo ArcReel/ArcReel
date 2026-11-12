@@ -7,7 +7,7 @@ from string import Formatter
 import pytest
 
 from lib.i18n import MESSAGES, SUPPORTED_LOCALES
-from lib.script.draft_violation import DraftViolation, draft_violation_message_key, violation_items
+from lib.script.draft_violation import SCHEMA_ERROR_PARAM, DraftViolation, draft_violation_message_key, violation_items
 from lib.script.plan_new_assets import new_asset_violations
 from lib.script.reference_video.draft_validation import assert_dialogue_preserved, validate_unit_text
 
@@ -26,6 +26,27 @@ def _fields(template: str) -> set[str]:
     return {field for _, field, _, _ in Formatter().parse(template) if field is not None}
 
 
+def _param_key(node: ast.expr | None) -> str | None:
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name) and node.id == "SCHEMA_ERROR_PARAM":
+        return SCHEMA_ERROR_PARAM
+    return None
+
+
+def _schema_error_types():
+    """Producer-side shape codes written as literal ``schema_error`` dicts."""
+    for filename in PRODUCERS:
+        for node in ast.walk(ast.parse((ROOT / filename).read_text())):
+            if isinstance(node, ast.Dict):
+                for key, value in zip(node.keys, node.values, strict=True):
+                    if _param_key(key) == SCHEMA_ERROR_PARAM and isinstance(value, ast.Dict):
+                        kinds = {_param_key(k): v for k, v in zip(value.keys, value.values, strict=True)}
+                        kind = kinds.get("type")
+                        if isinstance(kind, ast.Constant):
+                            yield kind.value
+
+
 def _producer_contracts():
     for filename in PRODUCERS:
         for node in ast.walk(ast.parse((ROOT / filename).read_text())):
@@ -39,7 +60,7 @@ def _producer_contracts():
                     continue
                 params = kwargs.get("params")
                 assert isinstance(params, ast.Dict), (filename, node.lineno, code.value)
-                yield code.value, {key.value for key in params.keys if isinstance(key, ast.Constant)}
+                yield code.value, {key for key in map(_param_key, params.keys) if key is not None}
             elif isinstance(node.func, ast.Attribute) and node.func.attr == "_problem":
                 code = node.args[0]
                 assert isinstance(code, ast.Constant)
@@ -59,7 +80,21 @@ def test_every_draft_producer_has_a_template_with_exact_param_keys(locale):
     for code, fields in contracts:
         key = draft_violation_message_key(code)
         assert key in MESSAGES[locale], (locale, code)
+        if code == "schema_invalid":
+            # The structured schema reason is rendered into {detail}; the template never names it.
+            assert SCHEMA_ERROR_PARAM in fields, (locale, code)
+            fields = fields - {SCHEMA_ERROR_PARAM}
         assert _fields(MESSAGES[locale][key]) == fields, (locale, code)
+
+
+def test_schema_reason_templates_share_placeholders_across_locales():
+    keys = {key for key in MESSAGES["zh"] if key.startswith("draft_schema_")}
+    assert {"draft_schema_with_value", "draft_schema_choice_separator"} <= keys
+    for kind in _schema_error_types():
+        assert f"draft_schema_{kind}" in keys, kind
+    for key in keys:
+        for locale in SUPPORTED_LOCALES:
+            assert _fields(MESSAGES[locale][key]) == _fields(MESSAGES["zh"][key]), (locale, key)
 
 
 @pytest.mark.parametrize("locale", SUPPORTED_LOCALES)

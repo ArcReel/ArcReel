@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 
 import pytest
 
+from lib.i18n import _ as i18n_message
+from lib.i18n.display_names import DisplayNames
 from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 from lib.project.project_manager import ProjectManager
 from lib.script.draft_quarantine import (
@@ -23,6 +26,7 @@ from lib.script.draft_quarantine import (
 from lib.script.draft_violation import DraftViolation
 from server.draft_repair import DraftRepair
 from server.draft_workflow import DraftContext, DraftWorkflowError
+from server.routers.script_review import localize_draft_view
 from server.services.project.episode_drafts import EpisodeDraftService
 from server.services.project.script_review import ScriptReviewService
 from tests.factories import make_video_request_facts
@@ -125,6 +129,39 @@ async def test_schema_field_violations_locate_the_invalid_item(narration, kind) 
 
     assert [(v["code"], v.get("item_index"), v.get("item_id")) for v in view["violations"]] == [
         ("schema_invalid", 0, None if kind == "reference_video" else "E1S01")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "root", "agent_message"),
+    [
+        ("drama", "scenes", "草稿的 content.scenes 必须是非空的分镜对象数组"),
+        ("narration", "segments", "草稿的 content.segments 必须是非空的分镜对象数组"),
+        ("reference_video", "units", "草稿的 content.units 必须是非空的 unit 对象数组"),
+    ],
+    ids=["drama", "narration", "reference_video"],
+)
+async def test_empty_item_array_reads_in_the_interface_language(narration, kind, root, agent_message) -> None:
+    """条目数组为空时，Web 说明随界面语言成文，不夹带英文短语；Agent 读到的原文不变。"""
+    pm, project_path = narration
+    if kind == "drama":
+        pm.update_project("demo", lambda p: p.__setitem__("content_mode", "drama"))
+        quarantine_kind, doc_type = QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, "drama_script_plan"
+    elif kind == "reference_video":
+        pm.update_project("demo", lambda p: p.__setitem__("generation_mode", "reference_video"))
+        quarantine_kind, doc_type = QUARANTINE_KIND_SCRIPT_PLAN, "reference_script_plan"
+    else:
+        quarantine_kind, doc_type = QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, "narration_script_plan"
+    content = {"title": "第一集", root: []}
+    write_quarantine(project_path, 1, quarantine_kind, content=content, violations=[], meta={"source": None})
+
+    view = await EpisodeDraftService(pm).get_draft("demo", 1, doc_type)
+
+    assert [(v["code"], v["message"]) for v in view["violations"]] == [("schema_invalid", agent_message)]
+    localized = localize_draft_view(view, partial(i18n_message, locale="zh"), DisplayNames({}, {}, "Deleted provider"))
+    assert localized is not None
+    assert [v["message"] for v in localized["violations"]] == [
+        f"草稿的 content.{root} 不符合产出结构：须为非空数组。检查必填字段、类型和取值"
     ]
 
 
