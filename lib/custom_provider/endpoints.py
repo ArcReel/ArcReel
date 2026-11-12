@@ -42,7 +42,7 @@ from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
 from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMAGES_PATH
 from lib.backends.image_backends.openrouter import MODELS_PATH as OPENROUTER_MODELS_PATH
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
-from lib.backends.image_backends.registry import reference_limit_of
+from lib.backends.image_backends.registry import accepts_explicit_quality_of, reference_limit_of
 from lib.backends.kling_shared import kling_model_path_base_url
 from lib.backends.minimax_shared import minimax_text_base_url
 from lib.backends.provider_assets import InferenceCredentialRef
@@ -1491,6 +1491,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
         # 两个运输位与声明式端点同处理：从 caps 反推，而不是各写一份判据。
         end_image_capable=caps.last_frame if caps is not None else False,
+        reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
         definition=definition,
     )
     validate_video_caps_declaration(spec)
@@ -1595,6 +1596,16 @@ def endpoint_reference_image_limit(spec: EndpointSpec) -> int | None:
     if spec.metering_backend is None:
         return None
     return reference_limit_of(spec.metering_backend)
+
+
+def endpoint_accepts_explicit_quality(spec: EndpointSpec) -> bool:
+    """图片端点是否接受显式画质（通道事实），与端点构造出的 backend 同源。
+
+    Python 端点取被包装调用通道类上的 ``CHANNEL_ACCEPTS_QUALITY``；声明式端点与 ComfyUI 端点不接受。
+    """
+    if spec.definition is not None or spec.metering_backend is None:
+        return False
+    return accepts_explicit_quality_of(spec.metering_backend)
 
 
 def list_endpoints_by_media_type(media_type: str) -> list[EndpointSpec]:

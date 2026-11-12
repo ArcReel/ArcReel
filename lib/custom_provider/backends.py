@@ -67,7 +67,8 @@ class CustomImageBackend:
     允许的部分（能力覆盖整维替换条目的值，``None`` 即不加约束），由工厂按模型行注入；执行层的能力校验
     取两者的交集（:attr:`effective_capabilities`），与任务类型桶的候选同一个结果。``entry_reference_limit``
     是对应条目记录的参考图上限（``None`` 为未收录，ComfyUI 端点不读条目），与通道上限两侧求值见
-    :func:`lib.backends.image_capabilities.backend_reference_image_limit`。
+    :func:`lib.backends.image_capabilities.backend_reference_image_limit`。``quality_options`` 是两侧求值后的有效画质
+    可选值（:func:`lib.backends.image_capabilities.custom_image_quality_options`），为空即没有画质选项。
     """
 
     def __init__(
@@ -79,6 +80,7 @@ class CustomImageBackend:
         model_capabilities: frozenset[ImageCapability] | None = None,
         entry_reference_limit: int | None = None,
         reference_limit_override: int | None = None,
+        quality_options: tuple[str, ...] = (),
     ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
@@ -86,6 +88,7 @@ class CustomImageBackend:
         self._model_capabilities = model_capabilities
         self._entry_reference_limit = entry_reference_limit
         self.reference_limit_override = reference_limit_override
+        self.quality_options = quality_options
 
     def with_model_facts(
         self,
@@ -93,8 +96,9 @@ class CustomImageBackend:
         *,
         entry_reference_limit: int | None,
         reference_limit_override: int | None = None,
+        quality_options: tuple[str, ...] = (),
     ) -> CustomImageBackend:
-        """返回注入了模型事实一侧的新实例：文生图 / 图生图与参考图上限（工厂按模型行的条目与能力覆盖算出）。"""
+        """返回注入了模型事实一侧的新实例：文生图 / 图生图、参考图上限与有效画质可选值（工厂按模型行的条目与能力覆盖算出）。"""
         return CustomImageBackend(
             provider_id=self._provider_id,
             delegate=self._delegate,
@@ -102,6 +106,7 @@ class CustomImageBackend:
             model_capabilities=model_capabilities,
             entry_reference_limit=entry_reference_limit,
             reference_limit_override=reference_limit_override,
+            quality_options=quality_options,
         )
 
     @property

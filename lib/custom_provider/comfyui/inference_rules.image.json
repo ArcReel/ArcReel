@@ -1,6 +1,7 @@
 {
   "media_type": "image",
   "semantic_keys": {
+    "aspect_ratio": { "input_names": ["aspect_ratio"], "class_types": ["ResolutionSelector"] },
     "prompt": {
       "input_names": ["text", "prompt", "positive_prompt"],
       "class_types": [
@@ -103,6 +104,7 @@
     "PrimitiveStringMultiline": "value"
   },
   "optional_inputs": [
+    { "class_type": "MiniMaxH3ReferenceToVideo", "input_prefix": "ref_audios.ref_audio_" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image1" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image2" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image3" },

@@ -381,3 +381,12 @@ def test_split_prompt_screenplay_branch_extracts_instead_of_adapting():
     assert "<novel>" in novel
     assert "沿用剧本自带的场次" not in novel
     assert _split_prompt(source_kind="screen_play") == novel == _split_prompt()
+
+
+@pytest.mark.parametrize("limit", [2, None])
+def test_split_prompt_speaker_limit(limit):
+    prompt = _split_prompt(max_speakers=limit)
+    assert ("**参考音频上限**" in prompt) is (limit is not None)
+    if limit is not None:
+        assert f"不超过 {limit}" in prompt
+        assert "按说话人拆分镜头" in prompt

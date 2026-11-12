@@ -1335,3 +1335,36 @@ async def test_image_reference_override_rejects_invalid_values(models_client, db
         url = "/api/v1/providers/grok/models/relay-image"
     response = models_client.patch(url, json={"capability_overrides": {"max_reference_images": value}})
     assert response.status_code == 422, response.text
+
+
+def test_editing_an_image_entry_keeps_its_qualities(models_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """条目编辑界面不编辑画质取值：按界面回传的模型事实（不含画质取值）保存后，副本保留它，画质选项不消失。"""
+    from lib.backends.image_capabilities import builtin_image_quality_options
+    from tests.catalog_support import with_entry_facts
+
+    qualities = ("low", "medium", "high")
+    install_catalog(
+        monkeypatch, with_entry_facts(catalog.factory_snapshot(), "openai", "gpt-image-2", qualities=qualities)
+    )
+    url = "/api/v1/providers/openai/models/gpt-image-2"
+    entry = models_client.get(url).json()["entry"]
+    assert "qualities" not in entry["facts"]
+
+    resp = models_client.patch(
+        url,
+        json={
+            "entry": {
+                "maker": "openai",
+                "name": "gpt-image-2",
+                "media_type": "image",
+                "facts": {**entry["facts"], "resolutions": ["1K", "2K"]},
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["entry"]["source"] == "modified"
+    saved = catalog.get_entry(EntryKey("openai", "gpt-image-2", "image"))
+    assert saved is not None
+    assert (saved.facts.resolutions, saved.facts.qualities) == (("1K", "2K"), qualities)
+    assert builtin_image_quality_options("openai", "gpt-image-2") == qualities

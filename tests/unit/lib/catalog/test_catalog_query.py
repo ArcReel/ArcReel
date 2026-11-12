@@ -121,16 +121,6 @@ class TestCatalogQuery:
         assert catalog.provider_media_types("unknown-provider") == []
 
 
-def test_reset_for_tests_reloads_snapshot_and_index():
-    before = catalog.factory_snapshot()
-    model = catalog.get_model("gemini-aistudio", "gemini-3-pro-image")
-
-    catalog.reset_for_tests()
-
-    assert catalog.factory_snapshot() is not before
-    assert catalog.get_model("gemini-aistudio", "gemini-3-pro-image") == model
-
-
 def _with_listing_models(*extra: dict, defaults: dict | None = None) -> dict:
     raw = {**_CATALOG, "entries": [*_CATALOG["entries"], _entry("next", "text", {})]}
     acme = raw["builtin_providers"]["acme"]

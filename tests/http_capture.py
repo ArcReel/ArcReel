@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from collections.abc import Generator
 from contextlib import contextmanager
+from email import policy
+from email.parser import BytesParser
 from typing import Any
 
 import httpx
@@ -30,6 +32,23 @@ def capture_http(*, assert_all_called: bool = False) -> Generator[respx.MockRout
 def request_json(request: httpx.Request) -> Any:
     """请求体按 JSON 解码。"""
     return json.loads(request.content)
+
+
+def request_form_fields(request: httpx.Request) -> dict[str, str]:
+    """解码 multipart 请求的文本字段，文件部分不计入。"""
+    message = BytesParser(policy=policy.default).parsebytes(
+        f"Content-Type: {request.headers['content-type']}\r\n\r\n".encode() + request.content
+    )
+    assert message.is_multipart(), "期望 multipart 请求体"
+    fields: dict[str, str] = {}
+    for part in message.iter_parts():
+        if part.get_filename() is None:
+            name = part.get_param("name", header="content-disposition")
+            content = part.get_content()
+            assert isinstance(name, str)
+            assert isinstance(content, str)
+            fields[name] = content
+    return fields
 
 
 def only_request(route: respx.Route) -> httpx.Request:

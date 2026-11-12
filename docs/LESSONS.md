@@ -2,7 +2,7 @@
 
 记录值得改进环境的错，由定期巡检维护、计数与晋升；候选经 PR 上的 `lesson-candidate` 评论提交。条目格式、计数、阈值与退出规则见 [`docs/agents/lessons.md`](agents/lessons.md)。
 
-<!-- reviewed-through: d49709549bf0201c2fe70152ce6e74dfb4cb07e6 2026-11-06 -->
+<!-- reviewed-through: 7b4f781ab2c57d3d4dd1d0a15bdc5c427262f250 2026-11-07 -->
 
 ## 异步任务的结果与异常在每条路径上都有人接
 

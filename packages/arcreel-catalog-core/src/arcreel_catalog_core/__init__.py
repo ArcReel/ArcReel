@@ -38,6 +38,7 @@ from .model import (
     ModelFacts,
     PriceRow,
     PriceTable,
+    ScaledOutputTokenBase,
     TextFacts,
     VideoFacts,
 )
@@ -101,6 +102,7 @@ __all__ = [
     "PriceRow",
     "PriceTable",
     "ProviderEndpointOptions",
+    "ScaledOutputTokenBase",
     "TextFacts",
     "VideoFacts",
     "app_version_key",

@@ -122,6 +122,11 @@ def install_synced_data(data: CatalogData | None) -> None:
     _synced[0] = data
 
 
+def synced_data() -> CatalogData | None:
+    """已装入的官方同步数据；没有同步过、或存的数据读不进来时为 ``None``。"""
+    return _synced[0]
+
+
 def official_data() -> CatalogData:
     """官方数据：出厂快照与官方同步中数据集版本较新的一份，保留另一份独有的条目；没有同步数据时即出厂快照。"""
     snapshot, synced = factory_snapshot(), _synced[0]
@@ -655,6 +660,21 @@ def default_model(provider_id: str, media_type: str) -> str | None:
     for model_id, model in _provider_models(provider_id).items():
         if model.media_type == media_type and model.default:
             return model_id
+    return None
+
+
+def default_model_in(data: CatalogData, provider_id: str, media_type: str, app_version: str) -> str | None:
+    """应用版本为 ``app_version`` 的实例读这份目录数据时，供应商在该媒体类型下的默认模型键。
+
+    与 :func:`default_model` 同一口径：低于最低应用版本与今天已下线的默认模型按没有默认处理。用于还原
+    另一个版本、另一份数据下的结果（升级固化），不读用户的条目副本与用户添加的模型。
+    """
+    if provider_id not in data.builtin_providers:
+        return None
+    for key, indexed in _official_models(data, provider_id, app_version).models.items():
+        model = _current_model(indexed)
+        if model.media_type == media_type and model.default:
+            return key
     return None
 
 

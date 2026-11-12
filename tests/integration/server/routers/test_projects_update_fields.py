@@ -113,21 +113,22 @@ class TestProjectsRouter:
             assert data["narration_speed"] == 1.2
 
     @pytest.mark.parametrize(
-        "patch",
+        ("patch", "status"),
         [
-            {"narration_delivery": "use_tts"},
-            {"narration_delivery": "use_tts", "audio_backend": "dashscope", "narration_voice": "Cherry"},
-            {"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash"},
-            {"narration_delivery": None},
+            ({"narration_delivery": "use_tts"}, 422),
+            # 只写供应商的 TTS 模型在写边界即被拒（docs/adr/0099）
+            ({"narration_delivery": "use_tts", "audio_backend": "dashscope", "narration_voice": "Cherry"}, 400),
+            ({"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash"}, 422),
+            ({"narration_delivery": None}, 422),
         ],
     )
-    def test_update_project_rejects_incomplete_tts_config(self, tmp_path, monkeypatch, patch):
+    def test_update_project_rejects_incomplete_tts_config(self, tmp_path, monkeypatch, patch, status):
         """TTS 配音必须带完整快照，交付方式不可清空；拒绝时整次 PATCH 不写回。"""
         fake_pm = _FakePM(tmp_path)
         client = build_projects_client(monkeypatch, fake_pm)
         with client:
             resp = client.patch("/api/v1/projects/ready", json=patch)
-            assert resp.status_code == 422
+            assert resp.status_code == status
             assert "narration_delivery" not in fake_pm.project_data["ready"]
             assert "audio_backend" not in fake_pm.project_data["ready"]
 

@@ -38,6 +38,7 @@ function makeOmniModel(overrides: Partial<ModelInfoResponse> = {}): ModelInfoRes
     default: false,
     supported_durations: [5],
     resolutions: ["720p"],
+    qualities: [],
     // 可灵 v3-omni：图生可控、参考生恒无声，两条路径给出不同答案的那一类模型。
     audio_track: "controllable",
     reference_route_audio_track: "always_off",

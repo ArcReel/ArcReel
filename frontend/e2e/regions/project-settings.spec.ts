@@ -79,6 +79,51 @@ function manyModelsOverrides(): ApiOverrides {
   };
 }
 
+// 图片画质：执行模型带画质可选值，项目里存着已失效的分辨率与画质（大小写不同的 LOW、条目移除的 512px）。
+// 录制的替身里 qualities 都是空数组，画质与档位数据由这里提供。
+const QUALITY_MODEL = "openai/gpt-image-2";
+
+function staleImageQualityOverrides(): ApiOverrides {
+  const config = RECORDED.get("GET /api/v1/system/config")!.body as {
+    settings: Record<string, unknown>;
+    options: Record<string, unknown>;
+  };
+  const catalog = RECORDED.get("GET /api/v1/providers")!.body as {
+    providers: { id: string; models: Record<string, Record<string, unknown>> }[];
+  };
+  const [providerId, modelId] = QUALITY_MODEL.split("/");
+  return {
+    "GET /api/v1/system/config": {
+      status: 200,
+      body: { ...config, options: { ...config.options, image_backends: [QUALITY_MODEL] } },
+    },
+    "GET /api/v1/providers": {
+      status: 200,
+      body: {
+        ...catalog,
+        providers: catalog.providers.map((provider) =>
+          provider.id !== providerId
+            ? provider
+            : {
+                ...provider,
+                models: {
+                  ...provider.models,
+                  [modelId]: { ...provider.models[modelId], resolutions: ["1K", "2K"], qualities: ["low", "medium", "high"] },
+                },
+              },
+        ),
+      },
+    },
+    // 演示项目没有可用的视频模型，能力查询照实返回无法解析
+    "GET /api/v1/projects/demo/video-capabilities?resolution=&uses_reference_images=false":
+      RECORDED.get("GET /api/v1/projects/demo/video-capabilities")!,
+    ...projectWith({
+      default_image_backend: QUALITY_MODEL,
+      model_settings: { [QUALITY_MODEL]: { resolution: "512px", quality: "LOW" } },
+    }),
+  };
+}
+
 // Agent 配置：很多定制文件，路径很长。
 const CUSTOMIZED_PROFILE: ApiOverrides = {
   "GET /api/v1/projects/demo/agent-profile": {
@@ -171,6 +216,21 @@ defineRegionScenarios("项目设置", [
       await page.getByRole("combobox", { name: "默认视频模型" }).click();
       await page.getByRole("listbox").waitFor();
     },
+  },
+  {
+    name: "模型分页：图片模型的画质下拉，已失效的分辨率与画质各有提示与一键恢复",
+    path: settings("models"),
+    api: staleImageQualityOverrides(),
+    ready: async (page) => {
+      await tabReady(page, "模型");
+      await page.getByText(/已保存的画质 LOW/).waitFor();
+    },
+    act: async (page) => {
+      await expect(page.getByText(/已保存的分辨率 512px/)).toBeVisible();
+      await expect(page.getByRole("combobox", { name: "画质" })).toContainText("LOW");
+      await page.getByRole("button", { name: "恢复自动" }).scrollIntoViewIfNeeded();
+    },
+    screenshot: { name: "project-settings-image-quality", target: (page) => page.getByRole("main") },
   },
   {
     name: "配音分页：参考生视频项目使用 TTS 配音，显示角色声音绑定",

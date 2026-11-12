@@ -13,6 +13,7 @@ from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, Provide
 from lib.backends.artifact_download_guard import IMAGE_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.backend_runtime import stream_to_file
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
+from lib.backends.image_errors import ImageCapabilityError as ImageCapabilityError
 from lib.billing.metering import Usage
 from lib.infra.async_thread import run_noninterruptible_sync
 
@@ -89,6 +90,9 @@ class ImageGenerationRequest:
     reference_images: list[ReferenceImage] = field(default_factory=list)
     aspect_ratio: str = "9:16"
     image_size: str | None = None
+    #: 用户选择的画质，已按模型的有效画质可选值求过（见 :func:`lib.backends.image_capabilities.effective_image_quality`）：
+    #: 为 ``None`` 时调用通道沿用自己的既有做法（OpenAI Images 按分辨率档位推出 ``quality``）。
+    quality: str | None = None
     project_name: str | None = None
     seed: int | None = None
     #: 供应商响应的诊断回调，与 ``VideoGenerationRequest`` 同形。只有需要逐阶段留痕的调用方
@@ -111,6 +115,8 @@ class ImageRequestFacts:
     image_size: str | None = None
     reference_count: int | None = 0
     entry: CatalogEntry | None = None
+    #: 生效的画质，含义同 :attr:`ImageGenerationRequest.quality`，预估与执行取同一个值。
+    quality: str | None = None
 
 
 #: 内置调用通道的预估函数：按请求事实推出会发送的请求字段与用量，与 ``generate`` 构造请求用同一套变换。
@@ -203,17 +209,3 @@ class ImageOutputFormatError(RuntimeError):
     def __init__(self, *, model: str, media_type: str) -> None:
         self.params = {"model": model, "media_type": media_type}
         super().__init__(f"{self.code}: model={model} media_type={media_type}")
-
-
-class ImageCapabilityError(RuntimeError):
-    """图像后端能力不匹配（endpoint mismatch / generator gating 共用）。
-
-    不携带本地化字符串，只带稳定 code + 上下文 params；
-    路由层直接 _t(code, **params) 渲染，Worker 则按 code + params 落 task.error_message，
-    文案留到读侧按 Accept-Language 渲染。
-    """
-
-    def __init__(self, code: str, **params) -> None:
-        self.code = code
-        self.params = params
-        super().__init__(code)

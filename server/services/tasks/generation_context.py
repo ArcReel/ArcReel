@@ -12,7 +12,7 @@ key，不能用作查询键；model 是唯一真实漂移轴（自定义供应�
 ``backend_name`` / ``backend_model``（backend 报告的实际身份）两组字段。
 
 backend 实例缓存随本模块承载：缓存是 server 执行层关切（``docs/adr/0039``「缓存留在调用方」），
-供应商配置变更路由经 ``invalidate_backend_cache()`` 统一失效。
+供应商配置变更路由与官方目录同步装入新数据后（``server.app.start_catalog_sync``）经 ``invalidate_backend_cache()`` 统一失效。
 """
 
 from __future__ import annotations
@@ -27,11 +27,16 @@ from lib.backends.audio_backends.base import AudioCapability, VoiceOption
 from lib.backends.backend_assembly import assemble_backend, callable_model_key
 from lib.backends.backend_assembly.specs import builtin_model_endpoint
 from lib.backends.gemini_shared import get_shared_rate_limiter
-from lib.backends.image_capabilities import backend_reference_image_limit
+from lib.backends.image_capabilities import (
+    backend_image_quality_options,
+    backend_reference_image_limit,
+    effective_image_quality,
+)
 from lib.backends.resume_guard import builtin_endpoint_guard
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
+    project_image_quality,
     video_bucket_for_generation_mode,
 )
 from lib.custom_provider import is_custom_provider
@@ -103,7 +108,7 @@ _backend_cache = _BackendCache()
 
 
 def invalidate_backend_cache() -> None:
-    """清空 Backend 实例缓存。在供应商配置变更后调用。"""
+    """清空 Backend 实例缓存。在供应商配置变更、官方目录同步装入新数据后调用。"""
     _backend_cache.invalidate()
 
 
@@ -296,7 +301,9 @@ class ImageLaneResult:
     （``docs/adr/0019``）。``max_reference_images`` 是参考图上限生效值（条目与通道两侧求值，见
     ``lib.backends.image_capabilities.backend_reference_image_limit``）给出的裁剪上限，``None`` 表示不裁剪；
     编排层据此在渲染「图N」编号前裁剪参考图序列。不接受参考图（上限为 0 或不支持图生图）时同样不裁剪，
-    参考图原样交给执行时的校验拒绝。
+    参考图原样交给执行时的校验拒绝。``quality`` 是生效的画质（项目存值经
+    ``lib.backends.image_capabilities.effective_image_quality`` 按有效画质可选值求得），``None`` 表示调用通道沿用
+    按分辨率档位推出 ``quality`` 的既有做法。
     """
 
     provider_model: ProviderModel
@@ -304,6 +311,7 @@ class ImageLaneResult:
     backend_model: str
     resolution: str | None
     max_reference_images: int | None
+    quality: str | None = None
 
 
 @dataclass(frozen=True)
@@ -450,6 +458,7 @@ async def resolve_generation_context(
     image_result: ImageLaneResult | None = None
     image_provider_model: ProviderModel | None = None
     image_resolution: str | None = None
+    image_quality: str | None = None
     video_result: VideoLaneResult | None = None
     audio_result: AudioLaneResult | None = None
     image_backend: Any = None
@@ -468,6 +477,11 @@ async def resolve_generation_context(
             )
             image_provider_model = resolved
             image_resolution = await r.resolve_resolution(project, resolved.provider_id, image_backend.model)
+            # 画质与分辨率同一个键（按构造后的 backend 身份）；有效可选值为空时忽略存值。
+            image_quality = effective_image_quality(
+                project_image_quality(project, resolved.provider_id, image_backend.model),
+                backend_image_quality_options(image_backend, provider_id=resolved.provider_id),
+            )
 
         if video is not None:
             generation_type = video.generation_type
@@ -541,6 +555,7 @@ async def resolve_generation_context(
             max_reference_images=(
                 await backend_reference_image_limit(image_backend, provider_id=image_provider_model.provider_id)
             ).clamp_bound(),
+            quality=image_quality,
         )
 
     generator = MediaGenerator(

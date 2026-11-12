@@ -412,7 +412,8 @@ export function ProviderModelList({
                       />
                       {model.is_default && (
                         <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/15 px-1.5 text-xs text-primary">
-                          {t("pm_default_badge")}
+                          {/* 内置供应商的默认模型来自官方数据，只作推荐；自定义供应商的是用户设的默认 */}
+                          {t(custom ? "pm_default_badge" : "pm_recommended_badge")}
                         </span>
                       )}
                       {versionUnmet && (
