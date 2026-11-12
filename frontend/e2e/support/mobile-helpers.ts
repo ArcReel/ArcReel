@@ -73,6 +73,10 @@ export async function expectTouchTargets(page: import("@playwright/test").Page) 
       if (el.tagName === "A" && style.display.startsWith("inline") && !style.display.startsWith("inline-")) continue;
       // 允许 1px 取整误差
       if (rect.width < 43 || rect.height < 43) {
+        // 设置页详情栏（`data-detail-dense`：调用端点、供应商）按需求把字号与方框整体收到
+        // 分节标题 10px / 正文 9px / 控件 32px。这些控件是有意做小的，不按 44px 判失败；
+        // 其余页面仍按 44px 检查。
+        if (el.closest("[data-detail-dense]")) continue;
         out.push({
           label: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 40),
           width: Math.round(rect.width),

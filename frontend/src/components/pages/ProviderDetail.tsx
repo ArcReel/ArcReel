@@ -255,6 +255,7 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
 
   return (
     <DetailPane
+      dense
       header={
         <div className="flex items-start gap-3">
           <ProviderIcon providerId={providerId} className="mt-0.5 size-7 shrink-0" />

@@ -519,28 +519,66 @@ body {
         line-height: 1.4375rem;
     }
 
-    /* 调用端点详情（DetailPane dense）：表单控件与分节内边距比通用移动档再压一档，
-       字号与内置端点详情（12～13px）对齐，输入框不再以 16px/44px 的体量独占一屏。
+    /* 设置页的详情栏（调用端点、供应商）：表单密集，移动档按「分节标题 10px、正文 9px、
+       字段标签 9px」整体收一档，方框随字号收小，一屏能看完整节内容。
        选择器写满两级属性而不是 :where()：这里的字号要压过 compact-text 的 .text-sm / .text-base 规则。
-       这里是唯一允许输入框低于 16px 的地方——用户明确要求方框随字号收小；
+       输入框在移动档低于 16px 只在这里出现——用户明确要求方框随字号收小；
        iOS 聚焦时可能轻微放大，换行编辑不受影响。 */
-    [data-detail-dense] [data-slot="input"],
-    [data-detail-dense] [data-slot="textarea"],
-    [data-detail-dense] [data-slot="select-trigger"] {
+    [data-detail-dense] {
+        font-size: 0.5625rem;
+        line-height: 0.875rem;
+    }
+
+    [data-detail-dense] :is(h2, .text-lg) {
+        font-size: 0.75rem;
+        line-height: 1rem;
+    }
+
+    [data-detail-dense] :is(h3, .text-base) {
+        font-size: 0.625rem;
+        line-height: 0.875rem;
+    }
+
+    [data-detail-dense] :is(.text-sm) {
+        font-size: 0.5625rem;
+        line-height: 0.8125rem;
+    }
+
+    [data-detail-dense] :is(.text-xs) {
+        font-size: 0.5625rem;
+        line-height: 0.75rem;
+    }
+
+    [data-detail-dense] :is(.text-xl) {
         font-size: 0.8125rem;
+        line-height: 1.0625rem;
+    }
+
+    [data-detail-dense] :is(.text-2xl) {
+        font-size: 0.875rem;
         line-height: 1.125rem;
-        min-height: 2.25rem;
-        padding-inline: 0.625rem;
     }
 
-    [data-detail-dense] [data-slot="textarea"] {
-        padding-block: 0.375rem;
+    [data-detail-dense] :where([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]) {
+        font-size: 0.625rem;
+        line-height: 0.875rem;
+        min-height: 2rem;
+        padding-inline: 0.5rem;
     }
 
-    [data-detail-dense] [data-slot="toggle-group-item"] {
-        min-height: 2.25rem;
-        min-width: 2.25rem;
-        font-size: 0.8125rem;
+    [data-detail-dense] :where([data-slot="textarea"]) {
+        padding-block: 0.3125rem;
+    }
+
+    /* 按钮与分段开关跟着正文一起收：高度 32px，字号 10px，文字按钮的横向内边距同步收紧 */
+    [data-detail-dense] :where(button, a[class*="group/button"], [data-slot="toggle-group-item"], [data-slot="tabs-trigger"]) {
+        font-size: 0.625rem;
+        min-height: 2rem;
+        min-width: 2rem;
+    }
+
+    [data-detail-dense] :where([data-slot="toggle-group-item"], [data-slot="tabs-trigger"]) {
+        padding-inline: 0.5rem;
     }
 
     /* 页面顶栏与底部操作条让开刘海与手势条 */
