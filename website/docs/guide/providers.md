@@ -53,6 +53,7 @@ Agent 供应商不一定承担实际图片和视频生成。
 |---|:---:|:---:|:---:|:---:|---|
 | Gemini | ✅ | ✅ | ✅ | ✅ | 多模态文本、参考图、视频生成和 TTS |
 | 火山方舟 | ✅ | ✅ | ✅ | — | 国内网络环境下的文本、图像和视频 |
+| 火山方舟 Agent Plan | ✅ | ✅ | ✅ | ✅ | 订阅套餐内的文本、图像、视频和 TTS |
 | Grok | ✅ | ✅ | ✅ | ✅ | 文本、图像、视频生成和 TTS |
 | OpenAI | ✅ | ✅ | — | — | 文本和图像 |
 | Vidu | — | ✅ | ✅ | — | 图像、图生视频和参考生视频 |
@@ -422,13 +423,15 @@ ArcReel 支持：
 
 ## 9. TTS 配置 {#tts-providers}
 
-ArcReel 的旁白能力可以使用阿里百炼 Qwen TTS 与 qwen-audio TTS、MiniMax 语音、Gemini TTS（AI Studio、Vertex）、Grok TTS 或兼容的 TTS 接口。
+ArcReel 的旁白能力可以使用阿里百炼 Qwen TTS 与 qwen-audio TTS、MiniMax 语音、Gemini TTS（AI Studio、Vertex）、Grok TTS、火山方舟 Agent Plan 的豆包语音合成模型 2.0 或兼容的 TTS 接口。
 
 在全局设置和项目设置里选定 TTS 模型后，旁白音色输入框会列出这个模型可选的常用音色。列表之外的音色（例如复刻音色）照供应商文档填写音色 ID。
 
 阿里百炼语音分为两个调用端点：「阿里百炼（语音合成）」调用 Qwen TTS（`qwen3-tts` 等），「阿里百炼（qwen-audio 语音合成）」调用 qwen-audio TTS（`qwen-audio-3.0-tts`、`qwen-audio-3.1-tts` 系列）。两个端点的音色不通用，qwen-audio 的各个模型也只能使用各自的音色，完整列表见百炼[音色列表](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list)。qwen-audio 端点支持配音语速，范围 0.5～2.0，超出范围时按最近的边界值提交。添加模型时，名称含 `qwen-audio` 的模型预填 qwen-audio 端点，其余百炼语音模型预填 Qwen TTS 端点，在[模型设置](#model-settings)里可以修改。
 
 Grok TTS 的配音语速范围是 0.7～1.5。超出范围时合成任务在提交前失败，不产生费用，也不会自动改成边界值，需要在设置里调整或清空配音语速。
+
+火山方舟 Agent Plan 的语音合成使用已配置的 Agent Plan 专属 API Key，不需要另外填写 AK/SK，调用的是套餐内的专属语音接口。套餐未开通语音合成、额度或并发已用尽、音色未授权时，合成任务失败并显示上游错误码，不会改用按量付费的语音接口。音色列表只列出「豆包语音合成模型 2.0」的常用中文音色，其他 2.0 音色按官方[音色列表](https://docs.volcengine.com/docs/6561/1257544)填写音色 ID，1.0 音色不能使用。配音语速范围是 0.5～2.0，超出范围时合成任务在提交前失败，不产生费用。使用记录里的字符数取接口回报的计费字符数。
 
 配置后先验证：
 

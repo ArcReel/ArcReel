@@ -1805,6 +1805,7 @@ export default {
   'endpoint_agnes_chat_display': 'Agnes (Text)',
   'endpoint_grok_image_display': 'xAI Grok (Image)',
   'endpoint_grok_tts_display': 'xAI Grok (Speech)',
+  'endpoint_ark_agent_plan_tts_display': 'Volcengine Ark Agent Plan (Speech)',
   'endpoint_vidu_image_display': 'Vidu Image',
   'endpoint_grok_video_display': 'xAI Grok (Video)',
   'endpoint_grok_video_classic_display': 'Grok Video (Classic)',

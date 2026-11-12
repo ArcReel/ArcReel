@@ -149,6 +149,11 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     # 配音语速超出所选模型的取值范围：提交前拒绝，没有发出计费请求。
     "narration_tts_speed_out_of_range": "narration_tts_speed_out_of_range",
+    # 方舟 Agent Plan 语音合成：上游拒绝（鉴权、套餐权限、额度或并发、音色授权）、其他业务错误码，以及流在合成成功结束
+    # 之前中断或内容残缺。参数只带上游的数字错误码，上游原文只进日志。
+    "ark_agent_plan_tts_access_denied": "ark_agent_plan_tts_access_denied",
+    "ark_agent_plan_tts_failed": "ark_agent_plan_tts_failed",
+    "ark_agent_plan_tts_incomplete": "ark_agent_plan_tts_incomplete",
     # 内置供应商的模型引用不在模型清单中（已改名或从未收录）：引用原样保留，由用户重新选择。
     "model_not_in_provider_catalog": "model_not_in_provider_catalog",
     # 项目模型字段只写了内置供应商、没有选定模型（迁移补全不了的旧值）：由用户重新选择。

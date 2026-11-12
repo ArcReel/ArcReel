@@ -172,6 +172,11 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "image_seedream_edits_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "provider_unsupported_media": GenerationAction.CONFIGURE_PROVIDER,
     "narration_tts_speed_out_of_range": GenerationAction.FIX_INPUT,
+    # 套餐、API Key 或音色授权的问题要在供应商侧处理，原样重发只会被同样拒绝。
+    "ark_agent_plan_tts_access_denied": GenerationAction.CONFIGURE_PROVIDER,
+    "ark_agent_plan_tts_failed": GenerationAction.RETRY,
+    # 音频没收完整、没有落成产物：重新生成是唯一的一步，文案提示先到控制台确认用量。
+    "ark_agent_plan_tts_incomplete": GenerationAction.RETRY,
     "model_not_in_provider_catalog": GenerationAction.CONFIGURE_PROVIDER,
     "model_not_selected": GenerationAction.CONFIGURE_PROVIDER,
     "model_discontinued": GenerationAction.CONFIGURE_PROVIDER,

@@ -79,7 +79,31 @@ def test_other_provider_fields_are_unchanged(config_client):
         }
         if provider == "openai":
             expected.remove("video_max_workers")
+        if provider == "ark-agent-plan":
+            # 测试目录数据里的 ark-agent-plan 还没有音频模型，音频并发字段不显示，见下一条用例
+            expected.remove("audio_max_workers")
         assert {field["key"] for field in response.json()["fields"]} == expected
+
+
+@pytest.mark.parametrize("audio", [False, True])
+def test_agent_plan_audio_concurrency_field_follows_catalog(config_client, monkeypatch, audio):
+    entries = (
+        CatalogEntry(maker="bytedance", name="image", media_type="image", display_name="Image", facts=ImageFacts()),
+        CatalogEntry(maker="bytedance", name="video", media_type="video", display_name="Video", facts=VideoFacts()),
+    )
+    if audio:
+        entries += (
+            CatalogEntry(
+                maker="bytedance", name="seed-tts-2.0", media_type="audio", display_name="TTS", facts=AudioFacts()
+            ),
+        )
+    install_catalog(monkeypatch, catalog_of(entries, {"ark-agent-plan": tuple(entry.key.ref for entry in entries)}))
+    response = config_client.get("/api/v1/providers/ark-agent-plan/config")
+    assert response.status_code == 200
+    expected = {"image_max_workers", "video_max_workers"}
+    if audio:
+        expected.add("audio_max_workers")
+    assert {field["key"] for field in response.json()["fields"]} == expected
 
 
 def test_save_reloads_audio_capacity_and_hidden_value_survives(config_client, db_factory, monkeypatch):
