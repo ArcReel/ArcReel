@@ -2,8 +2,6 @@
 
 import asyncio
 import base64
-import contextlib
-import hashlib
 import json
 from collections.abc import Callable
 
@@ -12,7 +10,6 @@ import pytest
 import respx
 from sqlalchemy import update
 
-from arcreel_catalog_core import CatalogData, dump_entry
 from lib.catalog import official_sync
 from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver
@@ -21,13 +18,17 @@ from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.project.project_manager import ProjectManager
 from lib.script.grid.models import GridGeneration
-from server import app as server_app
 from server.services.admission.cost_estimation import estimate_image_batch_cost
 from server.services.tasks import generation_context, generation_tasks
-from tests.catalog_support import install_catalog, with_dataset_version, with_entry_facts
+from tests.catalog_support import install_catalog, with_dataset_version, with_entry_changes, with_entry_facts
 from tests.fakes import bind_safe_session_factory, bind_session_factory, use_project_manager
 from tests.http_capture import capture_http, only_request, request_json
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
+from tests.integration.server.official_sync_support import (
+    NEWER,
+    serve_dataset,
+    sync_as_app_starts_it,
+)
 from tests.integration.server.services.tasks.generation_tasks_support import (
     _FakePM,
     persist_active_fake_project,
@@ -102,7 +103,6 @@ async def test_project_quality_reaches_formal_image_request(tmp_path, db_factory
 
 _QUALITIES = ("low", "medium", "high")
 _RELAY = "https://relay.test/v1"
-_NEWER = "2099-01-01T00:00:00Z"
 _OUTPUT = solid_png_bytes((20, 200, 90))
 
 
@@ -168,95 +168,6 @@ def _usd(tokens: int) -> float:
     return tokens * 30 / 1_000_000
 
 
-async def _sync_as_app_starts_it(
-    monkeypatch, db_factory, serve: Callable[[respx.MockRouter], None], done: Callable[[], bool]
-) -> None:
-    """经应用启动时的入口跑一轮官方同步，``done`` 成立后停掉同步循环。
-
-    同步每用完一个数据库会话就检查一次 ``done``；装入了新数据时还要等应用回调完成容量重载，
-    避免在目录已经可见、DB 容量仍在读取时取消同步任务。
-    """
-    closed = asyncio.Event()
-    applied = asyncio.Event()
-    initial_version = catalog.official_data().dataset_version
-
-    @contextlib.asynccontextmanager
-    async def session_factory():
-        async with db_factory() as session:
-            yield session
-        closed.set()
-
-    async def _until_done() -> None:
-        while not done() or (catalog.official_data().dataset_version != initial_version and not applied.is_set()):
-            closed.clear()
-            await closed.wait()
-
-    def start_sync(session_factory, http_client, on_applied):
-        async def after_applied():
-            await on_applied()
-            applied.set()
-            closed.set()
-
-        return official_sync.start_official_sync(session_factory, http_client, on_applied=after_applied)
-
-    # 根 conftest 把应用启动的同步换成了不发请求的空任务，这里换回真实入口
-    monkeypatch.setattr(server_app, "start_official_sync", start_sync)
-    async with httpx.AsyncClient() as client:
-        with capture_http() as router:
-            serve(router)
-            task = server_app.start_catalog_sync(session_factory, lambda: client)
-            assert task is not None
-            waiting = asyncio.create_task(_until_done())
-            # 防挂起的上限：不用 asyncio.timeout 包住 await，超时取消会掩盖挂起
-            await asyncio.wait({waiting}, timeout=5)
-            waiting.cancel()
-            await official_sync.stop_official_sync(task)
-    assert waiting.done()
-    assert not waiting.cancelled(), "同步这一轮没有跑完"
-
-
-def _published_files(data: CatalogData) -> tuple[bytes, bytes]:
-    """目录数据仓库发布的一对文件 ``(清单文件, 数据文件)``，由 ``data`` 整份写出。"""
-    raw = {
-        "dataset_version": data.dataset_version,
-        "entries": [dump_entry(entry) for entry in data.entries],
-        "builtin_providers": {
-            provider_id: {
-                "models": [
-                    {
-                        key: value
-                        for key, value in {
-                            "api_model_name": model.api_model_name,
-                            "entry": model.entry,
-                            "media_type": model.media_type,
-                            "multiplier": model.multiplier,
-                            "min_app_version": model.min_app_version,
-                            "endpoint": model.endpoint,
-                        }.items()
-                        if value is not None
-                    }
-                    for model in listing.models
-                ],
-                "defaults": dict(listing.defaults),
-            }
-            for provider_id, listing in data.builtin_providers.items()
-        },
-    }
-    content = json.dumps(raw).encode()
-    manifest = {"dataset_version": data.dataset_version, "sha256": hashlib.sha256(content).hexdigest()}
-    return json.dumps(manifest).encode(), content
-
-
-def _serve_dataset(data: CatalogData) -> Callable[[respx.MockRouter], None]:
-    manifest, content = _published_files(data)
-
-    def serve(router: respx.MockRouter) -> None:
-        router.get(official_sync.MANIFEST_URL).respond(content=manifest)
-        router.get(official_sync.CATALOG_URL).respond(content=content)
-
-    return serve
-
-
 def _serve_manifest_failure(router: respx.MockRouter) -> None:
     router.get(official_sync.MANIFEST_URL).respond(status_code=500)
 
@@ -280,12 +191,12 @@ async def test_request_quality_follows_the_estimate_after_official_sync(
     # 同步前执行一次，缓存按旧数据构造的后端
     assert request_json(await _sent_image_request())["quality"] == ("low" if before else "medium")
 
-    upstream = with_dataset_version(with_entry_facts(snapshot, "openai", "gpt-image-2", qualities=after), _NEWER)
-    await _sync_as_app_starts_it(
+    upstream = with_dataset_version(with_entry_facts(snapshot, "openai", "gpt-image-2", qualities=after), NEWER)
+    await sync_as_app_starts_it(
         monkeypatch,
         db_factory,
-        _serve_dataset(upstream),
-        lambda: catalog.official_data().dataset_version == _NEWER,
+        serve_dataset(upstream),
+        lambda: catalog.official_data().dataset_version == NEWER,
     )
 
     assert await _estimated_total(tmp_path, db_factory) == {"USD": pytest.approx(_usd(tokens))}
@@ -306,13 +217,13 @@ async def test_backend_cache_is_kept_unless_the_sync_applies_new_data(relay_proj
     if outcome == "failed":
         serve = _serve_manifest_failure
     else:
-        serve = _serve_dataset(with_dataset_version(current, _NEWER) if outcome == "applied" else current)
+        serve = serve_dataset(with_dataset_version(current, NEWER) if outcome == "applied" else current)
     done = {
-        "applied": lambda: catalog.official_data().dataset_version == _NEWER,
+        "applied": lambda: catalog.official_data().dataset_version == NEWER,
         "unchanged": lambda: official_sync.sync_status().last_success_at is not None,
         "failed": lambda: official_sync.sync_status().last_error is not None,
     }[outcome]
-    await _sync_as_app_starts_it(monkeypatch, db_factory, serve, done)
+    await sync_as_app_starts_it(monkeypatch, db_factory, serve, done)
 
     expected = moved if outcome == "applied" else _RELAY
     assert str((await _sent_image_request(expected)).url) == f"{expected}/images/generations"
@@ -353,7 +264,6 @@ async def test_official_sync_refreshes_worker_lanes_only_when_applied(file_db_fa
         lanes=("audio",),
     )
     await worker.reload_limits()
-    monkeypatch.setattr(server_app.app.state, "generation_worker", worker, raising=False)
     if outcome in {"unchanged", "failed"}:
         worker._capacity.replace({"grok": {"audio": 4}})
     before = worker._capacity.get("grok", "audio")
@@ -363,7 +273,7 @@ async def test_official_sync_refreshes_worker_lanes_only_when_applied(file_db_fa
         serve = _serve_manifest_failure
     else:
         upstream = without_audio if outcome == "removed" else with_audio
-        serve = _serve_dataset(initial if outcome == "unchanged" else with_dataset_version(upstream, _NEWER))
+        serve = serve_dataset(initial if outcome == "unchanged" else with_dataset_version(upstream, NEWER))
     expected = {"added": 2, "removed": 0, "unchanged": before, "failed": before}[outcome]
     done = {
         "added": lambda: worker._capacity.get("grok", "audio") == 2,
@@ -372,7 +282,7 @@ async def test_official_sync_refreshes_worker_lanes_only_when_applied(file_db_fa
         "failed": lambda: official_sync.sync_status().last_error is not None,
     }[outcome]
     try:
-        await _sync_as_app_starts_it(monkeypatch, file_db_factory, serve, done)
+        await sync_as_app_starts_it(monkeypatch, file_db_factory, serve, done, worker=worker)
         assert worker._capacity.get("grok", "audio") == expected
         assert slots.occupied("grok", "audio") == 1
         running.set_result(None)
@@ -431,16 +341,14 @@ async def test_sync_rebuilds_cached_image_model_facts_and_builtin_video_entry(re
     assert before_entry is not None
     upstream = with_dataset_version(
         with_entry_facts(snapshot, "openai", "gpt-image-2", image_to_image=False, max_reference_images=1),
-        _NEWER,
+        NEWER,
     )
-    from tests.catalog_support import with_entry_changes
-
     upstream = with_entry_changes(upstream, "grok", "grok-imagine-video", display_name="Synced video")
-    await _sync_as_app_starts_it(
+    await sync_as_app_starts_it(
         monkeypatch,
         db_factory,
-        _serve_dataset(upstream),
-        lambda: catalog.official_data().dataset_version == _NEWER,
+        serve_dataset(upstream),
+        lambda: catalog.official_data().dataset_version == NEWER,
     )
     after_image, after_video = await backends()
     assert after_image.entry_reference_limit == 1
