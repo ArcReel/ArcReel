@@ -39,6 +39,7 @@ from tests.fakes import (
     fail_project_json_write,
     use_artifact_registration,
     use_project_manager,
+    use_text_backend_sessions,
     use_text_generator,
     use_upload_claim_registration,
 )
@@ -1126,7 +1127,7 @@ class TestFilesRouter:
 
         client, pm = _client(monkeypatch, tmp_path)
         monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", create_text_backend_for_task)
-        monkeypatch.setattr("lib.backends.text_backends.factory.async_session_factory", file_db_factory)
+        use_text_backend_sessions(monkeypatch, file_db_factory)
         project_dir = pm.get_project_path("demo")
         original_image = _img_bytes("PNG", color=(0, 0, 255))
         (project_dir / "style_reference.png").write_bytes(original_image)

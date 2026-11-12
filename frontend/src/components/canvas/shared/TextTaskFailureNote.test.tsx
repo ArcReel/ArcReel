@@ -53,6 +53,13 @@ describe("TextTaskFailureNote", () => {
     expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=7&model=my-llm");
   });
 
+  it.each(["text_episode_script", "text_draft_repair", "text_narration_script_plan"])("links a missing default model in %s to Default models", (taskType) => {
+    useTasksStore.setState({ tasks: [failed({ task_type: taskType, resource_id: taskType === "text_draft_repair" ? "episode-1-narration_script_plan" : "episode-1", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
+    const location = renderNote();
+    fireEvent.click(screen.getByRole("link", { name: "设置默认模型" }));
+    expect(location.history.at(-1)).toBe("/app/settings?section=default-models");
+  });
+
   it("asks to switch models when a built-in model is truncated", () => {
     useTasksStore.setState({ tasks: [truncated({ task_type: "text_episode_script", resource_id: "episode-1" }, false)] });
     renderNote();

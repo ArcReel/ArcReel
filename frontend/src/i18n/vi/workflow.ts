@@ -253,6 +253,8 @@ export default {
   'action_wait_for_task': 'đợi lần thử đang chạy kết thúc',
   'action_replan_unit': 'viết lại đơn vị này cho vừa thời lượng có thể tạo',
   'action_confirm_request_duration': 'xác nhận mức thời lượng yêu cầu',
+  'action_configure_default_model': 'chọn mô hình trong Cài đặt → Mô hình mặc định',
+  'act_configure_default_model': 'Đặt mô hình mặc định',
   'action_configure_provider': 'chọn mô hình video hoặc âm thanh trong Cài đặt',
   'action_repair_artifact_state': 'sửa trạng thái tệp của đơn vị này',
   'action_retry_artifact_download': 'tải lại tệp đã tạo xong, không tạo lại',

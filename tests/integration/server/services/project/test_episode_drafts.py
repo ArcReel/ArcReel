@@ -379,3 +379,23 @@ async def test_prompt_authoring_draft_view_maps_items_to_formal_units(tmp_path: 
     assert await service.list_drafts("demo", 1) == [
         {"doc_type": "reference_prompt_authoring", "editable_by": "user", "violation_count": 1}
     ]
+
+
+async def test_missing_text_default_is_preserved_by_draft_repair(narration, monkeypatch) -> None:
+    from lib.config.resolver import NoAvailableProviderError
+
+    pm, project_path = narration
+    _write_narration_draft(project_path, [_segment(characters_in_segment=["王五"])])
+    service = EpisodeDraftService(pm)
+    view = await service.get_draft("demo", 1, "narration_script_plan")
+    path = quarantine_path(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+    before = path.read_bytes()
+
+    async def no_text_default(*_args, **_kwargs):
+        raise NoAvailableProviderError("没有设置 text 默认模型", media_type="text")
+
+    use_text_generator(monkeypatch, no_text_default)
+    with pytest.raises(NoAvailableProviderError) as exc_info:
+        await _repair(pm).repair(1, "narration_script_plan", view["revision"])
+    assert exc_info.value.media_type == "text"
+    assert path.read_bytes() == before

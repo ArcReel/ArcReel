@@ -20,7 +20,7 @@ from lib.backends.image_backends.base import ImageCapabilityError, ImageOutputFo
 from lib.backends.provider_assets import ProviderInputImageRejectedError
 from lib.billing.call_failure import CallErrorCode, classify_call_failure
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import ImageBucketCapabilityError, VideoBucketCapabilityError
+from lib.config.resolver import ImageBucketCapabilityError, NoAvailableProviderError, VideoBucketCapabilityError
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
 from lib.generation.task_failure import encode_failure
@@ -42,6 +42,10 @@ def encode_task_failure_message(exc: Exception) -> str:
     """
     if isinstance(exc, SQLAlchemyError):
         return encode_failure("internal_server_error")
+    if isinstance(exc, NoAvailableProviderError):
+        return _try_encode_failure(f"{exc.media_type}_default_model_not_set", {"media_type": exc.media_type}) or str(
+            exc
+        )
     if isinstance(exc, ScriptEditError):
         # 编不出来时退到通用 script_edit_error，保住"是剧本编辑失败"这一层信息。
         return _try_encode_failure(exc.key, exc.params) or encode_failure("script_edit_error")

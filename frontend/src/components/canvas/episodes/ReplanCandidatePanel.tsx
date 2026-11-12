@@ -5,6 +5,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodeReplanContinue } from "@/actions/generation";
+import { DefaultModelSettingsLink } from "@/components/shared/DefaultModelSettingsLink";
 import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -162,8 +163,8 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
     const reason = replan.interrupted === null ? "dashboard:replan_stopped" : `dashboard:replan_stopped_${replan.interrupted}`;
     notice = t(reason, { end: point(view, replan.end) });
   }
-  const truncated =
-    stopped && replan.interrupted === "failed" ? (lastPlanningFailure(tasks, projectName)?.truncated ?? null) : null;
+  const failure = stopped && replan.interrupted === "failed" ? lastPlanningFailure(tasks, projectName) : null;
+  const truncated = failure?.truncated ?? null;
 
   return shell(
     <>
@@ -181,6 +182,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
           </span>
         </p>
       ) : null}
+      {failure?.code === "text_default_model_not_set" ? <DefaultModelSettingsLink /> : null}
       {truncated ? <OutputTruncationHint truncation={truncated} /> : null}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
         <SummaryRow label={t("dashboard:replan_count")}>

@@ -382,3 +382,16 @@ def test_grpc_transient_error_is_not_classified_as_rejection():
     stored = encode_task_failure_message(_aio_rpc_error(grpc.StatusCode.UNAVAILABLE, "Socket closed"))
 
     assert not stored.startswith("[provider_rejected]")
+
+
+@pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
+def test_missing_text_default_encodes_params_and_renders_guidance(locale: str) -> None:
+    from lib.config.resolver import NoAvailableProviderError
+    from lib.generation.generation_result import problem_from_task_failure
+
+    encoded = encode_task_failure_message(NoAvailableProviderError("固定中文诊断", media_type="text"))
+    assert parse_failure(encoded) == ("text_default_model_not_set", {"media_type": "text"})
+    assert problem_from_task_failure(encoded).action.value == "configure_default_model"
+    assert render_failure(encoded, _translator(locale), make_display_names(locale)) == translate_message(
+        "text_default_model_not_set", locale=locale
+    )

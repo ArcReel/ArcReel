@@ -58,6 +58,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "replan_unit",
   "confirm_request_duration",
   "configure_provider",
+  "configure_default_model",
   "repair_artifact_state",
   "retry_artifact_download",
 ] as const;

@@ -437,6 +437,15 @@ describe("EpisodesView", () => {
       expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=7&model=my-llm");
     });
 
+    it("links a missing text default during episode planning to Default models", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
+      const { location } = renderView();
+      const popover = await openPlanning("AI 规划剩余内容");
+      fireEvent.click(popover.getByRole("link", { name: "设置默认模型" }));
+      expect(location.history.at(-1)).toBe("/app/settings?section=default-models");
+    });
+
     it("asks to switch models when a built-in model is truncated", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
       useTasksStore.setState({
@@ -625,6 +634,15 @@ describe("EpisodesView", () => {
       fireEvent.click(within(panel).getByRole("button", { name: "继续生成" }));
 
       await waitFor(() => expect(resume).toHaveBeenCalledWith("demo", "cand-1"));
+    });
+
+    it("links a missing text default during replanning to Default models", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: { ...REPLAN, complete: false, interrupted: "failed" } });
+      useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
+      const { location } = renderView();
+      const panel = await screen.findByRole("region", { name: "新的分集方案" });
+      fireEvent.click(within(panel).getByRole("link", { name: "设置默认模型" }));
+      expect(location.history.at(-1)).toBe("/app/settings?section=default-models");
     });
 
     it("offers to register the output limit when a replan window of a custom model was truncated", async () => {

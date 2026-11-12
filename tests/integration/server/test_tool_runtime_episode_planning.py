@@ -36,7 +36,7 @@ from server.tool_runtime import (
     stop_episode_planning,
 )
 from tests.factories import register_project_sources
-from tests.fakes import refuse_resume_execution
+from tests.fakes import refuse_resume_execution, use_text_backend_sessions
 
 _CHAPTERS = (
     "第一章。少年得到古玉，玉中藏着剑诀。",
@@ -417,3 +417,26 @@ async def test_a_replan_stuck_without_a_cut_point_keeps_its_part_and_continues_w
     again = await continue_episode_replan(candidate["id"], _scope(projects), _WEB, services)
     assert again.problem is not None
     assert again.problem.params["reason"] == "candidate_complete"
+
+
+async def test_missing_text_default_in_replan_window_keeps_the_existing_plan(planning, monkeypatch) -> None:
+    projects, services, session_factory = planning
+    with monkeypatch.context() as setup:
+        _use_generator(setup, _Generator())
+        await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
+        await _wait_until_idle(session_factory)
+    ledger = projects.load_project("planning")["episodes"]
+    use_text_backend_sessions(monkeypatch, session_factory)
+    submitted = await start_episode_replan(
+        ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services, episode=ledger[1]["episode"]
+    )
+    assert submitted.problem is None
+    tasks = await _wait_until_idle(session_factory)
+    (failed,) = [task for task in tasks if task.status == "failed" and task.resource_id == "episode-planning"]
+    problem = problem_from_task_failure(failed.error_message)
+    assert (problem.code, problem.action.value, problem.params) == (
+        "text_default_model_not_set",
+        "configure_default_model",
+        {"media_type": "text"},
+    )
+    assert projects.load_project("planning")["episodes"] == ledger

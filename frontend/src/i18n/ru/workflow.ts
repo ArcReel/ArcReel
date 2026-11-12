@@ -323,6 +323,8 @@ export default {
   'action_wait_for_task': 'дождитесь завершения текущей попытки',
   'action_replan_unit': 'перепишите этот фрагмент, чтобы он уложился в доступную длительность',
   'action_confirm_request_duration': 'подтвердите запрошенную длительность',
+  'action_configure_default_model': 'выберите модель в разделе «Настройки → Модели по умолчанию»',
+  'act_configure_default_model': 'Выбрать модель по умолчанию',
   'action_configure_provider': 'выберите модель видео или аудио в настройках',
   'action_repair_artifact_state': 'исправьте состояние файла этого фрагмента',
   'action_retry_artifact_download': 'скачайте готовый файл заново, не запуская генерацию',

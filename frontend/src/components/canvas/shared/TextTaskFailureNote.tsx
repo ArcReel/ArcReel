@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, ChevronRight, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
+import { DefaultModelSettingsLink } from "@/components/shared/DefaultModelSettingsLink";
 import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -61,6 +62,7 @@ export function TextTaskFailureNote({
       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden />
       <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
         <p className="m-0 text-destructive">{t(adScript ? "ad_script_failed" : FAILURE_KEYS[failure.kind], { reason })}</p>
+        {failure.task.error_code === "text_default_model_not_set" ? <DefaultModelSettingsLink /> : null}
         {truncation ? <OutputTruncationHint truncation={truncation} /> : null}
         {failure.task.error_detail ? (
           <Collapsible render={<div className="flex w-full min-w-0 flex-col gap-1" />}>

@@ -172,6 +172,8 @@ MESSAGES = {
     "narration_tts_model_required": "选择 TTS 配音时必须指定 TTS 模型",
     "recommendation_changed_again": "推荐模型刚刚又有变化，请重新选择",
     "model_not_selected": "项目设置里有一项模型只选了供应商 {provider}，没有选定具体模型；请在项目设置中重新选择模型",
+    "image_default_model_not_set": "还没有设置图片默认模型：请在「全局设置 → 默认模型」中选择",
+    "video_default_model_not_set": "还没有设置视频默认模型：请在「全局设置 → 默认模型」中选择",
     "text_default_model_not_set": "还没有设置文本默认模型：请在「全局设置 → 默认模型」中选择；还没有配置供应商时，先在「全局设置 → 供应商」配置",
     "audio_default_model_not_set": "还没有设置旁白配音的默认模型：请在「全局设置 → 默认模型」中选择；还没有配置支持语音合成的供应商时，先在「全局设置 → 供应商」配置",
     "narration_tts_model_invalid": "所选 TTS 模型不可用：请选择语音合成供应商下的模型",
