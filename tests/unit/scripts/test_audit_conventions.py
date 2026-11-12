@@ -523,6 +523,25 @@ def test_binding_a_root_fixture_patched_function_at_import_time_is_reported(repo
         "def test_default(today=lc.utc_today):\n"
         "    ...\n",
     )
+    _write(
+        repo,
+        "tests/unit/test_by_parent.py",
+        "import lib.catalog as catalog\n"
+        "from lib import catalog as cat\n"
+        "import lib\n"
+        "A = catalog.query.factory_snapshot\n"
+        "B = cat.lifecycle.utc_today\n"
+        "C = lib.catalog.query.factory_snapshot\n",
+    )
+    _write(
+        repo,
+        "tests/unit/test_shadowed.py",
+        "from lib.catalog import query as catalog\n"
+        "LOAD = catalog.factory_snapshot\n"
+        "def test_dates():\n"
+        "    from lib.catalog import lifecycle as catalog\n"
+        "    assert catalog.utc_today()\n",
+    )
 
     assert _patched_name_hits(repo) == [
         ("tests/unit/test_by_module.py", 4),
@@ -532,6 +551,10 @@ def test_binding_a_root_fixture_patched_function_at_import_time_is_reported(repo
         ("tests/unit/test_by_name.py", 1),
         ("tests/unit/test_by_name.py", 2),
         ("tests/unit/test_by_name.py", 3),
+        ("tests/unit/test_by_parent.py", 4),
+        ("tests/unit/test_by_parent.py", 5),
+        ("tests/unit/test_by_parent.py", 6),
+        ("tests/unit/test_shadowed.py", 2),
     ]
 
 

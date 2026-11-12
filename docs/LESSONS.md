@@ -187,7 +187,7 @@
 模式：内嵌 CLI 随 SDK 升级改变对运行环境的要求（如 worktree 隔离改为先用 git 校验 WorktreeCreate 钩子返回的目录），镜像却缺少相应命令；单元测试与 CI 不在镜像里运行 Agent，升级 PR 上看不出差异
 代价：Docker 部署中，模型要求 worktree 隔离时子智能体派发失败，问题跨越多个发布版本，直到用户反馈才发现（严重度：常规）
 判定方式：机械（拟用镜像冒烟：模拟 Messages API，让主 Agent 带 `isolation: "worktree"` 派发子智能体）
-- #1929 · 2026-08-17 · 合并后修复：SDK 0.2.128 → 0.2.139 后 CLI 2.1.222 起要求 git 校验钩子目录，镜像没有 git，v0.27.0～v0.36.0 的镜像受影响（#3798 的 475ad3c48 修复）；根因：#533 的 pwd 钩子方案依赖 CLI 不校验钩子返回的目录；没拦住：没有对应规则
+- #1929 · 2026-11-12 · 合并后修复：SDK 0.2.128 → 0.2.139 后 CLI 2.1.222 起要求 git 校验钩子目录，镜像没有 git，v0.27.0～v0.36.0 的镜像受影响（#3798 的 475ad3c48 修复）；根因：#533 的 pwd 钩子方案依赖 CLI 不校验钩子返回的目录；没拦住：没有对应规则
 
 ## 前端异步状态在作用域切换与重叠操作下归属不清
 
@@ -571,7 +571,7 @@
 - #3758 · 2026-11-10 · 自查复现：schema 18 归档的 Bob.character_sheet 借用 Alice 的图、Bob.reference_image 借用 Bob 的图，导入修复把 sheet 改指到 Bob 的图（#3765 的 793db959f 修复）；根因：导入修复先于共享引用迁移，且规范落点优先于有效源引用；没拦住：检查没接上，迁移入口的字段内容保护没有覆盖归档导入的前置修复
 
 ### 测试在导入时不按名字绑定根 conftest 替换的函数
-去向：`scripts/audit_conventions.py` 的 TEST-PATCHED-NAME（随 2026-11-12 巡检落地）：tests 下在导入时按名字绑定 `lib.catalog.query.factory_snapshot`、`lib.catalog.lifecycle.utc_today`（`from … import`、模块属性赋值、类体与参数默认值）即报错，`test_factory_snapshot.py` 豁免；对 fe8113fc5 之前的 tests 报出审查指出的 8 处模块级别名
+去向：`scripts/audit_conventions.py` 的 TEST-PATCHED-NAME（随 2026-11-12 巡检落地）：tests 下在导入时按名字绑定 `lib.catalog.query.factory_snapshot`、`lib.catalog.lifecycle.utc_today`（`from … import`、经模块或父包别名的属性取用、类体与参数默认值）即报错，`test_factory_snapshot.py` 豁免；对 fe8113fc5 之前的 tests 报出审查指出的 8 处模块级别名
 模式：根 fixture 替换模块属性来固定目录数据与「今天」，用例或辅助模块在模块顶层 `from … import` 了原函数，拿到的是替换前的真实函数；当前数据恰好兼容时全量测试仍然通过
 代价：用例结果随出厂快照或真实日期变化，数据更新或日期到期后在发版 PR 上失败，隔离声明与实际不符（严重度：常规）
 判定方式：机械

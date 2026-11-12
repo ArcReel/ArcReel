@@ -657,19 +657,32 @@ def _dotted_name(node: ast.expr) -> str | None:
 
 
 def _patched_module_bindings(tree: ast.Module) -> dict[str, str]:
-    """本文件里指向被替换模块的名字 → 模块全名（``import m``、``import m as q``、``from pkg import m [as q]``）。"""
+    """导入时绑定的名字 → 被替换模块或其父包的全名（``import m``、``import m as q``、``from pkg import m [as q]``）。
+
+    只看导入时执行的语句：函数体内的导入是局部名，不改变模块与类体里同名的绑定。
+    """
+    targets = {".".join(m.split(".")[:n]) for m in ROOT_FIXTURE_PATCHED for n in range(1, m.count(".") + 2)}
     bound: dict[str, str] = {}
-    for node in ast.walk(tree):
+    for node in _evaluated_at_import(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name in ROOT_FIXTURE_PATCHED:
-                    bound[alias.asname or alias.name] = alias.name
+                if alias.asname and alias.name in targets:
+                    bound[alias.asname] = alias.name
+                elif not alias.asname and alias.name.split(".")[0] in targets:
+                    bound[alias.name.split(".")[0]] = alias.name.split(".")[0]
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
             for alias in node.names:
                 full = f"{node.module}.{alias.name}"
-                if full in ROOT_FIXTURE_PATCHED:
+                if full in targets:
                     bound[alias.asname or alias.name] = full
     return bound
+
+
+def _resolve_module(owner: str, bound: dict[str, str]) -> str | None:
+    head, _, rest = owner.partition(".")
+    if head not in bound:
+        return None
+    return f"{bound[head]}.{rest}" if rest else bound[head]
 
 
 def _evaluated_at_import(tree: ast.Module) -> Iterator[ast.AST]:
@@ -703,7 +716,7 @@ def check_root_fixture_patched_names(root: Path, out: list[Violation]) -> None:
                 hits = [(node.module, a.name) for a in node.names if a.name in names or a.name == "*"]
             elif isinstance(node, ast.Attribute):
                 owner = _dotted_name(node.value)
-                module = bound.get(owner, owner) if owner else None
+                module = _resolve_module(owner, bound) if owner else None
                 if module in ROOT_FIXTURE_PATCHED and node.attr in ROOT_FIXTURE_PATCHED[module]:
                     hits = [(module, node.attr)]
             for module, name in hits:
