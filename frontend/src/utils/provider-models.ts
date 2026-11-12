@@ -183,7 +183,8 @@ export function lookupVideoAudioControl(
 // Resolution lookup
 // ---------------------------------------------------------------------------
 
-export const IMAGE_STANDARD_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
+// 自定义供应商的候选只是提示，输入框仍可自由填写；512px 低于 GPT Image 等模型的总像素下限，不作建议。
+export const IMAGE_STANDARD_RESOLUTIONS = ["1K", "2K", "4K"];
 export const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
 
 /** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。
