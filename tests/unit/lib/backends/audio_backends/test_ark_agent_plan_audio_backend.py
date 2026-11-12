@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import traceback
 from pathlib import Path
 
 import httpx
@@ -14,6 +15,8 @@ from lib.backends.audio_backends import AudioCapability, AudioSynthesisRequest
 from lib.backends.audio_backends.ark_agent_plan import ArkAgentPlanAudioBackend
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS, builtin_model_spec, infer_builtin_endpoint
+from lib.backends.http_status_errors import AmbiguousSubmitError
+from lib.billing.call_failure import classify_call_failure
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.i18n import SUPPORTED_LOCALES
 from lib.i18n import _ as translate
@@ -57,6 +60,30 @@ async def test_assembled_backend_posts_to_the_plan_tts_url_with_the_plan_key(tmp
 def test_missing_api_key_fails_at_construction():
     with pytest.raises(ValueError, match="Agent Plan API Key"):
         _backend({})
+
+
+@pytest.mark.parametrize("key", ["plan-key\nsecret", "plan-key\rsecret", "plan-key\x00secret", "plan-key秘密"])
+def test_invalid_header_key_fails_without_echoing_credentials(key):
+    with pytest.raises(ValueError, match="有效") as caught:
+        _backend({"api_key": key})
+    assert "plan-key" not in str(caught.value)
+    assert "plan-key" not in "".join(traceback.format_exception(caught.value))
+
+
+async def test_read_timeout_retains_classification_without_upstream_text(tmp_path: Path):
+    backend = _backend({"api_key": "plan-key"})
+    with capture_http() as router:
+        route = router.post("https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional").mock(
+            side_effect=httpx.ReadTimeout("upstream-private-message plan-key")
+        )
+        with pytest.raises(AmbiguousSubmitError) as caught:
+            await backend.synthesize(AudioSynthesisRequest(text="你好", output_path=tmp_path / "o.wav", voice="v"))
+    assert route.call_count == 1
+    assert classify_call_failure(caught.value).error_code == "timeout"
+    diagnostics = "".join(traceback.format_exception(caught.value))
+    assert "upstream-private-message" not in diagnostics
+    assert "plan-key" not in diagnostics
+    assert not (tmp_path / "o.wav").exists()
 
 
 def test_declares_speed_and_a_voice_list_with_translated_labels():

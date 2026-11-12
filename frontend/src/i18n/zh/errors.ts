@@ -45,6 +45,7 @@ export default {
   "ark_agent_plan_tts_access_denied": "火山方舟 Agent Plan 拒绝了语音合成请求（错误码 {{code}}）。可能是 API Key 无效、套餐未开通语音合成、额度或并发已用尽，或音色未授权。在方舟控制台确认套餐状态与音色后重试；ArcReel 不会改用按量付费接口",
   "ark_agent_plan_tts_failed": "火山方舟 Agent Plan 语音合成失败（错误码 {{code}}），没有生成音频。稍后重试；问题持续时，在方舟控制台查看套餐状态",
   "ark_agent_plan_tts_incomplete": "火山方舟 Agent Plan 返回的语音不完整，没有保存音频。这次请求可能已计入套餐用量，在方舟控制台确认后再重试",
+  "ark_agent_plan_tts_unreachable": "多次重试后仍无法连接火山方舟 Agent Plan 语音合成服务，没有生成音频，也不会计入套餐用量。检查网络与代理设置后重试",
   "video_aspect_ratio_not_supported": "模型 {{model}} 不支持 {{aspect_ratio}} 比例（仅支持 {{supported}}）；请选择支持的比例",
   "video_audio_switch_not_supported": "{{provider}}/{{model}} 的成片恒有声，无法关闭音频；请在设置中把音频开关改回开启后重试",
   "video_capability_missing_t2v": "{{provider}}/{{model}} 不支持文生视频；请提供首帧图，或换一个支持文生视频的模型",

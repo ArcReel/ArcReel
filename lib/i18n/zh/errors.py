@@ -183,6 +183,7 @@ MESSAGES = {
     "ark_agent_plan_tts_access_denied": "火山方舟 Agent Plan 拒绝了语音合成请求（错误码 {code}）。可能是 API Key 无效、套餐未开通语音合成、额度或并发已用尽，或音色未授权。在方舟控制台确认套餐状态与音色后重试；ArcReel 不会改用按量付费接口",
     "ark_agent_plan_tts_failed": "火山方舟 Agent Plan 语音合成失败（错误码 {code}），没有生成音频。稍后重试；问题持续时，在方舟控制台查看套餐状态",
     "ark_agent_plan_tts_incomplete": "火山方舟 Agent Plan 返回的语音不完整，没有保存音频。这次请求可能已计入套餐用量，在方舟控制台确认后再重试",
+    "ark_agent_plan_tts_unreachable": "多次重试后仍无法连接火山方舟 Agent Plan 语音合成服务，没有生成音频，也不会计入套餐用量。检查网络与代理设置后重试",
     "narration_delivery_post_production": "本项目的旁白交付方式是后期配音，不生成旁白配音；如需 TTS 配音，请先在项目设置中改为 TTS 配音",
     "character_voice_binding_invalid": "角色声音绑定方式只能是「提示词约束」或「参考音频」",
     "video_poll_timeout_minimum": "视频轮询超时不能少于 60 秒",

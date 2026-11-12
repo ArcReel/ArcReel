@@ -32,7 +32,8 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
-from lib.backends.backend_runtime import redact_provider_text, should_retry_submit, submit_post
+from lib.backends.backend_runtime import should_retry_submit, submit_post
+from lib.backends.http_status_errors import AmbiguousSubmitError
 from lib.backends.providers import PROVIDER_ARK_AGENT_PLAN
 from lib.backends.transport_layer import TransportLayer
 from lib.infra.api_errors import BadGatewayError, UnprocessableError
@@ -117,7 +118,7 @@ def _int_code(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-def _parse_stream(body: bytes, *, log_id: str) -> _Synthesis:
+def _parse_stream(body: bytes) -> _Synthesis:
     """依次解出响应体里的 JSON 对象并拼接音频。
 
     对象之间按任意空白分隔或首尾相接都能解析。业务错误抛领域错误；结束对象之前流就结束、对象残缺或音频解不开时抛
@@ -157,45 +158,51 @@ def _parse_stream(body: bytes, *, log_id: str) -> _Synthesis:
             usage = item.get("usage")
             words = _int_code(usage.get("text_words")) if isinstance(usage, dict) else None
             if text[position:].strip():
-                logger.warning("方舟 Agent Plan 语音合成结束对象之后还有内容，已忽略 logid=%s", log_id)
+                raise _IncompleteStream("合成成功结束对象之后仍有内容")
             return _Synthesis(bytes(audio), words if words is not None and words >= 0 else None)
-        _log_upstream_error(code, item.get("message"), log_id)
         raise _business_error(code)
 
 
 def _business_error(code: int | None) -> BadGatewayError:
+    # 业务码是八位整数，不把任意大小的上游值带进任务失败参数。
+    if code is None or not 0 <= code <= 99999999:
+        return BadGatewayError("ark_agent_plan_tts_incomplete")
     if code == _ACCESS_DENIED_CODE:
         return BadGatewayError("ark_agent_plan_tts_access_denied", code=code)
-    if code is None:
-        return BadGatewayError("ark_agent_plan_tts_incomplete")
     return BadGatewayError("ark_agent_plan_tts_failed", code=code)
-
-
-def _log_upstream_error(code: object, message: object, log_id: str) -> None:
-    # 上游原文只进日志，不进面向用户的失败原因。
-    logger.warning(
-        "方舟 Agent Plan 语音合成返回错误 code=%s message=%s logid=%s",
-        code,
-        redact_provider_text(message)[:300] if message is not None else "",
-        log_id,
-    )
 
 
 def _rejection(response: httpx.Response) -> BadGatewayError:
     """把 HTTP 错误状态换成领域错误：错误体里有业务码时按业务码分流，否则按 HTTP 状态码。"""
-    log_id = response.headers.get("X-Tt-Logid", "")
     try:
         payload: Any = response.json()
     except ValueError:
         payload = None
     code = _int_code(payload.get("code")) if isinstance(payload, dict) else None
-    message = payload.get("message") if isinstance(payload, dict) else None
-    _log_upstream_error(code if code is not None else response.status_code, message, log_id)
     if code is not None and code not in (_CHUNK_CODE, _SUCCESS_CODE):
         return _business_error(code)
     if response.status_code in _ACCESS_DENIED_STATUSES:
         return BadGatewayError("ark_agent_plan_tts_access_denied", code=response.status_code)
     return BadGatewayError("ark_agent_plan_tts_failed", code=response.status_code)
+
+
+def _timeout_cause(exc: BaseException | None) -> httpx.TimeoutException | None:
+    """替换掉原异常的因果链：只保留「是超时」这一事实供使用记录分类为 ``timeout``，不带底层异常原文。"""
+    return httpx.TimeoutException("语音合成请求超时") if isinstance(exc, httpx.TimeoutException) else None
+
+
+def _not_sent(exc: httpx.RequestError) -> BadGatewayError:
+    """请求没有送达时的领域错误。
+
+    ``submit_post`` 已把可能送达的传输错误换成歧义态，逃到这里的只有两类：建立连接失败（DNS、拒绝连接、TLS 握手、
+    连接或连接池超时、代理失败，重试用尽后才到这里）与发出前的本地协议错误。两类都没有发出计费请求。
+    底层原文只进日志；本地协议错误的原文可能回显请求头，日志里也只记类型。
+    """
+    if should_retry_submit(exc):
+        logger.warning("方舟 Agent Plan 语音合成无法建立连接: %s: %s", type(exc).__name__, exc)
+    else:
+        logger.warning("方舟 Agent Plan 语音合成请求未能发出: %s", type(exc).__name__)
+    return BadGatewayError("ark_agent_plan_tts_unreachable")
 
 
 def _encode_artifact(audio: bytes, *, wrap_wav: bool) -> bytes:
@@ -226,6 +233,9 @@ class ArkAgentPlanAudioBackend:
         if api_key is None or not api_key.strip():
             raise ValueError("请到系统配置页填写方舟 Agent Plan API Key")
         self._api_key = api_key.strip()
+        # 非法请求头会让 HTTP 客户端在异常里回显 Key，必须在构造请求前拒绝。
+        if not self._api_key.isascii() or not self._api_key.isprintable():
+            raise ValueError("请到系统配置页填写有效的方舟 Agent Plan API Key")
         self._model = model or DEFAULT_MODEL
         self._transport_layer = transport_layer
 
@@ -257,6 +267,8 @@ class ArkAgentPlanAudioBackend:
         except httpx.HTTPStatusError as exc:
             # 429、5xx 等可重试状态在重试用尽后仍要落成可读的失败原因；状态码留在因果链上供使用记录分类
             raise _rejection(exc.response) from exc
+        except httpx.RequestError as exc:
+            raise _not_sent(exc) from _timeout_cause(exc)
         # 供应商已计费返回，写盘不可被取消打断，结果照常成为产物
         await run_noninterruptible_sync(request.output_path.write_bytes, artifact)
         logger.info("方舟 Agent Plan 语音合成完成: %s", request.output_path)
@@ -298,19 +310,25 @@ class ArkAgentPlanAudioBackend:
                     lambda: client.post(_TTS_URL, json=payload, headers=headers),
                     provider=self.name,
                     include_provider_reason=False,
+                    log_response_body=False,
                 )
+            except AmbiguousSubmitError as exc:
+                # HTTP framing 错误可能回显响应字节；只保留超时类型供记账分类，不保留上游异常原文。
+                raise AmbiguousSubmitError(provider=self.name) from _timeout_cause(exc.__cause__)
             except httpx.HTTPStatusError as exc:
+                rejection = _rejection(exc.response)
+                if rejection.key == "ark_agent_plan_tts_access_denied":
+                    raise rejection from exc
                 if should_retry_submit(exc):
                     raise
-                raise _rejection(exc.response) from exc
-        log_id = resp.headers.get("X-Tt-Logid", "")
+                raise rejection from exc
         try:
             # 供应商已计费返回：整段响应的解析与解码放进线程且不可被取消打断
-            synthesis = await run_noninterruptible_sync(lambda: _parse_stream(resp.content, log_id=log_id))
+            synthesis = await run_noninterruptible_sync(lambda: _parse_stream(resp.content))
             if not synthesis.audio:
                 raise _IncompleteStream("合成成功结束，但没有音频")
-            artifact = _encode_artifact(synthesis.audio, wrap_wav=wrap_wav)
+            artifact = await run_noninterruptible_sync(lambda: _encode_artifact(synthesis.audio, wrap_wav=wrap_wav))
         except _IncompleteStream as exc:
-            logger.warning("方舟 Agent Plan 语音合成结果不完整: %s logid=%s", exc, log_id)
-            raise BadGatewayError("ark_agent_plan_tts_incomplete") from exc
+            logger.warning("方舟 Agent Plan 语音合成结果不完整: %s", exc)
+            raise BadGatewayError("ark_agent_plan_tts_incomplete") from None
         return artifact, synthesis.billed_characters

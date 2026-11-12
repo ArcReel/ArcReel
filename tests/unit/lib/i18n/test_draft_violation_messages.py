@@ -27,7 +27,7 @@ def _fields(template: str) -> set[str]:
 
 
 def _param_key(node: ast.expr | None) -> str | None:
-    if isinstance(node, ast.Constant):
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.Name) and node.id == "SCHEMA_ERROR_PARAM":
         return SCHEMA_ERROR_PARAM

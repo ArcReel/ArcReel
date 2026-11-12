@@ -188,6 +188,7 @@ MESSAGES = {
     "ark_agent_plan_tts_access_denied": "Volcengine Ark Agent Plan rejected the speech synthesis request (error code {code}). The API key may be invalid, the plan may not include speech synthesis, the quota or concurrency limit may be used up, or the voice may not be authorized. Check the plan status and voice in the Ark console, then retry; ArcReel does not fall back to pay-as-you-go speech synthesis",
     "ark_agent_plan_tts_failed": "Volcengine Ark Agent Plan speech synthesis failed (error code {code}) and no audio was generated. Retry later; if the problem persists, check the plan status in the Ark console",
     "ark_agent_plan_tts_incomplete": "Volcengine Ark Agent Plan returned incomplete audio, so nothing was saved. The request may already count toward your plan usage; check the Ark console before retrying",
+    "ark_agent_plan_tts_unreachable": "Could not connect to the Volcengine Ark Agent Plan speech synthesis service after several retries. No audio was generated, and nothing counts toward your plan usage. Check your network and proxy settings, then retry",
     "narration_delivery_post_production": "This project delivers narration as post-production voiceover, so ArcReel does not generate narration audio; switch the project to TTS voiceover in project settings first",
     "character_voice_binding_invalid": "Character voice binding must be either prompt-based or reference audio",
     "video_poll_timeout_minimum": "Video polling timeout must be at least 60 seconds",
