@@ -5,7 +5,11 @@
 drama（utterances + source_text）与 narration（结构化 novel_text）共用本机制。
 """
 
+import ast
+import json
 import logging
+from collections.abc import Mapping
+from string import Formatter
 
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,7 +20,7 @@ from lib.infra.api_errors import NotFoundError
 from lib.project.asset_types import localize_asset_type
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
-from lib.script.draft_violation import draft_violation_message_key
+from lib.script.draft_violation import SCHEMA_ERROR_PARAM, draft_violation_message_key
 from lib.script.script_review import overwrite_with_text
 from server.dependencies import require_project_migration_ok
 from server.i18n import DisplayNamesCatalog, Translator
@@ -55,11 +59,49 @@ def _attach_overwrite_text(state: dict, _t: Translator) -> dict:
     return state
 
 
+#: 结构校验原因的文案 key 前缀，后接 pydantic 错误类型码或本仓的形状码。
+_SCHEMA_ERROR_MESSAGE_PREFIX = "draft_schema_"
+
+
+def _template_fields(template: str) -> set[str]:
+    return {field for _, field, _, _ in Formatter().parse(template) if field is not None}
+
+
+def _schema_choices(expected: str, _t: Translator) -> str:
+    """把 pydantic 拼好的取值列表（``'a', 'b' or 'c'``）按界面语言重排；解析不了时原样返回。"""
+    head, separator, last = expected.rpartition(" or ")
+    try:
+        values = ast.literal_eval(f"[{head}, {last}]" if separator else f"[{expected}]")
+    except (ValueError, SyntaxError):
+        return expected
+    return _t("draft_schema_choice_separator").join(json.dumps(value, ensure_ascii=False) for value in values)
+
+
+def _schema_detail(schema_error: Mapping[str, object], fallback: object, _t: Translator) -> object:
+    """按类型码与约束值写出结构校验原因；没有对应文案或约束值不全时退回 pydantic 原文。"""
+    kind = schema_error.get("type")
+    raw_ctx = schema_error.get("ctx")
+    ctx = {str(key): value for key, value in raw_ctx.items()} if isinstance(raw_ctx, Mapping) else {}
+    if kind == "literal_error" and isinstance(expected := ctx.get("expected"), str):
+        ctx["expected"] = _schema_choices(expected, _t)
+    key = f"{_SCHEMA_ERROR_MESSAGE_PREFIX}{kind}"
+    template = MESSAGES[DEFAULT_LOCALE].get(key) if isinstance(kind, str) else None
+    if template is not None and _template_fields(template) <= ctx.keys():
+        reason = _t(key, **ctx)
+    elif isinstance(msg := schema_error.get("msg"), str) and msg:
+        reason = msg
+    else:
+        return fallback
+    if "input" not in schema_error:
+        return reason
+    return _t("draft_schema_with_value", reason=reason, value=json.dumps(schema_error["input"], ensure_ascii=False))
+
+
 def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) -> dict | None:
     """按 code 与结构化 params 渲染已登记的违约；旧条目与未知码保留 Agent 原文。
 
     违约文案登记在 ``draft_violation_<code>`` 下；视频请求事实失败与正式单元预判沿用问题码本身
-    作文案 key。资产类型参数换成当前语言的显示名。
+    作文案 key。资产类型参数换成当前语言的显示名；带结构校验原因的条目按界面语言重写 ``detail``。
     """
     if view is None:
         return None
@@ -72,6 +114,8 @@ def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) 
             if key in MESSAGES[DEFAULT_LOCALE]:
                 if isinstance(asset_type := params.get("asset_type"), str):
                     params = {**params, "asset_type": localize_asset_type(asset_type, _t)}
+                if isinstance(schema_error := params.get(SCHEMA_ERROR_PARAM), Mapping):
+                    params = {**params, "detail": _schema_detail(schema_error, params.get("detail"), _t)}
                 violation["message"] = render_message(key, params, _t, names)
             elif violation["code"] in MESSAGES[DEFAULT_LOCALE]:
                 violation["message"] = render_message(violation["code"], params, _t, names)

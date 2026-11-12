@@ -52,7 +52,7 @@ from lib.script.draft_quarantine import (
     read_quarantine,
     write_quarantine,
 )
-from lib.script.draft_violation import DraftViolation, schema_violations
+from lib.script.draft_violation import SCHEMA_ERROR_PARAM, DraftViolation, schema_violations
 from lib.script.plan_new_assets import NEW_ASSETS_FIELD, dedupe_new_assets, planning_project, with_new_assets
 from lib.script.planning_draft_trash import discard_quarantine
 from lib.script.script_generator import ScriptGenerator
@@ -289,7 +289,11 @@ async def revalidate_reference_script_plan_draft(
             DraftViolation(
                 "草稿的 content.units 必须是非空的 unit 对象数组",
                 code="schema_invalid",
-                params={"path": "content.units", "detail": "non-empty array"},
+                params={
+                    "path": "content.units",
+                    "detail": "non-empty array",
+                    SCHEMA_ERROR_PARAM: {"type": "non_empty_list"},
+                },
             )
         ]
     else:
@@ -732,7 +736,11 @@ async def revalidate_drama_script_plan_draft(
         violation = DraftViolation(
             "草稿的 content.scenes 必须是非空的分镜对象数组",
             code="schema_invalid",
-            params={"path": "content.scenes", "detail": "non-empty array"},
+            params={
+                "path": "content.scenes",
+                "detail": "non-empty array",
+                SCHEMA_ERROR_PARAM: {"type": "non_empty_list"},
+            },
         )
         return SingleScriptPlanDraftRevalidation([violation], {}, schema_failed=True, basis=script_plan_basis)
     for scene in raw_scenes:
@@ -908,7 +916,11 @@ async def revalidate_narration_script_plan_draft(
         violation = DraftViolation(
             "草稿的 content.segments 必须是非空的分镜对象数组",
             code="schema_invalid",
-            params={"path": "content.segments", "detail": "non-empty array"},
+            params={
+                "path": "content.segments",
+                "detail": "non-empty array",
+                SCHEMA_ERROR_PARAM: {"type": "non_empty_list"},
+            },
         )
         return SingleScriptPlanDraftRevalidation([violation], {}, schema_failed=True, basis=script_plan_basis)
     try:

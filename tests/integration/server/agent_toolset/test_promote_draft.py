@@ -484,6 +484,47 @@ async def test_promote_draft_reports_broken_outer_shape(fake_ctx: ToolHarness, m
     assert refreshed["content"] == edited_content
 
 
+@pytest.mark.parametrize(
+    ("mutate_content", "expected"),
+    [
+        (
+            lambda c: c["units"][0].update(duration_seconds=7),
+            [
+                (
+                    "schema_invalid",
+                    "草稿的 content.units.0.duration_seconds 不符合产出结构：Input should be 4, 6 or 8（当前值：7）",
+                )
+            ],
+        ),
+        (
+            lambda c: c.update(units=[]),
+            [("schema_invalid", "草稿的 content.units 必须是非空的 unit 对象数组")],
+        ),
+    ],
+    ids=["field_constraint", "units_emptied"],
+)
+async def test_schema_breach_reaches_the_agent_verbatim(
+    fake_ctx: ToolHarness, monkeypatch, mutate_content, expected
+) -> None:
+    """Web 本地化补充的参数不改变 Agent 经 promote_draft 与 open_draft 读到的 code 与 message。"""
+    rv_source(fake_ctx)
+    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    envelope = read_rv_quarantine(fake_ctx)
+    mutate_content(envelope["content"])
+    if envelope["content"]["units"]:
+        envelope["content"]["units"][0]["text"] = "@[张三] 起身"
+    rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+
+    out = await promote_reference_draft(fake_ctx)
+
+    problem = problem_of(out)
+    assert problem.code == "draft_invalid"
+    report = "\n".join(f"{index}. [{code}] {message}" for index, (code, message) in enumerate(expected, start=1))
+    assert report in problem.detail
+    opened = draft_of(await open_for_edit(fake_ctx))
+    assert [(v["code"], v["message"]) for v in opened["violations"]] == expected
+
+
 async def test_promote_draft_requires_source_provenance(fake_ctx: ToolHarness, monkeypatch) -> None:
     """meta.source 被改掉后不晋升：按整个 source/ 重解析比产出时更松，别集的原文锚会恰好命中。"""
     rv_source(fake_ctx)
