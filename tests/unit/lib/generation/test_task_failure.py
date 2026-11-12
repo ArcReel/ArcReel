@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from sqlalchemy.exc import StatementError
 
 from lib.generation.task_failure import FAILURE_CODE_KEYS, bound_reason, encode_failure, parse_failure, render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
@@ -289,6 +290,15 @@ class TestBoundReason:
 
 
 class TestPassthrough:
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
+    def test_database_error_renders_generic_message_without_sql(self, locale):
+        exc = StatementError("database failed", "INSERT INTO api_calls VALUES (:secret)", {"secret": "private"}, None)
+        encoded = encode_task_failure_message(exc)
+        assert encoded == "[internal_server_error]"
+        assert render_failure(encoded, _translator(locale), make_display_names(locale)) == translate_message(
+            "internal_server_error", locale=locale
+        )
+
     def test_none_and_empty(self):
         assert render_failure(None, _translator("en"), make_display_names("en")) is None
         assert render_failure("", _translator("en"), make_display_names("en")) == ""

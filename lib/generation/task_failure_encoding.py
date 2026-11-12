@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from arcreel_market_core.video_backend_contract import VideoCapabilityError
 from lib.asset_library.generation_inputs import ProviderAssetLinkUnavailableError
 from lib.backends.grok_shared import grpc_rejection
@@ -33,11 +35,13 @@ logger = logging.getLogger(__name__)
 
 
 def encode_task_failure_message(exc: Exception) -> str:
-    """ScriptEditError、上游确定性 4xx 拒绝与结构化执行拒绝走 code/params 结构化，其余异常沿用 str(exc)。
+    """已知拒绝走 code/params；数据库异常隐去 SQL 与参数，其余异常沿用 str(exc)。
 
     落库只存机器码，本地化文案由读侧按 ``Accept-Language`` 渲染——worker 后台无 request
     上下文，在这里渲染会把任务的失败原因锁死成单一语言。
     """
+    if isinstance(exc, SQLAlchemyError):
+        return encode_failure("internal_server_error")
     if isinstance(exc, ScriptEditError):
         # 编不出来时退到通用 script_edit_error，保住"是剧本编辑失败"这一层信息。
         return _try_encode_failure(exc.key, exc.params) or encode_failure("script_edit_error")

@@ -138,6 +138,7 @@ class GenerationAction(StrEnum):
 # again for the same rejection. The coverage test in
 # ``tests/unit/lib/generation/test_generation_result.py`` is the drift guard.
 _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
+    "internal_server_error": GenerationAction.RETRY,
     "needs_replan": GenerationAction.REPLAN_UNIT,
     "reference_duration_confirmation_required": GenerationAction.CONFIRM_REQUEST_DURATION,
     "reference_asset_missing": GenerationAction.GENERATE_DEPENDENCY,

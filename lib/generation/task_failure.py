@@ -129,6 +129,7 @@ PROVIDER_ASSET_FAILURE_CODES: frozenset[str] = frozenset(
 # Stable failure code -> i18n errors key. The code is agent-facing and persisted
 # in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
+    "internal_server_error": "internal_server_error",
     **{code: code for code in CAPABILITY_FAILURE_CODES},
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
     **{code: code for code in GENERATION_INPUT_FAILURE_CODES},
