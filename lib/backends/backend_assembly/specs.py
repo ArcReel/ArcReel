@@ -142,6 +142,18 @@ def _build_ark_video(config: LoadedConfig, model_id: str | None, *, endpoint: st
     return _build_simple(config, model_id, media_type="video", registry_backend=endpoint, extra_kwargs=extra)
 
 
+def _build_ark_agent_plan_tts(config: LoadedConfig, model_id: str | None) -> Any:
+    """方舟 Agent Plan 语音合成：只取 api_key 与 model。
+
+    语音合成的上游主机与 ``/api/plan/v3`` 不同，地址是后端常量；简单族会把这个默认地址当作 base_url 传入，所以单列构造。
+    """
+    kwargs: dict[str, Any] = {"model": model_id}
+    api_key = config.credentials.get("api_key")
+    if api_key:
+        kwargs["api_key"] = api_key
+    return _media_create_backend("audio")("ark-agent-plan", **kwargs)
+
+
 def _simple_spec(provider_id: str, media_type: str, endpoint: str, *, extra_keys: tuple[str, ...] = ()) -> ProviderSpec:
     """登记一条简单族 spec：registry_backend 即 provider_id 自身（媒体侧无别名映射）。"""
     return ProviderSpec(
@@ -586,6 +598,7 @@ PROVIDER_ONLY_ENDPOINTS: Mapping[str, str] = {
     "gemini-vertex-video": "video",
     "gemini-vertex-interactions-video": "video",
     "grok-tts": "audio",
+    "ark-agent-plan-tts": "audio",
 }
 
 #: 简单族的 image/video/audio：(provider_id, media_type) → 端点名。
@@ -665,6 +678,16 @@ _specs += [
     for provider, endpoints in (("grok", _GROK_ENDPOINTS), ("vidu", _VIDU_ENDPOINTS), ("kling", _KLING_ENDPOINTS))
     for endpoint in endpoints
 ]
+# 方舟 Agent Plan 的语音合成走 openspeech 主机上的专属接口，不经 /api/plan/v3，见 _build_ark_agent_plan_tts。
+_specs.append(
+    ProviderSpec(
+        provider_id="ark-agent-plan",
+        media_type="audio",
+        registry_backend="ark-agent-plan",
+        build_backend=_build_ark_agent_plan_tts,
+        endpoint="ark-agent-plan-tts",
+    )
+)
 # 方舟两个 provider_id 都可以挂 Seedance 三个端点；视频 lane 多报一项实际使用的推理凭证，见 _build_ark_video。
 _specs += [
     ProviderSpec(

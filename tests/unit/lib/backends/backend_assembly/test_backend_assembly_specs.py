@@ -626,6 +626,7 @@ class TestRegistryShape:
             ("dashscope", "audio"),
             ("minimax", "audio"),
             ("grok", "audio"),
+            ("ark-agent-plan", "audio"),
             ("gemini-aistudio", "audio"),
             ("gemini-vertex", "audio"),
         }

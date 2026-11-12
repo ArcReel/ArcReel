@@ -107,6 +107,7 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
         "gemini-vertex-interactions-video": BuiltinEndpoint("video", since="0.35.1"),
         "vidu-video-q4": BuiltinEndpoint("video", since="0.35.1"),
         "grok-tts": BuiltinEndpoint("audio", since="0.35.1"),
+        "ark-agent-plan-tts": BuiltinEndpoint("audio", since="0.36.1"),
     }
 )
 
@@ -122,7 +123,12 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
             "video": ProviderEndpointOptions(("agnes-video-2", "agnes-video-2-5"), "agnes-video-2-5"),
         },
         "ark": {"text": _single("ark-chat"), "image": _SEEDREAM, "video": _SEEDANCE},
-        "ark-agent-plan": {"text": _single("ark-chat"), "image": _SEEDREAM, "video": _SEEDANCE},
+        "ark-agent-plan": {
+            "text": _single("ark-chat"),
+            "image": _SEEDREAM,
+            "video": _SEEDANCE,
+            "audio": _single("ark-agent-plan-tts"),
+        },
         "dashscope": {
             "text": _single("openai-chat"),
             "image": ProviderEndpointOptions(

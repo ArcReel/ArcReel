@@ -1795,6 +1795,7 @@ export default {
   'endpoint_agnes_chat_display': 'Agnes (Văn bản)',
   'endpoint_grok_image_display': 'xAI Grok (Ảnh)',
   'endpoint_grok_tts_display': 'xAI Grok (Giọng nói)',
+  'endpoint_ark_agent_plan_tts_display': 'Volcengine Ark Agent Plan (Giọng nói)',
   'endpoint_vidu_image_display': 'Ảnh Vidu',
   'endpoint_grok_video_display': 'xAI Grok (Video)',
   'endpoint_grok_video_classic_display': 'Grok Video (Cổ điển)',

@@ -1804,6 +1804,7 @@ export default {
   'endpoint_agnes_chat_display': 'Agnes（文本）',
   'endpoint_grok_image_display': 'xAI Grok（图片）',
   'endpoint_grok_tts_display': 'xAI Grok（语音合成）',
+  'endpoint_ark_agent_plan_tts_display': '火山方舟 Agent Plan（语音合成）',
   'endpoint_vidu_image_display': 'Vidu 图片',
   'endpoint_grok_video_display': 'xAI Grok（视频）',
   'endpoint_grok_video_classic_display': 'Grok 视频（经典）',

@@ -117,7 +117,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "ark-agent-plan": ProviderMeta(
         display_name="火山方舟 Agent Plan",
         required_keys=["api_key"],
-        optional_keys=["video_max_workers", "image_max_workers"],
+        optional_keys=["video_max_workers", "image_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         default_base_url="https://ark.cn-beijing.volces.com/api/plan/v3",
     ),
