@@ -127,6 +127,14 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     assert list(options.setting_sources) == _SETTING_SOURCES
     # file access hook 恒注册
     assert "PreToolUse" in options.hooks
+    assert [(matcher.matcher, matcher.on_failure) for matcher in options.hooks["PreToolUse"]] == [
+        (None, "block"),
+        ("Bash", "block"),
+        ("Write|Edit", None),
+    ]
+    assert [(matcher.matcher, matcher.on_failure) for matcher in options.hooks["PostToolUse"]] == [
+        ("Write|Edit", None),
+    ]
     # sandbox 启用 → sandbox settings 编译进 options
     assert options.sandbox.get("enabled") is True
     # 用户消息回放开关：缺失则 SDK 不回放副本，身份映射无从建立
