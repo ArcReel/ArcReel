@@ -10,7 +10,7 @@ import pytest
 
 from lib.i18n import SUPPORTED_LOCALES
 
-# 前端本地场景的同名键，不由后端错误驱动；不借本次检查改文案。
+# 前端本地场景的同名键，不由后端错误驱动，前后端文案允许不同。
 _LOCAL_KEYS = {"unauthorized", "source_conflict", "source_unsupported_format"}
 _ENTRY = re.compile(r"""^\s*(["'])([\w.]+)\1:\s*((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')),?\s*$""", re.M)
 

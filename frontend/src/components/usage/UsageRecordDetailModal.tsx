@@ -17,6 +17,7 @@ import { formatCurrencyAmount } from "@/utils/cost-format";
 import { formatShortDateTime } from "@/utils/date-format";
 import { itemIdsInEpisodeText } from "@/utils/episode-display";
 import {
+  COMFYUI_EXPECTED_SUFFIXES,
   MEDIA_META,
   STATUS_LABEL_KEYS,
   STATUS_TEXT_CLASSES,
@@ -292,8 +293,8 @@ export function UsageRecordDetailModal({
     domainParams.detail = t(`errors:${nested.key}`, { ...nested.params });
   }
   if (detail?.error_code === "comfyui_output_type_mismatch" || detail?.error_code === "comfyui_output_container_mismatch") {
-    domainParams.expected = domainParams.media_type === "image" ? ".jpeg / .jpg / .png / .webp"
-      : domainParams.media_type === "video" ? ".m4v / .mov / .mp4" : "";
+    const mediaType = domainParams.media_type;
+    domainParams.expected = typeof mediaType === "string" ? COMFYUI_EXPECTED_SUFFIXES[mediaType] ?? "" : "";
   }
   const retryAfter = detail?.error_params?.retry_after_seconds;
   const failureStatus = detail?.error_params?.status;
