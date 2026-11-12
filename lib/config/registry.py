@@ -124,13 +124,13 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "grok": ProviderMeta(
         display_name="Grok",
         required_keys=["api_key"],
-        optional_keys=["video_max_workers", "image_max_workers"],
+        optional_keys=["video_max_workers", "image_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
     ),
     "openai": ProviderMeta(
         display_name="OpenAI",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
         secret_keys=["api_key"],
     ),
     "vidu": ProviderMeta(
