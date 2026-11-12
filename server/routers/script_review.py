@@ -13,8 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from lib.i18n import DEFAULT_LOCALE, MESSAGES, render_message
 from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import NotFoundError
+from lib.project.asset_types import localize_asset_type
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
+from lib.script.draft_violation import draft_violation_message_key
 from lib.script.script_review import overwrite_with_text
 from server.dependencies import require_project_migration_ok
 from server.i18n import DisplayNamesCatalog, Translator
@@ -54,14 +56,25 @@ def _attach_overwrite_text(state: dict, _t: Translator) -> dict:
 
 
 def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) -> dict | None:
-    """按 code 与结构化 params 渲染已登记的违约；旧条目与未知码保留 Agent 原文。"""
+    """按 code 与结构化 params 渲染已登记的违约；旧条目与未知码保留 Agent 原文。
+
+    违约文案登记在 ``draft_violation_<code>`` 下；视频请求事实失败与正式单元预判沿用问题码本身
+    作文案 key。资产类型参数换成当前语言的显示名。
+    """
     if view is None:
         return None
     for violation in view["violations"]:
+        params = violation.get("params")
         if violation["code"] == "quarantine_unreadable":
             violation["message"] = _t("script_review_quarantine_unreadable")
-        elif violation["code"] in MESSAGES[DEFAULT_LOCALE] and isinstance(violation.get("params"), dict):
-            violation["message"] = render_message(violation["code"], violation["params"], _t, names)
+        elif isinstance(params, dict):
+            key = draft_violation_message_key(violation["code"])
+            if key in MESSAGES[DEFAULT_LOCALE]:
+                if isinstance(asset_type := params.get("asset_type"), str):
+                    params = {**params, "asset_type": localize_asset_type(asset_type, _t)}
+                violation["message"] = render_message(key, params, _t, names)
+            elif violation["code"] in MESSAGES[DEFAULT_LOCALE]:
+                violation["message"] = render_message(violation["code"], params, _t, names)
     for soft in view.get("soft_violations") or []:
         soft["message"] = render_message(soft["code"], soft["params"], _t, names)
     return view

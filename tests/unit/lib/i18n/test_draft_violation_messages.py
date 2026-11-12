@@ -7,9 +7,9 @@ from string import Formatter
 import pytest
 
 from lib.i18n import MESSAGES, SUPPORTED_LOCALES
-from lib.script.draft_violation import DraftViolation, violation_items
+from lib.script.draft_violation import DraftViolation, draft_violation_message_key, violation_items
 from lib.script.plan_new_assets import new_asset_violations
-from lib.script.reference_video.draft_validation import validate_unit_text
+from lib.script.reference_video.draft_validation import assert_dialogue_preserved, validate_unit_text
 
 ROOT = Path(__file__).resolve().parents[4]
 PRODUCERS = (
@@ -57,14 +57,15 @@ def test_every_draft_producer_has_a_template_with_exact_param_keys(locale):
     contracts = list(_producer_contracts())
     assert len(contracts) >= 40
     for code, fields in contracts:
-        assert code in MESSAGES[locale], (locale, code)
-        assert _fields(MESSAGES[locale][code]) == fields, (locale, code)
+        key = draft_violation_message_key(code)
+        assert key in MESSAGES[locale], (locale, code)
+        assert _fields(MESSAGES[locale][key]) == fields, (locale, code)
 
 
 @pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
 @pytest.mark.parametrize("code", ["mixed_speech", "needs_replan", "parse_failed", "empty_speaker"])
 def test_speech_diagnostic_templates_use_location_and_label(locale, code):
-    assert _fields(MESSAGES[locale][code]) == {"label", "location"}
+    assert _fields(MESSAGES[locale][draft_violation_message_key(code)]) == {"label", "location"}
 
 
 def test_dynamic_asset_problem_params_reach_draft_entries():
@@ -93,7 +94,7 @@ def test_dynamic_asset_problem_params_reach_draft_entries():
     for item in violations:
         assert item.params is not None
         for locale in SUPPORTED_LOCALES:
-            assert _fields(MESSAGES[locale][item.code]) == set(item.params)
+            assert _fields(MESSAGES[locale][draft_violation_message_key(item.code)]) == set(item.params)
 
 
 def test_speech_diagnostic_params_are_produced_at_the_validation_boundary():
@@ -103,4 +104,12 @@ def test_speech_diagnostic_params_are_produced_at_the_validation_boundary():
         )
     items = violation_items(caught.value)
     assert items[0].code == "mixed_speech"
-    assert set(items[0].params or {}) == {"label", "location"}
+    assert items[0].params == {"label": "unit E1U01", "location": "text:2, text:3"}
+    assert "定位：text line 1, text line 2" in str(items[0])
+
+
+def test_rewritten_voiceover_keeps_script_syntax_in_web_params():
+    with pytest.raises(DraftViolation) as caught:
+        assert_dialogue_preserved("unit E1U01", "门开了\n{旧旁白}", "门开了\n@[张三]{新台词}")
+    assert caught.value.params == {"label": "unit E1U01", "index": 1, "before": "{旧旁白}", "after": "@[张三]{新台词}"}
+    assert "原：画外音「旧旁白」" in str(caught.value)

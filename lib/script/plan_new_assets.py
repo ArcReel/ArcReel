@@ -301,7 +301,8 @@ class _Resolver:
                     index,
                     f"「{item.name}」已是{_label(owner)}的名字",
                     name=item.name,
-                    existing=owner,
+                    existing=item.name,
+                    asset_type=owner,
                 )
                 continue
             if item.decision == "derivative" and item.type != "character":
@@ -416,6 +417,7 @@ class _Resolver:
                 f"登记名「{final}」与已有{_label(owner)}「{existing}」重名",
                 name=final,
                 existing=existing,
+                asset_type=owner,
             )
             return None
         claimed = self.claimed.setdefault(namespace_key, (asset_type, final))
@@ -427,6 +429,7 @@ class _Resolver:
                 f"登记名「{final}」与本集新增的{_label(owner)}「{existing}」重名",
                 name=final,
                 existing=existing,
+                asset_type=owner,
             )
             return None
         registrations = self.registrations[asset_type]
@@ -483,6 +486,7 @@ class _Resolver:
                 f"衍生名「{derivative}」与「{base}」{owner}衍生「{existing}」重名",
                 name=derivative,
                 existing=f"{base}/{existing}",
+                asset_type="character",
             )
             return
         self.outcomes[("character", key)] = _Outcome("derivative", base, existing or derivative)
