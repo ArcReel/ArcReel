@@ -53,6 +53,7 @@ Providers' specific models, parameters, regional availability, and pricing chang
 |---|:---:|:---:|:---:|:---:|---|
 | Gemini | ✅ | ✅ | ✅ | ✅ | Multimodal text, reference images, video generation, and TTS |
 | Volcengine Ark | ✅ | ✅ | ✅ | — | Text, image, and video generation in mainland China network environments |
+| Volcengine Ark Agent Plan | ✅ | ✅ | ✅ | ✅ | Text, image, video, and TTS within the subscription plan |
 | Grok | ✅ | ✅ | ✅ | — | Text, image, and video generation |
 | OpenAI | ✅ | ✅ | — | — | Text and image generation |
 | Vidu | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
@@ -418,11 +419,13 @@ High-reasoning models are not necessarily suitable for every task. Complex conte
 
 ## 9. TTS Configuration {#tts-providers}
 
-ArcReel's voice-over capability can use DashScope Qwen TTS and qwen-audio TTS, MiniMax Speech, Gemini TTS (AI Studio, Vertex), or a compatible TTS interface.
+ArcReel's voice-over capability can use DashScope Qwen TTS and qwen-audio TTS, MiniMax Speech, Gemini TTS (AI Studio, Vertex), Volcengine Ark Agent Plan TTS, or a compatible TTS interface.
 
 After you choose a TTS model in global settings or project settings, the narration voice field lists the common voices available for that model. For voices outside the list (cloned voices, for example), enter the voice ID from the provider docs.
 
 DashScope speech has two call endpoints: "Alibaba Model Studio (TTS)" calls Qwen TTS (`qwen3-tts` and similar), and "Alibaba Model Studio (qwen-audio TTS)" calls qwen-audio TTS (the `qwen-audio-3.0-tts` and `qwen-audio-3.1-tts` series). The two endpoints do not share voices, and each qwen-audio model only accepts its own voices; see the DashScope [voice list](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list) for the full set. The qwen-audio endpoint supports narration speed from 0.5 to 2.0; values outside this range are sent as the nearest bound. When you add a model, names containing `qwen-audio` are prefilled with the qwen-audio endpoint and other DashScope speech models with the Qwen TTS endpoint; you can change this in [Model settings](#model-settings).
+
+Volcengine Ark Agent Plan TTS reuses the configured dedicated API Key; no additional AK/SK is required. Requests use the plan's dedicated speech endpoint. If speech is unavailable under the plan, concurrency is exhausted, the voice is not authorized, or the plan quota is used up without overage postpaid billing, the task fails with an error code. ArcReel does not switch to a pay-as-you-go endpoint. If [overage postpaid billing](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh) is enabled in the Ark console, calls made after the monthly quota is used up still succeed and Ark bills the overage as postpaid; check your Ark bill for the actual charges. The voice list contains common Chinese voices from the 2.0 model; enter other 2.0 voice IDs from the official [voice list](https://docs.volcengine.com/docs/6561/1257544). Voices from the 1.0 model are not supported. Narration speed ranges from 0.5 to 2.0; out-of-range values fail before submission without incurring a charge. Usage records use the billed character count returned by the service, falling back to the submitted text length when it is absent.
 
 After configuration, first validate:
 

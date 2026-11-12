@@ -188,6 +188,7 @@ MESSAGES = {
     "ark_agent_plan_tts_access_denied": "Volcengine Ark Agent Plan đã từ chối yêu cầu tổng hợp giọng nói (mã lỗi {code}). Có thể API Key không hợp lệ, gói không bao gồm tổng hợp giọng nói, hạn mức hoặc giới hạn đồng thời đã hết, hoặc giọng đọc chưa được cấp quyền. Hãy kiểm tra trạng thái gói và giọng đọc trong bảng điều khiển Ark rồi thử lại; ArcReel không chuyển sang giao diện tổng hợp giọng nói trả theo mức dùng",
     "ark_agent_plan_tts_failed": "Tổng hợp giọng nói của Volcengine Ark Agent Plan thất bại (mã lỗi {code}), không tạo được âm thanh. Hãy thử lại sau; nếu lỗi vẫn tiếp diễn, hãy kiểm tra trạng thái gói trong bảng điều khiển Ark",
     "ark_agent_plan_tts_incomplete": "Volcengine Ark Agent Plan trả về âm thanh không đầy đủ nên không có gì được lưu. Yêu cầu có thể đã được tính vào mức dùng của gói; hãy kiểm tra bảng điều khiển Ark trước khi thử lại",
+    "ark_agent_plan_tts_unreachable": "Không thể kết nối tới dịch vụ tổng hợp giọng nói Volcengine Ark Agent Plan dù đã thử lại nhiều lần. Chưa tạo âm thanh nào và không tính vào mức dùng của gói. Hãy kiểm tra mạng và cài đặt proxy rồi thử lại",
     "narration_delivery_post_production": "Dự án này giao lời thuyết minh bằng lồng tiếng hậu kỳ nên ArcReel không tạo âm thanh thuyết minh; nếu cần lồng tiếng TTS, hãy đổi dự án sang lồng tiếng TTS trong cài đặt dự án trước",
     "character_voice_binding_invalid": "Cách ràng buộc giọng nhân vật chỉ có thể là theo mô tả hoặc âm thanh tham chiếu",
     "video_poll_timeout_minimum": "Thời gian chờ thăm dò video phải ít nhất 60 giây",

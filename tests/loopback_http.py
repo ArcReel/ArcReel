@@ -29,6 +29,7 @@ class ScriptedReply:
     content_type: str = "application/json"
     headers: dict[str, str] = field(default_factory=dict)
     truncate: bool = False
+    malformed_chunk_header: bytes | None = None
 
 
 @dataclass
@@ -118,6 +119,10 @@ async def loopback_server(replies: Sequence[ScriptedReply]) -> AsyncGenerator[Lo
             for name, value in reply.headers.items():
                 head += f"{name}: {value}\r\n".encode()
             writer.write(head + b"\r\n")
+            if reply.malformed_chunk_header is not None:
+                writer.write(reply.malformed_chunk_header + b"\r\n")
+                await writer.drain()
+                return
             for position, chunk in enumerate(reply.chunks):
                 if reply.truncate and position == len(reply.chunks) - 1:
                     writer.write(f"{len(chunk):x}\r\n".encode() + chunk[: len(chunk) // 2])

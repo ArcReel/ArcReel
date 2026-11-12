@@ -177,6 +177,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "ark_agent_plan_tts_failed": GenerationAction.RETRY,
     # 音频没收完整、没有落成产物：重新生成是唯一的一步，文案提示先到控制台确认用量。
     "ark_agent_plan_tts_incomplete": GenerationAction.RETRY,
+    # 请求没有送达、没有计费：检查网络后重新生成。
+    "ark_agent_plan_tts_unreachable": GenerationAction.RETRY,
     "model_not_in_provider_catalog": GenerationAction.CONFIGURE_PROVIDER,
     "model_not_selected": GenerationAction.CONFIGURE_PROVIDER,
     "model_discontinued": GenerationAction.CONFIGURE_PROVIDER,

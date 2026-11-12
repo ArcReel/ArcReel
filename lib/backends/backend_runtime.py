@@ -277,6 +277,7 @@ async def submit_post(
     provider: str,
     request: VideoGenerationRequest | None = None,
     include_provider_reason: bool = True,
+    log_response_body: bool = True,
 ) -> httpx.Response:
     """create/提交阶段（非幂等 POST）统一包装：按「请求是否确定送达」给失败分流。
 
@@ -294,6 +295,7 @@ async def submit_post(
 
     传了 ``request`` 就把收到的响应体留痕。建任务失败发生在轮询开始之前，不在这里记就永远
     记不到——而那正是最需要供应商原文的一类失败。
+    ``log_response_body=False`` 时只记录 HTTP 状态，供禁止保留上游原文的调用通道使用。
     """
     try:
         resp = await post_fn()
@@ -306,7 +308,10 @@ async def submit_post(
     if request is not None:
         await notify_provider_response(request, "submit", _response_body_or_text(resp))
     if resp.status_code >= 400:
-        logger.warning("%s create 返回 %s: %s", provider, resp.status_code, redact_provider_text(resp.text)[:500])
+        if log_response_body:
+            logger.warning("%s create 返回 %s: %s", provider, resp.status_code, redact_provider_text(resp.text)[:500])
+        else:
+            logger.warning("%s create 返回 %s", provider, resp.status_code)
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:

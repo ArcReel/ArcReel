@@ -290,6 +290,11 @@ describe("UsageRecordsSection detail", () => {
       en: "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
     },
     {
+      code: "ark_agent_plan_tts_unreachable", params: {},
+      zh: "多次重试后仍无法连接火山方舟 Agent Plan 语音合成服务，没有生成音频，也不会计入套餐用量。检查网络与代理设置后重试",
+      en: "Could not connect to the Volcengine Ark Agent Plan speech synthesis service after several retries. No audio was generated, and nothing counts toward your plan usage. Check your network and proxy settings, then retry",
+    },
+    {
       code: "image_output_missing", params: { model: "m" },
       zh: "模型 m 没有返回图片，可能触发了内容安全过滤；请调整提示词或参考图后重试",
       en: "Model m returned no image, possibly because of content safety filtering; adjust the prompt or reference images and try again",
