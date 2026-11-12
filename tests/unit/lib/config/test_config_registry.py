@@ -1,10 +1,15 @@
+from dataclasses import replace
+
 import pytest
 
+from arcreel_catalog_core import AudioFacts, CatalogEntry
+from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINTS
 from lib.catalog import query as catalog
 from lib.config.registry import (
     PROVIDER_REGISTRY,
     ProviderMeta,
 )
+from tests.catalog_support import catalog_of, install_catalog
 
 
 def test_all_providers_registered():
@@ -53,8 +58,25 @@ _LANE_WORKER_KEY = {
 }
 
 
-def test_optional_keys_cover_every_supported_lane_worker():
+@pytest.mark.parametrize("grok_audio", [False, True])
+def test_optional_keys_cover_every_supported_lane_worker(monkeypatch, grok_audio):
     """每个 provider 支持的每条媒体 lane 都须在 optional_keys 声明对应 *_max_workers。"""
+    if grok_audio:
+        data = catalog.catalog_data()
+        audio = CatalogEntry(maker="xai", name="grok-tts", media_type="audio", display_name="TTS", facts=AudioFacts())
+        added = catalog_of((audio,), {"grok": (audio.key.ref,)})
+        grok = data.builtin_providers["grok"]
+        install_catalog(
+            monkeypatch,
+            replace(
+                data,
+                entries=(*data.entries, audio),
+                builtin_providers={
+                    **data.builtin_providers,
+                    "grok": replace(grok, models=(*grok.models, *added.builtin_providers["grok"].models)),
+                },
+            ),
+        )
     for name, meta in PROVIDER_REGISTRY.items():
         optional = set(meta.optional_keys)
         for media_type in catalog.provider_media_types(name):
@@ -64,15 +86,11 @@ def test_optional_keys_cover_every_supported_lane_worker():
             assert worker_key in optional, f"{name}: 支持 {media_type} lane 但 optional_keys 未声明 {worker_key}"
 
 
-def test_optional_keys_have_no_worker_for_unsupported_lane():
-    """provider 不支持的 lane 不应声明其 *_max_workers，避免设置页渲染无效字段。"""
-    for name, meta in PROVIDER_REGISTRY.items():
-        supported_worker_keys = {
-            _LANE_WORKER_KEY[m] for m in catalog.provider_media_types(name) if m in _LANE_WORKER_KEY
-        }
-        for key in meta.optional_keys:
-            if key in _LANE_WORKER_KEY.values():
-                assert key in supported_worker_keys, f"{name}: optional_keys 含 {key} 但 provider 不支持对应 lane"
+def test_optional_keys_cover_every_builtin_endpoint_lane():
+    """并发键覆盖代码中可调用的 lane，即使当前目录尚未收录该类模型。"""
+    for provider, lane in PROVIDER_ENDPOINTS:
+        if lane in _LANE_WORKER_KEY:
+            assert _LANE_WORKER_KEY[lane] in PROVIDER_REGISTRY[provider].optional_keys
 
 
 class TestCredentialGroups:

@@ -537,10 +537,11 @@ async def get_provider_config(
         for key in meta.required_keys
         if key not in _CREDENTIAL_KEYS
     )
+    supported_workers = {f"{lane}_max_workers" for lane in catalog.provider_media_types(provider_id)}
     fields.extend(
         _build_field(key, required=False, db_entry=db_values.get(key))
         for key in meta.optional_keys
-        if key not in _CREDENTIAL_KEYS
+        if key not in _CREDENTIAL_KEYS and (not key.endswith("_max_workers") or key in supported_workers)
     )
 
     # 凭证表单的 secret 输入字段：required ∩ secret ∩ 凭证键，保留 required_keys 顺序。
