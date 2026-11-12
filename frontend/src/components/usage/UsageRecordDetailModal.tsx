@@ -282,9 +282,19 @@ export function UsageRecordDetailModal({
 
   const media = detail ? MEDIA_META[detail.media_type] : null;
   const phraseKey = failurePhraseKey(detail?.error_code ?? null);
-  const domainKey = detail?.error_code && detail.error_params && i18n.exists(`errors:${detail.error_code}`)
-    ? `errors:${detail.error_code}`
-    : null;
+  const domainKey = detail?.error_code && detail.error_params
+    ? [`errors:${detail.error_code}`, `errors:task_fail_${detail.error_code}`].find((key) => i18n.exists(key))
+    : undefined;
+  const domainParams = { ...detail?.error_params };
+  const nested = domainParams.detail;
+  if (nested && typeof nested === "object" && "key" in nested && "params" in nested
+    && typeof nested.key === "string" && nested.params && typeof nested.params === "object") {
+    domainParams.detail = t(`errors:${nested.key}`, { ...nested.params });
+  }
+  if (detail?.error_code === "comfyui_output_type_mismatch" || detail?.error_code === "comfyui_output_container_mismatch") {
+    domainParams.expected = domainParams.media_type === "image" ? ".jpeg / .jpg / .png / .webp"
+      : domainParams.media_type === "video" ? ".m4v / .mov / .mp4" : "";
+  }
   const retryAfter = detail?.error_params?.retry_after_seconds;
   const failureStatus = detail?.error_params?.status;
   const purpose = purposeKey(detail?.purpose ?? null);
@@ -353,7 +363,7 @@ export function UsageRecordDetailModal({
                         {phraseKey
                           ? t(`dashboard:${phraseKey}`)
                           : domainKey
-                            ? t(domainKey, { ...detail.error_params })
+                            ? t(domainKey, domainParams)
                             : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
                       </p>
                       {phraseKey && detail.error_message && (

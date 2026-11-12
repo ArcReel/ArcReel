@@ -21,6 +21,7 @@ from typing import Any, TypeGuard
 from lib.custom_provider.comfyui.artifacts import expected_suffixes_text
 from lib.i18n import render_generation_input_error, render_message
 from lib.i18n.display_names import DisplayNames
+from lib.infra.error_params import shrink_json_strings
 
 # Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
 # ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
@@ -359,22 +360,9 @@ def bound_reason(reason: str, limit: int) -> str:
     if not shrinkable:
         return reason[:limit]
 
-    encoded = encode_failure(code, **params)
-    while len(encoded) > limit:
-        owner, longest_key = max(shrinkable, key=lambda item: len(item[0][item[1]]))
-        current: str = owner[longest_key]
-        if not current:
-            # 字符串参数全被削空仍超限，说明预算连信封骨架都装不下，只能退回按字符裁剪。
-            return reason[:limit]
-        # 超额长度以编码后的字符计，而原始字符经 JSON 转义可能占多列，两者不等长：拿它当
-        # 要砍的原始字符数只是个下界估算，砍完重编码再看，直到真正装下为止。估算超过参数
-        # 自身长度时改砍一半而非削空——转义参数的超额长度常大于原始长度，一次削空会把本
-        # 可保留的诊断内容全丢掉。至少砍一个字符保证收敛。
-        deficit = len(encoded) - limit
-        drop = deficit if deficit < len(current) else max(1, len(current) // 2)
-        owner[longest_key] = current[: len(current) - drop]
-        encoded = encode_failure(code, **params)
-    return encoded
+    if not shrink_json_strings(params, shrinkable, limit - len(f"[{code}] ")):
+        return reason[:limit]
+    return encode_failure(code, **params)
 
 
 #: 文案里带一段「该端点应产出的扩展名」的两条失败码；清单在渲染时按落库的 media_type 现算。

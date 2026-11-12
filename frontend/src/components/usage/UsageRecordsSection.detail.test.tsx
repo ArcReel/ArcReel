@@ -284,6 +284,55 @@ describe("UsageRecordsSection detail", () => {
   });
 
   it.each([
+    {
+      code: "ref_payload_floor_exceeded", params: {},
+      zh: "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
+      en: "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
+    },
+    {
+      code: "image_output_missing", params: { model: "m" },
+      zh: "模型 m 没有返回图片，可能触发了内容安全过滤；请调整提示词或参考图后重试",
+      en: "Model m returned no image, possibly because of content safety filtering; adjust the prompt or reference images and try again",
+    },
+    {
+      code: "image_output_format_unsupported", params: { model: "m", media_type: "image/svg+xml" },
+      zh: "模型 m 返回了 image/svg+xml 格式的图片，无法转成 PNG 使用；请换用输出位图的模型",
+      en: "Model m returned an image in image/svg+xml format that cannot be converted to PNG; switch to a model that outputs raster images",
+    },
+    {
+      code: "declarative_response_extract_failed", params: { detail: "missing output" },
+      zh: "调用端点响应提取失败：missing output",
+      en: "Endpoint response extraction failed: missing output",
+    },
+    {
+      code: "declarative_response_extract_failed", params: { detail: "x".repeat(1900) },
+      zh: `调用端点响应提取失败：${"x".repeat(1900)}`,
+      en: `Endpoint response extraction failed: ${"x".repeat(1900)}`,
+    },
+    {
+      code: "comfyui_output_type_mismatch", params: { filename: "result.webm", media_type: "video" },
+      zh: "ComfyUI 产出的 result.webm 不是这个端点应产出的文件类型（应为 .m4v / .mov / .mp4），请把产物节点的节点绑定指到导出最终产物的那个节点，或在该保存节点上改用受支持的格式（如 SaveVideo 选 h264-mp4）",
+      en: "ComfyUI produced result.webm, which is not a file type this endpoint should output (expected .m4v / .mov / .mp4); point the output node bindings at the node that exports the final artifact, or switch that save node to a supported format (for SaveVideo, pick h264-mp4)",
+    },
+    {
+      code: "declarative_template_render_failed",
+      params: { detail: { key: "val_ce_undeclared_variable", params: { name: "prompt" } } },
+      zh: "调用端点请求渲染失败：占位符 prompt 引用了未声明的变量",
+      en: "Endpoint request rendering failed: Placeholder prompt references a variable that is not declared",
+    },
+  ])("translates recorded $code when the language changes", async ({ code, params, zh, en }) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, status: "failed", error_code: code, error_params: params, error_message: code }),
+    );
+    renderUsageRecordsSection("section=usage&record=42");
+    await screen.findByRole("dialog");
+    expect(await screen.findByText(zh)).toBeInTheDocument();
+    await act(() => i18n.changeLanguage("en"));
+    expect(await screen.findByText(en)).toBeInTheDocument();
+    expect(screen.queryByText(code)).not.toBeInTheDocument();
+  });
+
+  it.each([
     { error_code: null, error_params: null, error_message: "narration_tts_speed_out_of_range" },
     { error_code: "future_error", error_params: {}, error_message: "original failure" },
   ])("preserves legacy or unknown failure text: $error_message", async (failure) => {

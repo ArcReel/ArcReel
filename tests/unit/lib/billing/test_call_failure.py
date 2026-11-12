@@ -151,13 +151,13 @@ class TestDownloadFailed:
         assert failure.error_code == CallErrorCode.DOWNLOAD_FAILED
         assert failure.error_params == {"status": 502}
 
-    def test_other_declarative_codes_stay_unclassified(self) -> None:
+    def test_other_declarative_codes_preserve_domain_metadata(self) -> None:
         from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
 
         failure = classify_call_failure(DeclarativeRuntimeError("poll_status_unreadable", detail="no status"))
 
-        assert failure.error_code is None
-        assert failure.error_params is None
+        assert failure.error_code == "poll_status_unreadable"
+        assert failure.error_params == {"detail": "no status"}
 
     def test_download_wins_over_the_timeout_that_caused_it(self) -> None:
         # 取件耗尽的根因常是一次超时，但对用户而言这是可重试取件的「下载失败」。
