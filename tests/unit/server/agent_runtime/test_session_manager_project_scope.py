@@ -15,12 +15,6 @@ class _FakeOptions:
         self.kwargs = kwargs
 
 
-class _FakeHookMatcher:
-    def __init__(self, matcher=None, hooks=None):
-        self.matcher = matcher
-        self.hooks = hooks or []
-
-
 async def _fake_provider_env():
     """Stub for OptionsAssembler 凭证注入 — 跳过 DB 访问。"""
     return {}
@@ -84,10 +78,6 @@ class TestSessionManagerProjectScope:
                 "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
             ),
-            patch(
-                "server.agent_runtime.options_assembler.HookMatcher",
-                _FakeHookMatcher,
-            ),
         ):
             options = await manager._build_options("demo")
 
@@ -118,10 +108,6 @@ class TestSessionManagerProjectScope:
             patch(
                 "server.agent_runtime.options_assembler.ClaudeAgentOptions",
                 _FakeOptions,
-            ),
-            patch(
-                "server.agent_runtime.options_assembler.HookMatcher",
-                _FakeHookMatcher,
             ),
         ):
             options = await manager._build_options(

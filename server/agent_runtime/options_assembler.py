@@ -318,10 +318,11 @@ class OptionsAssembler:
 
         hooks = {
             "PreToolUse": [
-                HookMatcher(matcher=None, hooks=hook_callbacks),
+                HookMatcher(matcher=None, hooks=hook_callbacks, on_failure="block"),
                 HookMatcher(
                     matcher="Bash",
                     hooks=[self._bash_env_scrub_hook],  # type: ignore[list-item]  # 只挂在 PreToolUse 的 Bash 匹配器上，按该事件实际传入的 dict 读 tool_input；SDK 的 HookCallback 以全部事件输入的联合声明参数
+                    on_failure="block",
                 ),
                 HookMatcher(
                     matcher="Write|Edit",
