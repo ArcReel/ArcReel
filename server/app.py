@@ -29,10 +29,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.datastructures import Headers
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.gzip import GZipResponder, IdentityResponder
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -51,7 +53,7 @@ from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.infra.data_root_layout_migration import migrate_data_root_layout
 from lib.infra.env_init import warn_if_env_diverges_from_file
 from lib.infra.ffmpeg import log_ffmpeg_status
-from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
+from lib.infra.httpx_shared import get_http_client, shutdown_http_client, startup_http_client
 from lib.infra.logging_config import (
     attach_file_handler,
     migrate_legacy_log_dir,
@@ -125,6 +127,7 @@ from server.routers import (
 from server.routers import auth as auth_router
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.project_events import ProjectEventService
+from server.services.tasks.generation_context import invalidate_backend_cache
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 
@@ -383,6 +386,8 @@ async def lifespan(app: FastAPI):
     warn_if_auth_disabled()
 
     # Run Alembic migrations (auto-creates tables on first start)
+    # 升级前的 revision 由 alembic/env.py 在改写它之前记下（lib.db.upgrade_source），先跑命令行迁移也一样；
+    # 记不下时迁移中止，异常抛出即中止启动。
     await init_db()
 
     # 数据根布局迁移：排在挂文件日志 handler（迁移过程写进日志）与 Alembic（步骤会改写库）之后、
@@ -409,6 +414,45 @@ async def lifespan(app: FastAPI):
             failed_total,
             len(source_migration_summary),
         )
+
+    # 目录查询的三层数据先于项目迁移装入：升级前推荐的还原要读已存的同步数据，此刻的推荐要读合成后的目录。
+    # 这三步只读库、装入内存，不依赖之后的步骤。
+    # 官方同步取回的目录数据装入目录查询；读不到时暂用出厂快照，等下一轮同步
+    try:
+        from lib.catalog.official_sync import load_synced_data
+
+        async with async_session_factory() as session:
+            await load_synced_data(session)
+    except Exception:
+        logger.exception("loading synced catalog data failed (non-fatal)")
+
+    # 用户修改的模型条目副本并进目录查询；读不到时这些条目暂按官方数据，其余照常
+    try:
+        from lib.catalog.user_entries import reload_user_entries
+
+        async with async_session_factory() as session:
+            await reload_user_entries(session)
+    except Exception:
+        logger.exception("loading user-modified catalog entries failed (non-fatal)")
+
+    # 内置供应商下用户添加的模型并进目录查询；读不到时这些模型暂不可用，其余模型照常
+    try:
+        from server.routers.provider_models import reload_user_added_models
+
+        async with async_session_factory() as session:
+            await reload_user_added_models(session)
+    except Exception:
+        logger.exception("loading user-added built-in provider models failed (non-fatal)")
+
+    # 升级前的选择（docs/adr/0099）：升级后首次启动时按升级前的版本、目录、停用状态与凭证算一次并存下，之后读回。
+    # 先于项目迁移：v19→v20 按它补全只写了内置供应商的项目模型字段。结果里有这一刻的凭证状态，必须在实例开始
+    # 接受请求之前算定：失败即中止启动，免得用户之后新加的凭证在重试时被当成升级前的状态。
+    from lib.config import pre_upgrade_recommendations
+    from lib.project.project_migrations.v19_to_v20_bare_provider_models import install_bare_provider_models
+
+    async with async_session_factory() as session:
+        pre_upgrade = await pre_upgrade_recommendations.capture(session)
+    install_bare_provider_models(pre_upgrade.model)
 
     # Run any pending project.json schema migrations (file-based).
     # Both calls are synchronous filesystem walks — offload to a worker thread
@@ -469,6 +513,18 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("text tier settings migration failed (non-fatal): %s", exc)
 
+    # 默认模型固化（docs/adr/0099）：没有全局默认模型设置的媒体类型，写入升级前的版本会自动选中的模型。
+    # 放在 JSON→DB 与文本档位迁移之后（它们也写全局默认模型）。只应用上面算定的结果，不重读凭证与目录。
+    # 成功一次后不再跑；失败时下次启动重试，其间首次配置供应商不写推荐，没有默认模型的生成报错，
+    # 也不落到自定义供应商默认模型。
+    try:
+        from lib.config.recommended_models import freeze_effective_defaults
+
+        async with async_session_factory() as session:
+            await freeze_effective_defaults(session)
+    except Exception:
+        logger.exception("freezing effective default models failed (non-fatal)")
+
     # 官方市场源 seed：不存在则插入，地址常量变了就同步；不抓取
     try:
         from lib.market.sources import seed_official_source
@@ -477,33 +533,6 @@ async def lifespan(app: FastAPI):
             await seed_official_source(session)
     except Exception as exc:
         logger.warning("official market source seed failed (non-fatal): %s", exc)
-
-    # 官方同步取回的目录数据装入目录查询；读不到时暂用出厂快照，等下一轮同步
-    try:
-        from lib.catalog.official_sync import load_synced_data
-
-        async with async_session_factory() as session:
-            await load_synced_data(session)
-    except Exception:
-        logger.exception("loading synced catalog data failed (non-fatal)")
-
-    # 用户修改的模型条目副本并进目录查询；读不到时这些条目暂按官方数据，其余照常
-    try:
-        from lib.catalog.user_entries import reload_user_entries
-
-        async with async_session_factory() as session:
-            await reload_user_entries(session)
-    except Exception:
-        logger.exception("loading user-modified catalog entries failed (non-fatal)")
-
-    # 内置供应商下用户添加的模型并进目录查询；读不到时这些模型暂不可用，其余模型照常
-    try:
-        from server.routers.provider_models import reload_user_added_models
-
-        async with async_session_factory() as session:
-            await reload_user_added_models(session)
-    except Exception:
-        logger.exception("loading user-added built-in provider models failed (non-fatal)")
 
     # 把 agent_runtime_profile 物化到存量项目（文件 I/O → worker 线程）
     from lib.project.project_manager import get_project_manager
@@ -537,7 +566,7 @@ async def lifespan(app: FastAPI):
     # 卡顿探针放在启动步骤之后：迁移等启动期同步工作不算线上卡顿，避免误报。
     stall_probe = start_loop_stall_probe()
     # 模型目录的官方同步：启动时检查一次，之后每天一次；随应用关停取消
-    catalog_sync = start_official_sync(async_session_factory)
+    catalog_sync = start_catalog_sync(async_session_factory)
     # 项目回收站与已删除项目的过期清理：启动时清一次，之后定期清理；随应用关停取消
     from server.services.project.trash_expiry import start_trash_expiry, stop_trash_expiry
 
@@ -862,6 +891,19 @@ mount_remote_mcp(app, remote_mcp_host)
 
 def create_generation_worker() -> GenerationWorker:
     return GenerationWorker(executor=execute_generation_task, resume_executor=execute_resume_video_task)
+
+
+def start_catalog_sync(
+    session_factory: async_sessionmaker[AsyncSession],
+    http_client: Callable[[], httpx.AsyncClient] = get_http_client,
+) -> asyncio.Task[None] | None:
+    """启动模型目录的官方同步；装入新数据后清 backend 实例缓存。
+
+    自定义供应商的 backend 在构造时由目录注入画质可选值、参考图上限与能力，内置视频 backend 绑定构造时的条目，
+    都随实例缓存；设置接口与费用预估每次现读目录。不清缓存的话，同步后执行与预估会用两份不同的数据。
+    worker 的容量表不在这里重载，现有实例的并发上限不随同步变化。
+    """
+    return start_official_sync(session_factory, http_client, on_applied=invalidate_backend_cache)
 
 
 @app.get("/health")

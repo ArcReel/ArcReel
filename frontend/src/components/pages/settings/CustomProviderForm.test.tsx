@@ -58,6 +58,7 @@ function model(id: number, modelId: string, endpoint = "openai-chat"): CustomPro
     is_default: false,
     is_enabled: true,
     resolution: null,
+    qualities: [],
     multiplier: 1,
     entry_binding: null,
     matched_entry: null,

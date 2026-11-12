@@ -1,4 +1,10 @@
-"""目录查询的测试数据：在出厂快照上改写条目或换一份目录数据，再交给目录查询读取；按目录价目表给内置供应商的一次调用计价。"""
+"""目录查询的测试数据：换一份目录数据或在测试目录数据上改写条目，再交给目录查询读取；按目录价目表给内置供应商的一次调用计价。
+
+用例默认读测试目录数据（``tests/fixtures/catalog.json``，由根 conftest 装入），不读出厂快照：出厂快照随发版刷新成
+目录数据仓库的最新数据，测试断言的模型与取值不能跟着变。这份数据归测试所有，用例需要的数据变化改这份文件，或用
+本模块的 ``with_*``、``catalog_of`` 在用例内构造。只有 ``tests/unit/lib/catalog/test_factory_snapshot.py`` 读出厂快照，
+核对它本身的格式与可加载性。
+"""
 
 from __future__ import annotations
 
@@ -16,8 +22,19 @@ from lib.catalog import lifecycle, query
 
 
 def install_catalog(monkeypatch: pytest.MonkeyPatch, data: CatalogData) -> None:
-    """让目录查询在本用例内读 ``data``，代替出厂快照。"""
+    """让目录查询在本用例内读 ``data``，代替测试目录数据。"""
     monkeypatch.setattr(query, "factory_snapshot", lambda: data)
+
+
+def install_synced_catalog(request: pytest.FixtureRequest, data: CatalogData) -> None:
+    """让目录查询在本用例内把 ``data`` 当作已装入的官方同步数据（与出厂快照取数据集版本较新的那份）。"""
+    query.install_synced_data(data)
+    request.addfinalizer(lambda: query.install_synced_data(None))
+
+
+def with_dataset_version(data: CatalogData, dataset_version: str) -> CatalogData:
+    """换掉目录数据的数据集版本。"""
+    return replace(data, dataset_version=dataset_version)
 
 
 def set_catalog_today(monkeypatch: pytest.MonkeyPatch, day: date) -> None:
@@ -43,6 +60,18 @@ def with_min_app_version(data: CatalogData, provider_id: str, api_model_name: st
         for model in listing.models
     )
     providers = {**data.builtin_providers, provider_id: replace(listing, models=models)}
+    return replace(data, builtin_providers=providers)
+
+
+def with_recommendation(
+    data: CatalogData, provider_id: str, media_type: str, api_model_name: str | None
+) -> CatalogData:
+    """改写内置供应商在这个媒体类型下的推荐模型（目录里的默认模型）；``None`` 即去掉这一项。"""
+    listing = data.builtin_providers[provider_id]
+    defaults = {key: value for key, value in listing.defaults.items() if key != media_type}
+    if api_model_name is not None:
+        defaults[media_type] = api_model_name
+    providers = {**data.builtin_providers, provider_id: replace(listing, defaults=defaults)}
     return replace(data, builtin_providers=providers)
 
 

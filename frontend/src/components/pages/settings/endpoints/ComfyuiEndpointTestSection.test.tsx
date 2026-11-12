@@ -321,3 +321,19 @@ describe("ComfyuiEndpointTestSection", () => {
     expect(screen.getByLabelText("接口地址").closest(".font-mono")).toBeNull();
   });
 });
+
+it("previews ordered audio with aspect control while pixel resolution remains fixed", async () => {
+  const preview = vi.spyOn(API, "previewEndpointRequest").mockResolvedValue(PREVIEW);
+  const defn = definition();
+  delete defn.bindings.width;
+  delete defn.bindings.height;
+  defn.bindings.aspect_ratio = [{ node: "115", input: "aspect_ratio", class_type: "ResolutionSelector", values: { "9:16": "portrait" } }];
+  defn.bindings.reference_audio = [{ node: "501", input: "audio", class_type: "LoadAudio" }, { node: "502", input: "audio", class_type: "LoadAudio" }];
+  renderSection({ definition: defn });
+  expect(screen.getByRole("combobox", { name: "画幅比例" })).toBeEnabled();
+  expect(screen.getByRole("combobox", { name: "分辨率" })).toBeDisabled();
+  const audio = [new File(["first"], "first.wav", { type: "audio/wav" }), new File(["second"], "second.wav", { type: "audio/wav" })];
+  await userEvent.upload(screen.getByLabelText(/参考音频/), audio);
+  await userEvent.click(screen.getByRole("button", { name: "渲染 /prompt 请求体" }));
+  await waitFor(() => expect(preview).toHaveBeenCalledWith(expect.anything(), { assets: { reference_audio_files: audio } }));
+});

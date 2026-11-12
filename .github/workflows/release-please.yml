@@ -44,7 +44,7 @@ jobs:
 
       - name: Set up uv
         if: ${{ steps.release.outputs.pr }}
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # 本 job 持有可写 token 并向 release PR 分支推送提交，恢复的缓存条目会带着
           # 该写权限执行，故不启用缓存

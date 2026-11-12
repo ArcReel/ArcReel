@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { API } from "@/api";
+import type { ModelSettingEntry } from "@/types";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { DEFAULT_TEMPLATE_ID } from "@/data/style-templates";
@@ -38,6 +39,7 @@ const EMPTY_MODELS: ModelConfigValue = {
   defaultDuration: null,
   videoResolution: null,
   imageResolution: null,
+  imageQuality: null,
 };
 
 /** 读取第二步的可选模型与全局默认；供应商与模型名由后端按界面语言成文。 */
@@ -228,12 +230,15 @@ export function CreateProjectModal() {
       };
       const executingVideo = executingVideoModel(models, globals, generationRoute === "reference_video");
       const executingImage = executingImageModel(models, globals);
-      const modelSettings: Record<string, { resolution: string }> = {};
+      const modelSettings: Record<string, ModelSettingEntry> = {};
       if (executingVideo && models.videoResolution) {
         modelSettings[executingVideo] = { resolution: models.videoResolution };
       }
-      if (executingImage && models.imageResolution) {
-        modelSettings[executingImage] = { resolution: models.imageResolution };
+      if (executingImage && (models.imageResolution || models.imageQuality)) {
+        modelSettings[executingImage] = {
+          ...(models.imageResolution ? { resolution: models.imageResolution } : {}),
+          ...(models.imageQuality ? { quality: models.imageQuality } : {}),
+        };
       }
 
       const resp = await API.createProject({

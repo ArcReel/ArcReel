@@ -198,6 +198,54 @@ class TestListProviders:
         assert models["veo-3.1-fast-generate-preview"]["resolutions"] == ["720p", "1080p"]
         assert models["imagen-4.0-generate-001"]["resolutions"] == []
 
+    @staticmethod
+    def _image_status(name: str, model_id: str) -> ProviderStatus:
+        return ProviderStatus(
+            name=name,
+            display_name=name,
+            status="ready",
+            media_types=["image"],
+            capabilities=["text_to_image"],
+            required_keys=["api_key"],
+            credential_count=1,
+            models={
+                model_id: {
+                    "display_name": model_id,
+                    "media_type": "image",
+                    "capabilities": ["text_to_image", "image_to_image"],
+                    "default": True,
+                    "resolutions": ["1K", "2K"],
+                }
+            },
+        )
+
+    @pytest.mark.parametrize("recorded", [True, False])
+    def test_image_models_expose_the_effective_qualities(self, monkeypatch, recorded):
+        """图片模型信息带有效画质可选值：OpenAI Images 调用通道取条目的画质取值（按条目顺序），其余通道为空。"""
+        from lib.catalog import query
+        from tests.catalog_support import install_catalog, with_entry_facts
+
+        if recorded:
+            data = with_entry_facts(
+                query.factory_snapshot(), "openai", "gpt-image-2", qualities=("low", "medium", "high")
+            )
+            install_catalog(monkeypatch, with_entry_facts(data, "vidu", "viduq2", qualities=("low", "high")))
+        svc = MagicMock(spec=ConfigService)
+        svc.get_all_providers_status = AsyncMock(
+            return_value=[self._image_status("openai", "gpt-image-2"), self._image_status("vidu", "viduq2")]
+        )
+        with _make_client(svc) as client:
+            resp = client.get("/api/v1/providers")
+        models = {p["id"]: p["models"] for p in resp.json()["providers"]}
+        assert models["openai"]["gpt-image-2"]["qualities"] == (["low", "medium", "high"] if recorded else [])
+        assert models["vidu"]["viduq2"]["qualities"] == []
+
+    def test_non_image_models_expose_empty_qualities(self):
+        with _make_client(self._mock_svc_with_models()) as client:
+            resp = client.get("/api/v1/providers")
+        models = resp.json()["providers"][0]["models"]
+        assert models["veo-3.1-fast-generate-preview"]["qualities"] == []
+
     def test_always_audible_model_reports_switch_not_controllable(self):
         """AI Studio 的 Veo 恒有声、请求里没有开关：两条路径都报 always_on，设置页据此置灰音频开关。"""
         with _make_client(self._mock_svc_with_models()) as client:

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.models.config import ProviderConfig, SystemSetting
@@ -87,6 +89,31 @@ class SystemSettingRepository:
         else:
             self.session.add(SystemSetting(key=key, value=value))
         await self.session.flush()
+
+    async def upsert(self, key: str, value: str) -> None:
+        """单条语句写入：键不存在时插入，存在时覆盖。并发写同一个键不会因唯一约束失败，后写者生效。"""
+        insert = pg_insert if self.session.get_bind().dialect.name == "postgresql" else sqlite_insert
+        stmt = insert(SystemSetting).values(key=key, value=value, updated_at=datetime.now(UTC))
+        await self.session.execute(
+            stmt.on_conflict_do_update(
+                index_elements=[SystemSetting.key],
+                set_={"value": stmt.excluded.value, "updated_at": stmt.excluded.updated_at},
+            )
+        )
+
+    async def insert_if_absent(self, key: str, value: str) -> None:
+        """单条语句写入：键不存在时插入，已存在时什么都不改。"""
+        insert = pg_insert if self.session.get_bind().dialect.name == "postgresql" else sqlite_insert
+        stmt = insert(SystemSetting).values(key=key, value=value, updated_at=datetime.now(UTC))
+        await self.session.execute(stmt.on_conflict_do_nothing(index_elements=[SystemSetting.key]))
+
+    async def get_prefixed(self, prefix: str) -> dict[str, str]:
+        """键以 ``prefix`` 开头的全部设置。"""
+        stmt = select(SystemSetting.key, SystemSetting.value).where(
+            SystemSetting.key.startswith(prefix, autoescape=True)
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return {row.key: row.value for row in rows}
 
     async def delete(self, key: str) -> None:
         stmt = delete(SystemSetting).where(SystemSetting.key == key)

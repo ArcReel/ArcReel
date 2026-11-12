@@ -220,6 +220,28 @@ export function lookupResolutions(
   return { options: model?.resolutions ?? [], isCustom: false };
 }
 
+/** 该 (provider, model) 的有效画质可选值，内置与自定义供应商都取模型信息上的 `qualities`。
+ *  取值与顺序由服务端两侧求值后下发（条目收录且调用端点接受显式画质才非空），这里不排序、不过滤；
+ *  查不到模型时为空，调用方据此不提供画质选项。 */
+export function lookupQualities(
+  providers: ProviderInfo[],
+  backend: string,
+  customProviders?: CustomProviderInfo[],
+): string[] {
+  const slashIdx = backend.indexOf("/");
+  if (slashIdx === -1) return [];
+  const providerId = backend.slice(0, slashIdx);
+  const modelId = backend.slice(slashIdx + 1);
+
+  if (providerId.startsWith(CUSTOM_PREFIX)) {
+    const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
+    const model = customProviders?.find((p) => p.id === dbId)?.models?.find((m) => m.model_id === modelId);
+    return model?.qualities ?? [];
+  }
+
+  return providers.find((p) => p.id === providerId)?.models?.[modelId]?.qualities ?? [];
+}
+
 /** `provider/model` 挂接的那个端点对尺寸与时长的约束；内置供应商与查不到的模型为 undefined。
  *
  *  内置供应商没有「维度被端点固定」这一形态：尺寸与时长都是请求参数，端点目录里也没有它们的

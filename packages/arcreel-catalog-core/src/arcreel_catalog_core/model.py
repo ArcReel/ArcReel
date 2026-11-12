@@ -22,12 +22,24 @@ class TextFacts:
 
 
 @dataclass(frozen=True)
+class ScaledOutputTokenBase:
+    """一个质量档的带系数估算规则：先按 ``base`` 算出整数 token，再乘 ``multiplier`` 取整。"""
+
+    base: int
+    multiplier: float
+
+
+@dataclass(frozen=True)
 class ImageFacts:
     text_to_image: bool = False
     image_to_image: bool = False
     resolutions: tuple[str, ...] = ()
     max_reference_images: int | None = None
     output_token_bases: Mapping[str, int] = field(default_factory=dict)
+    #: 与 ``output_token_bases`` 分开收录：不认识本字段的旧实例读不到这些质量档，保持未知，不会漏乘系数。
+    output_token_scaled_bases: Mapping[str, ScaledOutputTokenBase] = field(default_factory=dict)
+    #: 模型接受的画质取值，即请求 ``quality`` 参数的合法值，按从低到高排列；空元组表示未收录。
+    qualities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

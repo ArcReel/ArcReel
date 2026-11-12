@@ -9,6 +9,7 @@ import type {
   CustomProviderInfo,
   DurationConstraints,
   EndpointDescriptor,
+  ModelInfoResponse,
   ProviderInfo,
   VideoCapabilities,
 } from "@/types";
@@ -31,6 +32,7 @@ const PROVIDERS: ProviderInfo[] = [
         default: false,
         supported_durations: [4, 6, 8],
         resolutions: [],
+        qualities: [],
         audio_track: "controllable",
         reference_route_audio_track: "controllable",
         voice_consistency: "soft",
@@ -53,6 +55,7 @@ const PROVIDERS: ProviderInfo[] = [
         default: false,
         supported_durations: [5, 8, 10],
         resolutions: [],
+        qualities: [],
         audio_track: "controllable",
         reference_route_audio_track: "controllable",
         voice_consistency: "soft",
@@ -81,6 +84,7 @@ const EMPTY_VALUE = {
   defaultDuration: null,
   videoResolution: null,
   imageResolution: null,
+  imageQuality: null,
 } as const;
 
 const EMPTY_GLOBALS = {
@@ -542,18 +546,23 @@ describe("ModelConfigSection", () => {
       );
     });
 
-    it("clears the resolution when a sub-field change moves the executing image model", async () => {
+    it("clears the resolution and quality when a sub-field change moves the executing image model", async () => {
       const user = userEvent.setup();
       const onChange = vi.fn();
       renderWithCandidates({
-        value: { ...EMPTY_VALUE, imageBackendDefault: "openai/gpt-image-edit", imageResolution: "1080p" },
+        value: {
+          ...EMPTY_VALUE,
+          imageBackendDefault: "openai/gpt-image-edit",
+          imageResolution: "1080p",
+          imageQuality: "high",
+        },
         onChange,
       });
       await user.click(screen.getAllByText("按用途指定模型")[1]);
       await user.click(screen.getByRole("combobox", { name: "文生图" }));
       await user.click(await screen.findByRole("option", { name: /nano-banana/ }));
       expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({ imageBackendT2I: "gemini/nano-banana", imageResolution: null }),
+        expect.objectContaining({ imageBackendT2I: "gemini/nano-banana", imageResolution: null, imageQuality: null }),
       );
     });
 
@@ -871,6 +880,7 @@ describe("ModelConfigSection", () => {
             default: false,
             supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             resolutions: [],
+            qualities: [],
             audio_track: "controllable",
             reference_route_audio_track: "controllable",
             voice_consistency: "soft",
@@ -1022,6 +1032,7 @@ describe("ModelConfigSection", () => {
             default: false,
             supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             resolutions: [],
+            qualities: [],
             audio_track: "controllable",
             reference_route_audio_track: "controllable",
             voice_consistency: "soft",
@@ -1072,6 +1083,7 @@ describe("ModelConfigSection", () => {
           default: false,
           supported_durations: [4, 6, 8],
           resolutions: ["720p", "1080p", "4k"],
+          qualities: [],
           audio_track: "controllable",
           reference_route_audio_track: "controllable",
           voice_consistency: "soft",
@@ -1233,6 +1245,7 @@ describe("音频开关的模型可控性", () => {
           default: false,
           supported_durations: [5],
           resolutions: [],
+          qualities: [],
           audio_track: "controllable",
           reference_route_audio_track: "controllable",
           voice_consistency: "soft",
@@ -1256,6 +1269,7 @@ describe("音频开关的模型可控性", () => {
           default: false,
           supported_durations: [5],
           resolutions: [],
+          qualities: [],
           audio_track: "controllable",
           reference_route_audio_track: "always_off",
           voice_consistency: "soft",
@@ -1278,6 +1292,7 @@ describe("音频开关的模型可控性", () => {
           default: false,
           supported_durations: [5],
           resolutions: [],
+          qualities: [],
           audio_track: "always_on",
           reference_route_audio_track: "always_on",
           voice_consistency: "soft",
@@ -1300,6 +1315,7 @@ describe("音频开关的模型可控性", () => {
           default: false,
           supported_durations: [6],
           resolutions: [],
+          qualities: [],
           audio_track: "always_off",
           reference_route_audio_track: "always_off",
           voice_consistency: "none",
@@ -1529,6 +1545,7 @@ describe("dimensions a ComfyUI workflow fixes", () => {
         is_default: true,
         is_enabled: true,
         resolution: null,
+        qualities: [],
         multiplier: 1,
         entry_binding: null,
         matched_entry: null,
@@ -1591,7 +1608,7 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     expect(picker).toBeDisabled();
     expect(picker).toHaveAttribute("placeholder", "workflow 原生（480p）");
     // 禁用原因要有一行可见说明，不能只靠 title。
-    expect(screen.getByText(/此 workflow 尺寸固定：宽高没有绑定到节点/)).toBeInTheDocument();
+    expect(screen.getByText(/此 workflow 的像素分辨率固定：宽高没有同时绑定到节点/)).toBeInTheDocument();
   });
 
   it("says the workflow decides the size when there is no literal to name", async () => {
@@ -1630,5 +1647,214 @@ describe("dimensions a ComfyUI workflow fixes", () => {
 
     expect(await screen.findByRole("radiogroup", { name: "默认时长" })).toBeInTheDocument();
     expect(screen.queryByText(/时长由端点固定/)).not.toBeInTheDocument();
+  });
+});
+
+describe("图片画质与失效的已存值", () => {
+  function imageModel(resolutions: string[], qualities: string[]): ModelInfoResponse {
+    return {
+      display_name: "image",
+      media_type: "image",
+      capabilities: [],
+      default: false,
+      supported_durations: [],
+      resolutions,
+      qualities,
+      audio_track: "always_off",
+      reference_route_audio_track: "always_off",
+      voice_consistency: "none",
+    };
+  }
+
+  const IMAGE_PROVIDERS: ProviderInfo[] = [
+    ...PROVIDERS,
+    {
+      id: "openai",
+      display_name: "OpenAI",
+      description: "",
+      status: "ready",
+      media_types: ["image"],
+      capabilities: [],
+      credential_count: 0,
+      models: {
+        // 接口顺序故意不按字母序：选项必须原样照接口列出
+        "gpt-image-2": imageModel(["1K", "2K"], ["low", "medium", "high"]),
+        "gpt-image-1": imageModel(["1K", "2K"], []),
+        // 旧数据：条目仍带 512px 时它照常可选
+        "gpt-image-legacy": imageModel(["512px", "1K", "2K"], []),
+      },
+    },
+  ];
+
+  const CUSTOM_IMAGE_PROVIDER: CustomProviderInfo = {
+    id: 7,
+    display_name: "自建网关",
+    discovery_format: "openai",
+    base_url: "https://gateway.invalid",
+    api_key_masked: "",
+    created_at: "2026-01-01T00:00:00Z",
+    image_max_workers: null,
+    video_max_workers: null,
+    audio_max_workers: null,
+    models: [
+      {
+        id: 1,
+        model_id: "gpt-image-2",
+        display_name: "GPT Image 2",
+        endpoint: "openai-images",
+        is_default: true,
+        is_enabled: true,
+        resolution: null,
+        qualities: ["medium", "high"],
+        multiplier: 1,
+        entry_binding: null,
+        matched_entry: null,
+        system_capabilities: null,
+        capability_overrides: null,
+        path_overrides: null,
+        requests: [],
+      },
+    ],
+  };
+
+  function renderImage(value: Partial<ComponentProps<typeof ModelConfigSection>["value"]>, onChange = vi.fn()) {
+    render(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, ...value }}
+        onChange={onChange}
+        providers={IMAGE_PROVIDERS}
+        customProviders={[CUSTOM_IMAGE_PROVIDER]}
+        options={{
+          videoBackends: [],
+          imageBackends: ["openai/gpt-image-2", "openai/gpt-image-1", "custom-7/gpt-image-2"],
+          textBackends: [],
+          providerNames: { openai: "OpenAI", "custom-7": "自建网关" },
+        }}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ video: false, text: false }}
+      />,
+    );
+    return onChange;
+  }
+
+  beforeEach(() => {
+    useEndpointCatalogStore.setState(
+      { ...useEndpointCatalogStore.getInitialState(), endpointToMediaType: { "openai-images": "image" } },
+      true,
+    );
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [] });
+  });
+
+  it("offers the executing model's qualities in API order after an auto entry, and writes the pick", async () => {
+    const user = userEvent.setup();
+    const onChange = renderImage({ imageBackendDefault: "openai/gpt-image-2" });
+
+    const picker = screen.getByRole("combobox", { name: "画质" });
+    expect(picker).toHaveTextContent("自动（按分辨率档位）");
+    await user.click(picker);
+    const options = await screen.findAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["自动（按分辨率档位）", "low", "medium", "high"]);
+    await user.click(screen.getByRole("option", { name: "high" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ imageQuality: "high" }));
+  });
+
+  it("writes null when the auto entry is picked again", async () => {
+    const user = userEvent.setup();
+    const onChange = renderImage({ imageBackendDefault: "openai/gpt-image-2", imageQuality: "medium" });
+
+    await user.click(screen.getByRole("combobox", { name: "画质" }));
+    await user.click(await screen.findByRole("option", { name: "自动（按分辨率档位）" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ imageQuality: null }));
+  });
+
+  it("does not render the quality field when the executing model has no qualities", () => {
+    renderImage({ imageBackendDefault: "openai/gpt-image-1", imageQuality: "high" });
+
+    expect(screen.getByRole("combobox", { name: "分辨率" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "画质" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("uses a dropdown for a custom provider's qualities too", async () => {
+    const user = userEvent.setup();
+    renderImage({ imageBackendDefault: "custom-7/gpt-image-2" });
+
+    await user.click(screen.getByRole("combobox", { name: "画质" }));
+    const options = await screen.findAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["自动（按分辨率档位）", "medium", "high"]);
+  });
+
+  it("flags a stored quality that only differs in case, keeps it until the reset is clicked", async () => {
+    const user = userEvent.setup();
+    const onChange = renderImage({ imageBackendDefault: "openai/gpt-image-2", imageQuality: "LOW" });
+
+    expect(screen.getByRole("combobox", { name: "画质" })).toHaveTextContent("LOW");
+    expect(screen.getByRole("alert")).toHaveTextContent("已保存的画质 LOW 不在当前模型的可选值中");
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "恢复自动" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ imageQuality: null }));
+  });
+
+  it("accepts a stored quality that only carries surrounding whitespace", () => {
+    renderImage({ imageBackendDefault: "openai/gpt-image-2", imageQuality: " low " });
+
+    expect(screen.getByRole("combobox", { name: "画质" })).toHaveTextContent("low");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("flags a stored image resolution the model no longer offers, keeps it until the reset is clicked", async () => {
+    const user = userEvent.setup();
+    const onChange = renderImage({ imageBackendDefault: "openai/gpt-image-2", imageResolution: "512px" });
+
+    expect(screen.getByRole("combobox", { name: "分辨率" })).toHaveTextContent("512px");
+    expect(screen.getByRole("alert")).toHaveTextContent("已保存的分辨率 512px 不在当前模型的可选档位中");
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "恢复默认" }));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ imageResolution: null }));
+  });
+
+  it("keeps 512px selectable without a notice while the model data still offers it", () => {
+    renderImage({ imageBackendDefault: "openai/gpt-image-legacy", imageResolution: "512px" });
+
+    expect(screen.getByRole("combobox", { name: "分辨率" })).toHaveTextContent("512px");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("treats a stored resolution that differs only in case or whitespace as valid", () => {
+    renderImage({ imageBackendDefault: "openai/gpt-image-2", imageResolution: " 2k " });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not flag a free-form resolution in a custom provider's input", () => {
+    renderImage({ imageBackendDefault: "custom-7/gpt-image-2", imageResolution: "1536x1024" });
+
+    expect(screen.getByRole("combobox", { name: "分辨率" })).toHaveValue("1536x1024");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("leaves the video resolution field without a stale notice", async () => {
+    fakeCatalog = [
+      {
+        ...PROVIDERS[0],
+        models: { "veo-3": { ...PROVIDERS[0].models["veo-3"], resolutions: ["720p", "1080p"] } },
+      },
+    ];
+    render(
+      <ModelConfigSection
+        value={{ ...EMPTY_VALUE, videoBackend: "gemini/veo-3", videoResolution: "4k" }}
+        onChange={() => {}}
+        providers={fakeCatalog}
+        options={OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ image: false, text: false }}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "分辨率" })).toHaveTextContent("4k");
+    await screen.findByRole("radio", { name: "8 秒" });
+    expect(screen.queryByText(/已保存的分辨率/)).not.toBeInTheDocument();
   });
 });

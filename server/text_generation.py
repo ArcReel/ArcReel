@@ -1262,7 +1262,7 @@ def collect_reference_flat_violations(
         def _check_text_and_tier(
             la: str = label, tx: str = text, d: int = duration, with_images: bool = with_reference_images
         ) -> None:
-            validate_unit_text(la, tx, planning, max_refs=caps.max_refs)
+            validate_unit_text(la, tx, planning, max_refs=caps.max_refs, max_speakers=caps.voice.planning_speaker_limit)
             _validate_unit_duration_tier(la, d, has_references=with_images, caps=caps)
 
         violations.extend(
@@ -1731,6 +1731,7 @@ async def generate_reference_script_plan(
             text_supported_durations=split_caps.text_durations,
             max_duration=split_caps.max_duration,
             max_reference_images=split_caps.max_refs,
+            max_speakers=split_caps.voice.planning_speaker_limit,
             default_duration=split_caps.default_duration,
             episode=episode,
             source_kind=cast(str | None, prompt_inputs["source_kind"]) or DEFAULT_SOURCE_KIND,

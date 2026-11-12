@@ -1,0 +1,218 @@
+{
+  "method": "POST",
+  "path": "/api/v1/custom-endpoints/comfyui/infer",
+  "status": 200,
+  "body": {
+    "media_type": "video",
+    "savable": true,
+    "bindings": {
+      "aspect_ratio": {
+        "state": "auto_selected",
+        "candidates": [
+          {
+            "target": {
+              "node": "115",
+              "input": "aspect_ratio",
+              "class_type": "ResolutionSelector",
+              "values": {
+                "16:9": "16:9 (Widescreen)",
+                "9:16": "9:16 (Portrait)"
+              },
+              "title": ""
+            },
+            "score": 2048,
+            "signals": [
+              {
+                "signal": "manual_binding",
+                "weight": 2048,
+                "message": "已保存的节点绑定，沿用用户确认过的落点"
+              }
+            ],
+            "selected": true,
+            "origin": "kept",
+            "depth": null
+          }
+        ],
+        "notes": []
+      },
+      "end_image": {
+        "state": "unsupported",
+        "candidates": [],
+        "notes": []
+      },
+      "fps": {
+        "state": "unsupported",
+        "candidates": [],
+        "notes": []
+      },
+      "frames": {
+        "state": "unsupported",
+        "candidates": [],
+        "notes": []
+      },
+      "height": {
+        "state": "unsupported",
+        "candidates": [],
+        "notes": []
+      },
+      "negative_prompt": {
+        "state": "unsupported",
+        "candidates": [],
+        "notes": []
+      },
+      "output": {
+        "state": "auto_selected",
+        "candidates": [
+          {
+            "target": {
+              "node": "92",
+              "class_type": "SaveVideo",
+              "title": ""
+            },
+            "score": 2048,
+            "signals": [
+              {
+                "signal": "manual_binding",
+                "weight": 2048,
+                "message": "已保存的节点绑定，沿用用户确认过的落点"
+              }
+            ],
+            "selected": true,
+            "origin": "kept",
+            "depth": null
+          }
+        ],
+        "notes": []
+      },
+      "prompt": {
+        "state": "auto_selected",
+        "candidates": [
+          {
+            "target": {
+              "node": "138",
+              "input": "value",
+              "class_type": "PrimitiveStringMultiline",
+              "title": "ARCREEL:prompt"
+            },
+            "score": 2048,
+            "signals": [
+              {
+                "signal": "manual_binding",
+                "weight": 2048,
+                "message": "已保存的节点绑定，沿用用户确认过的落点"
+              }
+            ],
+            "selected": true,
+            "origin": "kept",
+            "depth": null
+          }
+        ],
+        "notes": []
+      },
+      "reference_audio": {
+        "state": "auto_selected",
+        "candidates": [
+          {
+            "target": {
+              "node": "501",
+              "input": "audio",
+              "class_type": "LoadAudio",
+              "title": "ARCREEL:reference_audio",
+              "consumer": {
+                "node": "136",
+                "input": "ref_audios.ref_audio_1",
+                "class_type": "MiniMaxH3ReferenceToVideo",
+                "title": ""
+              }
+            },
+            "score": 2048,
+            "signals": [
+              {
+                "signal": "manual_binding",
+                "weight": 2048,
+                "message": "已保存的节点绑定，沿用用户确认过的落点"
+              }
+            ],
+            "selected": true,
+            "origin": "kept",
+            "depth": null
+          },
+          {
+            "target": {
+              "node": "502",
+              "input": "audio",
+              "class_type": "LoadAudio",
+              "title": "ARCREEL:reference_audio",
+              "consumer": {
+                "node": "136",
+                "input": "ref_audios.ref_audio_2",
+                "class_type": "MiniMaxH3ReferenceToVideo",
+                "title": ""
+              }
+            },
+            "score": 2048,
+            "signals": [
+              {
+                "signal": "manual_binding",
+                "weight": 2048,
+                "message": "已保存的节点绑定，沿用用户确认过的落点"
+              }
+            ],
+            "selected": true,
+            "origin": "kept",
+            "depth": null
+          },
+          {
+            "target": {
+              "node": "503",
+              "input": "audio",
+              "class_type": "LoadAudio",
+              "title": "ARCREEL:reference_audio",
+              "consumer": {
+                "node": "136",
+                "input": "ref_audios.ref_audio_0",
+                "class_type": "MiniMaxH3ReferenceToVideo",
+                "title": ""
+              }
+            },
+            "score": 2048,
+            "signals": [
+              {
+                "signal": "manual_binding",
+                "weight": 2048,
+                "message": "已保存的节点绑定，沿用用户确认过的落点"
+              }
+            ],
+            "selected": true,
+            "origin": "kept",
+            "depth": null
+          }
+        ],
+        "notes": []
+      },
+      "reference_images": {
+        "state": "unsupported",
+        "candidates": [],
+        "notes": []
+      },
+      "seed": {
+        "state": "unsupported",
+        "candidates": [],
+        "notes": []
+      },
+      "start_image": {
+        "state": "unsupported",
+        "candidates": [],
+        "notes": []
+      },
+      "width": {
+        "state": "unsupported",
+        "candidates": [],
+        "notes": []
+      }
+    },
+    "notes": [],
+    "import_shape": "endpoint_definition",
+    "wrapped_definition": null
+  }
+}
