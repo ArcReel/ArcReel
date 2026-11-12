@@ -142,6 +142,26 @@ describe("ProviderModelSheet", () => {
     expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ model_id: "relay-video" }), "relay-video");
   });
 
+  it("keeps a stored 512px on a custom image model while no longer suggesting it", async () => {
+    const base = { text_to_image: true, image_to_image: false, max_reference_images: 0 };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(
+      unmatchedVideo({
+        model: item({ media_type: "image", endpoint: "openai-images" }),
+        endpoint: "openai-images",
+        resolution: "512px",
+        capabilities: { media_type: "image", editable: [], displayed: ["text_to_image"], base, overrides: {}, effective: base },
+      }),
+    );
+    renderSheet();
+
+    const input = await screen.findByRole("combobox", { name: "分辨率" });
+    expect(input).toHaveValue("512px");
+    const suggested = Array.from(document.querySelectorAll(`datalist[id="${input.getAttribute("list")}"] option`)).map(
+      (o) => o.getAttribute("value"),
+    );
+    expect(suggested).toEqual(["1K", "2K", "4K"]);
+  });
+
   it("saves and reads back the image reference limit override", async () => {
     const base = { text_to_image: true, image_to_image: false, max_reference_images: 0 };
     const detail = unmatchedVideo({

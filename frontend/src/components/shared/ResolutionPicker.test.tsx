@@ -55,4 +55,13 @@ describe("ResolutionPicker", () => {
     fireEvent.change(input, { target: { value: "" } });
     expect(onChange).toHaveBeenLastCalledWith(null);
   });
+
+  it("combobox mode shows a stored value that is not among the suggestions", () => {
+    const { container } = render(
+      <ResolutionPicker mode="combobox" options={["1K", "2K", "4K"]} value="512px" onChange={vi.fn()} />
+    );
+    expect(screen.getByRole("combobox")).toHaveValue("512px");
+    const suggested = Array.from(container.querySelectorAll("datalist option")).map((o) => o.getAttribute("value"));
+    expect(suggested).toEqual(["1K", "2K", "4K"]);
+  });
 });

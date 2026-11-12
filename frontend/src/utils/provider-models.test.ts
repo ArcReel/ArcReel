@@ -7,6 +7,7 @@ import {
   getProviderModels,
   lookupCatalogVideoAudio,
   lookupQualities,
+  lookupResolutions,
   lookupVideoAudioControl,
 } from "./provider-models";
 
@@ -228,5 +229,53 @@ describe("lookupQualities", () => {
     expect(lookupQualities(providers, "nobody/gpt-image-2")).toEqual([]);
     expect(lookupQualities(providers, "custom-4/gpt-image-2")).toEqual([]);
     expect(lookupQualities(providers, "")).toEqual([]);
+  });
+});
+
+describe("lookupResolutions", () => {
+  const providers: ProviderInfo[] = [
+    {
+      ...VEO_PROVIDERS[0],
+      id: "openai",
+      models: {
+        "gpt-image-legacy": {
+          ...VEO_PROVIDERS[0].models["seedance-like"],
+          media_type: "image",
+          resolutions: ["512px", "1K", "2K"],
+        },
+      },
+    },
+  ];
+  const custom = [
+    {
+      id: 4,
+      models: [
+        { model_id: "img", endpoint: "openai-images", resolution: "512px" },
+        { model_id: "vid", endpoint: "openai-video", resolution: null },
+      ],
+    },
+  ] as unknown as CustomProviderInfo[];
+  const media = { "openai-images": "image", "openai-video": "video" } as const;
+
+  it("suggests no 512px for a custom image model", () => {
+    const { options, isCustom } = lookupResolutions(providers, "custom-4/img", custom, media);
+    expect(isCustom).toBe(true);
+    expect(options).toEqual(["1K", "2K", "4K"]);
+  });
+
+  it("leaves the custom video suggestions unchanged", () => {
+    expect(lookupResolutions(providers, "custom-4/vid", custom, media).options).toEqual([
+      "480p",
+      "720p",
+      "1080p",
+      "4K",
+    ]);
+  });
+
+  it("keeps the options a builtin model declares, 512px included", () => {
+    expect(lookupResolutions(providers, "openai/gpt-image-legacy")).toEqual({
+      options: ["512px", "1K", "2K"],
+      isCustom: false,
+    });
   });
 });
