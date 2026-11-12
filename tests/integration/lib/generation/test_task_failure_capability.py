@@ -37,6 +37,7 @@ from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import MESSAGES
 from lib.i18n import _ as i18n_translate
+from lib.infra import error_params
 from lib.references.reference_compression import ReferencePayloadFloorError
 from lib.script.reference_video.request_projection import ProjectionProblem, ReferenceProjectionBlockedError
 from tests.factories import make_display_names
@@ -817,16 +818,16 @@ def _oversized_envelope() -> str:
 def test_as_shrinkable_degrades_when_param_json_hits_recursion_limit(monkeypatch):
     """嵌套过深的参数量不出长度时降级为省略号，而不是把异常抛进落库路径。
 
-    只断言 ``_as_shrinkable`` 本身：经它归一后 ``params`` 全是扁平字符串，``encode_failure``
+    只断言 ``as_shrinkable`` 本身：经它归一后 ``params`` 全是扁平字符串，``encode_failure``
     的 ``dumps`` 已无从撞上限，再去断言 ``bound_reason`` 只能靠全局打桩造出不可达的场景。
     """
 
     def _boom(*_args, **_kwargs):
         raise RecursionError("maximum recursion depth exceeded")
 
-    monkeypatch.setattr(task_failure.json, "dumps", _boom)
+    monkeypatch.setattr(error_params.json, "dumps", _boom)
 
-    assert task_failure._as_shrinkable([[[1]]]) == "…"
+    assert error_params.as_shrinkable([[[1]]]) == "…"
 
 
 def test_bound_reason_degrades_when_params_json_load_hits_recursion_limit(monkeypatch):

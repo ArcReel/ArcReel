@@ -20,6 +20,16 @@ export const MEDIA_META: Record<
   audio: { Icon: AudioLines, iconClass: "text-media-audio", swatchClass: "bg-media-audio", color: "var(--media-audio)", labelKey: "usage_media_audio" },
 };
 
+/**
+ * ComfyUI 产物类型不符时文案里那段「应为」扩展名清单，按落库的 `media_type` 现取。
+ * 与后端 `lib.custom_provider.comfyui.artifacts.expected_suffixes_text` 同口径，两端经
+ * `test/contracts/comfyui-artifact-suffixes.json` 核对。
+ */
+export const COMFYUI_EXPECTED_SUFFIXES: Readonly<Record<string, string>> = {
+  image: ".jpeg / .jpg / .png / .webp",
+  video: ".m4v / .mov / .mp4",
+};
+
 /** 无值时的占位。 */
 const DASH = "—";
 

@@ -16,12 +16,18 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping
-from typing import Any, TypeGuard
+from typing import Any
 
 from lib.custom_provider.comfyui.artifacts import expected_suffixes_text
 from lib.i18n import render_generation_input_error, render_message
 from lib.i18n.display_names import DisplayNames
-from lib.infra.error_params import shrink_json_strings
+from lib.infra.error_params import (
+    is_validation_message,
+    nested_detail_slots,
+    params_budget,
+    shrink_json_strings,
+    shrinkable_copy,
+)
 
 # Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
 # ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
@@ -230,36 +236,6 @@ def encode_failure(code: str, /, **params: Any) -> str:
     return f"[{code}]"
 
 
-def _as_shrinkable(value: Any) -> Any:
-    """把容器参数值换成自身的 JSON 文本，好让裁剪逻辑能收窄它。
-
-    截断一个容器的字符串形态比截断 JSON 字面量安全——后者会留下不闭合的括号。嵌套过深到
-    ``json.dumps`` 撞递归上限的值降级为省略号：裁剪发生在落库路径上，抛出去会让任务卡在
-    running。
-
-    只动容器：``int`` / ``float`` / ``bool`` / ``None`` 本就是 JSON 原生标量，撑不爆预算也
-    无从收窄，转成文本反而会在重新编码时被加上引号存回去（``42`` 变 ``"42"``、``True`` 变
-    ``"true"``、``None`` 变 ``"null"``），把落库信封里的参数类型改掉。而裁剪是整个 params
-    一起过一遍的，所以只要有任一参数触发裁剪，同条失败里全部标量都会跟着变形。
-    """
-    if not isinstance(value, dict | list):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False, default=str)
-    except RecursionError:
-        return "…"
-
-
-def _is_validation_message(value: Any) -> TypeGuard[dict[str, Any]]:
-    """Return whether ``value`` is the locale-neutral nested diagnostic envelope."""
-    return (
-        isinstance(value, dict)
-        and set(value) == {"key", "params"}
-        and isinstance(value.get("key"), str)
-        and isinstance(value.get("params"), dict)
-    )
-
-
 def collapse_cascade_reason(reason: str) -> str:
     """把嵌套的级联原因折叠成最内层的根本原因，供级联编码前调用。
 
@@ -322,15 +298,7 @@ def bound_reason(reason: str, limit: int) -> str:
         return reason[:limit]
     if not isinstance(parsed, dict):
         return reason[:limit]
-    params: dict[str, Any] = {key: _as_shrinkable(value) for key, value in parsed.items()}
-    detail = parsed.get("detail")
-    if _is_validation_message(detail):
-        # ``detail`` 必须保持机器结构，读侧才能按请求 locale 渲染。只把它的 params 中可能
-        # 过大的容器降级成可裁剪文本，并把字符串叶子加入与顶层参数相同的预算竞争。
-        params["detail"] = {
-            "key": detail["key"],
-            "params": {key: _as_shrinkable(value) for key, value in detail["params"].items()},
-        }
+    params = shrinkable_copy(parsed)
 
     gaps = parsed.get("gaps")
     kept_gaps: dict[str, dict[str, Any]] = {}
@@ -357,14 +325,11 @@ def bound_reason(reason: str, limit: int) -> str:
         (params, key) for key, value in params.items() if isinstance(value, str)
     ]
     shrinkable.extend((gap, "name") for gap in kept_gaps.values())
-    nested_detail = params.get("detail")
-    if _is_validation_message(nested_detail):
-        nested_params = nested_detail["params"]
-        shrinkable.extend((nested_params, key) for key, value in nested_params.items() if isinstance(value, str))
+    shrinkable.extend(nested_detail_slots(params))
     if not shrinkable:
         return reason[:limit]
 
-    if not shrink_json_strings(params, shrinkable, limit - len(f"[{code}] ")):
+    if not shrink_json_strings(params, shrinkable, params_budget(code, limit)):
         return reason[:limit]
     return encode_failure(code, **params)
 
@@ -416,7 +381,7 @@ def render_failure(error_message: str | None, translate: Callable[..., str], nam
             params = {**params, "reason": render_failure(nested_reason, translate, names)}
     if code in {"declarative_template_render_failed", "declarative_response_extract_failed"}:
         detail = params.get("detail")
-        if _is_validation_message(detail):
+        if is_validation_message(detail):
             params = {**params, "detail": render_message(detail["key"], detail["params"], translate, names)}
     if code in _COMFYUI_ARTIFACT_MISMATCH_CODES:
         media_type = params.get("media_type")

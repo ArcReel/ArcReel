@@ -27,7 +27,13 @@ from openai import APITimeoutError
 
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.infra.api_errors import ApiError
-from lib.infra.error_params import shrink_json_strings
+from lib.infra.error_params import (
+    FAILURE_MESSAGE_LIMIT,
+    nested_detail_slots,
+    params_budget,
+    shrink_json_strings,
+    shrinkable_copy,
+)
 
 
 class CallErrorCode(StrEnum):
@@ -98,30 +104,14 @@ def classify_call_failure(exc: BaseException | str) -> CallFailure:
     if isinstance(code, str) and isinstance(raw_params, dict):
         try:
             params = json.loads(json.dumps(raw_params, default=str, allow_nan=False))
-            # 与任务侧 2000 字符的完整信封预算一致，虽分列落库也计入 code。
-            params_budget = 2000 - len(f"[{code}] ")
-            if len(json.dumps(params, ensure_ascii=False, sort_keys=True)) > params_budget:
-                # 与任务侧一样收窄最长字符串；容器先转文本，嵌套诊断保留 key/params 信封。
-                shrinkable = []
-                for key, value in list(params.items()):
-                    if (
-                        key == "detail"
-                        and isinstance(value, dict)
-                        and set(value) == {"key", "params"}
-                        and isinstance(value.get("key"), str)
-                        and isinstance(value.get("params"), dict)
-                    ):
-                        owner = value["params"]
-                    else:
-                        owner = params
-                    names = list(owner) if owner is not params else [key]
-                    for name in names:
-                        item = owner[name]
-                        if isinstance(item, dict | list):
-                            owner[name] = json.dumps(item, ensure_ascii=False)
-                        if isinstance(owner[name], str):
-                            shrinkable.append((owner, name))
-                if not shrink_json_strings(params, shrinkable, params_budget):
+            # 与任务侧的完整信封预算一致，虽分列落库也计入 code。
+            budget = params_budget(code, FAILURE_MESSAGE_LIMIT)
+            if len(json.dumps(params, ensure_ascii=False, sort_keys=True)) > budget:
+                # 与任务侧 bound_reason 同一口径：容器先转文本，嵌套诊断保留 key/params 信封，收窄最长字符串。
+                params = shrinkable_copy(params)
+                shrinkable = [(params, key) for key, value in params.items() if isinstance(value, str)]
+                shrinkable.extend(nested_detail_slots(params))
+                if not shrink_json_strings(params, shrinkable, budget):
                     return CallFailure(message)
         except (TypeError, ValueError, RecursionError):
             return CallFailure(message)

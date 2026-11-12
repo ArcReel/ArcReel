@@ -16,6 +16,7 @@ from lib.db.repositories.usage_repo import UsageRepository
 from lib.generation.task_failure import bound_reason, parse_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.infra.api_errors import BadRequestError
+from lib.infra.error_params import FAILURE_MESSAGE_LIMIT
 from lib.references.reference_compression import ReferencePayloadFloorError
 
 
@@ -89,8 +90,9 @@ async def test_domain_failure_record_matches_task_encoding(db_factory, exc):
         page = await repository.list_records()
         row = await repository.get_record(page["items"][0]["id"])
     assert row is not None
-    expected = parse_failure(bound_reason(encode_task_failure_message(exc), 2000))
+    expected = parse_failure(bound_reason(encode_task_failure_message(exc), FAILURE_MESSAGE_LIMIT))
     assert expected is not None
     assert (row["error_code"], row["error_params"]) == expected
-    assert len(f"[{row['error_code']}] " + json.dumps(row["error_params"], ensure_ascii=False, sort_keys=True)) <= 2000
+    envelope = f"[{row['error_code']}] " + json.dumps(row["error_params"], ensure_ascii=False, sort_keys=True)
+    assert len(envelope) <= FAILURE_MESSAGE_LIMIT
     assert row["error_message"] == str(exc)[:500]
