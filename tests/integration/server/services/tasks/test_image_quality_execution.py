@@ -25,7 +25,7 @@ from server import app as server_app
 from server.services.admission.cost_estimation import estimate_image_batch_cost
 from server.services.tasks import generation_context, generation_tasks
 from tests.catalog_support import install_catalog, with_dataset_version, with_entry_facts
-from tests.fakes import bind_session_factory, use_project_manager
+from tests.fakes import bind_safe_session_factory, bind_session_factory, use_project_manager
 from tests.http_capture import capture_http, only_request, request_json
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 from tests.integration.server.services.tasks.generation_tasks_support import (
@@ -173,10 +173,12 @@ async def _sync_as_app_starts_it(
 ) -> None:
     """经应用启动时的入口跑一轮官方同步，``done`` 成立后停掉同步循环。
 
-    同步每用完一个数据库会话就检查一次 ``done``。这一轮最后一个会话记下同步结果，之后装入新数据、清缓存都不再
-    让出事件循环，所以 ``done`` 取装入后的目录或记下的同步状态即可。
+    同步每用完一个数据库会话就检查一次 ``done``；装入了新数据时还要等应用回调完成容量重载，
+    避免在目录已经可见、DB 容量仍在读取时取消同步任务。
     """
     closed = asyncio.Event()
+    applied = asyncio.Event()
+    initial_version = catalog.official_data().dataset_version
 
     @contextlib.asynccontextmanager
     async def session_factory():
@@ -185,12 +187,20 @@ async def _sync_as_app_starts_it(
         closed.set()
 
     async def _until_done() -> None:
-        while not done():
+        while not done() or (catalog.official_data().dataset_version != initial_version and not applied.is_set()):
             closed.clear()
             await closed.wait()
 
+    def start_sync(session_factory, http_client, on_applied):
+        async def after_applied():
+            await on_applied()
+            applied.set()
+            closed.set()
+
+        return official_sync.start_official_sync(session_factory, http_client, on_applied=after_applied)
+
     # 根 conftest 把应用启动的同步换成了不发请求的空任务，这里换回真实入口
-    monkeypatch.setattr(server_app, "start_official_sync", official_sync.start_official_sync)
+    monkeypatch.setattr(server_app, "start_official_sync", start_sync)
     async with httpx.AsyncClient() as client:
         with capture_http() as router:
             serve(router)
@@ -306,3 +316,136 @@ async def test_backend_cache_is_kept_unless_the_sync_applies_new_data(relay_proj
 
     expected = moved if outcome == "applied" else _RELAY
     assert str((await _sent_image_request(expected)).url) == f"{expected}/images/generations"
+
+
+@pytest.mark.parametrize("outcome", ["added", "removed", "unchanged", "failed"])
+async def test_official_sync_refreshes_worker_lanes_only_when_applied(file_db_factory, monkeypatch, outcome):
+    from dataclasses import replace
+
+    from lib.generation.generation_queue import GenerationQueue
+    from lib.generation.generation_worker import GenerationWorker, SlotTable
+    from tests.catalog_support import catalog_of
+    from tests.integration.lib.generation.worker_support import stub_executors
+
+    snapshot = catalog.factory_snapshot()
+    # 使用完整条目和不同供应商清单模拟新增/移除 lane，不改变目录合成的保留条目规则。
+    without_audio = replace(snapshot, builtin_providers=catalog_of([], {"grok": []}).builtin_providers)
+    audio_listing = snapshot.builtin_providers["minimax"]
+    with_audio = replace(snapshot, builtin_providers={"grok": audio_listing})
+    initial = with_audio if outcome == "removed" else without_audio
+    install_catalog(monkeypatch, initial)
+    bind_safe_session_factory(monkeypatch, file_db_factory)
+    async with file_db_factory() as session:
+        await ConfigService(session).set_provider_config("grok", "audio_max_workers", "2")
+        await session.commit()
+    slots = SlotTable()
+    queue = GenerationQueue(session_factory=file_db_factory)
+
+    async def execute(_task, *, claimed_provider_id):
+        assert claimed_provider_id == "grok"
+        return {"audio": "generated"}
+
+    worker = GenerationWorker(
+        queue=queue,
+        executor=execute,
+        resume_executor=stub_executors.execute_resume,
+        slots=slots,
+        lanes=("audio",),
+    )
+    await worker.reload_limits()
+    monkeypatch.setattr(server_app.app.state, "generation_worker", worker, raising=False)
+    if outcome in {"unchanged", "failed"}:
+        worker._capacity.replace({"grok": {"audio": 4}})
+    before = worker._capacity.get("grok", "audio")
+    running = asyncio.get_running_loop().create_future()
+    slots.register("grok", "audio", "inflight", running)
+    if outcome == "failed":
+        serve = _serve_manifest_failure
+    else:
+        upstream = without_audio if outcome == "removed" else with_audio
+        serve = _serve_dataset(initial if outcome == "unchanged" else with_dataset_version(upstream, _NEWER))
+    expected = {"added": 2, "removed": 0, "unchanged": before, "failed": before}[outcome]
+    done = {
+        "added": lambda: worker._capacity.get("grok", "audio") == 2,
+        "removed": lambda: worker._capacity.get("grok", "audio") == 0,
+        "unchanged": lambda: official_sync.sync_status().last_success_at is not None,
+        "failed": lambda: official_sync.sync_status().last_error is not None,
+    }[outcome]
+    try:
+        await _sync_as_app_starts_it(monkeypatch, file_db_factory, serve, done)
+        assert worker._capacity.get("grok", "audio") == expected
+        assert slots.occupied("grok", "audio") == 1
+        running.set_result(None)
+        assert slots.drain_finished() == [("inflight", running)]
+        assert slots.occupied("grok", "audio") == 0
+        if outcome == "added":
+            task = await queue.enqueue_task(
+                project_name="sync-audio",
+                task_type="tts",
+                media_type="audio",
+                resource_id="voice",
+                provider_id="grok",
+            )
+            assert await worker._claim_tasks()
+            await asyncio.gather(*slots.all_active_tasks())
+            await worker._drain_finished_tasks()
+            finished = await queue.get_task(task["task_id"])
+            assert finished is not None
+            assert finished["status"] == "succeeded"
+    finally:
+        running.cancel()
+        official_sync.reset_for_tests()
+
+
+async def test_sync_rebuilds_cached_image_model_facts_and_builtin_video_entry(relay_project, db_factory, monkeypatch):
+    from lib.backends.image_backends.base import ImageCapability
+    from lib.backends.video_backends.name_family import catalog_entry_of
+
+    async with db_factory() as session:
+        await ConfigService(session).set_provider_config("grok", "api_key", "test-key")
+        await session.commit()
+    snapshot = with_entry_facts(
+        catalog.factory_snapshot(),
+        "openai",
+        "gpt-image-2",
+        text_to_image=True,
+        image_to_image=True,
+        max_reference_images=3,
+    )
+    install_catalog(monkeypatch, snapshot)
+    resolver = ConfigResolver(db_factory)
+
+    async def backends():
+        image = await generation_context._get_or_create_image_backend(
+            make_provider_id(relay_project), {"model": "relay-image"}, resolver
+        )
+        video, _ = await generation_context._get_or_create_video_backend(
+            "grok", {"model": "grok-imagine-video"}, resolver
+        )
+        return image, video
+
+    before_image, before_video = await backends()
+    assert before_image.entry_reference_limit == 3
+    assert ImageCapability.IMAGE_TO_IMAGE in before_image.effective_capabilities
+    before_entry = catalog_entry_of(before_video)
+    assert before_entry is not None
+    upstream = with_dataset_version(
+        with_entry_facts(snapshot, "openai", "gpt-image-2", image_to_image=False, max_reference_images=1),
+        _NEWER,
+    )
+    from tests.catalog_support import with_entry_changes
+
+    upstream = with_entry_changes(upstream, "grok", "grok-imagine-video", display_name="Synced video")
+    await _sync_as_app_starts_it(
+        monkeypatch,
+        db_factory,
+        _serve_dataset(upstream),
+        lambda: catalog.official_data().dataset_version == _NEWER,
+    )
+    after_image, after_video = await backends()
+    assert after_image.entry_reference_limit == 1
+    assert after_image.effective_capabilities == frozenset({ImageCapability.TEXT_TO_IMAGE})
+    after_entry = catalog_entry_of(after_video)
+    assert after_entry is not None
+    assert after_entry.display_name == "Synced video"
+    assert before_entry.display_name != after_entry.display_name

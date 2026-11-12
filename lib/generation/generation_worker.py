@@ -543,6 +543,7 @@ class GenerationWorker:
     async def start(self) -> None:
         if self._main_task and not self._main_task.done():
             return
+        await self.reload_limits()
         self._stop_event.clear()
         self._wake_event.clear()
         self._main_task = asyncio.create_task(self._run_loop(), name="generation-worker")
