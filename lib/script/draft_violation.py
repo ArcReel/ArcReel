@@ -37,8 +37,8 @@ class DraftViolation(ValueError):
     0-based 下标，``item_id`` 是该条目的 ID（参考单元 ``unit_id``、分镜 ``segment_id`` 等）；呈现层
     按下标把违约挂到对应条目上，不解析 ``label``。两者都为空即整集层面的违约。
 
-    ``params`` 非空表示 ``code`` 是问题码文案 key（视频请求事实一类的配置问题），呈现层按问题码与
-    参数本地化，不展示面向 Agent 的消息。
+    ``params`` 不为 None 表示 ``code`` 是文案 key，Web 按 code 与参数本地化；
+    ``str(violation)`` 始终保留面向 Agent 的原始消息。
     """
 
     def __init__(
@@ -90,6 +90,11 @@ def schema_violations(
                 code="schema_invalid",
                 item_index=index,
                 item_id=item_id if isinstance(item_id, str) else None,
+                # 自定义校验消息可能是中文；Web 展示稳定类型码，Agent 保留完整原因。
+                params={
+                    "path": "content." + ".".join(str(part) for part in loc),
+                    "detail": error["type"] + (f" ({json.dumps(value, ensure_ascii=False)})" if shown else ""),
+                },
             )
         )
     return violations

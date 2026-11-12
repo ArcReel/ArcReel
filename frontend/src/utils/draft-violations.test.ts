@@ -3,6 +3,19 @@ import i18n from "@/i18n";
 import { draftViolationMessage } from "./draft-violations";
 
 describe("draftViolationMessage", () => {
+  it("keeps server-localized speech text and replaces only the item label", async () => {
+    await i18n.loadLanguages("en");
+    expect(draftViolationMessage({
+      label: "unit E1U85",
+      message: "unit E1U85 (text line 1): Dialogue and voiceover cannot be mixed. Split the video unit.",
+      item_index: 0,
+    }, i18n.getFixedT("en"), 7)).toBe("Video unit 7 (text line 1): Dialogue and voiceover cannot be mixed. Split the video unit.");
+  });
+
+  it("keeps an unknown server diagnostic without exposing its code", () => {
+    expect(draftViolationMessage({ message: "Original future diagnostic", label: "" }, i18n.getFixedT("en"))).toBe("Original future diagnostic");
+  });
+
   it("uses the draft position even when the internal number is far ahead", () => {
     expect(draftViolationMessage({
       label: "segment E1S85",

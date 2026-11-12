@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from lib.i18n import render_message
+from lib.i18n import DEFAULT_LOCALE, MESSAGES, render_message
 from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import NotFoundError
 from lib.project.project_change_hints import project_change_source
@@ -54,21 +54,13 @@ def _attach_overwrite_text(state: dict, _t: Translator) -> dict:
 
 
 def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) -> dict | None:
-    """把草稿视图里的固定文案违约与降级提示换成按 ``_t`` 渲染的本地化文本。
-
-    ``quarantine_unreadable`` 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），都是不带
-    插值的固定字符串；带 ``params`` 的条目是视频请求事实的失败，既可属于整集，也可带 ``item_id``
-    定位到具体条目；问题码即文案 key，与内容确认的 422
-    同一呈现。二者都不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种产出时已
-    渲染好插值的模板——违约的本地化范围限定在这两类。降级提示一律以 ``code`` 为文案 key 成文。
-    参数里的供应商与模型 ID 按 ``names`` 换成显示名。
-    """
+    """按 code 与结构化 params 渲染已登记的违约；旧条目与未知码保留 Agent 原文。"""
     if view is None:
         return None
     for violation in view["violations"]:
         if violation["code"] == "quarantine_unreadable":
             violation["message"] = _t("script_review_quarantine_unreadable")
-        elif isinstance(violation.get("params"), dict):
+        elif violation["code"] in MESSAGES[DEFAULT_LOCALE] and isinstance(violation.get("params"), dict):
             violation["message"] = render_message(violation["code"], violation["params"], _t, names)
     for soft in view.get("soft_violations") or []:
         soft["message"] = render_message(soft["code"], soft["params"], _t, names)
