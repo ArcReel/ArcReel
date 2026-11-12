@@ -18,7 +18,7 @@ import contextlib
 import json
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
@@ -148,7 +148,7 @@ async def _record(
 async def sync_once(
     session_factory: async_sessionmaker[AsyncSession],
     http_client: Callable[[], httpx.AsyncClient] = get_http_client,
-    on_applied: Callable[[], None] | None = None,
+    on_applied: Callable[[], Awaitable[None]] | None = None,
 ) -> None:
     """检查一次：数据集版本比本地新时取回并整批应用，随后调用 ``on_applied``。失败只记下原因，本地目录不变。"""
     async with session_factory() as session:
@@ -169,16 +169,16 @@ async def sync_once(
         return
     await _record(session_factory, error=None, applied=(data.dataset_version, stored))
     catalog.install_synced_data(data)
-    # 紧跟装入、中间没有 await：先失效再装入的话，空档里按旧数据构造的实例会写回失效后的缓存
+    # 回调在首次让出事件循环前失效缓存，避免按旧数据构造的实例写回新缓存。
     if on_applied is not None:
-        on_applied()
+        await on_applied()
     logger.info("官方同步已应用数据集 %s", data.dataset_version)
 
 
 async def _sync_loop(
     session_factory: async_sessionmaker[AsyncSession],
     http_client: Callable[[], httpx.AsyncClient],
-    on_applied: Callable[[], None] | None,
+    on_applied: Callable[[], Awaitable[None]] | None,
 ) -> None:
     while True:
         try:
@@ -195,7 +195,7 @@ async def _sync_loop(
 def start_official_sync(
     session_factory: async_sessionmaker[AsyncSession],
     http_client: Callable[[], httpx.AsyncClient] = get_http_client,
-    on_applied: Callable[[], None] | None = None,
+    on_applied: Callable[[], Awaitable[None]] | None = None,
 ) -> asyncio.Task[None] | None:
     """立即检查一次，之后每天一次；每次装入新数据后调用 ``on_applied``。离线录制设 ARCREEL_SKIP_CATALOG_SYNC=1 跳过网络同步。"""
     if os.getenv("ARCREEL_SKIP_CATALOG_SYNC") == "1":

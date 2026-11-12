@@ -481,3 +481,54 @@ class TestCapacityTable:
         assert table.get("agnes", "video") == 1  # 声明默认压过活跃的全局 5
         assert table.get("agnes", "image") == 5  # 声明不外溢到未声明的 image lane
         assert table.get("ark", "video") == 5  # 未声明默认的视频供应商仍跟随全局 env
+
+
+async def test_worker_start_loads_stored_builtin_and_custom_concurrency(monkeypatch, file_db_factory):
+    from lib.config.service import ConfigService
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+    from lib.generation.generation_worker import GenerationWorker
+    from tests.integration.lib.generation.worker_support import stub_executors
+
+    monkeypatch.setenv("IMAGE_MAX_WORKERS", "5")
+    async with file_db_factory() as session:
+        await ConfigService(session).set_provider_config("openai", "image_max_workers", "1")
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="Relay",
+            discovery_format="openai",
+            base_url="https://relay.invalid/v1",
+            api_key="",
+            image_max_workers=2,
+            models=[{"model_id": "image", "display_name": "Image", "endpoint": "openai-images"}],
+        )
+        provider_id = provider.provider_id
+        await session.commit()
+    bind_safe_session_factory(monkeypatch, file_db_factory)
+    worker = GenerationWorker(executor=stub_executors.execute, resume_executor=stub_executors.execute_resume)
+    await worker.start()
+    try:
+        assert worker._capacity.get("openai", "image") == 1
+        assert worker._capacity.get(provider_id, "image") == 2
+        assert worker._capacity.get(provider_id, "video") == 0
+    finally:
+        await worker.stop()
+
+
+async def test_worker_start_keeps_env_capacity_and_warns_when_db_unavailable(monkeypatch, caplog):
+    from lib.generation.generation_worker import GenerationWorker
+    from tests.integration.lib.generation.worker_support import stub_executors
+
+    def unavailable():
+        raise RuntimeError("database unavailable")
+
+    bind_safe_session_factory(monkeypatch, unavailable)
+    monkeypatch.setenv("IMAGE_MAX_WORKERS", "7")
+    worker = GenerationWorker(executor=stub_executors.execute, resume_executor=stub_executors.execute_resume)
+    expected = dict(worker._capacity._limits)
+    await worker.start()
+    try:
+        assert worker._capacity._limits == expected
+        assert worker._capacity.get("openai", "image") == 7
+        assert "保持当前配置" in caplog.text
+        assert "database unavailable" in caplog.text
+    finally:
+        await worker.stop()

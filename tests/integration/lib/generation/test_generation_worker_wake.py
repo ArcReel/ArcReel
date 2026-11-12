@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
-from tests.fakes import refuse_resume_execution
+from tests.fakes import bind_safe_session_factory, refuse_resume_execution
 
 
 class _WakeQueue:
@@ -36,7 +36,8 @@ class _WakeQueue:
         return 1
 
 
-async def test_wake_claims_task_without_waiting_for_poll_interval() -> None:
+async def test_wake_claims_task_without_waiting_for_poll_interval(monkeypatch, file_db_factory) -> None:
+    bind_safe_session_factory(monkeypatch, file_db_factory)
     queue = _WakeQueue()
 
     async def text_provider(_task: dict[str, Any]) -> str:

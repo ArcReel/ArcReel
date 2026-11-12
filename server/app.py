@@ -897,13 +897,19 @@ def start_catalog_sync(
     session_factory: async_sessionmaker[AsyncSession],
     http_client: Callable[[], httpx.AsyncClient] = get_http_client,
 ) -> asyncio.Task[None] | None:
-    """启动模型目录的官方同步；装入新数据后清 backend 实例缓存。
+    """启动模型目录的官方同步；装入新数据后清 backend 实例缓存并重载 worker 容量。
 
     自定义供应商的 backend 在构造时由目录注入画质可选值、参考图上限与能力，内置视频 backend 绑定构造时的条目，
     都随实例缓存；设置接口与费用预估每次现读目录。不清缓存的话，同步后执行与预估会用两份不同的数据。
-    worker 的容量表不在这里重载，现有实例的并发上限不随同步变化。
     """
-    return start_official_sync(session_factory, http_client, on_applied=invalidate_backend_cache)
+
+    async def on_applied() -> None:
+        invalidate_backend_cache()
+        worker = getattr(app.state, "generation_worker", None)
+        if worker is not None:
+            await worker.reload_limits()
+
+    return start_official_sync(session_factory, http_client, on_applied=on_applied)
 
 
 @app.get("/health")
