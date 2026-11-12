@@ -127,7 +127,7 @@ class ProviderStatus:
     # 凭证（界面称「密钥」）条数，供设置页二级栏显示「已配置 N 个密钥」。
     credential_count: int
     models: dict[str, dict] | None = None  # model_id -> CatalogModel 的 dict 形态
-    # 不作候选的模型键（用户停用的，加上已下线的）：不出现在默认模型设置的候选里，也不被自动挑选（docs/adr/0099）。
+    # 不作候选的模型键（用户停用的，加上已下线的）：不出现在默认模型设置的候选里（docs/adr/0099）。
     disabled_models: frozenset[str] = frozenset()
 
 

@@ -37,6 +37,8 @@ import type {
   ProjectDeletedPayload,
   AssistantSessionResumedPayload,
   AutoBackendsResponse,
+  RecommendationChange,
+  RecommendationChangesResponse,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
   NarrationDefaultsResponse,
@@ -55,7 +57,8 @@ import type {
   AssetLibraryCredentialType,
   CreateAssetLibraryAccountPayload,
   NewImageTarget,
-  ObjectStorageConnection,
+  SavedObjectStorageConnection,
+  ObjectStorageCleanupResult,
   ObjectStorageSettings,
   ProviderAssetImportResult,
   ProviderAssetLink,
@@ -454,6 +457,24 @@ class API {
     return this.request("/system/config/auto-backends", { signal: options.signal });
   }
 
+  /** 内置供应商的推荐模型与已知推荐不同的地方（docs/adr/0099）：在默认模型旁提示，由用户决定是否切换。 */
+  static async getRecommendationChanges(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<RecommendationChangesResponse> {
+    return this.request("/system/config/recommendation-changes", { signal: options.signal });
+  }
+
+  /**
+   * 处理一条推荐变化：`apply` 为真时把推荐设为这个媒体类型的全局默认模型，否则保留当前设置；之后不再提示。
+   * 推荐在提示之后又变了时 409。
+   */
+  static async acknowledgeRecommendation(change: RecommendationChange, apply: boolean): Promise<void> {
+    await this.request("/system/config/recommendation-changes/acknowledge", {
+      method: "POST",
+      body: JSON.stringify({ media_type: change.media_type, recommended: change.recommended, apply }),
+    });
+  }
+
   /** 新建 TTS 项目的预填值（全局默认的 TTS 模型、音色与语速）。 */
   static async getNarrationDefaults(
     options: { signal?: AbortSignal } = {},
@@ -614,7 +635,7 @@ class API {
     return response.blob();
   }
 
-  /** 把一个未引用文件移进项目回收站；其余角色由服务端拒绝。 */
+  /** 把一个未引用文件或非当前的历史版本移进项目回收站；其余角色由服务端拒绝。 */
   static async deleteFileViewEntry(projectName: string, path: string): Promise<{ record: TrashRecord }> {
     const query = new URLSearchParams({ path }).toString();
     return this.request(`/projects/${encodeURIComponent(projectName)}/file-view?${query}`, { method: "DELETE" });
@@ -3495,12 +3516,12 @@ class API {
     return this.request("/object-storage/new-image-target", { method: "PUT", body: JSON.stringify({ target }) });
   }
 
-  static async saveObjectStorageConnection(data: SaveObjectStorageConnectionPayload): Promise<ObjectStorageConnection> {
+  static async saveObjectStorageConnection(data: SaveObjectStorageConnectionPayload): Promise<SavedObjectStorageConnection> {
     return this.request("/object-storage/connection", { method: "PUT", body: JSON.stringify(data) });
   }
 
-  static async deleteObjectStorageConnection(): Promise<void> {
-    return this.request("/object-storage/connection", { method: "DELETE" });
+  static async deleteObjectStorageConnection(deleteRemoteObjects = true): Promise<ObjectStorageCleanupResult> {
+    return this.request(`/object-storage/connection?delete_remote_objects=${deleteRemoteObjects}`, { method: "DELETE" });
   }
 
   static async checkObjectStorageConnection(): Promise<{ success: boolean }> {

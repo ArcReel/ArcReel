@@ -1,0 +1,38 @@
+name: Catalog Release Build
+
+# GitHub Release 发布后触发目录数据仓库（ArcReel/arcreel-catalog）构建一次：它按 ArcReel 最新发布版本，
+# 放出此前因最低应用版本暂缓的供应商模型。构建只依赖读得到 latest release，release 发布即满足，所以与
+# 镜像构建（docker-release.yml、docker-edge.yml）并行，不等镜像推送完成。数据通常先于镜像就绪，发版后
+# 重启的实例启动时同步就能拿到这些模型；就绪前的旧实例只在设置页看到「需要新版本」的标注。
+#
+# 镜像发布不依赖这次构建：构建失败时上一次的发布数据保持不变，由目录仓库下一次定时构建或手动重跑放出。
+#
+# release 由 release-please 以 App token 创建，因此会触发本工作流（GITHUB_TOKEN 创建的 release 不会）。
+# 预发布版本不改变 latest release，不触发。fork 的发版不触发上游仓库。
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  trigger:
+    if: github.repository == 'ArcReel/ArcReel' && !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create App token for catalog build
+        id: catalog-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          owner: ArcReel
+          repositories: arcreel-catalog
+          permission-actions: write
+
+      - name: Trigger catalog build
+        env:
+          GH_TOKEN: ${{ steps.catalog-token.outputs.token }}
+        run: gh workflow run build.yml -R ArcReel/arcreel-catalog --ref main

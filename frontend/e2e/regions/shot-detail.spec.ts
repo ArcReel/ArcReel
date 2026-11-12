@@ -122,6 +122,7 @@ const API: ApiOverrides = {
       versions: [1, 2, 3].map((version) => ({
         version,
         filename: `scene_E1S01_v${version}.png`,
+        file: `versions/storyboards/E1S01_v${version}.png`,
         created_at: `2026-02-0${version} 21:3${version}`,
         file_size: 1024,
         is_current: version === 3,
@@ -254,7 +255,7 @@ defineRegionScenarios("分镜详情", [
       await trigger.scrollIntoViewIfNeeded();
       await trigger.click();
       const popover = page.getByRole("dialog", { name: "历史版本" });
-      await popover.getByRole("button", { name: "v1" }).click();
+      await popover.getByRole("button", { name: "v1", exact: true }).click();
       await expect(popover.getByRole("img", { name: "版本 v1 预览" })).toBeVisible();
       await expect(popover.getByRole("button", { name: "切换到此版本" })).toBeEnabled();
       await waitForEntrance(popover);

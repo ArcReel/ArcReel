@@ -1927,7 +1927,7 @@ class TestCostEstimationService:
             "title": "Narration",
             "content_mode": "narration",
             "generation_mode": "reference_video",
-            "video_backend": "ark",
+            "video_backend": "ark/doubao-seedance-2-0-mini-260615",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
         }
@@ -2672,6 +2672,69 @@ class TestImageBatchEstimate:
         assert estimated.total == {"USD": pytest.approx(2 * 1756 * 30 / 1_000_000)}
         assert estimated.unpriced_count == 0
 
+    async def test_openai_scaled_output_tokens_flow_into_the_batch_estimate(self, db_factory, monkeypatch):
+        from arcreel_catalog_core import ScaledOutputTokenBase
+        from lib.catalog import query
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+        from tests.catalog_support import install_catalog, with_entry_facts
+
+        install_catalog(
+            monkeypatch,
+            with_entry_facts(
+                query.factory_snapshot(),
+                "openai",
+                "gpt-image-2",
+                output_token_bases={"high": 48, "xhigh": 64, "max": 96},
+                output_token_scaled_bases={
+                    "low": ScaledOutputTokenBase(base=16, multiplier=4.2),
+                    "medium": ScaledOutputTokenBase(base=24, multiplier=3.3),
+                },
+            ),
+        )
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "1K"}},
+        }
+
+        estimated = await estimate_image_batch_cost(
+            project, ["t2i", "t2i"], aspect_ratio="1:1", resolver=ConfigResolver(db_factory), session_factory=db_factory
+        )
+
+        # 1K → medium、1:1 → 1024x1024：官方计算器（GPT Image 2.6）1449 个输出 token × $30/百万
+        assert estimated.total == {"USD": pytest.approx(2 * 1449 * 30 / 1_000_000)}
+        assert estimated.unpriced_count == 0
+
+    async def test_openai_quality_without_any_base_stays_unpriced(self, db_factory, monkeypatch):
+        """旧实例看到的 2.6 条目只有 high/xhigh/max 基数：1K（medium）记为未定价，不按 0 估。"""
+        from lib.catalog import query
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+        from tests.catalog_support import install_catalog, with_entry_facts
+
+        install_catalog(
+            monkeypatch,
+            with_entry_facts(
+                query.factory_snapshot(),
+                "openai",
+                "gpt-image-2",
+                output_token_bases={"high": 48, "xhigh": 64, "max": 96},
+            ),
+        )
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "1K"}},
+        }
+
+        estimated = await estimate_image_batch_cost(
+            project, ["t2i", "t2i"], aspect_ratio="1:1", resolver=ConfigResolver(db_factory), session_factory=db_factory
+        )
+
+        assert estimated.total == {}
+        assert estimated.unpriced_count == 2
+
     async def test_unknown_reference_count_is_unpriced_when_references_are_billed(self, db_factory):
         from server.services.admission.cost_estimation import estimate_image_batch_cost
 
@@ -2756,3 +2819,147 @@ class TestImageBatchEstimate:
         )
 
         assert (estimated.total, estimated.unpriced_count) == ({}, 0)
+
+
+#: 自造的估算基数；9:16 下 low 在 1K（1008x1792）估出 138 个输出 token，在 2K（1440x2560）估出 205 个。
+_QUALITY_TOKEN_BASES = {"low": 16, "medium": 48, "high": 96}
+
+
+class TestSelectedImageQuality:
+    """预估与执行取同一个生效的画质：项目存了画质、模型有画质选项时按它估输出 token（docs/adr/0104）。"""
+
+    def _install(self, monkeypatch, *, qualities: tuple[str, ...]) -> None:
+        from tests.catalog_support import with_entry_facts
+
+        install_catalog(
+            monkeypatch,
+            with_entry_facts(
+                catalog.factory_snapshot(),
+                "openai",
+                "gpt-image-2",
+                output_token_bases=_QUALITY_TOKEN_BASES,
+                qualities=qualities,
+            ),
+        )
+
+    @staticmethod
+    def _usd(tokens: int) -> float:
+        # 测试目录数据里 gpt-image-2 的图片输出 token 单价是 $30 / 百万
+        return tokens * 30 / 1_000_000
+
+    @pytest.mark.parametrize(
+        ("resolution", "quality", "qualities", "tokens"),
+        [
+            ("1K", "low", ("low", "medium", "high"), 138),
+            ("2K", "low", ("low", "medium", "high"), 205),
+            # 未选择画质：按档位推出（1K → medium）
+            ("1K", None, ("low", "medium", "high"), 1234),
+            # 条目未收录画质取值：忽略存值，按档位推出（1K → medium）
+            ("1K", "low", (), 1234),
+        ],
+    )
+    async def test_batch_estimate_uses_the_effective_quality(
+        self, db_factory, monkeypatch, resolution, quality, qualities, tokens
+    ):
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        self._install(monkeypatch, qualities=qualities)
+        settings: dict[str, str] = {"resolution": resolution}
+        if quality is not None:
+            settings["quality"] = quality
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": settings},
+        }
+
+        estimated = await estimate_image_batch_cost(
+            project, ["t2i"], aspect_ratio="9:16", resolver=ConfigResolver(db_factory), session_factory=db_factory
+        )
+
+        assert estimated.total == {"USD": pytest.approx(self._usd(tokens))}
+        assert estimated.unpriced_count == 0
+
+    @pytest.mark.parametrize("endpoint", ["openai-images", "openrouter-images"])
+    async def test_custom_provider_estimate_follows_the_endpoint_channel_fact(self, db_factory, monkeypatch, endpoint):
+        """自定义供应商按模型行的端点求有效画质可选值：OpenAI Images 端点按存值估，OpenRouter 端点忽略存值。"""
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        self._install(monkeypatch, qualities=("low", "medium", "high"))
+        async with db_factory() as session:
+            await CustomProviderRepository(session).create_provider(
+                display_name="Relay",
+                discovery_format="openai",
+                base_url="https://api.example.com",
+                api_key="k",
+                models=[{"model_id": "gpt-image-2", "display_name": "GPT Image 2", "endpoint": endpoint}],
+            )
+            await session.commit()
+
+        async def _estimate(settings: dict[str, str]):
+            project = {
+                "title": "T",
+                "content_mode": "narration",
+                "image_provider_t2i": "custom-1/gpt-image-2",
+                "model_settings": {"custom-1/gpt-image-2": settings},
+            }
+            return await estimate_image_batch_cost(
+                project, ["t2i"], aspect_ratio="9:16", resolver=ConfigResolver(db_factory), session_factory=db_factory
+            )
+
+        selected = await _estimate({"resolution": "1K", "quality": "low"})
+        unselected = await _estimate({"resolution": "1K"})
+        if endpoint == "openai-images":
+            assert selected.total == {"USD": pytest.approx(self._usd(138))}
+            assert unselected.total == {"USD": pytest.approx(self._usd(1234))}
+        else:
+            assert (selected.total, selected.unpriced_count) == (unselected.total, unselected.unpriced_count)
+
+    async def test_case_differing_quality_is_sent_but_has_no_output_estimate(self, db_factory, monkeypatch):
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        self._install(monkeypatch, qualities=("low", "medium", "high"))
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "1K", "quality": "LOW"}},
+        }
+
+        estimated = await estimate_image_batch_cost(
+            project, ["t2i"], aspect_ratio="9:16", resolver=ConfigResolver(db_factory), session_factory=db_factory
+        )
+
+        assert (estimated.total, estimated.unpriced_count) == ({}, 1)
+
+    @pytest.mark.parametrize("grid", [False, True])
+    async def test_storyboard_and_grid_estimates_use_the_effective_quality(self, db_factory, monkeypatch, grid):
+        self._install(monkeypatch, qualities=("low", "medium", "high"))
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]
+        scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 9)}
+
+        async def _episode_image_usd(settings: dict[str, str]) -> float:
+            project_data = {
+                "title": "Test",
+                "content_mode": "narration",
+                "generation_mode": "storyboard",
+                "grid_storyboard": grid,
+                "image_provider_t2i": "openai/gpt-image-2",
+                "model_settings": {"openai/gpt-image-2": settings},
+                "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+            }
+            service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+            result = await service.compute(project_data, scripts, project_name="proj")
+            return result["episodes"][0]["totals"]["estimate"]["image"]["USD"]
+
+        # 9 个分镜：普通分镜图 9 张，宫格是 1 张 grid_9；宫格比例与项目比例只差横竖，像素总数相同
+        images = 1 if grid else 9
+        assert await _episode_image_usd({"resolution": "1K", "quality": "low"}) == pytest.approx(
+            images * self._usd(138), abs=1e-5
+        )
+        assert await _episode_image_usd({"resolution": "2K", "quality": "low"}) == pytest.approx(
+            images * self._usd(205), abs=1e-5
+        )
+        assert await _episode_image_usd({"resolution": "1K"}) == pytest.approx(images * self._usd(1234), abs=1e-5)

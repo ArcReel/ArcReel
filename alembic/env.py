@@ -8,6 +8,7 @@ lib.db.engine.get_database_url(), falling back to SQLite in projects/arcreel.db.
 import asyncio
 from logging.config import fileConfig
 
+from alembic.util import CommandError
 from sqlalchemy import DateTime, String, pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -16,6 +17,7 @@ from lib.agent.agent_session_store.models import register_models as register_age
 from lib.db.base import Base
 from lib.db.engine import get_database_url
 from lib.db.models import register_models as register_db_models
+from lib.db.upgrade_source import SourceRecorder
 
 # 把全部 ORM 模型登记到 Base.metadata，否则 autogenerate 的对比范围取决于 import 链
 register_agent_session_models()
@@ -34,19 +36,14 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode (no DB connection required)."""
-    url = get_database_url()
-    context.configure(
-        url=url,
-        target_metadata=target_metadata,
-        literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
-        render_as_batch=True,
-        compare_type=_compare_type,
-    )
+    """Run migrations in 'offline' mode (no DB connection required).
 
-    with context.begin_transaction():
-        context.run_migrations()
+    不支持：生成的脚本在别处执行，改写 revision 之前没法记下升级前的版本（``lib.db.upgrade_source``），
+    升级固化会把旧库当成新版本。
+    """
+    raise CommandError(
+        "离线模式（--sql）不受支持：生成的 SQL 改写 revision 前无法记录升级前的版本。请直接对数据库执行 alembic upgrade。"
+    )
 
 
 def _compare_type(context, inspected_column, metadata_column, inspected_type, metadata_type):
@@ -66,12 +63,15 @@ def _compare_type(context, inspected_column, metadata_column, inspected_type, me
 
 
 def do_run_migrations(connection) -> None:
+    # 无论迁移从应用启动、命令行还是脚本发起，改写 revision 之前都先记下升级前的版本
+    source = SourceRecorder(connection)
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
         render_as_batch=True,
         transaction_per_migration=True,
         compare_type=_compare_type,
+        on_version_apply=source.after_step,
     )
     with context.begin_transaction():
         context.run_migrations()

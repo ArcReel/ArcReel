@@ -1995,3 +1995,59 @@ class TestPathOverrides:
         resp = self._create(custom_providers_client, {"result": "/api/result"})
 
         assert resp.status_code == 422
+
+
+class TestQualitiesField:
+    """模型信息带有效画质可选值：对应条目的画质取值与调用端点是否接受显式画质两侧求值。"""
+
+    def _models(self, client: TestClient, models: list[dict]) -> dict[str, dict]:
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Relay",
+                "discovery_format": "openai",
+                "base_url": "https://api.example.com",
+                "api_key": "k",
+                "models": [{"display_name": m["model_id"], "is_enabled": True, **m} for m in models],
+            },
+        )
+        assert resp.status_code == 201
+        resp = client.get(f"/api/v1/custom-providers/{resp.json()['id']}")
+        return {m["model_id"]: m for m in resp.json()["models"]}
+
+    def test_only_openai_images_endpoints_offer_the_entry_values(
+        self, custom_providers_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        from lib.catalog import query
+        from tests.catalog_support import install_catalog, with_entry_facts
+
+        install_catalog(
+            monkeypatch,
+            with_entry_facts(query.factory_snapshot(), "openai", "gpt-image-2", qualities=("low", "medium", "high")),
+        )
+        models = self._models(
+            custom_providers_client,
+            [
+                {"model_id": "gpt-image-2", "endpoint": "openai-images-generations", "is_default": True},
+                {"model_id": "relay-gpt", "endpoint": "openai-images", "entry_binding": "openai/gpt-image-2"},
+                {
+                    "model_id": "openai/gpt-image-2",
+                    "endpoint": "openrouter-images",
+                    "entry_binding": "openai/gpt-image-2",
+                },
+                {"model_id": "relay-unknown", "endpoint": "openai-images"},
+                {"model_id": "m-video", "endpoint": "newapi-video", "is_default": True},
+            ],
+        )
+
+        assert models["gpt-image-2"]["qualities"] == ["low", "medium", "high"]
+        assert models["relay-gpt"]["qualities"] == ["low", "medium", "high"]
+        assert models["openai/gpt-image-2"]["qualities"] == []
+        assert models["relay-unknown"]["qualities"] == []
+        assert models["m-video"]["qualities"] == []
+
+    def test_entry_without_qualities_offers_none(self, custom_providers_client: TestClient):
+        models = self._models(
+            custom_providers_client, [{"model_id": "gpt-image-2", "endpoint": "openai-images", "is_default": True}]
+        )
+        assert models["gpt-image-2"]["qualities"] == []

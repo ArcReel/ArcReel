@@ -853,9 +853,12 @@ class TestFunctionAnalyzer:
                 elif isinstance(inner, ast.Subscript) and isinstance(inner.ctx, ast.Store):
                     if isinstance(inner.value, ast.Name) and inner.value.id in containers:
                         self.recorders.add(inner.value.id)
-                elif isinstance(inner, ast.AugAssign) and isinstance(inner.target, ast.Name):
-                    if inner.target.id in containers:
-                        self.recorders.add(inner.target.id)
+                elif (
+                    isinstance(inner, ast.AugAssign)
+                    and isinstance(inner.target, ast.Name)
+                    and inner.target.id in containers
+                ):
+                    self.recorders.add(inner.target.id)
 
     # -- 断言分类 ------------------------------------------------
 

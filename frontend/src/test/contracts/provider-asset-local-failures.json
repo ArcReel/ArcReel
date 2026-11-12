@@ -3,6 +3,7 @@
   "account_scope_changed",
   "content_changed",
   "content_unavailable",
+  "object_storage_changed",
   "object_storage_missing",
   "relay_upload_failed",
   "unlinked_before_submit"

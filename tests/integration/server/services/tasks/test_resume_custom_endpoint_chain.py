@@ -20,8 +20,8 @@ import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
+from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError
-from lib.catalog.query import factory_snapshot
 from lib.config.service import ConfigService
 from lib.custom_provider import make_endpoint_key, make_provider_id
 from lib.custom_provider.path_overrides import endpoint_guard
@@ -441,7 +441,7 @@ def retired_model(monkeypatch) -> None:
     install_catalog(
         monkeypatch,
         with_entry_changes(
-            factory_snapshot(),
+            catalog.factory_snapshot(),
             "agnes",
             RETIRED_MODEL,
             discontinued=False,

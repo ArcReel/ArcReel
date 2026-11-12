@@ -64,6 +64,7 @@ function model(id: number, modelId: string, extra: Partial<CustomProviderModelIn
     is_default: false,
     is_enabled: true,
     resolution: null,
+    qualities: [],
     multiplier: 1,
     entry_binding: null,
     matched_entry: null,
