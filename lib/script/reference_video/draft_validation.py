@@ -84,6 +84,7 @@ def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -
             f"{label} 的 source_text 为空：每个 unit 必须摘录其所依据的原文片段作为追溯锚",
             code="source_text_empty",
             label=label,
+            params={"label": label},
         )
     if not is_verbatim_source_anchor(source_text, novel_text):
         raise DraftViolation(
@@ -91,6 +92,7 @@ def validate_source_text_anchor(label: str, source_text: str, novel_text: str) -
             f"{source_text.strip()[:40]!r}；请原样复制原文，不要转述",
             code="source_text_not_verbatim",
             label=label,
+            params={"label": label, "excerpt": repr(source_text.strip()[:40])},
         )
 
 
@@ -115,6 +117,7 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
                 code="fullwidth_braces",
                 label=label,
                 line=idx,
+                params={"label": label, "excerpt": repr(line.strip()[:40])},
             )
         malformed = find_malformed_mention(line)
         if malformed is not None:
@@ -125,6 +128,7 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
                 code="malformed_mention",
                 label=label,
                 line=idx,
+                params={"label": label, "excerpt": repr(malformed)},
             )
         parts = split_speech_line(line)
         leads_with_speech = bool(parts) and isinstance(parts[0], SpeechMark) and bool(parts[0].speaker)
@@ -138,6 +142,7 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
                 code="dialogue_line_syntax",
                 label=label,
                 line=idx,
+                params={"label": label, "excerpt": repr(line.strip()[:40])},
             )
         # 只判记号之外的残余：一行里已识别的台词不因同行另有花括号被连坐。
         rest = speech_line_description(parts)
@@ -145,7 +150,13 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
             continue
         excerpt = line.strip()[:40]
         if rest.count("{") != rest.count("}"):
-            raise DraftViolation(f"{label} 有未闭合的花括号：{excerpt!r}", code="unclosed_brace", label=label, line=idx)
+            raise DraftViolation(
+                f"{label} 有未闭合的花括号：{excerpt!r}",
+                code="unclosed_brace",
+                label=label,
+                line=idx,
+                params={"label": label, "excerpt": repr(excerpt)},
+            )
         raise DraftViolation(
             f"{label} 在画面描述里使用了花括号：{excerpt!r}；"
             "花括号是发声保留语法，台词写作 `@[角色]{台词}`、画外音写作 `{画外音}`，"
@@ -153,6 +164,7 @@ def _assert_line_syntax(label: str, text: str, character_references: Container[s
             code="braces_in_description",
             label=label,
             line=idx,
+            params={"label": label, "excerpt": repr(excerpt)},
         )
 
 
@@ -224,7 +236,12 @@ def validate_unit_text(
     群演，执行时该行不绑声音、按原文发送。
     """
     if not text.strip():
-        raise DraftViolation(f"{label} 的正文为空", code="empty_text", label=label)
+        raise DraftViolation(
+            f"{label} 的正文为空",
+            code="empty_text",
+            label=label,
+            params={"label": label},
+        )
 
     # 已登记名字一律取自引用目录：目录的名字已在比对坐标系中，正文一侧由解析器入口归一，
     # 两侧同形才判得准。
@@ -237,6 +254,7 @@ def validate_unit_text(
             f"{label} 没有画面描述；只有台词与画外音的单元没有可生成的画面",
             code="blank_description",
             label=label,
+            params={"label": label},
         )
 
     # 与编辑器预览共用 ``derive_references_from_text``：严格度分流（此处对 missing 与上限一律拒），
@@ -247,6 +265,7 @@ def validate_unit_text(
             f"{label} 引用了未登记的资产名: {missing}；资产名必须逐字取自 project.json 三张表",
             code="unregistered_asset",
             label=label,
+            params={"label": label, "field": "text", "names": missing},
         )
 
     # 说话人位问的不是「能不能引用」而是「是不是一条角色资产」：它决定该句台词绑哪段参考音频。
@@ -258,6 +277,7 @@ def validate_unit_text(
             f"{label} 的台词说话人未登记为角色资产: {bad_speakers}；说话人决定该句台词绑哪段参考音频，必须是登记角色",
             code="unregistered_speaker",
             label=label,
+            params={"label": label, "names": bad_speakers},
         )
 
     # 本体已登记，说话人位仍不在引用名里，只可能是那个角色没有这个衍生。分成两条违约：一条
@@ -272,6 +292,7 @@ def validate_unit_text(
             "衍生须先登记在该角色下，或改写成本体名 `@[角色]{台词}`",
             code="unregistered_speaker_derivative",
             label=label,
+            params={"label": label, "names": bad_forms},
         )
 
     if max_refs is not None and len(refs) > max_refs:
@@ -279,6 +300,7 @@ def validate_unit_text(
             f"{label} 的参考图数 {len(refs)} 超过模型上限 {max_refs}；请把次要角色融入背景描述（不用 `@` 引用）",
             code="refs_over_limit",
             label=label,
+            params={"label": label, "count": len(refs), "limit": max_refs},
         )
     if max_speakers is not None and (speaker_count := len(dialogue_speakers(text))) > max_speakers:
         raise DraftViolation(
@@ -286,6 +308,7 @@ def validate_unit_text(
             "请按说话人拆分镜头，使每个视频单元的说话人数不超过上限",
             code="speakers_over_limit",
             label=label,
+            params={"label": label, "count": speaker_count, "limit": max_speakers},
         )
     canonical_unit_id = unit_id if unit_id is not None else label.removeprefix("unit ").strip()
     admission = admit_script_unit("video_units", {"unit_id": canonical_unit_id, "text": text})
@@ -309,6 +332,7 @@ def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
         locations=tuple({"path": list(location.path), "line": location.line} for location in problem.locations),
         reason=problem.reason.value,
         action=problem.action.value,
+        params={"label": f"unit {problem.unit_id}", "location": locations},
     )
 
 
@@ -347,6 +371,13 @@ def validate_dialogue_load(
             "请改取更长的时长档、把该 unit 拆开，或精简台词",
             code="dialogue_overload",
             label=label,
+            params={
+                "label": label,
+                "spoken": f"{spoken:.1f}",
+                "duration": duration_seconds,
+                "tolerance": f"{SPEECH_OVERFLOW_TOLERANCE:.0%}",
+                "budget": f"{budget:.1f}",
+            },
         )
 
 
@@ -367,6 +398,7 @@ def assert_dialogue_preserved(label: str, script_plan_text: str, prompt_authorin
             "prompt_authoring 只做提示词编写，台词须逐字保留",
             code="dialogue_line_count_changed",
             label=label,
+            params={"label": label, "before": len(before), "after": len(after)},
         )
     for index, (old, new) in enumerate(zip(before, after, strict=True), start=1):
         if old != new:
@@ -375,6 +407,14 @@ def assert_dialogue_preserved(label: str, script_plan_text: str, prompt_authorin
                 f"现：{new[1] or '画外音'}「{new[2]}」）；prompt_authoring 只做提示词编写，台词须逐字保留",
                 code="dialogue_rewritten",
                 label=label,
+                params={
+                    "label": label,
+                    "index": index,
+                    "before": old[2],
+                    "after": new[2],
+                    "before_speaker": old[1],
+                    "after_speaker": new[1],
+                },
             )
 
 

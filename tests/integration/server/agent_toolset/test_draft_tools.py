@@ -1131,3 +1131,47 @@ async def test_promote_prompt_authoring_draft_names_rejected_formal_unit_by_posi
     assert phrase in problem.detail
     assert "E1U01" not in problem.detail
     assert quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()
+
+
+async def test_web_diagnostic_params_do_not_change_the_agent_promotion_error_envelope(fake_ctx, monkeypatch):
+    """缺少基线仍报 draft_invalid，Web 的本地化参数不把它改成带 notice 的任务错误。"""
+    from lib.script.draft_quarantine import draft_revision, read_quarantine
+
+    rv_source(fake_ctx)
+    use_text_generator(monkeypatch, FakeTextGenerator("").create)
+    _write_reference_prompt_authoring(
+        fake_ctx,
+        {
+            "title": "第一集",
+            "content_mode": "narration",
+            "episode": 1,
+            "video_units": [{"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4}],
+        },
+    )
+    fake_ctx.pm.mirror_to_disk("episode_1.json")
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_PROMPT_AUTHORING,
+        content={"title": "第一集", "units": [{"text": "@[张三] 起身"}]},
+        violations=[],
+        meta={"unit_ids": ["E1U01"]},
+    )
+    draft = read_quarantine(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
+    assert draft is not None
+    workflow = DraftWorkflow(
+        DraftContext(
+            project_name=fake_ctx.project_name,
+            data_root=fake_ctx.data_root,
+            pm=fake_ctx.pm,
+            config_resolver=fake_ctx.config_resolver,
+        )
+    )
+    with pytest.raises(DraftWorkflowError) as caught:
+        await workflow.promote(1, "reference_prompt_authoring", draft_revision(draft))
+    assert caught.value.code == "draft_invalid"
+    assert caught.value.notice_key is None
+    assert caught.value.notice_params == {}
+    assert (
+        caught.value.detail == "reference prompt_authoring 草稿缺少生成时的正式剧本基线 base_fingerprint；无法安全晋升"
+    )

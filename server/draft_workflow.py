@@ -17,7 +17,12 @@ from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.episode.episode_ids import episode_title
-from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
+from lib.episode.episode_paths import (
+    SCRIPT_PLAN_FILENAMES,
+    episode_drafts_dir,
+    episode_script_filename,
+    episode_source_relpath,
+)
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import atomic_write_json, load_json_or_none
@@ -284,6 +289,7 @@ async def revalidate_reference_script_plan_draft(
             DraftViolation(
                 "草稿的 content.units 必须是非空的 unit 对象数组",
                 code="schema_invalid",
+                params={"path": "content.units", "detail": "non-empty array"},
             )
         ]
     else:
@@ -723,7 +729,11 @@ async def revalidate_drama_script_plan_draft(
 
     raw_scenes = content.get("scenes")
     if not isinstance(raw_scenes, list) or not raw_scenes:
-        violation = DraftViolation("草稿的 content.scenes 必须是非空的分镜对象数组", code="schema_invalid")
+        violation = DraftViolation(
+            "草稿的 content.scenes 必须是非空的分镜对象数组",
+            code="schema_invalid",
+            params={"path": "content.scenes", "detail": "non-empty array"},
+        )
         return SingleScriptPlanDraftRevalidation([violation], {}, schema_failed=True, basis=script_plan_basis)
     for scene in raw_scenes:
         admission = admit_script_unit("scenes", scene, ignore_marker=True)
@@ -895,7 +905,11 @@ async def revalidate_narration_script_plan_draft(
     raw_segments = draft.content.get("segments")
     if not isinstance(raw_segments, list) or not raw_segments:
         logger.debug("草稿 content.segments 形状非法: %s", type(raw_segments).__name__)
-        violation = DraftViolation("草稿的 content.segments 必须是非空的分镜对象数组", code="schema_invalid")
+        violation = DraftViolation(
+            "草稿的 content.segments 必须是非空的分镜对象数组",
+            code="schema_invalid",
+            params={"path": "content.segments", "detail": "non-empty array"},
+        )
         return SingleScriptPlanDraftRevalidation([violation], {}, schema_failed=True, basis=script_plan_basis)
     try:
         content = NarrationScriptPlanDraft.model_validate(draft.content).model_dump()
@@ -919,6 +933,7 @@ async def revalidate_narration_script_plan_draft(
         # 的草稿记的是 null（本集派生源文），若本集正式 script_plan 当初是按别的源文件产出的，这里会把
         # 一份原样取回、一字未改的草稿判成覆盖不全。把范围与改法一并写进消息，Agent 才走得出去
         # ——草稿在场时不能重新取回，须由 patch_draft 更新源文范围。
+        source_path=cast(str | None, draft.meta["source"]) or episode_source_relpath(episode),
         source_scope=(
             f"{coverage_source_scope(cast(str | None, draft.meta['source']), episode=episode)}"
             "，取自草稿的源文范围；若该范围与产出本集正式 script_plan 时不同，"
@@ -1486,7 +1501,12 @@ class DraftWorkflow:
                 # 提示词编写晋升被违约挡下时，报告已写回草稿（code="quarantined"）；其余违约来自正式剧本，
                 # 带文案 key 的（正式剧本单元没过预判）按界面单元称呼说明原因。
                 refreshed = exc.code == "quarantined"
-                notice = exc.params is not None and not refreshed
+                # Web 的诊断参数不改变 Agent 错误信封；仅沿用正式单元预判与配置问题的 notice。
+                notice = (
+                    exc.params is not None
+                    and not refreshed
+                    and (exc.code.startswith("draft_formal_unit_") or isinstance(exc.__cause__, VideoRequestFactsError))
+                )
                 raise DraftWorkflowError(
                     "draft_invalid",
                     str(exc),

@@ -297,6 +297,7 @@ def _quarantine_formal_generation_conflict(
                 f"正式内容在模型生成期间已变化（expected {expected}, actual {actual}）；"
                 "本次生成结果已保留为草稿，请合并最新正式内容后再晋升",
                 code="formal_revision_conflict",
+                params={"expected": expected, "actual": actual},
             )
         ],
         meta={"source": source, "base_fingerprint": expected},
@@ -924,6 +925,7 @@ def _unregistered_reference_violations(
                     label=label,
                     item_index=item_index,
                     item_id=item_id,
+                    params={"label": label, "field": field, "names": bad},
                 )
             )
     return violations
@@ -1210,6 +1212,7 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
         f"{label} 时长 {duration}s 不在{state}的 unit 的生效档位 {tiers} 内{remedy}",
         code="duration_off_tier",
         label=label,
+        params={"label": label, "duration": duration, "tiers": tiers},
     )
 
 
@@ -1592,6 +1595,7 @@ def collect_narration_violations(
     new_assets: object,
     novel_text: str,
     source_scope: str,
+    source_path: str = "",
 ) -> list[DraftViolation]:
     """逐分镜收齐 narration script_plan 产出的全部违约（不在首个违约处中断）。
 
@@ -1622,6 +1626,7 @@ def collect_narration_violations(
                     code="invalid_segment_id",
                     label=label,
                     item_index=index,
+                    params={"label": label, "episode": episode},
                 )
             )
 
@@ -1632,6 +1637,7 @@ def collect_narration_violations(
             DraftViolation(
                 f"segment_id 重复: {dupes}；每个分镜的 id 须全集唯一（prompt_authoring 视觉层按 id 与分镜对齐）",
                 code="duplicate_segment_id",
+                params={"ids": dupes},
             )
         )
 
@@ -1655,6 +1661,7 @@ def collect_narration_violations(
                     label=label,
                     item_index=index,
                     item_id=_narration_segment_id(segment),
+                    params={"label": label},
                 )
             )
 
@@ -1671,6 +1678,7 @@ def collect_narration_violations(
                     label=label,
                     item_index=index,
                     item_id=_narration_segment_id(segment),
+                    params={"label": label, "duration": duration, "tiers": sorted(allowed)},
                 )
             )
 
@@ -1700,6 +1708,7 @@ def collect_narration_violations(
                 "分镜正文须原样复制原文、不要转述，且按序拼接后即是整篇原文。"
                 f"本次判定依据的源文范围：{source_scope}",
                 code="novel_text_coverage",
+                params={"source": source_path or episode_source_relpath(episode)},
             )
         )
     violations.extend(new_asset_violations(project, new_assets))
@@ -1976,6 +1985,7 @@ async def generate_narration_script_plan(
             new_assets=content.get(NEW_ASSETS_FIELD),
             novel_text=novel_text,
             source_scope=coverage_source_scope(request.source, episode=episode),
+            source_path=request.source or episode_source_relpath(episode),
         )
         if violations:
             async with draft_locks.async_file_lock(draft_path):

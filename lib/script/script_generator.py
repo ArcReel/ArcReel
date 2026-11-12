@@ -1590,7 +1590,15 @@ class ScriptGenerator:
             else self._unit_rejection(targets, exc)
         )
         if rejection is None:
-            return exc if isinstance(exc, DraftViolation) else DraftViolation(str(exc), code="duration_off_tier")
+            return (
+                exc
+                if isinstance(exc, DraftViolation)
+                else DraftViolation(
+                    str(exc),
+                    code="duration_off_tier",
+                    params={"label": f"unit {exc.unit_id}", "duration": exc.duration_seconds, "tiers": exc.tiers},
+                )
+            )
         params = {key: value for key, value in rejection.params.items() if key != "unit_id"}
         unit_id = str(rejection.params["unit_id"])
         code = _FORMAL_UNIT_PROMOTION_KEYS[rejection.code]
@@ -1646,6 +1654,7 @@ class ScriptGenerator:
                         reason=item.reason,
                         action=item.action,
                         item_id=str(unit["unit_id"]),
+                        params=item.params,
                     )
                     for item in violation_items(exc)
                 ]
@@ -1714,6 +1723,7 @@ class ScriptGenerator:
             raise DraftViolation(
                 "reference prompt_authoring 草稿待处置；正式生成已中止，请先晋升或丢弃现有草稿",
                 code="draft_revision_conflict",
+                params={},
             )
         max_refs = self._resolve_max_refs(facts)
         logger.info("正在为第 %d 集编写提示词（video_units，%d/%d 个单元）...", episode, len(units), len(targets.items))
@@ -1764,6 +1774,7 @@ class ScriptGenerator:
                 DraftViolation(
                     "正式剧本在模型生成期间已变化；本次生成结果已保留为 prompt_authoring 草稿，请合并最新正式内容后再晋升",
                     code="formal_revision_conflict",
+                    params={"expected": formal_baseline, "actual": None},
                 )
             ) from exc
         self._quality_probe(script_data, episode)
@@ -1810,6 +1821,7 @@ class ScriptGenerator:
                 f"prompt_authoring 产出的 unit 数（{len(flat.units)}）与待编写单元数（{len(units)}）不一致；"
                 "prompt_authoring 只做提示词编写，不得合并、拆分或增删 unit",
                 code="unit_count_changed",
+                params={"actual": len(flat.units), "expected": len(units)},
             )
 
         authored: list[dict] = []
@@ -1973,6 +1985,7 @@ class ScriptGenerator:
                 return DraftViolation(
                     "reference prompt_authoring 草稿在模型生成期间已变化；本次生成结果未覆盖并发编辑，请先处置现有草稿",
                     code="draft_revision_conflict",
+                    params={},
                 )
             if before_commit is not None:
                 before_commit()
@@ -2018,6 +2031,7 @@ class ScriptGenerator:
                 raise DraftViolation(
                     "reference prompt_authoring 草稿在模型生成期间已变化；本次生成结果未覆盖并发编辑，请先处置现有草稿",
                     code="draft_revision_conflict",
+                    params={},
                 )
             return pm.save_script(
                 self.project_path.name,
@@ -2124,7 +2138,9 @@ class ScriptGenerator:
                 if isinstance(exc.__cause__, ValidationError)
                 else [
                     DraftViolation(
-                        f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}", code="schema_invalid"
+                        f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}",
+                        code="schema_invalid",
+                        params={"path": "content", "detail": "prompt_authoring"},
                     )
                 ]
             )
@@ -2149,6 +2165,7 @@ class ScriptGenerator:
                 raise DraftViolation(
                     "reference prompt_authoring 草稿缺少生成时的正式剧本基线 base_fingerprint；无法安全晋升",
                     code="formal_revision_missing",
+                    params={},
                 )
             resolved_expected_fingerprint = cast(str | None, draft.meta["base_fingerprint"])
         else:
@@ -2384,6 +2401,11 @@ class ScriptGenerator:
                         code="duration_off_tier",
                         label=f"unit {s[id_field]}",
                         item_id=str(s[id_field]),
+                        params={
+                            "label": f"unit {s[id_field]}",
+                            "duration": target_duration,
+                            "tiers": sorted(set(unit_tiers)),
+                        },
                     )
                 if s.get("duration_seconds") != target_duration:
                     logger.warning(

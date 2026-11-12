@@ -240,7 +240,7 @@ function InlineViolations({ violations, position }: { violations: ScriptReviewVi
   return (
     <>
       {violations.map((v, i) => {
-        const speechKey = SPEECH_VIOLATION_KEYS[v.code];
+        const speechKey = v.params == null ? SPEECH_VIOLATION_KEYS[v.code] : undefined;
         const location = v.locations
           ?.map(({ path, line }) => `${path.join(".")}${line === null ? "" : `:${line + 1}`}`)
           .join(", ");
