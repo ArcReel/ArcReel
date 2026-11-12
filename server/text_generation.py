@@ -297,7 +297,7 @@ def _quarantine_formal_generation_conflict(
                 f"正式内容在模型生成期间已变化（expected {expected}, actual {actual}）；"
                 "本次生成结果已保留为草稿，请合并最新正式内容后再晋升",
                 code="formal_revision_conflict",
-                params={"expected": expected, "actual": actual},
+                params={},
             )
         ],
         meta={"source": source, "base_fingerprint": expected},

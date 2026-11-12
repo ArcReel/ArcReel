@@ -1774,7 +1774,7 @@ class ScriptGenerator:
                 DraftViolation(
                     "正式剧本在模型生成期间已变化；本次生成结果已保留为 prompt_authoring 草稿，请合并最新正式内容后再晋升",
                     code="formal_revision_conflict",
-                    params={"expected": formal_baseline, "actual": None},
+                    params={},
                 )
             ) from exc
         self._quality_probe(script_data, episode)

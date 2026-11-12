@@ -19,6 +19,15 @@ from typing import Any
 
 from pydantic import ValidationError
 
+#: 违约的 Web 文案 key 前缀。违约 code 与错误码共用一张文案表，同名码（如 ``mixed_speech``）
+#: 不加前缀会覆盖既有的错误码文案。
+DRAFT_VIOLATION_MESSAGE_PREFIX = "draft_violation_"
+
+
+def draft_violation_message_key(code: str) -> str:
+    """违约 ``code`` 对应的 Web 文案 key。"""
+    return f"{DRAFT_VIOLATION_MESSAGE_PREFIX}{code}"
+
 
 class DraftViolation(ValueError):
     """草稿产出违约。引用语法误用只是其中一类——原文锚、台词量、台词保真与生成侧的补充
@@ -171,9 +180,11 @@ def render_violation_report(violations: Sequence[DraftViolation]) -> str:
 
 
 __all__ = [
+    "DRAFT_VIOLATION_MESSAGE_PREFIX",
     "DraftViolation",
     "DraftViolations",
     "collect_violations",
+    "draft_violation_message_key",
     "locate_violations",
     "locate_violations_by_id",
     "render_violation_report",

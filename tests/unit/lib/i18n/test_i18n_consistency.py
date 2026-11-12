@@ -1,5 +1,6 @@
 """Verify that i18n translation dictionaries are consistent across locales."""
 
+import importlib
 import re
 from pathlib import Path
 from typing import get_args
@@ -35,6 +36,18 @@ def test_all_locales_have_same_keys():
         extra = key_sets[locales[i]] - key_sets[locales[0]]
         assert not missing, f"{locales[i]} is missing keys present in {locales[0]}: {missing}"
         assert not extra, f"{locales[i]} has extra keys not in {locales[0]}: {extra}"
+
+
+def test_message_modules_do_not_override_each_other():
+    """Modules merge into one table per locale, so a repeated key silently replaces earlier copy."""
+    for locale in SUPPORTED_LOCALES:
+        owners: dict[str, str] = {}
+        for name in sorted(p.stem for p in (Path(__file__).resolve().parents[4] / "lib/i18n" / locale).glob("*.py")):
+            if name == "__init__":
+                continue
+            for key in importlib.import_module(f"lib.i18n.{locale}.{name}").MESSAGES:
+                assert key not in owners, f"{locale}: {key} is defined in both {owners[key]} and {name}"
+                owners[key] = name
 
 
 def test_errors_module_keys_match():

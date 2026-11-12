@@ -322,6 +322,11 @@ def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
         ".".join(str(part) for part in location.path) + (f" line {location.line}" if location.line is not None else "")
         for location in problem.locations
     )
+    # Web 与编辑器同一写法：行号从 1 起；Agent 消息保留从 0 起的原始定位。
+    display_locations = ", ".join(
+        ".".join(str(part) for part in location.path) + (f":{location.line + 1}" if location.line is not None else "")
+        for location in problem.locations
+    )
     line = problem.locations[0].line if len(problem.locations) == 1 else None
     return DraftViolation(
         f"unit {problem.unit_id} 发声准入未通过（{problem.reason.value}，定位：{locations}）；"
@@ -332,7 +337,7 @@ def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
         locations=tuple({"path": list(location.path), "line": location.line} for location in problem.locations),
         reason=problem.reason.value,
         action=problem.action.value,
-        params={"label": f"unit {problem.unit_id}", "location": locations},
+        params={"label": f"unit {problem.unit_id}", "location": display_locations},
     )
 
 
@@ -388,6 +393,11 @@ def assert_dialogue_preserved(label: str, script_plan_text: str, prompt_authorin
     重排一律响亮失败，不静默接受——台词不配画面时正确的出路是报错回到 script_plan，而不是让 prompt_authoring
     自行把台词改成好配的样子。
     """
+
+    def _speech_syntax(line: tuple[str, str, str]) -> str:
+        _kind, speaker, spoken = line
+        return f"@[{speaker}]{{{spoken}}}" if speaker else f"{{{spoken}}}"
+
     before = normative_lines(script_plan_text)
     after = normative_lines(prompt_authoring_text)
     if before == after:
@@ -407,14 +417,8 @@ def assert_dialogue_preserved(label: str, script_plan_text: str, prompt_authorin
                 f"现：{new[1] or '画外音'}「{new[2]}」）；prompt_authoring 只做提示词编写，台词须逐字保留",
                 code="dialogue_rewritten",
                 label=label,
-                params={
-                    "label": label,
-                    "index": index,
-                    "before": old[2],
-                    "after": new[2],
-                    "before_speaker": old[1],
-                    "after_speaker": new[1],
-                },
+                # 按正文语法写出台词：画外音没有说话人，界面不必再翻译「画外音」。
+                params={"label": label, "index": index, "before": _speech_syntax(old), "after": _speech_syntax(new)},
             )
 
 
