@@ -78,6 +78,19 @@ describe("PageShell mobile sidebar", () => {
     expect(screen.getByRole("link", { name: "通用" })).toBeInTheDocument();
   });
 
+  it("points the menu button at the drawer element it opens", () => {
+    useMobileViewport();
+    renderShell();
+
+    const menu = screen.getByRole("button", { name: "打开导航菜单" });
+    const controlled = menu.getAttribute("aria-controls");
+    expect(controlled).toBe("page-mobile-sidebar");
+
+    fireEvent.click(menu);
+
+    expect(document.getElementById(controlled!)).toBe(screen.getByRole("dialog", { name: "设置" }));
+  });
+
   it("closes the drawer with Escape", () => {
     useMobileViewport();
     renderShell();

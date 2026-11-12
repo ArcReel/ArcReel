@@ -340,7 +340,7 @@ Narration/Commentary currently exports the original novel text as subtitles, Ad 
 
 ### Is there a mobile app? Which platforms are supported? {#mobile-app-support}
 
-ArcReel is a self-hosted web application and does not currently have a standalone native iOS or Android app. You can try accessing it from a mobile browser, but a complete mobile editing experience is not guaranteed.
+ArcReel is a self-hosted web application and does not currently have a standalone native iOS or Android app. Mobile browsers can access it: the project lobby, settings page, and workspace navigation all adapt to narrow screens, with the sidebar moved into a drawer and dialogs anchored to the bottom. Canvas editing that needs precise dragging, such as the storyboard and timeline, still works best in a desktop browser and stacks into a single column on narrow screens.
 
 Linux, macOS, WSL2, or Docker is recommended for the server. Native Windows guarantees only project creation and basic workflows; use WSL2 or Docker Desktop for a production deployment.
 

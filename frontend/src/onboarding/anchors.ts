@@ -24,6 +24,12 @@
  * 挂在演示专用的 `DemoAssistantPanel` 根节点上，它占满 Agent 面板。
  *
  * 大厅第 1 步与收尾步是居中的气泡，不挂锚点。
+ *
+ * 移动档（<768px）的 `settings-providers` / `settings-agent` 两条例外：设置页侧栏在移动档
+ * 收进抽屉，锚点只在抽屉打开时存在。引导不替用户开抽屉（开抽屉要写外壳的本地状态，
+ * 引导没有这条通道），因此这两步在移动档按锚点缺席处理，等待 `ANCHOR_WAIT_MS` 后降级
+ * 为居中气泡并留一条 `console.warn`。文案本身讲的是「在这里配置供应商 / Agent」，
+ * 不依赖高亮框，降级后仍然成立。桌面档不受影响。
  */
 
 export const ONBOARDING_ANCHORS = {

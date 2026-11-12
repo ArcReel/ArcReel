@@ -123,7 +123,7 @@ export function PageShell({ header, sidebar, sidebarLabel, tier, compactText, ch
       </div>
       {drawerSidebar && (
         <Sheet open={drawer.open} onOpenChange={setDrawerOpen}>
-          <SheetContent side="left" className="max-md:w-full max-md:max-w-full">
+          <SheetContent id="page-mobile-sidebar" side="left" className="max-md:w-full max-md:max-w-full">
             <SheetHeader>
               <SheetTitle>{sidebarLabel}</SheetTitle>
             </SheetHeader>
