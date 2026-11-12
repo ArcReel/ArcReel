@@ -31,7 +31,9 @@ slots:
   speech_unit: 阅读单位量词（字 / 词）
   max_duration: 单次生成的时长上限（秒）
   max_reference_images: 单个视频单元的参考图上限；不限时传 null
-  max_speakers: 单个视频单元的说话人数上限（参考音频会随请求挂出时才有）；不约束时传 null
+  max_speakers: 两桶相同时的单个视频单元说话人数上限；不约束或两桶不同时传 null
+  reference_max_speakers: 两桶不同时带可用参考图的视频单元的说话人数上限；不约束或两桶相同时传 null
+  text_max_speakers: 两桶不同时无可用参考图的视频单元的说话人数上限；不约束或两桶相同时传 null
   episode_target_duration: 单集目标秒数；未设置时传 null
   instructions: 附加指令正文；缺值传 null
 protected: false
@@ -100,6 +102,12 @@ protected: false
 {% endif %}
 {% if max_speakers %}
 - **参考音频上限**：一个视频单元的说话人数（按角色本体去重，衍生共享本体声音）不超过 {{ max_speakers }}；超出时按说话人拆分镜头，分到不同视频单元。角色未设参考音频时仍计入说话人数。
+{% endif %}
+{% if reference_max_speakers %}
+- **参考音频上限**：带可用参考图的视频单元的说话人数（按角色本体去重，衍生共享本体声音）不超过 {{ reference_max_speakers }}；超出时按说话人拆分镜头，分到不同视频单元。角色未设参考音频时仍计入说话人数。
+{% endif %}
+{% if text_max_speakers %}
+- **参考音频上限**：无可用参考图的视频单元的说话人数（按角色本体去重，衍生共享本体声音）不超过 {{ text_max_speakers }}；超出时按说话人拆分镜头，分到不同视频单元。角色未设参考音频时仍计入说话人数。
 {% endif %}
 
 # 正文书写语法

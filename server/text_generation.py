@@ -1112,8 +1112,10 @@ class ReferenceSplitCaps(NamedTuple):
     在当前分辨率下未声明生效的「参考图↔时长」联动约束，多数型号如此。
 
     ``voice`` 是 r2v 桶视频请求事实派生出的声音输入档，供声音相关的容忍 warning 消费——与时长档位
-    同源于这一次求值，分两次查会让同一份产物的档位与声音提示描述不同时刻的配置。携带值对象而非
-    事实对象本身：下游只需要声音那几位，穿整个事实过接口会把字段名耦合扩散到消费侧。
+    同源于这一次求值；``text_voice`` 是 i2v 桶声音档，解析失败时为 None，原因沿用 ``text_problem``。
+    逐 unit 的说话人数上限按引用状态取对应声音档。分两次查会让同一份产物的档位与声音提示
+    描述不同时刻的配置。携带值对象而非事实对象本身：下游只需要声音那几位，穿整个事实过接口
+    会把字段名耦合扩散到消费侧。
     """
 
     default_duration: int | None
@@ -1124,6 +1126,7 @@ class ReferenceSplitCaps(NamedTuple):
     max_duration: int
     max_refs: int | None
     voice: VoiceRenderSettings
+    text_voice: VoiceRenderSettings | None
 
     def tiers_for(self, *, has_references: bool) -> list[int]:
         """该引用状态下的生效档位。"""
@@ -1166,6 +1169,11 @@ async def fetch_reference_split_caps(
         max_duration=max(unit_durations),
         max_refs=with_ref_facts.max_reference_images,
         voice=VoiceRenderSettings.from_request_facts(with_ref_facts),
+        text_voice=(
+            VoiceRenderSettings.from_request_facts(without_ref_facts)
+            if isinstance(without_ref_facts, VideoRequestFacts)
+            else None
+        ),
     )
 
 
@@ -1262,7 +1270,14 @@ def collect_reference_flat_violations(
         def _check_text_and_tier(
             la: str = label, tx: str = text, d: int = duration, with_images: bool = with_reference_images
         ) -> None:
-            validate_unit_text(la, tx, planning, max_refs=caps.max_refs, max_speakers=caps.voice.planning_speaker_limit)
+            voice = caps.voice if with_images else caps.text_voice
+            validate_unit_text(
+                la,
+                tx,
+                planning,
+                max_refs=caps.max_refs,
+                max_speakers=voice.planning_speaker_limit if voice is not None else None,
+            )
             _validate_unit_duration_tier(la, d, has_references=with_images, caps=caps)
 
         violations.extend(
@@ -1731,7 +1746,10 @@ async def generate_reference_script_plan(
             text_supported_durations=split_caps.text_durations,
             max_duration=split_caps.max_duration,
             max_reference_images=split_caps.max_refs,
-            max_speakers=split_caps.voice.planning_speaker_limit,
+            reference_max_speakers=split_caps.voice.planning_speaker_limit,
+            text_max_speakers=split_caps.text_voice.planning_speaker_limit
+            if split_caps.text_voice is not None
+            else None,
             default_duration=split_caps.default_duration,
             episode=episode,
             source_kind=cast(str | None, prompt_inputs["source_kind"]) or DEFAULT_SOURCE_KIND,
