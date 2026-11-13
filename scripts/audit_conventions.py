@@ -15,6 +15,8 @@
 - HARD-DELETE：lib、server 与子包中每处删除文件的调用（`unlink`、`rmdir`、`rmtree`、`os.remove`，含作为回调传出的
   删除方法）在所在语句行尾或上一行写 `# hard-delete: <类别> -- 理由`。项目数据只能经项目回收站删除（ADR 0107），
   没有“项目数据”类别：这类删除改走回收站，不能靠标注放行。
+- TEST-PATCHED-NAME：tests 下不在导入时按名字绑定根 conftest 替换的模块属性（目录查询的出厂快照读取与生命周期的
+  「今天」）。收集期绑定的是替换前的函数，用例会绕过 fixture 读到出厂快照或真实日期；在用例里经模块属性取用。
 
 `--check` 以 `规则号 file:line 修复指引` 列出全部命中，非零即退出码 1；
 `--fix` 重新生成索引表与 CodeRabbit 映射后再检查其余规则。
@@ -632,6 +634,104 @@ def check_hard_deletes(root: Path, out: list[Violation]) -> None:
         out.extend(Violation("HARD-DELETE", rel, line, orphan) for line in sorted(tags.keys() - covered))
 
 
+# ---------------------------------------------------------------- 测试期按名字取被替换的函数
+
+TEST_SCAN_GLOBS = ("tests/**/*.py",)
+#: 根 conftest 的 autouse fixture 经替换模块属性固定的函数（``tests/catalog_support.py`` 的
+#: ``install_catalog``、``set_catalog_today``）。导入时按名字绑定的是替换前的函数，用例因此绕过 fixture。
+ROOT_FIXTURE_PATCHED = {
+    "lib.catalog.query": frozenset({"factory_snapshot"}),
+    "lib.catalog.lifecycle": frozenset({"utc_today"}),
+}
+#: 有意读真实函数的用例：核对出厂快照本身的格式与可加载性。
+ROOT_FIXTURE_PATCHED_EXEMPT = frozenset({Path("tests/unit/lib/catalog/test_factory_snapshot.py")})
+
+
+def _dotted_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted_name(node.value)
+        return f"{base}.{node.attr}" if base else None
+    return None
+
+
+def _patched_module_bindings(tree: ast.Module) -> dict[str, str]:
+    """导入时绑定的名字 → 被替换模块或其父包的全名（``import m``、``import m as q``、``from pkg import m [as q]``）。
+
+    只看导入时执行的语句：函数体内的导入是局部名，不改变模块与类体里同名的绑定。
+    """
+    targets = {".".join(m.split(".")[:n]) for m in ROOT_FIXTURE_PATCHED for n in range(1, m.count(".") + 2)}
+    bound: dict[str, str] = {}
+    for node in _evaluated_at_import(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.asname and alias.name in targets:
+                    bound[alias.asname] = alias.name
+                elif not alias.asname and alias.name.split(".")[0] in targets:
+                    bound[alias.name.split(".")[0]] = alias.name.split(".")[0]
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            for alias in node.names:
+                full = f"{node.module}.{alias.name}"
+                if full in targets:
+                    bound[alias.asname or alias.name] = full
+    return bound
+
+
+def _resolve_module(owner: str, bound: dict[str, str]) -> str | None:
+    head, _, rest = owner.partition(".")
+    if head not in bound:
+        return None
+    return f"{bound[head]}.{rest}" if rest else bound[head]
+
+
+def _evaluated_at_import(tree: ast.Module) -> Iterator[ast.AST]:
+    """导入模块时就求值的节点：模块与类体的语句、装饰器、参数默认值；不进入函数体与 lambda 体。"""
+    stack: list[ast.AST] = list(tree.body)
+    while stack:
+        node = stack.pop()
+        yield node
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            defaults = [*node.args.defaults, *(d for d in node.args.kw_defaults if d is not None)]
+            stack.extend([*getattr(node, "decorator_list", []), *defaults])
+        else:
+            stack.extend(ast.iter_child_nodes(node))
+
+
+def check_root_fixture_patched_names(root: Path, out: list[Violation]) -> None:
+    for path in sorted({p for pattern in TEST_SCAN_GLOBS for p in root.glob(pattern)}):
+        rel = path.relative_to(root)
+        if rel in ROOT_FIXTURE_PATCHED_EXEMPT:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        bound = _patched_module_bindings(tree)
+        found: list[Violation] = []
+        for node in _evaluated_at_import(tree):
+            hits: list[tuple[str, str]] = []
+            if isinstance(node, ast.ImportFrom) and not node.level and node.module in ROOT_FIXTURE_PATCHED:
+                names = ROOT_FIXTURE_PATCHED[node.module]
+                hits = [(node.module, a.name) for a in node.names if a.name in names or a.name == "*"]
+            elif isinstance(node, ast.Attribute):
+                owner = _dotted_name(node.value)
+                module = _resolve_module(owner, bound) if owner else None
+                if module in ROOT_FIXTURE_PATCHED and node.attr in ROOT_FIXTURE_PATCHED[module]:
+                    hits = [(module, node.attr)]
+            for module, name in hits:
+                package, leaf = module.rsplit(".", 1)
+                shown = "被替换的函数" if name == "*" else f"`{name}`"
+                guidance = (
+                    f"导入时就绑定了 `{module}` 的{shown}：根 conftest 在用例开始时才替换这个模块属性，"
+                    "导入时绑定的是替换前的真实函数，用例因此读到出厂快照或真实日期。"
+                    f"在用例或 fixture 里经模块属性取用（`from {package} import {leaf}` 后在函数体内写 `{leaf}.<名字>`），"
+                    "换数据或日期用 tests/catalog_support.py 的装入函数"
+                )
+                found.append(Violation("TEST-PATCHED-NAME", rel, node.lineno, guidance))
+        out.extend(sorted(found, key=lambda v: v.line))
+
+
 # ---------------------------------------------------------------- 入口
 
 
@@ -645,6 +745,7 @@ def audit(root: Path = ROOT, *, fix: bool = False) -> list[Violation]:
     check_bundled_ffmpeg(root, out)
     check_private_imports(root, out)
     check_hard_deletes(root, out)
+    check_root_fixture_patched_names(root, out)
     return out
 
 
