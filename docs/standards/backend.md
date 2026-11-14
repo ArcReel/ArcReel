@@ -93,6 +93,12 @@ paths:
 
 对象的名称、条目编号、模型 ID 和所在目录的绝对路径都是标识。换名恢复、换号恢复、改模型 ID 这类改变标识的写入路径，除了改对象本身，还要把按旧标识派生键的记录（SDK 会话按项目目录绝对路径派生的 `project_key`、产物清单按条目编号的登记）和引用旧标识的设置（项目与全局的模型设置键、`model_settings`）一起改到新标识下：先按旧标识搜出全部持有方，在 PR 里列明。漏掉的记录留在旧标识下，Agent 续聊报找不到对话，已有产物读作缺失、界面引导用户重新生成，悬空的模型引用在之后出现同 ID 的新模型时被静默接管。旧标识可能已被同名的新对象占用（新建的同名项目与旧路径共用一个 key），改写按对象自己的记录限定范围，例如按 session_id，不整键替换。标识在进程之外改变时（数据根搬到别的绝对路径），在启动时对齐。参考 `lib/agent/agent_session_store/rekey.py`、`lib/agent/agent_session_store/key_alignment.py` 与 `server/routers/custom_providers.py` 的 `rename_project_model_refs`。
 
+## 缓存与失效
+
+### 按模型目录或供应商配置构造、随实例缓存的值，失效接到这些数据的每条更新路径
+
+同一份目录数据或供应商配置常有两类读法：设置接口与费用预估每次现读，执行侧在构造 backend 实例、worker 容量表时读一次并缓存。数据有三条更新路径：供应商与条目的写入路由、官方同步装入新数据、进程启动。新增或改动一个随实例缓存的派生值时，逐条确认它在这三条路径上都会失效或重建；只接一部分时，执行侧在下一次重启或保存供应商之前用旧值，请求参数、并发上限与预估和设置页对不上。现有的失效点是 `server/routers/providers.py` 与 `server/routers/custom_providers.py` 的写入后清理，以及 `server/app.py` 交给官方同步的 `on_applied`，三处都清 backend 实例缓存并调用 `reload_limits()`；新的缓存要同时接到三处。用例在官方同步装入新数据后，比对执行侧读到的值与现读的值。
+
 ## Windows 兼容
 
 主开发平台是 macOS / Linux，server（连同它依赖的 workspace 子包）同时要在 Windows 原生环境完成项目创建与基础流程。CI 只跑 Linux，下面这些问题在 Linux 上全部静默通过，只会在用户的 Windows 机器上出现。
