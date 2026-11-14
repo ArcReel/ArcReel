@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useContainerNarrow } from "@/hooks/useContainerNarrow";
 
 /**
  * 分镜详情的栏位：页头在上，中间是「编辑栏 + 媒体栏」两栏，各自滚动，未保存提示条在最下方。
@@ -51,36 +52,51 @@ export function ShotGroup({ children }: { children: ReactNode }) {
 /**
  * 编辑栏里的一段：小标题加内容。给了 `htmlFor` 时标题是对应输入框的 label，
  * 否则是一个三级标题；`actions` 放在标题行右侧。
+ *
+ * `shortTitle`：这一段的可用宽度窄到放不下整行标题时改用它，避免长标题被挤成逐字竖排。
+ * 换文案需要按实测宽度切换（容器查询只能换样式）。阈值 360px 的取法：整行标题约 96px，
+ * 右侧操作组（字数、预览、形态开关）在 12px 字号下需要 200px 以上才能排成一行，
+ * 两者加上图标与间距已接近 360px；低于这个宽度时标题只能靠挤压让位，最终竖排。
+ * 因此触发条件只看本段实测宽度，不看视口档位——分镜列表展开、Agent 面板展开都会让
+ * 编辑栏变窄，此时桌面档同样需要短标题。
  */
 export function ShotSection({
   title,
+  shortTitle,
   icon,
   htmlFor,
   actions,
   children,
 }: {
   title: string;
+  shortTitle?: string;
   icon?: ReactNode;
   htmlFor?: string;
   actions?: ReactNode;
   children: ReactNode;
 }) {
   const titleId = useId();
+  const [ref, narrow] = useContainerNarrow<HTMLElement>(360);
+  const text = narrow && shortTitle ? shortTitle : title;
   const heading = htmlFor ? (
-    <label id={titleId} htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
-      {title}
+    <label id={titleId} htmlFor={htmlFor} className="shrink-0 text-xs font-medium whitespace-nowrap text-muted-foreground">
+      {text}
     </label>
   ) : (
-    <h3 id={titleId} className="text-xs font-medium text-muted-foreground">
-      {title}
+    <h3 id={titleId} className="shrink-0 text-xs font-medium whitespace-nowrap text-muted-foreground">
+      {text}
     </h3>
   );
   return (
-    <section aria-labelledby={titleId} className="flex min-w-0 flex-col gap-2">
-      <div className="flex min-h-7 items-center gap-1.5">
-        {icon ? <span className="flex text-muted-foreground">{icon}</span> : null}
-        {heading}
-        {actions ? <div className="ml-auto flex items-center gap-1">{actions}</div> : null}
+    <section ref={ref} aria-labelledby={titleId} className="flex min-w-0 flex-col gap-2">
+      {/* 标题固定单行不参与压缩；右侧操作组自己折行，窄栏里字数、预览、形态开关
+          逐个换到下一行，标题与字数不再被挤成逐字竖排，也不会撑出容器右缘。 */}
+      <div className="flex min-h-7 items-start gap-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {icon ? <span className="flex shrink-0 text-muted-foreground">{icon}</span> : null}
+          {heading}
+        </div>
+        {actions ? <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">{actions}</div> : null}
       </div>
       {children}
     </section>

@@ -41,10 +41,13 @@ export function ShotDetailHeader({
 }: ShotDetailHeaderProps) {
   const { t } = useTranslation("dashboard");
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-border/50 px-5 py-2.5">
+    <div
+      data-shot-detail-header=""
+      className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-border/50 px-5 py-2.5"
+    >
       <ItemPositionOfTotal itemId={segmentId} kind="shot" position={index + 1} total={total} />
       {meta}
-      <div className="ml-auto flex items-center gap-0.5">
+      <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-0.5">
         {onMoveEarlier && onMoveLater ? (
           <>
             <TooltipIconButton

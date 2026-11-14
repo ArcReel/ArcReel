@@ -2773,6 +2773,8 @@ export default {
   'shot_pending_authoring': 'Нет промптов',
   'detail_image_prompt_title': 'Промпт изображения раскадровки',
   'detail_video_prompt_title': 'Промпт видео',
+  'detail_image_prompt_short': 'Раскадровка',
+  'detail_video_prompt_short': 'Видео',
   'detail_image_prompt_placeholder': 'Опишите кадр: обстановку, персонажей, действия, композицию…',
   'detail_video_prompt_placeholder': 'Опишите движение, начиная с изображения раскадровки…',
   'detail_collapsible_composition': 'Композиция',

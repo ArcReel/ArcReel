@@ -77,6 +77,10 @@ export async function expectTouchTargets(page: import("@playwright/test").Page) 
         // 分节标题 10px / 正文 9px / 控件 32px。这些控件是有意做小的，不按 44px 判失败；
         // 其余页面仍按 44px 检查。
         if (el.closest("[data-detail-dense]")) continue;
+        // 分镜详情页头的工具按钮组（`data-shot-detail-header`）：移动档列表展开时详情栏
+        // 只剩 170px，44px 命中区一行只放得下两个、页头被撑到 300px 高。按需求收到 32px，
+        // 保证七个按钮两行内完整可见、右缘不裁。同样是有意做小。
+        if (el.closest("[data-shot-detail-header]")) continue;
         out.push({
           label: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 40),
           width: Math.round(rect.width),

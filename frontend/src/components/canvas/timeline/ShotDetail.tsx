@@ -766,8 +766,10 @@ export function ShotDetail({
 
   const promptsGroup = (
     <ShotGroup>
-      <div className="flex items-center gap-2">
-        <h3 className="text-sm font-medium text-subtle-foreground">{t("detail_section_prompts")}</h3>
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="shrink-0 text-sm font-medium whitespace-nowrap text-subtle-foreground">
+          {t("detail_section_prompts")}
+        </h3>
         <span className="flex-1" />
         {episode !== undefined && (
           <PromptAuthoringButton projectName={projectName} episode={episode} scope="current" currentEntryId={segmentId} />
@@ -782,6 +784,7 @@ export function ShotDetail({
 
       <ShotSection
         title={t("detail_image_prompt_title")}
+        shortTitle={t("detail_image_prompt_short")}
         icon={<ImageIcon aria-hidden className="size-3.5" />}
         actions={
           <>
@@ -812,6 +815,7 @@ export function ShotDetail({
 
       <ShotSection
         title={t("detail_video_prompt_title")}
+        shortTitle={t("detail_video_prompt_short")}
         icon={<Film aria-hidden className="size-3.5" />}
         actions={
           <>

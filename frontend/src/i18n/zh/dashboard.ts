@@ -2688,6 +2688,8 @@ export default {
   'shot_pending_authoring': '待编写',
   'detail_image_prompt_title': '分镜图提示词',
   'detail_video_prompt_title': '视频提示词',
+  'detail_image_prompt_short': '分镜',
+  'detail_video_prompt_short': '视频',
   'detail_image_prompt_placeholder': '描述这一镜的画面：环境、人物、动作、构图细节…',
   'detail_video_prompt_placeholder': '描述这一镜的动作演变：从分镜图开始如何运动…',
   'detail_collapsible_composition': '构图',

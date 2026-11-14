@@ -581,6 +581,19 @@ body {
         padding-inline: 0.5rem;
     }
 
+    /* 分镜详情页头的工具按钮组：图标按钮 7 个 + 位置徽标，移动档列表展开时详情栏只剩
+       170px，44px 的命中区一行只放得下两个、页头被撑到 300px 高。这里把这组按钮收到
+       32px 见方、间距 2px，两行放得下且每个按钮完整可见，右缘不再裁掉半个图标。
+       只作用于页头这一组，详情正文里的按钮仍是 44px。 */
+    [data-shot-detail-header] :where(button, [role="button"]) {
+        min-width: 2rem;
+        min-height: 2rem;
+    }
+
+    [data-shot-detail-header] {
+        padding-inline: 0.5rem;
+    }
+
     /* 页面顶栏与底部操作条让开刘海与手势条 */
     :where([data-slot="mobile-safe-top"]) {
         padding-top: env(safe-area-inset-top);

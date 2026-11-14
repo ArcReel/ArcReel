@@ -2689,6 +2689,8 @@ export default {
   'shot_pending_authoring': 'Pending authoring',
   'detail_image_prompt_title': 'Storyboard image prompt',
   'detail_video_prompt_title': 'Video prompt',
+  'detail_image_prompt_short': 'Storyboard',
+  'detail_video_prompt_short': 'Video',
   'detail_image_prompt_placeholder': 'Describe the frame: setting, characters, actions, composition…',
   'detail_video_prompt_placeholder': 'Describe the motion from the storyboard…',
   'detail_collapsible_composition': 'composition',

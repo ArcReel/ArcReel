@@ -2420,6 +2420,8 @@ export default {
   'detail_section_prompts': 'Lời nhắc',
   'detail_video_prompt_placeholder': 'Mô tả chuyển động bắt đầu từ khung phân cảnh…',
   'detail_video_prompt_title': 'Lời nhắc video',
+  'detail_image_prompt_short': 'Phân cảnh',
+  'detail_video_prompt_short': 'Video',
   'episode_card_progress_label': 'Tiến độ',
   'episode_collapsed_button_label': '{{position}} · {{title}}',
   'episode_header_episode_chip': 'EP · {{number}}',
