@@ -508,6 +508,7 @@ export function EndpointDetail({
   return (
     <>
       <DetailPane
+        dense
         header={
           <EndpointHeader
             back={back}
@@ -543,7 +544,7 @@ export function EndpointDetail({
         // 保存栏与正文的表单列同宽同起点（正文 max-w-190 含左右各 24px 内边距）
         footer={editable ? <SaveBar unit={unit} className="max-w-178" /> : undefined}
       >
-        <div className="flex max-w-190 flex-col gap-8 px-6 py-6">
+        <div className="flex max-w-190 flex-col gap-6 px-4 py-4 @md/detail:gap-8 @md/detail:px-6 @md/detail:py-6">
           {selection.mode === "new" && (
             <Alert>
               <AlertDescription>
@@ -609,7 +610,7 @@ export function EndpointDetail({
                       if (typeof value === "string") applyTemplate(value);
                     }}
                   >
-                    <SelectTrigger aria-labelledby={templateLabelId} className="w-72">
+                    <SelectTrigger aria-labelledby={templateLabelId} className="w-full max-w-72">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>

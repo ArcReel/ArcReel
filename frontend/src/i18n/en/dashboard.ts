@@ -2616,6 +2616,7 @@ export default {
   'agent_status_running': 'Agent is running',
   'agent_status_waiting_answer': 'Agent is waiting for your answer',
   'workspace_nav_label': 'Workspace navigation',
+  'workspace_back_to_projects': 'Back to projects',
   'shot_detail_save_first': 'Save or discard your changes first',
   'shot_leave_title': '“{{id}}” has unsaved changes',
   'shot_saved_not_refreshed': 'Changes were written, but the latest script could not be loaded. Refresh the page before generating',

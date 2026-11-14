@@ -7,9 +7,11 @@ import { errMsg, voidCall } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { endpointSettingsPath, providerSettingsPath } from "@/app-routes";
+import { useMobileTier } from "@/hooks/useMobileTier";
 import { SecondaryRail, type SecondaryRailGroup, type SecondaryRailItem } from "@/components/shared/master-detail/SecondaryRail";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
 import { Button } from "@/components/ui/button";
+import { EndpointsRail } from "./EndpointsRail";
 import type {
   AnyEndpointDefinition,
   ComfyuiEndpointDefinition,
@@ -74,6 +76,8 @@ export function EndpointsSection() {
   const [, navigate] = useLocation();
   const search = useSearch();
   const pushToast = useAppStore((s) => s.pushToast);
+  const mobile = useMobileTier();
+  const [railCollapsed, setRailCollapsed] = useState(false);
 
   const catalog = useEndpointCatalogStore((s) => s.endpoints);
   const refreshCatalog = useEndpointCatalogStore((s) => s.refresh);
@@ -552,7 +556,17 @@ export function EndpointsSection() {
   return (
     // 全出血档：二级栏与详情栏各自滚动
     <div className="flex min-h-0 min-w-0 flex-1">
-      <SecondaryRail label={t("ce_rail_label")} groups={railGroups} activeId={selectedKey} replace />
+      {mobile ? (
+        <EndpointsRail
+          label={t("ce_rail_label")}
+          groups={railGroups}
+          activeId={selectedKey}
+          collapsed={railCollapsed}
+          onCollapsedChange={setRailCollapsed}
+        />
+      ) : (
+        <SecondaryRail label={t("ce_rail_label")} groups={railGroups} activeId={selectedKey} replace />
+      )}
 
       {selection ? (
         <EndpointDetail

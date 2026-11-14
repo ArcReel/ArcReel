@@ -5,6 +5,11 @@ interface DetailPaneProps {
   header?: ReactNode;
   /** 页脚：常驻的保存栏（`SaveBar`），不随正文滚动。 */
   footer?: ReactNode;
+  /**
+   * 表单密集的详情（调用端点）：移动档把输入框、按钮与分节内边距整体压紧一档，
+   * 字号与内置端点详情对齐，方框随字号收小。默认不压缩。
+   */
+  dense?: boolean;
   children: ReactNode;
 }
 
@@ -15,12 +20,15 @@ interface DetailPaneProps {
  * 正文限宽时，页脚内容同样限宽（`max-w-178`），保存栏与表单列对齐，不横跨整栏。
  * 选中项变化时，调用方给详情组件传 `key` 整栏重建，上一项的未保存修改、在途请求与加载状态不带到下一项。
  */
-export function DetailPane({ header, footer, children }: DetailPaneProps) {
+export function DetailPane({ header, footer, dense = false, children }: DetailPaneProps) {
   return (
-    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-      {header && <div className="shrink-0 border-b border-border px-6 py-4">{header}</div>}
+    <div
+      className="@container/detail relative flex min-h-0 min-w-0 flex-1 flex-col"
+      data-detail-dense={dense ? "" : undefined}
+    >
+      {header && <div className="shrink-0 border-b border-border px-4 py-2.5 @md/page:px-6 @md/page:py-4">{header}</div>}
       <div className="relative min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">{children}</div>
-      {footer && <div className="shrink-0 border-t border-border bg-card px-6 py-3">{footer}</div>}
+      {footer && <div className="shrink-0 border-t border-border bg-card px-4 py-3 @md/page:px-6">{footer}</div>}
     </div>
   );
 }

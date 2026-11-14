@@ -243,10 +243,10 @@ function FilesSection({ projectName, refreshKey }: { projectName: string; refres
   };
 
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1 @max-md/canvas:flex-col">
       <nav
         aria-label={t("file_view_tree_label")}
-        className="relative flex w-[clamp(240px,32cqw,360px)] shrink-0 flex-col overflow-y-auto border-r px-2 py-3 [scrollbar-gutter:stable]"
+        className="relative flex w-[clamp(240px,32cqw,360px)] shrink-0 flex-col overflow-y-auto border-r px-2 py-3 [scrollbar-gutter:stable] @max-md/canvas:max-h-56 @max-md/canvas:w-full @max-md/canvas:border-r-0 @max-md/canvas:border-b"
       >
         {checked.size > 0 ? (
           <div className="flex flex-wrap items-center gap-2 px-2 pb-3">

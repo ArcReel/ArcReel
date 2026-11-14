@@ -64,13 +64,14 @@ export function EpisodePageHeader({
   };
   return (
     <header className="shrink-0 border-b border-border">
-      <div className="flex h-11 items-center gap-3 px-4">
+      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 @md/canvas:flex-nowrap @md/canvas:px-4 @md/canvas:py-0">
         {head}
         {sourceEntry}
         {progress}
       </div>
-      <div className="flex h-10 items-center gap-3 px-4">
-        <Tabs value={view} onValueChange={(next: EpisodeView) => onViewChange(next)} className="shrink-0">
+      <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 @md/canvas:flex-nowrap @md/canvas:px-4 @md/canvas:py-0">
+        <div className="relative min-w-0 shrink overflow-x-auto scroll-fade-x">
+          <Tabs value={view} onValueChange={(next: EpisodeView) => onViewChange(next)} className="min-w-0 shrink">
           <TabsList aria-label={t("episode_view_aria")}>
             {tabs.map((tab) =>
               tab.disabled ? (
@@ -82,7 +83,8 @@ export function EpisodePageHeader({
               ),
             )}
           </TabsList>
-        </Tabs>
+          </Tabs>
+        </div>
         {/* 动作多到放不下时横向滚动；插槽靠右，溢出时从左端开始滚，不裁掉第一个动作。 */}
         <div className="relative flex min-w-0 flex-1 overflow-x-auto scroll-fade-x">
           <div ref={onActionsSlot} className="ml-auto flex shrink-0 items-center gap-1.5" />

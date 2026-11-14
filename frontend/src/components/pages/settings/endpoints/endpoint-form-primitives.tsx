@@ -90,14 +90,16 @@ export function VariableChips({
             key={v.token}
             variant="outline"
             size="xs"
+            // 窄屏放不下一行时让说明换行，不把整块内容撑出横向滚动
+            className="h-auto max-w-full items-start text-left whitespace-normal"
             // 按下时不夺走焦点，插入点仍是最近聚焦的输入框
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => insertion?.insert(v.token)}
           >
-            <span className="font-mono text-primary" translate="no">
+            <span className="font-mono break-all text-primary" translate="no">
               {v.token}
             </span>
-            <span className="text-muted-foreground">{v.desc}</span>
+            <span className="min-w-0 text-muted-foreground">{v.desc}</span>
           </Button>
         ))}
       </div>
@@ -125,7 +127,7 @@ export function FormSection({
   children: React.ReactNode;
 }) {
   return (
-    <section id={`ce-section-${id}`} aria-labelledby={`ce-section-${id}-title`} className="relative scroll-mt-4 pl-8">
+    <section id={`ce-section-${id}`} aria-labelledby={`ce-section-${id}-title`} className="relative scroll-mt-4 pl-6 @md/detail:pl-8">
       <span aria-hidden className="absolute top-7 bottom-0 left-2.5 w-px bg-border" />
       <span
         aria-hidden
@@ -137,7 +139,7 @@ export function FormSection({
         {title}
       </h3>
       <p className="mt-0.5 mb-3 max-w-[40em] text-sm text-muted-foreground">{desc}</p>
-      <div className="mb-6 rounded-lg border border-border p-4">{children}</div>
+      <div className="mb-5 rounded-lg border border-border p-3 @md/detail:mb-6 @md/detail:p-4">{children}</div>
     </section>
   );
 }

@@ -327,6 +327,7 @@ export function ComfyuiEndpointDetail({
 
   return (
     <DetailPane
+      dense
       header={
         <EndpointHeader
           back={back}
@@ -383,7 +384,7 @@ export function ComfyuiEndpointDetail({
         </fieldset>
       }
     >
-      <fieldset disabled={marketUpdatePending} className="flex min-w-0 max-w-190 flex-col gap-8 px-6 py-6">
+      <fieldset disabled={marketUpdatePending} className="flex min-w-0 max-w-190 flex-col gap-6 px-4 py-4 @md/detail:gap-8 @md/detail:px-6 @md/detail:py-6">
         {record && <EndpointUsageList usages={usages} />}
 
         <Section title={t("ce_cf_bindings_title")}>

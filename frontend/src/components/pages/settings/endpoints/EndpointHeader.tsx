@@ -43,7 +43,7 @@ export function EndpointHeader({ back, title, badges, meta, primary, menu }: End
           </Link>
         </div>
       )}
-      <div className="flex items-start gap-3">
+      <div className="flex flex-col gap-2 @md/detail:flex-row @md/detail:items-start @md/detail:gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <h2 className="min-w-0 text-lg font-medium">
@@ -55,7 +55,7 @@ export function EndpointHeader({ back, title, badges, meta, primary, menu }: End
             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-muted-foreground">{meta}</div>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 @md/detail:shrink-0">
           {primary}
           {menu && (
             <DropdownMenu>

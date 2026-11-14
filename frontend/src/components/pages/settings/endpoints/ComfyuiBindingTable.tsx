@@ -365,7 +365,7 @@ export function ComfyuiBindingTable({
 
           return (
             <div key={key} className="py-2.5">
-              <div className="grid grid-cols-[minmax(9rem,12rem)_6rem_minmax(0,1fr)_auto] items-center gap-x-3">
+              <div className="grid grid-cols-1 items-center gap-x-3 gap-y-1.5 @2xl/detail:grid-cols-[minmax(9rem,12rem)_6rem_minmax(0,1fr)_auto]">
                 <span className="inline-flex items-baseline gap-1.5 text-sm">
                   <span className="font-mono text-xs text-primary" translate="no">
                     {key}
@@ -430,9 +430,9 @@ export function ComfyuiBindingTable({
               </div>
 
               {/* 说明与展开区与上面那行同列宽，从状态列起排，与语义键名错开 */}
-              <div className="grid grid-cols-[minmax(9rem,12rem)_6rem_minmax(0,1fr)_auto] gap-x-3">
+              <div className="grid grid-cols-1 gap-x-3 @2xl/detail:grid-cols-[minmax(9rem,12rem)_6rem_minmax(0,1fr)_auto]">
                 {result && result.notes.length > 0 && (
-                  <ul className="col-span-3 col-start-2 mt-1 flex flex-col gap-0.5">
+                  <ul className="mt-1 flex flex-col gap-0.5 @2xl/detail:col-span-3 @2xl/detail:col-start-2">
                     {result.notes.map((note) => (
                       <li key={note.code} className="text-xs text-muted-foreground">
                         {note.message}
@@ -442,7 +442,7 @@ export function ComfyuiBindingTable({
                 )}
 
                 {open && (
-                  <div id={panelId} className="col-span-3 col-start-2 mt-2 flex flex-col gap-2">
+                  <div id={panelId} className="mt-2 flex flex-col gap-2 @2xl/detail:col-span-3 @2xl/detail:col-start-2">
                     {result?.state === "needs_confirmation" && (
                       <p className="text-xs text-warn">{t("ce_cf_needs_confirmation")}</p>
                     )}
@@ -495,7 +495,7 @@ export function ComfyuiBindingTable({
                                 else delete values[ratio];
                                 onChange(key, targets.map((item, i) => i === targetIndex ? { ...item, values } : item));
                               }}
-                              className="w-48"
+                              className="w-full max-w-48"
                             />
                           </label>
                         ))}

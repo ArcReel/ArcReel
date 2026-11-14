@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { GlobalHeader } from "@/components/layout/GlobalHeader";
@@ -49,13 +49,28 @@ const PROJECT_WITH_EPISODES = {
   props: {},
 } as const;
 
+/** 顶栏按视口分档；用例固定成桌面档，不依赖同 worker 里其他文件留下的 matchMedia 桩。 */
+function useDesktopViewport() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+}
+
 describe("GlobalHeader", () => {
   beforeEach(() => {
+    useDesktopViewport();
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     useAppStore.setState(useAppStore.getInitialState(), true);
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("prefers the project title over the internal project name", async () => {

@@ -43,6 +43,8 @@ export default {
   'page_load_failed': 'Не удалось загрузить страницу. Проверьте подключение и перезагрузите её',
   'reload_page': 'Перезагрузить',
   'close': 'Закрыть',
+  'open_navigation': 'Открыть навигацию',
+  'close_navigation': 'Закрыть навигацию',
   'jump_to_latest': 'Перейти к последнему',
   'jump_to_start': 'В начало',
   'unsaved_changes': 'Есть несохранённые изменения',

@@ -130,12 +130,14 @@ export function SystemConfigPage() {
   return (
     <PageShell
       header={<PageHeader back={{ label: t("common:back"), onClick: goBack }} title={t("common:settings")} />}
+      sidebarLabel={t("common:settings")}
       sidebar={<PageSidebar label={t("common:settings")} groups={groups} activeId={activeSection} replace />}
       tier={SECTIONS[activeSection].tier}
+      compactText
     >
       {/* 全出血分区没有统一的页头，提示放在分区顶部；限宽分区在自己的页头说明之后放提示 */}
       {SECTIONS[activeSection].tier === "bleed" && activeIssues.length > 0 && (
-        <div className="shrink-0 px-6 pt-4">
+        <div className="shrink-0 px-4 pt-3 @md/page:px-6 @md/page:pt-4">
           <ConfigIssueNotice issues={activeIssues} />
         </div>
       )}

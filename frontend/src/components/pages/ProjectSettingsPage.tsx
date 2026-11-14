@@ -249,6 +249,7 @@ function SettingsShell({
           subtitle={title}
         />
       }
+      sidebarLabel={t("project_settings")}
       sidebar={<PageSidebar label={t("project_settings")} groups={groups} activeId={tab} replace />}
       tier="constrained"
     >
