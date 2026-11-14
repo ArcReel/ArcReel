@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { enqueueAssetSheetBatch } from "@/actions/generation";
+import { assetSheetResource, enqueueAssetSheetBatch } from "@/actions/generation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,7 @@ import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
 import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import type { AssetSheetBatchPreview, AssetSheetBatchScope, AssetSheetRef, AssetSheetType } from "@/types";
+import { isAssetBusy, useAssetSlotsBusy } from "./assetBusyGuard";
 
 const TYPE_ORDER: AssetSheetType[] = ["character", "scene", "prop", "product"];
 
@@ -74,7 +75,18 @@ export function AssetSheetBatchDialog({
     .map(([currency, amount]) => formatCurrencyAmount(currency, amount))
     .join(" + ");
 
+  const slots = useMemo(() => (preview?.targets ?? []).map(assetSheetResource), [preview]);
+  // 打开期间目标可能被别处占用（另一标签页、Agent、image_edit），从那一刻起同步禁掉提交，
+  // 与下面提交时刻的复核一起覆盖「渲染 → 点击」这个竞态窗口。
+  const busyNow = useAssetSlotsBusy(projectName, slots);
+
   const handleConfirm = async () => {
+    // 服务端准入只按该资产的生成任务类型判定，而 image_edit 与生成任务共用同一占用槽：
+    // 请求发出前逐项新鲜复核，命中即拒绝，避免两个操作并发覆写同一张资产图。
+    if (slots.some((slot) => isAssetBusy(slot.kind, projectName, slot.id))) {
+      useAppStore.getState().pushToast(t("sheet_batch_busy_hint"), "info");
+      return;
+    }
     setSubmitting(true);
     try {
       const submitted = await enqueueAssetSheetBatch(projectName, scope);
@@ -167,12 +179,19 @@ export function AssetSheetBatchDialog({
         </DialogHeader>
         <DialogBody tabIndex={0} role="region" aria-label={title}>
           <div className="text-sm">{body}</div>
+          {/* 禁用按钮不解释原因等于让人无从下手：被占用时把原因常驻显示，
+              点击事件到不了 handleConfirm，光靠提交时弹 toast 是够不着的。 */}
+          {busyNow && (
+            <p role="status" className="mt-3 text-xs text-subtle-foreground" data-testid="asset-sheet-batch-busy-hint">
+              {t("sheet_batch_busy_hint")}
+            </p>
+          )}
         </DialogBody>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />} disabled={submitting}>
             {t("common:cancel")}
           </DialogClose>
-          <Button disabled={submitting || !preview || preview.targets.length === 0} onClick={() => void handleConfirm()}>
+          <Button disabled={submitting || busyNow || !preview || preview.targets.length === 0} onClick={() => void handleConfirm()}>
             {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
             {submitting ? t("sheet_batch_submitting") : t("sheet_batch_confirm")}
           </Button>
