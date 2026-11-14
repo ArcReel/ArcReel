@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-11-04T23:26:27Z",
+  "dataset_version": "2026-11-14T01:27:04Z",
   "entries": [
     {
       "maker": "agnes",
@@ -883,6 +883,111 @@
     },
     {
       "maker": "alibaba",
+      "name": "qwen-audio-3.0-tts-flash",
+      "media_type": "audio",
+      "display_name": "Qwen Audio 3.0 TTS Flash",
+      "release_date": "2026-07-14",
+      "facts": {},
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "characters",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.0
+              }
+            ],
+            "cjk_double": true
+          }
+        ]
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen-audio-3.0-tts-plus",
+      "media_type": "audio",
+      "display_name": "Qwen Audio 3.0 TTS Plus",
+      "release_date": "2026-07-14",
+      "facts": {},
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "characters",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.4
+              }
+            ],
+            "cjk_double": true
+          }
+        ]
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen-audio-3.1-tts-flash",
+      "media_type": "audio",
+      "display_name": "Qwen Audio 3.1 TTS Flash",
+      "release_date": "2026-09-18",
+      "facts": {},
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.5
+              }
+            ]
+          },
+          {
+            "meter": "audio_output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 12.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen-audio-3.1-tts-plus",
+      "media_type": "audio",
+      "display_name": "Qwen Audio 3.1 TTS Plus",
+      "release_date": "2026-10-21",
+      "facts": {},
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "characters",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.4
+              }
+            ],
+            "cjk_double": true
+          }
+        ]
+      }
+    },
+    {
+      "maker": "alibaba",
       "name": "qwen-deep-research",
       "media_type": "text",
       "display_name": "Qwen Deep Research",
@@ -979,6 +1084,74 @@
               {
                 "when": {},
                 "price": 0.5
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen-image-2.1-pro",
+      "media_type": "image",
+      "display_name": "Qwen Image 2.1 Pro",
+      "release_date": "2026-10-02",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "2048*2048",
+          "2688*1536",
+          "1536*2688",
+          "2368*1728",
+          "1728*2368"
+        ],
+        "max_reference_images": 10
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.25
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen-image-2.1-turbo",
+      "media_type": "image",
+      "display_name": "Qwen Image 2.1 Turbo",
+      "release_date": "2026-10-09",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "2048*2048",
+          "2688*1536",
+          "1536*2688",
+          "2368*1728",
+          "1728*2368"
+        ],
+        "max_reference_images": 10
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
               }
             ]
           }
@@ -2588,10 +2761,10 @@
       "media_type": "text",
       "display_name": "Claude Fable 5",
       "aliases": [
-        "global.anthropic.claude-fable-5",
-        "us.anthropic.claude-fable-5",
+        "anthropic-claude-fable-5",
         "eu.anthropic.claude-fable-5",
-        "anthropic.claude-fable-5"
+        "us.anthropic.claude-fable-5",
+        "global.anthropic.claude-fable-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-06-07",
@@ -2662,9 +2835,9 @@
       "media_type": "text",
       "display_name": "Claude Fable 5.1",
       "aliases": [
-        "anthropic.claude-fable-5-1",
-        "us.anthropic.claude-fable-5-1",
-        "global.anthropic.claude-fable-5-1"
+        "anthropic-claude-fable-5.1",
+        "global.anthropic.claude-fable-5-1",
+        "us.anthropic.claude-fable-5-1"
       ],
       "context_length": 1000000,
       "release_date": "2026-09-01",
@@ -2731,13 +2904,86 @@
     },
     {
       "maker": "anthropic",
+      "name": "claude-fable-5-2",
+      "media_type": "text",
+      "display_name": "Claude Fable 5.2",
+      "aliases": [
+        "anthropic-claude-fable-5.2",
+        "us.anthropic.claude-fable-5-2",
+        "global.anthropic.claude-fable-5-2"
+      ],
+      "context_length": 1000000,
+      "release_date": "2026-11-09",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 128000
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.2
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 16.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 40.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
       "name": "claude-haiku-4-5",
       "media_type": "text",
       "display_name": "Claude Haiku 4.5",
       "aliases": [
         "claude-haiku-4-5-20251001",
-        "anthropic-claude-haiku-4.5",
-        "databricks-claude-haiku-4-5"
+        "databricks-claude-haiku-4-5",
+        "anthropic-claude-haiku-4.5"
       ],
       "context_length": 200000,
       "release_date": "2025-10-15",
@@ -2808,12 +3054,12 @@
       "media_type": "text",
       "display_name": "Claude Haiku 5.5",
       "aliases": [
+        "jp.anthropic.claude-haiku-5-5",
         "eu.anthropic.claude-haiku-5-5",
         "global.anthropic.claude-haiku-5-5",
         "anthropic.claude-haiku-5-5",
-        "us.anthropic.claude-haiku-5-5",
         "au.anthropic.claude-haiku-5-5",
-        "jp.anthropic.claude-haiku-5-5"
+        "us.anthropic.claude-haiku-5-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-10-07",
@@ -2935,9 +3181,9 @@
       "display_name": "Claude Opus 4.5",
       "aliases": [
         "claude-opus-4-5-20251101",
-        "anthropic-claude-opus-4.5",
+        "claude-opus4-5",
         "databricks-claude-opus-4-5",
-        "claude-opus4-5"
+        "anthropic-claude-opus-4.5"
       ],
       "context_length": 200000,
       "release_date": "2025-11-24",
@@ -3008,9 +3254,9 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.6",
       "aliases": [
-        "anthropic-claude-opus-4.6",
+        "claude-opus4-6",
         "databricks-claude-opus-4-6",
-        "claude-opus4-6"
+        "anthropic-claude-opus-4.6"
       ],
       "context_length": 1000000,
       "release_date": "2026-02-04",
@@ -3081,14 +3327,14 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.7",
       "aliases": [
-        "us.anthropic.claude-opus-4-7",
+        "claude-opus4-7",
+        "databricks-claude-opus-4-7",
+        "anthropic-claude-opus-4.7",
         "au.anthropic.claude-opus-4-7",
         "eu.anthropic.claude-opus-4-7",
         "global.anthropic.claude-opus-4-7",
-        "anthropic.claude-opus-4-7",
         "jp.anthropic.claude-opus-4-7",
-        "databricks-claude-opus-4-7",
-        "claude-opus4-7"
+        "us.anthropic.claude-opus-4-7"
       ],
       "context_length": 1000000,
       "release_date": "2026-04-14",
@@ -3159,13 +3405,13 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.8",
       "aliases": [
-        "us.anthropic.claude-opus-4-8",
-        "eu.anthropic.claude-opus-4-8",
-        "global.anthropic.claude-opus-4-8",
-        "jp.anthropic.claude-opus-4-8",
-        "anthropic.claude-opus-4-8",
+        "claude-opus4-8",
+        "anthropic-claude-opus-4.8",
         "au.anthropic.claude-opus-4-8",
-        "claude-opus4-8"
+        "global.anthropic.claude-opus-4-8",
+        "eu.anthropic.claude-opus-4-8",
+        "jp.anthropic.claude-opus-4-8",
+        "us.anthropic.claude-opus-4-8"
       ],
       "context_length": 1000000,
       "release_date": "2026-05-28",
@@ -3236,13 +3482,13 @@
       "media_type": "text",
       "display_name": "Claude Opus 5",
       "aliases": [
-        "jp.anthropic.claude-opus-5",
-        "au.anthropic.claude-opus-5",
-        "eu.anthropic.claude-opus-5",
-        "anthropic.claude-opus-5",
+        "anthropic-claude-opus-5",
         "in.anthropic.claude-opus-5",
         "global.anthropic.claude-opus-5",
-        "us.anthropic.claude-opus-5"
+        "au.anthropic.claude-opus-5",
+        "us.anthropic.claude-opus-5",
+        "eu.anthropic.claude-opus-5",
+        "jp.anthropic.claude-opus-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-07-24",
@@ -3313,12 +3559,12 @@
       "media_type": "text",
       "display_name": "Claude Opus 5.5",
       "aliases": [
-        "eu.anthropic.claude-opus-5-5",
-        "anthropic.claude-opus-5-5",
+        "anthropic-claude-opus-5.5",
         "jp.anthropic.claude-opus-5-5",
-        "us.anthropic.claude-opus-5-5",
+        "eu.anthropic.claude-opus-5-5",
         "global.anthropic.claude-opus-5-5",
-        "au.anthropic.claude-opus-5-5"
+        "au.anthropic.claude-opus-5-5",
+        "us.anthropic.claude-opus-5-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-09-22",
@@ -3463,13 +3709,13 @@
       "media_type": "text",
       "display_name": "Claude Sonnet 4.6",
       "aliases": [
-        "global.anthropic.claude-sonnet-4-6",
-        "anthropic.claude-sonnet-4-6",
-        "au.anthropic.claude-sonnet-4-6",
-        "jp.anthropic.claude-sonnet-4-6",
+        "databricks-claude-sonnet-4-6",
         "us.anthropic.claude-sonnet-4-6",
+        "jp.anthropic.claude-sonnet-4-6",
+        "anthropic.claude-sonnet-4-6",
         "eu.anthropic.claude-sonnet-4-6",
-        "databricks-claude-sonnet-4-6"
+        "global.anthropic.claude-sonnet-4-6",
+        "au.anthropic.claude-sonnet-4-6"
       ],
       "context_length": 1000000,
       "release_date": "2026-02-17",
@@ -3541,12 +3787,12 @@
       "display_name": "Claude Sonnet 5",
       "aliases": [
         "global.anthropic.claude-sonnet-5",
-        "au.anthropic.claude-sonnet-5",
-        "us.anthropic.claude-sonnet-5",
-        "eu.anthropic.claude-sonnet-5",
         "in.anthropic.claude-sonnet-5",
+        "anthropic.claude-sonnet-5",
+        "us.anthropic.claude-sonnet-5",
+        "au.anthropic.claude-sonnet-5",
         "jp.anthropic.claude-sonnet-5",
-        "anthropic.claude-sonnet-5"
+        "eu.anthropic.claude-sonnet-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-06-29",
@@ -3617,11 +3863,11 @@
       "media_type": "text",
       "display_name": "Claude Sonnet 5.5",
       "aliases": [
-        "us.anthropic.claude-sonnet-5-5",
-        "au.anthropic.claude-sonnet-5-5",
+        "anthropic-claude-sonnet-5.5",
         "global.anthropic.claude-sonnet-5-5",
         "eu.anthropic.claude-sonnet-5-5",
-        "anthropic.claude-sonnet-5-5"
+        "au.anthropic.claude-sonnet-5-5",
+        "us.anthropic.claude-sonnet-5-5"
       ],
       "context_length": 1000000,
       "release_date": "2026-09-28",
@@ -5661,6 +5907,67 @@
       }
     },
     {
+      "maker": "bytedance",
+      "name": "doubao-seedream-5-5",
+      "media_type": "image",
+      "display_name": "Seedream 5.5",
+      "aliases": [
+        "doubao-seedream-5-5-261028"
+      ],
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "max_reference_images": 10
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.23
+              }
+            ]
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.05
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "bytedance",
+      "name": "seed-tts-2.0",
+      "media_type": "audio",
+      "display_name": "豆包语音合成模型 2.0",
+      "facts": {},
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "characters",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "maker": "deepseek",
       "name": "deepseek-flash",
       "media_type": "text",
@@ -5783,8 +6090,8 @@
       "media_type": "text",
       "display_name": "DeepSeek V4 Pro",
       "aliases": [
-        "deep-deepseek-v4-pro",
-        "alicloud-deepseek-v4-pro"
+        "alicloud-deepseek-v4-pro",
+        "deep-deepseek-v4-pro"
       ],
       "release_date": "2026-04-24",
       "facts": {
@@ -5895,7 +6202,7 @@
       "media_type": "text",
       "display_name": "Gemini 2.5 Flash-Lite",
       "context_length": 1048576,
-      "release_date": "2025-06-17",
+      "release_date": "2025-07-22",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6037,6 +6344,7 @@
       "display_name": "Gemini 3 Flash Preview",
       "context_length": 1048576,
       "release_date": "2025-12-17",
+      "successor": "google/gemini-3.6-flash",
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -6251,6 +6559,42 @@
                 "price": 0.5
               }
             ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
+      "name": "gemini-3.1-flash-lite-image",
+      "media_type": "image",
+      "display_name": "Gemini 3.1 Flash-Lite Image",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "1K"
+        ],
+        "max_reference_images": 14
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "1K"
+                },
+                "price": 0.0336
+              }
+            ],
+            "defaults": {
+              "resolution": "1K"
+            }
           }
         ]
       }
@@ -6822,6 +7166,122 @@
     },
     {
       "maker": "google",
+      "name": "gemini-4-carbon",
+      "media_type": "text",
+      "display_name": "Gemini 4 Carbon",
+      "context_length": 1048576,
+      "release_date": "2026-11-10",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 32768
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "audio_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
+      "name": "gemini-4-hydrogen",
+      "media_type": "text",
+      "display_name": "Gemini 4 Hydrogen",
+      "context_length": 1048576,
+      "release_date": "2026-11-12",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 65536
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.075
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 7.5
+              }
+            ]
+          },
+          {
+            "meter": "audio_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.5
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
       "name": "gemini-flash-latest",
       "media_type": "text",
       "display_name": "Gemini Flash Latest",
@@ -6981,7 +7441,7 @@
       "maker": "google",
       "name": "gemini-omni-1.1-flash",
       "media_type": "video",
-      "display_name": "Gemini Omni Flash",
+      "display_name": "Gemini Omni 1.1 Flash",
       "release_date": "2026-08-27",
       "facts": {
         "durations": [
@@ -7004,6 +7464,72 @@
         "first_frame": true,
         "last_frame": true,
         "reference_audio": false
+      },
+      "successor": "google/gemini-omni-1.2-flash",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "video_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 17.5
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
+      "name": "gemini-omni-1.2-flash",
+      "media_type": "video",
+      "display_name": "Gemini Omni 1.2 Flash",
+      "release_date": "2026-11-05",
+      "facts": {
+        "durations": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "resolutions": [
+          "360p",
+          "720p",
+          "1080p",
+          "4k"
+        ],
+        "max_reference_images": 6,
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": false
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "video_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 12.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -7098,6 +7624,41 @@
         "image_input": true,
         "structured_output": true,
         "max_output_tokens": 32768
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -7114,6 +7675,41 @@
         "image_input": true,
         "structured_output": true,
         "max_output_tokens": 32768
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -7122,6 +7718,7 @@
       "media_type": "video",
       "display_name": "Veo 3.1 Fast",
       "release_date": "2025-11-17",
+      "successor": "google/gemini-omni-1.2-flash",
       "facts": {
         "durations": [
           4,
@@ -7202,7 +7799,7 @@
       "display_name": "Veo 3.1 Fast",
       "discontinued": true,
       "shutdown_date": "2026-10-22",
-      "successor": "google/gemini-omni-1.1-flash",
+      "successor": "google/gemini-omni-1.2-flash",
       "facts": {
         "durations": [
           4,
@@ -7300,6 +7897,7 @@
       "media_type": "video",
       "display_name": "Veo 3.1",
       "release_date": "2025-11-17",
+      "successor": "google/gemini-omni-1.2-flash",
       "facts": {
         "durations": [
           4,
@@ -7398,7 +7996,7 @@
       "display_name": "Veo 3.1",
       "discontinued": true,
       "shutdown_date": "2026-10-22",
-      "successor": "google/gemini-omni-1.1-flash",
+      "successor": "google/gemini-omni-1.2-flash",
       "facts": {
         "durations": [
           4,
@@ -7492,12 +8090,10 @@
     },
     {
       "maker": "google",
-      "name": "veo-3.1-lite-generate-preview",
+      "name": "veo-3.1-lite-generate-001",
       "media_type": "video",
       "display_name": "Veo 3.1 Lite",
-      "discontinued": true,
-      "shutdown_date": "2026-10-22",
-      "successor": "google/gemini-omni-1.1-flash",
+      "release_date": "2026-04-02",
       "facts": {
         "durations": [
           4,
@@ -7566,6 +8162,283 @@
             "defaults": {
               "resolution": "720p",
               "audio": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
+      "name": "veo-3.1-lite-generate-preview",
+      "media_type": "video",
+      "display_name": "Veo 3.1 Lite",
+      "discontinued": true,
+      "shutdown_date": "2026-10-22",
+      "successor": "google/gemini-omni-1.2-flash",
+      "facts": {
+        "durations": [
+          4,
+          6,
+          8
+        ],
+        "resolutions": [
+          "720p",
+          "1080p"
+        ],
+        "duration_constraints": {
+          "by_resolution": {
+            "1080p": [
+              8
+            ]
+          },
+          "with_reference_images": [
+            8
+          ]
+        },
+        "max_reference_images": 0,
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": false
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution",
+              "audio"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "720p",
+                  "audio": true
+                },
+                "price": 0.05
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "audio": false
+                },
+                "price": 0.03
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "audio": true
+                },
+                "price": 0.08
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "audio": false
+                },
+                "price": 0.05
+              }
+            ],
+            "defaults": {
+              "resolution": "720p",
+              "audio": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "kuaishou",
+      "name": "kling-3.0-turbo",
+      "media_type": "video",
+      "display_name": "可灵 3.0 Turbo",
+      "release_date": "2026-06-17",
+      "facts": {
+        "durations": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "resolutions": [
+          "720p",
+          "1080p"
+        ],
+        "max_reference_images": 0,
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": false,
+        "reference_audio": false
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "720p"
+                },
+                "price": 0.8
+              },
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 1.0
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "kuaishou",
+      "name": "kling-4.0",
+      "media_type": "video",
+      "display_name": "可灵 4.0",
+      "release_date": "2026-10-28",
+      "facts": {
+        "durations": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "resolutions": [
+          "720p",
+          "1080p"
+        ],
+        "max_reference_images": 0,
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": false
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "720p"
+                },
+                "price": 1.0
+              },
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 1.5
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "kuaishou",
+      "name": "kling-4.0-flash",
+      "media_type": "video",
+      "display_name": "可灵 4.0 Flash",
+      "release_date": "2026-11-04",
+      "facts": {
+        "durations": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ],
+        "resolutions": [
+          "720p"
+        ],
+        "max_reference_images": 0,
+        "text_to_video": true,
+        "first_frame": true,
+        "last_frame": false,
+        "reference_audio": false
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "720p"
+                },
+                "price": 0.6
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
             }
           }
         ]
@@ -7706,6 +8579,50 @@
             "defaults": {
               "resolution": "720p",
               "audio": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "kuaishou",
+      "name": "kling-v3",
+      "media_type": "image",
+      "display_name": "可灵 V3（图像）",
+      "release_date": "2026-02-25",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "1K",
+          "2K"
+        ],
+        "max_reference_images": 1
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "1K"
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "resolution": "2K"
+                },
+                "price": 0.2
+              }
+            ],
+            "defaults": {
+              "resolution": "1K"
             }
           }
         ]
@@ -8116,6 +9033,7 @@
           15
         ],
         "resolutions": [
+          "480p",
           "768p"
         ],
         "max_reference_images": 9,
@@ -8135,6 +9053,12 @@
               "resolution"
             ],
             "rows": [
+              {
+                "when": {
+                  "resolution": "480p"
+                },
+                "price": 0.26
+              },
               {
                 "when": {
                   "resolution": "768p"
@@ -8181,6 +9105,7 @@
           15
         ],
         "resolutions": [
+          "480p",
           "768p"
         ],
         "max_reference_images": 9,
@@ -8200,6 +9125,12 @@
               "resolution"
             ],
             "rows": [
+              {
+                "when": {
+                  "resolution": "480p"
+                },
+                "price": 0.16
+              },
               {
                 "when": {
                   "resolution": "768p"
@@ -8245,6 +9176,7 @@
           15
         ],
         "resolutions": [
+          "480p",
           "768p"
         ],
         "max_reference_images": 9,
@@ -8264,6 +9196,12 @@
               "resolution"
             ],
             "rows": [
+              {
+                "when": {
+                  "resolution": "480p"
+                },
+                "price": 0.33
+              },
               {
                 "when": {
                   "resolution": "768p"
@@ -8613,8 +9551,8 @@
       "media_type": "text",
       "display_name": "MiniMax-M2.5",
       "aliases": [
-        "minimax.minimax-m2.5",
-        "minimax-m25"
+        "minimax-m25",
+        "minimax.minimax-m2.5"
       ],
       "context_length": 204800,
       "release_date": "2026-02-12",
@@ -9025,6 +9963,7 @@
       "name": "image-01",
       "media_type": "image",
       "display_name": "MiniMax Image 01",
+      "release_date": "2025-04-02",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -9251,8 +10190,8 @@
       "display_name": "Kimi K3",
       "aliases": [
         "morph-kimik3",
-        "global.moonshotai.kimi-k3",
         "us.moonshotai.kimi-k3",
+        "global.moonshotai.kimi-k3",
         "umans-kimi-k3"
       ],
       "context_length": 1048576,
@@ -9806,8 +10745,8 @@
       "media_type": "text",
       "display_name": "GPT-5",
       "aliases": [
-        "openai-gpt-5",
-        "databricks-gpt-5"
+        "databricks-gpt-5",
+        "openai-gpt-5"
       ],
       "context_length": 400000,
       "release_date": "2025-08-07",
@@ -9860,8 +10799,8 @@
       "media_type": "text",
       "display_name": "GPT-5 Mini",
       "aliases": [
-        "openai-gpt-5-mini",
         "databricks-gpt-5-mini",
+        "openai-gpt-5-mini",
         "duo-chat-gpt-5-mini"
       ],
       "context_length": 400000,
@@ -9915,8 +10854,8 @@
       "media_type": "text",
       "display_name": "GPT-5 Nano",
       "aliases": [
-        "openai-gpt-5-nano",
-        "databricks-gpt-5-nano"
+        "databricks-gpt-5-nano",
+        "openai-gpt-5-nano"
       ],
       "context_length": 400000,
       "release_date": "2025-08-07",
@@ -10074,8 +11013,8 @@
       "media_type": "text",
       "display_name": "GPT-5.2",
       "aliases": [
-        "openai-gpt-5.2",
         "databricks-gpt-5-2",
+        "openai-gpt-5.2",
         "openai-gpt-52",
         "duo-chat-gpt-5-2"
       ],
@@ -10320,8 +11259,8 @@
       "media_type": "text",
       "display_name": "GPT-5.4",
       "aliases": [
-        "openai.gpt-5.4",
         "databricks-gpt-5-4",
+        "openai-gpt-5.4",
         "openai-gpt-54",
         "duo-chat-gpt-5-4"
       ],
@@ -10484,8 +11423,8 @@
       "media_type": "text",
       "display_name": "GPT-5.4 Mini",
       "aliases": [
-        "openai-gpt-5.4-mini",
         "databricks-gpt-5-4-mini",
+        "openai-gpt-5.4-mini",
         "openai-gpt-54-mini",
         "duo-chat-gpt-5-4-mini"
       ],
@@ -10594,8 +11533,8 @@
       "media_type": "text",
       "display_name": "GPT-5.4 Nano",
       "aliases": [
-        "openai-gpt-5.4-nano",
         "databricks-gpt-5-4-nano",
+        "openai-gpt-5.4-nano",
         "duo-chat-gpt-5-4-nano"
       ],
       "release_date": "2026-03-17",
@@ -10769,11 +11708,11 @@
       "media_type": "text",
       "display_name": "GPT-5.5",
       "aliases": [
-        "openai.gpt-5.5",
         "databricks-gpt-5-5",
+        "openai-gpt-5.5",
         "openai-gpt-55",
-        "duo-chat-gpt-5-5",
-        "xpersona-gpt-5.5"
+        "xpersona-gpt-5.5",
+        "duo-chat-gpt-5-5"
       ],
       "release_date": "2026-04-23",
       "facts": {
@@ -11151,11 +12090,11 @@
       "media_type": "text",
       "display_name": "GPT-5.6 Luna",
       "aliases": [
+        "databricks-gpt-5-6-luna",
+        "openai-gpt-5.6-luna",
+        "in.openai.gpt-5.6-luna",
         "us.openai.gpt-5.6-luna",
         "global.openai.gpt-5.6-luna",
-        "in.openai.gpt-5.6-luna",
-        "openai.gpt-5.6-luna",
-        "databricks-gpt-5-6-luna",
         "openai-gpt-56-luna",
         "duo-chat-gpt-5-6-luna"
       ],
@@ -11258,10 +12197,10 @@
       "media_type": "text",
       "display_name": "GPT-5.6 Sol",
       "aliases": [
-        "openai.gpt-5.6-sol",
-        "global.openai.gpt-5.6-sol",
-        "us.openai.gpt-5.6-sol",
         "databricks-gpt-5-6-sol",
+        "openai-gpt-5.6-sol",
+        "us.openai.gpt-5.6-sol",
+        "global.openai.gpt-5.6-sol",
         "openai-gpt-56-sol",
         "duo-chat-gpt-5-6-sol"
       ],
@@ -11364,11 +12303,11 @@
       "media_type": "text",
       "display_name": "GPT-5.6 Terra",
       "aliases": [
-        "global.openai.gpt-5.6-terra",
-        "us.openai.gpt-5.6-terra",
-        "openai.gpt-5.6-terra",
-        "in.openai.gpt-5.6-terra",
         "databricks-gpt-5-6-terra",
+        "openai-gpt-5.6-terra",
+        "in.openai.gpt-5.6-terra",
+        "us.openai.gpt-5.6-terra",
+        "global.openai.gpt-5.6-terra",
         "openai-gpt-56-terra",
         "duo-chat-gpt-5-6-terra"
       ],
@@ -11471,9 +12410,9 @@
       "media_type": "text",
       "display_name": "GPT-6 Astra",
       "aliases": [
-        "us.openai.gpt-6-astra",
+        "openai-gpt-6-astra",
         "global.openai.gpt-6-astra",
-        "openai.gpt-6-astra",
+        "us.openai.gpt-6-astra",
         "duo-chat-gpt-6-astra"
       ],
       "context_length": 1050000,
@@ -11575,9 +12514,9 @@
       "media_type": "text",
       "display_name": "GPT-6 Luna",
       "aliases": [
-        "us.openai.gpt-6-luna",
+        "openai-gpt-6-luna",
         "global.openai.gpt-6-luna",
-        "openai.gpt-6-luna",
+        "us.openai.gpt-6-luna",
         "duo-chat-gpt-6-luna"
       ],
       "context_length": 1050000,
@@ -11679,9 +12618,9 @@
       "media_type": "text",
       "display_name": "GPT-6 Sol",
       "aliases": [
-        "global.openai.gpt-6-sol",
-        "openai.gpt-6-sol",
+        "openai-gpt-6-sol",
         "us.openai.gpt-6-sol",
+        "global.openai.gpt-6-sol",
         "duo-chat-gpt-6-sol"
       ],
       "context_length": 1050000,
@@ -11783,9 +12722,9 @@
       "media_type": "text",
       "display_name": "GPT-6.1 Sol",
       "aliases": [
+        "openai-gpt-6-1-sol",
         "us.openai.gpt-6.1-sol",
         "global.openai.gpt-6.1-sol",
-        "openai.gpt-6.1-sol",
         "openai-gpt-61-sol",
         "duo-chat-gpt-6-1-sol"
       ],
@@ -11888,9 +12827,9 @@
       "media_type": "text",
       "display_name": "GPT-6.1 Terra",
       "aliases": [
-        "openai.gpt-6.1-terra",
-        "global.openai.gpt-6.1-terra",
+        "openai-gpt-6.1-terra",
         "us.openai.gpt-6.1-terra",
+        "global.openai.gpt-6.1-terra",
         "openai-gpt-61-terra"
       ],
       "context_length": 1050000,
@@ -12147,6 +13086,7 @@
       "name": "gpt-image-2",
       "media_type": "image",
       "display_name": "GPT Image 2",
+      "shutdown_date": "2027-02-10",
       "aliases": [
         "gpt-image-2-2026-04-21"
       ],
@@ -12155,7 +13095,6 @@
         "text_to_image": true,
         "image_to_image": true,
         "resolutions": [
-          "512px",
           "1K",
           "2K"
         ],
@@ -12163,7 +13102,12 @@
           "low": 16,
           "medium": 48,
           "high": 96
-        }
+        },
+        "qualities": [
+          "low",
+          "medium",
+          "high"
+        ]
       },
       "price": {
         "currency": "USD",
@@ -12241,7 +13185,6 @@
         "text_to_image": true,
         "image_to_image": true,
         "resolutions": [
-          "512px",
           "1K",
           "2K"
         ],
@@ -12251,7 +13194,14 @@
           "high": 48,
           "xhigh": 64,
           "max": 96
-        }
+        },
+        "qualities": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
       },
       "price": {
         "currency": "USD",
@@ -12329,7 +13279,6 @@
         "text_to_image": true,
         "image_to_image": true,
         "resolutions": [
-          "512px",
           "1K",
           "2K"
         ],
@@ -12339,7 +13288,218 @@
           "high": 48,
           "xhigh": 64,
           "max": 96
-        }
+        },
+        "qualities": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.25
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.0
+              }
+            ]
+          },
+          {
+            "meter": "uncached_image_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "image_cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "image_output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 30.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
+      "name": "gpt-image-2.6-flare",
+      "media_type": "image",
+      "display_name": "GPT Image 2.6 Flare",
+      "release_date": "2026-11-04",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "1K",
+          "2K"
+        ],
+        "output_token_bases": {
+          "high": 48,
+          "xhigh": 64,
+          "max": 96
+        },
+        "output_token_scaled_bases": {
+          "low": {
+            "base": 16,
+            "multiplier": 4.2
+          },
+          "medium": {
+            "base": 24,
+            "multiplier": 3.3
+          }
+        },
+        "qualities": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.25
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.0
+              }
+            ]
+          },
+          {
+            "meter": "uncached_image_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "image_cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "image_output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 30.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
+      "name": "gpt-image-2.6-sunburst",
+      "media_type": "image",
+      "display_name": "GPT Image 2.6 Sunburst",
+      "release_date": "2026-11-04",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "1K",
+          "2K"
+        ],
+        "output_token_bases": {
+          "high": 48,
+          "xhigh": 64,
+          "max": 96
+        },
+        "output_token_scaled_bases": {
+          "low": {
+            "base": 16,
+            "multiplier": 4.2
+          },
+          "medium": {
+            "base": 24,
+            "multiplier": 3.3
+          }
+        },
+        "qualities": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ]
       },
       "price": {
         "currency": "USD",
@@ -13006,6 +14166,984 @@
     },
     {
       "maker": "shengshu",
+      "name": "viduq2-pro",
+      "media_type": "video",
+      "display_name": "Vidu Q2 Pro",
+      "release_date": "2025-09-24",
+      "facts": {
+        "durations": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "resolutions": [
+          "540p",
+          "720p",
+          "1080p"
+        ],
+        "max_reference_images": 7,
+        "text_to_video": false,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": false
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "requests",
+            "dims": [
+              "resolution",
+              "duration",
+              "reference_to_video"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 1,
+                  "reference_to_video": false
+                },
+                "price": 0.25
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 2,
+                  "reference_to_video": false
+                },
+                "price": 0.3125
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 3,
+                  "reference_to_video": false
+                },
+                "price": 0.46875
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 4,
+                  "reference_to_video": false
+                },
+                "price": 0.625
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 5,
+                  "reference_to_video": false
+                },
+                "price": 0.78125
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 6,
+                  "reference_to_video": false
+                },
+                "price": 0.9375
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 7,
+                  "reference_to_video": false
+                },
+                "price": 1.09375
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 8,
+                  "reference_to_video": false
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 9,
+                  "reference_to_video": false
+                },
+                "price": 1.40625
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 10,
+                  "reference_to_video": false
+                },
+                "price": 1.5625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 1,
+                  "reference_to_video": false
+                },
+                "price": 0.46875
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 2,
+                  "reference_to_video": false
+                },
+                "price": 0.78125
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 3,
+                  "reference_to_video": false
+                },
+                "price": 1.09375
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 4,
+                  "reference_to_video": false
+                },
+                "price": 1.40625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 5,
+                  "reference_to_video": false
+                },
+                "price": 1.71875
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 6,
+                  "reference_to_video": false
+                },
+                "price": 2.03125
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 7,
+                  "reference_to_video": false
+                },
+                "price": 2.34375
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 8,
+                  "reference_to_video": false
+                },
+                "price": 2.65625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 9,
+                  "reference_to_video": false
+                },
+                "price": 2.96875
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 10,
+                  "reference_to_video": false
+                },
+                "price": 3.28125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 1,
+                  "reference_to_video": false
+                },
+                "price": 1.71875
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 2,
+                  "reference_to_video": false
+                },
+                "price": 2.1875
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 3,
+                  "reference_to_video": false
+                },
+                "price": 2.65625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 4,
+                  "reference_to_video": false
+                },
+                "price": 3.125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 5,
+                  "reference_to_video": false
+                },
+                "price": 3.59375
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 6,
+                  "reference_to_video": false
+                },
+                "price": 4.0625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 7,
+                  "reference_to_video": false
+                },
+                "price": 4.53125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 8,
+                  "reference_to_video": false
+                },
+                "price": 5.0
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 9,
+                  "reference_to_video": false
+                },
+                "price": 5.46875
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 10,
+                  "reference_to_video": false
+                },
+                "price": 5.9375
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 1,
+                  "reference_to_video": true
+                },
+                "price": 0.625
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 2,
+                  "reference_to_video": true
+                },
+                "price": 0.78125
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 3,
+                  "reference_to_video": true
+                },
+                "price": 0.9375
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 4,
+                  "reference_to_video": true
+                },
+                "price": 1.09375
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 5,
+                  "reference_to_video": true
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 6,
+                  "reference_to_video": true
+                },
+                "price": 1.40625
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 7,
+                  "reference_to_video": true
+                },
+                "price": 1.5625
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 8,
+                  "reference_to_video": true
+                },
+                "price": 1.71875
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 9,
+                  "reference_to_video": true
+                },
+                "price": 1.875
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 10,
+                  "reference_to_video": true
+                },
+                "price": 2.03125
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 1,
+                  "reference_to_video": true
+                },
+                "price": 0.9375
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 2,
+                  "reference_to_video": true
+                },
+                "price": 1.09375
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 3,
+                  "reference_to_video": true
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 4,
+                  "reference_to_video": true
+                },
+                "price": 1.40625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 5,
+                  "reference_to_video": true
+                },
+                "price": 1.5625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 6,
+                  "reference_to_video": true
+                },
+                "price": 1.71875
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 7,
+                  "reference_to_video": true
+                },
+                "price": 1.875
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 8,
+                  "reference_to_video": true
+                },
+                "price": 2.03125
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 9,
+                  "reference_to_video": true
+                },
+                "price": 2.1875
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 10,
+                  "reference_to_video": true
+                },
+                "price": 2.34375
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 1,
+                  "reference_to_video": true
+                },
+                "price": 2.65625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 2,
+                  "reference_to_video": true
+                },
+                "price": 2.96875
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 3,
+                  "reference_to_video": true
+                },
+                "price": 3.28125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 4,
+                  "reference_to_video": true
+                },
+                "price": 3.59375
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 5,
+                  "reference_to_video": true
+                },
+                "price": 3.90625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 6,
+                  "reference_to_video": true
+                },
+                "price": 4.21875
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 7,
+                  "reference_to_video": true
+                },
+                "price": 4.53125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 8,
+                  "reference_to_video": true
+                },
+                "price": 4.84375
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 9,
+                  "reference_to_video": true
+                },
+                "price": 5.15625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 10,
+                  "reference_to_video": true
+                },
+                "price": 5.46875
+              }
+            ],
+            "defaults": {
+              "resolution": "720p",
+              "duration": 5,
+              "reference_to_video": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "shengshu",
+      "name": "viduq2-pro-fast",
+      "media_type": "video",
+      "display_name": "Vidu Q2 Pro Fast",
+      "release_date": "2025-12-02",
+      "facts": {
+        "durations": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "resolutions": [
+          "720p",
+          "1080p"
+        ],
+        "max_reference_images": 0,
+        "text_to_video": false,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": false
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "requests",
+            "dims": [
+              "resolution",
+              "duration"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 1
+                },
+                "price": 0.25
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 2
+                },
+                "price": 0.3125
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 3
+                },
+                "price": 0.375
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 4
+                },
+                "price": 0.4375
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 5
+                },
+                "price": 0.5
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 6
+                },
+                "price": 0.5625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 7
+                },
+                "price": 0.625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 8
+                },
+                "price": 0.6875
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 9
+                },
+                "price": 0.75
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 10
+                },
+                "price": 0.8125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 1
+                },
+                "price": 0.5
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 2
+                },
+                "price": 0.625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 3
+                },
+                "price": 0.75
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 4
+                },
+                "price": 0.875
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 5
+                },
+                "price": 1.0
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 6
+                },
+                "price": 1.125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 7
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 8
+                },
+                "price": 1.375
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 9
+                },
+                "price": 1.5
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 10
+                },
+                "price": 1.625
+              }
+            ],
+            "defaults": {
+              "resolution": "720p",
+              "duration": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "shengshu",
+      "name": "viduq2-turbo",
+      "media_type": "video",
+      "display_name": "Vidu Q2 Turbo",
+      "release_date": "2025-09-24",
+      "facts": {
+        "durations": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10
+        ],
+        "resolutions": [
+          "540p",
+          "720p",
+          "1080p"
+        ],
+        "max_reference_images": 0,
+        "text_to_video": false,
+        "first_frame": true,
+        "last_frame": true,
+        "reference_audio": false
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "requests",
+            "dims": [
+              "resolution",
+              "duration"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 1
+                },
+                "price": 0.1875
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 2
+                },
+                "price": 0.25
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 3
+                },
+                "price": 0.3125
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 4
+                },
+                "price": 0.375
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 5
+                },
+                "price": 0.4375
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 6
+                },
+                "price": 0.5
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 7
+                },
+                "price": 0.5625
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 8
+                },
+                "price": 0.625
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 9
+                },
+                "price": 0.6875
+              },
+              {
+                "when": {
+                  "resolution": "540p",
+                  "duration": 10
+                },
+                "price": 0.75
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 1
+                },
+                "price": 0.25
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 2
+                },
+                "price": 0.3125
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 3
+                },
+                "price": 0.625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 4
+                },
+                "price": 0.9375
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 5
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 6
+                },
+                "price": 1.5625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 7
+                },
+                "price": 1.875
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 8
+                },
+                "price": 2.1875
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 9
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 10
+                },
+                "price": 2.8125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 1
+                },
+                "price": 1.09375
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 2
+                },
+                "price": 1.40625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 3
+                },
+                "price": 1.71875
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 4
+                },
+                "price": 2.03125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 5
+                },
+                "price": 2.34375
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 6
+                },
+                "price": 2.65625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 7
+                },
+                "price": 2.96875
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 8
+                },
+                "price": 3.28125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 9
+                },
+                "price": 3.59375
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 10
+                },
+                "price": 3.90625
+              }
+            ],
+            "defaults": {
+              "resolution": "720p",
+              "duration": 5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "shengshu",
       "name": "viduq3",
       "media_type": "video",
       "display_name": "Vidu Q3 (Reference)",
@@ -13334,6 +15472,90 @@
             "defaults": {
               "resolution": "720p",
               "reference_to_video": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "shengshu",
+      "name": "viduq4-preview",
+      "media_type": "video",
+      "display_name": "Vidu Q4 Preview",
+      "release_date": "2026-10-08",
+      "facts": {
+        "durations": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ],
+        "resolutions": [
+          "540p",
+          "720p",
+          "1080p",
+          "2K",
+          "4K"
+        ],
+        "max_reference_images": 15,
+        "text_to_video": false,
+        "first_frame": true,
+        "last_frame": false,
+        "reference_audio": true,
+        "max_reference_audio_count": 3
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "540p"
+                },
+                "price": 0.28125
+              },
+              {
+                "when": {
+                  "resolution": "720p"
+                },
+                "price": 0.59375
+              },
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 0.75
+              },
+              {
+                "when": {
+                  "resolution": "2K"
+                },
+                "price": 1.1875
+              },
+              {
+                "when": {
+                  "resolution": "4K"
+                },
+                "price": 2.4375
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
             }
           }
         ]
@@ -13735,9 +15957,9 @@
       "media_type": "text",
       "display_name": "Grok 4.6",
       "aliases": [
+        "global.xai.grok-4.6",
         "xai.grok-4.6",
-        "us.xai.grok-4.6",
-        "global.xai.grok-4.6"
+        "us.xai.grok-4.6"
       ],
       "context_length": 500000,
       "release_date": "2026-08-12",
@@ -14315,6 +16537,28 @@
               {
                 "when": {},
                 "price": 0.01
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "xai",
+      "name": "grok-tts",
+      "media_type": "audio",
+      "display_name": "Grok TTS",
+      "facts": {},
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "characters",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.15
               }
             ]
           }
@@ -14986,9 +17230,9 @@
       "media_type": "text",
       "display_name": "GLM-5.1",
       "aliases": [
-        "zai-glm-5.1",
-        "alicloud-glm-5.1",
         "coding-glm-5.1",
+        "alicloud-glm-5.1",
+        "zai-glm-5.1",
         "zai-org-glm-5-1"
       ],
       "context_length": 200000,
@@ -15091,8 +17335,8 @@
       "display_name": "GLM-5.2",
       "aliases": [
         "zai-glm-5-2",
-        "databricks-glm-5-2",
         "glm5.2",
+        "databricks-glm-5-2",
         "zai-org-glm-5-2"
       ],
       "context_length": 1000000,
@@ -15155,11 +17399,11 @@
       "display_name": "GLM-5.3",
       "aliases": [
         "zai-glm-5-3",
-        "us.zai.glm-5.3",
-        "global.zai.glm-5.3",
         "glm5.3",
-        "umans-glm-5.3",
-        "z-ai-glm-5-3"
+        "global.zai.glm-5.3",
+        "us.zai.glm-5.3",
+        "z-ai-glm-5-3",
+        "umans-glm-5.3"
       ],
       "context_length": 1000000,
       "release_date": "2026-08-14",
@@ -15223,8 +17467,8 @@
         "zai-glm-5-3-flash",
         "morph-glm53flash",
         "glm5.3-flash",
-        "umans-glm-5.3-flash",
-        "z-ai-glm-5-3-flash"
+        "z-ai-glm-5-3-flash",
+        "umans-glm-5.3-flash"
       ],
       "context_length": 1000000,
       "release_date": "2026-08-26",
@@ -15448,6 +17692,11 @@
           "endpoint": "gemini-generate"
         },
         {
+          "api_model_name": "gemini-3.6-flash",
+          "entry": "google/gemini-3.6-flash",
+          "endpoint": "gemini-generate"
+        },
+        {
           "api_model_name": "gemini-3-pro-image",
           "entry": "google/gemini-3-pro-image",
           "endpoint": "gemini-image"
@@ -15458,19 +17707,46 @@
           "endpoint": "gemini-image"
         },
         {
+          "api_model_name": "gemini-omni-1.2-flash",
+          "entry": "google/gemini-omni-1.2-flash",
+          "endpoint": "gemini-interactions-video",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "gemini-omni-1.1-flash",
+          "entry": "google/gemini-omni-1.1-flash",
+          "endpoint": "gemini-interactions-video",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "gemini-nano-banana-2.1",
+          "entry": "google/gemini-nano-banana-2.1",
+          "min_app_version": "0.35.1",
+          "endpoint": "gemini-image"
+        },
+        {
+          "api_model_name": "gemini-3.1-flash-lite-image",
+          "entry": "google/gemini-3.1-flash-lite-image",
+          "min_app_version": "0.35.1",
+          "endpoint": "gemini-image"
+        },
+        {
           "api_model_name": "veo-3.1-generate-preview",
           "entry": "google/veo-3.1-generate-preview",
-          "endpoint": "gemini-video"
+          "endpoint": "gemini-video",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "veo-3.1-fast-generate-preview",
           "entry": "google/veo-3.1-fast-generate-preview",
-          "endpoint": "gemini-video"
+          "endpoint": "gemini-video",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "veo-3.1-lite-generate-preview",
           "entry": "google/veo-3.1-lite-generate-preview",
-          "endpoint": "gemini-video"
+          "endpoint": "gemini-video",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "gemini-3.8-flash-tts",
@@ -15498,11 +17774,6 @@
           "endpoint": "gemini-generate"
         },
         {
-          "api_model_name": "gemini-3.6-flash",
-          "entry": "google/gemini-3.6-flash",
-          "endpoint": "gemini-generate"
-        },
-        {
           "api_model_name": "gemini-3.8-flash",
           "entry": "google/gemini-3.8-flash",
           "endpoint": "gemini-generate"
@@ -15510,6 +17781,16 @@
         {
           "api_model_name": "gemini-4-argon",
           "entry": "google/gemini-4-argon",
+          "endpoint": "gemini-generate"
+        },
+        {
+          "api_model_name": "gemini-4-carbon",
+          "entry": "google/gemini-4-carbon",
+          "endpoint": "gemini-generate"
+        },
+        {
+          "api_model_name": "gemini-4-hydrogen",
+          "entry": "google/gemini-4-hydrogen",
           "endpoint": "gemini-generate"
         },
         {
@@ -15537,6 +17818,11 @@
           "endpoint": "gemini-generate"
         },
         {
+          "api_model_name": "gemini-3.6-flash",
+          "entry": "google/gemini-3.6-flash",
+          "endpoint": "gemini-generate"
+        },
+        {
           "api_model_name": "gemini-3-pro-image",
           "entry": "google/gemini-3-pro-image",
           "endpoint": "gemini-image"
@@ -15547,13 +17833,33 @@
           "endpoint": "gemini-image"
         },
         {
+          "api_model_name": "gemini-nano-banana-2.1",
+          "entry": "google/gemini-nano-banana-2.1",
+          "min_app_version": "0.35.1",
+          "endpoint": "gemini-image"
+        },
+        {
+          "api_model_name": "gemini-3.1-flash-lite-image",
+          "entry": "google/gemini-3.1-flash-lite-image",
+          "min_app_version": "0.35.1",
+          "endpoint": "gemini-image"
+        },
+        {
           "api_model_name": "veo-3.1-generate-001",
           "entry": "google/veo-3.1-generate-001",
-          "endpoint": "gemini-vertex-video"
+          "endpoint": "gemini-vertex-video",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "veo-3.1-fast-generate-001",
           "entry": "google/veo-3.1-fast-generate-001",
+          "endpoint": "gemini-vertex-video",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "veo-3.1-lite-generate-001",
+          "entry": "google/veo-3.1-lite-generate-001",
+          "min_app_version": "0.35.1",
           "endpoint": "gemini-vertex-video"
         },
         {
@@ -15587,11 +17893,6 @@
           "endpoint": "gemini-generate"
         },
         {
-          "api_model_name": "gemini-3.6-flash",
-          "entry": "google/gemini-3.6-flash",
-          "endpoint": "gemini-generate"
-        },
-        {
           "api_model_name": "gemini-3.7-flash",
           "entry": "google/gemini-3.7-flash",
           "endpoint": "gemini-generate"
@@ -15604,6 +17905,16 @@
         {
           "api_model_name": "gemini-4-argon",
           "entry": "google/gemini-4-argon",
+          "endpoint": "gemini-generate"
+        },
+        {
+          "api_model_name": "gemini-4-carbon",
+          "entry": "google/gemini-4-carbon",
+          "endpoint": "gemini-generate"
+        },
+        {
+          "api_model_name": "gemini-4-hydrogen",
+          "entry": "google/gemini-4-hydrogen",
           "endpoint": "gemini-generate"
         }
       ],
@@ -15625,6 +17936,12 @@
           "api_model_name": "doubao-seed-2-1-pro-260915",
           "entry": "bytedance/doubao-seed-2.1-pro",
           "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "doubao-seedream-5-5-261028",
+          "entry": "bytedance/doubao-seedream-5-5",
+          "endpoint": "ark-seedream-4",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "doubao-seedream-5-0-pro-260628",
@@ -15771,18 +18088,8 @@
           "endpoint": "ark-chat"
         },
         {
-          "api_model_name": "deepseek-v4-pro",
-          "entry": "deepseek/deepseek-v4-pro",
-          "endpoint": "ark-chat"
-        },
-        {
           "api_model_name": "glm-5.3-flash",
           "entry": "zhipu/glm-5.3-flash",
-          "endpoint": "ark-chat"
-        },
-        {
-          "api_model_name": "glm-5.3",
-          "entry": "zhipu/glm-5.3",
           "endpoint": "ark-chat"
         },
         {
@@ -15791,8 +18098,18 @@
           "endpoint": "ark-chat"
         },
         {
+          "api_model_name": "glm-5.3",
+          "entry": "zhipu/glm-5.3",
+          "endpoint": "ark-chat"
+        },
+        {
           "api_model_name": "deepseek-v4-flash",
           "entry": "deepseek/deepseek-v4-flash",
+          "endpoint": "ark-chat"
+        },
+        {
+          "api_model_name": "deepseek-v4-pro",
+          "entry": "deepseek/deepseek-v4-pro",
           "endpoint": "ark-chat"
         }
       ],
@@ -15833,6 +18150,12 @@
           "endpoint": "grok-video-mixed"
         },
         {
+          "api_model_name": "grok-tts",
+          "entry": "xai/grok-tts",
+          "endpoint": "grok-tts",
+          "min_app_version": "0.35.1"
+        },
+        {
           "api_model_name": "grok-4.20-0309-non-reasoning",
           "entry": "xai/grok-4.20-0309-non-reasoning",
           "endpoint": "grok-chat"
@@ -15871,7 +18194,8 @@
       "defaults": {
         "text": "grok-4.3",
         "image": "grok-imagine-image",
-        "video": "grok-imagine-video"
+        "video": "grok-imagine-video",
+        "audio": "grok-tts"
       }
     },
     "openai": {
@@ -15885,6 +18209,16 @@
           "api_model_name": "o3-pro",
           "entry": "openai/o3-pro",
           "endpoint": "openai-responses"
+        },
+        {
+          "api_model_name": "gpt-image-2.6-sunburst",
+          "entry": "openai/gpt-image-2.6-sunburst",
+          "endpoint": "openai-images"
+        },
+        {
+          "api_model_name": "gpt-image-2.6-flare",
+          "entry": "openai/gpt-image-2.6-flare",
+          "endpoint": "openai-images"
         },
         {
           "api_model_name": "gpt-image-2.5-sunburst",
@@ -15979,7 +18313,7 @@
       ],
       "defaults": {
         "text": "gpt-5.4-mini",
-        "image": "gpt-image-2"
+        "image": "gpt-image-2.6-flare"
       }
     },
     "vidu": {
@@ -16013,6 +18347,30 @@
           "api_model_name": "viduq3",
           "entry": "shengshu/viduq3",
           "endpoint": "vidu-video-q3-reference"
+        },
+        {
+          "api_model_name": "viduq4-preview",
+          "entry": "shengshu/viduq4-preview",
+          "endpoint": "vidu-video-q4",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "viduq2-pro",
+          "entry": "shengshu/viduq2-pro",
+          "endpoint": "vidu-video-q2-pro",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "viduq2-turbo",
+          "entry": "shengshu/viduq2-turbo",
+          "endpoint": "vidu-video-q2-fast",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "viduq2-pro-fast",
+          "entry": "shengshu/viduq2-pro-fast",
+          "endpoint": "vidu-video-q2-fast",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "vidu2.0",
@@ -16051,6 +18409,18 @@
           "api_model_name": "qwen-image-2.0-pro",
           "entry": "alibaba/qwen-image-2.0-pro",
           "endpoint": "dashscope-qwen-image"
+        },
+        {
+          "api_model_name": "qwen-image-2.1-pro",
+          "entry": "alibaba/qwen-image-2.1-pro",
+          "endpoint": "dashscope-qwen-image",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "qwen-image-2.1-turbo",
+          "entry": "alibaba/qwen-image-2.1-turbo",
+          "endpoint": "dashscope-qwen-image",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "qwen-image-3.0",
@@ -16135,7 +18505,8 @@
         {
           "api_model_name": "qwen3-tts-flash",
           "entry": "alibaba/qwen3-tts-flash",
-          "endpoint": "dashscope-tts"
+          "endpoint": "dashscope-tts",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "qwen3.6-max-preview",
@@ -16146,6 +18517,30 @@
           "api_model_name": "MiniMax-M2.5",
           "entry": "minimax/MiniMax-M2.5",
           "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "qwen-audio-3.1-tts-flash",
+          "entry": "alibaba/qwen-audio-3.1-tts-flash",
+          "endpoint": "dashscope-speech-synthesizer",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "qwen-audio-3.1-tts-plus",
+          "entry": "alibaba/qwen-audio-3.1-tts-plus",
+          "endpoint": "dashscope-speech-synthesizer",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "qwen-audio-3.0-tts-flash",
+          "entry": "alibaba/qwen-audio-3.0-tts-flash",
+          "endpoint": "dashscope-speech-synthesizer",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "qwen-audio-3.0-tts-plus",
+          "entry": "alibaba/qwen-audio-3.0-tts-plus",
+          "endpoint": "dashscope-speech-synthesizer",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "qwen3.5-flash",
@@ -16193,28 +18588,13 @@
           "endpoint": "openai-chat"
         },
         {
+          "api_model_name": "kimi-k3",
+          "entry": "moonshot/kimi-k3",
+          "endpoint": "openai-chat"
+        },
+        {
           "api_model_name": "glm-5",
           "entry": "zhipu/glm-5",
-          "endpoint": "openai-chat"
-        },
-        {
-          "api_model_name": "glm-5.2",
-          "entry": "zhipu/glm-5.2",
-          "endpoint": "openai-chat"
-        },
-        {
-          "api_model_name": "glm-5.1",
-          "entry": "zhipu/glm-5.1",
-          "endpoint": "openai-chat"
-        },
-        {
-          "api_model_name": "deepseek-v4-pro",
-          "entry": "deepseek/deepseek-v4-pro",
-          "endpoint": "openai-chat"
-        },
-        {
-          "api_model_name": "kimi-k2.6",
-          "entry": "moonshot/kimi-k2.6",
           "endpoint": "openai-chat"
         },
         {
@@ -16223,13 +18603,28 @@
           "endpoint": "openai-chat"
         },
         {
-          "api_model_name": "kimi-k3",
-          "entry": "moonshot/kimi-k3",
+          "api_model_name": "glm-5.1",
+          "entry": "zhipu/glm-5.1",
           "endpoint": "openai-chat"
         },
         {
           "api_model_name": "deepseek-v4.1-flash",
           "entry": "deepseek/deepseek-flash",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "deepseek-v4-pro",
+          "entry": "deepseek/deepseek-v4-pro",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "glm-5.2",
+          "entry": "zhipu/glm-5.2",
+          "endpoint": "openai-chat"
+        },
+        {
+          "api_model_name": "kimi-k2.6",
+          "entry": "moonshot/kimi-k2.6",
           "endpoint": "openai-chat"
         }
       ],
@@ -16335,17 +18730,27 @@
         {
           "api_model_name": "kling-image-o1",
           "entry": "kuaishou/kling-image-o1",
-          "endpoint": "kling-image"
+          "endpoint": "kling-image",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "kling-v3-omni",
           "entry": "kuaishou/kling-v3-omni",
           "media_type": "image",
-          "endpoint": "kling-image"
+          "endpoint": "kling-image",
+          "min_app_version": "0.35.1"
         },
         {
           "api_model_name": "kling-v3",
           "entry": "kuaishou/kling-v3",
+          "media_type": "image",
+          "endpoint": "kling-image-single",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "kling-v3",
+          "entry": "kuaishou/kling-v3",
+          "media_type": "video",
           "endpoint": "kling-video-audio"
         },
         {
@@ -16363,6 +18768,24 @@
           "api_model_name": "kling-video-o1",
           "entry": "kuaishou/kling-video-o1",
           "endpoint": "kling-video-silent"
+        },
+        {
+          "api_model_name": "kling-4.0",
+          "entry": "kuaishou/kling-4.0",
+          "endpoint": "kling-video-model-path",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "kling-4.0-flash",
+          "entry": "kuaishou/kling-4.0-flash",
+          "endpoint": "kling-video-model-path",
+          "min_app_version": "0.35.1"
+        },
+        {
+          "api_model_name": "kling-3.0-turbo",
+          "entry": "kuaishou/kling-3.0-turbo",
+          "endpoint": "kling-video-model-path",
+          "min_app_version": "0.35.1"
         }
       ],
       "defaults": {

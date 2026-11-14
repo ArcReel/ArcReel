@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.37.0](https://github.com/ArcReel/ArcReel/compare/v0.36.0...v0.37.0) (2026-11-14)
+
+
+### ✨ 新功能
+
+* **audio:** 方舟 Agent Plan 支持豆包语音合成配音与试听 ([9911d54](https://github.com/ArcReel/ArcReel/commit/9911d54f8c81d9a45eaa3c3ca2107b2fded8a6fe)), closes [#3747](https://github.com/ArcReel/ArcReel/issues/3747)
+* **catalog:** record accepted image quality values on catalog entries ([bb336c4](https://github.com/ArcReel/ArcReel/commit/bb336c42e62e8d123c69d4c5c19c22c0a15c0b0f)), closes [#3767](https://github.com/ArcReel/ArcReel/issues/3767)
+* **config:** treat builtin provider defaults as recommendations only ([9242e0e](https://github.com/ArcReel/ArcReel/commit/9242e0e48619e926b2de1e8df1a1f939d01a229d)), closes [#3761](https://github.com/ArcReel/ArcReel/issues/3761)
+* **image:** send the project's chosen image quality separately from resolution ([bcc8eb4](https://github.com/ArcReel/ArcReel/commit/bcc8eb42ace069dd56dfa4abf2c39904682431e7)), closes [#3770](https://github.com/ArcReel/ArcReel/issues/3770)
+* **settings:** choose image quality per project and flag stale resolution and quality ([ad62ec8](https://github.com/ArcReel/ArcReel/commit/ad62ec8e88697778e56a2128ff834f35d8b4f970)), closes [#3771](https://github.com/ArcReel/ArcReel/issues/3771)
+
+
+### 🐛 Bug 修复
+
+* **agent:** 安全检查失败时阻止工具执行 ([7322f57](https://github.com/ArcReel/ArcReel/commit/7322f57ee3647d7bea260d80dc32ae1e0f6ea8b9)), closes [#3760](https://github.com/ArcReel/ArcReel/issues/3760)
+* **archive:** clean failed export snapshots immediately ([9aaa45c](https://github.com/ArcReel/ArcReel/commit/9aaa45c7dc79301935a99cb5cea1cad601fc4fe7)), closes [#3756](https://github.com/ArcReel/ArcReel/issues/3756)
+* **archive:** preserve referenced content during import repair ([793db95](https://github.com/ArcReel/ArcReel/commit/793db959f2da83b5f8aded01b5c813749b4de310)), closes [#3758](https://github.com/ArcReel/ArcReel/issues/3758)
+* **catalog:** rebuild cached image backends after official catalog sync ([6f2fffc](https://github.com/ArcReel/ArcReel/commit/6f2fffca7d4aef421cc6ec12809ca049c1e257f6)), closes [#3780](https://github.com/ArcReel/ArcReel/issues/3780)
+* **config:** keep each instance's pre-upgrade models when defaults become recommendations ([10ab99d](https://github.com/ArcReel/ArcReel/commit/10ab99d0d18817143471f4ce1c56a6cf66ba0da3))
+* **docker:** 镜像内置 git，Agent 要求 worktree 隔离派发子智能体时不再被拒 ([#3798](https://github.com/ArcReel/ArcReel/issues/3798)) ([475ad3c](https://github.com/ArcReel/ArcReel/commit/475ad3c48c6bc6b63cd8eb2fac2cd859e3e402db))
+* **generation:** apply saved concurrency limits at startup and after catalog sync ([f9d80ee](https://github.com/ArcReel/ArcReel/commit/f9d80eeb07b1633c667ee6f64265fd2582a9004f)), closes [#3788](https://github.com/ArcReel/ArcReel/issues/3788)
+* **generation:** guide missing text models to default model settings ([0382908](https://github.com/ArcReel/ArcReel/commit/038290834f06656569c42e7a2f3d1265290951b3)), closes [#3787](https://github.com/ArcReel/ArcReel/issues/3787)
+* **planning:** constrain speakers by reference audio limit ([afa75a7](https://github.com/ArcReel/ArcReel/commit/afa75a70c318aac58372c57d44026bbe6e28d8fe)), closes [#3754](https://github.com/ArcReel/ArcReel/issues/3754)
+* **planning:** gate speaker limit on the native voice tier ([2f7a833](https://github.com/ArcReel/ArcReel/commit/2f7a833fd92690a0cc37df4cca66d13b0d5ba4cc)), closes [#3754](https://github.com/ArcReel/ArcReel/issues/3754)
+* **providers:** show concurrency settings for every media type a provider currently supports ([971f58a](https://github.com/ArcReel/ArcReel/commit/971f58ad72e6a068aaf3021aabcf7a5f427064c6)), closes [#3785](https://github.com/ArcReel/ArcReel/issues/3785)
+* **script:** 按单元参考图状态约束说话人数 ([cc26124](https://github.com/ArcReel/ArcReel/commit/cc26124be432dc7851e11b659d8e1def1098bcd3)), closes [#3783](https://github.com/ArcReel/ArcReel/issues/3783)
+* **script:** 草稿结构不符时网页写明上下限与允许的取值 ([b1a514f](https://github.com/ArcReel/ArcReel/commit/b1a514fafcdf6a4e2ac581608bab303700931fdf)), closes [#3808](https://github.com/ArcReel/ArcReel/issues/3808)
+* **script:** 草稿违约说明随界面语言显示 ([e8e915e](https://github.com/ArcReel/ArcReel/commit/e8e915ecb70ba04f878c711d9584fc6aa8bcc51e)), closes [#3784](https://github.com/ArcReel/ArcReel/issues/3784)
+* **settings:** 自定义供应商的图片分辨率建议去掉 512px ([7b82a1d](https://github.com/ArcReel/ArcReel/commit/7b82a1de4ad8bbdf65f446dc1ce07bed257e3123)), closes [#3786](https://github.com/ArcReel/ArcReel/issues/3786)
+* **usage:** allow PostgreSQL voice sample usage records without exposing SQL ([0efa439](https://github.com/ArcReel/ArcReel/commit/0efa43944438a28fea2caf0a0dc5a4f473975b5e)), closes [#3793](https://github.com/ArcReel/ArcReel/issues/3793)
+* **usage:** localize recorded domain failures with bounded parameters ([9da1bd4](https://github.com/ArcReel/ArcReel/commit/9da1bd48f8e2bac8c9d8097587eb686ab7fb36c5)), closes [#3782](https://github.com/ArcReel/ArcReel/issues/3782)
+* **usage:** match failure detail wording with task reasons ([55b2017](https://github.com/ArcReel/ArcReel/commit/55b20174df35a1d637910826ee3cccbe2004e74d)), closes [#3755](https://github.com/ArcReel/ArcReel/issues/3755) [#3748](https://github.com/ArcReel/ArcReel/issues/3748)
+* **usage:** preserve and localize media failure details ([a2e7a02](https://github.com/ArcReel/ArcReel/commit/a2e7a02a33e16796c6a546bbb796f901b41de0a5)), closes [#3748](https://github.com/ArcReel/ArcReel/issues/3748)
+* **versions:** protect rollback targets during video finalization ([34f21b3](https://github.com/ArcReel/ArcReel/commit/34f21b3120c3b2cb9d5dde42461f308da181db6e)), closes [#3755](https://github.com/ArcReel/ArcReel/issues/3755)
+
+
+### ♻️ 重构
+
+* **audio:** 方舟 Agent Plan 语音合成的失败隔离与连接失败说明 ([a375af2](https://github.com/ArcReel/ArcReel/commit/a375af22ef71e2019ab0e145073c9f0328dcdf2f))
+* **script:** 违约文案登记在独立前缀下并补全显示细节 ([de13a07](https://github.com/ArcReel/ArcReel/commit/de13a0763466fffddba8ed8e818ac0543a6155d3)), closes [#3784](https://github.com/ArcReel/ArcReel/issues/3784)
+* **usage:** share failure detail trimming and expected file types with tasks ([816c345](https://github.com/ArcReel/ArcReel/commit/816c345883f9326e6a798209ec91a7c52916c655)), closes [#3782](https://github.com/ArcReel/ArcReel/issues/3782)
+
 ## [0.36.0](https://github.com/ArcReel/ArcReel/compare/v0.35.0...v0.36.0) (2026-11-10)
 
 
