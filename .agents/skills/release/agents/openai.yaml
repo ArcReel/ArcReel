@@ -1,0 +1,7 @@
+interface:
+  display_name: "Release"
+  short_description: "合并 Release PR，起草版本亮点，确认后写入 Changelog 与 Release"
+  default_prompt: "Use $release to merge the Release PR, draft the release highlights, wait for my approval, then publish them."
+
+policy:
+  allow_implicit_invocation: false
