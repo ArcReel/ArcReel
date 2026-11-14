@@ -208,66 +208,72 @@ export function ShotSplitView({
   const segment = segments[safeIndex];
 
   return (
-    <div
-      ref={rootRef}
-      className={cn(
-        "grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)]",
-        collapsed ? "grid-cols-[44px_minmax(0,1fr)]" : "grid-cols-[220px_minmax(0,1fr)]",
-      )}
-    >
-      <ShotList
-        segments={segments}
-        selectedIndex={safeIndex}
-        onSelect={select}
-        contentMode={contentMode}
-        projectName={projectName}
-        aspectRatio={aspectRatio}
-        collapsed={collapsed}
-        onToggleCollapse={() => setCollapsed((c) => !c)}
-        onAppend={handleInsertShot}
-        appendDisabled={structurePending || movePending}
-        onMove={handleMoveShot}
-        moveDisabled={structurePending || movePending}
-        footer={<ShotShortcutHint canSave={Boolean(onUpdatePrompt)} />}
-      />
-      <RetainedEditUnit identity={segmentId ?? "missing"} value={
-      segmentId !== undefined && segment ? <ShotDetail
-        key={segmentId}
-        segment={segment}
-        segmentId={segmentId}
-        contentMode={contentMode}
-        aspectRatio={aspectRatio}
-        projectName={projectName}
-        episode={episode}
-        scriptFile={scriptFile}
-        selectedIndex={safeIndex}
-        totalCount={segments.length}
-        onPrev={selectPrev}
-        onNext={selectNext}
-        onUpdatePrompt={onUpdatePrompt}
-        onMoveShot={handleMoveStep}
-        movePending={movePending}
-        onInsertShot={handleInsertShot}
-        onRemoveShot={handleRemoveShot}
-        structurePending={structurePending}
-        onGenerateStoryboard={onGenerateStoryboard}
-        onGenerateVideo={onGenerateVideo}
-        onGenerateNarration={onGenerateNarration}
-        onRestoreStoryboard={onRestoreStoryboard}
-        onRestoreVideo={onRestoreVideo}
-        generatingStoryboard={generatingStoryboard?.(segmentId)}
-        generatingVideo={generatingVideo?.(segmentId)}
-        generatingNarration={generatingNarration?.(segmentId)}
-        durationOptions={durationOptions}
-        durationEndpointFixed={durationEndpointFixed}
-        lastFrame={lastFrame}
-        capabilitiesLoading={capabilitiesLoading}
-        durationWarningReason={durationWarningReason}
-        editRef={editRef}
-      /> : null
-      } message={t("dashboard:shot_externally_removed")}>
-        {(detail) => detail}
-      </RetainedEditUnit>
+    // 尺寸容器挂在外层：容器查询解析的是元素的祖先容器，不能查询自身宽度。
+    <div ref={rootRef} className="@container/shot-split h-full min-h-0 min-w-0">
+      <div
+        className={cn(
+          // 展开时列表 220px；容器窄于 560px（手机竖屏）时收到 152px，把宽度让给详情栏，
+          // 否则详情只剩 ~90px，正文逐字换行、标题与工具按钮都放不下。
+          "grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)]",
+          collapsed
+            ? "grid-cols-[44px_minmax(0,1fr)]"
+            : "grid-cols-[minmax(0,152px)_minmax(0,1fr)] @min-[560px]/shot-split:grid-cols-[220px_minmax(0,1fr)]",
+        )}
+      >
+        <ShotList
+          segments={segments}
+          selectedIndex={safeIndex}
+          onSelect={select}
+          contentMode={contentMode}
+          projectName={projectName}
+          aspectRatio={aspectRatio}
+          collapsed={collapsed}
+          onToggleCollapse={() => setCollapsed((c) => !c)}
+          onAppend={handleInsertShot}
+          appendDisabled={structurePending || movePending}
+          onMove={handleMoveShot}
+          moveDisabled={structurePending || movePending}
+          footer={<ShotShortcutHint canSave={Boolean(onUpdatePrompt)} />}
+        />
+        <RetainedEditUnit identity={segmentId ?? "missing"} value={
+        segmentId !== undefined && segment ? <ShotDetail
+          key={segmentId}
+          segment={segment}
+          segmentId={segmentId}
+          contentMode={contentMode}
+          aspectRatio={aspectRatio}
+          projectName={projectName}
+          episode={episode}
+          scriptFile={scriptFile}
+          selectedIndex={safeIndex}
+          totalCount={segments.length}
+          onPrev={selectPrev}
+          onNext={selectNext}
+          onUpdatePrompt={onUpdatePrompt}
+          onMoveShot={handleMoveStep}
+          movePending={movePending}
+          onInsertShot={handleInsertShot}
+          onRemoveShot={handleRemoveShot}
+          structurePending={structurePending}
+          onGenerateStoryboard={onGenerateStoryboard}
+          onGenerateVideo={onGenerateVideo}
+          onGenerateNarration={onGenerateNarration}
+          onRestoreStoryboard={onRestoreStoryboard}
+          onRestoreVideo={onRestoreVideo}
+          generatingStoryboard={generatingStoryboard?.(segmentId)}
+          generatingVideo={generatingVideo?.(segmentId)}
+          generatingNarration={generatingNarration?.(segmentId)}
+          durationOptions={durationOptions}
+          durationEndpointFixed={durationEndpointFixed}
+          lastFrame={lastFrame}
+          capabilitiesLoading={capabilitiesLoading}
+          durationWarningReason={durationWarningReason}
+          editRef={editRef}
+        /> : null
+        } message={t("dashboard:shot_externally_removed")}>
+          {(detail) => detail}
+        </RetainedEditUnit>
+      </div>
     </div>
   );
 }

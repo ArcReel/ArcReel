@@ -25,7 +25,9 @@ export function ShotDetailLayout({
   media: ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 min-w-0 flex-col">
+    // `data-shot-detail`：移动档按更紧的字号与控件尺寸排版（见 index.css 的同名规则）。
+    // 属性无条件挂在根节点，档位判断只写在 CSS 媒体查询里，组件不读视口宽度。
+    <div data-shot-detail="" className="flex min-h-0 min-w-0 flex-col">
       {header}
       <div className="@container/shot-detail flex min-h-0 flex-1 flex-col">
         <div className="relative grid min-h-0 flex-1 auto-rows-max grid-cols-[minmax(0,1fr)] content-start overflow-y-auto [scrollbar-gutter:stable] @min-[480px]/shot-detail:grid-cols-[minmax(0,1fr)_300px] @min-[480px]/shot-detail:grid-rows-[minmax(0,1fr)] @min-[480px]/shot-detail:content-stretch @min-[480px]/shot-detail:overflow-visible @min-[860px]/shot-detail:grid-cols-[minmax(360px,560px)_minmax(0,1fr)]">
@@ -58,7 +60,8 @@ export function ShotGroup({ children }: { children: ReactNode }) {
  * 右侧操作组（字数、预览、形态开关）在 12px 字号下需要 200px 以上才能排成一行，
  * 两者加上图标与间距已接近 360px；低于这个宽度时标题只能靠挤压让位，最终竖排。
  * 因此触发条件只看本段实测宽度，不看视口档位——分镜列表展开、Agent 面板展开都会让
- * 编辑栏变窄，此时桌面档同样需要短标题。
+ * 编辑栏变窄（768px 下可到 141px），此时桌面档同样需要短标题。字号仍由 CSS 媒体查询
+ * 按档位控制，桌面档的字号不变。
  */
 export function ShotSection({
   title,
@@ -89,14 +92,19 @@ export function ShotSection({
   );
   return (
     <section ref={ref} aria-labelledby={titleId} className="flex min-w-0 flex-col gap-2">
-      {/* 标题固定单行不参与压缩；右侧操作组自己折行，窄栏里字数、预览、形态开关
-          逐个换到下一行，标题与字数不再被挤成逐字竖排，也不会撑出容器右缘。 */}
-      <div className="flex min-h-7 items-start gap-1.5">
-        <div className="flex min-w-0 items-center gap-1.5">
+      {/* 标题、字数、查看提示词、形态开关始终排在同一行：窄栏里只把行高与间距收一档，
+          不折行。标题不参与压缩，操作组按需收缩，整行不撑出容器右缘。字号由
+          `data-shot-detail` 的媒体查询统一控制，这里不写死尺寸。 */}
+      <div className={cn("flex min-w-0 items-center", narrow ? "min-h-6 gap-1" : "min-h-7 gap-1.5")}>
+        <div className={cn("flex min-w-0 items-center", narrow ? "gap-1" : "gap-1.5")}>
           {icon ? <span className="flex shrink-0 text-muted-foreground">{icon}</span> : null}
           {heading}
         </div>
-        {actions ? <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1">{actions}</div> : null}
+        {actions ? (
+          <div className={cn("ml-auto flex min-w-0 items-center justify-end", narrow ? "gap-0.5" : "gap-1")}>
+            {actions}
+          </div>
+        ) : null}
       </div>
       {children}
     </section>

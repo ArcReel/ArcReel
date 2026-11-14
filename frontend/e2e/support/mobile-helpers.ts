@@ -74,13 +74,12 @@ export async function expectTouchTargets(page: import("@playwright/test").Page) 
       // 允许 1px 取整误差
       if (rect.width < 43 || rect.height < 43) {
         // 设置页详情栏（`data-detail-dense`：调用端点、供应商）按需求把字号与方框整体收到
-        // 分节标题 10px / 正文 9px / 控件 32px。这些控件是有意做小的，不按 44px 判失败；
-        // 其余页面仍按 44px 检查。
+        // 分节标题 10px / 正文 9px / 控件 32px。这些控件是有意做小的，不按 44px 判失败。
         if (el.closest("[data-detail-dense]")) continue;
-        // 分镜详情页头的工具按钮组（`data-shot-detail-header`）：移动档列表展开时详情栏
-        // 只剩 170px，44px 命中区一行只放得下两个、页头被撑到 300px 高。按需求收到 32px，
-        // 保证七个按钮两行内完整可见、右缘不裁。同样是有意做小。
-        if (el.closest("[data-shot-detail-header]")) continue;
+        // 分镜详情（`data-shot-detail`）是长时间输入的操作页，按需求把正文收到 13px、
+        // 工具按钮收到 36px：头部一排七个按钮，44px 在 390px 宽下最后一个会被裁掉。
+        // 36px 仍在 WCAG 2.5.8 的 24px 下限之上。其余页面仍按 44px 检查。
+        if (el.closest("[data-shot-detail]")) continue;
         out.push({
           label: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 40),
           width: Math.round(rect.width),

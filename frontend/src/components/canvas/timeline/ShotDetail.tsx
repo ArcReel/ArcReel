@@ -766,6 +766,7 @@ export function ShotDetail({
 
   const promptsGroup = (
     <ShotGroup>
+      {/* 窄栏里这一行折行：标题与「编写提示词」按钮各占一行，标题不再被挤成竖排。 */}
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="shrink-0 text-sm font-medium whitespace-nowrap text-subtle-foreground">
           {t("detail_section_prompts")}

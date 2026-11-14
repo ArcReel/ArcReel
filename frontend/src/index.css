@@ -581,16 +581,64 @@ body {
         padding-inline: 0.5rem;
     }
 
-    /* 分镜详情页头的工具按钮组：图标按钮 7 个 + 位置徽标，移动档列表展开时详情栏只剩
-       170px，44px 的命中区一行只放得下两个、页头被撑到 300px 高。这里把这组按钮收到
-       32px 见方、间距 2px，两行放得下且每个按钮完整可见，右缘不再裁掉半个图标。
-       只作用于页头这一组，详情正文里的按钮仍是 44px。 */
-    [data-shot-detail-header] :where(button, [role="button"]) {
-        min-width: 2rem;
-        min-height: 2rem;
+    /* 分镜详情（操作页）：正文 13px、辅助 11px、控件 36px。
+       与上面的 [data-detail-dense] 是两套尺度——那一套是设置页的「信息密集、只需扫读」，
+       这里是要长期输入的操作页，收一档即可，仍保持正文可读。
+       控件收到 36px：分镜详情头部一排有七个工具按钮，44px 在 390px 宽下放不下，最后一个
+       图标被裁掉一半。36px 仍在 WCAG 2.5.8 的 24px 下限之上，也留出了手指余量。 */
+    [data-shot-detail] {
+        font-size: 0.8125rem;
+        line-height: 1.25rem;
     }
 
-    [data-shot-detail-header] {
+    [data-shot-detail] :is(.text-xs) {
+        font-size: 0.6875rem;
+        line-height: 0.9375rem;
+    }
+
+    [data-shot-detail] :is(.text-sm) {
+        font-size: 0.75rem;
+        line-height: 1rem;
+    }
+
+    [data-shot-detail] :is(.text-base) {
+        font-size: 0.8125rem;
+        line-height: 1.25rem;
+    }
+
+    [data-shot-detail] :is(.text-lg) {
+        font-size: 0.875rem;
+        line-height: 1.1875rem;
+    }
+
+    /* 输入框与下拉：13px / 36px。低于 16px 会让 iOS 聚焦时轻微放大页面，这是用户为信息密度
+       明确要求的取舍；只作用于分镜详情，设置页以外的其他表单不受影响。
+       字号规则不用 `:where()`：输入框自带 `.text-sm`，被上面的规则压到 12px；
+       这里要写满两级属性（0,2,0）并在其后声明，才能把输入框拉回 13px。 */
+    [data-shot-detail] :where([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"], [data-slot="input-group"]) {
+        min-height: 2.25rem;
+    }
+
+    [data-shot-detail] [data-slot="input"],
+    [data-shot-detail] [data-slot="textarea"],
+    [data-shot-detail] [data-slot="select-trigger"],
+    [data-shot-detail] [data-slot="input-group-control"] {
+        font-size: 0.8125rem;
+        line-height: 1.25rem;
+    }
+
+    [data-shot-detail] :where([data-slot="textarea"]) {
+        padding-block: 0.4375rem;
+    }
+
+    /* 按钮与分段开关：36px 见方，字号 12px。 */
+    [data-shot-detail] :where(a, button, [role="button"], [data-slot="button"], [data-slot="toggle-group-item"], [data-slot="tabs-trigger"]) {
+        min-width: 2.25rem;
+        min-height: 2.25rem;
+        font-size: 0.75rem;
+    }
+
+    [data-shot-detail] :where([data-slot="toggle-group-item"], [data-slot="tabs-trigger"]) {
         padding-inline: 0.5rem;
     }
 
