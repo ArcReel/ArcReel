@@ -181,29 +181,39 @@ export function ShotList({
   }
 
   return (
-    <nav aria-label={t("shot_list_label")} className="flex min-h-0 min-w-0 flex-col border-r border-border/50 bg-sidebar/40">
-      <div className="flex shrink-0 items-center gap-1 px-3 pt-3 pb-2">
-        <h2 className="text-xs font-medium text-muted-foreground">{t("shots_section_title")}</h2>
-        <span className="num text-xs text-muted-foreground">{visibleIds.length}</span>
-        <span className="flex-1" />
-        {onAppend && (
-          <InsertShotButton
-            afterId={null}
-            contentMode={contentMode}
-            onInsert={onAppend}
-            label={t("shot_append")}
-            disabled={appendDisabled}
-            variant="compact"
-          />
-        )}
-        <Tooltip>
-          <TooltipTrigger
-            render={<Button variant="ghost" size="icon-sm" aria-label={t("shot_list_collapse")} onClick={onToggleCollapse} />}
-          >
-            <ChevronLeft aria-hidden />
-          </TooltipTrigger>
-          <TooltipContent>{t("shot_list_collapse")}</TooltipContent>
-        </Tooltip>
+    <nav
+      data-shot-list=""
+      aria-label={t("shot_list_label")}
+      className="flex min-h-0 min-w-0 flex-col border-r border-border/50 bg-sidebar/40"
+    >
+      {/* 栏宽收到 152px 时这一行放不下（标题 + 计数 + 新增 80px + 折叠 44px 约 190px），
+          折叠按钮会被挤出栏外、被详情栏盖住，点击落不到按钮上。分成左右两组并允许折行：
+          放不下时右侧按钮组整体换到第二行并保持靠右，按钮始终留在栏内。 */}
+      <div className="flex shrink-0 flex-wrap items-center gap-1 px-3 pt-3 pb-2">
+        <div className="flex min-w-0 items-center gap-1">
+          <h2 className="shrink-0 text-xs font-medium whitespace-nowrap text-muted-foreground">{t("shots_section_title")}</h2>
+          <span className="num shrink-0 text-xs text-muted-foreground">{visibleIds.length}</span>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          {onAppend && (
+            <InsertShotButton
+              afterId={null}
+              contentMode={contentMode}
+              onInsert={onAppend}
+              label={t("shot_append")}
+              disabled={appendDisabled}
+              variant="compact"
+            />
+          )}
+          <Tooltip>
+            <TooltipTrigger
+              render={<Button variant="ghost" size="icon-sm" aria-label={t("shot_list_collapse")} onClick={onToggleCollapse} />}
+            >
+              <ChevronLeft aria-hidden />
+            </TooltipTrigger>
+            <TooltipContent>{t("shot_list_collapse")}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       <div className="shrink-0 px-3 pb-2">

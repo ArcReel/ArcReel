@@ -642,6 +642,32 @@ body {
         padding-inline: 0.5rem;
     }
 
+    /* 分镜详情里「查看提示词」在窄栏换到标题下一行：按钮本身仍要 36px 的点击高度，
+       但两行加起来不能撑高整块。把它收成 20px 行高、去掉横向内边距，
+       两行（15 + 20）落在 36px 内，与右侧「结构化 / 文本」开关等高。 */
+    [data-shot-detail] [data-prompt-actions] button {
+        height: 1.125rem;
+        min-height: 1.125rem;
+        padding-inline: 0;
+        font-size: 0.625rem;
+    }
+
+    /* 360px 宽时左侧只剩 ~73px：「图标 + 分镜 + 147 字」放不下会再折一行、把整块撑到 48px。
+       窄栏里去掉标题图标与眼睛图标，只留文字，两行落在 36px 内，与右侧开关等高。 */
+    [data-shot-detail] [data-prompt-actions] button svg,
+    [data-shot-detail] [data-section-icon] {
+        display: none;
+    }
+
+    /* 分镜列表里的排序手柄：44px 见方占掉 152px 栏宽的三分之一，正文只剩 25px、
+       每行两三个字就折行。移动档收到 28px，命中区仍高于 WCAG 2.5.8 的 24px 下限。 */
+    [data-shot-list] [data-sortable-handle] {
+        min-width: 1.75rem;
+        min-height: 1.75rem;
+        width: 1.75rem;
+        height: 1.75rem;
+    }
+
     /* 页面顶栏与底部操作条让开刘海与手势条 */
     :where([data-slot="mobile-safe-top"]) {
         padding-top: env(safe-area-inset-top);

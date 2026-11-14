@@ -32,7 +32,9 @@ export function ShotDetailLayout({
       <div className="@container/shot-detail flex min-h-0 flex-1 flex-col">
         <div className="relative grid min-h-0 flex-1 auto-rows-max grid-cols-[minmax(0,1fr)] content-start overflow-y-auto [scrollbar-gutter:stable] @min-[480px]/shot-detail:grid-cols-[minmax(0,1fr)_300px] @min-[480px]/shot-detail:grid-rows-[minmax(0,1fr)] @min-[480px]/shot-detail:content-stretch @min-[480px]/shot-detail:overflow-visible @min-[860px]/shot-detail:grid-cols-[minmax(360px,560px)_minmax(0,1fr)]">
           <div className="relative min-h-0 @min-[480px]/shot-detail:overflow-y-auto @min-[480px]/shot-detail:[scrollbar-gutter:stable]">
-            <div className="flex flex-col gap-5 px-5 pt-4 pb-8">{main}</div>
+            {/* 窄栏（手机展开分镜列表时编辑栏只有 ~160px）把左右内边距从 20px 收到 12px，
+                给标题行腾出 16px：否则「分镜 + 147 字」这一行放不下，会挤到第三行。 */}
+            <div className="flex flex-col gap-5 px-5 pt-4 pb-8 @max-[400px]/shot-detail:px-3">{main}</div>
           </div>
           <div className="@container/shot-media relative min-h-0 border-t border-border/50 px-4 pt-4 pb-8 @min-[480px]/shot-detail:overflow-y-auto @min-[480px]/shot-detail:border-t-0 @min-[480px]/shot-detail:border-l">
             {media}
@@ -68,14 +70,21 @@ export function ShotSection({
   shortTitle,
   icon,
   htmlFor,
+  meta,
   actions,
+  trailing,
   children,
 }: {
   title: string;
   shortTitle?: string;
   icon?: ReactNode;
   htmlFor?: string;
+  /** 标题右侧的辅助信息（如字数）。 */
+  meta?: ReactNode;
+  /** 标题下方的操作（如「查看提示词」）；宽栏里排在标题同一行右侧。 */
   actions?: ReactNode;
+  /** 行尾固定操作（如「结构化 / 文本」开关）；窄栏里与左侧两行垂直居中。 */
+  trailing?: ReactNode;
   children: ReactNode;
 }) {
   const titleId = useId();
@@ -92,19 +101,29 @@ export function ShotSection({
   );
   return (
     <section ref={ref} aria-labelledby={titleId} className="flex min-w-0 flex-col gap-2">
-      {/* 标题、字数、查看提示词、形态开关始终排在同一行：窄栏里只把行高与间距收一档，
-          不折行。标题不参与压缩，操作组按需收缩，整行不撑出容器右缘。字号由
-          `data-shot-detail` 的媒体查询统一控制，这里不写死尺寸。 */}
-      <div className={cn("flex min-w-0 items-center", narrow ? "min-h-6 gap-1" : "min-h-7 gap-1.5")}>
-        <div className={cn("flex min-w-0 items-center", narrow ? "gap-1" : "gap-1.5")}>
-          {icon ? <span className="flex shrink-0 text-muted-foreground">{icon}</span> : null}
-          {heading}
+      {/* 宽栏：标题、字数、查看提示词、形态开关同一行。
+          窄栏：左侧拆成「标题 + 字数」「查看提示词」两行，整块高度与右侧形态开关一致
+          （36px）；形态开关尺寸不变，与左侧两行垂直居中。字号由 `data-shot-detail`
+          的媒体查询统一控制，这里不写死尺寸。 */}
+      <div className={cn("flex min-w-0 items-center gap-1.5", narrow ? "min-h-9" : "min-h-7")}>
+        <div className={cn("flex min-w-0 flex-1 items-center gap-1.5", narrow && "flex-col items-start justify-center gap-0")}>
+          <span className={cn("flex min-w-0 items-center gap-1.5", narrow && "leading-3")}>
+            {icon ? (
+              <span data-section-icon="" className="flex shrink-0 text-muted-foreground">
+                {icon}
+              </span>
+            ) : null}
+            {heading}
+            {meta}
+          </span>
+          {narrow && actions ? (
+            <span data-prompt-actions="" className="flex min-w-0 items-center">
+              {actions}
+            </span>
+          ) : null}
         </div>
-        {actions ? (
-          <div className={cn("ml-auto flex min-w-0 items-center justify-end", narrow ? "gap-0.5" : "gap-1")}>
-            {actions}
-          </div>
-        ) : null}
+        {!narrow && actions ? <div className="ml-auto flex items-center gap-1">{actions}</div> : null}
+        {trailing ? <div className="flex shrink-0 items-center">{trailing}</div> : null}
       </div>
       {children}
     </section>
