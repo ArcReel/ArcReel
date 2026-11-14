@@ -113,7 +113,7 @@
 模式：带用户指引的异常（如 `NoAvailableProviderError`）在部分同步入口已映射成带指引的错误码，草稿修复与入队的文本任务这类存量入口仍由宽捕获转成通用失败；规范只要求新增或改动抛出点时检查入口，存量入口没有回查
 代价：用户被引导反复重试无法成功的任务，指引句也不随界面语言变化（严重度：常规）
 判定方式：机械（拟用参数化回归：每类文本任务在真实的空默认模型配置下执行，断言落库的错误码与动作）
-- #3787 · 2026-11-12 · 合并后修复：草稿 AI 修复与五类入队文本任务在缺文本默认模型时落成 `draft_repair_failed` 等通用码，动作为重试（#3802 的 038290834 修复）；根因：`NoAvailableProviderError` 在多层宽捕获里没有单列；没拦住：有规则但没被执行（backend.md「带用户指引或携带身份的异常，在既有宽捕获之前单独处理」只约束新增或改动抛出点，这些入口早于规则）
+- #3787 · 2026-11-12 · 合并后修复：草稿 AI 修复与五类入队文本任务在缺文本默认模型时落成 `draft_repair_failed` 等通用码，动作为重试（#3802 的 038290834 修复）；根因：`NoAvailableProviderError` 在多层宽捕获里没有单列；没拦住：没有对应规则（backend.md「带用户指引或携带身份的异常，在既有宽捕获之前单独处理」只约束新增或改动抛出点，不覆盖早于规则的存量入口）
 
 ## 仓库约定与自动化没有接上检查
 
@@ -188,7 +188,7 @@
 ### 巡检收集窗口提交前确认本地历史完整，浅克隆先补全
 模式：云端会话的 checkout 是浅克隆，`git log <SHA>..origin/main --first-parent` 在浅边界处静默截断；`git merge-base --is-ancestor` 对边界之外的提交报 `Not a valid object`，`git log -S` 把最早可见的提交当成引入提交
 代价：窗口内靠近起点的合并 PR 漏收，候选与 main CI 失败漏记，标记推进后不再重扫；或把出现记录的编号写成错误的 PR（严重度：常规）
-判定方式：机械（拟在 lessons-sweep 第 1 步检查 `git rev-parse --is-shallow-repository`，为真时先补全历史，或用 compare 接口的 `total_commits` 核对窗口提交数）
+判定方式：机械（拟在 lessons-sweep 第 1 步检查 `git rev-parse --is-shallow-repository`，为真时先 `git fetch --unshallow`；compare 接口的 `total_commits` 含合入分支的提交，与 first-parent 计数口径不同，也挡不住 `git log -S` 越过浅边界，不能代替补全）
 - #3803 · 2026-11-12 · 自查：首次收集只得到 51 个 first-parent 提交，漏了 #3745 的两个提交与 #3746 的一个；main CI 失败的 head `9524340d4` 在本地报不存在，经 compare 接口核对窗口应为 54 个提交，补全历史后重新收集；根因：浅克隆截断了 git log；没拦住：没有对应规则，lessons-sweep 只要求 fetch origin
 
 ## 前端异步状态在作用域切换与重叠操作下归属不清
