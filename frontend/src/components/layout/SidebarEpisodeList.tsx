@@ -106,14 +106,16 @@ export function SidebarEpisodeList({
             <SortableItem
               key={ep.episode}
               id={ep.episode}
-              // 触屏上把手常显（`pointer-coarse`），它绝对定位盖在集序号上，会压住集名第一个字
-              // （「病房恶少」显示成「房恶少」）。触屏档给左侧让出把手宽度，集名与状态整体右移，
-              // 落在标题右侧原本空着的地方；桌面档仍只在悬停时把手浮在序号上，不占布局。
-              className="group/episode relative flex items-center rounded-md bg-background data-dragging:shadow-overlay pointer-coarse:pl-13"
+              className="group/episode relative flex items-center rounded-md bg-background data-dragging:shadow-overlay"
             >
               {reorderable && (
-                // 把手盖在集序号上，悬停或聚焦时出现
-                <span className="absolute top-1/2 left-2.5 -translate-y-1/2 rounded-md bg-muted opacity-0 transition-opacity group-hover/episode:opacity-100 focus-within:opacity-100 group-data-dragging/episode:opacity-100 pointer-coarse:opacity-100">
+                // 桌面档：把手浮在集序号上，悬停或聚焦时出现。
+                // 触屏档（`pointer: coarse`，见 index.css 的 `[data-episode-handle]`）：没有悬停，
+                // 把手常显并参与布局——去掉底色与圆角，只留六个点贴在最左边缘，文字紧跟其后。
+                <span
+                  className="absolute top-1/2 left-2.5 -translate-y-1/2 rounded-md bg-muted opacity-0 transition-opacity group-hover/episode:opacity-100 focus-within:opacity-100 group-data-dragging/episode:opacity-100 pointer-coarse:static pointer-coarse:translate-y-0 pointer-coarse:rounded-none pointer-coarse:bg-transparent pointer-coarse:pl-1 pointer-coarse:opacity-100"
+                  data-episode-handle=""
+                >
                   <SortableHandle label={t("dashboard:episode_reorder", { name })} />
                 </span>
               )}

@@ -668,6 +668,13 @@ body {
         height: 1.75rem;
     }
 
+    /* 侧栏集列表的排序手柄：触屏没有悬停，把手常显后与集序号并排。宽度收到 28px
+       （高度仍是 44px），六个点贴近左边缘，集名紧跟在后面，中间不留空档。 */
+    [data-episode-handle] [data-sortable-handle] {
+        width: 1.75rem;
+        min-width: 1.75rem;
+    }
+
     /* 页面顶栏与底部操作条让开刘海与手势条 */
     :where([data-slot="mobile-safe-top"]) {
         padding-top: env(safe-area-inset-top);
