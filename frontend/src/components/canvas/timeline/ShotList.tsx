@@ -117,7 +117,9 @@ export function ShotList({
     return orderedIds.filter((id) => {
       const seg = segments[indexById.get(id)!];
       return (
-        String(positionById.get(id)) === query.trim() || getSegmentText(seg, contentMode).toLowerCase().includes(query)
+        String(positionById.get(id)) === query.trim() ||
+        id.toLowerCase().includes(query) ||
+        getSegmentText(seg, contentMode).toLowerCase().includes(query)
       );
     });
   }, [orderedIds, search, segments, indexById, positionById, contentMode]);
@@ -268,8 +270,8 @@ export function ShotList({
                       <ItemPositionBadge position={positionById.get(id) ?? null} kind="shot" overlay />
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
-                      <span className="flex items-center gap-1.5">
-                        <StatusBadge status={statusFromAssets(seg.generated_assets?.status)} />
+                      <span translate="no" className="num text-xs font-semibold whitespace-nowrap text-foreground">
+                        {id}
                       </span>
                       {text ? (
                         <span
@@ -282,6 +284,7 @@ export function ShotList({
                         </span>
                       ) : null}
                       <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        <StatusBadge status={statusFromAssets(seg.generated_assets?.status)} />
                         <span className="num">{t("duration_seconds_value_text", { value: seg.duration_seconds ?? 0 })}</span>
                         {section ? <Badge variant="outline">{section}</Badge> : null}
                         {seg.pending_authoring === true ? (

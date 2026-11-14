@@ -180,6 +180,12 @@ defineRegionScenarios("分镜详情", [
     ready: boardReady,
     act: async (page) => {
       await expect(shotList(page).getByRole("button", { name: /^分镜 1(?!\d)/ })).toHaveAttribute("aria-current", "true");
+      const shotIdLabel = shotList(page).getByText("E1S01", { exact: true });
+      await expect(shotIdLabel).toBeVisible();
+      expect(await shotIdLabel.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+      const idBounds = await box(shotIdLabel);
+      const listBounds = await box(shotList(page));
+      expect(idBounds.x + idBounds.width).toBeLessThan(listBounds.x + listBounds.width);
       const { width } = viewport(page);
       // 1440 宽、Agent 面板展开时，引用与台词区同屏可见（提示词随内容撑高，长台词可能在首屏之下）
       if (width === 1440) {
