@@ -106,7 +106,10 @@ export function SidebarEpisodeList({
             <SortableItem
               key={ep.episode}
               id={ep.episode}
-              className="group/episode relative flex items-center rounded-md bg-background data-dragging:shadow-overlay"
+              // 触屏上把手常显（`pointer-coarse`），它绝对定位盖在集序号上，会压住集名第一个字
+              // （「病房恶少」显示成「房恶少」）。触屏档给左侧让出把手宽度，集名与状态整体右移，
+              // 落在标题右侧原本空着的地方；桌面档仍只在悬停时把手浮在序号上，不占布局。
+              className="group/episode relative flex items-center rounded-md bg-background data-dragging:shadow-overlay pointer-coarse:pl-13"
             >
               {reorderable && (
                 // 把手盖在集序号上，悬停或聚焦时出现
