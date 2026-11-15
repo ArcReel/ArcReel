@@ -2,7 +2,7 @@
 
 记录值得改进环境的错，由定期巡检维护、计数与晋升；候选经 PR 上的 `lesson-candidate` 评论提交。条目格式、计数、阈值与退出规则见 [`docs/agents/lessons.md`](agents/lessons.md)。
 
-<!-- reviewed-through: d0ede6db404575d9a8afc78d8a887cdcd4c14825 2026-11-14 -->
+<!-- reviewed-through: 28ff06a9147bf5ebae9bd3411f262ab109b7e5b5 2026-11-15 -->
 
 ## 异步任务的结果与异常在每条路径上都有人接
 
@@ -184,12 +184,6 @@
 代价：Docker 部署中，模型要求 worktree 隔离时子智能体派发失败，问题跨越多个发布版本，直到用户反馈才发现（严重度：常规）
 判定方式：机械（拟用镜像冒烟：模拟 Messages API，让主 Agent 带 `isolation: "worktree"` 派发子智能体）
 - #1929 · 2026-11-12 · 合并后修复：SDK 0.2.128 → 0.2.139 后 CLI 2.1.222 起要求 git 校验钩子目录，镜像没有 git，v0.27.0～v0.36.0 的镜像受影响（#3798 的 475ad3c48 修复）；根因：#533 的 pwd 钩子方案依赖 CLI 不校验钩子返回的目录；没拦住：没有对应规则
-
-### 巡检收集窗口提交前确认本地历史完整，浅克隆先补全
-模式：云端会话的 checkout 是浅克隆，`git log <SHA>..origin/main --first-parent` 在浅边界处静默截断；`git merge-base --is-ancestor` 对边界之外的提交报 `Not a valid object`，`git log -S` 把最早可见的提交当成引入提交
-代价：窗口内靠近起点的合并 PR 漏收，候选与 main CI 失败漏记，标记推进后不再重扫；或把出现记录的编号写成错误的 PR（严重度：常规）
-判定方式：机械（拟在 lessons-sweep 第 1 步检查 `git rev-parse --is-shallow-repository`，为真时先 `git fetch --unshallow`；compare 接口的 `total_commits` 含合入分支的提交，与 first-parent 计数口径不同，也挡不住 `git log -S` 越过浅边界，不能代替补全）
-- #3803 · 2026-11-12 · 自查：首次收集只得到 51 个 first-parent 提交，漏了 #3745 的两个提交与 #3746 的一个；main CI 失败的 head `9524340d4` 在本地报不存在，经 compare 接口核对窗口应为 54 个提交，补全历史后重新收集；根因：浅克隆截断了 git log；没拦住：没有对应规则，lessons-sweep 只要求 fetch origin
 
 ## 前端异步状态在作用域切换与重叠操作下归属不清
 
@@ -585,6 +579,14 @@
 - 评审未晋升 · 2026-11-14 · 在 PR 内被审查拦下，合入的 `website/docs/guide/providers.md` 已写明超额后付费的出账方式；docs.md「供应商相关文档写能力与配置方式……以设置页和供应商官方文档为准」已要求以官方文档为准，接入订阅套餐类供应商的改动很少，只出现一次，继续计数
 
 ## 已晋升
+### 巡检收集窗口提交前确认本地历史完整，浅克隆先补全
+去向：已晋升，见 #3824（在 lessons-sweep 第 1 步检查浅克隆并补全历史；改动在 skill 里，不在巡检 PR 内实现）
+模式：云端会话的 checkout 是浅克隆，`git log <SHA>..origin/main --first-parent` 在浅边界处静默截断；`git merge-base --is-ancestor` 对边界之外的提交报 `Not a valid object`，`git log -S` 把最早可见的提交当成引入提交
+代价：窗口内靠近起点的合并 PR 漏收，候选与 main CI 失败漏记，标记推进后不再重扫；或把出现记录的编号写成错误的 PR（严重度：常规）
+判定方式：机械（拟在 lessons-sweep 第 1 步检查 `git rev-parse --is-shallow-repository`，为真时先 `git fetch --unshallow`；compare 接口的 `total_commits` 含合入分支的提交，与 first-parent 计数口径不同，也挡不住 `git log -S` 越过浅边界，不能代替补全）
+- #3803 · 2026-11-12 · 自查：首次收集只得到 51 个 first-parent 提交，漏了 #3745 的两个提交与 #3746 的一个；main CI 失败的 head `9524340d4` 在本地报不存在，经 compare 接口核对窗口应为 54 个提交，补全历史后重新收集；根因：浅克隆截断了 git log；没拦住：没有对应规则，lessons-sweep 只要求 fetch origin
+- #3821 · 2026-11-14 · 自查：查 Nightly 失败用例的引入提交时，`git log -S` 返回浅边界上的 #3729 的 d37029f5e，补全历史后才得到 #3118 的 506e561c3；窗口本身的提交都在浅边界之内，未漏收；根因：浅克隆截断了 git 历史；没拦住：没有对应规则，lessons-sweep 只要求 fetch origin
+
 ### 录制接口替身的后端只读仓库内的输入，不做线上同步，不读开发者的 `.env`
 去向：已晋升，见 #3800（录制改读测试目录数据、固定生命周期的「今天」与版本号，并加能测出这类漂移的检查；需要改录制脚本与录制后端的启动方式，不在巡检 PR 内实现）
 模式：录制脚本启动的后端照常执行生产的启动步骤（官方模型目录同步），并按 dotenv 向上查找读到主仓 `.env`；录出的替身混入线上数据与开发者本机库的状态
