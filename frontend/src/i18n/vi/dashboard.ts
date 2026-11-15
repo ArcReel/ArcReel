@@ -3826,7 +3826,6 @@ export default {
   'episode_view_board': 'Cảnh quay',
   'episode_view_units': 'Đơn vị video',
   'episode_view_needs_script': 'Dùng được sau khi tạo kịch bản',
-  'episode_head_more': 'Thao tác khác cho tập này',
   'episode_head_duration': 'Thời lượng {{duration}}',
   'episode_head_videos': 'Video {{available}}/{{total}}',
   'episode_head_cost': 'Dự kiến {{cost}}',

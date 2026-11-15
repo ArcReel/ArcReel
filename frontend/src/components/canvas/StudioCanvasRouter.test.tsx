@@ -749,8 +749,7 @@ describe("StudioCanvasRouter", () => {
       </Router>,
     );
 
-    await user.click(screen.getByRole("button", { name: "这一集的更多操作" }));
-    await user.click(await screen.findByRole("menuitem", { name: "删除这一集" }));
+    await user.click(screen.getByRole("button", { name: "删除这一集" }));
     const dialog = await screen.findByRole("alertdialog", { name: "删除「EP1」" });
     await user.click(within(dialog).getByRole("button", { name: "移入项目回收站" }));
 
@@ -1256,7 +1255,7 @@ describe("StudioCanvasRouter", () => {
     // 广告/短片没有脚本规划，「分镜」称作「视频单元」；恒单集，不给删除
     expect(screen.queryByRole("tab", { name: "脚本规划" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "视频单元" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByRole("button", { name: "这一集的更多操作" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除这一集" })).not.toBeInTheDocument();
 
     await renameEpisode("新标题");
     await waitFor(() => {

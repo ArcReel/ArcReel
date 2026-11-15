@@ -675,6 +675,24 @@ body {
         min-width: 1.75rem;
     }
 
+    /* 集页页头：一排图标按钮各自撑到 44px 会把集名挤成省略号，页头也被撑成三行。
+       这里统一收到 32px 高、12px 字号，间距由页头自己给；仍高于 WCAG 2.5.8 的 24px 下限。
+       制作进度入口不再占满一行：宽度随内容收，剩下的横向空间留给集名。 */
+    [data-episode-head] :where(button, a, [role="button"], [data-slot="button"]) {
+        min-width: 2rem;
+        min-height: 2rem;
+        font-size: 0.75rem;
+    }
+
+    [data-episode-head] :is(h1) {
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+    }
+
+    [data-episode-head] [data-testid="workflow-panel"] {
+        max-width: 100%;
+    }
+
     /* 页面顶栏与底部操作条让开刘海与手势条 */
     :where([data-slot="mobile-safe-top"]) {
         padding-top: env(safe-area-inset-top);

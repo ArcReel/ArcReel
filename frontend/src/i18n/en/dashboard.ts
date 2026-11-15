@@ -3826,7 +3826,6 @@ export default {
   'episode_view_board': 'Shots',
   'episode_view_units': 'Video units',
   'episode_view_needs_script': 'Available once the script is generated',
-  'episode_head_more': 'More actions for this episode',
   'episode_head_duration': 'Duration {{duration}}',
   'episode_head_videos': 'Videos {{available}}/{{total}}',
   'episode_head_cost': 'Est. {{cost}}',

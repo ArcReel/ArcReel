@@ -101,7 +101,7 @@ describe("EpisodeHead", () => {
   it("offers no episode menu where episodes cannot be deleted", () => {
     renderHead(FIRST, { canDelete: false, canEditTitle: false });
 
-    expect(screen.queryByRole("button", { name: "这一集的更多操作" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除这一集" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑分集标题" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "第一章" })).toBeInTheDocument();
   });
@@ -118,8 +118,7 @@ describe("EpisodeHead", () => {
       return null;
     }
     const openDeletion = async () => {
-      fireEvent.click(screen.getByRole("button", { name: "这一集的更多操作" }));
-      fireEvent.click(await screen.findByRole("menuitem", { name: "删除这一集" }));
+      fireEvent.click(screen.getByRole("button", { name: "删除这一集" }));
       const dialog = await screen.findByRole("alertdialog");
       expect(dialog).toHaveTextContent("将删除本集剧本");
       return dialog;
@@ -161,8 +160,7 @@ describe("EpisodeHead", () => {
     }
 
     async function confirmAndDiscard() {
-      fireEvent.click(screen.getByRole("button", { name: "这一集的更多操作" }));
-      fireEvent.click(await screen.findByRole("menuitem", { name: "删除这一集" }));
+      fireEvent.click(screen.getByRole("button", { name: "删除这一集" }));
       fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "移入项目回收站" }));
       fireEvent.click(within(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).getByRole("button", { name: "放弃修改" }));
     }

@@ -3938,7 +3938,6 @@ export default {
   'episode_view_board': 'Кадры',
   'episode_view_units': 'Видеофрагменты',
   'episode_view_needs_script': 'Доступно после генерации сценария',
-  'episode_head_more': 'Другие действия для этой серии',
   'episode_head_duration': 'Длительность {{duration}}',
   'episode_head_videos': 'Видео {{available}}/{{total}}',
   'episode_head_cost': 'Ориентировочно {{cost}}',

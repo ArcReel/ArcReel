@@ -1,16 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { useLocation } from "wouter";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import { useConfirmLeave } from "@/components/shared/edit-unit/LeaveGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { InfoTip, InfoTipContent, InfoTipTrigger } from "@/components/ui/info-tip";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useCostStore } from "@/stores/cost-store";
@@ -93,7 +87,7 @@ export function EpisodeHead({
     : "";
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 @3xl/canvas:gap-2.5">
       <Badge variant="secondary" translate="no">
         {t("episode_header_episode_chip", {
           number: position === null ? "—" : String(position).padStart(2, "0"),
@@ -108,10 +102,12 @@ export function EpisodeHead({
         />
       </div>
       <p className="num flex min-w-0 shrink-[2] items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground">
-        <span className="min-w-0 truncate">{facts.join(" · ")}</span>
+        {/* 窄画布里只留费用：条目数与时长在制作进度里有一份，硬挤进来会被截成「56 shots · Duration 8:…」。
+            画布宽到 768 以上再整句显示。 */}
+        <span className="hidden min-w-0 truncate @3xl/canvas:block">{facts.join(" · ")}</span>
         {costSummary ? (
           <>
-            {facts.length > 0 ? <span aria-hidden>·</span> : null}
+            {facts.length > 0 ? <span aria-hidden className="hidden @3xl/canvas:inline">·</span> : null}
             <InfoTip>
               <InfoTipTrigger render={<button type="button" className="inline-flex min-h-6 shrink-0 items-center rounded-sm" />}>
                 {t("episode_head_cost", { cost: costSummary.estimate })}
@@ -123,19 +119,14 @@ export function EpisodeHead({
       </p>
       {canDelete ? (
         <>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="ghost" size="icon-xs" aria-label={t("episode_head_more")} />}
-            >
-              <MoreHorizontal aria-hidden />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-auto">
-              <DropdownMenuItem variant="destructive" onClick={() => void deletion.requestDelete(episode)}>
-                <Trash2 aria-hidden />
-                {t("episode_menu_delete")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={t("episode_menu_delete")}
+            onClick={() => void deletion.requestDelete(episode)}
+          >
+            <Trash2 aria-hidden />
+          </Button>
           {deletion.dialog}
         </>
       ) : null}

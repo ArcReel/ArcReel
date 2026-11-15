@@ -3825,7 +3825,6 @@ export default {
   'episode_view_board': '分镜',
   'episode_view_units': '视频单元',
   'episode_view_needs_script': '脚本生成后可用',
-  'episode_head_more': '这一集的更多操作',
   'episode_head_duration': '时长 {{duration}}',
   'episode_head_videos': '视频 {{available}}/{{total}}',
   'episode_head_cost': '预估 {{cost}}',

@@ -80,6 +80,9 @@ export async function expectTouchTargets(page: import("@playwright/test").Page) 
         // 工具按钮收到 36px：头部一排七个按钮，44px 在 390px 宽下最后一个会被裁掉。
         // 36px 仍在 WCAG 2.5.8 的 24px 下限之上。其余页面仍按 44px 检查。
         if (el.closest("[data-shot-detail]")) continue;
+        // 集页页头（`data-episode-head`）一排是徽标、集名、编辑、预估、删除，44px 会把集名压成
+        // 省略号、页头撑成三行。这里统一收到 32px，间距由页头自己给，仍在 24px 下限之上。
+        if (el.closest("[data-episode-head]")) continue;
         out.push({
           label: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 40),
           width: Math.round(rect.width),
