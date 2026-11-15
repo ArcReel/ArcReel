@@ -109,20 +109,6 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 提示按钮也可用于打开刚完成的结果：耗时操作（如导入项目）完成时用户已经离开发起页，就不强行跳转，改推带「打开项目」这类按钮的提示。「已离开」在 await 之后复核卸载时 abort 的 `signal.aborted` 判断，发起的写入请求本身不接这个 signal。已离开时每个结果分支（成功、失败、需确认）都要有提示，不能因为对话框随页面卸载而静默丢失。参考实现：`frontend/src/components/pages/lobby/useProjectImport.tsx`。
 
-## 按钮
-
-### 按钮使用 `components/ui/button` 的 `Button`，按操作语义选择变体
-
-- `default`：区域内的主操作，同一区域最多一个。
-- `outline`：次要操作，如「取消」「重新渲染」。
-- `ghost`：工具栏按钮与图标按钮。
-- `destructive`：删除、覆盖等不可逆操作。
-- `secondary`、`link`：低强调操作与行内链接式操作。
-
-尺寸用 `size`：`xs`、`sm`、`default`、`lg`，只有图标时用 `icon`、`icon-xs`、`icon-sm`、`icon-lg`。按钮内的图标加 `data-icon="inline-start"` 或 `data-icon="inline-end"`，不写尺寸 class。`Button` 没有 loading 属性；加载时禁用按钮，并把前置图标换成带 `animate-spin` 的 `Loader2`。
-
-整行条目（列表行、集目录行）、缩略图触发器与拖放区不是操作按钮，用原生 `<button>` 配 `focus-ring`：换成 `Button` 要在调用处改写它的样式，`no-restyle` 不允许。外观像按钮的导航入口用 `Link` 套 `buttonVariants`，不用 `Button` 调用 `navigate`：读屏按链接播报，也能在新标签页打开。
-
 ## 滚动与横向溢出
 
 ### 滚动区的高度沿 flex 链传下来，会出现滚动条的主栏预留槽位
