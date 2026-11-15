@@ -64,10 +64,12 @@ export function EpisodePageHeader({
   };
   return (
     <header className="shrink-0 border-b border-border">
-      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 @md/canvas:flex-nowrap @md/canvas:px-4 @md/canvas:py-0">
+      <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 @md/canvas:px-4 @md/canvas:py-0 @3xl/canvas:flex-nowrap">
         {head}
         {sourceEntry}
-        {progress}
+        {/* 制作进度在窄画布上独占一行：它自带一句话现状，和集名挤在同一行时集名会被压到
+            看不见（768 宽的画布只剩 0px）。画布够宽时回到同一行，与集头、查看原文并排。 */}
+        {progress ? <div className="min-w-0 @max-3xl/canvas:w-full">{progress}</div> : null}
       </div>
       <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 @md/canvas:flex-nowrap @md/canvas:px-4 @md/canvas:py-0">
         <div className="relative min-w-0 shrink overflow-x-auto scroll-fade-x">
