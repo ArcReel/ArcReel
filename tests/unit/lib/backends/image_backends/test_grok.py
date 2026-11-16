@@ -275,8 +275,10 @@ class TestGenerateI2I:
                 output_path=output,
                 reference_images=[ReferenceImage(path="/nonexistent/ref.png")],
             )
-            await grok_backend.generate(request)
+            result = await grok_backend.generate(request)
 
+        assert result.usage is not None
+        assert result.usage.dimensions["quality"] == "low"
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert "image_urls" not in call_kwargs
         assert "image_url" not in call_kwargs
@@ -367,3 +369,66 @@ class TestAspectRatioValidation:
 
         # 不支持的比例透传给 API，不做映射
         assert _validate_aspect_ratio("5:4") == "5:4"
+
+
+@pytest.mark.parametrize(
+    ("size", "reference_count", "quality", "amount"),
+    [
+        ("1K", 0, "low", 0.04),
+        ("2K", 0, "low", 0.06),
+        ("1K", 1, "medium", 0.07),
+        ("2K", 1, "medium", 0.09),
+    ],
+)
+async def test_default_quality_prices_the_actual_request(
+    grok_backend, tmp_path, size, reference_count, quality, amount
+):
+    from lib.backends.image_backends.base import ImageRequestFacts
+    from lib.billing.catalog_pricing import price_builtin_call
+    from lib.billing.metering import Priced
+
+    grok_backend._model = "grok-imagine-image-2.0"
+    ref = tmp_path / "ref.png"
+    ref.write_bytes(b"\x89PNG\r\n\x1a\nref")
+    request = ImageGenerationRequest(
+        prompt="cat",
+        output_path=tmp_path / "out.png",
+        image_size=size,
+        reference_images=[ReferenceImage(path=str(ref))] if reference_count else [],
+    )
+    grok_backend._client.image.sample = AsyncMock(
+        return_value=MagicMock(
+            respect_moderation=True,
+            url="https://example.com/generated.png",
+        )
+    )
+    with _image_download("https://example.com/generated.png", b"image"):
+        result = await grok_backend.generate(request)
+    estimate = grok_backend.estimate_usage(
+        ImageRequestFacts(
+            model=grok_backend.model,
+            aspect_ratio=request.aspect_ratio,
+            image_size=size,
+            reference_count=reference_count,
+        )
+    )
+    expected_request = {
+        "prompt": "cat",
+        "model": grok_backend.model,
+        "aspect_ratio": request.aspect_ratio,
+        "resolution": size.lower(),
+    }
+    if reference_count:
+        expected_request["image_urls"] = ["data:image/png;base64,iVBORw0KGgpyZWY="]
+    grok_backend._client.image.sample.assert_awaited_once_with(**expected_request)
+    for usage, estimating in [(estimate, True), (result.usage, False)]:
+        assert usage is not None
+        assert usage.dimensions == {"resolution": size, "quality": quality}
+        assert price_builtin_call(
+            provider="grok",
+            model=grok_backend.model,
+            media_type="image",
+            requests=(usage,),
+            provider_multiplier=1.0,
+            estimate=estimating,
+        ) == Priced(pytest.approx(amount), "USD")

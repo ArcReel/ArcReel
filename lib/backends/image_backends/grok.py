@@ -67,6 +67,10 @@ class GrokImageBackend:
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _MAX_REFERENCE_IMAGES
 
+    # auto 当前按生成 / 编辑分别采用 low / medium；只计量，不向上游发送 quality。
+    # https://docs.x.ai/developers/model-capabilities/images/generation#quality
+    CHANNEL_DEFAULT_QUALITY: ClassVar[dict[bool, str]] = {False: "low", True: "medium"}
+
     def __init__(
         self,
         *,
@@ -91,14 +95,16 @@ class GrokImageBackend:
     async def reference_image_limit(self) -> int | None:
         return self.CHANNEL_REFERENCE_LIMIT
 
-    @staticmethod
-    def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        refs = facts.reference_count
-        return per_image_usage(
-            output_images=1,
-            input_images=refs,
-            dimensions={"resolution": facts.image_size} if facts.image_size is not None else None,
-        )
+    @classmethod
+    def _usage(cls, image_size: str | None, reference_count: int | None) -> Usage:
+        dimensions: dict[str, object] = {"quality": cls.CHANNEL_DEFAULT_QUALITY[reference_count != 0]}
+        if image_size is not None:
+            dimensions["resolution"] = image_size
+        return per_image_usage(output_images=1, input_images=reference_count, dimensions=dimensions)
+
+    @classmethod
+    def estimate_usage(cls, facts: ImageRequestFacts) -> Usage:
+        return cls._usage(facts.image_size, facts.reference_count)
 
     @with_retry_async(retry_if=grok_should_retry)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -141,9 +147,5 @@ class GrokImageBackend:
             provider=PROVIDER_GROK,
             model=self._model,
             image_uri=response.url,
-            usage=per_image_usage(
-                output_images=1,
-                input_images=reference_count,
-                dimensions={"resolution": request.image_size} if request.image_size is not None else None,
-            ),
+            usage=self._usage(request.image_size, reference_count),
         )
