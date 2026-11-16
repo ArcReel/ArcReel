@@ -509,6 +509,46 @@ jobs:
           path: frontend/playwright-report/
           retention-days: 30
 
+  e2e-record-drift:
+    # 页面级套件的接口替身只随代码变化：录制脚本起两个后端，一个照常、一个前移系统时钟并换掉出厂快照与
+    # pyproject 版本号，两边各录一次，替身不同即失败（不写文件）。漂移来源是录制后端读到的输入，
+    # backend 域的任何改动都可能带进来；录制脚本本身在 frontend 域。
+    name: E2E fixture recording drift
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
+      - name: Install system dependencies
+        # 后端启动时探测 Agent 沙箱：Linux 上缺 bwrap / socat 或 bwrap 起不来即中止启动。Ubuntu 24.04
+        # 默认禁用非特权 user namespace，须在 runner 上放开，理由同 docker-verify。
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap socat
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Record twice and compare
+        working-directory: frontend
+        run: node e2e/record-fixtures.ts --check
+
   website-checks:
     # 单一 job 串起文档站的各道闸：静态检查（typecheck / eslint / prettier）前置，
     # 秒级失败不必等构建 → CONTRIBUTING 复制（否则 gitignore 的中文副本缺席，其已提交
@@ -700,6 +740,7 @@ jobs:
         frontend-static,
         frontend-tests,
         frontend-e2e,
+        e2e-record-drift,
         docker-verify,
         website-checks,
         release-integrity,

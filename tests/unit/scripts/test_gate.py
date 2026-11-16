@@ -30,11 +30,13 @@ def test_triggers_only_name_known_domains() -> None:
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        ("lib/foo.py", ["backend", "tests", "conventions"]),
+        ("lib/foo.py", ["backend", "tests", "conventions", "e2e-record"]),
         ("docs/agents/testing.md", ["tests", "conventions"]),
-        ("packages/arcreel-market-core/src/x.py", ["backend", "market-core", "tests", "conventions"]),
-        ("packages/arcreel-catalog-core/src/x.py", ["backend", "catalog-core", "tests", "conventions"]),
-        ("frontend/src/i18n/zh/dashboard.ts", ["backend", "tests", "conventions", "frontend"]),
+        ("packages/arcreel-market-core/src/x.py", ["backend", "market-core", "tests", "conventions", "e2e-record"]),
+        ("packages/arcreel-catalog-core/src/x.py", ["backend", "catalog-core", "tests", "conventions", "e2e-record"]),
+        ("frontend/src/i18n/zh/dashboard.ts", ["backend", "tests", "conventions", "frontend", "e2e-record"]),
+        ("frontend/e2e/record-fixtures.ts", ["tests", "conventions", "frontend", "e2e-record"]),
+        ("frontend/src/a.tsx", ["tests", "conventions", "frontend"]),
         (".github/workflows/test.yml", ["tests", "conventions", "workflows"]),
         ("CONTRIBUTING.md", ["tests", "conventions", "website"]),
     ],
@@ -44,7 +46,13 @@ def test_select_domains_follows_domain_order(path: str, expected: list[str]) -> 
 
 
 def test_select_domains_merges_paths() -> None:
-    assert select_domains(["frontend/src/a.tsx", "alembic.ini"]) == ["backend", "tests", "conventions", "frontend"]
+    assert select_domains(["frontend/src/a.tsx", "alembic.ini"]) == [
+        "backend",
+        "tests",
+        "conventions",
+        "frontend",
+        "e2e-record",
+    ]
 
 
 def test_shared_request_contract_triggers_backend_in_ci_and_locally() -> None:
