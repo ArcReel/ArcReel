@@ -42,8 +42,8 @@ export function inspectLayout(): LayoutReport {
   // 豁免必须写明原因：空值不算豁免。
   const EXEMPT = '[data-overflow-ok]:not([data-overflow-ok=""])';
   const SCROLLING = new Set(["auto", "scroll"]);
-  // 声明横向滚动的工具类，含响应式与状态前缀。
-  const SCROLL_X_CLASS = /^(?:[\w-]+:)*overflow-(?:x-)?(?:auto|scroll)$/;
+  // 声明横向滚动的工具类，含响应式、状态与容器查询前缀（如 `@max-5xl/page:overflow-x-auto`）。
+  const SCROLL_X_CLASS = /^(?:[^:\s]+:)*overflow-(?:x-)?(?:auto|scroll)$/;
 
   function describe(el: Element): string {
     let label = el.tagName.toLowerCase();

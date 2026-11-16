@@ -766,8 +766,11 @@ export function ShotDetail({
 
   const promptsGroup = (
     <ShotGroup>
-      <div className="flex items-center gap-2">
-        <h3 className="text-sm font-medium text-subtle-foreground">{t("detail_section_prompts")}</h3>
+      {/* 窄栏里这一行折行：标题与「编写提示词」按钮各占一行，标题不再被挤成竖排。 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="shrink-0 text-sm font-medium whitespace-nowrap text-subtle-foreground">
+          {t("detail_section_prompts")}
+        </h3>
         <span className="flex-1" />
         {episode !== undefined && (
           <PromptAuthoringButton projectName={projectName} episode={episode} scope="current" currentEntryId={segmentId} />
@@ -782,18 +785,17 @@ export function ShotDetail({
 
       <ShotSection
         title={t("detail_image_prompt_title")}
+        shortTitle={t("detail_image_prompt_short")}
         icon={<ImageIcon aria-hidden className="size-3.5" />}
-        actions={
-          <>
-            {imgValue && (
-              <span className="num text-xs text-muted-foreground">
-                {t("detail_field_chars_count", { count: imgValue.scene.length })}
-              </span>
-            )}
-            {renderPromptPreview("image")}
-            {renderFormToggle("image", imgValue !== null)}
-          </>
+        meta={
+          imgValue ? (
+            <span className="num text-xs text-muted-foreground">
+              {t("detail_field_chars_count", { count: imgValue.scene.length })}
+            </span>
+          ) : null
         }
+        actions={renderPromptPreview("image")}
+        trailing={renderFormToggle("image", imgValue !== null)}
       >
         {imgValue ? (
           <ImagePromptEditor prompt={imgValue} onUpdate={handleImgUpdate} readOnly={readOnly || formSwitching === "image"} />
@@ -812,18 +814,17 @@ export function ShotDetail({
 
       <ShotSection
         title={t("detail_video_prompt_title")}
+        shortTitle={t("detail_video_prompt_short")}
         icon={<Film aria-hidden className="size-3.5" />}
-        actions={
-          <>
-            {vidValue && (
-              <span className="num text-xs text-muted-foreground">
-                {t("detail_field_chars_count", { count: vidValue.action.length })}
-              </span>
-            )}
-            {renderPromptPreview("video")}
-            {renderFormToggle("video", vidValue !== null)}
-          </>
+        meta={
+          vidValue ? (
+            <span className="num text-xs text-muted-foreground">
+              {t("detail_field_chars_count", { count: vidValue.action.length })}
+            </span>
+          ) : null
         }
+        actions={renderPromptPreview("video")}
+        trailing={renderFormToggle("video", vidValue !== null)}
       >
         {vidValue ? (
           <VideoPromptEditor prompt={vidValue} onUpdate={handleVidUpdate} readOnly={readOnly || formSwitching === "video"} />

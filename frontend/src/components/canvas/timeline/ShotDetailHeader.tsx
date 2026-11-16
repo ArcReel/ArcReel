@@ -44,7 +44,10 @@ export function ShotDetailHeader({
     <div className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-border/50 px-5 py-2.5">
       <ItemPositionOfTotal itemId={segmentId} kind="shot" position={index + 1} total={total} />
       {meta}
-      <div className="ml-auto flex items-center gap-0.5">
+      {/* 工具按钮组允许折行：390px 宽、分镜列表展开时详情栏只剩 ~170px，
+          七个按钮一行放不下。折行后每个按钮完整可见，不会被右缘裁掉半个图标。
+          `min-w-0` 让它能收缩到容器宽度，否则按 max-content 撑出去、折行也不生效。 */}
+      <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-0.5">
         {onMoveEarlier && onMoveLater ? (
           <>
             <TooltipIconButton

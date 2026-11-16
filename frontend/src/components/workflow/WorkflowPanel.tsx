@@ -419,7 +419,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           data-testid="workflow-panel"
-          render={<Button variant="outline" size="sm" className="max-w-[24em] min-w-0" />}
+          render={<Button variant="outline" size="sm" className="max-w-[24em] min-w-0 shrink" />}
         >
           <ListChecks aria-hidden data-icon="inline-start" />
           <span className="shrink-0 font-medium text-foreground">{t("panel_title")}</span>

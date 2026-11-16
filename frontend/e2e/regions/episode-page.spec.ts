@@ -347,15 +347,14 @@ defineRegionScenarios("集页页头", [
     screenshot: { name: "episode-page-progress-content", target: progressPopover },
   },
   {
-    name: "集头「⋯」菜单展开删除入口",
+    name: "集头的删除入口是直接按钮，不藏在「⋯」菜单里",
     path: EPISODE_PATH,
     api: STRESS,
     ready: pageReady,
     act: async (page) => {
       await clearAgentOverlay(page);
-      await page.getByRole("button", { name: "这一集的更多操作" }).click();
-      await expect(page.getByRole("menuitem", { name: "删除这一集" })).toBeVisible();
-      await waitForEntrance(page.getByRole("menu"));
+      await expect(page.getByRole("button", { name: "删除这一集" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "这一集的更多操作" })).toHaveCount(0);
     },
   },
   {

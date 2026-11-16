@@ -30,6 +30,9 @@ export default defineConfig({
     setupFiles: ["src/test/setup.ts"],
     restoreMocks: true,
     clearMocks: true,
+    // 用例里的 `vi.stubGlobal("matchMedia", ...)` 常在用例体内设置；不自动回收会漏给同 worker
+    // 的后续文件，让「移动档 / 桌面档」这类判定读到别的用例的桩。
+    unstubGlobals: true,
     // vmThreads 每个 worker 只建一次 jsdom，每个文件换一个 VM context；forks 每个文件新起进程
     // 并重建 jsdom。测试文件数以百计，按文件重建环境的固定开销压过了用例本身。
     projects: [

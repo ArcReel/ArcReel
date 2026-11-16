@@ -206,7 +206,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             <span className={LABEL_CLS}>{t("ce_auth_headers")}</span>
             <div className="space-y-2">
               {Object.entries(authHeaders).map(([name, value]) => (
-                <div key={headerIds.idOf(name)} className="grid grid-cols-[180px_1fr_32px] items-center gap-3">
+                <div key={headerIds.idOf(name)} className="grid grid-cols-1 items-center gap-3 @md/detail:grid-cols-[180px_1fr_32px]">
                   <div className="min-w-0">
                     <Input
                       type="text"
@@ -272,7 +272,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
       {/* 3 输入素材 */}
       <FormSection id="inputs" step={3} title={t("ce_section_inputs")} desc={t("ce_section_inputs_desc")}>
         <div className="space-y-2">
-          <div className="grid grid-cols-[1fr_180px_150px_110px_32px] gap-3 text-xs text-muted-foreground">
+          <div className="hidden grid-cols-[1fr_180px_150px_110px_32px] gap-3 text-xs text-muted-foreground @md/detail:grid">
             <span className="px-1">{t("ce_input_variable")}</span>
             <span className="px-1">{t("ce_input_source")}</span>
             <span className="px-1">{t("ce_input_encoding")}</span>
@@ -280,7 +280,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             <span />
           </div>
           {Object.entries(inputs).map(([name, spec]) => (
-            <div key={inputIds.idOf(name)} className="grid grid-cols-[1fr_180px_150px_110px_32px] items-center gap-3">
+            <div key={inputIds.idOf(name)} className="grid grid-cols-1 items-center gap-3 @md/detail:grid-cols-[1fr_180px_150px_110px_32px]">
               <div className="min-w-0">
                 <Input
                   type="text"
@@ -345,7 +345,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
 
       {/* 4 提交生成任务 */}
       <FormSection id="submit" step={4} title={t("ce_section_submit")} desc={t("ce_section_submit_desc")}>
-        <div className="grid grid-cols-[120px_1fr] gap-3">
+        <div className="grid grid-cols-1 gap-3 @md/detail:grid-cols-[120px_1fr]">
           <div>
             <span className={LABEL_CLS}>{t("ce_request_method")}</span>
             <SelectField
@@ -395,7 +395,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
 
       {/* 5 查询进度与结果 */}
       <FormSection id="poll" step={5} title={t("ce_section_poll")} desc={mediaCopy("ce_section_poll_desc")}>
-        <div className="grid grid-cols-[120px_1fr] gap-3">
+        <div className="grid grid-cols-1 gap-3 @md/detail:grid-cols-[120px_1fr]">
           <div>
             <span className={LABEL_CLS}>{t("ce_request_method")}</span>
             <SelectField
@@ -510,14 +510,14 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
       {/* 6 状态对照 */}
       <FormSection id="status" step={6} title={t("ce_section_status")} desc={t("ce_section_status_desc")}>
         <div className="space-y-2">
-          <div className="grid grid-cols-[1fr_16px_180px_32px] gap-3 text-xs text-muted-foreground">
+          <div className="hidden grid-cols-[1fr_16px_180px_32px] gap-3 text-xs text-muted-foreground @md/detail:grid">
             <span className="px-1">{t("ce_status_provider_value")}</span>
             <span />
             <span className="px-1">{t("ce_status_standard")}</span>
             <span />
           </div>
           {Object.entries(statusMap).map(([from, to]) => (
-            <div key={statusIds.idOf(from)} className="grid grid-cols-[1fr_16px_180px_32px] items-center gap-3">
+            <div key={statusIds.idOf(from)} className="grid grid-cols-1 items-center gap-3 @md/detail:grid-cols-[1fr_16px_180px_32px]">
               <div className="min-w-0">
                 <Input
                   type="text"

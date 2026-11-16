@@ -542,7 +542,7 @@ export function CustomProviderForm({
   );
 
   return (
-    <DetailPane header={header} footer={<SaveBar unit={unit} className="max-w-6xl" />}>
+    <DetailPane dense header={header} footer={<SaveBar unit={unit} className="max-w-6xl" />}>
       <div className="flex flex-col gap-10 px-6 py-6">
         <section aria-labelledby={connectionHeadingId} className="flex max-w-178 flex-col gap-4">
           <h3 id={connectionHeadingId} className="text-base font-medium">
@@ -568,7 +568,7 @@ export function CustomProviderForm({
               disabled={!!existing}
               items={DISCOVERY_FORMAT_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) }))}
             >
-              <SelectTrigger id={formatId} className="w-56">
+              <SelectTrigger id={formatId} className="w-full max-w-56">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -677,7 +677,7 @@ export function CustomProviderForm({
               id={`${billingHeadingId}-input`}
               inputMode="decimal"
               autoComplete="off"
-              className="w-32"
+              className="w-full max-w-32"
               value={value.providerMultiplier}
               onChange={(e) => setField("providerMultiplier", e.target.value)}
               placeholder={t("cp_provider_multiplier_placeholder", {
@@ -786,7 +786,7 @@ export function CustomProviderForm({
                 step={1}
                 inputMode="numeric"
                 autoComplete="off"
-                className="w-32"
+                className="w-full max-w-32"
                 value={value[field]}
                 onChange={(e) => setField(field, e.target.value)}
                 placeholder={workersPlaceholder}

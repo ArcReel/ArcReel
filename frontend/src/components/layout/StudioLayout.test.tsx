@@ -9,13 +9,31 @@ import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 
-// 会话、任务与项目事件流都走网络，外壳的开合与折叠不依赖它们
-vi.mock("@/components/copilot/AgentCopilot", () => ({
-  AgentCopilot: () => <textarea aria-label="Agent 输入" />,
-}));
+// 会话、任务与项目事件流都走网络，外壳的开合与折叠不依赖它们。
+// 真实面板自带标题栏与收起按钮，移动档的全屏层不再重复提供，桩件按同样形态给出。
+vi.mock("@/components/copilot/AgentCopilot", async () => {
+  const { useAppStore } = await import("@/stores/app-store");
+  return {
+    AgentCopilot: () => {
+      const toggle = useAppStore((state) => state.toggleAssistantPanel);
+      return (
+        <div>
+          <button type="button" aria-label="收起 Agent 面板" onClick={toggle} />
+          <textarea aria-label="Agent 输入" />
+        </div>
+      );
+    },
+  };
+});
 vi.mock("@/hooks/useTaskRefresh", () => ({ useTaskRefresh: () => {} }));
 vi.mock("@/hooks/useProjectEventsSSE", () => ({ useProjectEventsSSE: () => {} }));
-vi.mock("@/components/usage/UsageHeaderEntry", () => ({ UsageHeaderEntry: () => null }));
+// 与 GlobalHeader.test 用同一形态：同一 worker 内模块注册表可能共用，两个文件给出不同的桩
+// 会让先加载的那份胜出，另一个文件就查不到自己的桩。
+vi.mock("@/components/usage/UsageHeaderEntry", () => ({
+  UsageHeaderEntry: ({ projectName }: { projectName: string }) => (
+    <div data-testid="usage-entry" data-project={projectName} />
+  ),
+}));
 
 /** 紧凑档：视口窄于 1280，`(min-width: 80rem)` 不匹配。 */
 function useCompactViewport() {
@@ -169,5 +187,65 @@ describe("StudioLayout", () => {
     fireEvent.keyDown(input, { key: "Escape" });
 
     expect(agentToggle()).toHaveAttribute("aria-pressed", "true");
+  });
+
+  describe("mobile tier", () => {
+    /** 移动档：`(max-width: 47.999rem)` 匹配，其余断点不匹配。 */
+    function useMobileViewport() {
+      vi.stubGlobal("matchMedia", (query: string) => ({
+        matches: query.includes("max-width"),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+    }
+
+    it("keeps the agent panel closed on entry instead of covering the canvas", () => {
+      useAppStore.setState({ assistantPanelOpen: true });
+      useMobileViewport();
+
+      renderShell("/");
+
+      expect(agentToggle()).toHaveAttribute("aria-pressed", "false");
+    });
+
+    it("opens the workspace navigation as a drawer from the header menu button", () => {
+      useMobileViewport();
+      renderShell("/characters");
+
+      // 移动档下侧栏不在文档流里，顶栏出现菜单按钮
+      const open = screen.getByRole("button", { name: "打开导航菜单" });
+      expect(screen.queryByRole("navigation", { name: "工作区导航" })).not.toBeInTheDocument();
+
+      fireEvent.click(open);
+
+      expect(screen.getByRole("dialog", { name: "工作区导航" })).toBeInTheDocument();
+      expect(screen.getByRole("navigation", { name: "工作区导航" })).toBeInTheDocument();
+    });
+
+    it("closes the navigation drawer after navigating to another page", () => {
+      useMobileViewport();
+      const { navigate } = renderShell("/characters");
+      fireEvent.click(screen.getByRole("button", { name: "打开导航菜单" }));
+      expect(screen.getByRole("dialog", { name: "工作区导航" })).toBeInTheDocument();
+
+      act(() => navigate("/scenes"));
+
+      expect(screen.queryByRole("dialog", { name: "工作区导航" })).not.toBeInTheDocument();
+    });
+
+    it("shows the agent panel as a full-screen layer with its own close button", () => {
+      useMobileViewport();
+      renderShell("/");
+
+      fireEvent.click(agentToggle());
+
+      const close = screen.getByRole("button", { name: "收起 Agent 面板" });
+      expect(close).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Agent 输入" })).toBeInTheDocument();
+
+      fireEvent.click(close);
+      expect(screen.queryByRole("textbox", { name: "Agent 输入" })).not.toBeInTheDocument();
+    });
   });
 });

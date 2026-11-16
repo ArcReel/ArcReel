@@ -245,7 +245,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
         {/* 预览请求 */}
         <TestCard title={t("ce_test_preview")} desc={t("ce_test_preview_desc")}>
           <div className="flex flex-wrap items-end gap-3">
-            <TestField label={t("ce_test_model")} htmlFor={ids.previewModel} className="w-56">
+            <TestField label={t("ce_test_model")} htmlFor={ids.previewModel} className="w-full max-w-56">
               <Input
                 mono
                 id={ids.previewModel}

@@ -320,7 +320,9 @@ describe("ProjectsPage", () => {
 
     renderPage();
     await projectList();
-    const search = screen.getByRole("searchbox", { name: "搜索项目" });
+    // 顶栏与工具栏各有一个搜索框，靠容器查询只显示其一；jsdom 不算样式，两份都在 DOM 里，
+    // 按位置取工具栏那份（顶栏那份在 banner 内）。
+    const search = within(screen.getByRole("main")).getByRole("searchbox", { name: "搜索项目" });
 
     fireEvent.change(search, { target: { value: "harbor" } });
     expect(within(await projectList()).getAllByRole("link")).toHaveLength(1);

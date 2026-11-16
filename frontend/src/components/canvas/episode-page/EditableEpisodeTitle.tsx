@@ -67,7 +67,7 @@ export function EditableEpisodeTitle({ title, placeholder, onSave, canEdit }: Ed
 
   const heading = (
     <h1 className="min-w-0 text-base font-semibold text-foreground">
-      <TruncatedText text={title || placeholder || ""} />
+      <TruncatedText text={title || placeholder || ""} revealOnTap />
     </h1>
   );
 

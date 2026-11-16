@@ -108,6 +108,12 @@ interface AppState {
   /** 顶栏用量悬浮层的开合；画布侧也从这里打开面板。 */
   usagePanelOpen: boolean;
   setUsagePanelOpen: (open: boolean) => void;
+  /**
+   * 移动档的侧栏抽屉开合。移动档下侧栏不占文档流，由顶栏按钮从左侧滑出；
+   * 选完导航项或按 Esc 时关闭。桌面档不使用这个状态。
+   */
+  mobileSidebarOpen: boolean;
+  setMobileSidebarOpen: (open: boolean) => void;
 
   // Grid list invalidation signal (incremented on grid_ready SSE events)
   gridsRevision: number;
@@ -275,6 +281,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   usagePanelOpen: false,
   setUsagePanelOpen: (open) => set({ usagePanelOpen: open }),
+  mobileSidebarOpen: false,
+  setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
 
   gridsRevision: 0,
   invalidateGrids: () => set((s) => ({ gridsRevision: s.gridsRevision + 1 })),

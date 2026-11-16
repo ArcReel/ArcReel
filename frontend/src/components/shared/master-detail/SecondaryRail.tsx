@@ -59,7 +59,7 @@ export function SecondaryRail({ label, groups, activeId, replace }: SecondaryRai
   return (
     <nav
       aria-label={label}
-      className="relative w-14 shrink-0 overflow-y-auto border-r border-border @5xl/page:w-66"
+      className="relative w-14 shrink-0 overflow-y-auto border-r border-border @5xl/page:w-66 @max-5xl/page:w-full @max-5xl/page:overflow-x-auto @max-5xl/page:overflow-y-hidden @max-5xl/page:border-r-0 @max-5xl/page:border-b"
     >
       <div className="hidden px-3 py-4 @5xl/page:block">
         {groups.length > 1 ? (
@@ -83,12 +83,16 @@ export function SecondaryRail({ label, groups, activeId, replace }: SecondaryRai
         )}
       </div>
 
-      <div className="flex flex-col gap-3 px-2 py-3 @5xl/page:hidden">
+      <div className="relative flex flex-col gap-3 px-2 py-3 @5xl/page:hidden @max-5xl/page:flex-row @max-5xl/page:items-center @max-5xl/page:gap-1 @max-5xl/page:overflow-x-auto @max-5xl/page:py-2">
         {groups.map((group, index) => (
           <ul
             key={group.id}
             aria-label={group.label}
-            className={cn("flex flex-col items-center gap-1", index > 0 && "border-t border-border pt-3")}
+            className={cn(
+              "flex flex-col items-center gap-1",
+              index > 0 && "border-t border-border pt-3",
+              "@max-5xl/page:flex-row @max-5xl/page:border-t-0 @max-5xl/page:pt-0",
+            )}
           >
             {[...group.items, ...(group.action ? [group.action] : [])].map((item) => (
               <li key={item.id}>

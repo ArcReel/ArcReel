@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TruncatedText } from "./TruncatedText";
 
@@ -12,15 +12,26 @@ function mockWidths(scrollWidth: number, clientWidth: number) {
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => clientWidth });
 }
 
+// 触屏档：没有悬停能力，点按才显示全文。
+function stubNoHover() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === "(hover: none)",
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
+}
+
 afterEach(() => {
   mockWidths(0, 0);
+  vi.unstubAllGlobals();
 });
 
-function renderText() {
+function renderText(props: { revealOnTap?: boolean } = {}) {
   render(
     <TooltipProvider>
       <button type="button">before</button>
-      <TruncatedText text={PATH} />
+      <TruncatedText text={PATH} {...props} />
     </TooltipProvider>,
   );
 }
@@ -59,5 +70,23 @@ describe("TruncatedText", () => {
 
     await user.hover(screen.getByText(PATH));
     expect(shownTimes()).toBe(1);
+  });
+
+  it("reveals the full text on tap when there is no hover", async () => {
+    mockWidths(480, 200);
+    stubNoHover();
+    renderText({ revealOnTap: true });
+
+    fireEvent.click(screen.getByText(PATH));
+    await waitFor(() => expect(shownTimes()).toBe(2));
+  });
+
+  it("keeps the hover tooltip on pointer devices even with revealOnTap", async () => {
+    mockWidths(480, 200);
+    renderText({ revealOnTap: true });
+
+    expect(screen.getByText(PATH)).toHaveAttribute("data-slot", "tooltip-trigger");
+    fireEvent.mouseEnter(screen.getByText(PATH));
+    await waitFor(() => expect(shownTimes()).toBe(2));
   });
 });

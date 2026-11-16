@@ -21,10 +21,53 @@
         document.documentElement.classList.add("dark");
       }
     </script>
+    <style>
+      /* 首屏占位：JS 与 i18n 加载完成前 #app-root 是空的，移动网络下这段时间会是一整屏纯白。
+         这里用内联样式先铺主题底色 + 一个静态转圈，不依赖任何外部资源；React 挂载时整体替换。 */
+      html {
+        background: oklch(0.985 0.003 265);
+      }
+      html.dark {
+        background: oklch(0.19 0.012 265);
+      }
+      .boot-splash {
+        display: flex;
+        height: 100dvh;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        color: oklch(0.52 0.012 265);
+        font-family: system-ui, sans-serif;
+        font-size: 0.875rem;
+      }
+      .boot-splash__ring {
+        width: 1rem;
+        height: 1rem;
+        border: 2px solid currentColor;
+        border-right-color: transparent;
+        border-radius: 9999px;
+        animation: boot-splash-spin 0.8s linear infinite;
+      }
+      @keyframes boot-splash-spin {
+        to {
+          transform: rotate(1turn);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-splash__ring {
+          animation: none;
+        }
+      }
+    </style>
 
 </head>
 <body>
-    <div id="app-root"></div>
+    <div id="app-root">
+      <div class="boot-splash">
+        <span class="boot-splash__ring" aria-hidden="true"></span>
+        <span>加载中</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

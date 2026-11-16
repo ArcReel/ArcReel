@@ -215,6 +215,7 @@ export function SortableHandle({ label }: { label: string }) {
       aria-label={label}
       disabled={disabled}
       className="cursor-grab touch-none data-dragging:cursor-grabbing"
+      data-sortable-handle=""
       data-dragging={isDragging ? "" : undefined}
       {...attributes}
       {...listeners}

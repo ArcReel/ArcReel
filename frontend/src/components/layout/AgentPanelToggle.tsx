@@ -50,7 +50,8 @@ export function AgentPanelToggle() {
         }
       >
         <Bot data-icon="inline-start" aria-hidden />
-        {t("agent_panel_toggle")}
+        {/* 窄屏只留图标，把宽度让给通知、导出等入口；读屏与提示仍读完整名称 */}
+        <span className="@max-md/header:sr-only">{t("agent_panel_toggle")}</span>
         {status && (
           <span
             aria-hidden

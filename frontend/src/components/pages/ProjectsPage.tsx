@@ -151,7 +151,7 @@ export function ProjectsPage() {
   } else {
     content = (
       <>
-        <LobbyToolbar filter={filter} onFilterChange={setFilter} counts={counts} />
+        <LobbyToolbar filter={filter} onFilterChange={setFilter} counts={counts} query={query} onQueryChange={setQuery} />
         {shown.length === 0 ? (
           <Empty>
             <EmptyHeader>

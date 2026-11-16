@@ -109,8 +109,13 @@ export function SidebarEpisodeList({
               className="group/episode relative flex items-center rounded-md bg-background data-dragging:shadow-overlay"
             >
               {reorderable && (
-                // 把手盖在集序号上，悬停或聚焦时出现
-                <span className="absolute top-1/2 left-2.5 -translate-y-1/2 rounded-md bg-muted opacity-0 transition-opacity group-hover/episode:opacity-100 focus-within:opacity-100 group-data-dragging/episode:opacity-100 pointer-coarse:opacity-100">
+                // 桌面档：把手浮在集序号上，悬停或聚焦时出现。
+                // 触屏档（`pointer: coarse`，见 index.css 的 `[data-episode-handle]`）：没有悬停，
+                // 把手常显并参与布局——去掉底色与圆角，只留六个点贴在最左边缘，文字紧跟其后。
+                <span
+                  className="absolute top-1/2 left-2.5 -translate-y-1/2 rounded-md bg-muted opacity-0 transition-opacity group-hover/episode:opacity-100 focus-within:opacity-100 group-data-dragging/episode:opacity-100 pointer-coarse:static pointer-coarse:translate-y-0 pointer-coarse:rounded-none pointer-coarse:bg-transparent pointer-coarse:pl-1 pointer-coarse:opacity-100"
+                  data-episode-handle=""
+                >
                   <SortableHandle label={t("dashboard:episode_reorder", { name })} />
                 </span>
               )}

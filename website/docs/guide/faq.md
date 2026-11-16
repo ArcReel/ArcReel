@@ -340,7 +340,7 @@ Agent 派发子智能体时，可以要求子智能体在隔离的 worktree 中�
 
 ### 有手机 App 吗？支持哪些平台？ {#mobile-app-support}
 
-ArcReel 是自托管 Web 应用，目前没有独立的 iOS 或 Android 原生 App。手机可以尝试通过浏览器访问，但不承诺完整的移动端编辑体验。
+ArcReel 是自托管 Web 应用，目前没有独立的 iOS 或 Android 原生 App。手机浏览器可以访问：项目大厅、设置页与工作区的导航都按窄屏做了适配，侧栏收进抽屉，弹层贴底显示。分镜、时间线这类需要精细拖拽的画布编辑仍以桌面浏览器为主，窄屏上会堆叠成单列。
 
 服务器推荐 Linux、macOS、WSL2 或 Docker。Windows 原生环境只保证项目创建与基础流程，正式部署建议 WSL2 或 Docker Desktop。
 

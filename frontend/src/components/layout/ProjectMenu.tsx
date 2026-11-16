@@ -88,16 +88,18 @@ export function ProjectMenu() {
         render={
           <Button
             variant="ghost"
-            className="h-9 min-w-0 shrink justify-start text-left"
+            // 名称占满剩余宽度后自身截断：允许收缩到 0 才不会把右侧图标挤出顶栏，
+            // 单行省略也不会让中文折成一字一行。
+            className="h-9 min-w-0 max-w-64 flex-1 justify-start overflow-hidden text-left"
             aria-label={t("dashboard:project_switcher_label", { name: projectTitle })}
           />
         }
       >
-        <span className="flex min-w-0 flex-col">
-          <TruncatedText text={projectTitle} focusable={false} className="text-sm font-medium" />
+        <span className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <TruncatedText text={projectTitle} focusable={false} className="truncate text-sm font-medium" />
           {modeLine && <span className="truncate text-xs font-normal text-muted-foreground">{modeLine}</span>}
         </span>
-        <ChevronsUpDown aria-hidden data-icon="inline-end" className="text-muted-foreground" />
+        <ChevronsUpDown aria-hidden data-icon="inline-end" className="shrink-0 text-muted-foreground" />
       </PopoverTrigger>
       <PopoverContent align="start" initialFocus={searchRef} className="w-80">
         <Command loop className="-m-1.5">

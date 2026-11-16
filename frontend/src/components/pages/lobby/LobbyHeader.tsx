@@ -49,9 +49,15 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
     <PageHeader
       actions={
         <>
-          <Link href={ROUTE_APP_ASSETS} className={buttonVariants({ variant: "ghost" })}>
+          {/* 三项在各档位都平铺，只换呈现：宽容器「资产库」带文字，窄容器收成图标。
+              顶栏在品牌与主操作之间本来就有空档，收进「更多」菜单反而多一次点击。 */}
+          <Link
+            href={ROUTE_APP_ASSETS}
+            aria-label={t("assets:library_title")}
+            className={cn(buttonVariants({ variant: "ghost" }), "@max-md/header:size-8 @max-md/header:px-0")}
+          >
             <Library aria-hidden data-icon="inline-start" />
-            {t("assets:library_title")}
+            <span className="@max-md/header:sr-only">{t("assets:library_title")}</span>
           </Link>
           <IconLink href={settingsSectionPath("external-agent")} label={t("dashboard:settings_external_agent")}>
             <Bot aria-hidden />
@@ -71,11 +77,15 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
             </TooltipTrigger>
             <TooltipContent>{t("dashboard:lobby_deleted_projects")}</TooltipContent>
           </Tooltip>
-          <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+          <span aria-hidden className="mx-1 h-5 w-px bg-border @max-md/header:hidden" />
           <ButtonGroup>
-            <Button onClick={onCreate} data-onboarding={ONBOARDING_ANCHORS.lobbyCreateProject}>
+            <Button
+              onClick={onCreate}
+              aria-label={t("dashboard:lobby_new_project")}
+              data-onboarding={ONBOARDING_ANCHORS.lobbyCreateProject}
+            >
               <Plus aria-hidden data-icon="inline-start" />
-              {t("dashboard:lobby_new_project")}
+              <span className="@max-md/header:sr-only">{t("dashboard:lobby_new_project")}</span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -113,9 +123,9 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
       <div className="flex shrink-0 items-center gap-2 pl-1">
         <img src="/logo-light.svg" alt="" className="size-7 dark:hidden" />
         <img src="/logo.svg" alt="" className="hidden size-7 dark:block" />
-        <span className="text-base font-medium">{BRAND.name}</span>
+        <span className="text-base font-medium @max-md/header:sr-only">{BRAND.name}</span>
       </div>
-      <InputGroup className="ml-3 max-w-80">
+      <InputGroup className="@max-md/header:hidden ml-3 min-w-0 max-w-80 flex-1 @md/header:flex-none">
         <InputGroupAddon>
           <Search aria-hidden />
         </InputGroupAddon>

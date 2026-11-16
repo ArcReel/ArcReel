@@ -262,7 +262,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
         episodes={episodes}
         onChanged={reload}
       />
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 @max-md/canvas:flex-col">
         {!replanPending && episodes.length > 0 ? (
           <EpisodeOutline
             view={view}
@@ -278,7 +278,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
           // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 原文是长文本只读区，须能用键盘聚焦后以方向键与翻页键滚动
           tabIndex={0}
           aria-label={t("episodes_view_source_label")}
-          className="focus-ring relative min-h-0 min-w-0 flex-1 overflow-y-auto px-6 [scrollbar-gutter:stable]"
+          className="focus-ring relative min-h-0 min-w-0 flex-1 overflow-y-auto px-4 [scrollbar-gutter:stable] @md/canvas:px-6"
         >
           <div className="mx-auto max-w-[40em] pt-4">
             <ExternalChangeNotice projectName={projectName} changes={view.external_changes} onLocate={locateFile} />
@@ -303,7 +303,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
         {view.replan !== null ? (
           <section
             aria-label={t("episodes_plan_column_label")}
-            className="relative w-[clamp(320px,30cqw,400px)] shrink-0 overflow-y-auto border-l px-4 py-4"
+            className="relative w-[clamp(320px,30cqw,400px)] shrink-0 overflow-y-auto border-l px-4 py-4 @max-md/canvas:max-h-64 @max-md/canvas:w-full @max-md/canvas:border-l-0 @max-md/canvas:border-t"
           >
             <ReplanCandidatePanel
               projectName={projectName}
