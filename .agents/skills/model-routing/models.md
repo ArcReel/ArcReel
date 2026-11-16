@@ -6,7 +6,7 @@ Claude 模型用 Claude Code，GPT 模型用 Codex，Gemini 模型用 Antigravit
 
 | Category | 模型 | Effort | Fallback |
 |---|---|---|---|
-| `quick` | `gemini-4-hydrogen` | high | `claude-sonnet-5-5` · medium |
+| `quick` | `gemini-4-hydrogen` | medium | `claude-sonnet-5-5` · medium |
 | `unspecified-low` | `claude-opus-5-5` | medium | `gemini-4-carbon` · medium |
 | `unspecified-high` | `claude-opus-5-5` | high | `gemini-4-carbon` · high |
 | `deep-low` | `gemini-4-carbon` | medium | `gpt-6.1-sol` · medium |
