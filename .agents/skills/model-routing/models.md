@@ -17,8 +17,6 @@ Claude 模型用 Claude Code，GPT 模型用 Codex，Gemini 模型用 Antigravit
 | `artistry` | `claude-fable-5-2` | max | `claude-opus-5-5` · max |
 | `writing` | `gemini-4-argon` | low | `claude-opus-5-5` · low |
 
-Gemini 4 Carbon 与 Argon 的 effort 最高为 high，Hydrogen 最高为 xhigh。
-
 ## Review
 
 | 实现者 Harness | Reviewer | Effort | Fallback |
