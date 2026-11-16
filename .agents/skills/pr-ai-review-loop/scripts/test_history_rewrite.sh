@@ -171,6 +171,13 @@ check "a walkthrough rewritten after the force push but anchored on the orphaned
 check "the Codex summary still naming the orphaned head is not a start signal" "$INDEX" \
   '.codex.started_current_head | not'
 
+# The summary is first posted after the force push, yet for the orphaned head: its commit
+# anchor decides, not its creation time.
+jq '.comments[1].created_at = "2026-11-12T21:12:30Z"' "$TMP_ROOT/slow.json" > "$TMP_ROOT/late-summary.json"
+INDEX=$(poll late-summary "$TMP_ROOT/late-summary.json")
+check "a Codex summary created after the force push but naming the orphaned head is neither a review nor a start signal" "$INDEX" \
+  '(.codex.started_current_head | not) and ([.codex.comments_new[] | select(.reviewed_current_head)] | length) == 0'
+
 # ---- 4. rebase: every commit rewritten, all committed after the PR was created ----
 jq --arg head "$HEAD" '
   .commits |= map(if .sha == $head then . else .sha = ("0000000" + .sha[7:]) end)

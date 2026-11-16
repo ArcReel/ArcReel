@@ -583,15 +583,17 @@ jq -n -L "$SCRIPT_DIR" \
   def codex_comment_row:
     (.body // "") as $cb
     | ($cb | codex_reviewed_commit_from_body) as $reviewed_commit
+    | ($cb | codex_summary_commit) as $summary_commit
     | {id, createdAt, is_new: fresh(.createdAt; .id),
        reviewed_commit: $reviewed_commit,
        reviewed_current_head:
-         (if $reviewed_commit == null
-          then (.createdAt > $last_push)
-          else ($reviewed_commit | codex_commit_is_current_head)
+         (if $reviewed_commit != null then ($reviewed_commit | codex_commit_is_current_head)
+          # The summary names its commit itself (summary_on_current_head); its creation time says nothing.
+          elif $summary_commit != null then false
+          else (.createdAt > $last_push)
           end),
        has_pass_marker: ($cb | codex_comment_has_pass_marker),
-       summary_on_current_head: ($cb | codex_summary_commit | codex_commit_is_current_head),
+       summary_on_current_head: ($summary_commit | codex_commit_is_current_head),
        preview: ($cb | mk_preview), body};
 
   def inline_by_bot:
