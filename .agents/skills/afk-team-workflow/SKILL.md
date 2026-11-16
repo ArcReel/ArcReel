@@ -60,16 +60,16 @@ stage branch 的历史形状固定为：每个 issue 一个 commit，其后至�
    - 创建非 draft 的 stage PR：按第 1 节的表用 `Closes #<N>` 列出本 stage 全部 issues；本 stage 各 handoff 中自行裁决的事项及一行理由写进正文；教训候选发成 `lesson-candidate` 评论，格式见 [lessons.md](../../../docs/agents/lessons.md)。
    - 另建一个检出 green HEAD 的 QA worktree，在其中启动 qa-verifier，按 [qa-verifier.md](references/qa-verifier.md) 以全量模式验收。
    - 启动 review-looper，按 [review-looper.md](references/review-looper.md) 收敛 AI 审查。
-2. qa-verifier 交付后，把 QA 结论以一条文字评论发在 PR 上，写明验收的 commit；此后每次复验都更新这条评论。再把结论通知 review-looper：
+2. qa-verifier 交付后，把 QA 结论以一条文字评论发在 PR 上，写明全量验收的 commit；此后每次复验都更新这条评论，并写明复验的 commit。再把结论通知 review-looper：
    - 没有失败项：告知它 QA 没有待并入的修复。
-   - 有失败项：把本轮全部失败项交给一个新的 fixer 按 [fixer.md](references/fixer.md) 修复，将它交付的 commit 转交 review-looper。review-looper push 后，由 qa-verifier 在新 HEAD 上只复验这些项。循环到没有失败项，或剩余失败项**卡住**（同一失败特征第 2 次出现）。
+   - 有失败项：把本轮全部失败项交给一个新的 fixer 按 [fixer.md](references/fixer.md) 修复，将它交付的 commit 转交 review-looper。review-looper push 后，由 qa-verifier 在新 HEAD 上只复验这些项。循环到没有失败项，或剩余失败项**卡住**（同一失败特征第 2 次出现）。fixer 判定为验收误读、没有为其改代码的项，把它的依据交给 qa-verifier 复验：结论改为通过即结案，仍失败按卡住处理。
 3. 卡住的项按性质分流：
    - **回归**（批次前已有的行为被破坏）：按第 3 节暂停该 issue 及其下游。
    - **新验收未达成**（已有行为完好）：该 issue 的 commit 留在 stage，从 PR 的 `Closes` 清单中移除，在 issue 上评论 QA 证据摘要，保持 open 与 `ready-for-agent`。
 4. review-looper 回报达标 HEAD 后，逐项核对，全部成立才合并：
    - **审查收敛**：达标 HEAD 等于 PR 当前的 `headRefOid`。
    - **检查通过**：该 HEAD 的 required checks 全部通过，且 `mergeable=MERGEABLE`。
-   - **QA 覆盖该 HEAD**：没有未分流的失败项。比较 QA 验过的 commit 与该 HEAD 各自相对 `origin/main` 的 stage diff；两者在测试与文档以外的文件上有差异时，由 qa-verifier 以复验模式验收受影响的项，失败时回到第 2 步。
+   - **QA 覆盖该 HEAD**：没有未分流的失败项，且 `results.md` 中每项验过的 commit 都覆盖该 HEAD。有的项验过的 commit 不是该 HEAD 时（它在全量验收后没有复验过，而 HEAD 已因修复或 rebase 改变），由 qa-verifier 以复验模式按该 HEAD 核对覆盖，失败时回到第 2 步。
    - **PR 记录是最终结论**：`Closes` 清单与 QA 结论评论都与最终结论一致。
 
    任一项不成立时处理后重新核对；HEAD 因此改变的，等 review-looper 再次回报达标。

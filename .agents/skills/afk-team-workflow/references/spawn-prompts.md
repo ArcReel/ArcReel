@@ -25,7 +25,7 @@
 ```text
 你负责 afk-team-workflow 批次 <stage <K> 或部署冒烟> 的验收，未参与本 stage 任何实现。读 <skill 目录绝对路径>/references/qa-verifier.md 并按契约工作。
 输入：mode=<全量|复验|冒烟>；target-commit=<sha>；qa-worktree=<path；冒烟省略>；spec=#<Spec；零散批次省略>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md（冒烟省略）；evidence=<repo-root>/.afk/<batch-id>/qa/<stage-<K>|smoke>/。
-复验另给其一：items=<待验项编号>（fixer 的修复并入后）或 verified-commit=<上次验过的 sha>（合并前核对）。冒烟另给：budget=<金额>；deferred=<各 stage results.md 路径>。
+复验另给其一：items=<待验项编号>（fixer 的修复并入后，或附 fixer 的误读依据）或 coverage=target（合并前核对）。冒烟另给：budget=<金额>；deferred=<各 stage results.md 路径>。
 补充：<必要背景信息；无则省略>
 ```
 
