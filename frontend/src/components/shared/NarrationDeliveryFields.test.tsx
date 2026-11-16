@@ -144,6 +144,35 @@ describe("NarrationDeliveryFields", () => {
     expect(screen.getByText("照所选供应商文档填写音色 id")).toBeInTheDocument();
   });
 
+  it("after switching to a model without a voice list, offers none of the previous voices and keeps the saved id", async () => {
+    vi.spyOn(API, "getTtsModelCapabilities").mockImplementation(async (backend) =>
+      backend === "dashscope/qwen-audio-3.1-tts-plus"
+        ? { supports_speed: true, voices: [{ id: "longanhuan_v3.1", label: "龙安欢 · 女声" }] }
+        : { supports_speed: true, voices: [] },
+    );
+    const props = {
+      onChange: vi.fn(),
+      audioBackends: ["dashscope/qwen-audio-3.1-tts-plus", "custom-1/qwen-audio-3.1-tts-next"],
+      providerNames: { dashscope: "DashScope", "custom-1": "Relay" },
+      modelNames: {},
+    };
+    const saved = { ...ttsProject, audioBackend: "dashscope/qwen-audio-3.1-tts-plus", narrationVoice: "my-cloned-voice" };
+    const { rerender } = render(<NarrationDeliveryFields {...props} value={saved} />);
+    await screen.findByText("从列表选择音色，或照所选供应商文档填写音色 id");
+
+    rerender(<NarrationDeliveryFields {...props} value={{ ...saved, audioBackend: "custom-1/qwen-audio-3.1-tts-next" }} />);
+    await waitFor(() =>
+      expect(API.getTtsModelCapabilities).toHaveBeenCalledWith("custom-1/qwen-audio-3.1-tts-next", expect.anything()),
+    );
+    await screen.findByText("照所选供应商文档填写音色 id");
+    const input = screen.getByLabelText("旁白音色 ID");
+    await userEvent.click(input);
+
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    expect(input).toHaveValue("my-cloned-voice");
+    expect(props.onChange).not.toHaveBeenCalled();
+  });
+
   it("flags a TTS project without a voice", () => {
     vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
     renderFields({ ...ttsProject, narrationVoice: "  " });

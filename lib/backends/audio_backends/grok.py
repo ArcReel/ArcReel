@@ -56,6 +56,7 @@ _LANGUAGE_CODES = {
 _AUTO_LANGUAGE = "auto"
 
 # 官方 Text to Speech 的 Voices 表列出的内置音色，出处见 docs/api-docs/endpoints/grok-tts.md。
+# 请求体没有模型字段，这张表属于端点本身，任何本地模型标识都用它。
 # 新建项目预填列表首项，所以官方默认音色 eve 排在最前。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=voice_id.capitalize())

@@ -312,9 +312,9 @@ export default {
   'voice_sample_modal_title': 'Generate voice reference sample',
   'voice_sample_modal_desc': 'Pick a voice for "{{name}}" and generate a sample. Confirm to save it as the character’s reference audio.',
   'voice_sample_voice_label': 'Voice',
-  'voice_sample_voice_placeholder': 'Select a voice',
+  'voice_sample_voice_hint': 'Pick a voice from the list or fill in a voice id per your provider docs',
   'voice_sample_voice_loading': 'Loading voices…',
-  'voice_sample_no_voices': 'The current audio provider has no selectable voices',
+  'voice_sample_no_voices': 'The current TTS model has no voice list. Fill in a voice id per your provider docs',
   'voice_sample_text_label': 'Sample text',
   'voice_sample_text_default':
     "Hello, this is a voice sample that will be used as the character's reference audio to help keep the voice consistent.",

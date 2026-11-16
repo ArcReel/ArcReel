@@ -425,7 +425,7 @@ ArcReel 支持：
 
 ArcReel 的旁白能力可以使用阿里百炼 Qwen TTS 与 qwen-audio TTS、MiniMax 语音、Gemini TTS（AI Studio、Vertex）、Grok TTS、火山方舟 Agent Plan 的豆包语音合成模型 2.0 或兼容的 TTS 接口。
 
-在全局设置和项目设置里选定 TTS 模型后，旁白音色输入框会列出这个模型可选的常用音色。列表之外的音色（例如复刻音色）照供应商文档填写音色 ID。
+在全局设置和项目设置里选定 TTS 模型后，旁白音色输入框会列出这个模型可选的常用音色。只有能按官方文档确认音色适用于这个模型时才会列出：自定义的型号名、中转站的别名、官方音色列表没有写到的型号，以及走 OpenAI 兼容接口但不是直连 OpenAI 官方地址的模型，都不列音色，也不会借用同一调用端点下其他模型的音色。没有列表不代表模型不能指定音色。列表之外的音色（例如复刻音色）照供应商文档填写音色 ID，已保存的音色不会因为没有列表而被清空或改写。
 
 阿里百炼语音分为两个调用端点：「阿里百炼（语音合成）」调用 Qwen TTS（`qwen3-tts` 等），「阿里百炼（qwen-audio 语音合成）」调用 qwen-audio TTS（`qwen-audio-3.0-tts`、`qwen-audio-3.1-tts` 系列）。两个端点的音色不通用，qwen-audio 的各个模型也只能使用各自的音色，完整列表见百炼[音色列表](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list)。qwen-audio 端点支持配音语速，范围 0.5～2.0，超出范围时按最近的边界值提交。添加模型时，名称含 `qwen-audio` 的模型预填 qwen-audio 端点，其余百炼语音模型预填 Qwen TTS 端点，在[模型设置](#model-settings)里可以修改。
 
