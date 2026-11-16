@@ -1130,6 +1130,7 @@ async def test_prompt_authoring_violation_quarantines_instead_of_discarding(refe
         await gen.generate(episode=1)
 
     report = str(excinfo.value)
+    assert excinfo.value.params == {"count": 1}
     assert "unregistered_asset" in report
     assert "promote_draft" in report
     assert _script_path(reference_project).read_bytes() == formal_before

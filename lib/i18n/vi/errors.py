@@ -225,6 +225,7 @@ MESSAGES = {
     "bgm_silent": "Nhạc nền này gần như không có tiếng nên không đo được độ lớn âm thanh. Hãy tải lên tệp âm thanh có tiếng",
     "bgm_ffmpeg_unavailable": "ffmpeg đi kèm hiện không dùng được nên không đo được độ lớn âm thanh của nhạc nền; tạm thời chưa thể tải nhạc nền lên",
     "vision_model_required": "Mô hình văn bản {provider}/{model} không hỗ trợ đầu vào hình ảnh (vision) nên không thể thực hiện tác vụ {task}; vui lòng chọn mô hình văn bản hỗ trợ vision cho cấp đơn giản hoặc mô hình mặc định trong cài đặt",
+    "draft_generation_invalid": "Kết quả có {count} vi phạm và đã được lưu thành bản nháp. Hãy sửa bản nháp hoặc nhờ AI sửa.",
     "internal_server_error": "Lỗi máy chủ nội bộ, vui lòng thử lại sau",
     "asset_field_must_be_string": "giá trị trường này phải là văn bản",
     "asset_field_must_be_string_list": "giá trị trường này phải là danh sách văn bản",

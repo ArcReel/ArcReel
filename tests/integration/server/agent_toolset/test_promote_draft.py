@@ -21,6 +21,7 @@ from lib.script.draft_quarantine import (
     draft_revision,
     quarantine_path,
     read_quarantine,
+    render_report,
     write_quarantine,
 )
 from lib.script.item_ids import format_item_id
@@ -111,6 +112,19 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert "shots" not in envelope["content"]["units"][0]
 
     report = said(out)
+    draft = read_quarantine(fake_ctx.project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+    assert draft is not None
+    assert (
+        report
+        == render_report(
+            rv_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path),
+            QUARANTINE_KIND_SCRIPT_PLAN,
+            [DraftViolation(v["message"], code=v["code"]) for v in draft.violations],
+            episode=1,
+        )
+        + "\n⚠️ 降级提示（不阻断，非违约、无需为此重改，草稿仍在场）:\n- unit E1U01：本单元未引用场景，画面地点将由模型自由决定"
+    )
+    assert out.problem.params == {"count": 1}
     assert f"[{code}]" in report
     assert "unit E1U01" in report
     assert rv_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path).as_posix() in report
