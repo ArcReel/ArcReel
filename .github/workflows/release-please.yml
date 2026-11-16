@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
 
+# 串行执行，较新提交的运行最后写入 Release PR，不被较早的运行覆盖；不取消在途运行，避免打断打 tag
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 permissions:
   contents: write
   issues: write
