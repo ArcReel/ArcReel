@@ -7,6 +7,7 @@
 - 生命周期判定的「今天」：固定为这份数据的数据集日期，与根 conftest 的 ``use_test_catalog_data`` 一致。
 - 应用版本：固定为 :data:`RECORDED_APP_VERSION`。
 
+系统时钟从测试数据集日期起走，避免真实日期越过全部关停日期后，日期漂移检查失效。
 ``--perturb`` 在固定之前换掉这三项之下的真实来源：系统时钟前移、出厂快照目录置空、pyproject 版本号改写。
 ``record-fixtures.ts --check`` 用它和不加 ``--perturb`` 的后端各录一次，比对两份替身。
 """
@@ -17,8 +18,12 @@ import argparse
 import json
 import os
 import tempfile
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+
+import time_machine
+
+from arcreel_catalog_core import CatalogData, parse_catalog
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_CATALOG_FILE = ROOT / "tests" / "fixtures" / "catalog.json"
@@ -33,11 +38,7 @@ PERTURB_APP_VERSION = "0.0.1"
 
 
 def perturb_sources(workdir: Path) -> None:
-    """换掉录制输入的真实来源。须在 :func:`pin_inputs` 与导入 ``server`` 之前调用。"""
-    import time_machine
-
-    time_machine.travel(datetime.now(UTC) + PERTURB_CLOCK_SHIFT, tick=True).start()
-
+    """换掉出厂快照与应用版本的真实来源。须在 :func:`pin_inputs` 与导入 ``server`` 之前调用。"""
     from lib import app_version
     from lib.catalog import query
 
@@ -51,15 +52,13 @@ def perturb_sources(workdir: Path) -> None:
     app_version.PYPROJECT_PATH = pyproject
 
 
-def pin_inputs() -> None:
+def pin_inputs(data: CatalogData) -> None:
     """固定目录数据、生命周期的「今天」与应用版本。须在导入 ``server`` 之前调用：``server`` 下的模块按名字导入
     ``load_app_version``，导入之后再替换就换不到它们。
     """
-    from arcreel_catalog_core import CatalogData, parse_catalog
     from lib import app_version
     from lib.catalog import lifecycle, query
 
-    data = parse_catalog(json.loads(TEST_CATALOG_FILE.read_text(encoding="utf-8")))
     today = datetime.fromisoformat(data.dataset_version).date()
 
     def recorded_catalog() -> CatalogData:
@@ -89,10 +88,17 @@ def main() -> None:
     for key in PROVIDER_SECRET_KEYS:
         os.environ.pop(key, None)
 
-    with tempfile.TemporaryDirectory(prefix="arcreel-e2e-record-") as workdir:
+    data = parse_catalog(json.loads(TEST_CATALOG_FILE.read_text(encoding="utf-8")))
+    clock = datetime.fromisoformat(data.dataset_version)
+    if args.perturb:
+        clock += PERTURB_CLOCK_SHIFT
+    with (
+        tempfile.TemporaryDirectory(prefix="arcreel-e2e-record-") as workdir,
+        time_machine.travel(clock, tick=True),
+    ):
         if args.perturb:
             perturb_sources(Path(workdir))
-        pin_inputs()
+        pin_inputs(data)
 
         import uvicorn
 
