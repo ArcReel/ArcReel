@@ -9,7 +9,7 @@ Claude 模型用 Claude Code，GPT 模型用 Codex，Gemini 模型用 Antigravit
 | `quick` | `gemini-4-hydrogen` | high | `claude-sonnet-5-5` · medium |
 | `unspecified-low` | `claude-opus-5-5` | medium | `gemini-4-carbon` · medium |
 | `unspecified-high` | `claude-opus-5-5` | high | `gemini-4-carbon` · high |
-| `deep-low` | `gemini-4-carbon` | high | `gpt-6.1-sol` · medium |
+| `deep-low` | `gemini-4-carbon` | medium | `gpt-6.1-sol` · medium |
 | `deep-high` | `gpt-6-astra` | high | `gemini-4-carbon` · high |
 | `ultrabrain` | `gpt-6-astra` | max | `claude-fable-5-2` · max |
 | `architect` | `claude-fable-5-2` | max | `claude-opus-5-5` · max |
