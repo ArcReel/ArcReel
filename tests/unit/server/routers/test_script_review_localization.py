@@ -13,7 +13,13 @@ from lib.script.draft_quarantine import violation_entries
 from lib.script.draft_violation import DraftViolation, schema_violations
 from lib.script.plan_new_assets import new_asset_violations
 from lib.script.reference_video.draft_validation import validate_source_text_anchor
-from lib.script.script_models import NarrationScriptPlanDraft, build_drama_normalized_script_model
+from lib.script.script_models import (
+    NarrationScriptPlanDraft,
+    NarrationVideoPrompt,
+    ReferenceVideoUnit,
+    Utterance,
+    build_drama_normalized_script_model,
+)
 from server.routers import script_review as router_mod
 from server.text_generation import collect_drama_violations, collect_narration_violations
 
@@ -206,22 +212,83 @@ def test_length_limits_read_naturally_for_a_single_character():
     }
 
 
-def test_schema_types_without_dedicated_copy_show_the_pydantic_reason():
-    content = {
-        "title": "第一集",
-        "scenes": [
+@pytest.mark.parametrize(
+    ("model", "content", "path", "raw_reason", "english_reason"),
+    [
+        (
+            NarrationVideoPrompt,
             {
-                "scene_id": "E1S01",
-                "duration_seconds": 8,
-                "characters_in_scene": [],
-                "scene_description": "村口",
-                "utterances": [{"kind": "dialogue", "text": "你好"}],
-            }
-        ],
-    }
-    entries, _agent = _schema_entries(build_drama_normalized_script_model([8]), content, "scenes", "scene_id")
+                "action": "Wait",
+                "camera_motion": "Static",
+                "ambiance_audio": "Wind",
+                "dialogue": [{"speaker": "Hero", "line": "Hello"}],
+            },
+            "content.dialogue",
+            "旁白/解说片段不写台词：角色说的话由旁白在正文里转述",
+            "narration segments must not contain dialogue; retell character speech in the narration text",
+        ),
+        (
+            Utterance,
+            {"kind": "dialogue", "text": "Hello"},
+            "content.",
+            "dialogue utterance 必须带非空 speaker",
+            "dialogue utterances must have a non-empty speaker",
+        ),
+        (
+            Utterance,
+            {"kind": "voiceover", "speaker": "Hero", "text": "Hello"},
+            "content.",
+            "voiceover utterance 不得带 speaker",
+            "voiceover utterances must not have a speaker",
+        ),
+        (
+            ReferenceVideoUnit,
+            {"unit_id": "E1U01", "text": "", "duration_seconds": 4},
+            "content.",
+            "空 video unit 仅允许 needs_replan=true 且 duration_seconds=0",
+            "empty video units require needs_replan=true and duration_seconds=0",
+        ),
+        (
+            ReferenceVideoUnit,
+            {"unit_id": "E1U01", "text": "Wait", "duration_seconds": 0},
+            "content.",
+            "非空 video unit 的 duration_seconds 必须为正整数",
+            "non-empty video units require a positive integer duration_seconds",
+        ),
+    ],
+    ids=["narration_dialogue", "dialogue_speaker", "voiceover_speaker", "empty_unit", "non_empty_unit"],
+)
+def test_custom_schema_reasons_follow_the_interface_language(model, content, path, raw_reason, english_reason):
+    entries, agent = _schema_entries(model, content, "items")
+    assert [(entry["code"], entry["message"]) for entry in entries] == [
+        ("schema_invalid", f"草稿的 {path} 不符合产出结构：Value error, {raw_reason}")
+    ]
     assert _web_messages(entries, "en") == {
-        "content.scenes.0.utterances.0": "Draft content.scenes.0.utterances.0 does not match the output structure: Value error, dialogue utterance 必须带非空 speaker. Check required fields, types, and values."
+        path: f"Draft {path} does not match the output structure: {english_reason}. Check required fields, types, and values."
+    }
+    for locale in ("zh", "ru", "vi"):
+        message = _web_messages(entries, locale)[path]
+        assert "Value error" not in message
+        assert "draft_schema_" not in message
+        if locale != "zh":
+            assert not any("\u4e00" <= ch <= "\u9fff" for ch in message)
+    assert agent == [f"草稿的 {path} 不符合产出结构：Value error, {raw_reason}"]
+
+
+def test_schema_types_without_dedicated_copy_show_the_pydantic_reason():
+    entries = [
+        {
+            "code": "schema_invalid",
+            "message": "Agent report",
+            "params": {
+                "path": "content.future",
+                "detail": "future_type",
+                "schema_error": {"type": "future_type", "msg": "Original reason"},
+            },
+        }
+    ]
+    assert _web_messages(entries, "en") == {
+        "content.future": "Draft content.future does not match the output structure: Original reason. Check required fields, types, and values."
     }
 
 
@@ -231,6 +298,14 @@ def test_schema_types_without_dedicated_copy_show_the_pydantic_reason():
         (
             {"path": "content.units.0.duration_seconds", "detail": "less_than_equal (30)"},
             "草稿的 content.units.0.duration_seconds 不符合产出结构：less_than_equal (30)。检查必填字段、类型和取值",
+        ),
+        (
+            {
+                "path": "content.scenes.0.utterances.0",
+                "detail": "value_error",
+                "schema_error": {"type": "value_error", "msg": "Value error, dialogue utterance 必须带非空 speaker"},
+            },
+            "草稿的 content.scenes.0.utterances.0 不符合产出结构：Value error, dialogue utterance 必须带非空 speaker。检查必填字段、类型和取值",
         ),
         (
             {
@@ -257,7 +332,7 @@ def test_schema_types_without_dedicated_copy_show_the_pydantic_reason():
             "草稿的 content.units.0.kind 不符合产出结构：须为以下取值之一：a or。检查必填字段、类型和取值",
         ),
     ],
-    ids=["legacy_entry", "context_missing", "unparsed_choices"],
+    ids=["legacy_entry", "legacy_custom_validator", "context_missing", "unparsed_choices"],
 )
 def test_schema_entries_fall_back_without_exposing_placeholders(params, expected):
     """旧条目沿用落盘的 detail；约束参数不全时退回 pydantic 原文；取值列表解析不了时原样显示。"""
