@@ -1,0 +1,13 @@
+<!-- codex-pull-request-review-summary -->
+<!-- codex-review-state:v1 {"code_review":{"commit_sha":"00259c60c4d473b0639d7e794faeb26c42a54aad","has_any_findings":true,"has_unresolved_findings":true,"status":"failed"},"security_review":{"commit_sha":null,"has_any_findings":null,"has_unresolved_findings":null,"status":null}} -->
+
+<details>
+<summary><strong>Codex Review Summary</strong>: ❌ Failed</summary>
+
+This comment shows the latest Codex review activity on this pull request.
+
+| Review | Status | Commit | Review trigger |
+| --- | --- | --- | --- |
+| 📝 **Code Review** | ❌ **Failed** <relative-time datetime="2026-11-16T05:22:50.629957Z">2026-11-16T05:22:50.629957Z</relative-time><br/>We couldn’t complete this review. Comment `@codex review` to try again. | `00259c6` | PR opened |
+
+</details>

@@ -5,6 +5,7 @@
 ## 需要交接的故障
 
 - 必要的 reviewer 或 CodeQL 结果超过 30 分钟仍未到达；合法沿用的审查不算缺失。
+- Codex 对同一 HEAD 手动触发后仍报告审查失败（`codex.failed_current_head`）。
 - bot 报错、`POLL_ERROR` / `QUERY_ERROR` / `WAIT_ERROR`，或认证、权限失败；保留原始错误，不把空数据当作无问题。
 - CodeQL 分析失败或 alerts API 不可用；分析失败时告警数据可能仍属于旧 HEAD，不能据此终核。未接入的确认方式见 [reviewers.md](reviewers.md)。
 

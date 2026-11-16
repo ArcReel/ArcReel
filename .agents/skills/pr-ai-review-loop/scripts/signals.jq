@@ -65,6 +65,11 @@ def codex_summary_commit:
   (. // "")
   | ([capture("\"code_review\":\\{\"commit_sha\":\"(?<sha>[0-9a-fA-F]{7,40})\"")] | .[0].sha // null);
 
+def codex_summary_failed:
+  # The summary reports the code review of its commit as failed ("We couldn't complete this
+  # review. Comment `@codex review` to try again."). Nothing was reviewed and nothing is running.
+  (. // "") | test("\"code_review\":\\{[^}]*\"status\":\"failed\"");
+
 def is_trigger_command($command):
   # Trigger-command match: the comment STARTS with the command (case-insensitive, leading
   # spaces/tabs tolerated, trailing text allowed). See poll.sh PITFALL 4.

@@ -145,7 +145,7 @@ check "only the Codex receipt naming the rewritten head is a current-HEAD pass" 
    | length == 1 and .[0].has_pass_marker and (.[0].reviewed_commit | . == $head[0:length])' --arg head "$HEAD"
 check "receipts for orphaned commits are folded into history" "$INDEX" \
   '.codex.comments_history.total == 5'
-check "Codex has started on the rewritten head" "$INDEX" '.codex.started_current_head'
+check "Codex has started on the rewritten head" "$INDEX" '.codex.started_current_head and (.codex.failed_current_head | not)'
 
 # ---- 2. right after the force push ----
 just_pushed 2026-11-12T21:09:50Z > "$TMP_ROOT/pushed.json"
@@ -177,6 +177,14 @@ jq '.comments[1].created_at = "2026-11-12T21:12:30Z"' "$TMP_ROOT/slow.json" > "$
 INDEX=$(poll late-summary "$TMP_ROOT/late-summary.json")
 check "a Codex summary created after the force push but naming the orphaned head is neither a review nor a start signal" "$INDEX" \
   '(.codex.started_current_head | not) and ([.codex.comments_new[] | select(.reviewed_current_head)] | length) == 0'
+
+# Codex reports the review of the rewritten head as failed (real body from another PR, re-pointed).
+jq --rawfile failed "$SCRIPT_DIR/testdata/codex_summary_failed_pr3850.txt" --arg head "$HEAD" '
+  .comments[1].body = ($failed | gsub("00259c60c4d473b0639d7e794faeb26c42a54aad"; $head))
+' "$TMP_ROOT/slow.json" > "$TMP_ROOT/failed.json"
+INDEX=$(poll failed "$TMP_ROOT/failed.json")
+check "a failed Codex review of the head is reported and is not a start signal" "$INDEX" \
+  '.codex.failed_current_head and (.codex.started_current_head | not)'
 
 # ---- 4. rebase: every commit rewritten, all committed after the PR was created ----
 jq --arg head "$HEAD" '

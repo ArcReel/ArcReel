@@ -172,6 +172,9 @@ elif [[ "$*" == *'/issues/1767/comments?'* ]]; then
       codex_summary)
         extra_user=$CODEX
         extra_body=$(<"$WAIT_TEST_DATA/codex_summary_pr3813.txt") ;;
+      codex_failed)
+        extra_user=$CODEX
+        extra_body=$(<"$WAIT_TEST_DATA/codex_summary_failed_pr3850.txt") ;;
     esac
   fi
   trigger_at=''
@@ -441,6 +444,13 @@ for mode in codex_receipt codex_summary; do
   WAIT_TEST_CODEX=silent run_wait "$mode" --max 600
   [[ "$(<"$TMP_ROOT/result.out")" == "WAIT_READY: codex_silent" ]] \
     || fail "expected a $mode naming another commit not to count as a start signal, got: $(<"$TMP_ROOT/result.out")"
+done
+# A failed review of the head: reported at once, and never a start signal afterwards.
+for codex in silent started; do
+  reset_case
+  WAIT_TEST_CODEX=$codex WAIT_TEST_HEAD=00259c60c4d473b0639d7e794faeb26c42a54aad run_wait codex_failed --max 600
+  [[ "$(<"$TMP_ROOT/result.out")" == "WAIT_READY: reviewer_notice" && "$(sleeps)" == "60" ]] \
+    || fail "expected a failed Codex review to end the wait at once ($codex), got: $(<"$TMP_ROOT/result.out")"
 done
 reset_case
 WAIT_TEST_CODEX=silent run_wait codex_quota --max 600

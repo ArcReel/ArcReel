@@ -72,6 +72,7 @@
 #   },
 #   "codex": {
 #     "started_current_head": <bool>,                   # Codex has picked up the current HEAD (see FLAG SEMANTICS)
+#     "failed_current_head":  <bool>,                   # Codex's summary reports the review of the current HEAD as failed
 #     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head,
 #                            has_body_finding, is_new, preview}], # listed while is_new OR reviewed_current_head
 #     "reviews_history":  {total, last_submitted_at},
@@ -145,7 +146,10 @@
 #                          as the commit under review, or eyes on an @codex review trigger posted after
 #                          last_push_at; reactions count only when the reactor is
 #                          chatgpt-codex-connector[bot] — anyone else's eyes never register. false after a
-#                          push means Codex has not started on that head (reviewers.md: when to trigger)
+#                          push means Codex has not started on that head (reviewers.md: when to trigger).
+#                          Always false while failed_current_head holds
+#   failed_current_head    Codex's summary comment names the head and reports its code review as failed:
+#                          nothing was reviewed and Codex will not retry by itself
 #   has_outside_diff       CodeRabbit review body carries one or more "Outside diff range
 #                          comments" that could not be posted as inline comments
 #   has_body_finding       Codex review body itself carries a P0-P3 finding badge; this shape
@@ -157,7 +161,7 @@
 # SNAPSHOT SCHEMA — same tree as the index, except: `other_comments`/`comments`/`reviews`/
 #   `inline_comments_by_user` are FULL lists (no new/history split) with full `body` and `is_new`
 #   on every row, walkthrough keeps `body`, `commits` lists the PR commits ({oid,
-#   committedDate}), codex comment rows keep `summary_on_current_head`, own_trigger_comments
+#   committedDate}), codex comment rows keep `summary_on_current_head` and `summary_failed_current_head`, own_trigger_comments
 #   keeps `body`, `codeql_checks` is the full row list ({name, app, status, conclusion,
 #   started_at, is_failing}) instead of the summary, plus top-level `repo` and `generated_at`
 #   for query.sh provenance.
@@ -589,7 +593,8 @@ jq -n -L "$SCRIPT_DIR" \
           else (.createdAt > $last_push)
           end),
        has_pass_marker: ($cb | codex_comment_has_pass_marker),
-       summary_on_current_head: ($summary_commit | codex_commit_is_current_head),
+       summary_on_current_head: (($summary_commit | codex_commit_is_current_head) and ($cb | codex_summary_failed | not)),
+       summary_failed_current_head: (($summary_commit | codex_commit_is_current_head) and ($cb | codex_summary_failed)),
        preview: ($cb | mk_preview), body};
 
   def inline_by_bot:
@@ -754,12 +759,14 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
 
       codex: {
         started_current_head:
-          ((any($s.codex.reactions[]; .is_new))
-           or (any($s.codex.reviews[]; .reviewed_current_head))
-           or (any($s.codex.comments[]; .reviewed_current_head or .summary_on_current_head))
-           or (any($s.own_trigger_comments[];
-                   .command == "@codex review" and .has_codex_eyes
-                   and .createdAt > $s.last_push_at))),
+          ((any($s.codex.comments[]; .summary_failed_current_head) | not)
+           and ((any($s.codex.reactions[]; .is_new))
+                or (any($s.codex.reviews[]; .reviewed_current_head))
+                or (any($s.codex.comments[]; .reviewed_current_head or .summary_on_current_head))
+                or (any($s.own_trigger_comments[];
+                        .command == "@codex review" and .has_codex_eyes
+                        and .createdAt > $s.last_push_at)))),
+        failed_current_head: any($s.codex.comments[]; .summary_failed_current_head),
         reviews:
           [$s.codex.reviews[] | select(shown)
            | {id, submittedAt, state, reviewed_commit, reviewed_current_head,

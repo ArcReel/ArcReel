@@ -20,7 +20,8 @@
 #                      that turns out to be an ack is cheap, sleeping through a finding is not
 #     reviewer_notice  a reviewer bot posted a new top-level comment other than CodeRabbit's
 #                      walkthrough and Codex's clean-pass receipt or summary, or one of its
-#                      comments newly shows a pause, rate limit, skipped review or quota error
+#                      comments newly shows a pause, rate limit, skipped review or quota error,
+#                      or Codex's summary newly reports the review of a commit as failed
 #     codex_silent     the Codex trigger window closed during this wait: the head commit is
 #                      CODEX_WINDOW seconds old, Codex shows no start signal for it (a review
 #                      on the head, a reaction or comment after the commit, its summary naming
@@ -480,13 +481,19 @@ probe_once() {
             | (if .id == $walkthrough_id
                   or (is_codex and ($body | codex_comment_has_pass_marker or codex_summary_body))
                then empty else "comment:\(.id)" end),
+              (if is_codex and ($body | codex_summary_failed)
+               then "codex_failed:\($body | codex_summary_commit)" else empty end),
               (if $body | cr_paused_body then "paused:\(.id)" else empty end),
               (if $body | cr_review_skipped_body then "skipped:\(.id)" else empty end),
               (if $body | quota_alert_body then "quota:\(.id)" else empty end)]
            | unique),
         codex: {
           started:
-            (any($all_reviews[]; is_codex and .commit_id == $head)
+            ((any($all_comments[];
+                  is_codex and (.body | codex_summary_failed)
+                  and ((.body | codex_summary_commit) as $sha | $sha != null and ($head | startswith($sha))))
+              | not)
+             and (any($all_reviews[]; is_codex and .commit_id == $head)
              or any($codex_reactions[]; .created_at > $push_at)
              # A comment that names its commit (summary, receipt) counts by that anchor alone:
              # a slow review of an orphaned head lands after the push too. Same rule as poll.sh.
@@ -494,7 +501,7 @@ probe_once() {
                     is_codex
                     and ((.body | codex_summary_commit // codex_reviewed_commit_from_body) as $sha
                          | if $sha == null then .created_at > $push_at
-                           else ($head | startswith($sha)) end))),
+                           else ($head | startswith($sha)) end)))),
           triggered:
             any($all_comments[];
                 (is_cr or is_codex | not)

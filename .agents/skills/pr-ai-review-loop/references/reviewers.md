@@ -36,7 +36,7 @@
 
 ## Codex
 
-**触发。** 每个 HEAD 同一条规则，PR 的首个 HEAD 也一样：`last_push_at` 起满 5 分钟，`codex.started_current_head == false`，且 `own_trigger_comments` 中没有晚于 `last_push_at` 的 `@codex review`，就发送一次。Codex 在 PR 创建时自动审查，force push 之后大多不会自行续审，所以不能等它。窗口在等待期间到期时，`wait.sh` 以 `codex_silent` 返回。触发后仍无结果按 [faults.md](faults.md) 处理；该家已在本 PR 停用时不再触发。
+**触发。** 每个 HEAD 同一条规则，PR 的首个 HEAD 也一样：`last_push_at` 起满 5 分钟，`codex.started_current_head == false`，且 `own_trigger_comments` 中没有晚于 `last_push_at` 的 `@codex review`，就发送一次。Codex 在 PR 创建时自动审查，force push 之后大多不会自行续审，所以不能等它。窗口在等待期间到期时，`wait.sh` 以 `codex_silent` 返回。`codex.failed_current_head == true` 表示 Codex 报告该 HEAD 的审查失败，它不会自行重试：尚未对该 HEAD 触发过就立即发送，不等 5 分钟；触发过仍失败按 [faults.md](faults.md) 处理。触发后迟迟没有结果同样按 faults.md 处理；该家已在本 PR 停用时不再触发。
 
 **覆盖完成。** 当前 HEAD 上出现以下任一完成信号：带 `### 💡 Codex Review` 的 review；空 body 的 `COMMENTED` review 且本轮无新 inline；`has_pass_marker` 且 `reviewed_current_head == true` 的顶层通过评论；或可确认属于本 HEAD 的 `+1` reaction（新信号由 `is_new` 标示）。新 push 后的 `eyes` 表示正在重审，上一 HEAD 的 `+1` 不能沿用。`last_push_at` 是 commit 时间，早于实际 push：只有 reaction、没有带 `Reviewed commit` 的回执时，确认它晚于 push 再采信。
 
