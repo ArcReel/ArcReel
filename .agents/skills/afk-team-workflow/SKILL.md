@@ -19,7 +19,7 @@ disable-model-invocation: true
 | 验收来源 | Spec 与本 stage issues | 本 stage issues |
 | PR 引用 | `Closes #<N>`，另用 `Refs #<Spec>` 引用 Spec，不自动关闭它 | `Closes #<N>` |
 | 清尾 issue | 按 [issue-tracker 约定](../../../docs/agents/issue-tracker.md) 挂接父 Spec | 独立创建 |
-| 收尾报告 | 发布在 Spec issue | 发布为最后合并的 stage PR 的评论 |
+| 收尾报告 | 发布在 Spec issue | 发布为最后合并的 stage PR 的评论；没有 stage 合并时写进收尾汇报 |
 | 账本 scope | `--scope-spec <N>` | `--scope-issues <N,...>` |
 
 1. 运行 `scripts/batch-poll.sh --repo-root <repo-root>`，范围参数按上表。随后逐个通读 issue 正文与评论，得到真实的验收边界、canonical dependency graph、triage 与认领状态。`--ready` 只做机械筛选，调研、评估等不产出代码的 issue 由你剔除。
@@ -84,7 +84,7 @@ stage branch 的历史形状固定为：每个 issue 一个 commit，其后至�
 
 ### 清尾
 
-计划内的 stage 全部合并或暂停后，聚合全批 handoff 的 follow-up：经验证存在、属于批次范围且按 escalation.md 无需找用户的真缺陷，立清尾 issue 按第 1 节的表挂接，再为它们开一个清尾 stage 走同样的三个阶段；其余按 escalation.md 分流。没有需要立的清尾 issue 时不开清尾 stage。清尾 stage 自己产生的新发现，无论是否在批次范围内，真缺陷都按 escalation.md「范围外的真缺陷」开 issue，其余按同节分流，随后即结束：不开启新一轮清尾，也不找用户。
+计划内的 stage 全部合并或暂停后，聚合全批 handoff 的 follow-up：经验证存在、属于批次范围且按 escalation.md 无需找用户的真缺陷，立清尾 issue 按第 1 节的表挂接，再为它们开一个清尾 stage 走同样的三个阶段；其余按 escalation.md 分流。没有需要立的清尾 issue 时不开清尾 stage。清尾 stage 不等待暂停的 stage：暂停的 stage 没有合并，与它不构成先后。清尾 stage 自己产生的新发现，无论是否在批次范围内，真缺陷都按 escalation.md「范围外的真缺陷」开 issue，其余按同节分流，随后即结束：不开启新一轮清尾，也不找用户。
 
 ## 3. 暂停边界
 
@@ -99,7 +99,7 @@ stage branch 的历史形状固定为：每个 issue 一个 commit，其后至�
 
 ## 4. 收尾
 
-1. **部署冒烟**：全部 stage 合并后，取本批最后一个触发 `docker-edge` 构建的合并 commit 为目标，由新的 qa-verifier 以冒烟模式在部署实例上验收全批跨 stage 的主路径与各 stage 的「待部署验证」项，费用以授权预算为上限。冒烟失败项按 escalation.md「范围外的真缺陷」开 issue 并附证据摘要，不开启修复轮。本批没有合并触发镜像构建时跳过冒烟，待部署验证项转为无法验证。
+1. **部署冒烟**：各 stage（含清尾 stage）都已合并或暂停后，取本批最后一个触发 `docker-edge` 构建的合并 commit 为目标，由新的 qa-verifier 以冒烟模式在部署实例上验收已合并 stage 的跨 stage 主路径与它们的「待部署验证」项，费用以授权预算为上限。冒烟失败项按 escalation.md「范围外的真缺陷」开 issue 并附证据摘要，不开启修复轮。本批没有合并触发镜像构建时跳过冒烟，待部署验证项转为无法验证。
 2. **收尾报告**：按上表发布一条消息，按已合并 stage 组织，列出 PR、QA 与冒烟的结论计数、留 open 的 issue、暂停或跳过项。其后是人工清单：各 `results.md` 中当前结论仍为无法验证的项各附原因（待部署验证项以冒烟结论为准），以及需要用户裁决的事项，后者按 escalation.md「怎么问」的格式合成。两者都为空时省略人工清单。
 3. 移除已认领 issue 的 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
 
