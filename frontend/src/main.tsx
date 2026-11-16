@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { AppRoutes } from "./router";
+import { RootErrorBoundary } from "@/components/shared/RootErrorBoundary";
 import { useAuthStore } from "@/stores/auth-store";
 import { i18nReady } from "@/i18n";
 import { BRAND, BRAND_DOCUMENT_TITLE } from "@/branding";
@@ -37,9 +38,12 @@ if (root) {
   // 但失败必须可观测——所以显式记 error 而不是用 finally 把成功/失败合流静默。
   const render = () =>
     createRoot(root).render(
-      <TooltipProvider>
-        <AppRoutes />
-      </TooltipProvider>,
+      // 最外层兜底：路由级边界只接懒加载区域，其它未捕获错误会卸载整棵树变成白屏。
+      <RootErrorBoundary>
+        <TooltipProvider>
+          <AppRoutes />
+        </TooltipProvider>
+      </RootErrorBoundary>,
     );
   i18nReady.then(render, (err) => {
     console.error("i18n initialization failed", err);

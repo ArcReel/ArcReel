@@ -40,6 +40,8 @@ export default {
   'refresh': 'Refresh',
   'write_refresh_failed': 'Done, but the page could not be refreshed. Reload to see the latest state',
   'page_load_failed': 'This page failed to load. Check your connection and reload',
+  'app_crashed': 'The app ran into a problem and needs to reload',
+  'app_crashed_hint': 'Reloading gets you back in. Changes you had not saved yet may be lost.',
   'page_outdated_hint': 'If the app was just updated, reloading picks up the new version. Anything you were editing stays in your local draft.',
   'reload_page': 'Reload',
   'close': 'Close',

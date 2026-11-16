@@ -41,6 +41,8 @@ export default {
   'refresh': '刷新',
   'write_refresh_failed': '操作已完成，但页面数据刷新失败，请手动刷新查看最新状态',
   'page_load_failed': '页面加载失败，请检查网络后重新加载',
+  'app_crashed': '应用遇到了问题，需要重新加载',
+  'app_crashed_hint': '刷新后可以继续使用；没来得及保存的修改可能会丢失。',
   'page_outdated_hint': '若应用刚刚更新过，重新加载即可继续；正在编辑的内容会保留在本地草稿里。',
   'reload_page': '重新加载',
   'close': '关闭',
