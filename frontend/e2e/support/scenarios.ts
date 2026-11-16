@@ -1,14 +1,15 @@
 // 区域场景注册：每个页面区域在 e2e/regions/ 下用 defineRegionScenarios 登记自己的场景，
-// 每个场景在全部验收视口上跑溢出探针与 axe。场景以会改变可用高度的状态为主：
+// 每个场景在本次运行的验收视口（support/viewports.ts）上跑溢出探针与 axe。场景以会改变可用高度的状态为主：
 // 打开页面、展开会撑高的面板、打开弹层（弹层先打开再探测）。
 import type { Locator, Page } from "@playwright/test";
 import { isDefaultOrigin } from "./origin.ts";
 import { waitForEntrance } from "./region-helpers.ts";
 import { RECORDED_ACCESS_TOKEN } from "./recorded.ts";
+import { VIEWPORTS, projectName } from "./viewports.ts";
 import { expect, expectAccessible, expectReachableLayout, test, type ApiOverrides } from "./test.ts";
 
-// 截图只在这些视口拍，和溢出探针的视口清单分开维护。浅色只抽样，拍一个视口。
-const SCREENSHOT_PROJECTS = new Set(["1024x600", "1440x900", "2560x1440"]);
+// 截图只在标了 screenshot 的视口拍。浅色只抽样，拍一个视口。
+const SCREENSHOT_PROJECTS = new Set(VIEWPORTS.filter((viewport) => viewport.screenshot).map(projectName));
 const LIGHT_SCREENSHOT_PROJECTS = new Set(["1440x900"]);
 
 export interface RegionScenario {

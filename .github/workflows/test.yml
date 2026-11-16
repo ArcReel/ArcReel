@@ -34,15 +34,51 @@ jobs:
       frontend: ${{ steps.domains.outputs.frontend }}
       docker: ${{ steps.domains.outputs.docker }}
       website: ${{ steps.domains.outputs.website }}
+      full: ${{ steps.scope.outputs.full }}
+      coverage: ${{ steps.scope.outputs.coverage }}
+      e2e_viewports: ${{ steps.scope.outputs.e2e_viewports }}
+      e2e_shards: ${{ steps.scope.outputs.e2e_shards }}
+      e2e_shard_total: ${{ steps.scope.outputs.e2e_shard_total }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Decide run scope
+        # 全量运行（nightly、发布 PR）不裁剪：所有域、五档视口、采集覆盖率。发布 PR 变更的
+        # 版本文件不覆盖 docker 域，须显式全量以兑现「发布 commit 跑全量 CI」。
+        # 其余 PR 按域裁剪，不采集覆盖率（Codecov 状态不拦合并，由 main 的 push 与 nightly 更新），
+        # 页面级套件只跑有截图基线的三档视口，另外两档由 nightly 覆盖。
+        # 分片数按每片约 115 条用例定：单 worker 下 2560×1440 一档约 3 秒一条，最慢一片约 7 分钟，
+        # 与 Backend tests (integration) 相当。三档 921 条分 8 片，五档 1521 条分 13 片。
+        # 用例数明显变化时重算。
+        id: scope
+        env:
+          FULL: ${{ inputs.full == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$FULL" == "true" ]]; then
+            viewports=all
+            shard_total=13
+          else
+            viewports=screenshot
+            shard_total=8
+          fi
+          if [[ "$FULL" == "true" || "$EVENT_NAME" != "pull_request" ]]; then
+            coverage=true
+          else
+            coverage=false
+          fi
+          {
+            echo "full=$FULL"
+            echo "coverage=$coverage"
+            echo "e2e_viewports=$viewports"
+            echo "e2e_shards=$(jq -cn --argjson total "$shard_total" '[range(1; $total + 1)]')"
+            echo "e2e_shard_total=$shard_total"
+          } >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/domain-filter
         id: domains
         with:
-          # 发布 PR 变更的版本文件不覆盖 docker 域，须显式全量以兑现「发布 commit 跑全量 CI」
-          full: ${{ inputs.full == true || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')) }}
+          full: ${{ steps.scope.outputs.full }}
 
   workflow-static:
     # workflow 文件的语法与安全闸门。actionlint 走官方容器镜像（自带 shellcheck 与
@@ -208,7 +244,7 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run tests with coverage
+      - name: Run tests
         # -n 固定 4 而非 auto：-n auto 优先取 psutil 的物理核数，一旦某传递依赖带进
         # psutil，CI worker 数会静默减半。loadfile 而非默认 load：仓库根共享路径
         # （PROJECT_ROOT 下 mkdir/rmdir、module 级 autouse fixture）要求同文件用例
@@ -217,13 +253,22 @@ jobs:
         # 锁定的 pytest-xdist 补 worker 时会把崩溃 worker 已跑完的文件重新排队，补上的 worker
         # 领到空任务后会话卡在 99%；何时可以去掉见 docs/agents/testing.md「CI 挂起诊断」。
         # 步骤超时短于 job 超时，挂起时留出时间给下一步输出诊断。
+        # 覆盖率是否采集见 changes job 的「Decide run scope」。
         timeout-minutes: 20
         env:
           ARCREEL_TEST_HANG_DUMP_DIR: ${{ runner.temp }}/pytest-hang
-        run: >-
-          uv run python -m pytest ${{ matrix.path }} ${{ matrix.extra_args }} -n 4 --dist loadfile --max-worker-restart=0
-          --cov=lib --cov=server --cov=arcreel_market_core --cov=arcreel_catalog_core --cov-report=term-missing
-          --cov-report=xml:coverage-${{ matrix.suite }}.xml
+          COVERAGE: ${{ needs.changes.outputs.coverage }}
+          SUITE: ${{ matrix.suite }}
+        run: |
+          coverage_args=()
+          if [[ "$COVERAGE" == "true" ]]; then
+            coverage_args=(
+              --cov=lib --cov=server --cov=arcreel_market_core --cov=arcreel_catalog_core
+              --cov-report=term-missing "--cov-report=xml:coverage-${SUITE}.xml"
+            )
+          fi
+          uv run python -m pytest ${{ matrix.path }} ${{ matrix.extra_args }} \
+            -n 4 --dist loadfile --max-worker-restart=0 "${coverage_args[@]}"
 
       - name: Hang and crash diagnostics
         # tests/hang_watchdog.py 写下的各进程最后的进展（开始执行的用例与 sessionfinish/unconfigure 阶段）与无进展时的线程栈；
@@ -251,6 +296,7 @@ jobs:
 
       - name: Upload backend coverage
         # unit/integration 使用同一 flag；Codecov 按 commit 合并，无需本地聚合作业。
+        if: needs.changes.outputs.coverage == 'true'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -310,13 +356,19 @@ jobs:
       - name: Run dialect-sensitive tests against Postgres
         # 4 worker + loadfile：独立 schema 用例可并行，共用 public schema 的 async_session
         # 用例留在同一文件/worker，避免主键与锁冲突。
+        env:
+          COVERAGE: ${{ needs.changes.outputs.coverage }}
         run: |
+          coverage_args=()
+          if [[ "$COVERAGE" == "true" ]]; then
+            coverage_args=(--cov=lib --cov=server --cov-report=xml:coverage-pg.xml)
+          fi
           uv run python -m pytest -v \
             -m "uses_db and not sqlite_only" \
-            -n 4 --dist loadfile --max-worker-restart=0 \
-            --cov=lib --cov=server --cov-report=xml:coverage-pg.xml
+            -n 4 --dist loadfile --max-worker-restart=0 "${coverage_args[@]}"
 
       - name: Upload PG coverage
+        if: needs.changes.outputs.coverage == 'true'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -384,11 +436,19 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Run tests with coverage
+      - name: Run tests
         working-directory: frontend
-        run: pnpm test:coverage
+        env:
+          COVERAGE: ${{ needs.changes.outputs.coverage }}
+        run: |
+          if [[ "$COVERAGE" == "true" ]]; then
+            pnpm test:coverage
+          else
+            pnpm test
+          fi
 
       - name: Upload frontend coverage
+        if: needs.changes.outputs.coverage == 'true'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -399,18 +459,17 @@ jobs:
   frontend-e2e:
     # 页面级验收套件（溢出探针 + axe + 区域截图比对）。镜像版本必须与 frontend/package.json 的
     # @playwright/test 一致，否则找不到浏览器；升级 @playwright/test 时同步改这里。
-    name: frontend-e2e (${{ matrix.shard }}/5)
+    name: frontend-e2e (${{ matrix.shard }}/${{ needs.changes.outputs.e2e_shard_total }})
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    # 按用例分五片；每片仍是单 worker，截图渲染条件不变。
-    # 分片总数出现在 job 名、matrix.shard 与 --shard 三处，改动时一起改。
-    # 25 分钟上限只用来兜住卡死。
+    # 按用例分片，每片仍是单 worker，截图渲染条件不变。视口范围与分片数由 changes job 的
+    # 「Decide run scope」决定。25 分钟上限只用来兜住卡死。
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: ${{ fromJSON(needs.changes.outputs.e2e_shards) }}
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --user 1001 --ipc=host
@@ -438,7 +497,9 @@ jobs:
         # 截图基线在同一镜像里生成，比对出差异或缺少基线时该片失败
         env:
           E2E_SCREENSHOTS: "1"
-        run: pnpm e2e --shard=${{ matrix.shard }}/5
+          E2E_VIEWPORTS: ${{ needs.changes.outputs.e2e_viewports }}
+          SHARD: ${{ matrix.shard }}/${{ needs.changes.outputs.e2e_shard_total }}
+        run: pnpm e2e --shard="$SHARD"
 
       - name: Upload Playwright report
         if: failure()

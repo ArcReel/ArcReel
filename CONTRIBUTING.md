@@ -75,7 +75,7 @@ pnpm check-consistency
 
 ### 前端页面级测试
 
-`frontend/e2e/` 是 Playwright 页面级套件。它在 1024×600 到 2560×1440 的五个视口上打开各页面区域，检查文档本身不滚动、没有被裁切又无法滚动到达的内容、纵向滚动区（含弹层正文）没有被撑出横向滚动，并用 axe 按 WCAG 2.2 AA 检查可访问性。CI 的 `frontend-e2e` job 在官方 Playwright 镜像里运行。本地用 run-server 远程模式在同一镜像里渲染，结果与 CI 一致：
+`frontend/e2e/` 是 Playwright 页面级套件。它在 1024×600 到 2560×1440 的五个视口上打开各页面区域，检查文档本身不滚动、没有被裁切又无法滚动到达的内容、纵向滚动区（含弹层正文）没有被撑出横向滚动，并用 axe 按 WCAG 2.2 AA 检查可访问性。CI 的 `frontend-e2e` job 在官方 Playwright 镜像里运行，PR 上只跑有截图基线的三个视口（`E2E_VIEWPORTS=screenshot`），每日全量 CI 跑全部五个。本地用 run-server 远程模式在同一镜像里渲染，结果与 CI 一致：
 
 ```bash
 cd frontend
