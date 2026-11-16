@@ -486,6 +486,7 @@ class GenerationWorker:
         self.poll_interval = max(0.1, float(TASK_POLL_INTERVAL_SEC))
 
         self._main_task: asyncio.Task | None = None
+        self._reload_lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
         self._wake_event = asyncio.Event()
         self._owns_lease = False
@@ -526,15 +527,17 @@ class GenerationWorker:
         引用恒定，彻底消除"reload 时活体搬运在跑 task"的脆弱性。某 provider 被删后其
         在跑占用照常 drain；新任务的容量判定经 ``CapacityTable.get``：lane 被降级为不
         支持→0（fail-fast），provider 整个消失→懒默认（此时该 provider 已无法解析，
-        任务回退 DEFAULT_PROVIDER 或在执行层失败，不会真按默认容量占用它）。
+        任务回退 DEFAULT_PROVIDER 或在执行层失败，不会真按默认容量占用它）。读库与替换
+        整体串行，并发重载结束后容量表反映最后一次读到的数据库状态。
         """
-        try:
-            new = await CapacityTable.from_db()
-        except Exception:
-            logger.warning("从 DB 加载供应商配置失败，保持当前配置", exc_info=True)
-            return
-        self._capacity.replace(new._limits)
-        logger.info("已更新供应商容量表: %s", self._capacity._limits)
+        async with self._reload_lock:
+            try:
+                new = await CapacityTable.from_db()
+            except Exception:
+                logger.warning("从 DB 加载供应商配置失败，保持当前配置", exc_info=True)
+                return
+            self._capacity.replace(new._limits)
+            logger.info("已更新供应商容量表: %s", self._capacity._limits)
 
     # ------------------------------------------------------------------
     # Lifecycle
