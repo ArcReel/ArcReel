@@ -1339,6 +1339,10 @@ async def execute_video_task(
                 prompt=prompt_text,
                 resource_type="videos",
                 resource_id=resource_id,
+                reference_sources={
+                    str(project_path / media.staged_locator): project_path / media.source_locator
+                    for media in staged_media
+                },
                 start_image=provider_start_image,
                 end_image=provider_end_image,
                 aspect_ratio=aspect_ratio,
@@ -1816,6 +1820,7 @@ async def execute_grid_task(
                 resource_type="grids",
                 resource_id=resource_id,
                 reference_images=reference_images,
+                reference_sources=frozen_references.source_paths,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
                 quality=ctx.image.quality,

@@ -708,6 +708,10 @@ async def execute_reference_video_task(
                     resource_type="reference_videos",
                     resource_id=resource_id,
                     reference_images=provider_refs,
+                    reference_sources={
+                        str(project_path / media.staged_locator): project_path / media.source_locator
+                        for media in staged_media
+                    },
                     reference_image_asset_uris=_asset_uris(asset_choices),
                     reference_audio_files=provider_audio,
                     reference_audio_targets=reference_audio_targets,
