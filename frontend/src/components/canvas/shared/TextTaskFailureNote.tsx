@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ChevronRight, X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 import { DefaultModelSettingsLink } from "@/components/shared/DefaultModelSettingsLink";
 import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
+import { TaskFailureDetails } from "@/components/shared/TaskFailureDetails";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { isAdScriptTask } from "@/hooks/useAdScriptEntry";
 import { useTasksStore } from "@/stores/tasks-store";
 import { outputTruncationOf } from "@/utils/output-truncation";
@@ -18,12 +18,6 @@ const FAILURE_KEYS: Record<EpisodeTextTaskKind, string> = {
   text_episode_script: "prompt_authoring_failed",
   text_draft_repair: "draft_repair_failed",
 };
-
-function paramsText(params: Record<string, unknown> | undefined): string {
-  return Object.entries(params ?? {})
-    .map(([key, value]) => `${key}=${typeof value === "object" && value !== null ? JSON.stringify(value) : String(value)}`)
-    .join(", ");
-}
 
 /**
  * 本集最近一次文本任务（AI 规划脚本、编写提示词、AI 修复、广告/短片 AI 生成脚本）失败时的原因与出路，
@@ -64,28 +58,11 @@ export function TextTaskFailureNote({
         <p className="m-0 text-destructive">{t(adScript ? "ad_script_failed" : FAILURE_KEYS[failure.kind], { reason })}</p>
         {failure.task.error_code === "text_default_model_not_set" ? <DefaultModelSettingsLink /> : null}
         {truncation ? <OutputTruncationHint truncation={truncation} /> : null}
-        {failure.task.error_detail ? (
-          <Collapsible render={<div className="flex w-full min-w-0 flex-col gap-1" />}>
-            <CollapsibleTrigger render={<Button variant="ghost" size="xs" />}>
-              {t("text_task_failure_details")}
-              <ChevronRight
-                data-icon="inline-end"
-                aria-hidden
-                className="transition-transform group-aria-expanded/button:rotate-90"
-              />
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs text-subtle-foreground">
-                <dt className="text-muted-foreground">{t("text_task_failure_code")}</dt>
-                <dd className="m-0 min-w-0 font-mono break-all">{failure.task.error_code}</dd>
-                <dt className="text-muted-foreground">{t("text_task_failure_params")}</dt>
-                <dd className="m-0 min-w-0 font-mono break-all">{paramsText(failure.task.error_params)}</dd>
-                <dt className="text-muted-foreground">{t("text_task_failure_server_text")}</dt>
-                <dd className="m-0 min-w-0 font-mono break-all whitespace-pre-wrap">{failure.task.error_detail}</dd>
-              </dl>
-            </CollapsibleContent>
-          </Collapsible>
-        ) : null}
+        <TaskFailureDetails
+          code={failure.task.error_code}
+          params={failure.task.error_params}
+          detail={failure.task.error_detail}
+        />
       </div>
       <Button
         variant="ghost"
