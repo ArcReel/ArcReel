@@ -98,6 +98,22 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * 请求超时抛出的错误：与网络错误、业务错误区分开，调用方可单独提示「超时」并允许重试。
+ *
+ * 与 `ApiRequestError` 同文件定义：`transport` 在模块顶层继承它，若放在 `transport` 里，
+ * 环状导入走到 `errors` 尚未求值完时父类还是 undefined，模块加载直接抛
+ * 「Class extends value undefined」。
+ */
+export class RequestTimeoutError extends ApiRequestError {
+  readonly code = "request_timeout" as const;
+
+  constructor(timeoutMs: number) {
+    super(i18n.t("errors:request_timeout", { seconds: Math.round(timeoutMs / 1000) }));
+    this.name = "RequestTimeoutError";
+  }
+}
+
 /** Preserves reference request blockers so the UI can show a repair action. */
 export class ReferenceProjectionError extends Error {
   readonly code = "reference_request_projection_blocked" as const;

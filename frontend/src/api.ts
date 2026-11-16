@@ -290,7 +290,8 @@ export type {
   VersionInfo,
   VideoCapabilitiesQuery,
 } from "./api/types";
-export { setApiReadOnly, RequestTimeoutError } from "./api/transport";
+export { setApiReadOnly } from "./api/transport";
+export { RequestTimeoutError } from "./api/errors";
 
 // ==================== Endpoint helpers ====================
 

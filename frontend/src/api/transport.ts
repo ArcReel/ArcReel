@@ -10,6 +10,7 @@ import i18n from "@/i18n";
 import {
   AgentFailureError,
   ApiRequestError,
+  RequestTimeoutError,
   ReadOnlyModeError,
   ReferenceProjectionError,
   ScriptEditCommandError,
@@ -159,16 +160,6 @@ export function sseErrorHandler(onError?: (error: SseStreamError) => void) {
  * 没有超时的话调用方永远等不到结算，页面就一直停在加载态。20 秒覆盖慢网下的正常请求。
  */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
-
-/** 请求超时抛出的错误：与网络错误、业务错误区分开，调用方可单独提示「超时」并允许重试。 */
-export class RequestTimeoutError extends ApiRequestError {
-  readonly code = "request_timeout" as const;
-
-  constructor(timeoutMs: number) {
-    super(i18n.t("errors:request_timeout", { seconds: Math.round(timeoutMs / 1000) }));
-    this.name = "RequestTimeoutError";
-  }
-}
 
 /**
  * 把调用方的 signal 与超时合并成一个 signal，返回 fetch 用的 signal 与清理函数。
