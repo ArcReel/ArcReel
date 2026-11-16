@@ -37,11 +37,11 @@ export function TaskFailureDetails({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs text-subtle-foreground">
-          <dt className="text-muted-foreground">{t("text_task_failure_code")}</dt>
+          <dt>{t("text_task_failure_code")}</dt>
           <dd className="m-0 min-w-0 font-mono break-all">{code}</dd>
-          <dt className="text-muted-foreground">{t("text_task_failure_params")}</dt>
+          <dt>{t("text_task_failure_params")}</dt>
           <dd className="m-0 min-w-0 font-mono break-all">{paramsText(params)}</dd>
-          <dt className="text-muted-foreground">{t("text_task_failure_server_text")}</dt>
+          <dt>{t("text_task_failure_server_text")}</dt>
           <dd className="m-0 min-w-0 font-mono break-all whitespace-pre-wrap">{detail}</dd>
         </dl>
       </CollapsibleContent>
