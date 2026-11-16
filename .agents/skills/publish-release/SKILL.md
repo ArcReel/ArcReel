@@ -1,5 +1,5 @@
 ---
-name: release
+name: publish-release
 description: 发版：合并 Release PR，起草版本亮点，确认后写入 Changelog 与 GitHub Release。
 disable-model-invocation: true
 ---
