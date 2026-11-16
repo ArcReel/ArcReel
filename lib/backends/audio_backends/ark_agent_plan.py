@@ -73,6 +73,7 @@ _PCM_CHANNELS = 1
 _FORMAT_BY_SUFFIX = {"mp3": "mp3", "ogg": "ogg_opus", "opus": "ogg_opus", "pcm": "pcm"}
 
 # 官方音色列表中「豆包语音合成模型 2.0」的中文音色子集，出处见 docs/api-docs/endpoints/ark-agent-plan-tts.md。
+# 请求按固定资源 ID 调用这一个模型，没有模型字段，这张表属于端点本身，任何本地模型标识都用它。
 # 新建项目预填列表首项，首项取 Agent Plan 文档示例里的音色。label 是 lib/i18n 翻译 key。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=f"zh_{voice}_uranus_bigtts", label=f"voice_label_ark_agent_plan_{voice.split('_', 1)[1]}")
