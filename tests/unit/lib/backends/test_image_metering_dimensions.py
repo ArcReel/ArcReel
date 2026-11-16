@@ -17,7 +17,7 @@ from lib.backends.gemini_shared import RateLimiter
 from lib.backends.image_backends.base import ImageGenerationRequest, ImageRequestFacts, ReferenceImage
 from lib.backends.image_usage import estimate_builtin_image_usage
 from lib.catalog import query as catalog
-from tests.fakes import bounded_poll_clock
+from tests.fakes import bounded_poll_clock, patched_genai_client
 from tests.http_capture import capture_http
 
 _PROVIDERS = sorted(provider for provider, media in PROVIDER_SPEC_REGISTRY if media == "image")
@@ -86,7 +86,7 @@ async def test_every_listed_image_model_reports_all_price_dimensions(
             estimate = estimate_builtin_image_usage(provider, facts)
             with (
                 patch("xai_sdk.AsyncClient", return_value=sdk),
-                patch("google.genai.Client", return_value=gemini),
+                patched_genai_client(gemini),
                 patch("google.oauth2.service_account.Credentials.from_service_account_file"),
                 capture_http() as router,
                 bounded_poll_clock(),

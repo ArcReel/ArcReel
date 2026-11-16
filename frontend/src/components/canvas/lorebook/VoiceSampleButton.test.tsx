@@ -66,7 +66,7 @@ describe("VoiceSampleButton", () => {
       model: "qwen-audio-3.1-tts-next",
       voices: [],
     });
-    vi.spyOn(generationActions, "enqueueCharacterVoiceSample").mockResolvedValue({ taskIds: ["task-1"], deduped: false });
+    vi.spyOn(API, "generateCharacterVoiceSample").mockResolvedValue({ success: true, task_id: "task-1", deduped: false, message: "" });
 
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
@@ -79,7 +79,7 @@ describe("VoiceSampleButton", () => {
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
 
     await waitFor(() =>
-      expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalledWith(
+      expect(API.generateCharacterVoiceSample).toHaveBeenCalledWith(
         "demo",
         "艾莉",
         expect.any(String),

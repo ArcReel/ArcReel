@@ -82,7 +82,7 @@ class TestProjectsRouter:
                 json={
                     "narration_delivery": "use_tts",
                     "audio_backend": "dashscope/qwen3-tts-flash",
-                    "narration_voice": "Cherry",
+                    "narration_voice": "my-cloned-voice",
                     "narration_speed": 1.2,
                 },
             )
@@ -90,7 +90,7 @@ class TestProjectsRouter:
             data = fake_pm.project_data["ready"]
             assert data["narration_delivery"] == "use_tts"
             assert data["audio_backend"] == "dashscope/qwen3-tts-flash"
-            assert data["narration_voice"] == "Cherry"
+            assert data["narration_voice"] == "my-cloned-voice"
             assert data["narration_speed"] == 1.2
 
     def test_switching_to_post_production_keeps_tts_snapshot(self, tmp_path, monkeypatch):
