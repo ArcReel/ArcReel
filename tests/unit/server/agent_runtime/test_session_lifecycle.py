@@ -128,7 +128,10 @@ class TestConfigReading:
 
 
 class _CleanupTimerGate:
-    """拦截清理定时器的正数 ``asyncio.sleep``：记录延迟秒数，由调用方显式触发到期。"""
+    """替换整个进程的 ``asyncio.sleep``，拦截正数延迟：记录延迟秒数，由调用方显式触发到期。
+
+    patch 期间任何协程的正数等待都会进入本闸门，用例以 ``delays`` 断言只有清理定时器在等。
+    """
 
     def __init__(self) -> None:
         self.delays: list[float] = []
@@ -160,7 +163,7 @@ class TestCleanup:
         try:
             with (
                 patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60),
-                patch("server.agent_runtime.session_manager.asyncio.sleep", new=timer.sleep),
+                patch("asyncio.sleep", new=timer.sleep),
             ):
                 mgr._schedule_cleanup("s1")
                 cleanup_task = managed._cleanup_task
@@ -191,7 +194,7 @@ class TestCleanup:
         try:
             with (
                 patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60),
-                patch("server.agent_runtime.session_manager.asyncio.sleep", new=timer.sleep),
+                patch("asyncio.sleep", new=timer.sleep),
             ):
                 mgr._schedule_cleanup("s1")
                 cleanup_task = managed._cleanup_task
