@@ -2,7 +2,7 @@
 
 记录值得改进环境的错，由定期巡检维护、计数与晋升；候选经 PR 上的 `lesson-candidate` 评论提交。条目格式、计数、阈值与退出规则见 [`docs/agents/lessons.md`](agents/lessons.md)。
 
-<!-- reviewed-through: 28ff06a9147bf5ebae9bd3411f262ab109b7e5b5 2026-11-15 -->
+<!-- reviewed-through: 60e9842ac5529e08e4fe5ea759313378aac75850 2026-11-16 -->
 
 ## 异步任务的结果与异常在每条路径上都有人接
 
@@ -350,7 +350,7 @@
 模式：会话消息被接纳时先写事件日志、再移出排队；用例轮询到日志条目就断言排队已移除。同一过程上的一条用例已按最后一步改过，用同样等待写法的其他用例没有被找出来
 代价：Nightly 全量 CI 偶发失败（严重度：常规）
 判定方式：需要判断
-- #3118 · 2026-11-13 · main CI 失败：Nightly 全量中 `TestNewSessionEventLogFlow::test_retry_with_the_same_client_key_is_not_sent_again` 在 `_wait_for_entries` 返回后重试，拿到仍在排队的消息而不是日志条目（run 43499184222，#3819 跟踪）；根因：`_settle_queued_message` 先 `append_user_entry` 再 `remove_queued_message`，用例只等到前一步；没拦住：有规则但没被执行（testing.md「等待异步过程时，以它的最后一步为就绪信号」要求同一过程的同类等待一并改掉，#3359 修 TestSendQueuedMessageNow 时没有回查本用例）
+- #3118 · 2026-11-13 · main CI 失败：Nightly 全量中 `TestNewSessionEventLogFlow::test_retry_with_the_same_client_key_is_not_sent_again` 在 `_wait_for_entries` 返回后重试，拿到仍在排队的消息而不是日志条目（run 43499184222，#3819 跟踪；用例未修，2026-11-15 的 run 43756510894 以同一断言再次失败，#3826 跟踪）；根因：`_settle_queued_message` 先 `append_user_entry` 再 `remove_queued_message`，用例只等到前一步；没拦住：有规则但没被执行（testing.md「等待异步过程时，以它的最后一步为就绪信号」要求同一过程的同类等待一并改掉，#3359 修 TestSendQueuedMessageNow 时没有回查本用例）
 
 ## 并行会话共用同一份工作区或本机进程
 
@@ -577,6 +577,12 @@
 判定方式：需要判断
 - #3813 · 2026-11-13 · 审查发现：文档站写 Agent Plan 语音合成「额度或并发已用尽时合成任务失败」，没有说明开启超额后付费后会继续调用并出账（#3747 的实现，#3813 内修正）；根因：只核对了接口文档与错误码，没有读套餐概览与超额后付费管理页面；没拦住：没有对应规则
 - 评审未晋升 · 2026-11-14 · 在 PR 内被审查拦下，合入的 `website/docs/guide/providers.md` 已写明超额后付费的出账方式；docs.md「供应商相关文档写能力与配置方式……以设置页和供应商官方文档为准」已要求以官方文档为准，接入订阅套餐类供应商的改动很少，只出现一次，继续计数
+
+### 统计 PR 自身改动的检查以 merge-base 为起点，不与 base 分支的最新提交两点比较
+模式：CI 步骤用 `git diff <base 最新提交> <head>` 列出 PR 改动的文件；head 分支没有包含 base 上的新提交时，这些提交的改动也被算成 PR 的改动
+代价：检查误报，阻断与 PR 无关的合并，例如发版 PR 合不进去（严重度：常规）
+判定方式：机械（拟在 workflows 域检查报出以 `pull_request.base.sha` 与 head 做两点 diff 的步骤）
+- #1680 · 2026-11-16 · 合并后修复：`release-integrity` 的 Changed files whitelist 用 `git diff --name-only "$BASE_SHA" "$HEAD_SHA"` 对比 `pull_request.base.sha` 与 head，main 上有 Release 分支未包含的直推（90c4b1817 改名发版 skill）时，Release PR #3766 被报出白名单外的 `.agents/skills/publish-release/agents/openai.yaml`（run 43794926879）；#3841（d7dd77a63）删除该步骤；根因：差异起点取 base 分支最新提交而不是 merge-base；没拦住：没有对应规则
 
 ## 已晋升
 ### 巡检收集窗口提交前确认本地历史完整，浅克隆先补全
