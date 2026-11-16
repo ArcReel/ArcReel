@@ -21,8 +21,8 @@ Gemini 4 Carbon 与 Argon 的 effort 最高为 high，Hydrogen 最高为 xhigh�
 
 ## Review
 
-| 实现者 Harness | Reviewer | Effort |
-|---|---|---|
-| Claude Code | Antigravity CLI · `gemini-4-carbon` | high |
-| Codex | Claude Code · `claude-opus-5-5` | high |
-| Antigravity CLI | Claude Code · `claude-opus-5-5` | high |
+| 实现者 Harness | Reviewer | Effort | Fallback |
+|---|---|---|---|
+| Claude Code | Antigravity CLI · `gemini-4-carbon` | high | Codex · `gpt-6-astra` · high |
+| Codex | Claude Code · `claude-opus-5-5` | high | Antigravity CLI · `gemini-4-carbon` · high |
+| Antigravity CLI | Claude Code · `claude-opus-5-5` | high | Codex · `gpt-6-astra` · high |

@@ -26,4 +26,4 @@ description: 委派任务时选模型。为 subagent 或 teammate 选 Category�
 
 ## Review
 
-方案与实现的审查单独走 Review 路由：reviewer 与实现者使用不同的 Harness，映射见 [models.md](models.md) 的 Review 表。被审查的改动来自多个 Harness 的实现者时，按改动量最大的实现者查表。
+方案与实现的审查单独走 Review 路由：reviewer 与实现者使用不同的 Harness，映射见 [models.md](models.md) 的 Review 表。被审查的改动来自多个 Harness 的实现者时，按改动量最大的实现者查表。首选 reviewer 不可用时改用同行的 fallback。
