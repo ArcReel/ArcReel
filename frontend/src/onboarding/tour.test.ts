@@ -207,11 +207,14 @@ describe("startTour", () => {
       { onExit: vi.fn(), anchorWaitMs: 10 },
     );
 
+    // driver 1.11 起在等待窗口里就先摆出居中气泡（置灰、按钮禁用），超时后才改由占位元素高亮，
+    // 所以这里等的是降级本身，而不是气泡出现
     await vi.waitFor(() => {
-      expect(document.querySelector(".driver-popover-title")?.textContent).toBe("演示卡");
+      expect(document.querySelector(".driver-active-element")?.id).toBe("driver-dummy-element");
     });
     // 讲解照常进行，丢的只是高亮 —— driver 顶上自己的占位元素，气泡回到屏幕中央
-    expect(document.querySelector(".driver-active-element")?.id).toBe("driver-dummy-element");
+    expect(document.querySelector(".driver-popover-title")?.textContent).toBe("演示卡");
+    expect(popover()).not.toHaveClass("driver-popover-waiting");
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(ONBOARDING_ANCHORS.lobbyDemoCard));
 
     handle.dispose();
