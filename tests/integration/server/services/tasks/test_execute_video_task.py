@@ -232,6 +232,10 @@ class TestGenerationTasks:
         assert checkpoint.duration_seconds == 8
         assert checkpoint.provider_id == "ark"
         assert [media.role for media in checkpoint.media] == ["start_image"]
+        # 使用记录按映射把暂存首帧还原为来源，暂存目录随任务清理后记录仍能打开
+        source = call["reference_sources"][str(call["start_image"])]
+        assert source == project_path / checkpoint.media[0].source_locator
+        assert await asyncio.to_thread(source.is_file)
         assert checkpoint.artifact_visual_basis is not None
         assert checkpoint.artifact_visual_basis.kind == "artifact-visual/video-storyboard"
         assert checkpoint.artifact_currency is not None

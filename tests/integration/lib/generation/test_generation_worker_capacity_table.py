@@ -586,6 +586,8 @@ async def test_concurrent_reload_limits_keeps_latest_db_value(monkeypatch, file_
 
     second_reload = asyncio.create_task(worker.reload_limits())
     second_reload.add_done_callback(lambda _task: release_first.set())
+    # 前提：from_db 进入会话前没有 await，让出一次调度即可判别——不串行时第二次重载已进入会话，
+    # 串行时它停在锁上、尚未进入会话。from_db 若在开会话前加了 await，须改这里的判别，否则用例会在去锁后仍通过。
     await asyncio.sleep(0)
     if not second_entered.is_set():
         release_first.set()

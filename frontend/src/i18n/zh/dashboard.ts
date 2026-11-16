@@ -896,6 +896,7 @@ export default {
   'usage_field_voice': '音色',
   'usage_field_first_frame': '首帧',
   'usage_field_last_frame': '尾帧',
+  'usage_field_reference_image': '参考图',
   'usage_field_reference_audio': '参考音频',
   'usage_field_params': '请求参数',
   'usage_field_retry_after': '重试等待',

@@ -262,13 +262,17 @@ describe("UsageRecordsSection detail", () => {
     expect(dialog.getByText("文件不存在")).toBeInTheDocument();
   });
 
-  it.each(["timeout", "rate_limited"])("hides registered domain keys below %s", async (errorCode) => {
+  it.each([
+    ["timeout", "超时"],
+    ["rate_limited", "限流"],
+  ])("hides registered domain keys below %s", async (errorCode, phrase) => {
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
       id: 42, status: "failed", error_code: errorCode,
       error_message: "ark_agent_plan_tts_unreachable",
     }));
     renderUsageRecordsSection("section=usage&record=42");
     const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(phrase)).toBeInTheDocument();
     expect(dialog.queryByText("ark_agent_plan_tts_unreachable")).not.toBeInTheDocument();
   });
 
