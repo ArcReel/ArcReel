@@ -983,7 +983,6 @@ class MediaGenerator:
             resource_id: 资源 ID (E1S01)
             start_image: 起始帧图片（image-to-video 模式）
             end_image: 结束帧图片（first_last 模式）
-            reference_sources: 冻结图片路径到来源路径的映射，仅用于使用记录
             reference_images: 参考图片列表（multi-reference 模式）
             reference_image_asset_uris: 与 reference_images 等长同序；第 i 项非 None 时第 i 张参考图以该供应商
                 素材引用发出，不上传图片内容，也不进压缩与字节预检。只能交给对参考图槽位声明了素材引用的 backend
@@ -999,6 +998,7 @@ class MediaGenerator:
             formal_output: 将 provider 产物先写入同目录临时文件，成功后再与版本历史一起提交
             warnings: 调用方持有的 warning 收集器；backend 执行期产生的提示就地追加进去，
                 随后由调用方落进任务 ``result.warnings``
+            reference_sources: 暂存图片路径到来源路径的映射，仅用于使用记录
             **version_metadata: 额外元数据
 
         Returns:
@@ -1284,7 +1284,6 @@ class MediaGenerator:
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
         warnings: list[dict[str, Any]] | None = None,
-        reference_sources: Mapping[str, Path] | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """接续 provider 上已发起的 video job：调 backend.resume_video 而非 generate。

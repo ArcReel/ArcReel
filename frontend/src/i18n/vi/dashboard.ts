@@ -890,6 +890,7 @@ export default {
   'usage_field_voice': 'Giọng đọc',
   'usage_field_first_frame': 'Khung hình đầu',
   'usage_field_last_frame': 'Khung hình cuối',
+  'usage_field_reference_image': 'Ảnh tham chiếu',
   'usage_field_reference_audio': 'Âm thanh tham chiếu',
   'usage_field_params': 'Tham số yêu cầu',
   'usage_field_retry_after': 'Thử lại sau',

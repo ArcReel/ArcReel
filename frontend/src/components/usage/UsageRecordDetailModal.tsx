@@ -172,7 +172,7 @@ function InputsGroup({ detail }: { detail: UsageRecordDetail }) {
               key={image.path}
               projectName={detail.project_name}
               path={image.path}
-              caption={image.label ?? t("grid_reference_images")}
+              caption={image.label ?? t("usage_field_reference_image")}
             />
           ))}
           {inputs?.start_image && (
@@ -283,11 +283,11 @@ export function UsageRecordDetailModal({
 
   const media = detail ? MEDIA_META[detail.media_type] : null;
   const phraseKey = failurePhraseKey(detail?.error_code ?? null);
-  const domainKey = detail?.error_code && detail.error_params
-    ? [`errors:${detail.error_code}`, `errors:task_fail_${detail.error_code}`].find((key) => i18n.exists(key))
-    : undefined;
-  const messageIsDomainKey = detail?.error_message &&
-    [`errors:${detail.error_message}`, `errors:task_fail_${detail.error_message}`].some((key) => i18n.exists(key));
+  const registeredErrorKey = (value: string) =>
+    [`errors:${value}`, `errors:task_fail_${value}`].find((key) => i18n.exists(key));
+  const domainKey = detail?.error_code && detail.error_params ? registeredErrorKey(detail.error_code) : undefined;
+  // 领域异常的 error_message 就是它的 key 本身，已登记的 key 不作为原文小字显示。
+  const messageIsDomainKey = detail?.error_message ? registeredErrorKey(detail.error_message) !== undefined : false;
   const domainParams = { ...detail?.error_params };
   const nested = domainParams.detail;
   if (nested && typeof nested === "object" && "key" in nested && "params" in nested

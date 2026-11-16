@@ -897,6 +897,7 @@ export default {
   'usage_field_voice': 'Voice',
   'usage_field_first_frame': 'First frame',
   'usage_field_last_frame': 'Last frame',
+  'usage_field_reference_image': 'Reference image',
   'usage_field_reference_audio': 'Reference audio',
   'usage_field_params': 'Request parameters',
   'usage_field_retry_after': 'Retry after',

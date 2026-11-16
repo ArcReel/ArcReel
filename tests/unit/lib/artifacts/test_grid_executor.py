@@ -510,6 +510,11 @@ class TestExecuteGridTask:
             )
 
         assert len(captured[0]["reference_images"]) == 2
+        # 裁剪后实发的冻结副本仍能按映射还原到各自的来源，供使用记录引用
+        sources = captured[0]["reference_sources"]
+        assert [sources[str(ref)] for ref in captured[0]["reference_images"]] == [
+            project_with_script / "characters" / f"hero{index}.png" for index in (1, 2)
+        ]
         # 丢弃了输入的参考图必须让用户与 Agent 感知：任务结果带与分镜图 / 参考生视频同形的 warning
         assert result["warnings"] == [
             {"key": "ref_too_many_images", "params": {"count": 3, "model": "gpt-image-2", "max_count": 2}}

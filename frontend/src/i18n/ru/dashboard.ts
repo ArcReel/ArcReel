@@ -916,6 +916,7 @@ export default {
   'usage_field_voice': 'Голос',
   'usage_field_first_frame': 'Первый кадр',
   'usage_field_last_frame': 'Последний кадр',
+  'usage_field_reference_image': 'Референс',
   'usage_field_reference_audio': 'Образец голоса',
   'usage_field_params': 'Параметры запроса',
   'usage_field_retry_after': 'Повторить через',
