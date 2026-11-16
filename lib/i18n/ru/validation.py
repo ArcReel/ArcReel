@@ -476,6 +476,11 @@ MESSAGES = {
     "draft_violation_novel_text_coverage": "novel_text кадров не покрывает оригинал полностью, дословно и по порядку. Источник: {source}. Скопируйте и соедините фрагменты по порядку; если диапазон источника черновика указан неверно, сначала исправьте его.",
     "draft_violation_schema_invalid": "{path} черновика не соответствует структуре результата: {detail}. Проверьте обязательные поля, типы и значения.",
     # Draft schema reasons by pydantic error type, rendered into draft_violation_schema_invalid's {detail}.
+    "draft_schema_narration_dialogue_forbidden": "сегменты закадрового повествования не должны содержать реплики; перескажите речь персонажей в тексте повествования",
+    "draft_schema_dialogue_speaker_required": "для реплики dialogue требуется непустое поле speaker",
+    "draft_schema_voiceover_speaker_forbidden": "для реплики voiceover поле speaker должно быть пустым",
+    "draft_schema_empty_video_unit_replan": "для пустого видеоблока требуется needs_replan=true и duration_seconds=0",
+    "draft_schema_non_empty_video_unit_duration": "для непустого видеоблока duration_seconds должно быть положительным целым числом",
     "draft_schema_missing": "не указано обязательное поле",
     "draft_schema_extra_forbidden": "это поле не поддерживается",
     "draft_schema_literal_error": "должно быть одним из значений: {expected}",

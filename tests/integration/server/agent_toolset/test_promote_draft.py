@@ -525,6 +525,31 @@ async def test_schema_breach_reaches_the_agent_verbatim(
     assert [(v["code"], v["message"]) for v in opened["violations"]] == expected
 
 
+@pytest.mark.parametrize(
+    ("utterance", "reason"),
+    [
+        ({"kind": "dialogue", "text": "Hello"}, "dialogue utterance 必须带非空 speaker"),
+        ({"kind": "dialogue", "speaker": "  ", "text": "Hello"}, "dialogue utterance 必须带非空 speaker"),
+        ({"kind": "voiceover", "speaker": "Hero", "text": "Hello"}, "voiceover utterance 不得带 speaker"),
+    ],
+    ids=["missing_speaker", "blank_speaker", "voiceover_speaker"],
+)
+async def test_custom_schema_breach_reaches_tools_verbatim(fake_ctx: ToolHarness, utterance, reason) -> None:
+    drama_project(fake_ctx)
+    write_drama_script_plan(fake_ctx, [drama_scene()])
+    await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = read_drama_quarantine(fake_ctx)
+    envelope["content"]["scenes"][0]["utterances"] = [utterance]
+    drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    expected = f"草稿的 content.scenes.0.utterances.0 不符合产出结构：Value error, {reason}"
+
+    problem = problem_of(await promote_drama(fake_ctx))
+    assert problem.code == "draft_invalid"
+    assert f"1. [schema_invalid] {expected}" in problem.detail.splitlines()
+    reopened = draft_of(await open_drama_for_edit(fake_ctx))
+    assert [(v["code"], v["message"]) for v in reopened["violations"]] == [("schema_invalid", expected)]
+
+
 async def test_promote_draft_requires_source_provenance(fake_ctx: ToolHarness, monkeypatch) -> None:
     """meta.source 被改掉后不晋升：按整个 source/ 重解析比产出时更松，别集的原文锚会恰好命中。"""
     rv_source(fake_ctx)

@@ -481,6 +481,11 @@ MESSAGES = {
     "draft_violation_novel_text_coverage": "Shot novel_text does not cover the original verbatim, completely, and in order. Source: {source}. Copy and join passages in order; if the draft source range is wrong, update it first.",
     "draft_violation_schema_invalid": "Draft {path} does not match the output structure: {detail}. Check required fields, types, and values.",
     # Draft schema reasons by pydantic error type, rendered into draft_violation_schema_invalid's {detail}.
+    "draft_schema_narration_dialogue_forbidden": "narration segments must not contain dialogue; retell character speech in the narration text",
+    "draft_schema_dialogue_speaker_required": "dialogue utterances must have a non-empty speaker",
+    "draft_schema_voiceover_speaker_forbidden": "voiceover utterances must not have a speaker",
+    "draft_schema_empty_video_unit_replan": "empty video units require needs_replan=true and duration_seconds=0",
+    "draft_schema_non_empty_video_unit_duration": "non-empty video units require a positive integer duration_seconds",
     "draft_schema_missing": "required field is missing",
     "draft_schema_extra_forbidden": "this field is not supported",
     "draft_schema_literal_error": "must be one of: {expected}",

@@ -11,6 +11,7 @@ from typing import Annotated, Any, ClassVar, Literal, get_args
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
 from pydantic.json_schema import SkipJsonSchema
+from pydantic_core import PydanticCustomError
 
 from lib.script.script_skeleton import resolve_declared_kind
 
@@ -158,9 +159,12 @@ class VideoPrompt(_VideoPromptCore):
     )
 
 
+# 自定义错误保留 pydantic 的「Value error, 」前缀，工具回传的诊断原文须逐字一致。
 def _require_no_dialogue(value: list[Dialogue]) -> list[Dialogue]:
     if value:
-        raise ValueError("旁白/解说片段不写台词：角色说的话由旁白在正文里转述")
+        raise PydanticCustomError(
+            "narration_dialogue_forbidden", "Value error, 旁白/解说片段不写台词：角色说的话由旁白在正文里转述"
+        )
     return value
 
 
@@ -475,9 +479,11 @@ class Utterance(BaseModel):
     def _check_kind_speaker(self) -> "Utterance":
         if self.kind == "dialogue":
             if not self.speaker:
-                raise ValueError("dialogue utterance 必须带非空 speaker")
+                raise PydanticCustomError(
+                    "dialogue_speaker_required", "Value error, dialogue utterance 必须带非空 speaker"
+                )
         elif self.speaker is not None:
-            raise ValueError("voiceover utterance 不得带 speaker")
+            raise PydanticCustomError("voiceover_speaker_forbidden", "Value error, voiceover utterance 不得带 speaker")
         return self
 
 
@@ -884,9 +890,14 @@ class ReferenceVideoUnit(BaseModel):
         """全悬空迁移壳可为空且为 0 秒；其余单元仍须可执行。"""
         if not self.text.strip():
             if not self.needs_replan or self.duration_seconds != 0:
-                raise ValueError("空 video unit 仅允许 needs_replan=true 且 duration_seconds=0")
+                raise PydanticCustomError(
+                    "empty_video_unit_replan",
+                    "Value error, 空 video unit 仅允许 needs_replan=true 且 duration_seconds=0",
+                )
         elif self.duration_seconds < REFERENCE_UNIT_DURATION_RANGE[0]:
-            raise ValueError("非空 video unit 的 duration_seconds 必须为正整数")
+            raise PydanticCustomError(
+                "non_empty_video_unit_duration", "Value error, 非空 video unit 的 duration_seconds 必须为正整数"
+            )
         return self
 
 
