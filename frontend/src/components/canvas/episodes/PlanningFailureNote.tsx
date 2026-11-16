@@ -22,7 +22,7 @@ export function PlanningFailureNote({ failure }: { failure: PlanningFailure }) {
       {reason ? (
         <p className="flex gap-1.5 text-subtle-foreground">
           <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warn" />
-          <span>{t("episode_planning_failed", { reason })}</span>
+          <span className="min-w-0 wrap-break-word">{t("episode_planning_failed", { reason })}</span>
         </p>
       ) : null}
       {settings ? <DefaultModelSettingsLink /> : null}

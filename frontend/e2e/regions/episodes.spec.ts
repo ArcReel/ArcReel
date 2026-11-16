@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
+import { FIXED_NOW, RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 项目「分集」视图：页头工具行、集目录与原文、方案栏，以及上传、新建、未登记文件等弹层。
@@ -235,6 +235,50 @@ const WITH_REPLAN: ApiOverrides = {
   "GET /api/v1/projects/demo/episodes-view": { status: 200, body: { ...VIEW, replan: REPLAN } },
 };
 
+const FAILURE_MODEL = `custom-${"model".repeat(20)}`;
+const FAILURE_REASON = `文本模型 ${FAILURE_MODEL} 的输出超出了最大输出长度，内容不完整`;
+const FAILURE_DETAIL = `finish_reason=length\n${"provider diagnostic ".repeat(80)}`;
+const FAILED_TASK: ApiOverrides = {
+  "GET /api/v1/tasks?page_size=200&project_name=demo": {
+    status: 200,
+    body: {
+      items: [{
+        task_id: "failed-planning",
+        project_name: "demo",
+        task_type: "text_episode_plan",
+        media_type: "text",
+        resource_id: "episode-planning",
+        resource_type: null,
+        script_file: null,
+        payload: {},
+        status: "failed",
+        result: null,
+        error_message: FAILURE_REASON,
+        error_code: "text_output_truncated",
+        error_params: { provider_id: "custom-1", model: FAILURE_MODEL, custom_model: true },
+        error_detail: FAILURE_DETAIL,
+        cancelled_by: null,
+        provider_id: null,
+        provider_job_id: null,
+        source: "webui",
+        queued_at: FIXED_NOW,
+        started_at: FIXED_NOW,
+        finished_at: FIXED_NOW,
+        updated_at: FIXED_NOW,
+      }],
+      total: 1, page: 1, page_size: 200,
+    },
+  },
+};
+
+async function expandFailure(panel: Locator) {
+  const alert = panel.getByRole("alert");
+  await expect(alert).toContainText(FAILURE_REASON);
+  await expect(alert).not.toContainText(FAILURE_DETAIL);
+  await alert.getByRole("button", { name: "详情", exact: true }).click();
+  await expect(alert).toContainText(FAILURE_DETAIL);
+}
+
 // ---------------------------------------------------------------------------
 
 const canvas = (page: Page) => page.getByRole("main");
@@ -281,6 +325,38 @@ async function expectOnlyColumnsScroll(page: Page) {
 }
 
 defineRegionScenarios("分集视图", [
+  {
+    name: "规划失败的长原因与展开详情在弹层内可读",
+    path: PATH,
+    api: { ...POPULATED, ...FAILED_TASK },
+    ready: populatedReady,
+    act: async (page) => {
+      await revealCanvasRight(page);
+      await page.getByRole("button", { name: "AI 规划剩余内容" }).click();
+      await expandFailure(page.getByRole("dialog"));
+    },
+  },
+  {
+    name: "重新规划失败的长原因与展开详情在方案栏内可读",
+    path: PATH,
+    api: {
+      ...POPULATED,
+      ...FAILED_TASK,
+      "GET /api/v1/projects/demo/episodes-view": {
+        status: 200,
+        body: { ...VIEW, replan: { ...REPLAN, complete: false, interrupted: "failed" } },
+      },
+    },
+    ready: async (page) => {
+      await page.getByRole("region", { name: "新的分集方案" }).waitFor();
+    },
+    act: async (page) => {
+      await revealCanvasRight(page);
+      const panel = page.getByRole("region", { name: "新的分集方案" });
+      await expect(panel.getByRole("status")).toContainText("AI 生成出错");
+      await expandFailure(panel);
+    },
+  },
   {
     name: "没有整本源文时集目录只列其他集，原文区邀请上传",
     path: PATH,
