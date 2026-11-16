@@ -7,7 +7,7 @@ description: PR AI review 收敛。用户或 team-lead 要求启动或继续审�
 
 以可合并的代码质量为目标。完成意味着每条发现都有处置，而不是所有 bot 都停止提建议。
 
-委派方指发起循环的用户或 team-lead。进入前确认已有非 draft PR，checkout 对应其最新 HEAD，并理解 PR 的验收边界；创建 PR、转为 ready 和合并由委派方或上层流程负责。
+委派方指发起循环的用户或 team-lead。进入前确认已有非 draft PR，checkout 对应其最新 HEAD，并理解 PR 的验收边界；创建 PR、转为 ready 和合并由委派方或上层流程负责。修复怎样进入分支也由委派方约定：追加 commit，或并入已有 commit 后 `git push --force-with-lease`。没有约定时追加 commit。
 
 ## 工程判断
 
@@ -23,24 +23,24 @@ description: PR AI review 收敛。用户或 team-lead 要求启动或继续审�
 
 ## 推进循环
 
-首次进入读 [reviewers.md](references/reviewers.md)，按各家的协议确认审查覆盖、读取发现、补齐必要复审。下列命令从本 skill 目录执行，`<repo-root>` 始终指向目标 PR checkout；参数和字段定义以脚本头注释为准。
+首次进入读 [reviewers.md](references/reviewers.md)。下列命令从本 skill 目录执行，`<repo-root>` 始终指向目标 PR checkout；参数、字段和返回原因的定义以脚本头注释为准。
 
 ```bash
 bash scripts/poll.sh --repo-root <repo-root> <PR_NUMBER>
 bash scripts/query.sh --repo-root <repo-root> <PR_NUMBER> details <id>...
-```
-
-索引用于定位，正文按需读取。`no_change` 只表示索引未变；上下文丢失时用 `query.sh ... index` 恢复。索引出现新发现时带 `triage_hint`，提示回到定性。
-
-合并各家本轮发现、CI 失败和新安全告警，先完成整批定性，再修复、运行相关测试与闸门并集中 push。CI 根因已在 main 修复时，同步主线并重新验证。每条发现按 reviewers.md「处置写回」在案；同根因的多条发现可以引用同一处置结论。
-
-每处置一批记一轮，包括全部以回复结案、没有 push 的批次：
-
-```bash
+bash scripts/wait.sh --repo-root <repo-root> <PR_NUMBER>
 bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n> --pushback <n> --note "根因与处置"
 ```
 
-`--pushback` 计入以回复结案的发现。CI 修复、rebase 和触发命令本身不计轮。继续拉取状态；仅在缺少审查或检查结果且无可执行动作时，前台运行 `bash scripts/wait.sh --repo-root <repo-root> <PR_NUMBER>`。超时、配额、权限或 bot 异常按 [faults.md](references/faults.md) 处理。
+循环由三步组成，每次从第 1 步开始：
+
+1. **拉取状态。** 运行 `poll.sh`。索引用于定位，正文经 `query.sh` 按需读取。`no_change` 只表示索引未变；上下文丢失时用 `query.sh ... index` 恢复。
+2. **处理已经成立的事项。** 该发的触发命令按 reviewers.md 发出，故障按 [faults.md](references/faults.md) 处理。有新发现、失败的检查或新安全告警时，按下文处置这一批。
+3. **没有可执行的动作时等待。** 前台运行 `wait.sh`，等 CI 与等 reviewer 都用它。它在出现入口时还没有的可行动事项时返回 `WAIT_READY: <原因>`，届时回到第 1 步；`WAIT_TIMEOUT` 同样回到第 1 步，仍缺结果按 faults.md 处理。入口时已经成立的事项不会让它返回，所以第 2 步要先做完。
+
+**处置一批。** 索引带 `triage_hint` 时回到「工程判断」。合并各家本轮发现、CI 失败和新安全告警，先完成整批定性，再修复，运行相关测试与闸门。每次 push 都让 CI 和各家审查重跑，所以同一 HEAD 上的事项攒成一批：先到的先定性、先修，等该 HEAD 的 required checks 结束、各家本轮审查到齐后一次 push。CI 根因已在 main 修复时，同步主线并重新验证。每条发现按 reviewers.md「处置写回」在案；同根因的多条发现可以引用同一处置结论。
+
+**记轮。** 每处置一批用 `round.sh ... mark` 记一轮，包括全部以回复结案、没有 push 的批次。`--pushback` 计入以回复结案的发现。CI 修复、同步主线和触发命令本身不计轮。
 
 ## 完成条件
 
