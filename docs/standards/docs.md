@@ -3,6 +3,7 @@ paths:
   - "website/docs/**"
   - "README.md"
   - "README.en.md"
+  - "README.ja.md"
   - "CONTRIBUTING.md"
 ---
 

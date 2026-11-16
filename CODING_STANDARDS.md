@@ -13,7 +13,7 @@ ArcReel 的代码规范：审查 diff 时需要判断、工具替代不了的项
 |---|---|
 | [`docs/standards/backend.md`](docs/standards/backend.md) | `lib/**`, `server/**`, `scripts/**`, `alembic/**`, `packages/**` |
 | [`docs/standards/copy.md`](docs/standards/copy.md) | `frontend/src/i18n/zh/**`, `lib/i18n/zh/**`, `website/docs/**`, `README.md`, `CONTRIBUTING.md`, `docs/**`, `**/CLAUDE.md` |
-| [`docs/standards/docs.md`](docs/standards/docs.md) | `website/docs/**`, `README.md`, `README.en.md`, `CONTRIBUTING.md` |
+| [`docs/standards/docs.md`](docs/standards/docs.md) | `website/docs/**`, `README.md`, `README.en.md`, `README.ja.md`, `CONTRIBUTING.md` |
 | [`docs/standards/frontend.md`](docs/standards/frontend.md) | `frontend/src/**` |
 | [`docs/standards/general.md`](docs/standards/general.md) | `**` |
 | [`docs/standards/providers.md`](docs/standards/providers.md) | `lib/backends/**`, `lib/custom_provider/**`, `lib/config/**`, `lib/billing/**`, `lib/agent/agent_provider_catalog.py`, `lib/prompts/prompt_builders*.py`, `agent_runtime_profile/**`, `docs/api-docs/**` |

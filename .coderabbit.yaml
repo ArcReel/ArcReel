@@ -12,7 +12,7 @@ knowledge_base:
       - files: "docs/standards/copy.md"
         applyTo: "frontend/src/i18n/zh/**,lib/i18n/zh/**,website/docs/**,README.md,CONTRIBUTING.md,docs/**,**/CLAUDE.md"
       - files: "docs/standards/docs.md"
-        applyTo: "website/docs/**,README.md,README.en.md,CONTRIBUTING.md"
+        applyTo: "website/docs/**,README.md,README.en.md,README.ja.md,CONTRIBUTING.md"
       - files: "docs/standards/frontend.md"
         applyTo: "frontend/src/**"
       - files: "docs/standards/general.md"
