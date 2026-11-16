@@ -89,7 +89,7 @@ pnpm e2e:remote   # 终端二：构建前端，连接容器里的浏览器运行
 
 - **新增场景**：在 `frontend/e2e/regions/` 下用 `defineRegionScenarios` 登记，写明打开的路由、就绪条件和要探测的状态。场景以会改变可用高度的状态为主，例如展开面板、打开弹层。
 - **豁免**：装饰性的裁切层用 `data-overflow-ok="原因"` 豁免，属性值必须写明原因。确需横向滚动的区域（时间线轨道、代码块、标签带）写 `overflow-x-auto`，探针按这个类名识别，不需要另加豁免。
-- **接口数据替身**：`frontend/e2e/fixtures/recorded/` 由 `pnpm e2e:record` 对真实后端录制。脚本需要 `uv`，会在临时数据目录里启动后端并创建演示项目。后端改动接口形状的 PR 同时重录，形状变化体现为替身文件的 diff。长文本、多条目等压力变体写在场景的 `api` 字段里。
+- **接口数据替身**：`frontend/e2e/fixtures/recorded/` 由 `pnpm e2e:record` 对真实后端录制。脚本需要 `uv`，会在临时数据目录里启动后端并创建演示项目。录制后端（`scripts/e2e_record_backend.py`）只读仓库内的输入：目录数据取后端测试共用的 `tests/fixtures/catalog.json`，生命周期判定的「今天」固定为它的数据集日期，应用版本固定，不做线上目录同步，也不读 `.env`。后端改动接口形状或改动这份测试目录数据的 PR 同时重录，变化体现为替身文件的 diff。`pnpm e2e:record:check` 再起一个前移系统时钟、换掉出厂快照与版本号的后端，两边各录一次，替身不同即失败；CI 的 `e2e-record-drift` 与本地闸门的 `e2e-record` 域运行它。长文本、多条目等压力变体写在场景的 `api` 字段里。
 - **页面截图**：场景登记 `screenshot` 后，设置 `E2E_SCREENSHOTS=1` 运行才会比对，只在 1024×600、1440×900、2560×1440 三个视口拍。CI 的 `frontend-e2e` 设置了这个变量，截图出现差异或缺少基线时 job 失败。基线只能在容器里生成和比对：用 `pnpm e2e:server` 与 `pnpm e2e:remote` 运行，新增或有意改动的截图加 `--update-snapshots=changed` 重新生成，逐张核对后提交。本机渲染的字体与容器不同，不要用它生成基线。
 
 ## 代码质量

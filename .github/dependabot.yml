@@ -124,6 +124,7 @@ updates:
           - "respx"
           - "mutmut"
           - "blockbuster"
+          - "time-machine"
         update-types:
           - "minor"
           - "patch"

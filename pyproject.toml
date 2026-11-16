@@ -71,6 +71,7 @@ dev = [
     "pytest-testmon>=2.2.0",
     "blockbuster>=1.5.29",
     "anyio>=4.14.2",
+    "time-machine>=3.6.0",
 ]
 # 变异测试工具，不进 dev：只在按批次跑 mutmut 时 `uv sync --group mutation` 装入。
 # 独立成组是为了让版本 pin 进 uv.lock、被 dependabot 看到；流程见 docs/testing/mutmut-runbook.md。
@@ -329,6 +330,7 @@ DEP004 = [
     "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）
     "respx",          # httpx 的测试替身
     "blockbuster",    # 事件循环阻塞检测，tests/blocking_guard 护栏的拦截点来源
+    "time_machine",   # scripts/e2e_record_backend.py 的 --perturb 前移系统时钟，核对 e2e 替身与录制日期无关
 ]
 
 [tool.ruff]

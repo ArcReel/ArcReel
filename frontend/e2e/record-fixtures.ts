@@ -1,10 +1,12 @@
 // 对真实后端录制页面级套件的接口数据替身：`pnpm e2e:record`。
-// 在临时数据目录里启动后端、创建演示项目，按 RECORDINGS 逐个请求并写入 e2e/fixtures/recorded/。
-// 时间戳、临时数据目录、仓库检出路径、令牌与项目修订号改写成固定值，重录后只有接口形状的变化会出现在 diff 里。
+// 在临时数据目录里启动后端（scripts/e2e_record_backend.py：目录数据、生命周期的「今天」与应用版本固定为仓库内的值）、
+// 创建演示项目，按 RECORDINGS 逐个请求并写入 e2e/fixtures/recorded/。
+// 时间戳、临时数据目录、仓库检出路径、令牌、项目修订号与文件大小改写成固定值，重录后只有代码改动带来的变化会出现在 diff 里。
 // 后端改动接口形状的 PR 同时重录。
+// `pnpm e2e:record:check`：再起一个换掉系统时钟、出厂快照与版本号真实来源的后端，两边各录一次，替身不同即失败，不写文件。
 import { COMFYUI_AUDIO_ASPECT } from "./fixtures/comfyui.ts";
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -160,34 +162,44 @@ const FIXED_VALUES = new Map<string, string>([
 ]);
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-// 同一次录制里相同的 uuid 映射到同一个固定值，按首次出现的顺序编号。
-const uuidAliases = new Map<string, string>();
-
-function fixedUuid(value: string): string {
-  let alias = uuidAliases.get(value);
-  if (!alias) {
-    alias = `00000000-0000-4000-8000-${String(uuidAliases.size + 1).padStart(12, "0")}`;
-    uuidAliases.set(value, alias);
-  }
-  return alias;
-}
-
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+// 文件与目录的字节数随内嵌 Agent 配置（项目里的 .claude/ 与 CLAUDE.md）和项目文件内容变化，与接口形状无关。
+// 非零值改写成同一个固定值，0（空目录、空回收站）照实保留。
+const SIZE_KEYS = new Set(["size", "total_size"]);
+const FIXED_SIZE = 4096;
 
-function normalize(value: unknown, dataDir: string): unknown {
-  if (typeof value === "string") {
-    if (ISO_TIMESTAMP.test(value)) return FIXED_NOW;
-    if (UUID.test(value)) return fixedUuid(value);
-    return value.replaceAll(dataDir, "<data-dir>").replaceAll(REPO_ROOT, "<repo-root>")
-      .replace(/#deleted-\d{8}T\d{6}Z$/, "#deleted-20260101T080000Z");
-  }
-  if (Array.isArray(value)) return value.map((item) => normalize(item, dataDir));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, FIXED_VALUES.get(key) ?? normalize(item, dataDir)]),
-    );
-  }
-  return value;
+/** 一次录制的归一化：同一次录制里相同的 uuid 映射到同一个固定值，按首次出现的顺序编号。 */
+function createNormalizer(dataDir: string): (value: unknown) => unknown {
+  const uuidAliases = new Map<string, string>();
+  const fixedUuid = (value: string): string => {
+    let alias = uuidAliases.get(value);
+    if (!alias) {
+      alias = `00000000-0000-4000-8000-${String(uuidAliases.size + 1).padStart(12, "0")}`;
+      uuidAliases.set(value, alias);
+    }
+    return alias;
+  };
+  const normalize = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      if (ISO_TIMESTAMP.test(value)) return FIXED_NOW;
+      if (UUID.test(value)) return fixedUuid(value);
+      return value.replaceAll(dataDir, "<data-dir>").replaceAll(REPO_ROOT, "<repo-root>")
+        .replace(/#deleted-\d{8}T\d{6}Z$/, "#deleted-20260101T080000Z");
+    }
+    if (Array.isArray(value)) return value.map(normalize);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => {
+          const fixed = FIXED_VALUES.get(key);
+          if (fixed !== undefined) return [key, fixed];
+          if (SIZE_KEYS.has(key) && typeof item === "number" && item > 0) return [key, FIXED_SIZE];
+          return [key, normalize(item)];
+        }),
+      );
+    }
+    return value;
+  };
+  return normalize;
 }
 
 function freePort(): Promise<number> {
@@ -252,7 +264,8 @@ async function postForm(baseUrl: string, token: string, path: string, fields: Re
   if (!resp.ok) throw new Error(`POST ${path} 返回 ${resp.status}：${await resp.text()}`);
 }
 
-async function main() {
+/** 起一个录制后端并按 RECORDINGS 录一遍，返回「替身文件名 → 文件内容」。`perturb` 见 scripts/e2e_record_backend.py。 */
+async function record(perturb: boolean): Promise<Map<string, string>> {
   // 取真实路径：macOS 的临时目录经 /var → /private/var 符号链接，后端返回的是解析后的路径
   const dataDir = realpathSync(mkdtempSync(join(tmpdir(), "arcreel-e2e-")));
   const port = await freePort();
@@ -274,7 +287,10 @@ async function main() {
 
   const backend = spawn(
     "uv",
-    ["run", "--frozen", "uvicorn", "server.app:app", "--host", "127.0.0.1", "--port", String(port)],
+    [
+      "run", "--frozen", "python", "scripts/e2e_record_backend.py",
+      "--host", "127.0.0.1", "--port", String(port), ...(perturb ? ["--perturb"] : []),
+    ],
     { cwd: REPO_ROOT, env, stdio: ["ignore", "inherit", "inherit"] },
   );
   let exited = false;
@@ -300,24 +316,68 @@ async function main() {
     // 资产库按更新时间倒序列出，逐个创建使顺序与 LIBRARY_ASSETS 相反、且每次录制一致。
     for (const asset of LIBRARY_ASSETS) await postForm(baseUrl, token, "/api/v1/assets", asset);
 
-    rmSync(RECORDED_DIR, { recursive: true, force: true });
-    mkdirSync(RECORDED_DIR, { recursive: true });
+    const normalize = createNormalizer(dataDir);
+    const files = new Map<string, string>();
     for (const recording of RECORDINGS) {
       const { status, body } = await request(baseUrl, token, recording);
       const recorded: RecordedResponse = {
         method: recording.method,
         path: recording.path,
         status,
-        body: normalize(body, dataDir),
+        body: normalize(body),
       };
-      writeFileSync(join(RECORDED_DIR, `${recording.file}.json`), `${JSON.stringify(recorded, null, 2)}\n`);
+      files.set(`${recording.file}.json`, `${JSON.stringify(recorded, null, 2)}\n`);
     }
-    console.log(`已录制 ${readdirSync(RECORDED_DIR).length} 个接口到 ${RECORDED_DIR}`);
+    return files;
   } finally {
     if (!exited) backend.kill("SIGTERM");
     await backendExit;
     rmSync(dataDir, { recursive: true, force: true });
   }
+}
+
+/** 两份录制的差异：逐个文件给出第一处不同的行及其前后几行。 */
+function describeDrift(baseline: Map<string, string>, perturbed: Map<string, string>): string[] {
+  const report: string[] = [];
+  for (const [file, expected] of baseline) {
+    const actual = perturbed.get(file) ?? "";
+    if (actual === expected) continue;
+    const left = expected.split("\n");
+    const right = actual.split("\n");
+    let line = 0;
+    while (line < left.length && left[line] === right[line]) line += 1;
+    const from = Math.max(0, line - 3);
+    report.push(
+      `${file}：第 ${line + 1} 行起不同`,
+      ...left.slice(from, line + 3).map((text) => `  - ${text}`),
+      ...right.slice(from, line + 3).map((text) => `  + ${text}`),
+    );
+  }
+  return report;
+}
+
+async function main() {
+  if (process.argv.includes("--check")) {
+    // 两边都收尾（停掉后端、删掉数据目录）后再报错，免得一边失败时另一边的后端成为孤儿进程。
+    const settled = await Promise.allSettled([record(false), record(true)]);
+    const failure = settled.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
+    const [baseline, perturbed] = settled.map((result) => (result as PromiseFulfilledResult<Map<string, string>>).value);
+    const drift = describeDrift(baseline, perturbed);
+    if (drift.length > 0) {
+      console.error("替身随系统时钟、出厂快照或版本号变化（- 为原样录制，+ 为换掉这些来源后录制）：");
+      for (const line of drift) console.error(line);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`换掉系统时钟、出厂快照与版本号后录出的 ${baseline.size} 个替身不变`);
+    return;
+  }
+  const files = await record(false);
+  rmSync(RECORDED_DIR, { recursive: true, force: true });
+  mkdirSync(RECORDED_DIR, { recursive: true });
+  for (const [file, content] of files) writeFileSync(join(RECORDED_DIR, file), content);
+  console.log(`已录制 ${files.size} 个接口到 ${RECORDED_DIR}`);
 }
 
 await main();

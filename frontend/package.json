@@ -23,6 +23,7 @@
     "e2e:server": "node e2e/run-server.ts",
     "e2e:remote": "PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:${E2E_SERVER_PORT:-3000}/ PW_TEST_CONNECT_EXPOSE_NETWORK='<loopback>' playwright test",
     "e2e:record": "node e2e/record-fixtures.ts",
+    "e2e:record:check": "node e2e/record-fixtures.ts --check",
     "doctor": "react-doctor"
   },
   "dependencies": {
