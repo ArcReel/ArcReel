@@ -172,7 +172,7 @@ function InputsGroup({ detail }: { detail: UsageRecordDetail }) {
               key={image.path}
               projectName={detail.project_name}
               path={image.path}
-              caption={image.label ?? image.role ?? null}
+              caption={image.label ?? t("grid_reference_images")}
             />
           ))}
           {inputs?.start_image && (
@@ -286,6 +286,8 @@ export function UsageRecordDetailModal({
   const domainKey = detail?.error_code && detail.error_params
     ? [`errors:${detail.error_code}`, `errors:task_fail_${detail.error_code}`].find((key) => i18n.exists(key))
     : undefined;
+  const messageIsDomainKey = detail?.error_message &&
+    [`errors:${detail.error_message}`, `errors:task_fail_${detail.error_message}`].some((key) => i18n.exists(key));
   const domainParams = { ...detail?.error_params };
   const nested = domainParams.detail;
   if (nested && typeof nested === "object" && "key" in nested && "params" in nested
@@ -367,7 +369,7 @@ export function UsageRecordDetailModal({
                             ? t(domainKey, domainParams)
                             : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
                       </p>
-                      {phraseKey && detail.error_message && (
+                      {phraseKey && detail.error_message && !messageIsDomainKey && (
                         <p className="num text-xs break-words text-muted-foreground">{detail.error_message}</p>
                       )}
                       {typeof retryAfter === "number" && (
