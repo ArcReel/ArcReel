@@ -155,11 +155,62 @@ export function sseErrorHandler(onError?: (error: SseStreamError) => void) {
 }
 
 /**
+ * 普通 JSON 请求的默认超时。移动网络切基站、息屏唤醒时，TCP 连接可能既不返回也不报错，
+ * 没有超时的话调用方永远等不到结算，页面就一直停在加载态。20 秒覆盖慢网下的正常请求。
+ */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 20_000;
+
+/** 请求超时抛出的错误：与网络错误、业务错误区分开，调用方可单独提示「超时」并允许重试。 */
+export class RequestTimeoutError extends ApiRequestError {
+  readonly code = "request_timeout" as const;
+
+  constructor(timeoutMs: number) {
+    super(i18n.t("errors:request_timeout", { seconds: Math.round(timeoutMs / 1000) }));
+    this.name = "RequestTimeoutError";
+  }
+}
+
+/**
+ * 把调用方的 signal 与超时合并成一个 signal，返回 fetch 用的 signal 与清理函数。
+ *
+ * 不用 `AbortSignal.any` / `AbortSignal.timeout`：两者的浏览器支持面与 jsdom 实现都不齐，
+ * 且超时后需要区分「是超时还是调用方主动取消」，自己维护一个 controller 才能标出来。
+ */
+function withTimeout(signal: AbortSignal | null | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const forwardAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", forwardAbort, { once: true });
+  }
+  return {
+    signal: controller.signal,
+    /** 这次中断是否由超时引起（调用方主动取消时为 false）。 */
+    get timedOut() {
+      return timedOut;
+    },
+    dispose() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", forwardAbort);
+    },
+  };
+}
+
+/**
  * 通用请求：拼接 API 前缀、注入凭证并过只读闸门，非 2xx 时按错误契约抛出对应错误。
+ *
+ * `timeoutMs` 默认 {@link DEFAULT_REQUEST_TIMEOUT_MS}；上传、试跑这类本身耗时长的端点传更大的值。
+ * 调用方自己的 `signal` 仍然生效：主动取消按取消处理，超时抛 {@link RequestTimeoutError}。
  */
 export async function requestJson<T = unknown>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS
 ): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
   const defaultOptions: RequestInit = {
@@ -168,7 +219,20 @@ export async function requestJson<T = unknown>(
     },
   };
 
-  const response = await fetch(url, withAuth(endpoint, { ...defaultOptions, ...options }));
+  const timed = withTimeout(options.signal, timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...withAuth(endpoint, { ...defaultOptions, ...options }),
+      signal: timed.signal,
+    });
+  } catch (err) {
+    // 超时：fetch 以 AbortError 拒绝，换成可提示、可重试的错误。
+    if (timed.timedOut) throw new RequestTimeoutError(timeoutMs);
+    throw err;
+  } finally {
+    timed.dispose();
+  }
 
   if (!response.ok) {
     handleUnauthorized(response);

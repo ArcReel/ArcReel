@@ -290,7 +290,7 @@ export type {
   VersionInfo,
   VideoCapabilitiesQuery,
 } from "./api/types";
-export { setApiReadOnly } from "./api/transport";
+export { setApiReadOnly, RequestTimeoutError } from "./api/transport";
 
 // ==================== Endpoint helpers ====================
 
@@ -434,6 +434,18 @@ class API {
     options: RequestInit = {}
   ): Promise<T> {
     return requestJson<T>(endpoint, options);
+  }
+
+  /**
+   * 耗时明显长于普通读写的请求（试跑端点、连通性测试、导入归档、渲染入队）用更长的超时。
+   * 它们本身可能要跑十几秒，套 20 秒会误判成失败；仍设上界，避免永远挂住。
+   */
+  static async requestSlow<T = unknown>(
+    endpoint: string,
+    options: RequestInit = {},
+    timeoutMs = 120_000
+  ): Promise<T> {
+    return requestJson<T>(endpoint, options, timeoutMs);
   }
 
   // ==================== 系统配置 ====================
@@ -3501,7 +3513,7 @@ class API {
   /** 测试指定 provider 的连接。 */
   static async checkProviderConnectivity(id: string, credentialId?: number): Promise<ConnectivityCheckResult> {
     const params = credentialId != null ? `?credential_id=${credentialId}` : "";
-    return this.request(`/providers/${encodeURIComponent(id)}/test${params}`, {
+    return this.requestSlow(`/providers/${encodeURIComponent(id)}/test${params}`, {
       method: "POST",
     });
   }
@@ -3525,7 +3537,7 @@ class API {
   }
 
   static async checkObjectStorageConnection(): Promise<{ success: boolean }> {
-    return this.request("/object-storage/connection/test", { method: "POST" });
+    return this.requestSlow("/object-storage/connection/test", { method: "POST" });
   }
 
   static async listAssetLibraryAccounts(options: { signal?: AbortSignal } = {}): Promise<AssetLibraryAccountList> {
@@ -3607,7 +3619,7 @@ class API {
     projectName: string,
     body: { resource_type: string; resource_id: string; account_id: number; asset_id: string },
   ): Promise<ProviderAssetImportResult> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/provider-asset-links/import`, {
+    return this.requestSlow(`/projects/${encodeURIComponent(projectName)}/provider-asset-links/import`, {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -3734,13 +3746,13 @@ class API {
   }
 
   static async testAgentCredential(id: number): Promise<TestConnectionResponse> {
-    return this.request(`/agent/credentials/${id}/test`, { method: "POST" });
+    return this.requestSlow(`/agent/credentials/${id}/test`, { method: "POST" });
   }
 
   static async testAgentConnectionDraft(
     data: TestConnectionRequest,
   ): Promise<TestConnectionResponse> {
-    return this.request("/agent/test-connection", {
+    return this.requestSlow("/agent/test-connection", {
       method: "POST",
       body: JSON.stringify(data),
     });
@@ -3782,7 +3794,7 @@ class API {
     data: { discovery_format: string; base_url: string; api_key: string },
     options: { signal?: AbortSignal } = {}
   ): Promise<DiscoverModelsResponse> {
-    return this.request("/custom-providers/discover", {
+    return this.requestSlow("/custom-providers/discover", {
       method: "POST",
       body: JSON.stringify(data),
       signal: options.signal,
@@ -3790,11 +3802,11 @@ class API {
   }
 
   static async checkCustomConnectivity(data: { discovery_format: string; base_url: string; api_key: string }): Promise<{ success: boolean; message: string }> {
-    return this.request("/custom-providers/test", { method: "POST", body: JSON.stringify(data) });
+    return this.requestSlow("/custom-providers/test", { method: "POST", body: JSON.stringify(data) });
   }
 
   static async checkCustomConnectivityById(id: number): Promise<{ success: boolean; message: string }> {
-    return this.request(`/custom-providers/${id}/test`, { method: "POST" });
+    return this.requestSlow(`/custom-providers/${id}/test`, { method: "POST" });
   }
 
   static async discoverAnthropicModels(
@@ -4052,7 +4064,7 @@ class API {
     parameters: EndpointTestParameters;
     credentials?: EndpointTestCredentials;
   }, assets: EndpointTestAssets = {}): Promise<TrialRunInfo> {
-    return this.request("/custom-endpoints/trial-runs", endpointTestRequest(body, assets));
+    return this.requestSlow("/custom-endpoints/trial-runs", endpointTestRequest(body, assets));
   }
 
   static async getTrialRun(

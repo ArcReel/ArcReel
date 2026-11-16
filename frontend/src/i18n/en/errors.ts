@@ -50,6 +50,7 @@ export default {
   'image_endpoint_mismatch_no_t2i': 'Model {{model}} only supports image-to-image (reference images required); supply reference images or pick a model that supports text-to-image',
   // Fallback messages for the API layer and event streams (when the server gives no reason)
   'request_failed': 'Request failed',
+  'request_timeout': 'The request timed out after {{seconds}} seconds. Check your connection and try again.',
   'session_expired': 'Your session has expired. Sign in again.',
   'content_mode_immutable': 'content_mode cannot be changed after the project is created',
   'import_failed': 'Import failed',

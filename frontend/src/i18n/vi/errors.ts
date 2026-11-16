@@ -51,6 +51,7 @@ export default {
   'image_endpoint_mismatch_no_t2i': 'Mô hình {{model}} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image',
   // Thông báo dự phòng của tầng API và luồng sự kiện (khi máy chủ không nêu lý do)
   'request_failed': 'Yêu cầu thất bại',
+  'request_timeout': 'Yêu cầu quá thời gian chờ ({{seconds}} giây). Hãy kiểm tra kết nối và thử lại.',
   'session_expired': 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại',
   'content_mode_immutable': 'Không thể thay đổi content_mode sau khi đã tạo dự án',
   'import_failed': 'Nhập thất bại',

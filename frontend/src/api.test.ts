@@ -5,9 +5,11 @@ import {
   ApiRequestError,
   ConflictError,
   ReferenceProjectionError,
+  RequestTimeoutError,
   ScriptEditCommandError,
   SpeechAdmissionError,
 } from "@/api";
+import { DEFAULT_REQUEST_TIMEOUT_MS } from "@/api/transport";
 import i18n from "@/i18n";
 import { useProjectsStore } from "@/stores/projects-store";
 import { clearToken, setToken } from "@/utils/auth";
@@ -67,8 +69,9 @@ describe("API", () => {
     const result = await API.previewAssetPrompt("demo project", "character", "Hero One", "草稿", { signal, derivativeName });
 
     expect(result).toEqual(body);
+    // 调用方的 signal 由超时包装转发，不再原样交给 fetch：这里只断言它仍在传递链上
     expect(fetchMock).toHaveBeenCalledWith(expectedUrl, expect.objectContaining({
-      method: "POST", body: JSON.stringify({ description: "草稿" }), signal,
+      method: "POST", body: JSON.stringify({ description: "草稿" }), signal: expect.any(AbortSignal),
     }));
   });
 
@@ -87,6 +90,46 @@ describe("API", () => {
       }));
       const headers = fetchMock.mock.calls[0][1].headers as Headers;
       expect(headers.get("Content-Type")).toBe("application/json");
+    });
+
+    it("aborts a hung request and reports a timeout error", async () => {
+      vi.useFakeTimers();
+      try {
+        // 永远不结算的 fetch：模拟移动网络切换后连接挂住
+        const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            );
+          }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+
+        const pending = API.request("/projects").catch((e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(DEFAULT_REQUEST_TIMEOUT_MS);
+        expect(await pending).toBeInstanceOf(RequestTimeoutError);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps the caller's own cancellation distinct from a timeout", async () => {
+      const controller = new AbortController();
+      const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+          );
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const pending = API.request("/projects", { signal: controller.signal });
+      controller.abort();
+
+      const error = await pending.catch((e: unknown) => e);
+      expect(error).not.toBeInstanceOf(RequestTimeoutError);
+      expect((error as Error).name).toBe("AbortError");
     });
 
     it("throws backend detail for failed request", async () => {
