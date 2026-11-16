@@ -41,6 +41,7 @@ export default {
   'refresh': 'Làm mới',
   'write_refresh_failed': 'Đã xong nhưng không làm mới được trang. Hãy tải lại để xem trạng thái mới nhất',
   'page_load_failed': 'Không tải được trang. Hãy kiểm tra kết nối rồi tải lại',
+  'page_outdated_hint': 'Nếu ứng dụng vừa được cập nhật, hãy tải lại để dùng bản mới. Nội dung bạn đang sửa vẫn nằm trong bản nháp cục bộ.',
   'reload_page': 'Tải lại',
   'close': 'Đóng',
   'open_navigation': 'Mở điều hướng',

@@ -41,6 +41,7 @@ export default {
   'refresh': '刷新',
   'write_refresh_failed': '操作已完成，但页面数据刷新失败，请手动刷新查看最新状态',
   'page_load_failed': '页面加载失败，请检查网络后重新加载',
+  'page_outdated_hint': '若应用刚刚更新过，重新加载即可继续；正在编辑的内容会保留在本地草稿里。',
   'reload_page': '重新加载',
   'close': '关闭',
   'open_navigation': '打开导航菜单',

@@ -66,14 +66,16 @@ function LoadFailedState({ variant }: { variant: "screen" | "pane" }) {
       role="alert"
       className={
         variant === "screen"
-          ? "flex h-dvh flex-col items-center justify-center gap-3 bg-background text-sm text-muted-foreground"
-          : "flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground"
+          ? "flex h-dvh flex-col items-center justify-center gap-3 bg-background px-6 text-center text-sm text-muted-foreground"
+          : "flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground"
       }
     >
       <p className="flex items-center gap-2">
         <CircleAlert aria-hidden className="size-4" />
         {t("page_load_failed")}
       </p>
+      {/* 说明为什么会出现这一屏：多数情况是新版本部署后旧入口引用了已被替换的 chunk。 */}
+      <p className="max-w-72 text-xs">{t("page_outdated_hint")}</p>
       <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
         {t("reload_page")}
       </Button>
