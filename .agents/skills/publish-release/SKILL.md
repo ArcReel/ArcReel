@@ -12,7 +12,7 @@ disable-model-invocation: true
 
 调用本 skill 即授权在闸门通过时合并。
 
-Release PR 的分支是 `release-please--branches--main--components--arcreel`。闸门：它的 head 包含 `origin/main` 的最新提交，且全部检查通过。闸门不过时修复提交到 `main`，release-please 会随 `main` 的推送重建 Release 分支。
+Release PR 的分支是 `release-please--branches--main--components--arcreel`。闸门：全部检查通过。闸门不过时修复提交到 `main`，release-please 会随 `main` 的推送重建 Release 分支。
 
 完成判据：`gh release view v<版本>` 返回已发布的 Release。tag 触发的 Docker Release 放到后台，随即进入亮点草案。
 
