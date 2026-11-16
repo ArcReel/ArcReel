@@ -436,7 +436,21 @@ class TestOpenAIAudioBackend:
                 assert ids.isdisjoint({"ballad", "verse", "marin", "cedar"})
                 assert "alloy" in ids
 
-    @pytest.mark.parametrize("model", ["fish-audio-v1", "gpt-4o-mini-tts-2025-12-15", "kokoro"])
+    def test_list_voices_for_snapshot_behind_alias_matches_alias(self):
+        """官方型号页的别名 gpt-4o-mini-tts 指向这个快照，两者是同一个模型。"""
+        with captured_openai_clients():
+            from lib.backends.audio_backends.openai import OpenAIAudioBackend
+
+            def voices(model: str) -> list[str]:
+                b = OpenAIAudioBackend(
+                    api_key="sk", base_url="https://api.openai.com/v1", model=model, provider_name="custom-7"
+                )
+                return [v.id for v in b.list_voices()]
+
+            assert voices("gpt-4o-mini-tts-2025-12-15") == voices("gpt-4o-mini-tts")
+            assert "marin" in voices("gpt-4o-mini-tts-2025-12-15")
+
+    @pytest.mark.parametrize("model", ["fish-audio-v1", "gpt-4o-mini-tts-2025-03-20", "kokoro"])
     def test_list_voices_is_empty_for_unknown_model_even_on_official_host(self, model: str):
         with captured_openai_clients():
             from lib.backends.audio_backends.openai import OpenAIAudioBackend

@@ -9,6 +9,7 @@ from lib.config.service import ConfigService
 from lib.speech.narration_config import NarrationConfigError
 from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
 from server.services.tasks import generation_context
+from tests.fakes import patched_genai_client
 
 
 async def _set_globals(db_factory, **settings: str) -> None:
@@ -143,18 +144,14 @@ async def test_omitted_voice_follows_the_explicitly_chosen_model(db_factory):
     assert fields["narration_voice"] == "Cherry"
 
 
-async def test_voice_is_kept_when_the_model_cannot_be_constructed(db_factory, monkeypatch):
+async def test_voice_is_kept_when_the_model_cannot_be_constructed(db_factory):
     """取不到音色表（SDK 构造失败）时不阻断建项，全局音色原样预填。"""
-
-    def _broken_client(**_kwargs):
-        raise OSError("credentials unreadable")
-
-    monkeypatch.setattr("google.genai.Client", _broken_client)
     await _set_api_keys(db_factory, "gemini-aistudio")
     await _set_globals(db_factory, default_audio_backend="gemini-aistudio/gemini-3.8-flash-tts")
-    fields = await new_project_narration_fields(
-        NarrationSettingsInput(delivery="use_tts"), resolver=ConfigResolver(db_factory)
-    )
+    with patched_genai_client(error=OSError("credentials unreadable")):
+        fields = await new_project_narration_fields(
+            NarrationSettingsInput(delivery="use_tts"), resolver=ConfigResolver(db_factory)
+        )
     assert fields["narration_voice"] == "Cherry"
 
 

@@ -55,8 +55,11 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
 
 # legacy 模型（tts-1 / tts-1-hd）只支持其中 9 个音色，出处同上文档（「Voice availability depends on the model」）。
 _LEGACY_UNSUPPORTED_VOICE_IDS = frozenset({"ballad", "verse", "marin", "cedar"})
+# 官方型号页（https://developers.openai.com/api/docs/models/gpt-4o-mini-tts）的 Snapshots 列出别名 gpt-4o-mini-tts
+# 指向 gpt-4o-mini-tts-2025-12-15，两者是同一个模型；更早的 2025-03-20 快照没有音色依据，不列。别名改指向时同步更新这里。
 _VOICES_BY_MODEL: dict[str, tuple[VoiceOption, ...]] = {
     "gpt-4o-mini-tts": _VOICE_CATALOG,
+    "gpt-4o-mini-tts-2025-12-15": _VOICE_CATALOG,
     **dict.fromkeys(
         ("tts-1", "tts-1-hd"), tuple(v for v in _VOICE_CATALOG if v.id not in _LEGACY_UNSUPPORTED_VOICE_IDS)
     ),
