@@ -54,6 +54,11 @@ def codex_summary_body:
   # Codex keeps one status comment per PR and rewrites it in place on every review.
   (. // "") | test("<!--\\s*codex-pull-request-review-summary\\s*-->");
 
+def codex_reviewed_commit_from_body:
+  # The commit a Codex review body or clean-pass receipt says it reviewed. null when it names none.
+  (. // "")
+  | ([capture("Reviewed commit:[* `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null);
+
 def codex_summary_commit:
   # The commit the summary comment says the code review is running on or has finished
   # (codex-review-state JSON, code_review.commit_sha). null when the body carries none.

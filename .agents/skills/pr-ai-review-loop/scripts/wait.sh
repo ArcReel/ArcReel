@@ -488,11 +488,13 @@ probe_once() {
           started:
             (any($all_reviews[]; is_codex and .commit_id == $head)
              or any($codex_reactions[]; .created_at > $push_at)
+             # A comment that names its commit (summary, receipt) counts by that anchor alone:
+             # a slow review of an orphaned head lands after the push too. Same rule as poll.sh.
              or any($all_comments[];
                     is_codex
-                    and (.created_at > $push_at
-                         or ((.body | codex_summary_commit) as $sha
-                             | $sha != null and ($head | startswith($sha)))))),
+                    and ((.body | codex_summary_commit // codex_reviewed_commit_from_body) as $sha
+                         | if $sha == null then .created_at > $push_at
+                           else ($head | startswith($sha)) end))),
           triggered:
             any($all_comments[];
                 (is_cr or is_codex | not)

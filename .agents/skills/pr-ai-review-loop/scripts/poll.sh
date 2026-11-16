@@ -493,10 +493,6 @@ jq -n -L "$SCRIPT_DIR" \
       ]
     | map(select(.[1] as $pat | $h | contains($pat)) | .[0]);
 
-  def codex_reviewed_commit_from_body:
-    (. // "")
-    | ([capture("Reviewed commit:[* `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null);
-
   def codex_commit_is_current_head:
     . as $sha
     | ($sha != null

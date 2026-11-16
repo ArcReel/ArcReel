@@ -436,6 +436,15 @@ WAIT_TEST_CODEX=silent WAIT_TEST_PUSH_AT=1969-12-31T23:50:00Z run_wait checks_fi
 reset_case
 WAIT_TEST_CODEX=silent run_wait codex_triggered --max 600
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected a posted @codex review to close the window quietly"
+for mode in codex_receipt codex_summary; do
+  reset_case
+  WAIT_TEST_CODEX=silent run_wait "$mode" --max 600
+  [[ "$(<"$TMP_ROOT/result.out")" == "WAIT_READY: codex_silent" ]] \
+    || fail "expected a $mode naming another commit not to count as a start signal, got: $(<"$TMP_ROOT/result.out")"
+done
+reset_case
+WAIT_TEST_CODEX=silent run_wait codex_quota --max 600
+grep -q '^WAIT_READY: reviewer_notice' "$TMP_ROOT/result.out" || fail "expected a Codex comment without a commit anchor to stay a notice"
 reset_case
 run_wait flat --max 600
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected a started Codex never to report codex_silent"
