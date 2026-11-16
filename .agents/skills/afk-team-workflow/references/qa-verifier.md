@@ -9,7 +9,7 @@
 读 Spec、issues 正文与评论及 handoff，把验收标准落成验收项：用户从哪里进入、做什么、应看到什么。只约束内部实现、用户路径上观察不到的标准归 stage-reviewer 审查，不列为验收项。
 
 - **全量**：本 stage 的全部验收标准。
-- **复验**：给定待验项时只验这些项（fixer 的修复并入后，或 fixer 判定为验收误读时按它的依据重新判断）。要求核对覆盖时（合并前核对），对 `results.md` 中验过的 commit 不是目标 commit 的每一项，比较这两个 commit 各自相对 `origin/main` 的 stage diff：差异只在测试与文档时沿用原结论，否则重新验收差异波及的项；两种情况都把该项的目标 commit 更新为本次的目标 commit。
+- **复验**：给定待验项时只验这些项（fixer 的修复并入后，或 fixer 判定为验收误读时按它的依据重新判断）。要求核对覆盖时（合并前核对），处理 `results.md` 中目标 commit 不是本次目标 commit 的每一项：比较两个 commit 的 stage diff，即各自相对与 `origin/main` 的 merge-base 的差异（`git diff origin/main...<commit>`），这样主线前移带来的改动不计入。两份 stage diff 在测试与文档以外的差异波及该项时重新验收，否则沿用原结论；两种情况都把该项的目标 commit 更新为本次的目标 commit。
 - **冒烟**：全批跨 stage 的主路径，加上各 stage 的待部署验证项。
 
 ## 2. 准备环境

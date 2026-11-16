@@ -61,15 +61,19 @@ stage branch 的历史形状固定为：每个 issue 一个 commit，其后至�
    - 另建一个检出 green HEAD 的 QA worktree，在其中启动 qa-verifier，按 [qa-verifier.md](references/qa-verifier.md) 以全量模式验收。
    - 启动 review-looper，按 [review-looper.md](references/review-looper.md) 收敛 AI 审查。
 2. qa-verifier 交付后，把 QA 结论以一条文字评论发在 PR 上，写明全量验收的 commit；此后每次复验都更新这条评论，并写明复验的 commit。再把结论通知 review-looper：
-   - 没有失败项：告知它 QA 没有待并入的修复。
-   - 有失败项：把本轮全部失败项交给一个新的 fixer 按 [fixer.md](references/fixer.md) 修复，将它交付的 commit 转交 review-looper。review-looper push 后，由 qa-verifier 在新 HEAD 上只复验这些项。循环到没有失败项，或剩余失败项**卡住**（同一失败特征第 2 次出现）。fixer 判定为验收误读、没有为其改代码的项，把它的依据交给 qa-verifier 复验：结论改为通过即结案，仍失败按卡住处理。
+   - 没有失败项：告知它本轮 QA 没有待并入的修复。
+   - 有失败项：把本轮全部失败项交给一个新的 fixer 按 [fixer.md](references/fixer.md) 处理。
+     - fixer 交付了 commit：转交 review-looper，它 push 后由 qa-verifier 在新 HEAD 上只复验这些项。
+     - fixer 判定为验收误读、没有改代码的项：把依据交给 qa-verifier 复验，结论改为通过即结案，仍失败按卡住处理。全部失败项都是误读时没有 commit，同样告知 review-looper 本轮 QA 没有待并入的修复。
+
+   复验仍有失败项时重复本步，直到没有失败项，或剩余失败项**卡住**（同一失败特征第 2 次出现）。
 3. 卡住的项按性质分流：
    - **回归**（批次前已有的行为被破坏）：按第 3 节暂停该 issue 及其下游。
    - **新验收未达成**（已有行为完好）：该 issue 的 commit 留在 stage，从 PR 的 `Closes` 清单中移除，在 issue 上评论 QA 证据摘要，保持 open 与 `ready-for-agent`。
 4. review-looper 回报达标 HEAD 后，逐项核对，全部成立才合并：
    - **审查收敛**：达标 HEAD 等于 PR 当前的 `headRefOid`。
    - **检查通过**：该 HEAD 的 required checks 全部通过，且 `mergeable=MERGEABLE`。
-   - **QA 覆盖该 HEAD**：没有未分流的失败项，且 `results.md` 中每项验过的 commit 都覆盖该 HEAD。有的项验过的 commit 不是该 HEAD 时（它在全量验收后没有复验过，而 HEAD 已因修复或 rebase 改变），由 qa-verifier 以复验模式按该 HEAD 核对覆盖，失败时回到第 2 步。
+   - **QA 覆盖该 HEAD**：没有未分流的失败项，且 `results.md` 中每项的目标 commit 都是该 HEAD。HEAD 因修复或 rebase 改变后，没有复验过的项仍记着旧 commit；这时由 qa-verifier 以复验模式按该 HEAD 核对覆盖，有失败项回到第 2 步。
    - **PR 记录是最终结论**：`Closes` 清单与 QA 结论评论都与最终结论一致。
 
    任一项不成立时处理后重新核对；HEAD 因此改变的，等 review-looper 再次回报达标。
@@ -82,7 +86,7 @@ stage branch 的历史形状固定为：每个 issue 一个 commit，其后至�
 1. **quiesce first**：停止受影响 agents 并废弃未集成 handoff；stage-reviewer、qa-verifier、fixer 或 review-looper 运行时，先停止它并核对 worktree、branch、remote HEAD 与 handoff。
 2. 为已有 issue 移除 `ready-for-agent`、添加 `ready-for-human`，记录原因，并将暂停范围移出当前 stage。
 3. 用户决定继续时：已有 issue 恢复标签；Spec gap 先创建并挂为 sub-issue，再重新编排。
-4. 用户决定保留暂停时：仅当相关 commit 已进入 stage branch 才重建 stage，排除该 issue 及其下游。重建由你执行，此时本 stage 没有其他写者：从最新 `origin/main` 重新 cherry-pick 保留的 issue commits，以 `--force-with-lease` push，已有 PR 同步更新 `Closes` 清单。重建后从集成审查重新开始，原 PR 沿用，QA 以全量模式重做。
+4. 用户决定保留暂停时：仅当相关 commit 已进入 stage branch 才重建 stage，排除该 issue 及其下游。重建由你执行，此时本 stage 没有其他写者：从最新 `origin/main` 重新 cherry-pick 保留的 issue commits，以 `--force-with-lease` push，已有 PR 同步更新 `Closes` 清单。原 integration-fix commit 不带入：它混有针对被排除 issue 的修复。重建后从集成审查重新开始，原 PR 沿用，QA 以全量模式重做；把原 integration-fix commit 的 SHA 交给 stage-reviewer，由它取回对保留 issue 仍成立的修复。
 
 可吸收的运行故障、reviewer 重复噪声与无需找用户的裁决由你处理并记账；阻断 **green HEAD** 且无法自行恢复的故障按上文暂停。review-looper 硬停汇报后，由你裁决未决事项并交给新 looper 接力：给出延长的 `rounds`，裁定驳回的发现随委派交它回复。
 
