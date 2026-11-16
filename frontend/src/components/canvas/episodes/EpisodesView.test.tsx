@@ -636,13 +636,48 @@ describe("EpisodesView", () => {
       await waitFor(() => expect(resume).toHaveBeenCalledWith("demo", "cand-1"));
     });
 
+    it("shows why a replan stopped on a failed task", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: { ...REPLAN, complete: false, interrupted: "failed" } });
+      useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "provider_rate_limited", error_message: "供应商限流，请稍后重试", error_detail: "429 Too Many Requests" })] });
+      renderView();
+
+      const panel = await screen.findByRole("region", { name: "新的分集方案" });
+      expect(within(panel).getByRole("status")).toHaveTextContent("AI 生成出错");
+      const alert = within(panel).getByRole("alert");
+      expect(alert).toHaveTextContent("上次规划没有完成：供应商限流，请稍后重试");
+      expect(alert).not.toHaveTextContent("429 Too Many Requests");
+      expect(within(panel).queryByRole("link", { name: "设置默认模型" })).not.toBeInTheDocument();
+
+      fireEvent.click(within(alert).getByRole("button", { name: "详情" }));
+      expect(alert).toHaveTextContent("provider_rate_limited");
+      expect(alert).toHaveTextContent("429 Too Many Requests");
+    });
+
     it("links a missing text default during replanning to Default models", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: { ...REPLAN, complete: false, interrupted: "failed" } });
       useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
       const { location } = renderView();
       const panel = await screen.findByRole("region", { name: "新的分集方案" });
+      expect(within(panel).getByRole("alert")).toHaveTextContent("上次规划没有完成：未设置文本默认模型");
       fireEvent.click(within(panel).getByRole("link", { name: "设置默认模型" }));
       expect(location.history.at(-1)).toBe("/app/settings?section=default-models");
+    });
+
+    it("keeps the generic notice when the failed replan task carries no reason", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: { ...REPLAN, complete: false, interrupted: "failed" } });
+      renderView();
+
+      const panel = await screen.findByRole("region", { name: "新的分集方案" });
+      expect(within(panel).getByRole("status")).toHaveTextContent("AI 生成出错");
+      expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
+
+      // 任务还在列表里，但没有带回原因
+      act(() => {
+        useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_message: null })] });
+      });
+      expect(within(panel).getByRole("status")).toHaveTextContent("AI 生成出错");
+      expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
+      expect(panel).not.toHaveTextContent("上次规划没有完成");
     });
 
     it("offers to register the output limit when a replan window of a custom model was truncated", async () => {
