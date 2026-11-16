@@ -9,8 +9,9 @@
 # incremental review that rewrites the walkthrough comment in place and submits no new
 # review, so the latest review's commit stays pinned to the first reviewed HEAD while the
 # walkthrough body carries the anchor that moves. This test pins both the parser and the
-# rule to the exact bytes CodeRabbit ships. Defs are extracted verbatim from poll.sh so
-# the shipped functions are exercised, not a copy. Fixtures (real bodies, captured via
+# rule to the exact bytes CodeRabbit ships. Defs are extracted verbatim from poll.sh, and
+# the judgments shared with wait.sh are included from signals.jq, so the shipped functions
+# are exercised, not a copy. Fixtures (real bodies, captured via
 # `gh api repos/<owner>/<repo>/issues/<pr>/comments`):
 #   - coderabbit_walkthrough_incremental_pr2614.txt: a walkthrough rewritten by an
 #     incremental review; carries both the "📥 Commits" range line and the
@@ -51,11 +52,7 @@ extract_def() {
 }
 
 HEAD_MATCH_DEF=$(extract_def codex_commit_is_current_head)
-RL_DEF=$(extract_def cr_rate_limited_body)
 WT_HEAD_DEF=$(extract_def cr_walkthrough_head)
-SKIP_DEF="$(extract_def cr_skip_marker_body)
-$(extract_def cr_no_reviewable_changes_body)
-$(extract_def cr_review_skipped_body)"
 WT_DEF=$(extract_def cr_walkthrough_rest)
 
 INCREMENTAL="$TESTDATA/coderabbit_walkthrough_incremental_pr2614.txt"
@@ -129,7 +126,7 @@ RULE_CASES=(
 
 for tc in "${RULE_CASES[@]}"; do
   IFS='|' read -r name head reviews review_commit expected fixture <<<"$tc"
-  got=$(jq -r \
+  got=$(jq -r -L "$SCRIPT_DIR" \
     --rawfile body "${fixture:-$INCREMENTAL}" \
     --arg head "$head" \
     --argjson reviews "$reviews" \
@@ -137,13 +134,12 @@ for tc in "${RULE_CASES[@]}"; do
     --arg last_push "$LAST_PUSH" \
     --arg updated_at "$WT_UPDATED_AT" \
     -n "
+    include \"signals\";
     [{id: 1, user: {login: \"coderabbitai[bot]\"}, created_at: \"2026-09-21T16:41:00Z\",
       updated_at: \$updated_at, body: \$body}] as \$sub_a
     | {reviews: \$reviews, headRefOid: \$head} as \$main
     | {R1: \$first_review_commit} as \$review_commit_by_id
     | $HEAD_MATCH_DEF
-      $RL_DEF
-      $SKIP_DEF
       $WT_HEAD_DEF
       $WT_DEF
       (cr_walkthrough_rest | \"\\(.reviewed_current_head) walkthrough_head=\\(.walkthrough_head) latest_review_commit=\\(.latest_review_commit)\")
@@ -167,8 +163,8 @@ SKIP_CASES=(
 
 for tc in "${SKIP_CASES[@]}"; do
   IFS='|' read -r name fixture expected <<<"$tc"
-  got=$(jq -r --rawfile body "$fixture" -n "
-    $SKIP_DEF
+  got=$(jq -r -L "$SCRIPT_DIR" --rawfile body "$fixture" -n "
+    include \"signals\";
     \$body | cr_review_skipped_body
     ")
   if [[ "$got" == "$expected" ]]; then

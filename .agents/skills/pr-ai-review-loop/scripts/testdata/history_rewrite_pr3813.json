@@ -1,0 +1,369 @@
+{
+  "pr": {
+    "number": 3813,
+    "created_at": "2026-11-12T20:07:03Z",
+    "head": {
+      "sha": "f250154adca3b572cdde28c4fea5acbb58097b84"
+    },
+    "base": {
+      "ref": "main"
+    }
+  },
+  "commits": [
+    {
+      "sha": "f2965a34c9467dd1de29cb785df7475f8df4b460",
+      "commit": {
+        "committer": {
+          "date": "2026-11-12T17:57:48Z"
+        }
+      }
+    },
+    {
+      "sha": "bb213412edc11cc5e7d2fcdad75fda2aabbe0047",
+      "commit": {
+        "committer": {
+          "date": "2026-11-12T18:32:30Z"
+        }
+      }
+    },
+    {
+      "sha": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "commit": {
+        "committer": {
+          "date": "2026-11-12T21:11:37Z"
+        }
+      }
+    }
+  ],
+  "reviews": [
+    {
+      "id": 5881387767,
+      "node_id": "PRR_kwDORKpYL88AAAABXo7a9w",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "submitted_at": "2026-11-12T20:17:20Z",
+      "state": "COMMENTED",
+      "commit_id": "d3112dfb89ec6ca8a814c84574e1855d2ac369e3",
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n**Actionable comments posted: 2**\n\n<details>\n<summary><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://storage.googleapis.com/coderabbit_publi"
+    },
+    {
+      "id": 5881574765,
+      "node_id": "PRR_kwDORKpYL88AAAABXpG1bQ",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "submitted_at": "2026-11-12T20:32:02Z",
+      "state": "COMMENTED",
+      "commit_id": "7cb203e2f4d87e4b748b062b9c4e7510554673b0",
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n\n\n---\n\n<details>\n<summary><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icon"
+    },
+    {
+      "id": 5881610600,
+      "node_id": "PRR_kwDORKpYL88AAAABXpJBaA",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "submitted_at": "2026-11-12T20:34:33Z",
+      "state": "COMMENTED",
+      "commit_id": "7cb203e2f4d87e4b748b062b9c4e7510554673b0",
+      "body": ""
+    },
+    {
+      "id": 5881862377,
+      "node_id": "PRR_kwDORKpYL88AAAABXpYY6Q",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "submitted_at": "2026-11-12T20:54:47Z",
+      "state": "COMMENTED",
+      "commit_id": "156ff7ef7618bccef3b9413bb00ff77670a1fda2",
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n**Actionable comments posted: 2**\n\n<details>\n<summary><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://storage.googleapis.com/coderabbit_publi"
+    },
+    {
+      "id": 5882032686,
+      "node_id": "PRR_kwDORKpYL88AAAABXpiyLg",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "submitted_at": "2026-11-12T21:07:43Z",
+      "state": "COMMENTED",
+      "commit_id": "aecc4a58628b4357612e3612c6a8eea12900e35b",
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n\n\n---\n\n<details>\n<summary><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icon"
+    },
+    {
+      "id": 5882210253,
+      "node_id": "PRR_kwDORKpYL88AAAABXptnzQ",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "submitted_at": "2026-11-12T21:21:58Z",
+      "state": "COMMENTED",
+      "commit_id": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n**Actionable comments posted: 1**\n\n<details>\n<summary><picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"https://storage.googleapis.com/coderabbit_publi"
+    },
+    {
+      "id": 5882241851,
+      "node_id": "PRR_kwDORKpYL88AAAABXpvjOw",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "submitted_at": "2026-11-12T21:24:40Z",
+      "state": "COMMENTED",
+      "commit_id": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "body": ""
+    }
+  ],
+  "comments": [
+    {
+      "id": 6834629423,
+      "node_id": "IC_kwDORKpYL88AAAABl2ArLw",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "created_at": "2026-11-12T20:07:12Z",
+      "updated_at": "2026-11-12T21:34:09Z",
+      "body": "@@WALKTHROUGH@@"
+    },
+    {
+      "id": 6834651184,
+      "node_id": "IC_kwDORKpYL88AAAABl2CAMA",
+      "user": {
+        "login": "chatgpt-codex-connector[bot]"
+      },
+      "created_at": "2026-11-12T20:08:11Z",
+      "updated_at": "2026-11-12T21:16:28Z",
+      "body": "<!-- codex-pull-request-review-summary -->\n<!-- codex-review-state:v1 {\"code_review\":{\"commit_sha\":\"f250154adca3b572cdde28c4fea5acbb58097b84\",\"has_any_findings\":false,\"has_unresolved_findings\":false,\"status\":\"completed\"},\"security_review\":{\"commit_sha\":null,\"has_any_findings\":null,\"has_unresolved_findings\":null,\"status\":null}} -->\n\n<details>\n<summary><strong>Codex Review Summary</strong>: ✅ Completed</summary>\n\nThis comment shows the latest Codex review activity on this pull request.\n\n| Review | Status | Commit | Review trigger |\n| --- | --- | --- | --- |\n| 📝 **Code Review** | ✅ **Completed** <relative-time datetime=\"2026-11-12T21:16:27.848416Z\">2026-11-12T21:16:27.848416Z</relative-time> | `f250154` | Manual request |\n\n\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\n[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you\n- Open a pull request for review\n- Mark a draft as ready\n- Comment \"@codex review\" or \"@codex security review\".\n\nCodex reacts with 👀 while any review is running, comments if it has suggestions, and reacts with 👍 once all reviews finish with no findings.\n\n</details>\n\n</details>"
+    },
+    {
+      "id": 6834657797,
+      "node_id": "IC_kwDORKpYL88AAAABl2CaBQ",
+      "user": {
+        "login": "maintainer"
+      },
+      "created_at": "2026-11-12T20:08:29Z",
+      "updated_at": "2026-11-12T20:08:29Z",
+      "body": "@coderabbitai review"
+    },
+    {
+      "id": 6834658595,
+      "node_id": "IC_kwDORKpYL88AAAABl2CdIw",
+      "user": {
+        "login": "maintainer"
+      },
+      "created_at": "2026-11-12T20:08:31Z",
+      "updated_at": "2026-11-12T20:08:31Z",
+      "body": "@codex review"
+    },
+    {
+      "id": 6834715271,
+      "node_id": "IC_kwDORKpYL88AAAABl2F6hw",
+      "user": {
+        "login": "chatgpt-codex-connector[bot]"
+      },
+      "created_at": "2026-11-12T20:11:07Z",
+      "updated_at": "2026-11-12T20:11:07Z",
+      "body": "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. :tada:\n\n**Reviewed commit:** `d3112dfb89`\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\n[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you\n- Open a pull request for review\n- Mark a draft as ready\n- Comment \"@codex review\".\n\nIf Codex has suggestions, it will comment; otherwise it will react with 👍.\n\n\n\n\nCodex can also answer questions or update the PR. Try commenting \"@codex address that feedback\".\n            \n</details>"
+    },
+    {
+      "id": 6834861621,
+      "node_id": "IC_kwDORKpYL88AAAABl2O2NQ",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "created_at": "2026-11-12T20:17:51Z",
+      "updated_at": "2026-11-12T20:17:56Z",
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<!-- This is an auto-generated reply by CodeRabbit -->\n<!-- CodeRabbit review command invocation: v2:35a7afd9be646bc162fb238ed2172dd07b99a0f71c694a47546f483f4e3b179a -->\n<details>\n<summary>Action not completed</summary>\n<dl>\n<dd>\n<br>\n\nAlready reviewed the last commit. Use `@coderabbitai full review` to rerun a review of the entire changeset.\n\n> Note: CodeRabbit is an incremental review system and does not re-review already reviewed commits. This command is applicable only when automatic reviews are paused.\n\n</dd>\n</dl>\n</details>"
+    },
+    {
+      "id": 6835221593,
+      "node_id": "IC_kwDORKpYL88AAAABl2k0WQ",
+      "user": {
+        "login": "maintainer"
+      },
+      "created_at": "2026-11-12T20:33:56Z",
+      "updated_at": "2026-11-12T20:33:56Z",
+      "body": "@codex review"
+    },
+    {
+      "id": 6835287080,
+      "node_id": "IC_kwDORKpYL88AAAABl2o0KA",
+      "user": {
+        "login": "chatgpt-codex-connector[bot]"
+      },
+      "created_at": "2026-11-12T20:36:55Z",
+      "updated_at": "2026-11-12T20:36:55Z",
+      "body": "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. What shall we delve into next?\n\n**Reviewed commit:** `7cb203e2f4`\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\n[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you\n- Open a pull request for review\n- Mark a draft as ready\n- Comment \"@codex review\".\n\nIf Codex has suggestions, it will comment; otherwise it will react with 👍.\n\n\n\n\nCodex can also answer questions or update the PR. Try commenting \"@codex address that feedback\".\n            \n</details>"
+    },
+    {
+      "id": 6835486451,
+      "node_id": "IC_kwDORKpYL88AAAABl20-8w",
+      "user": {
+        "login": "maintainer"
+      },
+      "created_at": "2026-11-12T20:45:52Z",
+      "updated_at": "2026-11-12T20:45:52Z",
+      "body": "@codex review"
+    },
+    {
+      "id": 6835545238,
+      "node_id": "IC_kwDORKpYL88AAAABl24klg",
+      "user": {
+        "login": "chatgpt-codex-connector[bot]"
+      },
+      "created_at": "2026-11-12T20:48:33Z",
+      "updated_at": "2026-11-12T20:48:33Z",
+      "body": "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Can't wait for the next one!\n\n**Reviewed commit:** `156ff7ef76`\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\n[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you\n- Open a pull request for review\n- Mark a draft as ready\n- Comment \"@codex review\".\n\nIf Codex has suggestions, it will comment; otherwise it will react with 👍.\n\n\n\n\nCodex can also answer questions or update the PR. Try commenting \"@codex address that feedback\".\n            \n</details>"
+    },
+    {
+      "id": 6835957693,
+      "node_id": "IC_kwDORKpYL88AAAABl3RvvQ",
+      "user": {
+        "login": "maintainer"
+      },
+      "created_at": "2026-11-12T21:06:55Z",
+      "updated_at": "2026-11-12T21:06:55Z",
+      "body": "@codex review"
+    },
+    {
+      "id": 6836020277,
+      "node_id": "IC_kwDORKpYL88AAAABl3VkNQ",
+      "user": {
+        "login": "chatgpt-codex-connector[bot]"
+      },
+      "created_at": "2026-11-12T21:09:41Z",
+      "updated_at": "2026-11-12T21:09:41Z",
+      "body": "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Hooray!\n\n**Reviewed commit:** `aecc4a5862`\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\n[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you\n- Open a pull request for review\n- Mark a draft as ready\n- Comment \"@codex review\".\n\nIf Codex has suggestions, it will comment; otherwise it will react with 👍.\n\n\n\n\nCodex can also answer questions or update the PR. Try commenting \"@codex address that feedback\".\n            \n</details>"
+    },
+    {
+      "id": 6836103908,
+      "node_id": "IC_kwDORKpYL88AAAABl3aq5A",
+      "user": {
+        "login": "maintainer"
+      },
+      "created_at": "2026-11-12T21:13:32Z",
+      "updated_at": "2026-11-12T21:13:32Z",
+      "body": "@codex review"
+    },
+    {
+      "id": 6836169122,
+      "node_id": "IC_kwDORKpYL88AAAABl3epog",
+      "user": {
+        "login": "chatgpt-codex-connector[bot]"
+      },
+      "created_at": "2026-11-12T21:16:26Z",
+      "updated_at": "2026-11-12T21:16:26Z",
+      "body": "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. What shall we delve into next?\n\n**Reviewed commit:** `f250154adc`\n\n<details> <summary>ℹ️ About Codex in GitHub</summary>\n<br/>\n\n[Your team has set up Codex to review pull requests in this repo](https://chatgpt.com/codex/cloud/settings/general). Reviews are triggered when you\n- Open a pull request for review\n- Mark a draft as ready\n- Comment \"@codex review\".\n\nIf Codex has suggestions, it will comment; otherwise it will react with 👍.\n\n\n\n\nCodex can also answer questions or update the PR. Try commenting \"@codex address that feedback\".\n            \n</details>"
+    }
+  ],
+  "inline": [
+    {
+      "id": 4555822987,
+      "node_id": "PRRC_kwDORKpYL88AAAABD4xXiw",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "path": "frontend/src/i18n/en/errors.ts",
+      "commit_id": "d3112dfb89ec6ca8a814c84574e1855d2ac369e3",
+      "original_commit_id": "d3112dfb89ec6ca8a814c84574e1855d2ac369e3",
+      "created_at": "2026-11-12T20:17:17Z",
+      "updated_at": "2026-11-12T20:17:20Z",
+      "in_reply_to_id": null,
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n**<picture><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/amber-16.svg\" width=\"16\" height=\"16\" align=\"absmiddle\" alt=\"\">"
+    },
+    {
+      "id": 4555823013,
+      "node_id": "PRRC_kwDORKpYL88AAAABD4xXpQ",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "path": "lib/i18n/en/errors.py",
+      "commit_id": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "original_commit_id": "d3112dfb89ec6ca8a814c84574e1855d2ac369e3",
+      "created_at": "2026-11-12T20:17:18Z",
+      "updated_at": "2026-11-12T20:33:18Z",
+      "in_reply_to_id": null,
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n**<picture><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/amber-16.svg\" width=\"16\" height=\"16\" align=\"absmiddle\" alt=\"\">"
+    },
+    {
+      "id": 4556007661,
+      "node_id": "PRRC_kwDORKpYL88AAAABD48o7Q",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "path": "lib/i18n/en/errors.py",
+      "commit_id": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "original_commit_id": "d3112dfb89ec6ca8a814c84574e1855d2ac369e3",
+      "created_at": "2026-11-12T20:34:33Z",
+      "updated_at": "2026-11-12T20:34:33Z",
+      "in_reply_to_id": 4555823013,
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<details>\n<summary>Analysis chain</summary>\n<dl>\n<dd>\n<br>\n\nScript executed:\n\n```shell\n#!/bin/bash\nset -u\nprintf '%s\\n' '--- revision ---'\ngit rev-parse HEAD\nprint"
+    },
+    {
+      "id": 4556214986,
+      "node_id": "PRRC_kwDORKpYL88AAAABD5JSyg",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "path": "lib/backends/audio_backends/ark_agent_plan.py",
+      "commit_id": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "original_commit_id": "156ff7ef7618bccef3b9413bb00ff77670a1fda2",
+      "created_at": "2026-11-12T20:54:46Z",
+      "updated_at": "2026-11-12T21:08:37Z",
+      "in_reply_to_id": null,
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n**<picture><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/amber-16.svg\" width=\"16\" height=\"16\" align=\"absmiddle\" alt=\"\">"
+    },
+    {
+      "id": 4556215000,
+      "node_id": "PRRC_kwDORKpYL88AAAABD5JS2A",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "path": "website/i18n/en/docusaurus-plugin-content-docs/current/guide/providers.md",
+      "commit_id": "156ff7ef7618bccef3b9413bb00ff77670a1fda2",
+      "original_commit_id": "156ff7ef7618bccef3b9413bb00ff77670a1fda2",
+      "created_at": "2026-11-12T20:54:46Z",
+      "updated_at": "2026-11-12T21:04:52Z",
+      "in_reply_to_id": null,
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n**<picture><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/amber-16.svg\" width=\"16\" height=\"16\" align=\"absmiddle\" alt=\"\">"
+    },
+    {
+      "id": 4556501622,
+      "node_id": "PRRC_kwDORKpYL88AAAABD5aydg",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "path": "tests/integration/server/routers/test_provider_config_lanes.py",
+      "commit_id": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "original_commit_id": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "created_at": "2026-11-12T21:21:57Z",
+      "updated_at": "2026-11-12T21:24:14Z",
+      "in_reply_to_id": null,
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n**<picture><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/amber-16.svg\" width=\"16\" height=\"16\" align=\"absmiddle\" alt=\"\">"
+    },
+    {
+      "id": 4556528109,
+      "node_id": "PRRC_kwDORKpYL88AAAABD5cZ7Q",
+      "user": {
+        "login": "coderabbitai[bot]"
+      },
+      "path": "tests/integration/server/routers/test_provider_config_lanes.py",
+      "commit_id": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "original_commit_id": "f250154adca3b572cdde28c4fea5acbb58097b84",
+      "created_at": "2026-11-12T21:24:40Z",
+      "updated_at": "2026-11-12T21:24:40Z",
+      "in_reply_to_id": 4556501622,
+      "body": "<!-- coderabbit-ai-generated:v1 -->\n\n@maintainer 你说得对。我忽略了测试目录数据与出厂快照的区别。\n\n已有仓库测试指引也说明，根 conftest 使用 `tests/fixtures/catalog.json`。外部目录更新不会直接改变这份测试数据。下方参数化用例已覆盖有、无音频模型的情况，注释则描述测试数据的状态。\n\n我撤回这条审查意见。\n\n---"
+    }
+  ],
+  "reactions": [
+    {
+      "id": 650308219,
+      "user": {
+        "login": "chatgpt-codex-connector[bot]"
+      },
+      "content": "+1",
+      "created_at": "2026-11-12T21:16:31Z"
+    }
+  ]
+}
