@@ -24,12 +24,15 @@ from lib.backends.image_backends.base import (
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     download_image_to_path,
     image_to_base64_data_uri,
+    per_image_usage,
 )
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
+from lib.billing.metering import Usage
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
@@ -41,7 +44,7 @@ _IMAGE_SIZE_TIERS = {k.lower(): k for k in IMAGE_TIER_SHORT_EDGE}
 _MARKDOWN_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*([^)\s]+)\s*\)")
 
 
-def _image_config(request: ImageGenerationRequest) -> dict[str, str]:
+def _image_config(request: ImageGenerationRequest | ImageRequestFacts) -> dict[str, str]:
     config = {"aspect_ratio": request.aspect_ratio}
     tier = _IMAGE_SIZE_TIERS.get((request.image_size or "").strip().lower())
     if tier:
@@ -112,6 +115,15 @@ class OpenAIChatImageBackend:
     async def reference_image_limit(self) -> int | None:
         return self.CHANNEL_REFERENCE_LIMIT
 
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        config = _image_config(facts)
+        return per_image_usage(
+            output_images=1,
+            input_images=facts.reference_count,
+            dimensions={"resolution": config["image_size"]} if "image_size" in config else None,
+        )
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         content: list[ChatCompletionContentPartParam] = [{"type": "text", "text": request.prompt}]
         content.extend(await asyncio.to_thread(self._reference_parts, request))
@@ -131,6 +143,14 @@ class OpenAIChatImageBackend:
             image_path=request.output_path,
             provider=self._provider_name,
             model=self._model,
+            usage=self.estimate_usage(
+                ImageRequestFacts(
+                    model=self._model,
+                    aspect_ratio=request.aspect_ratio,
+                    image_size=request.image_size,
+                    reference_count=sum(part["type"] == "image_url" for part in content),
+                )
+            ),
             text_input_tokens=usage.prompt_tokens if usage is not None else None,
             image_output_tokens=usage.completion_tokens if usage is not None else None,
         )

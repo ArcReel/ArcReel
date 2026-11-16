@@ -9,6 +9,7 @@ import base64
 from types import SimpleNamespace
 
 import httpx
+import pytest
 
 from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
 from lib.custom_provider.endpoints import get_endpoint_spec
@@ -110,3 +111,55 @@ async def test_download_failure_retries_download_only(tmp_path, poll_clock):
     assert route.call_count == 1
     assert download.call_count == 2
     assert out.read_bytes() == _PNG
+
+
+@pytest.mark.parametrize(
+    ("size", "sent", "amount"),
+    [
+        ("1K", "1K", 0.134),
+        (" 2k ", "2K", 0.134),
+        ("4K", "4K", 0.24),
+        (None, None, 0.134),
+        ("1024x1536", None, 0.134),
+    ],
+)
+async def test_custom_image_prices_the_sent_resolution(tmp_path, size, sent, amount):
+    from lib.backends.image_backends.base import ImageRequestFacts
+    from lib.billing.catalog_pricing import price_custom_call
+    from lib.billing.metering import Priced
+    from lib.custom_provider.backends import CustomImageBackend
+    from lib.custom_provider.metering import custom_image_estimate
+
+    spec = get_endpoint_spec("openai-chat-image")
+    delegate = spec.build_backend(_provider(), "gemini-3-pro-image")
+    backend = CustomImageBackend(provider_id="custom-7", delegate=delegate, model="gemini-3-pro-image")
+    data_uri = "data:image/png;base64," + base64.b64encode(_PNG).decode()
+    with capture_http() as router:
+        route = router.post("https://relay.example.com/v1/chat/completions").mock(
+            return_value=_chat_response({"content": "", "images": [{"image_url": {"url": data_uri}}]})
+        )
+        result = await backend.generate(
+            ImageGenerationRequest(prompt="cat", output_path=tmp_path / "out.png", image_size=size)
+        )
+    config = request_json(only_request(route))["image_config"]
+    assert config == ({"aspect_ratio": "9:16", "image_size": sent} if sent else {"aspect_ratio": "9:16"})
+    estimate = custom_image_estimate(
+        spec.metering_backend,
+        ImageRequestFacts(
+            model="gemini-3-pro-image",
+            aspect_ratio="9:16",
+            image_size=size,
+        ),
+    )
+    for usage, estimating in [(estimate, True), (result.usage, False)]:
+        assert usage is not None
+        assert usage.dimensions == ({"resolution": sent} if sent else {})
+        assert price_custom_call(
+            model="gemini-3-pro-image",
+            media_type="image",
+            entry_binding=None,
+            requests=(usage,),
+            provider_multiplier=1.0,
+            model_multiplier=1.0,
+            estimate=estimating,
+        ) == Priced(pytest.approx(amount), "USD")
