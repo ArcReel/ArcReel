@@ -173,6 +173,9 @@ class TestPrefill:
             ("vidu", "video", "viduq2", "vidu-video-q2"),
             ("vidu", "video", "viduq3-pro", "vidu-video-q3-pro"),
             ("vidu", "video", "viduq4-preview", "vidu-video-q4"),
+            ("vidu", "video", "viduq3-drama", "vidu-video-q3-drama"),
+            ("vidu", "video", "viduq3-mix", "vidu-video-q3-mix"),
+            ("vidu", "video", "viduq3-ad", "vidu-video-q3-ad"),
             ("kling", "video", "kling-v2-6", "kling-video-pro-audio"),
             # 只在新版 API 上提供的型号
             ("kling", "video", "kling-4.0", "kling-video-model-path"),

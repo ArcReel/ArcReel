@@ -513,11 +513,15 @@ class TestQ4Endpoint:
         assert caps.audio_track is VideoAudioMode.CONTROLLABLE
 
     @pytest.mark.parametrize("endpoint", sorted(set(VIDU_BACKENDS) - {"vidu-video-q4"}))
-    def test_other_endpoints_keep_seven_images_and_no_reference_audio(self, endpoint: str):
+    def test_other_endpoints_keep_seven_images(self, endpoint: str):
+        caps = VIDU_BACKENDS[endpoint].video_capabilities_for_model("opaque-id")
+        assert caps.max_reference_images == 7
+
+    @pytest.mark.parametrize("endpoint", sorted(set(VIDU_BACKENDS) - {"vidu-video-q4", "vidu-video-q3-drama"}))
+    def test_endpoints_without_sounds_take_no_reference_audio(self, endpoint: str):
         from arcreel_market_core.video_backend_contract import ReferenceAudioMode
 
         caps = VIDU_BACKENDS[endpoint].video_capabilities_for_model("opaque-id")
-        assert caps.max_reference_images == 7
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
 
     @pytest.mark.parametrize(("requested", "sent"), [(1, 3), (3, 3), (16, 16), (20, 16)])
@@ -619,3 +623,336 @@ class TestQ4Endpoint:
 
         view = safe_body_for_log({"model": "viduq4-preview", "sounds": ["data:video/mp3;base64,SECRET"]})
         assert view["sounds"] == "<1 data uri>"
+
+
+_Q3_REFERENCE_ONLY = {
+    "viduq3-drama": "vidu-video-q3-drama",
+    "viduq3-mix": "vidu-video-q3-mix",
+    "viduq3-ad": "vidu-video-q3-ad",
+}
+
+
+class TestQ3ReferenceOnlyModels:
+    """viduq3-drama / viduq3-mix / viduq3-ad 的参考生视频契约，按官方参考生视频文档逐型号核对。
+
+    三款都只走 /reference2video，提示词上限 20000、参考图 1～7 张、不收错峰；只有 Drama 带音轨开关和 sounds。
+    """
+
+    @staticmethod
+    def _backend(model: str) -> ViduVideoBackend:
+        return _profile(model)(api_key="k", model=model)
+
+    @staticmethod
+    def _files(tmp_path: Path, suffix: str, count: int) -> list[Path]:
+        paths = [tmp_path / f"f{i}{suffix}" for i in range(count)]
+        for p in paths:
+            p.write_bytes(b"x")
+        return paths
+
+    @pytest.mark.parametrize(("model", "endpoint"), sorted(_Q3_REFERENCE_ONLY.items()))
+    def test_prefilled_by_name(self, model: str, endpoint: str):
+        assert request_profile_endpoint_for_name("vidu", model) == endpoint
+
+    @pytest.mark.parametrize(
+        ("endpoint", "audio_track", "reference_audio"),
+        [
+            ("vidu-video-q3-drama", "controllable", 3),
+            ("vidu-video-q3-mix", "always_on", 0),
+            ("vidu-video-q3-ad", "always_off", 0),
+        ],
+    )
+    def test_declares_limits_and_audio(self, endpoint: str, audio_track: str, reference_audio: int):
+        caps = VIDU_BACKENDS[endpoint].video_capabilities_for_model("opaque-id")
+        assert caps.max_reference_images == 7
+        assert caps.max_prompt_chars == 20000
+        assert caps.audio_track == audio_track
+        assert caps.max_reference_audio_count == reference_audio
+        assert caps.reference_audio_mode == ("direct" if reference_audio else "none")
+
+    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
+    def test_drama_body_carries_audio_switch(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 7),
+            duration_seconds=8,
+            resolution="1080p",
+            aspect_ratio="9:16",
+            generate_audio=False,
+        )
+        endpoint, body = self._backend("viduq3-drama")._build_request(req)
+        assert endpoint == "/reference2video"
+        assert body == {
+            "model": "viduq3-drama",
+            "prompt": "x",
+            "duration": 8,
+            "resolution": "1080p",
+            "audio": False,
+            "aspect_ratio": "9:16",
+            "images": ["data:image/png;base64,XX"] * 7,
+        }
+
+    @pytest.mark.parametrize("model", ["viduq3-mix", "viduq3-ad"])
+    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
+    def test_mix_and_ad_bodies_omit_undeclared_fields(self, model: str, tmp_path: Path, video_output_path: Path):
+        """文档没有为这两款声明 audio、sounds 与 off_peak，请求里不发。"""
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 2),
+            duration_seconds=15,
+            resolution="720p",
+            aspect_ratio="4:3",
+            generate_audio=True,
+        )
+        endpoint, body = self._backend(model)._build_request(req)
+        assert endpoint == "/reference2video"
+        assert body == {
+            "model": model,
+            "prompt": "x",
+            "duration": 15,
+            "resolution": "720p",
+            "aspect_ratio": "4:3",
+            "images": ["data:image/png;base64,XX"] * 2,
+        }
+
+    @pytest.mark.parametrize(
+        ("endpoint", "requested", "recorded"),
+        [
+            ("vidu-video-q3-drama", False, False),
+            ("vidu-video-q3-drama", True, True),
+            # Mix 没有开关、音画同出：关闭意图到不了供应商，成片与计量照实记为有声
+            ("vidu-video-q3-mix", False, True),
+            ("vidu-video-q3-mix", True, True),
+            ("vidu-video-q3-ad", True, False),
+        ],
+    )
+    def test_metered_audio_follows_endpoint_track(
+        self, endpoint: str, requested: bool, recorded: bool, tmp_path: Path, video_output_path: Path
+    ):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            generate_audio=requested,
+        )
+        backend = VIDU_BACKENDS[endpoint]
+        assert backend.endpoint.output_audio(requested) is recorded
+        assert backend.metered_usage("opaque-id", req).dimensions["audio"] is recorded
+
+    @pytest.mark.parametrize(
+        ("endpoint", "requested", "sent"),
+        [
+            ("vidu-video-q3-drama", 1, 2),
+            ("vidu-video-q3-drama", 2, 2),
+            ("vidu-video-q3-drama", 16, 16),
+            ("vidu-video-q3-drama", 20, 16),
+            ("vidu-video-q3-drama", None, 8),
+            ("vidu-video-q3-mix", 2, 3),
+            ("vidu-video-q3-mix", 15, 15),
+            ("vidu-video-q3-mix", 16, 15),
+            ("vidu-video-q3-mix", None, 5),
+            ("vidu-video-q3-ad", 2, 3),
+            ("vidu-video-q3-ad", 16, 15),
+            ("vidu-video-q3-ad", None, 5),
+        ],
+    )
+    def test_reference2video_durations(self, endpoint: str, requested: int | None, sent: int):
+        assert _coerce_duration(VIDU_BACKENDS[endpoint].endpoint, "/reference2video", requested) == sent
+
+    @pytest.mark.parametrize(
+        ("model", "aspect_ratio", "supported"),
+        [
+            ("viduq3-drama", "1:1", "16:9, 9:16, auto"),
+            ("viduq3-drama", "4:3", "16:9, 9:16, auto"),
+            ("viduq3-mix", "21:9", "16:9, 1:1, 3:4, 4:3, 9:16, auto"),
+            ("viduq3-ad", "21:9", "16:9, 1:1, 3:4, 4:3, 9:16, auto"),
+        ],
+    )
+    def test_rejects_undeclared_aspect_ratio_before_submit(
+        self, model: str, aspect_ratio: str, supported: str, tmp_path: Path, video_output_path: Path
+    ):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            aspect_ratio=aspect_ratio,
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend(model)._build_request(req)
+        assert exc.value.code == "video_aspect_ratio_not_supported"
+        assert exc.value.params == {"model": model, "aspect_ratio": aspect_ratio, "supported": supported}
+
+    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
+    def test_drama_sends_sounds_in_order(self, tmp_path: Path, video_output_path: Path):
+        audio = [tmp_path / f"voice{i}.mp3" for i in range(3)]
+        for i, p in enumerate(audio):
+            p.write_bytes(bytes([i]))
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            reference_audio_files=audio,
+            aspect_ratio="16:9",
+        )
+        _endpoint, body = self._backend("viduq3-drama")._build_request(req)
+        assert body["sounds"] == [
+            "data:video/mp3;base64,AA==",
+            "data:video/mp3;base64,AQ==",
+            "data:video/mp3;base64,Ag==",
+        ]
+
+    def test_drama_rejects_more_than_3_sounds(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            reference_audio_files=self._files(tmp_path, ".mp3", 4),
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend("viduq3-drama")._build_request(req)
+        assert exc.value.code == "video_reference_audio_exceeded"
+
+    @pytest.mark.parametrize("model", ["viduq3-mix", "viduq3-ad"])
+    def test_mix_and_ad_reject_reference_audio_instead_of_dropping_it(
+        self, model: str, tmp_path: Path, video_output_path: Path
+    ):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            reference_audio_files=self._files(tmp_path, ".mp3", 1),
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend(model)._build_request(req)
+        assert exc.value.code == "video_reference_audio_unsupported"
+
+    @pytest.mark.parametrize("model", sorted(_Q3_REFERENCE_ONLY))
+    def test_rejects_eighth_image(self, model: str, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 8),
+            aspect_ratio="16:9",
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend(model)._build_request(req)
+        assert exc.value.code == "video_reference_images_exceeded"
+        assert exc.value.params == {"model": model, "limit": 7, "count": 8}
+
+    @pytest.mark.parametrize("model", sorted(_Q3_REFERENCE_ONLY))
+    def test_prompt_limit_is_20000(self, model: str, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="字" * 20001,
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            aspect_ratio="16:9",
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend(model)._build_request(req)
+        assert exc.value.code == "video_prompt_too_long"
+        assert exc.value.params["limit"] == 20000
+
+    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
+    def test_existing_q3_reference_unchanged(self, tmp_path: Path, video_output_path: Path):
+        """viduq3 仍走 vidu-video-q3-reference：带音轨开关，3～16 秒，提示词上限 2000，比例不在本地校验。"""
+        assert request_profile_endpoint_for_name("vidu", "viduq3") == "vidu-video-q3-reference"
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=self._files(tmp_path, ".png", 1),
+            duration_seconds=16,
+            aspect_ratio="21:9",
+        )
+        backend = self._backend("viduq3")
+        _endpoint, body = backend._build_request(req)
+        assert body["duration"] == 16
+        assert body["audio"] is True
+        assert body["aspect_ratio"] == "21:9"
+        assert backend.video_capabilities.max_prompt_chars == 2000
+
+
+class TestQ3ReferenceOnlyModelsInCatalog:
+    """目录收录三款并声明端点后，内置供应商按声明的端点装配，两侧求值只开参考生视频。
+
+    条目按交给目录数据仓库的口径在用例内构造，不改测试目录数据；最低应用版本的拦截由装配侧用例覆盖，这里不标。
+    """
+
+    @staticmethod
+    def _catalog():
+        from arcreel_catalog_core import BuiltinProviderListing, BuiltinProviderModel, CatalogData, CatalogEntry
+        from arcreel_catalog_core.model import DurationConstraints, VideoFacts
+
+        def entry(name: str, durations: range, *, reference_audio: bool) -> CatalogEntry:
+            values = tuple(durations)
+            return CatalogEntry(
+                maker="shengshu",
+                name=name,
+                media_type="video",
+                display_name=name,
+                facts=VideoFacts(
+                    durations=values,
+                    resolutions=("720p", "1080p"),
+                    duration_constraints=DurationConstraints(with_reference_images=values),
+                    max_reference_images=7,
+                    text_to_video=False,
+                    first_frame=False,
+                    last_frame=False,
+                    reference_audio=reference_audio,
+                    max_reference_audio_count=3 if reference_audio else None,
+                ),
+            )
+
+        entries = (
+            entry("viduq3-drama", range(2, 17), reference_audio=True),
+            entry("viduq3-mix", range(3, 16), reference_audio=False),
+            entry("viduq3-ad", range(3, 16), reference_audio=False),
+        )
+        models = tuple(
+            BuiltinProviderModel(
+                api_model_name=e.name,
+                entry=f"shengshu/{e.name}",
+                endpoint=f"vidu-video-{e.name.removeprefix('vidu')}",
+            )
+            for e in entries
+        )
+        return CatalogData(
+            dataset_version="2026-01-01T00:00:00Z",
+            entries=entries,
+            builtin_providers={"vidu": BuiltinProviderListing(models=models)},
+        )
+
+    @pytest.mark.parametrize(
+        ("model", "endpoint", "audio_track", "reference_audio"),
+        [
+            ("viduq3-drama", "vidu-video-q3-drama", "controllable", 3),
+            ("viduq3-mix", "vidu-video-q3-mix", "always_on", 0),
+            ("viduq3-ad", "vidu-video-q3-ad", "always_off", 0),
+        ],
+    )
+    def test_only_reference_to_video_is_open(
+        self, monkeypatch: pytest.MonkeyPatch, model: str, endpoint: str, audio_track: str, reference_audio: int
+    ):
+        from lib.backends.backend_assembly.specs import builtin_model_endpoint, builtin_video_capabilities_for_model
+        from tests.catalog_support import install_catalog
+
+        install_catalog(monkeypatch, self._catalog())
+        assert builtin_model_endpoint("vidu", "video", model) == endpoint
+        caps = builtin_video_capabilities_for_model("vidu", model)
+        assert (caps.text_to_video, caps.first_frame, caps.last_frame) == (False, False, False)
+        assert caps.max_reference_images == 7
+        assert caps.max_prompt_chars == 20000
+        assert caps.audio_track == audio_track
+        assert (caps.max_reference_audio_count or 0) == reference_audio
+
+    @pytest.mark.parametrize("model", ["viduq3-drama", "viduq3-mix", "viduq3-ad"])
+    def test_catalog_durations_stay_within_endpoint_table(self, monkeypatch: pytest.MonkeyPatch, model: str):
+        """目录时长落在端点时长表内，_coerce_duration 不会把用户选的时长改成别的值。"""
+        from tests.catalog_support import install_catalog
+
+        install_catalog(monkeypatch, self._catalog())
+        info = catalog.get_model("vidu", model, media_type="video")
+        assert info is not None
+        table = set(_profile(model).endpoint.durations["/reference2video"])
+        assert set(info.supported_durations) <= table
+        assert set(info.reference_image_durations or []) <= table

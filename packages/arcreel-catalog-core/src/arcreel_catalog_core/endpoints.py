@@ -108,6 +108,9 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
         "vidu-video-q4": BuiltinEndpoint("video", since="0.35.1"),
         "grok-tts": BuiltinEndpoint("audio", since="0.35.1"),
         "ark-agent-plan-tts": BuiltinEndpoint("audio", since="0.36.1"),
+        "vidu-video-q3-drama": BuiltinEndpoint("video", since="0.37.1"),
+        "vidu-video-q3-mix": BuiltinEndpoint("video", since="0.37.1"),
+        "vidu-video-q3-ad": BuiltinEndpoint("video", since="0.37.1"),
     }
 )
 
@@ -201,6 +204,9 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
                     "vidu-video-q3-turbo",
                     "vidu-video-q3-fast",
                     "vidu-video-q3-reference",
+                    "vidu-video-q3-drama",
+                    "vidu-video-q3-mix",
+                    "vidu-video-q3-ad",
                     "vidu-video-q2",
                     "vidu-video-q2-pro",
                     "vidu-video-q2-fast",
