@@ -114,3 +114,11 @@ def test_estimate_keeps_reference_counts_above_the_channel_limit(provider: str, 
         provider, ImageRequestFacts(model=model, aspect_ratio="1:1", reference_count=count)
     )
     assert usage.quantities["input_images"] == count
+
+
+def test_only_openai_images_endpoint_requires_catalog_output_token_rules() -> None:
+    """目录构建侧的 missing_output_token_rules 只约束读取 output_token_bases 的内置端点。"""
+    from arcreel_catalog_core import BUILTIN_ENDPOINTS
+
+    flagged = {name for name, ep in BUILTIN_ENDPOINTS.items() if ep.requires_output_token_rules}
+    assert flagged == {"openai-images"}

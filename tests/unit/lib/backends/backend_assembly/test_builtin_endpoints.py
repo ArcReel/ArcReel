@@ -222,3 +222,10 @@ class TestPrefill:
 )
 def test_new_image_model_prefill_preserves_the_name_rule(provider: str, model: str, endpoint: str):
     assert infer_builtin_endpoint(provider, "image", model) == endpoint
+
+
+@pytest.mark.parametrize("sample_name", ["acme-opaque", "image-01-live", "MiniMax-H3-Image", "gpt-image-2", "viduq4"])
+def test_prefill_always_lands_within_provider_selectable_endpoints(sample_name: str):
+    """任何模型名在任意内置供应商与媒体类型下预填出的端点，都属于该供应商的可选端点。"""
+    for (provider_id, media_type), declared in PROVIDER_ENDPOINTS.items():
+        assert infer_builtin_endpoint(provider_id, media_type, sample_name) in declared.endpoints

@@ -21,8 +21,10 @@ from lib.billing.metering import Priced, Usage
 from lib.catalog import lifecycle, query
 
 
-def install_catalog(monkeypatch: pytest.MonkeyPatch, data: CatalogData) -> None:
-    """让目录查询在本用例内读 ``data``，代替测试目录数据。"""
+def install_catalog(monkeypatch: pytest.MonkeyPatch, data: CatalogData, *, app_version: str | None = None) -> None:
+    """让目录查询在本用例内读 ``data``，代替测试目录数据；给出 ``app_version`` 时一并固定当前应用版本。"""
+    if app_version is not None:
+        monkeypatch.setattr(query, "app_version", lambda: app_version)
     monkeypatch.setattr(query, "factory_snapshot", lambda: data)
 
 

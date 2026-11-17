@@ -12,6 +12,7 @@ import pytest
 
 from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationResult
+from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend
 from lib.generation.deleted_target import TARGET_DELETED_NOTE, GenerationTargetDeletedError
 from lib.generation.media_generator import (
     MediaGenerator,
@@ -31,7 +32,7 @@ from tests.fakes import (
     write_backend_output,
     write_generation_targets,
 )
-from tests.http_capture import capture_http, only_request, request_json
+from tests.http_capture import capture_http, only_request, request_form_files, request_json
 
 
 class _FakeImageBackend:
@@ -1529,6 +1530,13 @@ class TestIs413:
     def test_httpx_413(self):
         assert _is_413(_http_413_error()) is True
 
+    @pytest.mark.parametrize("method", ["GET", "HEAD"])
+    def test_artifact_request_413_does_not_trigger_compression(self, method):
+        request = httpx.Request(method, "https://example.test/output.png")
+        response = httpx.Response(413, request=request)
+        error = httpx.HTTPStatusError("Payload Too Large", request=request, response=response)
+        assert _is_413(error) is False
+
     def test_phrase_match(self):
         assert _is_413(RuntimeError("Request Entity Too Large")) is True
         assert _is_413(RuntimeError("oops: PAYLOAD TOO LARGE")) is True
@@ -1723,6 +1731,43 @@ class TestReferenceCompressionSeam:
         # 只记一条 success（413 内循环重试不额外记账）
         assert len(gen.ledger.outcomes) == 1
         assert gen.ledger.outcomes[0]["status"] == "success"
+
+    @pytest.mark.parametrize("failure_phase", ["submit", "download"])
+    async def test_h3_413_only_resubmits_rejected_input(self, tmp_path, failure_phase):
+        gen = _build_generator(tmp_path)
+        gen._image_backend = MiniMaxH3ImageBackend(api_key="sk", base_url="https://203.0.113.10")
+        gen._image_provider_id = "custom-h3"
+        src = _noise_png(tmp_path, "ref.png", 1200, 1200)
+        accepted = httpx.Response(200, json={"data": [{"url": "https://203.0.113.7/out.png"}]})
+
+        with capture_http() as router:
+            edits = router.post("https://203.0.113.10/v1/images/edits").mock(
+                side_effect=[httpx.Response(413), accepted] if failure_phase == "submit" else None,
+                return_value=accepted,
+            )
+            download = router.get("https://203.0.113.7/out.png").mock(
+                return_value=httpx.Response(413, text="Payload Too Large")
+                if failure_phase == "download"
+                else httpx.Response(200, content=PNG_BYTES),
+            )
+            generate = gen.generate_image_async(
+                prompt="p", resource_type="storyboards", resource_id="E1S01", reference_images=[str(src)]
+            )
+            if failure_phase == "download":
+                with pytest.raises(httpx.HTTPStatusError) as error:
+                    await generate
+                assert error.value.request.method == "GET"
+                assert error.value.response.status_code == 413
+                assert edits.call_count == 1
+                assert gen.ledger.outcomes[0]["status"] == "failed"
+            else:
+                await generate
+                assert edits.call_count == 2
+                uploads = [request_form_files(call.request)[0][3] for call in edits.calls]
+                assert len(uploads[1]) < len(uploads[0])
+                assert gen.ledger.outcomes[0]["status"] == "success"
+            assert download.call_count == 1
+            assert len(gen.ledger.outcomes) == 1
 
     async def test_413_exhausted_raises_floor_records_failed(self, tmp_path):
         gen = _build_generator(tmp_path)

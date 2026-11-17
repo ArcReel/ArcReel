@@ -34,21 +34,39 @@ def request_json(request: httpx.Request) -> Any:
     return json.loads(request.content)
 
 
-def request_form_fields(request: httpx.Request) -> dict[str, str]:
-    """解码 multipart 请求的文本字段，文件部分不计入。"""
+def _parse_multipart(request: httpx.Request):
     message = BytesParser(policy=policy.default).parsebytes(
         f"Content-Type: {request.headers['content-type']}\r\n\r\n".encode() + request.content
     )
     assert message.is_multipart(), "期望 multipart 请求体"
+    return message
+
+
+def request_form_fields(request: httpx.Request) -> dict[str, str]:
+    """解码 multipart 请求的文本字段（缺省按 UTF-8 解原始字节），文件部分不计入。"""
     fields: dict[str, str] = {}
-    for part in message.iter_parts():
+    for part in _parse_multipart(request).iter_parts():
         if part.get_filename() is None:
             name = part.get_param("name", header="content-disposition")
-            content = part.get_content()
+            payload = part.get_payload(decode=True)
             assert isinstance(name, str)
-            assert isinstance(content, str)
-            fields[name] = content
+            assert isinstance(payload, bytes)
+            fields[name] = payload.decode(part.get_content_charset() or "utf-8")
     return fields
+
+
+def request_form_files(request: httpx.Request) -> list[tuple[str, str, str, bytes]]:
+    """按出现顺序读出 multipart 请求的文件部分：``(字段名, 文件名, Content-Type, 字节内容)``。"""
+    files: list[tuple[str, str, str, bytes]] = []
+    for part in _parse_multipart(request).iter_parts():
+        filename = part.get_filename()
+        if filename is not None:
+            name = part.get_param("name", header="content-disposition")
+            payload = part.get_payload(decode=True)
+            assert isinstance(name, str)
+            assert isinstance(payload, bytes)
+            files.append((name, filename, part.get_content_type(), payload))
+    return files
 
 
 def only_request(route: respx.Route) -> httpx.Request:

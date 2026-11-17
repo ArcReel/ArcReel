@@ -84,3 +84,22 @@ def test_floor_takes_highest_of_start_version_and_declaration_reading_version(
 @pytest.mark.parametrize("endpoint", ["kling-image", "kling-image-single"])
 def test_kling_image_endpoints_require_declaration_aware_application(endpoint: str):
     assert endpoint_version_floor("kling", "image", endpoint) == "0.35.1"
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "media_type", "endpoint"),
+    [
+        ("minimax", "image", "minimax-h3-image"),
+        ("vidu", "video", "vidu-video-q3-drama"),
+        ("vidu", "video", "vidu-video-q3-mix"),
+        ("vidu", "video", "vidu-video-q3-ad"),
+    ],
+)
+def test_stage_0_37_1_endpoints_carry_their_start_version_floor(provider_id: str, media_type: str, endpoint: str):
+    assert endpoint_version_floor(provider_id, media_type, endpoint) == "0.37.1"
+    assert endpoint_version_floor(provider_id, media_type, endpoint, include_declaration_version=False) == "0.37.1"
+
+
+def test_minimax_baseline_image_endpoint_only_counts_declaration_version():
+    assert endpoint_version_floor("minimax", "image", "minimax-image") == "0.35.1"
+    assert endpoint_version_floor("minimax", "image", "minimax-image", include_declaration_version=False) is None

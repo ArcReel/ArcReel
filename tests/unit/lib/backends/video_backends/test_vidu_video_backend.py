@@ -669,7 +669,6 @@ class TestQ3ReferenceOnlyModels:
         assert caps.max_reference_audio_count == reference_audio
         assert caps.reference_audio_mode == ("direct" if reference_audio else "none")
 
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_drama_body_carries_audio_switch(self, tmp_path: Path, video_output_path: Path):
         req = VideoGenerationRequest(
             prompt="x",
@@ -689,11 +688,10 @@ class TestQ3ReferenceOnlyModels:
             "resolution": "1080p",
             "audio": False,
             "aspect_ratio": "9:16",
-            "images": ["data:image/png;base64,XX"] * 7,
+            "images": ["data:image/png;base64,eA=="] * 7,
         }
 
     @pytest.mark.parametrize("model", ["viduq3-mix", "viduq3-ad"])
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_mix_and_ad_bodies_omit_undeclared_fields(self, model: str, tmp_path: Path, video_output_path: Path):
         """文档没有为这两款声明 audio、sounds 与 off_peak，请求里不发。"""
         req = VideoGenerationRequest(
@@ -713,8 +711,26 @@ class TestQ3ReferenceOnlyModels:
             "duration": 15,
             "resolution": "720p",
             "aspect_ratio": "4:3",
-            "images": ["data:image/png;base64,XX"] * 2,
+            "images": ["data:image/png;base64,eA=="] * 2,
         }
+
+    def test_mix_rejects_muted_request_before_submit(self, tmp_path: Path, video_output_path: Path):
+        """Mix 成片固定有声且无音轨开关：静音请求在提交前拒绝；Ad 本身无声，静音请求照常发且不带 audio。"""
+        refs = self._files(tmp_path, ".png", 1)
+        muted = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=refs,
+            aspect_ratio="16:9",
+            generate_audio=False,
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            self._backend("viduq3-mix")._build_request(muted)
+        assert exc.value.code == "video_audio_switch_not_supported"
+        assert exc.value.params == {"provider": "vidu", "model": "viduq3-mix"}
+
+        _endpoint, ad_body = self._backend("viduq3-ad")._build_request(muted)
+        assert "audio" not in ad_body
 
     @pytest.mark.parametrize(
         ("endpoint", "requested", "recorded"),
@@ -783,7 +799,6 @@ class TestQ3ReferenceOnlyModels:
         assert exc.value.code == "video_aspect_ratio_not_supported"
         assert exc.value.params == {"model": model, "aspect_ratio": aspect_ratio, "supported": supported}
 
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_drama_sends_sounds_in_order(self, tmp_path: Path, video_output_path: Path):
         audio = [tmp_path / f"voice{i}.mp3" for i in range(3)]
         for i, p in enumerate(audio):
@@ -853,7 +868,6 @@ class TestQ3ReferenceOnlyModels:
         assert exc.value.code == "video_prompt_too_long"
         assert exc.value.params["limit"] == 20000
 
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_existing_q3_reference_unchanged(self, tmp_path: Path, video_output_path: Path):
         """viduq3 仍走 vidu-video-q3-reference：带音轨开关，3～16 秒，提示词上限 2000，比例不在本地校验。"""
         assert request_profile_endpoint_for_name("vidu", "viduq3") == "vidu-video-q3-reference"
@@ -869,18 +883,22 @@ class TestQ3ReferenceOnlyModels:
         assert body["duration"] == 16
         assert body["audio"] is True
         assert body["aspect_ratio"] == "21:9"
+        assert body["images"] == ["data:image/png;base64,eA=="]
         assert backend.video_capabilities.max_prompt_chars == 2000
 
 
 class TestQ3ReferenceOnlyModelsInCatalog:
-    """目录收录三款并声明端点后，内置供应商按声明的端点装配，两侧求值只开参考生视频。
-
-    条目按交给目录数据仓库的口径在用例内构造，不改测试目录数据；最低应用版本的拦截由装配侧用例覆盖，这里不标。
-    """
+    """目录收录三款并声明端点后，内置供应商按声明的端点装配，两侧求值只开参考生视频，旧版本按端点起始版本拦截。"""
 
     @staticmethod
     def _catalog():
-        from arcreel_catalog_core import BuiltinProviderListing, BuiltinProviderModel, CatalogData, CatalogEntry
+        from arcreel_catalog_core import (
+            BuiltinProviderListing,
+            BuiltinProviderModel,
+            CatalogData,
+            CatalogEntry,
+            endpoint_version_floor,
+        )
         from arcreel_catalog_core.model import DurationConstraints, VideoFacts
 
         def entry(name: str, durations: range, *, reference_audio: bool) -> CatalogEntry:
@@ -912,7 +930,8 @@ class TestQ3ReferenceOnlyModelsInCatalog:
             BuiltinProviderModel(
                 api_model_name=e.name,
                 entry=f"shengshu/{e.name}",
-                endpoint=f"vidu-video-{e.name.removeprefix('vidu')}",
+                endpoint=(ep := f"vidu-video-{e.name.removeprefix('vidu')}"),
+                min_app_version=endpoint_version_floor("vidu", "video", ep),
             )
             for e in entries
         )
@@ -936,7 +955,7 @@ class TestQ3ReferenceOnlyModelsInCatalog:
         from lib.backends.backend_assembly.specs import builtin_model_endpoint, builtin_video_capabilities_for_model
         from tests.catalog_support import install_catalog
 
-        install_catalog(monkeypatch, self._catalog())
+        install_catalog(monkeypatch, self._catalog(), app_version="0.37.1")
         assert builtin_model_endpoint("vidu", "video", model) == endpoint
         caps = builtin_video_capabilities_for_model("vidu", model)
         assert (caps.text_to_video, caps.first_frame, caps.last_frame) == (False, False, False)
@@ -945,12 +964,27 @@ class TestQ3ReferenceOnlyModelsInCatalog:
         assert caps.audio_track == audio_track
         assert (caps.max_reference_audio_count or 0) == reference_audio
 
+    def test_gated_out_before_endpoint_start_version(self, monkeypatch: pytest.MonkeyPatch):
+        from tests.catalog_support import install_catalog
+
+        install_catalog(monkeypatch, self._catalog(), app_version="0.37.0")
+        assert catalog.list_models("vidu") == {}
+        gated = {
+            view.model_id: (view.min_app_version, view.min_app_version_satisfied)
+            for view in catalog.version_gated_models("vidu")
+        }
+        assert gated == {
+            "viduq3-drama": ("0.37.1", False),
+            "viduq3-mix": ("0.37.1", False),
+            "viduq3-ad": ("0.37.1", False),
+        }
+
     @pytest.mark.parametrize("model", ["viduq3-drama", "viduq3-mix", "viduq3-ad"])
     def test_catalog_durations_stay_within_endpoint_table(self, monkeypatch: pytest.MonkeyPatch, model: str):
         """目录时长落在端点时长表内，_coerce_duration 不会把用户选的时长改成别的值。"""
         from tests.catalog_support import install_catalog
 
-        install_catalog(monkeypatch, self._catalog())
+        install_catalog(monkeypatch, self._catalog(), app_version="0.37.1")
         info = catalog.get_model("vidu", model, media_type="video")
         assert info is not None
         table = set(_profile(model).endpoint.durations["/reference2video"])

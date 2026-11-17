@@ -134,6 +134,9 @@ def _is_413(exc: BaseException) -> bool:
     状态码提取口径一致）。状态码缺失时退回短语匹配，但不用裸 "413" 子串——避免被字节数 /
     请求 ID（如 "41300 bytes"）误命中。
     """
+    # 产物取件失败不能通过压缩输入恢复，更不能重提已受理的付费生成。
+    if getattr(getattr(exc, "request", None), "method", None) in {"GET", "HEAD"}:
+        return False
     status = (
         getattr(exc, "status_code", None)
         or getattr(getattr(exc, "response", None), "status_code", None)

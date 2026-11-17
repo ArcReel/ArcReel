@@ -335,7 +335,6 @@ class CatalogReader:
         if data.get("price") is not None:
             price = self.price_table(data["price"], known_media_type, _at(path, "price"))
             self.check_price_resolutions(price, facts, _at(path, "price"))
-            self.check_output_token_rules(price, facts, _at(path, "facts"))
         return CatalogEntry(
             maker=maker,
             name=name,
@@ -674,6 +673,8 @@ class CatalogReader:
                 self.flag(path, "unknown_successor", "后继模型指向的条目不存在")
 
     def check_listings(self, data: CatalogData) -> None:
+        entry_indices = {id(entry): index for index, entry in enumerate(data.entries)}
+        checked_token_rules: set[int] = set()
         for provider_id, listing in data.builtin_providers.items():
             path = f"builtin_providers.{provider_id}"
             listed: dict[tuple[str, str], CatalogEntry] = {}
@@ -685,6 +686,17 @@ class CatalogReader:
                     unresolved.add(model.api_model_name)
                     continue
                 self.check_endpoint(provider_id, model, entry, model_path)
+                declared = BUILTIN_ENDPOINTS.get(model.endpoint) if model.endpoint is not None else None
+                if (
+                    declared is not None
+                    and declared.requires_output_token_rules
+                    and entry.price is not None
+                    and id(entry) not in checked_token_rules
+                ):
+                    checked_token_rules.add(id(entry))
+                    self.check_output_token_rules(
+                        entry.price, entry.facts, f"entries[{entry_indices[id(entry)]}].facts"
+                    )
                 slot = (model.api_model_name, entry.media_type)
                 if slot in listed:
                     self.flag(model_path, "duplicate_provider_model", "同一供应商下 API 模型名与媒体类型重复")
