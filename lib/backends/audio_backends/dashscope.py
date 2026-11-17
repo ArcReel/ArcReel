@@ -56,16 +56,16 @@ DEFAULT_MODEL = "qwen3-tts-flash"
 _TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 
 
-# Qwen3-TTS 系统预设音色（``voice`` 参数取值）子集，出处见 docs/api-docs/providers/dashscope.md
-# 「三、系统预设音色」表格（来源：
-# https://help.aliyun.com/zh/model-studio/qwen-tts 官方文档 + 百炼控制台模型市场）。
-# 未列出的其余预设音色不在此暴露——该文档明确标注为「ArcReel 场景最相关的音色子集」，
-# 完整 48 音色列表见官方文档，未逐一核实中文名/描述不收录，避免编造。
+# Qwen3-TTS 系统预设音色（``voice`` 参数取值）子集，出处：
+# https://help.aliyun.com/zh/model-studio/qwen-tts-voice-list 。该列表写明「以下音色支持 qwen3-tts-flash 模型」，
+# 没有提到 qwen-tts、qwen3-tts-instruct-flash 或日期快照，所以只有这一个型号名列出音色，同端点的其他型号
+# 不借用它（照文档填写 voice 照常可用）。未逐一核实中文名与描述的其余预设音色不收录，避免编造。
 #
 # label 存的是 lib/i18n 翻译 key（``voice_label_dashscope_*``，见 lib/i18n/{zh,en,vi}/assets.py），
 # 不是直出文案——端点固定硬编码中文会让 en/vi 用户在下拉里看到中文描述，与「后端面向用户的
 # 文本经 _t: Translator 注入」的项目惯例不符。真正的本地化文案由 get_audio_backend_voices
 # 路由层用请求 locale 对应的 Translator 渲染。
+_QWEN3_TTS_FLASH = "qwen3-tts-flash"
 _VOICE_CATALOG: tuple[VoiceOption, ...] = (
     VoiceOption(id="Cherry", label="voice_label_dashscope_cherry"),
     VoiceOption(id="Serena", label="voice_label_dashscope_serena"),
@@ -127,7 +127,7 @@ class DashScopeAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH}
 
     def list_voices(self) -> list[VoiceOption]:
-        return list(_VOICE_CATALOG)
+        return list(_VOICE_CATALOG) if self._model == _QWEN3_TTS_FLASH else []
 
     def _synthesis_input(self, request: AudioSynthesisRequest) -> dict[str, Any]:
         """请求体 ``input`` 段。multimodal 端点只收文本、音色与语种。"""

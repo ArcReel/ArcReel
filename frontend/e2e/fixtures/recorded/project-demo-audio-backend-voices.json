@@ -1,0 +1,11 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/audio-backend/voices",
+  "status": 200,
+  "body": {
+    "configured": false,
+    "provider_id": null,
+    "model": null,
+    "voices": []
+  }
+}

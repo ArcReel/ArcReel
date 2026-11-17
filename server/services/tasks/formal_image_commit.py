@@ -465,6 +465,7 @@ async def run_formal_image_task(
             resource_type=plan.resource_type,
             resource_id=plan.resource_id,
             reference_images=reference_images,
+            reference_sources=frozen_references.source_paths,
             aspect_ratio=plan.aspect_ratio,
             image_size=ctx.image.resolution,
             quality=ctx.image.quality,

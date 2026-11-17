@@ -27,6 +27,7 @@ export default {
   'export_diagnostics': 'Chẩn đoán xuất',
   'project_title_required': 'Tiêu đề dự án không được để trống',
   'style_upload_failed_hint': 'Tải ảnh tham chiếu phong cách thất bại, bạn có thể tải lên sau trong Cài đặt dự án',
+  'style_upload_failed_with_reason': 'Tải ảnh tham chiếu phong cách thất bại: {{message}}. Bạn có thể tải lên sau trong Cài đặt dự án.',
   'create_project_failed': 'Tạo dự án thất bại: {{message}}',
   'project_id_auto_gen_hint': 'Hệ thống sẽ tự sinh ID dự án nội bộ dùng cho URL và lưu trữ',
   'narration_visuals': 'Thuyết minh/Bình luận',
@@ -314,9 +315,9 @@ export default {
   'voice_sample_modal_desc':
     'Chọn giọng đọc cho "{{name}}" và tạo một mẫu thử. Xác nhận để lưu làm âm thanh tham chiếu của nhân vật.',
   'voice_sample_voice_label': 'Giọng đọc',
-  'voice_sample_voice_placeholder': 'Chọn giọng đọc',
+  'voice_sample_voice_hint': 'Chọn giọng trong danh sách hoặc điền id giọng theo tài liệu nhà cung cấp',
   'voice_sample_voice_loading': 'Đang tải danh sách giọng đọc…',
-  'voice_sample_no_voices': 'Nhà cung cấp âm thanh hiện tại không có giọng đọc nào để chọn',
+  'voice_sample_no_voices': 'Mô hình TTS hiện tại không có danh sách giọng. Hãy điền id giọng theo tài liệu nhà cung cấp',
   'voice_sample_text_label': 'Văn bản mẫu',
   'voice_sample_text_default':
     'Xin chào, đây là một đoạn mẫu giọng đọc sẽ được dùng làm âm thanh tham chiếu của nhân vật, giúp giữ giọng nói nhất quán.',
@@ -890,6 +891,7 @@ export default {
   'usage_field_voice': 'Giọng đọc',
   'usage_field_first_frame': 'Khung hình đầu',
   'usage_field_last_frame': 'Khung hình cuối',
+  'usage_field_reference_image': 'Ảnh tham chiếu',
   'usage_field_reference_audio': 'Âm thanh tham chiếu',
   'usage_field_params': 'Tham số yêu cầu',
   'usage_field_retry_after': 'Thử lại sau',

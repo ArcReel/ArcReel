@@ -9,14 +9,22 @@ interface Props {
   onChange: (next: string) => void;
   /** 所选模型的音色表；为空时只是普通输入框。 */
   voices: readonly TtsVoiceOption[];
+  disabled?: boolean;
   "aria-describedby"?: string;
   "aria-invalid"?: boolean;
 }
 
 /** 音色表只作候选，克隆音色与表外系统音色照常手填。 */
-export function NarrationVoiceInput({ id, value, onChange, voices, ...aria }: Props) {
+export function NarrationVoiceInput({ id, value, onChange, voices, disabled, ...aria }: Props) {
   return (
-    <Autocomplete.Root items={voices} itemToStringValue={(voice) => voice.id} value={value} onValueChange={onChange} openOnInputClick>
+    <Autocomplete.Root
+      items={voices}
+      itemToStringValue={(voice) => voice.id}
+      value={value}
+      onValueChange={onChange}
+      disabled={disabled}
+      openOnInputClick
+    >
       <InputGroup>
         <Autocomplete.Input id={id} autoComplete="off" spellCheck={false} render={<InputGroupInput />} {...aria} />
       </InputGroup>

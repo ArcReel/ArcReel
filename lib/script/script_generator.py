@@ -2011,7 +2011,7 @@ class ScriptGenerator:
                     "unit_ids": list(unit_ids),
                 },
             )
-        return DraftViolation(report, code="quarantined")
+        return DraftViolation(report, code="quarantined", params={"count": len(violations)})
 
     def _reference_prompt_authoring_draft_revision(self, episode: int) -> str | None:
         path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)

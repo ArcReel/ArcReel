@@ -181,7 +181,7 @@ describe("资产详情 Sheet", () => {
     await user.click(within(sheet).getByRole("button", { name: "可选：参考音频" }));
     await user.click(within(sheet).getByRole("button", { name: "用 TTS 生成参考音频" }));
     const dialog = await screen.findByRole("dialog", { name: "生成语音参考样本" });
-    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦"));
+    await waitFor(() => expect(within(dialog).getByRole("combobox", { name: "音色" })).toHaveValue("Cherry"));
     await user.click(within(dialog).getByRole("button", { name: "生成" }));
     await waitFor(() => expect(API.generateCharacterVoiceSample).toHaveBeenCalled());
     const succeeded = makeTask({ task_id: "sample-1", project_name: "demo", task_type: "voice_sample", resource_id: "林夕", status: "succeeded", result: { file_path: "audio/sample.wav" } });

@@ -532,3 +532,106 @@ async def test_worker_start_keeps_env_capacity_and_warns_when_db_unavailable(mon
         assert "database unavailable" in caplog.text
     finally:
         await worker.stop()
+
+
+async def test_concurrent_reload_limits_keeps_latest_db_value(monkeypatch, file_db_factory):
+    """并发两次 reload_limits 时读库与替换整体串行，结束后容量表反映最新数据库状态。"""
+    import asyncio
+    import itertools
+
+    from lib.config.service import ConfigService
+    from lib.generation.generation_worker import GenerationWorker
+    from tests.integration.lib.generation.worker_support import stub_executors
+
+    async with file_db_factory() as session:
+        await ConfigService(session).set_provider_config("openai", "image_max_workers", "1")
+        await session.commit()
+
+    first_read_done = asyncio.Event()
+    second_entered = asyncio.Event()
+    release_first = asyncio.Event()
+    call_counter = itertools.count(1)
+
+    class _GatedSessionCtx:
+        def __init__(self, index: int) -> None:
+            self._index = index
+            self._ctx = file_db_factory()
+
+        async def __aenter__(self):
+            if self._index == 2:
+                second_entered.set()
+            return await self._ctx.__aenter__()
+
+        async def __aexit__(self, *exc_info):
+            result = await self._ctx.__aexit__(*exc_info)
+            if self._index == 1:
+                first_read_done.set()
+                await release_first.wait()
+            return result
+
+    bind_safe_session_factory(monkeypatch, lambda: _GatedSessionCtx(next(call_counter)))
+    capacity = CapacityTable.from_env()
+    worker = GenerationWorker(
+        capacity=capacity,
+        executor=stub_executors.execute,
+        resume_executor=stub_executors.execute_resume,
+    )
+
+    first_reload = asyncio.create_task(worker.reload_limits())
+    await first_read_done.wait()
+
+    async with file_db_factory() as session:
+        await ConfigService(session).set_provider_config("openai", "image_max_workers", "2")
+        await session.commit()
+
+    second_reload = asyncio.create_task(worker.reload_limits())
+    second_reload.add_done_callback(lambda _task: release_first.set())
+    # 前提：from_db 进入会话前没有 await，让出一次调度即可判别——不串行时第二次重载已进入会话，
+    # 串行时它停在锁上、尚未进入会话。from_db 若在开会话前加了 await，须改这里的判别，否则用例会在去锁后仍通过。
+    await asyncio.sleep(0)
+    if not second_entered.is_set():
+        release_first.set()
+
+    await asyncio.gather(first_reload, second_reload)
+    assert capacity.get("openai", "image") == 2
+
+
+async def test_reload_limits_failure_keeps_capacity_and_allows_next_reload(monkeypatch, file_db_factory, caplog):
+    """reload_limits 读库失败时保留当前容量表并记录告警，后续重载照常生效。"""
+    import itertools
+    import logging
+
+    from lib.config.service import ConfigService
+    from lib.generation.generation_worker import GenerationWorker
+    from tests.integration.lib.generation.worker_support import stub_executors
+
+    async with file_db_factory() as session:
+        await ConfigService(session).set_provider_config("openai", "image_max_workers", "2")
+        await session.commit()
+
+    monkeypatch.setenv("IMAGE_MAX_WORKERS", "7")
+    capacity = CapacityTable.from_env()
+    worker = GenerationWorker(
+        capacity=capacity,
+        executor=stub_executors.execute,
+        resume_executor=stub_executors.execute_resume,
+    )
+
+    call_counter = itertools.count(1)
+
+    def flaky_session_factory():
+        if next(call_counter) == 1:
+            raise RuntimeError("database unavailable")
+        return file_db_factory()
+
+    bind_safe_session_factory(monkeypatch, flaky_session_factory)
+
+    with caplog.at_level(logging.WARNING, logger="lib.generation.generation_worker"):
+        await worker.reload_limits()
+
+    assert capacity.get("openai", "image") == 7
+    assert "保持当前配置" in caplog.text
+    assert "database unavailable" in caplog.text
+
+    await worker.reload_limits()
+    assert capacity.get("openai", "image") == 2

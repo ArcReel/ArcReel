@@ -108,3 +108,21 @@ async def test_declares_voices_without_speed(backend):
     voices = backend.list_voices()
     assert len(voices) == 30
     assert "Kore" in {v.id for v in voices}
+
+
+@pytest.mark.parametrize(
+    ("model", "listed"),
+    [
+        # 官方文档的 30 个预置音色属于 Gemini 3.8 TTS，Flash-Lite 页写明同样支持预置音色
+        ("gemini-3.8-flash-tts", True),
+        ("gemini-3.8-flash-lite-tts", True),
+        # 同走 gemini-tts，但文档没有给这些型号列音色
+        ("gemini-2.5-pro-preview-tts", False),
+        ("gemini-3.1-flash-tts-preview", False),
+        ("my-relay-tts", False),
+    ],
+)
+def test_voices_are_listed_only_for_confirmed_models(model: str, listed: bool):
+    ids = [v.id for v in GeminiAudioBackend(api_key="sk-test", model=model, provider_name="custom-7").list_voices()]
+    assert ("Kore" in ids) is listed
+    assert len(ids) == (30 if listed else 0)

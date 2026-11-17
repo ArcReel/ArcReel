@@ -1,12 +1,10 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, Bot, CheckCircle2, Loader2, Sparkles } from "lucide-react";
+import { Bot, CheckCircle2, Loader2, Sparkles } from "lucide-react";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
-import { DefaultModelSettingsLink } from "@/components/shared/DefaultModelSettingsLink";
-import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,13 +17,9 @@ import type { EpisodesView } from "@/types";
 import { errMsg } from "@/utils/async";
 import { lastInstruction, rememberInstruction } from "@/utils/last-instruction";
 
-import {
-  lastPlanningFailure,
-  remainingUnits,
-  wholeSourceStats,
-  type PlanningFailure,
-} from "./episode-planning-model";
+import { lastPlanningFailure, remainingUnits, wholeSourceStats } from "./episode-planning-model";
 import { formatSpoken, formatVolume } from "./episodes-view-model";
+import { PlanningFailureNote } from "./PlanningFailureNote";
 
 interface Props {
   projectName: string;
@@ -183,7 +177,7 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
             : t("dashboard:guide_plan_detail")}
         </PopoverDescription>
       </div>
-      {failure ? <FailureNote failure={failure} /> : null}
+      {failure ? <PlanningFailureNote failure={failure} /> : null}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor={instructionId}>{t("dashboard:guide_instruction_label")}</Label>
         <Input
@@ -207,20 +201,6 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
           {started ? t("dashboard:episode_planning_continue") : t("dashboard:episode_planning_start")}
         </Button>
       </div>
-    </div>
-  );
-}
-
-function FailureNote({ failure }: { failure: PlanningFailure }) {
-  const { t } = useTranslation("dashboard");
-  return (
-    <div role="alert" className="flex flex-col gap-1.5 rounded-md bg-warn/10 p-2 text-xs">
-      <p className="flex gap-1.5 text-subtle-foreground">
-        <AlertTriangle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warn" />
-        <span>{t("episode_planning_failed", { reason: failure.message })}</span>
-      </p>
-      {failure.code === "text_default_model_not_set" ? <DefaultModelSettingsLink /> : null}
-      {failure.truncated ? <OutputTruncationHint truncation={failure.truncated} /> : null}
     </div>
   );
 }

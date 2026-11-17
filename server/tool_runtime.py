@@ -8,6 +8,7 @@ import copy
 import functools
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -129,7 +130,7 @@ from lib.generation.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
-from lib.generation.task_failure_encoding import is_provider_refusal
+from lib.generation.task_failure_encoding import is_database_failure, is_provider_refusal
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.async_thread import run_sync_transaction
@@ -155,6 +156,7 @@ from lib.project.project_migration_failure import (
 from lib.project.project_migration_guard import project_migration_failure
 from lib.project.project_migrations import migrate_project_with_verdict
 from lib.project.source_revision import SourceScope, compute_source_revision
+from lib.script.draft_violation import DraftViolation
 from lib.script.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditLocation,
@@ -233,6 +235,7 @@ from server.text_generation import (
     MAX_INSTRUCTIONS_LEN,
     SCOPE_REMOVED_MESSAGE,
     AdScriptRejectedError,
+    DraftQuarantinedError,
     OperationNotAdmittedError,
     PromptAuthoringInputError,
     PromptOverwriteRequiredError,
@@ -717,6 +720,8 @@ async def _run_text_generation(
         )
     except UnexpectedTextGenerationError as exc:
         return ToolOutcome(problem=_unexpected_text_failure_problem(str(exc), exc))
+    except DraftQuarantinedError as exc:
+        return ToolOutcome(problem=_draft_generation_problem(str(exc), exc.count))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except NoAvailableProviderError as exc:
@@ -727,8 +732,19 @@ async def _run_text_generation(
         return ToolOutcome(problem=_unexpected_text_failure_problem(f"{operation} 失败: {exc}", exc))
 
 
+def _draft_generation_problem(detail: str, count: int) -> ToolProblem:
+    return ToolProblem("draft_generation_invalid", detail, action=GenerationAction.FIX_INPUT, params={"count": count})
+
+
 def _unexpected_text_failure_problem(detail: str, cause: BaseException) -> ToolProblem:
     """生成中的意外异常：供应商真正拒绝了内容或输入时归为拒绝（修改输入），其余按任务失败重试，与图片任务一致。"""
+    if is_database_failure(cause):
+        logging.getLogger(__name__).error("文本生成数据库异常", exc_info=cause)
+        return ToolProblem("internal_server_error", "internal_server_error", action=GenerationAction.RETRY)
+    if isinstance(cause, DraftViolation) and cause.code == "quarantined" and cause.params is not None:
+        count = cause.params.get("count")
+        if type(count) is int:
+            return _draft_generation_problem(detail, count)
     if is_provider_refusal(cause):
         return ToolProblem("generation_refused", detail)
     return ToolProblem(GenerationProblemCode.TASK_FAILED.value, detail, action=GenerationAction.RETRY)

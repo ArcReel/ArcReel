@@ -12,7 +12,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
@@ -500,6 +500,14 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
     # Parent pruning is best effort because sibling task data or a concurrent creator may keep it in use.
     with contextlib.suppress(OSError):
         final_dir.parent.rmdir()  # hard-delete: temp -- 空的任务暂存目录
+
+
+def staged_source_paths(project_path: Path, media: Sequence[StagedProviderMedia]) -> dict[str, Path]:
+    """暂存副本路径 → 来源路径，供使用记录把任务结束即清理的暂存副本还原为来源。
+
+    键与交给生成器的暂存路径同形（项目目录下的 ``staged_locator``），经 ``str`` 比对。
+    """
+    return {str(project_path / item.staged_locator): project_path / item.source_locator for item in media}
 
 
 @dataclass(frozen=True, slots=True)
@@ -1069,4 +1077,5 @@ __all__ = [
     "load_task_video_checkpoint",
     "stage_provider_media",
     "stage_provider_media_for_task",
+    "staged_source_paths",
 ]

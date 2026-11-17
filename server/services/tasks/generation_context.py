@@ -364,8 +364,8 @@ class VideoLaneResult:
 class AudioLaneResult:
     """audio lane 解析产物。音色目录与 backend 解析在同一 session 内交付。
 
-    ``voices`` 是该 backend 的音色枚举快照（值，非 backend 实例）：音色列表端点据此应答，
-    合成任务据此校验请求音色，二者不必再触达 backend 对象。
+    ``voices`` 是该 backend 的音色枚举快照（值，非 backend 实例）：音色列表端点据此应答，不必再触达
+    backend 对象。它只是候选，认不出的型号为空；合成任务不按它校验请求音色。
     """
 
     provider_model: ProviderModel

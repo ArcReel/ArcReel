@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "gemini-3.8-flash-tts"
 
 # 官方 30 个预置音色，出处见 docs/api-docs/endpoints/gemini-tts.md。label 取 id 本身，与 openai-tts 同口径。
+# 文档把这张表写在 Gemini 3.8 TTS 下，Flash-Lite 的型号页写明支持同一套预置音色；同端点的旧预览型号没有
+# 列音色，按型号名只给这两个型号列出（_VOICE_MODELS）。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=voice_id)
     for voice_id in (
@@ -70,6 +72,7 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
         "Sulafat",
     )
 )
+_VOICE_MODELS = frozenset({"gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"})
 
 # 未带 rate 参数时的官方缺省输出：24 kHz、单声道、16-bit
 _DEFAULT_SAMPLE_RATE = 24000
@@ -160,7 +163,7 @@ class GeminiAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH}
 
     def list_voices(self) -> list[VoiceOption]:
-        return list(_VOICE_CATALOG)
+        return list(_VOICE_CATALOG) if self._model in _VOICE_MODELS else []
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         if request.speed is not None:

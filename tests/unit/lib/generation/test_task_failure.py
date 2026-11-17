@@ -290,9 +290,19 @@ class TestBoundReason:
 
 
 class TestPassthrough:
+    @pytest.mark.parametrize("wrapper", ["none", "cause", "context", "cycle"])
     @pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
-    def test_database_error_renders_generic_message_without_sql(self, locale):
+    def test_database_error_renders_generic_message_without_sql(self, locale, wrapper):
         exc = StatementError("database failed", "INSERT INTO api_calls VALUES (:secret)", {"secret": "private"}, None)
+        if wrapper != "none":
+            outer = RuntimeError(str(exc))
+            if wrapper == "context":
+                outer.__context__ = exc
+            else:
+                outer.__cause__ = exc
+            if wrapper == "cycle":
+                exc.__cause__ = outer
+            exc = outer
         encoded = encode_task_failure_message(exc)
         assert encoded == "[internal_server_error]"
         assert render_failure(encoded, _translator(locale), make_display_names(locale)) == translate_message(

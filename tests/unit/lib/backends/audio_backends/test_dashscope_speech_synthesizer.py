@@ -176,8 +176,6 @@ class TestVoices:
             ("qwen-audio-3.1-tts-flash", "yuxiaoyun_v3.1", "longanlingxin"),
             ("qwen-audio-3.0-tts-plus", "longanlufeng", "longanhuan_v3.1"),
             ("qwen-audio-3.0-tts-flash", "longanhuan_v3.6", "longanhuan_v3.1"),
-            # 中转命名空间与日期快照后缀不影响代际判定
-            ("aliyun/Qwen-Audio-3.0-TTS-Flash-2026-03-04", "loongjohn", "longanhuan_v3.1"),
         ],
     )
     def test_voices_follow_the_model(self, model: str, included: str, excluded: str):
@@ -185,9 +183,19 @@ class TestVoices:
         assert included in ids
         assert excluded not in ids
 
-    def test_unknown_model_falls_back_to_31_flagship_voices(self):
-        ids = [v.id for v in voices_for_model("qwen-audio-3.2-tts-turbo")]
-        assert ids == ["longanhuan_v3.1", "longanlingxin_v3.1", "longanfengyue_v3.1", "xunanchuan_v3.1"]
+    @pytest.mark.parametrize(
+        "model",
+        [
+            # 同端点的新型号：音色表里没有它，不借用 3.1 的音色
+            "qwen-audio-3.2-tts-turbo",
+            "qwen-audio-3.1-tts-next",
+            # 官方音色列表没有日期快照或中转命名空间的说法，认不出就不列
+            "qwen-audio-3.0-tts-flash-2026-03-04",
+            "aliyun/qwen-audio-3.1-tts-flash",
+        ],
+    )
+    def test_unconfirmed_model_lists_no_voices(self, model: str):
+        assert DashScopeSpeechSynthesizerBackend(api_key="sk", model=model).list_voices() == []
 
     def test_list_is_a_fresh_copy(self):
         backend = DashScopeSpeechSynthesizerBackend(api_key="sk")
