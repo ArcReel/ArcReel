@@ -27,6 +27,7 @@ export default {
   'export_diagnostics': '导出诊断',
   'project_title_required': '项目标题不能为空',
   'style_upload_failed_hint': '风格参考图上传失败，可稍后在项目设置中重新上传',
+  'style_upload_failed_with_reason': '风格参考图上传失败：{{message}}。可稍后在项目设置中重新上传。',
   'create_project_failed': '创建项目失败：{{message}}',
   'project_id_auto_gen_hint': '系统会自动生成内部项目标识并用于 URL 与文件存储',
   'narration_visuals': '旁白/解说',

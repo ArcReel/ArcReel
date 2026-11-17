@@ -27,6 +27,7 @@ export default {
   'export_diagnostics': 'Экспорт диагностики',
   'project_title_required': 'Заголовок проекта не может быть пустым',
   'style_upload_failed_hint': 'Не удалось загрузить референс стиля; его можно загрузить позже в настройках проекта',
+  'style_upload_failed_with_reason': 'Не удалось загрузить референс стиля: {{message}}. Его можно загрузить позже в настройках проекта.',
   'create_project_failed': 'Не удалось создать проект: {{message}}',
   'project_id_auto_gen_hint': 'Система автоматически создаст внутренний ID проекта для URL и хранения файлов',
   'narration_visuals': 'Закадровый текст/комментарий',

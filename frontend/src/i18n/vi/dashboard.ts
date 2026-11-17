@@ -27,6 +27,7 @@ export default {
   'export_diagnostics': 'Chẩn đoán xuất',
   'project_title_required': 'Tiêu đề dự án không được để trống',
   'style_upload_failed_hint': 'Tải ảnh tham chiếu phong cách thất bại, bạn có thể tải lên sau trong Cài đặt dự án',
+  'style_upload_failed_with_reason': 'Tải ảnh tham chiếu phong cách thất bại: {{message}}. Bạn có thể tải lên sau trong Cài đặt dự án.',
   'create_project_failed': 'Tạo dự án thất bại: {{message}}',
   'project_id_auto_gen_hint': 'Hệ thống sẽ tự sinh ID dự án nội bộ dùng cho URL và lưu trữ',
   'narration_visuals': 'Thuyết minh/Bình luận',

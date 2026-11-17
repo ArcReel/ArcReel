@@ -494,6 +494,50 @@ describe("CreateProjectModal", () => {
     await waitFor(() => expect(API.uploadStyleImage).toHaveBeenCalledWith("demo-proj", file));
   });
 
+  it("shows the server error reason alongside the settings hint when style image upload fails with details", async () => {
+    vi.spyOn(API, "uploadStyleImage").mockRejectedValueOnce(new Error("请先在设置中配置文本默认模型"));
+    render(<CreateProjectModal />);
+    fillBasics();
+    const create = await walkToStyle();
+
+    fireEvent.click(screen.getByRole("tab", { name: "自定义" }));
+    const file = new File(["content"], "style.png", { type: "image/png" });
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+    fireEvent.change(fileInput);
+    fireEvent.click(create);
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "风格参考图上传失败：请先在设置中配置文本默认模型。可稍后在项目设置中重新上传。",
+        tone: "warning",
+      }),
+    );
+    expect(navigateMock).toHaveBeenCalledWith("/app/projects/demo-proj");
+  });
+
+  it("falls back to the generic hint when style image upload fails without details", async () => {
+    vi.spyOn(API, "uploadStyleImage").mockRejectedValueOnce(new Error(""));
+    render(<CreateProjectModal />);
+    fillBasics();
+    const create = await walkToStyle();
+
+    fireEvent.click(screen.getByRole("tab", { name: "自定义" }));
+    const file = new File(["content"], "style.png", { type: "image/png" });
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+    fireEvent.change(fileInput);
+    fireEvent.click(create);
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "风格参考图上传失败，可稍后在项目设置中重新上传",
+        tone: "warning",
+      }),
+    );
+    expect(navigateMock).toHaveBeenCalledWith("/app/projects/demo-proj");
+  });
+
   it("keeps the uploaded style preview across leaving and returning to step 3, and frees every preview it stops using", async () => {
     let seq = 0;
     const created = vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:preview-${++seq}`);

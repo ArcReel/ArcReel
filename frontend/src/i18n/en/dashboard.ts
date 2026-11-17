@@ -26,6 +26,7 @@ export default {
   'export_diagnostics': 'Export Diagnostics',
   'project_title_required': 'Project title cannot be empty',
   'style_upload_failed_hint': 'Style reference image upload failed, you can upload it later in project settings',
+  'style_upload_failed_with_reason': 'Style reference image upload failed: {{message}}. You can upload it later in project settings.',
   'create_project_failed': 'Failed to create project: {{message}}',
   'project_id_auto_gen_hint': 'The system will automatically generate an internal project ID used for URLs and storage',
   'narration_visuals': 'Narration/Commentary',
