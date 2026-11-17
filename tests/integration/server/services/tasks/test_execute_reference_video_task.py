@@ -2367,6 +2367,11 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     assert checkpoint.prompt == submitted["prompt"]
     assert [media.role for media in checkpoint.media] == ["reference_image", "reference_image"]
     assert all(media.source_locator != "audio/segment_E1U1.wav" for media in checkpoint.media)
+    # 使用记录按映射把暂存参考图还原为来源，暂存目录随任务清理后记录仍能打开
+    sources = submitted["reference_sources"]
+    assert [sources[str(path)] for path in submitted["reference_images"]] == [
+        proj_dir / media.source_locator for media in checkpoint.media
+    ]
     assert checkpoint.artifact_visual_basis is not None
     assert checkpoint.artifact_visual_basis.kind == "artifact-visual/video-reference"
     metadata = submitted["checkpoint_metadata"]

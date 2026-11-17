@@ -49,6 +49,20 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
         "female-tianmei",
     )
 )
+# t2a_v2 的 ``model`` 官方枚举（出处同 docs/api-docs/endpoints/minimax-tts.md 所列接口文档）。``voice_id`` 的说明
+# 引用同一份系统音色列表，没有按型号区分，所以这些型号共用上面的音色；不在枚举里的型号名认不出，不列音色。
+_T2A_MODELS = frozenset(
+    {
+        "speech-2.8-hd",
+        "speech-2.8-turbo",
+        "speech-2.6-hd",
+        "speech-2.6-turbo",
+        "speech-02-hd",
+        "speech-02-turbo",
+        "speech-01-hd",
+        "speech-01-turbo",
+    }
+)
 
 
 def _format_for(output_path: Path) -> str:
@@ -110,7 +124,7 @@ class MiniMaxAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def list_voices(self) -> list[VoiceOption]:
-        return list(_VOICE_CATALOG)
+        return list(_VOICE_CATALOG) if self._model in _T2A_MODELS else []
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         # language_type 是 DashScope 特有字段，t2a_v2 按文本自动识别语种，不发送。

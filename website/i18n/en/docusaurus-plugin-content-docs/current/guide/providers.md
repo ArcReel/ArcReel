@@ -421,7 +421,7 @@ High-reasoning models are not necessarily suitable for every task. Complex conte
 
 ArcReel's voice-over capability can use DashScope Qwen TTS and qwen-audio TTS, MiniMax Speech, Gemini TTS (AI Studio, Vertex), Volcengine Ark Agent Plan TTS, or a compatible TTS interface.
 
-After you choose a TTS model in global settings or project settings, the narration voice field lists the common voices available for that model. For voices outside the list (cloned voices, for example), enter the voice ID from the provider docs.
+After you choose a TTS model in global settings or project settings, the narration voice field lists the common voices available for that model. Voices are listed only when official docs confirm they apply to that model: custom model names, relay aliases, models the official voice list does not cover, and models on an OpenAI-compatible interface that does not connect directly to the official OpenAI address get no list, and they never borrow the voices of another model on the same call endpoint. Having no list does not mean the model cannot take a voice. For voices outside the list (cloned voices, for example), enter the voice ID from the provider docs; a saved voice is never cleared or rewritten because no list is shown.
 
 DashScope speech has two call endpoints: "Alibaba Model Studio (TTS)" calls Qwen TTS (`qwen3-tts` and similar), and "Alibaba Model Studio (qwen-audio TTS)" calls qwen-audio TTS (the `qwen-audio-3.0-tts` and `qwen-audio-3.1-tts` series). The two endpoints do not share voices, and each qwen-audio model only accepts its own voices; see the DashScope [voice list](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list) for the full set. The qwen-audio endpoint supports narration speed from 0.5 to 2.0; values outside this range are sent as the nearest bound. When you add a model, names containing `qwen-audio` are prefilled with the qwen-audio endpoint and other DashScope speech models with the Qwen TTS endpoint; you can change this in [Model settings](#model-settings).
 
@@ -711,7 +711,8 @@ Costs of text, voiceover, image, and video calls on built-in providers are compu
 - Cache hits and cache writes are charged at their own prices, not as regular input;
 - For models priced by input length, the tier is chosen by the total input of the single request (including cache), and the whole request uses that tier's prices;
 - Voiceover models that officially count each Chinese character as 2 characters are counted the same way;
-- Images are priced by the resolution and quality actually sent to the provider; when the request carries no resolution, the provider's default tier applies;
+- Image resolution and quality are reported from the actual request or the upstream defaults, using the same rules for estimates and settlement; when the request carries no resolution, the provider's default tier applies;
+- Grok Imagine Image 2.0 does not send an explicit quality setting. Following the [current upstream defaults](https://docs.x.ai/developers/model-capabilities/images/generation#quality), text-to-image reports `low` and image editing reports `medium`;
 - For image models that officially charge for reference images (for example, beyond a number of free images), reference images are counted per image;
 - Videos are priced by the seconds actually generated and by the resolution, audio, and duration tier sent to the provider; Vidu reference-to-video uses its own prices;
 - Ark Seedance is billed by video tokens: settlement uses the token count the provider reports, and pre-submit estimates convert with the official formula (width × height × frame rate × seconds / 1024). When the aspect ratio is left to the provider (adaptive), the token count is unknown and the estimate is recorded as "Unpriced";
@@ -719,6 +720,10 @@ Costs of text, voiceover, image, and video calls on built-in providers are compu
 
 Models on a custom provider have no prices of their own. When a model name maps to a known model in the model catalog, its calls are charged at that model's official price, with the same rules as built-in providers;
 when it maps to nothing, its calls are recorded as "Unpriced". The model list on the settings page shows the known model each model maps to, or "Unpriced".
+
+For custom providers using OpenAI Chat for image generation, metering uses the resolution tier actually sent. Custom pixel dimensions are not reported as resolution tiers.
+
+Image generation through a declarative endpoint or a ComfyUI endpoint does not report resolution or quality tiers. Costs use the default tier of the model catalog entry, which may differ from the resolution actually sent. ComfyUI providers have a multiplier of 0 by default, so no cost is computed.
 
 Each provider can have a multiplier that applies to the cost of all its calls, to reflect top-up discounts or relay price differences.
 Models of custom providers, and models you added yourself under a built-in provider, can also have their own multiplier, so the final cost = official price × provider multiplier × model multiplier. For example, if a relay charges 80% of the official price across the board, set the provider multiplier to 0.8; if one model there costs 1.5× the official price, set that model's multiplier to 1.875 (0.8 × 1.875 = 1.5).

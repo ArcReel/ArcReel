@@ -220,6 +220,7 @@ MESSAGES = {
     "bgm_silent": "这首 BGM 几乎没有声音，无法测量响度。请换一首有声音的音频后重新上传",
     "bgm_ffmpeg_unavailable": "随包 ffmpeg 当前不可用，无法测量 BGM 响度，暂时不能上传 BGM",
     "vision_model_required": "文本模型 {provider}/{model} 不支持图像输入（vision），无法执行 {task} 任务；请在设置中为简单档或默认模型选择支持 vision 的文本模型",
+    "draft_generation_invalid": "产出有 {count} 处违约，已保存为待修复草稿。可在草稿中修改，或交给 AI 修复。",
     "internal_server_error": "服务器内部错误，请稍后重试",
     "asset_field_must_be_string": "该字段的值必须是文本",
     "asset_field_must_be_string_list": "该字段的值必须是文本列表",

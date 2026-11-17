@@ -125,6 +125,7 @@ const RECORDINGS: Recording[] = [
   { file: "market-entries", method: "GET", path: "/api/v1/market/entries?type=endpoint" },
   // 新建项目向导：TTS 配音的预填值（全局默认）。
   { file: "narration-defaults", method: "GET", path: "/api/v1/system/narration-defaults" },
+  { file: "project-demo-audio-backend-voices", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/audio-backend/voices` },
   // 资产库：默认的「角色」标签首页（项目画廊「从资产库导入」同一请求）、画廊的资产图状态，以及入库预览按名称查重。
   { file: "assets-character", method: "GET", path: "/api/v1/assets?limit=60&type=character" },
   { file: "project-demo-asset-sheets-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/asset-sheets/status` },

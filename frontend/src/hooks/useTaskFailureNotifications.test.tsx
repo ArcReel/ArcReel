@@ -1,5 +1,6 @@
 import { act, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import i18n from "@/i18n";
 import { useTaskFailureNotifications } from "@/hooks/useTaskFailureNotifications";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -46,6 +47,20 @@ describe("useTaskFailureNotifications", () => {
     // connected=true：模拟首个成功 poll 已完成、基线可建立。
     useTasksStore.setState({ tasks: [], connected: true });
     useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: PROJECT });
+  });
+
+  afterEach(async () => { await i18n.changeLanguage("zh"); });
+
+  it.each(["text_drama_script_plan", "text_narration_script_plan", "text_reference_script_plan"])("notifies with the English summary and no Agent instructions for %s", async (taskType) => {
+    await i18n.changeLanguage("en");
+    const summary = "The output has 5 violations and was saved as a draft. Edit the draft or ask AI to repair it.";
+    useTasksStore.setState({ tasks: [task({ task_type: taskType, resource_id: "episode-1" })] });
+    render(<Harness project="demo" />);
+    act(() => { useTasksStore.setState({ tasks: [task({ task_type: taskType, resource_id: "episode-1", status: "failed", error_code: "draft_generation_invalid", error_params: { count: 5 }, error_message: summary, error_detail: "中文报告：open_draft；patch_draft；base_revision" })] }); });
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    const note = useAppStore.getState().workspaceNotifications[0];
+    expect(note.text).toContain(summary);
+    expect(note.text).not.toMatch(/open_draft|patch_draft|base_revision|中文报告/);
   });
 
   it("pushes one clickable notification when a task transitions to failed", async () => {

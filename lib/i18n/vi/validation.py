@@ -489,6 +489,11 @@ MESSAGES = {
     "draft_violation_novel_text_coverage": "novel_text các cảnh không bao phủ nguyên văn đầy đủ và đúng thứ tự. Nguồn: {source}. Sao chép và nối theo thứ tự; nếu phạm vi nguồn của bản nháp sai, hãy cập nhật trước.",
     "draft_violation_schema_invalid": "{path} của bản nháp không đúng cấu trúc đầu ra: {detail}. Kiểm tra trường bắt buộc, kiểu và giá trị.",
     # Draft schema reasons by pydantic error type, rendered into draft_violation_schema_invalid's {detail}.
+    "draft_schema_narration_dialogue_forbidden": "phân đoạn thuyết minh không được chứa lời thoại; thuật lại lời nhân vật trong nội dung thuyết minh",
+    "draft_schema_dialogue_speaker_required": "lượt lời dialogue phải có speaker không trống",
+    "draft_schema_voiceover_speaker_forbidden": "lượt lời voiceover không được có speaker",
+    "draft_schema_empty_video_unit_replan": "đơn vị video trống yêu cầu needs_replan=true và duration_seconds=0",
+    "draft_schema_non_empty_video_unit_duration": "đơn vị video không trống yêu cầu duration_seconds là số nguyên dương",
     "draft_schema_missing": "thiếu trường bắt buộc",
     "draft_schema_extra_forbidden": "không hỗ trợ trường này",
     "draft_schema_literal_error": "phải là một trong các giá trị: {expected}",

@@ -21,6 +21,7 @@ from lib.script.draft_quarantine import (
     draft_revision,
     quarantine_path,
     read_quarantine,
+    render_report,
     write_quarantine,
 )
 from lib.script.item_ids import format_item_id
@@ -111,6 +112,19 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     assert "shots" not in envelope["content"]["units"][0]
 
     report = said(out)
+    draft = read_quarantine(fake_ctx.project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+    assert draft is not None
+    assert (
+        report
+        == render_report(
+            rv_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path),
+            QUARANTINE_KIND_SCRIPT_PLAN,
+            [DraftViolation(v["message"], code=v["code"]) for v in draft.violations],
+            episode=1,
+        )
+        + "\n⚠️ 降级提示（不阻断，非违约、无需为此重改，草稿仍在场）:\n- unit E1U01：本单元未引用场景，画面地点将由模型自由决定"
+    )
+    assert out.problem.params == {"count": 1}
     assert f"[{code}]" in report
     assert "unit E1U01" in report
     assert rv_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path).as_posix() in report
@@ -523,6 +537,31 @@ async def test_schema_breach_reaches_the_agent_verbatim(
     assert report in problem.detail
     opened = draft_of(await open_for_edit(fake_ctx))
     assert [(v["code"], v["message"]) for v in opened["violations"]] == expected
+
+
+@pytest.mark.parametrize(
+    ("utterance", "reason"),
+    [
+        ({"kind": "dialogue", "text": "Hello"}, "dialogue utterance 必须带非空 speaker"),
+        ({"kind": "dialogue", "speaker": "  ", "text": "Hello"}, "dialogue utterance 必须带非空 speaker"),
+        ({"kind": "voiceover", "speaker": "Hero", "text": "Hello"}, "voiceover utterance 不得带 speaker"),
+    ],
+    ids=["missing_speaker", "blank_speaker", "voiceover_speaker"],
+)
+async def test_custom_schema_breach_reaches_tools_verbatim(fake_ctx: ToolHarness, utterance, reason) -> None:
+    drama_project(fake_ctx)
+    write_drama_script_plan(fake_ctx, [drama_scene()])
+    await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    envelope = read_drama_quarantine(fake_ctx)
+    envelope["content"]["scenes"][0]["utterances"] = [utterance]
+    drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    expected = f"草稿的 content.scenes.0.utterances.0 不符合产出结构：Value error, {reason}"
+
+    problem = problem_of(await promote_drama(fake_ctx))
+    assert problem.code == "draft_invalid"
+    assert f"1. [schema_invalid] {expected}" in problem.detail.splitlines()
+    reopened = draft_of(await open_drama_for_edit(fake_ctx))
+    assert [(v["code"], v["message"]) for v in reopened["violations"]] == [("schema_invalid", expected)]
 
 
 async def test_promote_draft_requires_source_provenance(fake_ctx: ToolHarness, monkeypatch) -> None:

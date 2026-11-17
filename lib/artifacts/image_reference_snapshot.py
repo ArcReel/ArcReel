@@ -10,7 +10,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib.artifacts.visual_artifact_provenance import VisualReference, visual_file_digest
@@ -23,6 +23,8 @@ class FrozenImageReferences:
     reference_images: list[object] | None
     visual_references: tuple[VisualReference, ...]
     _directory: Path | None
+    #: Snapshot path to original source, for durable usage-record locators.
+    source_paths: Mapping[str, Path] = field(default_factory=dict)
 
     def sent(self, count: int) -> FrozenImageReferences:
         """只把前 ``count`` 张交给供应商的视图；快照目录与本对象共享，清理任一即可。
@@ -39,6 +41,7 @@ class FrozenImageReferences:
             (self.reference_images or [])[:count] or None,
             self.visual_references[:count],
             self._directory,
+            self.source_paths,
         )
 
     def cleanup(self) -> None:
@@ -71,12 +74,14 @@ def freeze_image_references(
 
     directory = Path(tempfile.mkdtemp(prefix="arcreel-image-references-"))
     frozen_provider: list[object] = []
+    source_paths: dict[str, Path] = {}
     frozen_visuals: list[VisualReference] = []
     try:
         for index, (reference, visual, source, _resolved, source_digest) in enumerate(sources):
             target = directory / f"{index:04d}-{source.name}"
             shutil.copyfile(source, target)
             frozen_provider.append(_replace_reference_path(reference, target))
+            source_paths[str(target)] = source
             content_digest = visual_file_digest(target)
             if content_digest != source_digest:
                 raise OSError("reference images changed while they were frozen")
@@ -96,7 +101,7 @@ def freeze_image_references(
     except BaseException:
         shutil.rmtree(directory, ignore_errors=True)  # hard-delete: temp -- 冻结参考图失败时的临时副本目录
         raise
-    return FrozenImageReferences(frozen_provider, tuple(frozen_visuals), directory)
+    return FrozenImageReferences(frozen_provider, tuple(frozen_visuals), directory, source_paths)
 
 
 def _reference_path(reference: object) -> Path:

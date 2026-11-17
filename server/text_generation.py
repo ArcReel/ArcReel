@@ -184,6 +184,14 @@ class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
 
 
+class DraftQuarantinedError(TextGenerationError):
+    """违约产出已存为待修复草稿；消息保持 Agent 报告原文，计数供任务摘要使用。"""
+
+    def __init__(self, report: str, count: int) -> None:
+        super().__init__(report)
+        self.count = count
+
+
 class UnexpectedTextGenerationError(TextGenerationError):
     """生成过程中的意外失败，原异常在 ``__cause__``：调用方据此区分供应商拒绝与可重试的任务失败。"""
 
@@ -1057,7 +1065,7 @@ async def generate_drama_script_plan(
                     request.source,
                     formal_baseline,
                 )
-            raise TextGenerationError(report)
+            raise DraftQuarantinedError(report, len(violations))
 
         await reissue_plan_item_ids(projects, project_name, episode, content)
         async with draft_locks.async_file_lock(draft_path):
@@ -1835,8 +1843,9 @@ async def generate_reference_script_plan(
                 )
             # 产出即违约这条路同样带上软违约段：草稿在场、Agent 这一轮就在改它，降级提示留到晋升
             # 那一刻才第一次出现的话，它已经按不完整的信息改过一遍了。处置说明与晋升被挡下时同口径。
-            raise TextGenerationError(
-                report + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED)
+            raise DraftQuarantinedError(
+                report + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED),
+                len(violations),
             )
 
         # 编号只分配、不复用：落盘前由服务端发本集从没用过的编号，回执里的降级提示按发出的编号定位。
@@ -2002,7 +2011,7 @@ async def generate_narration_script_plan(
                     request.source,
                     formal_baseline,
                 )
-            raise TextGenerationError(report)
+            raise DraftQuarantinedError(report, len(violations))
 
         await reissue_plan_item_ids(projects, project_name, episode, content)
         async with draft_locks.async_file_lock(draft_path):

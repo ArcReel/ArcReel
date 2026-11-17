@@ -40,7 +40,7 @@ def encode_task_failure_message(exc: Exception) -> str:
     落库只存机器码，本地化文案由读侧按 ``Accept-Language`` 渲染——worker 后台无 request
     上下文，在这里渲染会把任务的失败原因锁死成单一语言。
     """
-    if isinstance(exc, SQLAlchemyError):
+    if is_database_failure(exc):
         return encode_failure("internal_server_error")
     if isinstance(exc, NoAvailableProviderError):
         return _try_encode_failure(f"{exc.media_type}_default_model_not_set", {"media_type": exc.media_type}) or str(
@@ -89,6 +89,18 @@ def encode_task_failure_message(exc: Exception) -> str:
         # 非结构化文本在读侧原样透传，不会丢失原因。
         return _try_encode_failure(exc.code, exc.params) or str(exc)
     return str(exc)
+
+
+def is_database_failure(exc: BaseException) -> bool:
+    """沿异常包装链识别数据库失败，避免 SQL 与绑定参数进入任务信息。"""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, SQLAlchemyError):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def is_provider_refusal(exc: BaseException) -> bool:

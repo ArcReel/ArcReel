@@ -364,6 +364,11 @@ MESSAGES = {
     "draft_violation_novel_text_coverage": "各分镜的 novel_text 未按序、逐字、完整覆盖原文。源文件：{source}。原样复制并按序拼接；草稿的源文范围有误时，先更新源文范围",
     "draft_violation_schema_invalid": "草稿的 {path} 不符合产出结构：{detail}。检查必填字段、类型和取值",
     # Draft schema reasons by pydantic error type, rendered into draft_violation_schema_invalid's {detail}.
+    "draft_schema_narration_dialogue_forbidden": "旁白/解说片段不写台词，角色说的话由旁白在正文里转述",
+    "draft_schema_dialogue_speaker_required": "dialogue 发声条目必须带非空 speaker",
+    "draft_schema_voiceover_speaker_forbidden": "voiceover 发声条目不得带 speaker",
+    "draft_schema_empty_video_unit_replan": "空视频单元仅允许 needs_replan=true 且 duration_seconds=0",
+    "draft_schema_non_empty_video_unit_duration": "非空视频单元的 duration_seconds 必须为正整数",
     "draft_schema_missing": "缺少必填字段",
     "draft_schema_extra_forbidden": "不支持此字段",
     "draft_schema_literal_error": "须为以下取值之一：{expected}",

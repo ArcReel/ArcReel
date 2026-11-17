@@ -916,6 +916,15 @@ def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]
 
 
 @contextmanager
+def patched_genai_client(client: Any = None, *, error: Exception | None = None) -> Generator[Any]:
+    """替换 Google SDK 客户端构造；可返回给定客户端或模拟构造失败。"""
+    with patch("google.genai.Client", side_effect=error) as factory:
+        if client is not None:
+            factory.return_value = client
+        yield factory
+
+
+@contextmanager
 def patched_instructor_from_openai(patched: Any = None, **patch_kwargs: Any) -> Generator[Any]:
     """在 SDK 边界替换 ``instructor.from_openai``，yield 该替身，供测试断言传给 ``from_openai`` 的参数。
 

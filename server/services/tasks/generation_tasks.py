@@ -96,6 +96,7 @@ from lib.script.reference_video.execution_checkpoint import (
     checkpoint_version_metadata,
     cleanup_staged_provider_media,
     stage_provider_media_for_task,
+    staged_source_paths,
 )
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import resolve_content_mode
@@ -1339,6 +1340,7 @@ async def execute_video_task(
                 prompt=prompt_text,
                 resource_type="videos",
                 resource_id=resource_id,
+                reference_sources=staged_source_paths(project_path, staged_media),
                 start_image=provider_start_image,
                 end_image=provider_end_image,
                 aspect_ratio=aspect_ratio,
@@ -1816,6 +1818,7 @@ async def execute_grid_task(
                 resource_type="grids",
                 resource_id=resource_id,
                 reference_images=reference_images,
+                reference_sources=frozen_references.source_paths,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
                 quality=ctx.image.quality,

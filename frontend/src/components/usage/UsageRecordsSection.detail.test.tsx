@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -238,6 +238,42 @@ describe("UsageRecordsSection detail", () => {
     expect(dialog.getByRole("img", { name: "尾帧" })).toBeInTheDocument();
     expect(dialog.getByText("characters/hero.wav")).toBeInTheDocument();
     expect(dialog.getByText(/"service_tier": "default"/)).toBeInTheDocument();
+  });
+
+  it.each(["success", "failed"] as const)("renders reference thumbnails for %s calls", async (status) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
+      id: 42, project_name: "demo", media_type: "image", status, output_path: null,
+      inputs: { reference_images: [{ path: "characters/hero.png", label: null, role: "array" }] },
+    }));
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByRole("img", { name: "参考图" })).toHaveAttribute("src", "/api/v1/files/demo/characters/hero.png?w=320");
+    expect(dialog.queryByText("array")).not.toBeInTheDocument();
+  });
+
+  it("keeps the missing-file fallback for expired historical inputs", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
+      id: 42, output_path: null,
+      inputs: { reference_images: [{ path: "/tmp/deleted/ref.png", label: null, role: "array" }] },
+    }));
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.error(dialog.getByRole("img", { name: "参考图" }));
+    expect(dialog.getByText("文件不存在")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["timeout", "超时"],
+    ["rate_limited", "限流"],
+  ])("hides registered domain keys below %s", async (errorCode, phrase) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
+      id: 42, status: "failed", error_code: errorCode,
+      error_message: "ark_agent_plan_tts_unreachable",
+    }));
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(phrase)).toBeInTheDocument();
+    expect(dialog.queryByText("ark_agent_plan_tts_unreachable")).not.toBeInTheDocument();
   });
 
   it("shows 无记录 for groups the record never captured", async () => {

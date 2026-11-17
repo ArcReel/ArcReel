@@ -52,6 +52,7 @@ from lib.script.reference_video.execution_checkpoint import (
     cleanup_staged_provider_media,
     stage_provider_media,
     stage_provider_media_for_task,
+    staged_source_paths,
 )
 from lib.script.reference_video.prompt_render import (
     RenderedUnitPrompt,
@@ -708,6 +709,7 @@ async def execute_reference_video_task(
                     resource_type="reference_videos",
                     resource_id=resource_id,
                     reference_images=provider_refs,
+                    reference_sources=staged_source_paths(project_path, staged_media),
                     reference_image_asset_uris=_asset_uris(asset_choices),
                     reference_audio_files=provider_audio,
                     reference_audio_targets=reference_audio_targets,
