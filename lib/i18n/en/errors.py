@@ -679,6 +679,8 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} does not support text-to-image; configure a default model that supports text-to-image",
     "image_dashscope_4k_t2i_only": "Model {model}: 4K output is only supported by wan2.7-image-pro for text-to-image; use 2K or lower",
     "image_reference_images_unreadable": "Model {model} has reference images that are missing or unreadable; generation aborted: {names}; check the reference image paths",
+    "image_resolution_not_supported": "Model {model} does not support {resolution} resolution (only {supported}); choose a supported resolution",
+    "image_aspect_ratio_not_supported": "Model {model} does not support aspect ratio {aspect_ratio} (only {supported}); choose a supported aspect ratio",
     "image_reference_images_exceeded": "Model {model} supports at most {limit} reference images but this request carried {count}; nothing was submitted; generate again",
     # Image Edit
     "image_edit_resource_type_invalid": "Resource type '{resource_type}' does not support image editing",

@@ -33,6 +33,7 @@
 - [kling-video-pro-silent](kling-video-pro-silent.md)
 - [kling-video-silent](kling-video-silent.md)
 - [minimax-h3](minimax-h3.md)
+- [minimax-h3-image](minimax-h3-image.md)
 - [minimax-hailuo-v1](minimax-hailuo-v1.md)
 - [minimax-hailuo-v1-fast](minimax-hailuo-v1-fast.md)
 - [minimax-image](minimax-image.md)

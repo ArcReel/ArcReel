@@ -40,6 +40,8 @@ export default {
   "image_dashscope_4k_t2i_only": "Mô hình {{model}}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",
   "image_reference_images_exceeded": "Mô hình {{model}} hỗ trợ tối đa {{limit}} ảnh tham chiếu nhưng yêu cầu này có {{count}}; chưa gửi yêu cầu tạo; hãy tạo lại",
   "image_reference_images_unreadable": "Mô hình {{model}} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {{names}}; hãy kiểm tra đường dẫn ảnh tham chiếu",
+  "image_resolution_not_supported": "Mô hình {{model}} không hỗ trợ độ phân giải {{resolution}} (chỉ hỗ trợ {{supported}}); hãy chọn một độ phân giải được hỗ trợ",
+  "image_aspect_ratio_not_supported": "Mô hình {{model}} không hỗ trợ tỷ lệ khung hình {{aspect_ratio}} (chỉ hỗ trợ {{supported}}); hãy chọn một tỷ lệ được hỗ trợ",
   "image_seedream_edits_unavailable": "Endpoint gọi hiện tại của mô hình {{model}} không hỗ trợ tạo ảnh có ảnh tham chiếu; hãy đổi thành «Seedream (1K) / Seedream (2K)» trong cài đặt mô hình rồi thử lại",
   "narration_tts_speed_out_of_range": "Mô hình TTS đã chọn hỗ trợ tốc độ giọng đọc từ {{minimum}} đến {{maximum}}, giá trị hiện tại là {{speed}}. Hãy thay đổi hoặc xóa tốc độ giọng đọc",
   "ark_agent_plan_tts_access_denied": "Volcengine Ark Agent Plan đã từ chối yêu cầu tổng hợp giọng nói (mã lỗi {{code}}). Có thể API Key không hợp lệ, gói không bao gồm tổng hợp giọng nói, hạn mức hoặc giới hạn đồng thời đã hết, hoặc giọng đọc chưa được cấp quyền. Hãy kiểm tra trạng thái gói và giọng đọc trong bảng điều khiển Ark rồi thử lại; ArcReel không chuyển sang giao diện tổng hợp giọng nói trả theo mức dùng",

@@ -245,6 +245,7 @@ class TestEndpointCatalog:
             "dashscope-reference-voice-video",
             "dashscope-wan3-video",
             "minimax-image",
+            "minimax-h3-image",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",

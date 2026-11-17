@@ -167,6 +167,9 @@ class TestPrefill:
             ("minimax", "video", "MiniMax-H3-Preview", "minimax-h3"),
             ("minimax", "video", "S2V-01", "minimax-s2v-01"),
             ("minimax", "video", "acme-video", "minimax-hailuo-v1"),
+            ("minimax", "image", "MiniMax-H3-Image-Highspeed", "minimax-h3-image"),
+            ("minimax", "image", "image-01-live", "minimax-image"),
+            ("minimax", "image", "acme-image", "minimax-image"),
             # 名字推出的是别的供应商的端点：落回这个供应商的默认端点
             ("grok", "video", "grok-imagine-video-2", "grok-video-classic"),
             ("grok", "video", "grok-imagine-video", "grok-video-classic"),

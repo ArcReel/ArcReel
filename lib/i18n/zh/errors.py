@@ -618,6 +618,8 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} 不支持文生图；请配置一个支持文生图的默认模型",
     "image_dashscope_4k_t2i_only": "模型 {model} 的 4K 输出仅 wan2.7-image-pro 文生图支持；请改用 2K 或更低分辨率",
     "image_reference_images_unreadable": "模型 {model} 有参考图缺失或无法读取，已中止生成：{names}；请检查参考图路径",
+    "image_resolution_not_supported": "模型 {model} 不支持 {resolution} 分辨率（仅支持 {supported}）；请选择支持的分辨率",
+    "image_aspect_ratio_not_supported": "模型 {model} 不支持 {aspect_ratio} 比例（仅支持 {supported}）；请选择支持的比例",
     "image_reference_images_exceeded": "模型 {model} 最多支持 {limit} 张参考图，本次请求带了 {count} 张，未提交生成；请重新生成",
     # Image Edit
     "image_edit_resource_type_invalid": "资源类型「{resource_type}」不支持图片编辑",

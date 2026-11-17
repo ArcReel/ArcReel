@@ -97,6 +97,7 @@ class TestRegistry:
             "dashscope-reference-voice-video",
             "dashscope-wan3-video",
             "minimax-image",
+            "minimax-h3-image",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
@@ -371,6 +372,7 @@ class TestRegistry:
             "dashscope-wan-image",
             "dashscope-qwen-image-edit",
             "minimax-image",
+            "minimax-h3-image",
             "kling-image",
             "kling-image-single",
             "ark-seedream-3",
@@ -632,6 +634,11 @@ class TestInferEndpoint:
             ("vendor-s2v-custom", "openai", "openai-chat"),
             ("MiniMax-H3", "openai", "minimax-h3"),
             ("minimax-h3", "openai", "minimax-h3"),
+            # H3 图像型号先于 H3 视频判定，否则 "minimax-h3" 子串会把它推到视频端点
+            ("MiniMax-H3-Image", "openai", "minimax-h3-image"),
+            ("MiniMax-H3-Image-Highspeed", "openai", "minimax-h3-image"),
+            ("minimax-h3-image", "openai", "minimax-h3-image"),
+            ("proxy/MiniMax-H3-Image-Highspeed", "openai", "minimax-h3-image"),
             ("h3", "openai", "openai-chat"),  # 裸 "h3" 不应匹配——防止退化成过于宽松的子串
             ("other-vendor-h3", "openai", "openai-chat"),  # 其它厂商恰好含 h3 子串同样不应误路由
             ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
@@ -762,6 +769,7 @@ def test_image_endpoint_registry_entries():
         "dashscope-wan-image",
         "dashscope-qwen-image-edit",
         "minimax-image",
+        "minimax-h3-image",
         "kling-image",
         "kling-image-single",
         "ark-seedream-3",

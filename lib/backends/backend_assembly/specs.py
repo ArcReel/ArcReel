@@ -668,6 +668,17 @@ _specs += [
     for by_backend_type in _GEMINI_VIDEO_ENDPOINTS.values()
 ]
 _specs += [_kling_spec("image"), _kling_spec("image", endpoint="kling-image-single")]
+# MiniMax 图片：image-01 走简单族登记的 minimax-image（registry 名 minimax），H3 图像系列另走 minimax-h3-image；
+# 新增模型的预填按名字规则推断（infer_endpoint），不经 image_endpoint_for_name。
+_specs.append(
+    ProviderSpec(
+        provider_id="minimax",
+        media_type="image",
+        registry_backend="minimax-h3-image",
+        build_backend=partial(_build_simple, media_type="image", registry_backend="minimax-h3-image"),
+        endpoint="minimax-h3-image",
+    )
+)
 _specs += [
     ProviderSpec(
         provider_id=provider,
@@ -786,6 +797,7 @@ _MULTI_ENDPOINT_DEFAULTS: Mapping[tuple[str, str], str] = {
     ("gemini-aistudio", "video"): "gemini-video",
     ("gemini-vertex", "video"): "gemini-vertex-video",
     ("agnes", "image"): "agnes-image-tier",
+    ("minimax", "image"): "minimax-image",
     ("minimax", "video"): "minimax-hailuo-v1",
     ("grok", "video"): "grok-video-classic",
     ("vidu", "video"): "vidu-video-q3-turbo",

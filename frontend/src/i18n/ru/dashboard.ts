@@ -1831,6 +1831,7 @@ export default {
   'endpoint_vidu_video_q4_display': 'Vidu Video (Q4)',
   'endpoint_dashscope_async_video_display': 'Alibaba Model Studio (асинхронное видео)',
   'endpoint_minimax_image_display': 'MiniMax (изображения)',
+  'endpoint_minimax_h3_image_display': 'MiniMax H3 (изображения)',
   'endpoint_kling_image_display': 'Kling (изображения)',
   'endpoint_kling_image_single_display': 'Kling (одно референсное изображение)',
   'endpoint_kling_video_display': 'Kling (видео)',

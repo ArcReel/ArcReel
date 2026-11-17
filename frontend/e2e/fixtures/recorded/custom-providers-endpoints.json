@@ -2105,6 +2105,47 @@
         ]
       },
       {
+        "key": "minimax-h3-image",
+        "media_type": "image",
+        "family": "minimax",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_minimax_h3_image_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/images/generations",
+        "image_capabilities": [
+          "image_to_image",
+          "text_to_image"
+        ],
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "generate",
+            "display_name_key": "cp_request_generate",
+            "default_path": "/images/generations",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_v1"
+          },
+          {
+            "name": "edit",
+            "display_name_key": "cp_request_edit",
+            "default_path": "/images/edits",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_v1"
+          }
+        ]
+      },
+      {
         "key": "kling-image",
         "media_type": "image",
         "family": "kling",
