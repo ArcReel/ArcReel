@@ -40,6 +40,8 @@ export default {
   "image_dashscope_4k_t2i_only": "模型 {{model}} 的 4K 输出仅 wan2.7-image-pro 文生图支持；请改用 2K 或更低分辨率",
   "image_reference_images_exceeded": "模型 {{model}} 最多支持 {{limit}} 张参考图，本次请求带了 {{count}} 张，未提交生成；请重新生成",
   "image_reference_images_unreadable": "模型 {{model}} 有参考图缺失或无法读取，已中止生成：{{names}}；请检查参考图路径",
+  "image_resolution_not_supported": "模型 {{model}} 不支持 {{resolution}} 分辨率（仅支持 {{supported}}）；请选择支持的分辨率",
+  "image_aspect_ratio_not_supported": "模型 {{model}} 不支持 {{aspect_ratio}} 比例（仅支持 {{supported}}）；请选择支持的比例",
   "image_seedream_edits_unavailable": "模型 {{model}} 当前的调用端点不支持带参考图生成；请在模型设置里把调用端点改为「Seedream (1K) / Seedream (2K)」后重试",
   "narration_tts_speed_out_of_range": "所选 TTS 模型的配音语速范围是 {{minimum}}～{{maximum}}，当前为 {{speed}}。请调整或清空配音语速",
   "ark_agent_plan_tts_access_denied": "火山方舟 Agent Plan 拒绝了语音合成请求（错误码 {{code}}）。可能是 API Key 无效、套餐未开通语音合成、额度或并发已用尽，或音色未授权。在方舟控制台确认套餐状态与音色后重试；ArcReel 不会改用按量付费接口",

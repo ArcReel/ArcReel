@@ -677,6 +677,8 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} не поддерживает «текст в изображение». Настройте модель по умолчанию, поддерживающую «текст в изображение»",
     "image_dashscope_4k_t2i_only": "Модель {model}: вывод в 4K поддерживает только wan2.7-image-pro при генерации из текста; используйте 2K или ниже",
     "image_reference_images_unreadable": "У модели {model} есть отсутствующие или нечитаемые референсы; генерация прервана: {names}; проверьте пути к референсам",
+    "image_resolution_not_supported": "Модель {model} не поддерживает разрешение {resolution} (только {supported}); выберите поддерживаемое разрешение",
+    "image_aspect_ratio_not_supported": "Модель {model} не поддерживает соотношение сторон {aspect_ratio} (только {supported}); выберите поддерживаемое соотношение сторон",
     "image_reference_images_exceeded": "Модель {model} принимает не более {limit} референсов, а в запросе было {count}; ничего не отправлено; сгенерируйте заново",
     # Image Edit
     "image_edit_resource_type_invalid": "Тип ресурса «{resource_type}» не поддерживает редактирование изображений",

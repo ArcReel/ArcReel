@@ -39,6 +39,8 @@ export default {
   "image_dashscope_4k_t2i_only": "Model {{model}}: 4K output is only supported by wan2.7-image-pro for text-to-image; use 2K or lower",
   "image_reference_images_exceeded": "Model {{model}} supports at most {{limit}} reference images but this request carried {{count}}; nothing was submitted; generate again",
   "image_reference_images_unreadable": "Model {{model}} has reference images that are missing or unreadable; generation aborted: {{names}}; check the reference image paths",
+  "image_resolution_not_supported": "Model {{model}} does not support {{resolution}} resolution (only {{supported}}); choose a supported resolution",
+  "image_aspect_ratio_not_supported": "Model {{model}} does not support aspect ratio {{aspect_ratio}} (only {{supported}}); choose a supported aspect ratio",
   "image_seedream_edits_unavailable": "The current call endpoint for model {{model}} does not support generation with reference images; change it to “Seedream (1K) / Seedream (2K)” in model settings and try again",
   "narration_tts_speed_out_of_range": "The selected TTS model supports voice speeds from {{minimum}} to {{maximum}}, but the current value is {{speed}}. Change or clear the voice speed",
   "ark_agent_plan_tts_access_denied": "Volcengine Ark Agent Plan rejected the speech synthesis request (error code {{code}}). The API key may be invalid, the plan may not include speech synthesis, the quota or concurrency limit may be used up, or the voice may not be authorized. Check the plan status and voice in the Ark console, then retry; ArcReel does not fall back to pay-as-you-go speech synthesis",

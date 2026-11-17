@@ -36,7 +36,9 @@ from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KLING_IMAGE_BACKENDS
-from lib.backends.image_backends.minimax import MiniMaxImageBackend
+from lib.backends.image_backends.minimax import H3_EDITS_PATH as MINIMAX_H3_EDITS_PATH
+from lib.backends.image_backends.minimax import H3_GENERATIONS_PATH as MINIMAX_H3_GENERATIONS_PATH
+from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend, MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
 from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMAGES_PATH
@@ -607,6 +609,11 @@ _DASHSCOPE_ASYNC_VIDEO_REQUESTS = _python_requests(
     ("poll", "cp_request_poll", "/tasks/{{ task_id }}"),
 )
 _MINIMAX_IMAGE_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_generate", "/image_generation"))
+_MINIMAX_H3_IMAGE_REQUESTS = _python_requests(
+    "ensure_v1",
+    ("generate", "cp_request_generate", MINIMAX_H3_GENERATIONS_PATH),
+    ("edit", "cp_request_edit", MINIMAX_H3_EDITS_PATH),
+)
 # 模型目录查询在每次生成时按模型读参数声明，与生成同挂在 base_url 下，中转站改路径时两条一起改；
 # 它不是供应商层面的模型发现（docs/adr/0101 中不用覆盖的那一类），所以同样开放覆盖。
 _OPENROUTER_IMAGES_REQUESTS = _python_requests(
@@ -787,6 +794,23 @@ def _build_minimax_image(
         model_id,
     )
     delegate = MiniMaxImageBackend(
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_minimax_h3_image(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
+    # 与 image-01 同一 {host}/v1 归一化：文生图与参考图编辑两条请求各自可覆盖路径
+    layer = path_override_layer(
+        _MINIMAX_H3_IMAGE_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        minimax_text_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = MiniMaxH3ImageBackend(
         api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
@@ -1159,6 +1183,18 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_minimax_image,
         requests=_MINIMAX_IMAGE_REQUESTS,
         metering_backend=MiniMaxImageBackend,
+    ),
+    "minimax-h3-image": EndpointSpec(
+        key="minimax-h3-image",
+        media_type="image",
+        family="minimax",
+        display_name_key="endpoint_minimax_h3_image_display",
+        request_method="POST",
+        request_path_template=MINIMAX_H3_GENERATIONS_PATH,
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_minimax_h3_image,
+        requests=_MINIMAX_H3_IMAGE_REQUESTS,
+        metering_backend=MiniMaxH3ImageBackend,
     ),
     **{
         key: EndpointSpec(
@@ -1760,7 +1796,7 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
        落到下方 4) 的通用视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现
        请求构造，同样排除出原生路由（见 classify_wan_model 的 is_videoedit 处的说明）。
     2) MiniMax 原生 token → 海螺（Fast 与非 Fast 各一键）/ S2V / H3 分别走各自声明式端点，
-       image-01 走 "minimax-image"。先于通用
+       image-01 走 "minimax-image"，MiniMax-H3-Image 系列走 "minimax-h3-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
        输入受限的 Fast / S2V 只认精确型号名（剥离中转命名空间前缀后比较），非精确海螺别名落
        通用海螺键，其余 s2v 形态落 4) 的通用视频端点。
@@ -1836,9 +1872,10 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
         return dashscope_video_endpoint_for_name(model_id)
 
     # MiniMax 原生 token 二级路由：海螺（含 minimax-hailuo）/ S2V / H3 → 两步或单步取回的视频端点；
-    # image-01 → 单步图像端点。先于通用 is_video/is_image：s2v 与 h3 均不被 _VIDEO_PATTERN 覆盖，
-    # image-01 含 "image" 否则会被通用图像家族抢走。匹配 "minimax-h3" 而非裸 "h3"——后者过短，
-    # 容易撞上其它厂商恰好含 h3 子串的型号 id。
+    # image-01 → 单步图像端点，MiniMax-H3-Image 系列 → H3 图像端点。先于通用 is_video/is_image：s2v 与 h3
+    # 均不被 _VIDEO_PATTERN 覆盖，image-01 含 "image" 否则会被通用图像家族抢走。匹配 "minimax-h3" 而非裸
+    # "h3"——后者过短，容易撞上其它厂商恰好含 h3 子串的型号 id；"minimax-h3-image" 先于 "minimax-h3"
+    # 判定，否则 H3 图像型号会被推到 H3 视频端点。
     #
     # 输入受限的 Fast 与 S2V 只认精确型号名（见 _MINIMAX_FAST_MODELS / _MINIMAX_S2V_MODELS）：
     # "MiniMax-Hailuo-2.3-Fast" 与 "MiniMax-Hailuo-2.3" 前缀碰撞，宽松子串会把非 Fast 型号或
@@ -1853,6 +1890,8 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
         return "minimax-hailuo-v1-fast" if canonical in _MINIMAX_FAST_MODELS else "minimax-hailuo-v1"
     if canonical in _MINIMAX_S2V_MODELS:
         return "minimax-s2v-01"
+    if "minimax-h3-image" in lowered:
+        return "minimax-h3-image"
     if "minimax-h3" in lowered:
         return "minimax-h3"
     if "image-01" in lowered:

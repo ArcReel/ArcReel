@@ -161,7 +161,21 @@ def minimax_failure_reason(payload: object) -> str | None:
 # 仅允许进日志的标量字段白名单；prompt 仅记长度、subject_reference 仅计数，
 # base64/URL 一律不入日志（对齐 CodeQL clear-text-logging 约束）。
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
-    {"model", "aspect_ratio", "width", "height", "response_format", "n", "prompt_optimizer", "seed"}
+    {
+        "model",
+        "aspect_ratio",
+        "width",
+        "height",
+        "response_format",
+        "n",
+        "prompt_optimizer",
+        "seed",
+        # H3 图像（/images/generations、/images/edits）的尺寸与输出字段
+        "size",
+        "area",
+        "output_format",
+        "disable_prompt_enhanced",
+    }
 )
 
 

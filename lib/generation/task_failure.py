@@ -36,6 +36,7 @@ from lib.infra.error_params import (
 # AST-scans the raise sites and fails CI when a new code is added without registering it.
 CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
     {
+        "image_aspect_ratio_not_supported",
         "image_capability_missing_i2i",
         "image_capability_missing_t2i",
         "image_dashscope_4k_t2i_only",
@@ -43,6 +44,7 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
         "image_endpoint_mismatch_no_t2i",
         "image_reference_images_exceeded",
         "image_reference_images_unreadable",
+        "image_resolution_not_supported",
         "image_seedream_edits_unavailable",
         "ref_payload_floor_exceeded",
         "video_capability_missing_t2v",

@@ -111,6 +111,7 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
         "vidu-video-q3-drama": BuiltinEndpoint("video", since="0.37.1"),
         "vidu-video-q3-mix": BuiltinEndpoint("video", since="0.37.1"),
         "vidu-video-q3-ad": BuiltinEndpoint("video", since="0.37.1"),
+        "minimax-h3-image": BuiltinEndpoint("image", since="0.37.1"),
     }
 )
 
@@ -184,7 +185,7 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
         },
         "minimax": {
             "text": _single("openai-chat"),
-            "image": _single("minimax-image"),
+            "image": ProviderEndpointOptions(("minimax-image", "minimax-h3-image"), "minimax-image"),
             "video": ProviderEndpointOptions(
                 ("minimax-hailuo-v1", "minimax-hailuo-v1-fast", "minimax-s2v-01", "minimax-h3"), "minimax-hailuo-v1"
             ),
