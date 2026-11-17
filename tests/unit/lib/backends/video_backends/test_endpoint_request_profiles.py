@@ -12,24 +12,28 @@ from tests.http_capture import capture_http
 
 
 @pytest.mark.parametrize(
-    ("endpoint", "route", "seconds", "audio"),
+    ("endpoint", "route", "seconds", "audio", "sent_audio"),
     [
-        ("vidu-video-generic", "text2video", 12, False),
-        ("vidu-video-q3-pro", "text2video", 12, True),
-        ("vidu-video-q3-turbo", "reference2video", 12, True),
-        ("vidu-video-q3-fast", "img2video", 12, True),
-        ("vidu-video-q3-reference", "reference2video", 12, True),
-        ("vidu-video-q2", "text2video", 10, False),
-        ("vidu-video-q2-pro", "start-end2video", 10, False),
-        ("vidu-video-q2-fast", "start-end2video", 10, False),
-        ("vidu-video-q2-fast", "img2video", 10, False),
-        ("vidu-video-q1", "text2video", 5, False),
-        ("vidu-video-q1-classic", "img2video", 5, False),
-        ("vidu-video-2", "img2video", 8, False),
-        ("vidu-video-q4", "reference2video", 12, True),
+        ("vidu-video-generic", "text2video", 12, False, False),
+        ("vidu-video-q3-pro", "text2video", 12, True, True),
+        ("vidu-video-q3-turbo", "reference2video", 12, True, True),
+        ("vidu-video-q3-fast", "img2video", 12, True, True),
+        ("vidu-video-q3-reference", "reference2video", 12, True, True),
+        ("vidu-video-q3-drama", "reference2video", 12, True, True),
+        # Mix 音画同出但没有音轨开关：请求里不发 audio，成片与计量按有声记
+        ("vidu-video-q3-mix", "reference2video", 12, True, False),
+        ("vidu-video-q3-ad", "reference2video", 12, False, False),
+        ("vidu-video-q2", "text2video", 10, False, False),
+        ("vidu-video-q2-pro", "start-end2video", 10, False, False),
+        ("vidu-video-q2-fast", "start-end2video", 10, False, False),
+        ("vidu-video-q2-fast", "img2video", 10, False, False),
+        ("vidu-video-q1", "text2video", 5, False, False),
+        ("vidu-video-q1-classic", "img2video", 5, False, False),
+        ("vidu-video-2", "img2video", 8, False, False),
+        ("vidu-video-q4", "reference2video", 12, True, True),
     ],
 )
-async def test_vidu_endpoint_request_and_metering_ignore_name(endpoint, route, seconds, audio, tmp_path):
+async def test_vidu_endpoint_request_and_metering_ignore_name(endpoint, route, seconds, audio, sent_audio, tmp_path):
     image = tmp_path / "in.png"
     image.write_bytes(b"image")
     fields = {}
@@ -56,7 +60,8 @@ async def test_vidu_endpoint_request_and_metering_ignore_name(endpoint, route, s
         body = json.loads(submit.calls[0].request.content)
         assert body["model"] == model
         assert body["duration"] == seconds
-        assert body.get("audio", False) is audio
+        assert ("audio" in body) is sent_audio
+        assert body.get("audio", audio) is audio
         usage = backend.metered_usage(model, request)
         assert usage.quantities["output_seconds"] == seconds
         assert usage.dimensions["audio"] is audio

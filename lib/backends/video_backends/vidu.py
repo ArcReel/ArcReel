@@ -62,9 +62,11 @@ _REFERENCE_AUDIO_MIME_TYPES = {".mp3": "video/mp3"}
 class ViduEndpoint:
     """固定的音轨字段、各执行子路径的时长契约（ADR 0018）与输入上限。
 
+    ``audio`` 表示请求体带音轨开关 ``audio``；不带开关时，``native_audio`` 表示成片固定有声（音画同出），否则无声。
     ``max_prompt_chars`` 是文生、图生、首尾帧的提示词上限，``max_reference_prompt_chars`` 是参考生视频的；
     ``max_reference_images`` 与 ``max_reference_audio`` 是参考生视频一次能带的参考图张数与参考音频段数，
-    参考音频为 0 时不收。
+    参考音频为 0 时不收。``default_duration`` 是未指定时长时发送的秒数，为空时取 5 秒或时长表首项。
+    ``reference_aspect_ratios`` 是参考生视频接受的画面比例，为空时不在本地校验。
     """
 
     key: str
@@ -74,6 +76,20 @@ class ViduEndpoint:
     max_prompt_chars: int = 5000
     max_reference_prompt_chars: int = 2000
     max_reference_audio: int = 0
+    native_audio: bool = False
+    default_duration: int | None = None
+    reference_aspect_ratios: frozenset[str] = frozenset()
+
+    @property
+    def audio_track(self) -> VideoAudioMode:
+        """成片音轨：带开关时可控；不带开关时按模型是否音画同出固定有声或无声。"""
+        if self.audio:
+            return VideoAudioMode.CONTROLLABLE
+        return VideoAudioMode.ALWAYS_ON if self.native_audio else VideoAudioMode.ALWAYS_OFF
+
+    def output_audio(self, requested: bool) -> bool:
+        """成片是否有声：带开关时取请求意图，否则取端点固定值。"""
+        return bool(requested) if self.audio else self.native_audio
 
     def prompt_limit(self, path: str) -> int:
         """发往子路径 ``path`` 的提示词上限。"""
@@ -138,6 +154,36 @@ VIDU_Q4 = ViduEndpoint(
     max_reference_prompt_chars=20000,
     max_reference_audio=3,
 )
+# Q3 行业与均衡型号只走参考生视频，请求契约按官方参考生视频文档逐型号声明，不沿用 viduq3 的参数：
+# 提示词上限都是 20000，参考图 1～7 张，都不收错峰。
+_Q3_WIDE_ASPECT_RATIOS = frozenset({"1:1", "16:9", "9:16", "3:4", "4:3", "auto"})
+# viduq3-drama：带音轨开关，收 0～3 段参考音频（sounds），时长 2～16 秒、默认 8 秒，比例只有 16:9、9:16 与 auto。
+VIDU_Q3_DRAMA = ViduEndpoint(
+    "vidu-video-q3-drama",
+    True,
+    {"/reference2video": tuple(range(2, 17))},
+    max_reference_prompt_chars=20000,
+    max_reference_audio=3,
+    default_duration=8,
+    reference_aspect_ratios=frozenset({"16:9", "9:16", "auto"}),
+)
+# viduq3-mix：文档没有音轨开关与参考音频字段，型号说明写明音画同出，成片固定有声；时长 3～15 秒。
+VIDU_Q3_MIX = ViduEndpoint(
+    "vidu-video-q3-mix",
+    False,
+    {"/reference2video": tuple(range(3, 16))},
+    max_reference_prompt_chars=20000,
+    native_audio=True,
+    reference_aspect_ratios=_Q3_WIDE_ASPECT_RATIOS,
+)
+# viduq3-ad：文档没有音轨开关与参考音频字段，也没有声明音画同出，按无声处理；时长 3～15 秒。
+VIDU_Q3_AD = ViduEndpoint(
+    "vidu-video-q3-ad",
+    False,
+    {"/reference2video": tuple(range(3, 16))},
+    max_reference_prompt_chars=20000,
+    reference_aspect_ratios=_Q3_WIDE_ASPECT_RATIOS,
+)
 
 
 # 端点是否接受 aspect_ratio
@@ -190,7 +236,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
             last_frame=True,
             max_reference_images=endpoint.max_reference_images,
             max_prompt_chars=endpoint.declared_prompt_limit,
-            audio_track=(VideoAudioMode.CONTROLLABLE if endpoint.audio else VideoAudioMode.ALWAYS_OFF),
+            audio_track=endpoint.audio_track,
             reference_audio_mode=(
                 ReferenceAudioMode.DIRECT if endpoint.max_reference_audio else ReferenceAudioMode.NONE
             ),
@@ -254,7 +300,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
             seed=request.seed,
             usage_tokens=int(actual_credits) if actual_credits is not None else None,
             task_id=task_id,
-            generate_audio=request.generate_audio if self.endpoint.audio else False,
+            generate_audio=self.endpoint.output_audio(request.generate_audio),
         )
 
     # ── request building ────────────────────────────────────────────────
@@ -287,6 +333,14 @@ class ViduVideoBackend(EntryBoundCapabilities):
                     model=self._model,
                     limit=profile.max_reference_images,
                     count=count,
+                )
+            allowed_ratios = profile.reference_aspect_ratios
+            if allowed_ratios and request.aspect_ratio and request.aspect_ratio not in allowed_ratios:
+                raise VideoCapabilityError(
+                    "video_aspect_ratio_not_supported",
+                    model=self._model,
+                    aspect_ratio=request.aspect_ratio,
+                    supported=", ".join(sorted(allowed_ratios)),
                 )
         if endpoint == "/text2video" and request.end_image is not None:
             raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
@@ -327,7 +381,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
         if request.seed is not None:
             body["seed"] = request.seed
 
-        # 6) audio 仅 q3 系列接受
+        # 6) audio 只发给文档声明了音轨开关的端点
         if self.endpoint.audio:
             body["audio"] = bool(request.generate_audio)
 
@@ -387,7 +441,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
             result,
             seconds=seconds,
             resolution=request.resolution or None,
-            audio=bool(request.generate_audio) if cls.endpoint.audio else False,
+            audio=cls.endpoint.output_audio(request.generate_audio),
             reference_images=len(_reference_images(request)) if endpoint == "/reference2video" else 0,
             reference_to_video=endpoint == "/reference2video",
         )
@@ -447,6 +501,9 @@ def _coerce_duration(profile: ViduEndpoint, endpoint: str, requested: int | None
         # 表里无项时不强校（让接口按默认处理），但若给了值就透传
         return int(requested) if requested else 5
     if requested is None:
+        default = profile.default_duration
+        if default is not None and default in allowed:
+            return default
         return allowed[0] if 5 not in allowed else 5
     if requested in allowed:
         return int(requested)
@@ -490,6 +547,24 @@ class ViduQ3ReferenceVideoBackend(ViduVideoBackend):
     """``vidu-video-q3-reference`` 请求契约。"""
 
     endpoint = VIDU_Q3_REFERENCE
+
+
+class ViduQ3DramaVideoBackend(ViduVideoBackend):
+    """``vidu-video-q3-drama`` 请求契约。"""
+
+    endpoint = VIDU_Q3_DRAMA
+
+
+class ViduQ3MixVideoBackend(ViduVideoBackend):
+    """``vidu-video-q3-mix`` 请求契约。"""
+
+    endpoint = VIDU_Q3_MIX
+
+
+class ViduQ3AdVideoBackend(ViduVideoBackend):
+    """``vidu-video-q3-ad`` 请求契约。"""
+
+    endpoint = VIDU_Q3_AD
 
 
 class ViduQ2VideoBackend(ViduVideoBackend):
@@ -542,6 +617,9 @@ VIDU_BACKENDS: Mapping[str, type[ViduVideoBackend]] = {
         ViduQ3TurboVideoBackend,
         ViduQ3FastVideoBackend,
         ViduQ3ReferenceVideoBackend,
+        ViduQ3DramaVideoBackend,
+        ViduQ3MixVideoBackend,
+        ViduQ3AdVideoBackend,
         ViduQ2VideoBackend,
         ViduQ2ProVideoBackend,
         ViduQ2FastVideoBackend,
