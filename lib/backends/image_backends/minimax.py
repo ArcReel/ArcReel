@@ -278,13 +278,13 @@ _H3_REFERENCE_LIMIT = 16
 # 服务端同步等待最长 600 秒，官方要求客户端超时不少于此值。
 _H3_HTTP_TIMEOUT_SECONDS = 600.0
 # size=auto 时由 area 档位决定目标面积；缺 image_size 时取 2K，不落到服务端默认的 4K。
-_H3_AREA_TIERS: frozenset[str] = frozenset({"1K", "2K", "4K"})
+_H3_AREA_TIERS: tuple[str, ...] = ("1K", "2K", "4K")
 _H3_DEFAULT_AREA = "2K"
-_H3_SUPPORTED_AREAS = "1K, 2K, 4K"
+_H3_SUPPORTED_AREAS = ", ".join(_H3_AREA_TIERS)
 # aspect_ratio 的 X、Y 是 1–300 的整数，比例在 1:3 到 3:1 之间（含端点）；显式宽x高同样受此比例约束。
 _H3_MAX_RATIO_TERM = 300
 _H3_MAX_RATIO = 3
-_H3_SUPPORTED_RATIOS = "1:3 – 3:1"
+_H3_SUPPORTED_RATIOS = f"1:{_H3_MAX_RATIO} – {_H3_MAX_RATIO}:1"
 # 显式宽x高的面积范围（含端点），服务端不缩放、不取整，越界直接 400。
 _H3_MIN_PIXELS = 655_360
 _H3_MAX_PIXELS = 20_000_000
@@ -440,9 +440,14 @@ class MiniMaxH3ImageBackend:
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
         """预估用量保持未知：官方按实际 token 计费，没有公布由请求事实推出 token 数的规则。
 
-        不报任何计量项，按 token 计价的价目表据此记为无法预估，不套用其他供应商的 token 公式，也不记 0。
+        不报任何计量项，按 token 计价的价目表据此记为无法预估，不套用其他供应商的 token 公式，也不记 0；
+        选择维度仍按请求构造的同一套尺寸规则给出，使自定义供应商下按张分分辨率计价的模型与结算同口径。
         """
-        return Usage()
+        try:
+            params = _h3_size_params(facts.image_size, facts.aspect_ratio, facts.model)
+        except (ImageCapabilityError, ValueError):
+            return Usage()
+        return Usage(dimensions=_h3_resolution_dimension(params))
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         params = _h3_size_params(request.image_size, request.aspect_ratio, self._model)

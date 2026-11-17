@@ -18,10 +18,15 @@ from .vocabulary import MediaType
 
 @dataclass(frozen=True)
 class BuiltinEndpoint:
-    """一个内置调用端点。``since`` 是起始版本，即第一个带这个端点的应用版本；基线端点不带起始版本。"""
+    """一个内置调用端点。
+
+    ``since`` 是起始版本，即第一个带这个端点的应用版本；基线端点不带起始版本。
+    ``requires_output_token_rules`` 表示挂接它的图片模型按 ``image_output_tokens`` 计价时，条目须收录输出 token 估算规则。
+    """
 
     media_type: MediaType
     since: str | None = None
+    requires_output_token_rules: bool = False
 
 
 @dataclass(frozen=True)
@@ -59,9 +64,9 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
             "grok-image",
             "kling-image",
             "minimax-image",
-            "openai-images",
             "vidu-image",
         ),
+        "openai-images": BuiltinEndpoint("image", requires_output_token_rules=True),
         **_baseline(
             "video",
             "agnes-video-2",

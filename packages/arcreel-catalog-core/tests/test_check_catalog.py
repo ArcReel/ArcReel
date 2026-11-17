@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from catalog_factories import catalog, text_entry, video_entry
 
-from arcreel_catalog_core import check_catalog
+from arcreel_catalog_core import check_catalog, check_entry
 
 
 def _codes(raw: object) -> list[tuple[str, str]]:
@@ -258,19 +258,41 @@ def test_quality_with_both_plain_and_scaled_base_is_rejected():
     assert _codes(data) == [("entries[2].facts.output_token_scaled_bases.low", "output_token_quality_overlap")]
 
 
-def _priced_by_output_tokens(data: dict[str, Any]) -> dict[str, Any]:
-    """把图片条目换成按输出图片 token 计价。"""
+def _priced_by_output_tokens(
+    data: dict[str, Any], *, provider: str = "openai", endpoint: str = "openai-images"
+) -> dict[str, Any]:
+    """把图片条目换成按输出图片 token 计价，并挂到指定供应商端点下。"""
     entry = data["entries"][2]
     entry["price"]["meters"] = [{"meter": "image_output_tokens", "dims": [], "rows": [{"when": {}, "price": 30.0}]}]
+    data["builtin_providers"][provider] = {
+        "models": [
+            {
+                "api_model_name": entry["name"],
+                "entry": f"{entry['maker']}/{entry['name']}",
+                "media_type": "image",
+                "endpoint": endpoint,
+            }
+        ],
+        "defaults": {"image": entry["name"]},
+    }
     return entry
 
 
 def test_image_priced_by_output_tokens_without_estimation_rules_is_rejected():
-    """按输出图片 token 计价、却没有收录估算规则的图片条目，调用前估不出费用。"""
+    """挂在 openai-images 上按输出图片 token 计价、却没有收录估算规则的图片条目，调用前估不出费用。"""
     data = catalog()
     _priced_by_output_tokens(data)
 
     assert _codes(data) == [("entries[2].facts", "missing_output_token_rules")]
+
+
+def test_non_openai_image_priced_by_output_tokens_allows_unknown_estimate():
+    """挂在不带输出 token 公式的端点（如 minimax-h3-image）或单条校验时，允许省略估算规则。"""
+    data = catalog()
+    entry = _priced_by_output_tokens(data, provider="minimax", endpoint="minimax-h3-image")
+
+    assert _codes(data) == []
+    assert check_entry(entry) == []
 
 
 @pytest.mark.parametrize(

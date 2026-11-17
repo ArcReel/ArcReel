@@ -1,4 +1,4 @@
-"""MiniMaxH3ImageBackend 单元测试（respx 拦截出站 HTTP，不调用真实供应商）。
+"""MiniMaxH3ImageBackend 单元测试（respx 拦截全部出站 HTTP，不调用真实供应商）。
 
 请求与响应形状取自官方文档：
 https://platform.minimax.cn/docs/api-reference/image-generation-h3-generations
@@ -10,16 +10,21 @@ from __future__ import annotations
 import base64
 from collections.abc import Generator
 from contextlib import contextmanager
-from email import policy
-from email.parser import BytesParser
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 import respx
 
-from arcreel_catalog_core import Meter, PriceRow, PriceTable
+from arcreel_catalog_core import (
+    Meter,
+    PriceRow,
+    PriceTable,
+    check_catalog,
+    dump_entry,
+    endpoint_version_floor,
+    parse_catalog,
+)
 from lib.backends.http_status_errors import AmbiguousSubmitError
 from lib.backends.image_backends.base import (
     ImageCapability,
@@ -31,13 +36,23 @@ from lib.backends.image_backends.base import (
 )
 from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend
 from lib.backends.providers import PROVIDER_MINIMAX
-from lib.billing.metering import Unpriced, UnpricedReason, price_usage
-from tests.http_capture import capture_http, only_request, request_json
+from lib.billing.metering import Priced, Unpriced, UnpricedReason, price_usage
+from lib.catalog import query as catalog
+from tests.http_capture import (
+    capture_http,
+    only_request,
+    request_form_fields,
+    request_form_files,
+    request_json,
+)
 
+# RFC 5737 TEST-NET-3 公网文档地址：既经过 check_destination 的真实地址校验，又不发起 DNS 查询。
+_BASE_URL = "https://203.0.113.10"
 _GENERATIONS = r"https://[^/]+/v1/images/generations"
 _EDITS = r"https://[^/]+/v1/images/edits"
 _MODELS = ("MiniMax-H3-Image", "MiniMax-H3-Image-Highspeed")
-_RESULT_URL = "https://cdn.example/out.png"
+_RESULT_URL = "https://203.0.113.7/out.png"
+_DOWNLOADED_BYTES = b"\x89PNG\r\n\x1a\nh3-image"
 
 _USAGE = {
     "generated_images": 1,
@@ -70,41 +85,19 @@ def _refs(tmp_path: Path, count: int, suffix: str = ".png") -> list[ReferenceIma
     return refs
 
 
-def _multipart(request: httpx.Request) -> tuple[dict[str, str], list[tuple[str, str, str, bytes]]]:
-    """拆开 multipart 请求：文本字段按 UTF-8 解码；文件部分按出现顺序给出（字段名、文件名、Content-Type、内容）。
-
-    httpx 的文本字段不带 charset，按原始字节解 UTF-8，中文提示词才能原样比对。
-    """
-    message = BytesParser(policy=policy.default).parsebytes(
-        f"Content-Type: {request.headers['content-type']}\r\n\r\n".encode() + request.content
-    )
-    fields: dict[str, str] = {}
-    files = []
-    for part in message.iter_parts():
-        name = str(part.get_param("name", header="content-disposition"))
-        content = part.get_payload(decode=True)
-        filename = part.get_filename()
-        if filename is None:
-            fields[name] = content.decode("utf-8")
-        else:
-            files.append((name, filename, part.get_content_type(), content))
-    return fields, files
-
-
 @contextmanager
-def _routes(response: httpx.Response | list[httpx.Response]) -> Generator[tuple[respx.Route, respx.Route, AsyncMock]]:
-    """文生图与参考图编辑两条路由，外加接管结果 URL 下载的替身。"""
-    download = AsyncMock()
+def _routes(response: httpx.Response | list[httpx.Response]) -> Generator[tuple[respx.Route, respx.Route, respx.Route]]:
+    """文生图、参考图编辑与结果 URL 下载三条真实 httpx 路由。"""
     with capture_http() as router:
         mock = {"side_effect": response} if isinstance(response, list) else {"return_value": response}
         generations = router.post(url__regex=_GENERATIONS).mock(**mock)
         edits = router.post(url__regex=_EDITS).mock(**mock)
-        with patch("lib.backends.image_backends.minimax.download_image_to_path", download):
-            yield generations, edits, download
+        download = router.get(_RESULT_URL).mock(return_value=httpx.Response(200, content=_DOWNLOADED_BYTES))
+        yield generations, edits, download
 
 
 def _backend(model: str = "MiniMax-H3-Image", **kwargs) -> MiniMaxH3ImageBackend:
-    return MiniMaxH3ImageBackend(api_key="sk", model=model, base_url="https://api.minimaxi.com", **kwargs)
+    return MiniMaxH3ImageBackend(api_key="sk", model=model, base_url=_BASE_URL, **kwargs)
 
 
 class TestChannelFacts:
@@ -140,7 +133,7 @@ class TestTextToImage:
 
         request = only_request(generations)
         assert not edits.called
-        assert str(request.url) == "https://api.minimaxi.com/v1/images/generations"
+        assert str(request.url) == f"{_BASE_URL}/v1/images/generations"
         assert request.headers["Authorization"] == "Bearer sk"
         assert request_json(request) == {
             "model": model,
@@ -152,7 +145,8 @@ class TestTextToImage:
             "area": "2K",
             "disable_prompt_enhanced": True,
         }
-        download.assert_awaited_once_with(_RESULT_URL, output)
+        assert download.call_count == 1
+        assert output.read_bytes() == _DOWNLOADED_BYTES
         assert result.model == model
         assert result.image_uri == _RESULT_URL
 
@@ -170,7 +164,7 @@ class TestTextToImage:
 
         assert output.read_bytes() == b"\x89PNG-bytes"
         assert result.image_uri is None
-        download.assert_not_called()
+        assert not download.called
 
     @pytest.mark.parametrize(("suffix", "output_format"), [(".jpg", "jpeg"), (".webp", "webp"), (".png", "png")])
     async def test_output_format_follows_the_output_path(self, tmp_path: Path, suffix: str, output_format: str):
@@ -183,7 +177,7 @@ class TestTextToImage:
         item = {"error": {"code": 1027, "message": "content safety"}}
         with _routes(_image_response(item=item)) as (_, _, download), pytest.raises(ImageOutputMissingError):
             await _backend().generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        download.assert_not_called()
+        assert not download.called
 
 
 class TestReferenceEdit:
@@ -193,20 +187,18 @@ class TestReferenceEdit:
         jpeg = tmp_path / "late.jpg"
         jpeg.write_bytes(b"jpeg-bytes")
         refs.append(ReferenceImage(path=str(jpeg)))
-        with _routes(_image_response(usage=_USAGE)) as (generations, edits, _download):
+        output = tmp_path / "o.png"
+        with _routes(_image_response(usage=_USAGE)) as (generations, edits, download):
             await _backend(model).generate(
-                ImageGenerationRequest(
-                    prompt="图1 的人站在图4 的街口", output_path=tmp_path / "o.png", reference_images=refs
-                )
+                ImageGenerationRequest(prompt="图1 的人站在图4 的街口", output_path=output, reference_images=refs)
             )
 
         request = only_request(edits)
         assert not generations.called
-        assert str(request.url) == "https://api.minimaxi.com/v1/images/edits"
+        assert str(request.url) == f"{_BASE_URL}/v1/images/edits"
         assert request.headers["Authorization"] == "Bearer sk"
         assert request.headers["content-type"].startswith("multipart/form-data")
-        fields, files = _multipart(request)
-        assert fields == {
+        assert request_form_fields(request) == {
             "model": model,
             "prompt": "图1 的人站在图4 的街口",
             "n": "1",
@@ -215,12 +207,14 @@ class TestReferenceEdit:
             "aspect_ratio": "9:16",
             "area": "2K",
         }
-        assert files == [
+        assert request_form_files(request) == [
             ("image[]", "ref-0.png", "image/png", b"img-0"),
             ("image[]", "ref-1.png", "image/png", b"img-1"),
             ("image[]", "ref-2.png", "image/png", b"img-2"),
             ("image[]", "late.jpg", "image/jpeg", b"jpeg-bytes"),
         ]
+        assert download.call_count == 1
+        assert output.read_bytes() == _DOWNLOADED_BYTES
 
     async def test_sixteen_references_are_all_sent(self, tmp_path: Path):
         with _routes(_image_response()) as (_, edits, _download):
@@ -228,7 +222,9 @@ class TestReferenceEdit:
                 ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=_refs(tmp_path, 16))
             )
 
-        assert [name for _, name, _, _ in _multipart(only_request(edits))[1]] == [f"ref-{i}.png" for i in range(16)]
+        assert [name for _, name, _, _ in request_form_files(only_request(edits))] == [
+            f"ref-{i}.png" for i in range(16)
+        ]
 
     async def test_seventeen_references_are_rejected_before_submission(self, tmp_path: Path):
         with _routes(_image_response()) as (generations, edits, _download), pytest.raises(ImageCapabilityError) as exc:
@@ -334,11 +330,14 @@ class TestUsage:
         assert dict(result.usage.quantities) == {"output_images": 1}
         assert result.image_output_tokens is None
 
-    def test_estimate_stays_unknown_under_a_token_price_table(self):
+    def test_estimate_stays_unknown_under_token_price_table_and_preserves_resolution_dimension(self):
+        from lib.custom_provider.metering import with_image_counts
+
         usage = MiniMaxH3ImageBackend.estimate_usage(
-            ImageRequestFacts(model="MiniMax-H3-Image", aspect_ratio="9:16", image_size="2K", reference_count=2)
+            ImageRequestFacts(model="MiniMax-H3-Image", aspect_ratio="9:16", image_size="4k", reference_count=2)
         )
-        table = PriceTable(
+        assert dict(usage.dimensions) == {"resolution": "4K"}
+        token_table = PriceTable(
             currency="CNY",
             meters=tuple(
                 Meter(meter=meter, dims=(), rows=(PriceRow(when={}, price=price),))
@@ -349,8 +348,21 @@ class TestUsage:
                 )
             ),
         )
-
-        assert price_usage(table, usage, multiplier=1.0, estimate=True) == Unpriced(UnpricedReason.NO_USAGE_ESTIMATE)
+        assert price_usage(token_table, usage, multiplier=1.0, estimate=True) == Unpriced(
+            UnpricedReason.NO_USAGE_ESTIMATE
+        )
+        # 自定义供应商下按张分分辨率档计价时，预估与结算同用 resolution 维度
+        per_image_table = PriceTable(
+            currency="CNY",
+            meters=(
+                Meter(
+                    meter="output_images", dims=("resolution",), rows=(PriceRow(when={"resolution": "4K"}, price=0.5),)
+                ),
+            ),
+        )
+        assert price_usage(per_image_table, with_image_counts(usage, 2), multiplier=1.0, estimate=True) == Priced(
+            0.5, "CNY"
+        )
 
 
 class TestSubmissionIsNotRepeated:
@@ -361,7 +373,7 @@ class TestSubmissionIsNotRepeated:
                 await _backend().generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
 
         assert generations.call_count == 1
-        download.assert_not_called()
+        assert not download.called
 
     @pytest.mark.parametrize("status", [500, 502, 504, 408])
     async def test_server_or_gateway_failure_is_not_resubmitted(self, tmp_path: Path, poll_clock, status: int):
@@ -379,13 +391,13 @@ class TestSubmissionIsNotRepeated:
             await _backend().generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
 
         assert generations.call_count == 2
-        download.assert_awaited_once()
+        assert download.call_count == 1
 
     async def test_download_failure_is_retried_without_resubmitting(self, tmp_path: Path, poll_clock):
         from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 
         with _routes(_image_response()) as (generations, _, download):
-            download.side_effect = httpx.ConnectError("conn reset")
+            download.mock(side_effect=httpx.ConnectError("conn reset"))
             with pytest.raises(RuntimeError, match="conn reset"):
                 await _backend().generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
 
@@ -400,23 +412,116 @@ class TestCustomProviderEndpoint:
         from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
         provider = SimpleNamespace(
-            id=7, provider_id="custom-7", api_key="sk", base_url="https://relay.example/v1", discovery_format="openai"
+            id=7, provider_id="custom-7", api_key="sk", base_url="https://203.0.113.11/v1", discovery_format="openai"
         )
         backend = ENDPOINT_REGISTRY["minimax-h3-image"].build_backend(
             provider, "MiniMax-H3-Image", {"edit": "/h3/edits"}
         )
         with capture_http() as router:
-            edits = router.post("https://relay.example/v1/h3/edits").mock(return_value=_image_response())
-            generations = router.post("https://relay.example/v1/images/generations").mock(
-                return_value=_image_response()
+            edits = router.post("https://203.0.113.11/v1/h3/edits").mock(return_value=_image_response())
+            generations = router.post("https://203.0.113.11/v1/images/generations").mock(return_value=_image_response())
+            download = router.get(_RESULT_URL).mock(return_value=httpx.Response(200, content=_DOWNLOADED_BYTES))
+            await backend.generate(
+                ImageGenerationRequest(prompt="p", output_path=tmp_path / "a.png", reference_images=_refs(tmp_path, 1))
             )
-            with patch("lib.backends.image_backends.minimax.download_image_to_path", AsyncMock()):
-                await backend.generate(
-                    ImageGenerationRequest(
-                        prompt="p", output_path=tmp_path / "a.png", reference_images=_refs(tmp_path, 1)
-                    )
-                )
-                await backend.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "b.png"))
+            await backend.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "b.png"))
 
         assert edits.call_count == 1
         assert generations.call_count == 1
+        assert download.call_count == 2
+
+
+class TestCatalogAndVersionFloor:
+    @staticmethod
+    def _raw_catalog() -> dict:
+        floor = endpoint_version_floor("minimax", "image", "minimax-h3-image")
+        assert floor == "0.37.1"
+        base = catalog.factory_snapshot()
+        image_01 = next(e for e in base.entries if e.maker == "minimax" and e.name == "image-01")
+        h3_entries = [
+            {
+                "maker": "minimax",
+                "name": name,
+                "media_type": "image",
+                "display_name": name.replace("-", " "),
+                "facts": {
+                    "text_to_image": True,
+                    "image_to_image": True,
+                    "resolutions": ["1K", "2K", "4K"],
+                    "max_reference_images": 16,
+                },
+                "price": {
+                    "currency": "CNY",
+                    "meters": [
+                        {"meter": "uncached_input_tokens", "dims": [], "rows": [{"when": {}, "price": 15.0}]},
+                        {"meter": "uncached_image_input_tokens", "dims": [], "rows": [{"when": {}, "price": img_in}]},
+                        {"meter": "image_output_tokens", "dims": [], "rows": [{"when": {}, "price": img_out}]},
+                    ],
+                },
+            }
+            for name, img_in, img_out in (
+                ("MiniMax-H3-Image", 10.0, 25.0),
+                ("MiniMax-H3-Image-Highspeed", 20.0, 50.0),
+            )
+        ]
+        return {
+            "dataset_version": "2026-11-18T00:00:00Z",
+            "entries": [dump_entry(image_01), *h3_entries],
+            "builtin_providers": {
+                "minimax": {
+                    "models": [
+                        {"api_model_name": "image-01", "entry": "minimax/image-01", "endpoint": "minimax-image"},
+                        *[
+                            {
+                                "api_model_name": e["name"],
+                                "entry": f"minimax/{e['name']}",
+                                "endpoint": "minimax-h3-image",
+                                "min_app_version": floor,
+                            }
+                            for e in h3_entries
+                        ],
+                    ],
+                    "defaults": {"image": "image-01"},
+                }
+            },
+        }
+
+    def test_catalog_accepts_h3_token_prices_and_gates_older_versions(self, monkeypatch: pytest.MonkeyPatch):
+        from lib.backends.backend_assembly.specs import builtin_model_endpoint
+        from lib.catalog.user_entries import new_entry
+        from tests.catalog_support import install_catalog
+
+        raw = self._raw_catalog()
+        assert check_catalog(raw) == []
+        data = parse_catalog(raw)
+
+        # 低于 0.37.1 时 H3 两款不进可用清单，只出现在 version_gated_models，image-01 照常可用
+        install_catalog(monkeypatch, data, app_version="0.37.0")
+        assert set(catalog.list_models("minimax")) == {"image-01"}
+        assert builtin_model_endpoint("minimax", "image", "image-01") == "minimax-image"
+        gated = {
+            view.model_id: (view.min_app_version, view.min_app_version_satisfied)
+            for view in catalog.version_gated_models("minimax")
+        }
+        assert gated == {
+            "MiniMax-H3-Image": ("0.37.1", False),
+            "MiniMax-H3-Image-Highspeed": ("0.37.1", False),
+        }
+
+        # 达到 0.37.1 后两款启用并绑定到 minimax-h3-image，默认模型仍是 image-01
+        install_catalog(monkeypatch, parse_catalog(raw), app_version="0.37.1")
+        assert set(catalog.list_models("minimax")) == {"image-01", "MiniMax-H3-Image", "MiniMax-H3-Image-Highspeed"}
+        assert catalog.default_model("minimax", "image") == "image-01"
+        for model in _MODELS:
+            assert builtin_model_endpoint("minimax", "image", model) == "minimax-h3-image"
+
+        # 用户在界面新建按输出图片 token 计价的条目（无 output_token_bases）同样通过校验
+        created = new_entry(
+            maker="minimax",
+            name="MiniMax-H3-Image-Custom",
+            media_type="image",
+            facts={"text_to_image": True, "image_to_image": True, "resolutions": ["1K", "2K", "4K"]},
+            price=raw["entries"][1]["price"],
+        )
+        assert created.price is not None
+        assert created.price.is_priceable
