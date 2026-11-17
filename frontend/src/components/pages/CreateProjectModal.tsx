@@ -280,8 +280,16 @@ export function CreateProjectModal() {
       if (style.mode === "custom" && style.uploadedFile) {
         try {
           await API.uploadStyleImage(resp.name, style.uploadedFile);
-        } catch {
-          useAppStore.getState().pushToast(t("style_upload_failed_hint"), "warning");
+        } catch (err) {
+          const detail = errMsg(err, "").trim();
+          useAppStore
+            .getState()
+            .pushToast(
+              detail
+                ? t("style_upload_failed_with_reason", { message: detail })
+                : t("style_upload_failed_hint"),
+              "warning",
+            );
         }
       }
 
