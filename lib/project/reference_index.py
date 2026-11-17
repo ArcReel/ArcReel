@@ -273,7 +273,9 @@ class ReferenceIndex:
                     return rel
                 parts.append(actual.name)
                 directory = actual
-        except (FileNotFoundError, NotADirectoryError):
+        except OSError:
+            # 不存在、不是目录，或者根本不是路径：资产条目的字符串字段里也有配音风格这类长文本，
+            # 超过文件名长度上限时 stat 报 ENAMETOOLONG。都按原样记下，不能让整次索引失败。
             return rel
         return "/".join(parts)
 

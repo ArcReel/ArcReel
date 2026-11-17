@@ -230,3 +230,22 @@ def test_corrupt_project_data_fails_instead_of_reporting_unreferenced(indexed_pr
 
     with pytest.raises(json.JSONDecodeError):
         ReferenceIndex.build(indexed_project_dir)
+
+
+def test_a_long_voice_style_does_not_break_the_index(tmp_path: Path) -> None:
+    # voice_style 是配音风格描述，不是路径；超过文件名长度上限（255 字节）时 stat 报 ENAMETOOLONG
+    voice = "A warm Chicago American female voice, low-middle register with a soft husky edge, " * 4
+    root = tmp_path / "demo"
+    _write(
+        root / "project.json",
+        {
+            "title": "demo",
+            "characters": {"Sophia": {"character_sheet": "characters/Sophia.png", "voice_style": voice}},
+            "episodes": [],
+        },
+    )
+    _write(root / "characters" / "Sophia.png", "png")
+
+    index = ReferenceIndex.build(root)
+
+    assert index.role_of("characters/Sophia.png") is FileRole.REFERENCED
