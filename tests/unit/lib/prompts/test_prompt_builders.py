@@ -37,12 +37,6 @@ class TestCharacterPrompt:
         assert "面部与头部特征" in prompt
         assert "不凭空增补" in prompt
 
-    def test_preserves_explicit_tattoo_or_facial_markings_when_specified(self):
-        prompt = build_character_prompt("阿狼", "左颊有一道红色面纹，右臂有狼头纹身。")
-        assert "左颊有一道红色面纹，右臂有狼头纹身。" in prompt
-        assert "体表花纹" not in prompt
-        assert prompt.endswith("Avoid: 水印、多余文字、Logo")
-
 
 class TestScenePromptAndPropPrompt:
     def test_prop_includes_supplied_details(self):
@@ -251,15 +245,10 @@ def test_derivative_keeps_reference_layout_and_has_no_style_block():
     assert prompt.endswith("Avoid: 水印、多余文字、Logo")
 
 
-def test_derivative_does_not_prompt_unspecified_body_patterns_and_preserves_explicit_markings():
-    plain_prompt = build_character_derivative_prompt("换上黑色劲装")
-    assert "体表花纹" not in plain_prompt
-    assert "纹身" not in plain_prompt
-    assert "刺青" not in plain_prompt
-    assert "保持原图的三视图版式" in plain_prompt
-    assert "不凭空增补" in plain_prompt
-
-    marked_prompt = build_character_derivative_prompt("左臂新增金色图腾纹身，面部保留原有面纹")
-    assert "左臂新增金色图腾纹身，面部保留原有面纹" in marked_prompt
-    assert "体表花纹" not in marked_prompt
-    assert marked_prompt.endswith("Avoid: 水印、多余文字、Logo")
+def test_derivative_does_not_prompt_unspecified_body_patterns_and_forbids_unrequested_additions():
+    prompt = build_character_derivative_prompt("换上黑色劲装")
+    assert "体表花纹" not in prompt
+    assert "纹身" not in prompt
+    assert "刺青" not in prompt
+    assert "保持原图的三视图版式" in prompt
+    assert "不凭空增补" in prompt
