@@ -17,13 +17,23 @@ export function remainingUnits(view: EpisodesView): number {
 /** 上一次分集规划停在失败上时的原因。 */
 export interface PlanningFailure {
   code: string | null;
+  params: Record<string, unknown>;
+  /** 按界面语言渲染的原因。 */
   message: string;
+  /** 服务端原文；原因已本地化时才有。 */
+  detail: string | null;
   /** 输出被截断时的模型。 */
   truncated: OutputTruncation | null;
 }
 
 function failureOf(task: TaskItem): PlanningFailure {
-  return { code: task.error_code ?? null, message: task.error_message ?? "", truncated: outputTruncationOf(task) };
+  return {
+    code: task.error_code ?? null,
+    params: task.error_params ?? {},
+    message: task.error_message ?? "",
+    detail: task.error_detail ?? null,
+    truncated: outputTruncationOf(task),
+  };
 }
 
 /**

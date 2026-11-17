@@ -2360,3 +2360,84 @@ class TestEntryBoundVideoRequests:
         )
 
         assert builtin_video_audio_track("gemini-aistudio", model, generation_type="i2v") == "always_on"
+
+
+@pytest.mark.parametrize("failed", [False, True])
+async def test_frozen_image_usage_keeps_source_after_cleanup(tmp_path, failed):
+    from lib.artifacts.image_reference_snapshot import freeze_image_references
+    from lib.artifacts.visual_artifact_provenance import VisualReference
+
+    gen = _build_generator(tmp_path)
+    source = _solid_png(gen.project_path, "reference.png", 64, 64)
+    frozen = await asyncio.to_thread(
+        freeze_image_references,
+        [source],
+        [VisualReference(path=source, role="asset_sheet", logical_type="character", logical_id="Alice")],
+    )
+    if failed:
+
+        class FailingBackend(_FakeImageBackend):
+            async def generate(self, request):
+                raise RuntimeError("provider failed")
+
+        gen._image_backend = FailingBackend()
+    try:
+        with pytest.raises(RuntimeError, match="provider failed") if failed else contextlib.nullcontext():
+            await gen.generate_image_async(
+                prompt="p",
+                resource_type="characters",
+                resource_id="A",
+                reference_images=frozen.reference_images,
+                reference_sources=frozen.source_paths,
+            )
+    finally:
+        await asyncio.to_thread(frozen.cleanup)
+    assert not await asyncio.to_thread(Path(frozen.reference_images[0]).exists)
+    recorded = gen.ledger.started[0]["inputs"]["reference_images"][0]["path"]
+    assert recorded == "reference.png"
+    assert (gen.project_path / recorded).is_file()
+    assert gen.ledger.outcomes[0]["status"] == ("failed" if failed else "success")
+
+
+@pytest.mark.parametrize("role", ["reference_image", "start_image", "end_image"])
+async def test_staged_video_image_usage_keeps_source_after_cleanup(tmp_path, role):
+    from arcreel_market_core.video_backend_contract import VideoCapabilities
+    from lib.script.reference_video.execution_checkpoint import (
+        ProviderMediaInput,
+        cleanup_staged_provider_media,
+        stage_provider_media_for_task,
+    )
+
+    gen = _build_generator(tmp_path)
+    gen._video_backend = _FakeVideoBackend(
+        video_capabilities=VideoCapabilities(max_reference_images=9, last_frame=True)
+    )
+    source = _solid_png(gen.project_path, "reference.png", 64, 64)
+    media = await stage_provider_media_for_task(
+        gen.project_path,
+        "usage-test",
+        (
+            ProviderMediaInput(
+                path=source, role=role, logical_type="character", logical_name="Alice", kind="asset_sheet"
+            ),
+        ),
+    )
+    staged = gen.project_path / media[0].staged_locator
+    kwargs = {"reference_images": [staged]} if role == "reference_image" else {role: staged}
+    if role == "end_image":
+        kwargs["start_image"] = source
+    try:
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S01",
+            reference_sources={str(staged): source},
+            **kwargs,
+        )
+    finally:
+        await asyncio.to_thread(cleanup_staged_provider_media, gen.project_path, "usage-test")
+    inputs = gen.ledger.started[0]["inputs"]
+    recorded = inputs["reference_images"][0]["path"] if role == "reference_image" else inputs[role]
+    assert recorded == "reference.png"
+    assert (gen.project_path / recorded).is_file()
+    assert not staged.exists()

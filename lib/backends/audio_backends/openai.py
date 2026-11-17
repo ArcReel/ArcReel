@@ -21,6 +21,7 @@ from lib.backends.audio_backends.base import (
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
+from lib.config.url_utils import is_official_openai_base_url
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
@@ -33,8 +34,6 @@ _FALLBACK_RESPONSE_FORMAT = "wav"
 # 官方内置音色（gpt-4o-mini-tts，含 tts-1/tts-1-hd legacy 子集），出处见
 # docs/api-docs/endpoints/openai-tts.md 所列 OpenAI 官方文档。
 # 官方文档未给出性别/描述信息，故 label 仅取 id 本身——不编造。
-# 经自定义供应商 openai-tts endpoint 接入的第三方兼容服务音色集合可能与本目录不同，
-# 边界说明见上述文档。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=voice_id)
     for voice_id in (
@@ -54,10 +53,17 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     )
 )
 
-# legacy 模型（tts-1 / tts-1-hd）不支持的音色子集，出处同上文档：这四个音色仅
-# gpt-4o-mini-tts 支持。legacy 模型下若仍暴露它们，用户选中即会在合成阶段确定性失败。
-_LEGACY_MODELS = frozenset({"tts-1", "tts-1-hd"})
+# legacy 模型（tts-1 / tts-1-hd）只支持其中 9 个音色，出处同上文档（「Voice availability depends on the model」）。
 _LEGACY_UNSUPPORTED_VOICE_IDS = frozenset({"ballad", "verse", "marin", "cedar"})
+# 官方型号页（https://developers.openai.com/api/docs/models/gpt-4o-mini-tts）的 Snapshots 列出别名 gpt-4o-mini-tts
+# 指向 gpt-4o-mini-tts-2025-12-15，两者是同一个模型；更早的 2025-03-20 快照没有音色依据，不列。别名改指向时同步更新这里。
+_VOICES_BY_MODEL: dict[str, tuple[VoiceOption, ...]] = {
+    "gpt-4o-mini-tts": _VOICE_CATALOG,
+    "gpt-4o-mini-tts-2025-12-15": _VOICE_CATALOG,
+    **dict.fromkeys(
+        ("tts-1", "tts-1-hd"), tuple(v for v in _VOICE_CATALOG if v.id not in _LEGACY_UNSUPPORTED_VOICE_IDS)
+    ),
+}
 
 
 def _response_format_for(output_path: Path) -> str:
@@ -82,6 +88,7 @@ class OpenAIAudioBackend:
         self._client = create_openai_client(
             api_key=api_key, base_url=base_url, max_retries=0, transport_layer=transport_layer
         )
+        self._official_host = is_official_openai_base_url(base_url)
         self._model = model
         # 复用 OpenAI 兼容协议的 provider（自定义供应商包装层覆盖 name）须用真实 provider 记账
         self._provider_name = provider_name
@@ -99,12 +106,11 @@ class OpenAIAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def list_voices(self) -> list[VoiceOption]:
-        # legacy 收窄只对官方 OpenAI 生效：自定义 openai-tts 供应商（provider_name 被覆盖）即使
-        # 模型名恰好也叫 tts-1/tts-1-hd，也无法确定其是否真的继承官方同名模型的音色限制——
-        # 维持全量目录是既有、已声明的兼容策略（见文件顶部注释与 _build_openai_tts 调用点）。
-        if self._provider_name == PROVIDER_OPENAI and self._model in _LEGACY_MODELS:
-            return [v for v in _VOICE_CATALOG if v.id not in _LEGACY_UNSUPPORTED_VOICE_IDS]
-        return list(_VOICE_CATALOG)
+        # 只有请求发往 api.openai.com 时，型号名才确定指 OpenAI 的模型：兼容 /v1/audio/speech 的第三方服务
+        # 与中转常沿用 tts-1 等型号名，音色却各不相同。认不出时不列候选，音色照常手填。
+        if not self._official_host:
+            return []
+        return list(_VOICES_BY_MODEL.get(self._model, ()))
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         # language_type 是 DashScope 特有字段，/v1/audio/speech 无对应参数（语种随输入文本），不发送。

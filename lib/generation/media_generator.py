@@ -171,16 +171,18 @@ def segment_id_for(call_type: CallType, resource_type: str, resource_id: str) ->
     return resource_id if resource_type in allowed else None
 
 
-def _project_relative_path(project_path: Path, value: object) -> str | None:
+def _project_relative_path(
+    project_path: Path, value: object, reference_sources: Mapping[str, Path] | None = None
+) -> str | None:
     """把调用记录里的一个文件路径（输入素材或产物）归一为项目内相对路径（POSIX 分隔符）。
 
     读侧要拿它在项目里定位文件，且数据根挪位后记录仍须有效，故一律相对项目根；
-    项目外的路径（临时素材、绝对路径引用）保留原样。非路径值（PIL Image 等）返回 None，
+    冻结副本先按 reference_sources 还原来源；其他项目外路径保留原样。非路径值（PIL Image 等）返回 None，
     由调用点决定是否记这一项。
     """
     if not isinstance(value, (str, Path)):
         return None
-    path = Path(value)
+    path = (reference_sources or {}).get(str(value), Path(value))
     try:
         # 两边都取绝对路径再求相对：项目根或素材路径任一为相对路径（本地调试、CLI）时同样能归一。
         return path.absolute().relative_to(project_path.absolute()).as_posix()
@@ -675,6 +677,7 @@ class MediaGenerator:
         commit_formal_output: Callable[[Path, Path, Mapping[str, Any]], int] | None = None,
         before_submit: Callable[[], Awaitable[None]] | None = None,
         quality: str | None = None,
+        reference_sources: Mapping[str, Path] | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -685,6 +688,7 @@ class MediaGenerator:
             resource_type: 资源类型 (storyboards, characters, clues)
             resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
             reference_images: 参考图片列表
+            reference_sources: 冻结图片路径到来源路径的映射，仅用于使用记录
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             image_size: 图片尺寸，默认不传（由 backend/SDK 决定）
             quality: 生效的画质（见 ``ImageGenerationRequest.quality``），默认不传，调用通道按分辨率档位推出
@@ -754,7 +758,7 @@ class MediaGenerator:
                     reference_images=[
                         {"path": rel, "label": None, "role": "array"}
                         for ref in ref_images
-                        if (rel := _project_relative_path(self.project_path, ref.path)) is not None
+                        if (rel := _project_relative_path(self.project_path, ref.path, reference_sources)) is not None
                     ]
                 ),
             ) as call:
@@ -967,6 +971,7 @@ class MediaGenerator:
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
         warnings: list[dict[str, Any]] | None = None,
+        reference_sources: Mapping[str, Path] | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """
@@ -993,6 +998,7 @@ class MediaGenerator:
             formal_output: 将 provider 产物先写入同目录临时文件，成功后再与版本历史一起提交
             warnings: 调用方持有的 warning 收集器；backend 执行期产生的提示就地追加进去，
                 随后由调用方落进任务 ``result.warnings``
+            reference_sources: 暂存图片路径到来源路径的映射，仅用于使用记录
             **version_metadata: 额外元数据
 
         Returns:
@@ -1137,10 +1143,10 @@ class MediaGenerator:
                         for ref, uri in zip(
                             reference_images or [], asset_uris or [None] * len(reference_images or []), strict=True
                         )
-                        if (rel := _project_relative_path(self.project_path, ref)) is not None
+                        if (rel := _project_relative_path(self.project_path, ref, reference_sources)) is not None
                     ],
-                    start_image=_project_relative_path(self.project_path, start_image),
-                    end_image=_project_relative_path(self.project_path, end_image),
+                    start_image=_project_relative_path(self.project_path, start_image, reference_sources),
+                    end_image=_project_relative_path(self.project_path, end_image, reference_sources),
                     reference_audio=[
                         rel
                         for audio in (reference_audio_files or [])

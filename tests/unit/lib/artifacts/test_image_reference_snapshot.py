@@ -46,6 +46,7 @@ def test_sent_view_keeps_the_leading_references_and_shares_the_snapshot_director
         sent = frozen.sent(1)
         assert sent.reference_images == [frozen.reference_images[0]]
         assert sent.visual_references == frozen.visual_references[:1]
+        assert sent.source_paths[str(sent.reference_images[0])] == first
         assert frozen.sent(2) is frozen
         with pytest.raises(ValueError, match="within the frozen references"):
             frozen.sent(3)

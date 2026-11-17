@@ -201,6 +201,52 @@ async function editDescription(sheet: Locator, text: string) {
 
 defineRegionScenarios("资产详情 Sheet", [
   {
+    name: "TTS 试听：预填按 ID 筛选，清空列出候选并允许手填",
+    path: CHARACTERS_PATH,
+    api: {
+      ...BASE,
+      "GET /api/v1/providers": {
+        status: 200,
+        body: {
+          ...(loadRecordedResponses().get("GET /api/v1/providers")!.body as { providers: unknown[] }),
+          providers: (loadRecordedResponses().get("GET /api/v1/providers")!.body as {
+            providers: { id: string; status: string; media_types: string[] }[];
+          }).providers.map((provider) => provider.id === "dashscope"
+            ? { ...provider, status: "ready", media_types: [...provider.media_types, "audio"] }
+            : provider),
+        },
+      },
+      "GET /api/v1/projects/demo/audio-backend/voices": {
+        status: 200,
+        body: {
+          ...(loadRecordedResponses().get("GET /api/v1/projects/demo/audio-backend/voices")!.body as Record<string, unknown>),
+          configured: true, provider_id: "dashscope", model: "qwen3-tts-flash", voices: [
+          { id: "Cherry", label: "芊悦" }, { id: "Ethan", label: "晨煦" },
+        ] },
+      },
+    },
+    ready: galleryReady,
+    act: async (page) => {
+      const sheet = await openSheet(page, "林夕");
+      await sheet.getByRole("button", { name: "可选：参考音频" }).click();
+      await sheet.getByRole("button", { name: "用 TTS 生成参考音频" }).click();
+      const dialog = page.getByRole("dialog", { name: "生成语音参考样本" });
+      await waitForEntrance(dialog);
+      const voice = dialog.getByRole("combobox", { name: "音色", exact: true });
+      await expect(voice).toHaveValue("Cherry");
+      await voice.click();
+      await expect(page.getByRole("option")).toHaveText(["Cherry · 芊悦"]);
+      await voice.fill("");
+      await expect(page.getByRole("option")).toHaveText(["Cherry · 芊悦", "Ethan · 晨煦"]);
+      await voice.fill("my-cloned-voice");
+      await expect(voice).toHaveValue("my-cloned-voice");
+      await expect(page.getByRole("option")).toHaveCount(0);
+      await voice.press("Escape");
+      await expect(page.getByRole("listbox")).toBeHidden();
+      await expect(dialog.getByRole("button", { name: "生成", exact: true })).toBeEnabled();
+    },
+  },
+  {
     name: "打开角色详情：资产图、原图、描述、声音、别名与衍生",
     path: CHARACTERS_PATH,
     api: BASE,

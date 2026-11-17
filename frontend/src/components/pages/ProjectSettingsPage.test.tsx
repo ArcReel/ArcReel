@@ -881,6 +881,24 @@ describe("ProjectSettingsPage – 配音", () => {
     expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("character_voice_binding");
   });
 
+  it("keeps a saved custom voice when opening and saving the voice settings without candidates", async () => {
+    const updateSpy = mockProject({
+      narration_delivery: "use_tts",
+      audio_backend: "dashscope/qwen3-tts-flash",
+      narration_voice: "my-cloned-voice",
+    });
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
+    renderAt("/app/projects/demo/settings?tab=voice");
+
+    expect(await screen.findByLabelText("旁白音色 ID")).toHaveValue("my-cloned-voice");
+    fireEvent.change(screen.getByLabelText("配音语速（可选）"), { target: { value: "1.1" } });
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalled());
+    expect(updateSpy.mock.calls[0][1]).toEqual({ narration_speed: 1.1 });
+    expect(screen.getByLabelText("旁白音色 ID")).toHaveValue("my-cloned-voice");
+  });
+
   it("switching a TTS project to post-production writes only the delivery and keeps the snapshot", async () => {
     const updateSpy = mockProject({
       content_mode: "drama",

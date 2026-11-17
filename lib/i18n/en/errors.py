@@ -225,6 +225,7 @@ MESSAGES = {
     "bgm_silent": "This BGM is almost silent, so its loudness cannot be measured. Upload an audio file with audible sound",
     "bgm_ffmpeg_unavailable": "The bundled ffmpeg is unavailable, so BGM loudness cannot be measured and BGM cannot be uploaded right now",
     "vision_model_required": "Text model {provider}/{model} does not support image input (vision) and cannot perform the {task} task; please select a vision-capable text model for the simple tier or default model in settings",
+    "draft_generation_invalid": "The output has {count} violations and was saved as a draft. Edit the draft or ask AI to repair it.",
     "internal_server_error": "Internal server error, please try again later",
     "asset_field_must_be_string": "this field must be a text value",
     "asset_field_must_be_string_list": "this field must be a list of text values",
