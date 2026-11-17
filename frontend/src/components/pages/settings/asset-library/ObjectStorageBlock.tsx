@@ -17,6 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,7 +30,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import type { NewImageTarget, ObjectStorageConnection, ObjectStorageSettings } from "@/types";
+import type {
+  NewImageTarget,
+  ObjectStorageConnection,
+  ObjectStorageSettings,
+  ObjectStorageCleanupResult,
+  SavedObjectStorageConnection,
+} from "@/types";
 import { errMsg } from "@/utils/async";
 
 const LABEL_CLS = "text-sm font-medium text-foreground";
@@ -49,6 +56,7 @@ export function ObjectStorageBlock() {
   const { t } = useTranslation(["dashboard", "common"]);
   const headingId = useId();
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
+  const [cleanupFailures, setCleanupFailures] = useState<Record<string, number>>({});
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [test, setTest] = useState<TestState>({ status: "idle" });
@@ -84,13 +92,24 @@ export function ObjectStorageBlock() {
   const patchSettings = useCallback((patch: Partial<ObjectStorageSettings>) => {
     setLoad((prev) => (prev.status === "ready" ? { status: "ready", settings: { ...prev.settings, ...patch } } : prev));
   }, []);
+  // 页面可能打开很久：对话框打开时取一次最新的入库任务数，取不到时保留已有数量，不打断编辑
+  const refreshPendingIngest = useCallback(async () => {
+    try {
+      const latest = await API.getObjectStorageConnection();
+      patchSettings({ pending_ingest_tasks: latest.pending_ingest_tasks });
+    } catch {
+      return;
+    }
+  }, [patchSettings]);
   const handleSaved = useCallback(
-    (saved: ObjectStorageConnection) => {
+    (saved: SavedObjectStorageConnection) => {
+      setCleanupFailures(saved.cleanup_failures);
       setEditing(false);
       resetTest();
       patchSettings({ connection: saved });
+      void fetchConnection();
     },
-    [resetTest, patchSettings],
+    [resetTest, patchSettings, fetchConnection],
   );
   const handleTargetSaved = useCallback(
     (target: NewImageTarget) => patchSettings({ new_image_target: target }),
@@ -109,10 +128,6 @@ export function ObjectStorageBlock() {
 
   const settings = load.status === "ready" ? load.settings : null;
   const connection = settings?.connection ?? null;
-  const uncleaned: UncleanedObjects = {
-    relay: settings?.retained_relay_objects ?? 0,
-    images: settings?.unreleased_image_objects ?? 0,
-  };
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
@@ -150,8 +165,14 @@ export function ObjectStorageBlock() {
           connection={connection}
           test={test}
           onTest={() => void runTest()}
-          onEdit={() => setEditing(true)}
-          onDelete={() => setDeleting(true)}
+          onEdit={() => {
+            setEditing(true);
+            void refreshPendingIngest();
+          }}
+          onDelete={() => {
+            setDeleting(true);
+            void refreshPendingIngest();
+          }}
         />
       )}
 
@@ -166,21 +187,24 @@ export function ObjectStorageBlock() {
       {editing && (
         <ObjectStorageDialog
           connection={connection}
-          uncleaned={uncleaned}
+          pendingIngestTasks={settings?.pending_ingest_tasks ?? 0}
           onCancel={closeEditor}
           onSaved={handleSaved}
         />
       )}
-      <DeleteObjectStorageDialog
-        open={deleting}
-        uncleaned={uncleaned}
-        onClose={() => setDeleting(false)}
-        onDeleted={() => {
-          setDeleting(false);
-          resetTest();
-          patchSettings({ connection: null });
-        }}
-      />
+      {deleting && (
+        <DeleteObjectStorageDialog
+          pendingIngestTasks={settings?.pending_ingest_tasks ?? 0}
+          onClose={() => setDeleting(false)}
+          onDeleted={(result) => {
+            setDeleting(false);
+            resetTest();
+            setCleanupFailures(result.cleanup_failures);
+            patchSettings({ connection: null, pending_ingest_tasks: 0 });
+          }}
+        />
+      )}
+      <CleanupFailures failures={cleanupFailures} />
     </section>
   );
 }
@@ -327,34 +351,76 @@ function NewImageTargetField({
   );
 }
 
-/** 尚未清理的中转副本提示：更换桶或 Endpoint、删除连接后，这些副本不再自动清理。 */
-/** 桶里尚未清理、更换桶或 Endpoint 与删除连接后不再自动删除的对象：中转副本与没有引用的待删除图片对象。 */
-interface UncleanedObjects {
-  relay: number;
-  images: number;
+function CleanupOptions({
+  checked,
+  onChange,
+  pendingIngestTasks,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  pendingIngestTasks: number;
+  disabled: boolean;
+}) {
+  const { t } = useTranslation("dashboard");
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-start gap-2">
+        <Checkbox id={id} checked={checked} onCheckedChange={onChange} disabled={disabled} />
+        <label htmlFor={id} className="text-sm">
+          {t("object_storage_delete_remote_objects")}
+        </label>
+      </div>
+      <p className="text-sm text-muted-foreground">{t(checked ? "object_storage_cleanup_desc_checked" : "object_storage_cleanup_desc_unchecked")}</p>
+      {pendingIngestTasks > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {t("object_storage_pending_ingest", { count: pendingIngestTasks })}
+        </p>
+      )}
+    </div>
+  );
 }
 
-function UncleanedObjectsNotice({ counts }: { counts: UncleanedObjects }) {
+const CLEANUP_REASON_KEYS = {
+  auth: "object_storage_cleanup_reason_auth",
+  denied: "object_storage_cleanup_reason_denied",
+  network: "object_storage_cleanup_reason_network",
+  invalid_config: "object_storage_cleanup_reason_invalid_config",
+  unavailable: "object_storage_cleanup_reason_unavailable",
+  provider: "object_storage_cleanup_reason_provider",
+} as const;
+
+function CleanupFailures({ failures }: { failures: Record<string, number> }) {
   const { t } = useTranslation("dashboard");
-  if (counts.relay <= 0 && counts.images <= 0) return null;
+  if (!Object.keys(failures).length) return null;
   return (
-    <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-      {counts.relay > 0 && <p>{t("object_storage_retained_relay", { count: counts.relay })}</p>}
-      {counts.images > 0 && <p>{t("object_storage_unreleased_images", { count: counts.images })}</p>}
+    <div role="status" className="flex flex-col gap-1 text-sm text-muted-foreground">
+      <p>
+        {t("object_storage_cleanup_failed", { count: Object.values(failures).reduce((sum, count) => sum + count, 0) })}
+      </p>
+      {Object.entries(failures).map(([reason, count]) => (
+        <p key={reason}>
+          {t("object_storage_cleanup_failure_reason", {
+            count,
+            reason: t(CLEANUP_REASON_KEYS[reason as keyof typeof CLEANUP_REASON_KEYS] ?? CLEANUP_REASON_KEYS.provider),
+          })}
+        </p>
+      ))}
     </div>
   );
 }
 
 function ObjectStorageDialog({
   connection,
-  uncleaned,
+  pendingIngestTasks,
   onCancel,
   onSaved,
 }: {
   connection: ObjectStorageConnection | null;
-  uncleaned: UncleanedObjects;
+  pendingIngestTasks: number;
   onCancel: () => void;
-  onSaved: (connection: ObjectStorageConnection) => void;
+  onSaved: (connection: SavedObjectStorageConnection) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
   const idPrefix = useId();
@@ -366,7 +432,11 @@ function ObjectStorageDialog({
   const [secretAccessKey, setSecretAccessKey] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteRemote, setDeleteRemote] = useState(true);
+  const [confirmingCleanup, setConfirmingCleanup] = useState(false);
   const creating = connection === null;
+  const changesBucket =
+    !!connection && (endpoint.trim() !== connection.endpoint || bucket.trim() !== connection.bucket);
   const complete =
     region.trim() && endpoint.trim() && bucket.trim() && (!creating || (accessKeyId.trim() && secretAccessKey.trim()));
 
@@ -377,7 +447,7 @@ function ObjectStorageDialog({
     accessKeyId !== "" ||
     secretAccessKey !== "";
 
-  const handleSubmit = useCallback(async (): Promise<boolean> => {
+  const submit = useCallback(async (): Promise<boolean> => {
     if (!complete) return false;
     setSubmitting(true);
     setError(null);
@@ -388,6 +458,7 @@ function ObjectStorageDialog({
         bucket: bucket.trim(),
         access_key_id: accessKeyId.trim() || undefined,
         secret_access_key: secretAccessKey.trim() || undefined,
+        delete_remote_objects: changesBucket ? deleteRemote : undefined,
       });
       onSaved(saved);
       return true;
@@ -397,7 +468,21 @@ function ObjectStorageDialog({
     } finally {
       setSubmitting(false);
     }
-  }, [complete, region, endpoint, bucket, accessKeyId, secretAccessKey, onSaved]);
+  }, [complete, region, endpoint, bucket, accessKeyId, secretAccessKey, changesBucket, deleteRemote, onSaved]);
+
+  // 保存会立即删除旧桶里的文件，不可恢复，须先确认。「保存并离开」也走这里：确认前留在原处，不算保存成功
+  const handleSubmit = useCallback(async (): Promise<boolean> => {
+    if (!complete) return false;
+    if (changesBucket && deleteRemote) {
+      setConfirmingCleanup(true);
+      return false;
+    }
+    return submit();
+  }, [complete, changesBucket, deleteRemote, submit, setConfirmingCleanup]);
+
+  const confirmCleanup = async () => {
+    if (!(await submit())) setConfirmingCleanup(false);
+  };
 
   // 未保存的填写登记到离开拦截；关闭对话框也经它询问，不静默丢弃
   useLeaveGuard({ dirty, saving: submitting, save: handleSubmit, discard: onCancel });
@@ -473,7 +558,14 @@ function ObjectStorageDialog({
                   ? t("credential_keep_existing", { masked: connection.secret_access_key_masked })
                   : undefined,
               })}
-              {!creating && <UncleanedObjectsNotice counts={uncleaned} />}
+              {changesBucket && (
+                <CleanupOptions
+                  checked={deleteRemote}
+                  onChange={setDeleteRemote}
+                  pendingIngestTasks={pendingIngestTasks}
+                  disabled={submitting}
+                />
+              )}
               {error && (
                 <p role="alert" className="text-sm wrap-break-word text-destructive">
                   {error}
@@ -491,23 +583,44 @@ function ObjectStorageDialog({
             </Button>
           </DialogFooter>
         </form>
+        <AlertDialog
+          open={confirmingCleanup}
+          onOpenChange={(next) => {
+            if (!next && !submitting) setConfirmingCleanup(false);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("object_storage_relocate_confirm_title")}</AlertDialogTitle>
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              <AlertDialogDescription>{t("object_storage_relocate_confirm_desc")}</AlertDialogDescription>
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={submitting}>{t("common:cancel")}</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" disabled={submitting} onClick={() => void confirmCleanup()}>
+                {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+                {t("object_storage_relocate_confirm_action")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );
 }
 
 function DeleteObjectStorageDialog({
-  open,
-  uncleaned,
+  pendingIngestTasks,
   onClose,
   onDeleted,
 }: {
-  open: boolean;
-  uncleaned: UncleanedObjects;
+  pendingIngestTasks: number;
   onClose: () => void;
-  onDeleted: () => void;
+  onDeleted: (result: ObjectStorageCleanupResult) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const [deleteRemote, setDeleteRemote] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -515,8 +628,8 @@ function DeleteObjectStorageDialog({
     setSubmitting(true);
     setError(null);
     try {
-      await API.deleteObjectStorageConnection();
-      onDeleted();
+      const result = await API.deleteObjectStorageConnection(deleteRemote);
+      onDeleted(result);
     } catch (err) {
       setError(errMsg(err));
     } finally {
@@ -526,7 +639,7 @@ function DeleteObjectStorageDialog({
 
   return (
     <AlertDialog
-      open={open}
+      open
       onOpenChange={(next) => {
         if (!next && !submitting) onClose();
       }}
@@ -538,7 +651,12 @@ function DeleteObjectStorageDialog({
         <AlertDialogBody>
           <div className="flex flex-col gap-2">
             <AlertDialogDescription>{t("object_storage_delete_desc")}</AlertDialogDescription>
-            <UncleanedObjectsNotice counts={uncleaned} />
+            <CleanupOptions
+              checked={deleteRemote}
+              onChange={setDeleteRemote}
+              pendingIngestTasks={pendingIngestTasks}
+              disabled={submitting}
+            />
             {error && (
               <p role="alert" className="text-sm wrap-break-word text-destructive">
                 {error}

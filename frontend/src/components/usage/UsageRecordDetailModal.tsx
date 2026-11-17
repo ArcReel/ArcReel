@@ -17,6 +17,7 @@ import { formatCurrencyAmount } from "@/utils/cost-format";
 import { formatShortDateTime } from "@/utils/date-format";
 import { itemIdsInEpisodeText } from "@/utils/episode-display";
 import {
+  COMFYUI_EXPECTED_SUFFIXES,
   MEDIA_META,
   STATUS_LABEL_KEYS,
   STATUS_TEXT_CLASSES,
@@ -171,7 +172,7 @@ function InputsGroup({ detail }: { detail: UsageRecordDetail }) {
               key={image.path}
               projectName={detail.project_name}
               path={image.path}
-              caption={image.label ?? image.role ?? null}
+              caption={image.label ?? t("usage_field_reference_image")}
             />
           ))}
           {inputs?.start_image && (
@@ -277,11 +278,26 @@ export function UsageRecordDetailModal({
   providerLabel,
   onClose,
 }: UsageRecordDetailModalProps) {
-  const { t, i18n } = useTranslation(["dashboard", "common"]);
+  const { t, i18n } = useTranslation(["dashboard", "common", "errors"]);
   const [rawOpen, setRawOpen] = useState(false);
 
   const media = detail ? MEDIA_META[detail.media_type] : null;
   const phraseKey = failurePhraseKey(detail?.error_code ?? null);
+  const registeredErrorKey = (value: string) =>
+    [`errors:${value}`, `errors:task_fail_${value}`].find((key) => i18n.exists(key));
+  const domainKey = detail?.error_code && detail.error_params ? registeredErrorKey(detail.error_code) : undefined;
+  // 领域异常的 error_message 就是它的 key 本身，已登记的 key 不作为原文小字显示。
+  const messageIsDomainKey = detail?.error_message ? registeredErrorKey(detail.error_message) !== undefined : false;
+  const domainParams = { ...detail?.error_params };
+  const nested = domainParams.detail;
+  if (nested && typeof nested === "object" && "key" in nested && "params" in nested
+    && typeof nested.key === "string" && nested.params && typeof nested.params === "object") {
+    domainParams.detail = t(`errors:${nested.key}`, { ...nested.params });
+  }
+  if (detail?.error_code === "comfyui_output_type_mismatch" || detail?.error_code === "comfyui_output_container_mismatch") {
+    const mediaType = domainParams.media_type;
+    domainParams.expected = typeof mediaType === "string" ? COMFYUI_EXPECTED_SUFFIXES[mediaType] ?? "" : "";
+  }
   const retryAfter = detail?.error_params?.retry_after_seconds;
   const failureStatus = detail?.error_params?.status;
   const purpose = purposeKey(detail?.purpose ?? null);
@@ -349,9 +365,11 @@ export function UsageRecordDetailModal({
                       <p className="text-sm text-destructive">
                         {phraseKey
                           ? t(`dashboard:${phraseKey}`)
-                          : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
+                          : domainKey
+                            ? t(domainKey, domainParams)
+                            : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
                       </p>
-                      {phraseKey && detail.error_message && (
+                      {phraseKey && detail.error_message && !messageIsDomainKey && (
                         <p className="num text-xs break-words text-muted-foreground">{detail.error_message}</p>
                       )}
                       {typeof retryAfter === "number" && (

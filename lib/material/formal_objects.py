@@ -72,11 +72,8 @@ FORMAL_PREFIX = "arcreel-materials/"
 #: 没有对象存储连接时不能设为 ``object_storage``。
 MATERIAL_STORAGE_TARGET_SETTING = "material_storage_target"
 NewContentTarget = Literal["local", "object_storage"]
-#: 仍可能被读取、占用连接的对象状态：这些对象在，连接就不能换桶、换 Endpoint 或区域，也不能删除。等待删除的对象
-#: 只在仍有引用时占用连接；没有任何引用的不会再被读取，连接变更时标为脱离当前连接（见 :func:`detach_orphaned_objects`）。
-HOLDING_OBJECT_STATES = frozenset({"uploading", "stored"})
-#: 脱离当前连接的待删除对象记下的原因：连接已换桶、换 Endpoint 或已删除，不再向当前连接重试删除。
-CONNECTION_CHANGED = "connection_changed"
+#: 入库任务引用方键的前缀；只被入库持有的对象不保护连接。
+INGEST_HOLDER_PREFIX = "ingest:"
 
 _RETRY_BASE = timedelta(minutes=5)
 _RETRY_CAP = timedelta(hours=6)
@@ -157,7 +154,7 @@ _LIVE_ATTEMPTS: set[str] = set()
 _CONNECTION_LOCKS: dict[int, asyncio.Lock] = {}
 
 
-def _key_lock(key: str) -> asyncio.Lock:
+def object_key_lock(key: str) -> asyncio.Lock:
     """同一对象的登记、复用与删除串行进行（单进程部署，见 ADR 0007）。"""
     loop_key = (id(asyncio.get_running_loop()), key)
     lock = _KEY_LOCKS.get(loop_key)
@@ -169,7 +166,7 @@ def _key_lock(key: str) -> asyncio.Lock:
 def connection_change_lock() -> asyncio.Lock:
     """对象存储连接的变更与正式对象的登记共用的串行边界（单进程部署，见 ADR 0007）。
 
-    更换桶、Endpoint、区域与删除连接在锁内核对连接上没有仍占用它的正式对象，标记脱离连接的待删除对象，再提交；
+    更换桶、Endpoint、区域与删除连接在锁内核对占用，处置待删除对象，再提交；
     正式提交登记对象时也持有它，并在锁内复核提交开始时取得的连接仍是当前连接；登记引用复活待删除对象时持有它，
     只复活仍在当前连接上的对象。锁序：连接锁在对象 key 锁之外。
     """
@@ -298,9 +295,9 @@ class ObjectContentStorage:
         在连接锁内复核提交开始时取得的连接仍是当前连接，过时的提交在上传前失败；登记之后连接上就有了
         正式对象，连接变更会被拒绝。
         """
-        async with connection_change_lock(), _key_lock(key), self.session_factory() as session:
+        async with connection_change_lock(), object_key_lock(key), self.session_factory() as session:
             if not self.connection.is_current(await ObjectStorageConnectionRepository(session).get()):
-                raise RemoteSaveFailedError(CONNECTION_CHANGED)
+                raise RemoteSaveFailedError("connection_changed")
             row = await _object_row(session, self.connection.id, self.connection.bucket, key)
             needs_upload = row is None or row.state != "stored"
             if row is None:
@@ -508,7 +505,7 @@ async def _collect_unreferenced(
             if row is None:
                 continue
             key = row.object_key
-        async with _key_lock(key), session_factory() as session:
+        async with object_key_lock(key), session_factory() as session:
             row = await session.get(FormalObject, object_id)
             if row is None or row.state not in states or await _ref_count(session, object_id):
                 continue
@@ -529,13 +526,15 @@ async def _delete_orphan(
     *,
     now: datetime | None = None,
 ) -> bool:
-    """删除一个待删除对象；调用方持有该对象的 key 锁并负责提交。返回是否已删除。"""
+    """删除一个待删除对象；调用方持有该对象的 key 锁并负责提交。返回是否已删除。
+
+    记录的连接、Endpoint 或桶与当前连接不符时无法履行删除：清除记录，不向当前桶按同名 key 删除。
+    """
     now = now or utc_now()
-    row.delete_attempts += 1
     if not same_connection(row, current):
-        row.last_error = CONNECTION_CHANGED
-        row.next_attempt_at = now + _RETRY_CAP
+        await session.delete(row)
         return False
+    row.delete_attempts += 1
     if client is None:
         assert current is not None
         client = ObjectStorageClient(config_from_connection(current))
@@ -571,7 +570,7 @@ async def sweep_formal_objects(
         ]
     deleted = 0
     for object_id, key in candidates:
-        async with _key_lock(key), session_factory() as session:
+        async with object_key_lock(key), session_factory() as session:
             row = await session.get(FormalObject, object_id)
             if row is None or row.state != "orphaned":
                 continue
@@ -581,10 +580,6 @@ async def sweep_formal_objects(
             elif same_connection(row, current):
                 row.state = "stored"
                 row.next_attempt_at = None
-            else:
-                # 有引用却已脱离当前连接：不删除，也不当作当前连接上的已保存对象
-                row.last_error = CONNECTION_CHANGED
-                row.next_attempt_at = now + _RETRY_CAP
             await session.commit()
     return deleted
 
@@ -844,7 +839,7 @@ async def collect_unreferenced_objects(
     """统一回收规则：``object_ids`` 中已没有任何引用的已保存对象转为待删除并立即尝试删除，返回删除的数量。
 
     仍有任何引用（含进行中提交的占用）的对象保留；删除失败记下原因，由 :func:`sweep_formal_objects` 退避重试；
-    连接已换桶时记 ``connection_changed``、不删除。上传未确认的对象归它的正式提交补偿，这里不碰。
+    上传未确认的对象归它的正式提交补偿，这里不碰。
     """
     session_factory = session_factory or _default_session_factory()
     return await _collect_unreferenced(session_factory, object_ids, frozenset({"stored"}), None)
@@ -876,12 +871,12 @@ async def add_reference(
     它不会与项目名或已删除项目的墓碑名重名，项目的重算也不会碰它。
     """
     session_factory = session_factory or _default_session_factory()
-    # 与连接变更串行：脱离当前连接的待删除对象不再复活为已保存对象，复活的对象随即占用连接
-    async with connection_change_lock(), _key_lock(locator.key), session_factory() as session:
+    # 与连接变更串行：只为当前连接上的对象登记引用
+    async with connection_change_lock(), object_key_lock(locator.key), session_factory() as session:
         row = await _object_row(session, locator.connection_id, locator.bucket, locator.key)
         if row is None or row.state not in {"stored", "orphaned"}:
             return False
-        if row.state == "orphaned" and not same_connection(row, await ObjectStorageConnectionRepository(session).get()):
+        if not same_connection(row, await ObjectStorageConnectionRepository(session).get()):
             return False
         row.state = "stored"
         row.next_attempt_at = None
@@ -975,66 +970,20 @@ async def retain_formal_objects(
     return deleted
 
 
-def _has_ref() -> Any:
-    return exists().where(FormalObjectRef.object_id == FormalObject.id)
-
-
 async def holding_object_count(session: AsyncSession, connection_id: int) -> int:
-    """仍占用这条连接的正式素材对象数量：上传未确认（进行中的提交）、已保存，以及仍有引用的待删除对象。
-
-    没有任何引用、只等待补偿删除的对象不计：它们不会再被读取，不阻止连接变更。调用方持有 :func:`connection_change_lock`。
-    """
+    """上传未确认，或尚未删除且有非入库引用的对象继续保护连接；调用方持有连接锁。"""
+    protected_ref = exists().where(
+        FormalObjectRef.object_id == FormalObject.id,
+        (~FormalObjectRef.project_name.startswith(INGEST_HOLDER_PREFIX)) | (FormalObjectRef.state == REF_PENDING),
+    )
     stmt = (
         select(func.count())
         .select_from(FormalObject)
         .where(
             FormalObject.connection_id == connection_id,
-            FormalObject.state.in_(HOLDING_OBJECT_STATES) | ((FormalObject.state == "orphaned") & _has_ref()),
+            (FormalObject.state == "uploading") | ((FormalObject.state != "deleted") & protected_ref),
         )
     )
-    return int((await session.execute(stmt)).scalar_one())
-
-
-async def detach_orphaned_objects(
-    session: AsyncSession,
-    connection: ObjectStorageConnection,
-    *,
-    endpoint: str | None = None,
-    bucket: str | None = None,
-    now: datetime | None = None,
-) -> int:
-    """连接改成 ``endpoint`` / ``bucket``（都为 ``None`` 表示删除连接）之前，把这条连接上没有任何引用的待删除对象标为
-    脱离当前连接：保留定位，原因记为 :data:`CONNECTION_CHANGED`，不再向变更后的连接重试删除。返回标记的数量（不提交）。
-
-    只改区域时 Endpoint 与桶不变，对象仍按原位置删除，不标记。调用方持有 :func:`connection_change_lock`，
-    并已用 :func:`holding_object_count` 确认连接上没有仍占用它的对象。
-    """
-    if endpoint is not None and bucket is not None and (endpoint, bucket) == (connection.endpoint, connection.bucket):
-        return 0
-    now = now or utc_now()
-    rows = (
-        await session.execute(
-            select(FormalObject).where(
-                FormalObject.connection_id == connection.id,
-                FormalObject.state == "orphaned",
-                ~_has_ref(),
-            )
-        )
-    ).scalars()
-    detached = 0
-    for row in rows:
-        if endpoint is not None and (row.endpoint, row.bucket) == (endpoint, bucket):
-            continue
-        row.last_error = CONNECTION_CHANGED
-        row.next_attempt_at = now + _RETRY_CAP
-        detached += 1
-    return detached
-
-
-async def count_unreleased_objects(session: AsyncSession) -> int:
-    """没有任何引用、还没有删除的正式对象数量（含已脱离当前连接的）：更换桶或 Endpoint、删除连接后它们不再自动删除，
-    写进过桶里的需要在对象存储控制台清理。"""
-    stmt = select(func.count()).select_from(FormalObject).where(FormalObject.state == "orphaned", ~_has_ref())
     return int((await session.execute(stmt)).scalar_one())
 
 
@@ -1139,9 +1088,8 @@ def formal_commit_on(
 
 
 __all__ = [
-    "CONNECTION_CHANGED",
     "FORMAL_PREFIX",
-    "HOLDING_OBJECT_STATES",
+    "INGEST_HOLDER_PREFIX",
     "MATERIAL_STORAGE_TARGET_SETTING",
     "REF_ACTIVE",
     "REF_PENDING",
@@ -1154,8 +1102,6 @@ __all__ = [
     "add_reference",
     "collect_unreferenced_objects",
     "connection_change_lock",
-    "count_unreleased_objects",
-    "detach_orphaned_objects",
     "formal_commit",
     "formal_commit_on",
     "formal_object_key",
@@ -1163,6 +1109,7 @@ __all__ = [
     "holding_object_count",
     "iter_version_records",
     "new_content_target",
+    "object_key_lock",
     "project_is_retiring",
     "reconcile_and_collect",
     "reconcile_project_references",

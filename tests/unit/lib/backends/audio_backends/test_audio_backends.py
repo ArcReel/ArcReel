@@ -133,6 +133,17 @@ class TestDashScopeAudioBackend:
         assert all(v.label for v in voices)
         # 调用方（voices 端点）依赖每次返回独立列表，不能是同一份可变共享对象
         assert voices is not b.list_voices()
+        assert {"Cherry", "Eldric Sage"} <= set(ids)
+
+    @pytest.mark.parametrize(
+        "model",
+        # 同走 multimodal 端点，但官方音色列表只写明适用于 qwen3-tts-flash
+        ["qwen-tts", "qwen3-tts-instruct-flash", "qwen3-tts-flash-2025-09-18", "relay/qwen3-tts-flash"],
+    )
+    def test_list_voices_is_empty_for_unconfirmed_model(self, model: str):
+        from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+
+        assert DashScopeAudioBackend(api_key="sk", model=model).list_voices() == []
 
     async def test_synthesize_request_and_download(self, tmp_path: Path):
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
@@ -425,26 +436,54 @@ class TestOpenAIAudioBackend:
                 assert ids.isdisjoint({"ballad", "verse", "marin", "cedar"})
                 assert "alloy" in ids
 
-    def test_list_voices_returns_full_catalog_for_custom_openai_tts_endpoint(self):
-        """自定义 openai-tts endpoint 未落入官方 legacy 集合时不额外收窄，保持既有兼容口径。"""
+    def test_list_voices_for_snapshot_behind_alias_matches_alias(self):
+        """官方型号页的别名 gpt-4o-mini-tts 指向这个快照，两者是同一个模型。"""
         with captured_openai_clients():
             from lib.backends.audio_backends.openai import OpenAIAudioBackend
 
-            b = OpenAIAudioBackend(api_key="sk", model="fish-audio-v1", provider_name="custom-7")
-            ids = {v.id for v in b.list_voices()}
-            assert {"ballad", "verse", "marin", "cedar"} <= ids
+            def voices(model: str) -> list[str]:
+                b = OpenAIAudioBackend(
+                    api_key="sk", base_url="https://api.openai.com/v1", model=model, provider_name="custom-7"
+                )
+                return [v.id for v in b.list_voices()]
 
-    def test_list_voices_legacy_narrowing_only_applies_to_official_openai(self):
-        """自定义供应商即使模型名恰好也叫 tts-1/tts-1-hd，也无法确定其继承官方同名模型的
-        音色限制——legacy 收窄只对 provider_name 为官方 openai 时生效，避免对无法验证的
-        第三方 endpoint 误收窄。"""
+            assert voices("gpt-4o-mini-tts-2025-12-15") == voices("gpt-4o-mini-tts")
+            assert "marin" in voices("gpt-4o-mini-tts-2025-12-15")
+
+    @pytest.mark.parametrize("model", ["fish-audio-v1", "gpt-4o-mini-tts-2025-03-20", "kokoro"])
+    def test_list_voices_is_empty_for_unknown_model_even_on_official_host(self, model: str):
         with captured_openai_clients():
             from lib.backends.audio_backends.openai import OpenAIAudioBackend
 
-            for legacy_model in ("tts-1", "tts-1-hd"):
-                b = OpenAIAudioBackend(api_key="sk", model=legacy_model, provider_name="custom-7")
-                ids = {v.id for v in b.list_voices()}
-                assert {"ballad", "verse", "marin", "cedar"} <= ids
+            b = OpenAIAudioBackend(
+                api_key="sk", base_url="https://api.openai.com/v1", model=model, provider_name="custom-7"
+            )
+            assert b.list_voices() == []
+
+    @pytest.mark.parametrize("model", ["gpt-4o-mini-tts", "tts-1", "tts-1-hd"])
+    def test_list_voices_is_empty_for_same_named_model_on_third_party_host(self, model: str):
+        """兼容 /v1/audio/speech 的第三方服务常沿用 OpenAI 的型号名，音色却是自己的，同名不算确认。"""
+        with captured_openai_clients():
+            from lib.backends.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(
+                api_key="sk", base_url="https://tts.relay.test/v1", model=model, provider_name="custom-7"
+            )
+            assert b.list_voices() == []
+
+    def test_custom_provider_on_official_host_gets_the_model_voices(self):
+        """自定义供应商直连 api.openai.com 时就是官方模型，按型号给官方音色（legacy 型号同样收窄）。"""
+        with captured_openai_clients():
+            from lib.backends.audio_backends.openai import OpenAIAudioBackend
+
+            def ids(model: str) -> set[str]:
+                b = OpenAIAudioBackend(
+                    api_key="sk", base_url="https://api.openai.com/v1", model=model, provider_name="custom-7"
+                )
+                return {v.id for v in b.list_voices()}
+
+            assert {"ballad", "verse", "marin", "cedar"} <= ids("gpt-4o-mini-tts")
+            assert ids("tts-1") == {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"}
 
     async def test_speed_passthrough_and_omitted_when_none(self, tmp_path: Path):
         mock_client = _mock_speech_client()

@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NarrationVoiceInput } from "@/components/shared/NarrationVoiceInput";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
@@ -178,7 +178,8 @@ export function VoiceSampleButton({
 
   const handleGenerate = async () => {
     const trimmed = text.trim();
-    if (!trimmed || !selectedVoice || generating || confirming) return;
+    const voice = selectedVoice.trim();
+    if (!trimmed || !voice || generating || confirming) return;
     // 弹窗打开期间占用态可能已变化，提交前从 store 读取最新占用态复核（见 docs/standards/frontend.md）。
     if (busy || isAssetBusy("character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
@@ -192,7 +193,7 @@ export function VoiceSampleButton({
     // 播放态就此卡死，永远进不了播放。
     setIsPreviewPlaying(false);
     try {
-      const res = await enqueueCharacterVoiceSample(projectName, characterName, trimmed, selectedVoice);
+      const res = await enqueueCharacterVoiceSample(projectName, characterName, trimmed, voice);
       setTaskId(res.taskIds[0] ?? null);
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
@@ -219,11 +220,11 @@ export function VoiceSampleButton({
     }
   };
 
-  const selectItems = voicesLoading
-    ? [{ value: null, label: t("voice_sample_voice_loading") }]
+  const voiceHint = voicesLoading
+    ? t("voice_sample_voice_loading")
     : voices.length === 0
-      ? [{ value: null, label: t("voice_sample_no_voices") }]
-      : [{ value: null, label: t("voice_sample_voice_placeholder") }, ...voices.map((v) => ({ value: v.id, label: v.label }))];
+      ? t("voice_sample_no_voices")
+      : t("voice_sample_voice_hint");
   const locked = generating || confirming;
 
   return (
@@ -256,25 +257,18 @@ export function VoiceSampleButton({
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor={voiceFieldId}>{t("voice_sample_voice_label")}</Label>
-                  <Select
-                    items={selectItems}
-                    value={selectedVoice || null}
-                    onValueChange={(next) => {
-                      if (next !== null) handleVoiceChange(next);
-                    }}
-                    disabled={voicesLoading || voices.length === 0 || locked}
-                  >
-                    <SelectTrigger id={voiceFieldId} className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {voices.map((v) => (
-                        <SelectItem key={v.id} value={v.id}>
-                          {v.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {/* 音色表只作候选：模型没有音色表（自定义型号、认不出的型号）时照样手填音色 id */}
+                  <NarrationVoiceInput
+                    id={voiceFieldId}
+                    value={selectedVoice}
+                    onChange={handleVoiceChange}
+                    voices={voices}
+                    disabled={voicesLoading || locked}
+                    aria-describedby={`${voiceFieldId}-hint`}
+                  />
+                  <p id={`${voiceFieldId}-hint`} className="text-xs text-muted-foreground">
+                    {voiceHint}
+                  </p>
                 </div>
 
                 <div className="flex flex-col gap-1.5">
@@ -333,7 +327,7 @@ export function VoiceSampleButton({
             <Button
               variant={succeeded ? "outline" : "default"}
               onClick={() => void handleGenerate()}
-              disabled={busy || occupied || locked || !voicesConfigured || !selectedVoice || text.trim().length === 0}
+              disabled={busy || occupied || locked || !voicesConfigured || !selectedVoice.trim() || text.trim().length === 0}
             >
               {generating ? (
                 <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />

@@ -496,3 +496,80 @@ def test_hard_delete_tag_may_sit_on_any_line_of_the_statement_or_alone_on_the_li
     )
 
     assert _hard_delete_hits(repo) == [("lib/cleanup.py", 8), ("lib/cleanup.py", 9), ("lib/cleanup.py", 11)]
+
+
+def _patched_name_hits(root: Path) -> list[tuple[str, int]]:
+    return [(v.path.as_posix(), v.line) for v in audit(root) if v.rule == "TEST-PATCHED-NAME"]
+
+
+def test_binding_a_root_fixture_patched_function_at_import_time_is_reported(repo: Path) -> None:
+    _write(
+        repo,
+        "tests/unit/test_by_name.py",
+        "from lib.catalog.query import factory_snapshot\n"
+        "from lib.catalog.lifecycle import utc_today as today\n"
+        "from lib.catalog.query import *\n",
+    )
+    _write(
+        repo,
+        "tests/unit/test_by_module.py",
+        "import lib.catalog.query\n"
+        "import lib.catalog.lifecycle as lc\n"
+        "from lib.catalog import query as q\n"
+        "SNAPSHOT = lib.catalog.query.factory_snapshot\n"
+        "TODAY = lc.utc_today\n"
+        "class TestX:\n"
+        "    load = q.factory_snapshot\n"
+        "def test_default(today=lc.utc_today):\n"
+        "    ...\n",
+    )
+    _write(
+        repo,
+        "tests/unit/test_by_parent.py",
+        "import lib.catalog as catalog\n"
+        "from lib import catalog as cat\n"
+        "import lib\n"
+        "A = catalog.query.factory_snapshot\n"
+        "B = cat.lifecycle.utc_today\n"
+        "C = lib.catalog.query.factory_snapshot\n",
+    )
+    _write(
+        repo,
+        "tests/unit/test_shadowed.py",
+        "from lib.catalog import query as catalog\n"
+        "LOAD = catalog.factory_snapshot\n"
+        "def test_dates():\n"
+        "    from lib.catalog import lifecycle as catalog\n"
+        "    assert catalog.utc_today()\n",
+    )
+
+    assert _patched_name_hits(repo) == [
+        ("tests/unit/test_by_module.py", 4),
+        ("tests/unit/test_by_module.py", 5),
+        ("tests/unit/test_by_module.py", 7),
+        ("tests/unit/test_by_module.py", 8),
+        ("tests/unit/test_by_name.py", 1),
+        ("tests/unit/test_by_name.py", 2),
+        ("tests/unit/test_by_name.py", 3),
+        ("tests/unit/test_by_parent.py", 4),
+        ("tests/unit/test_by_parent.py", 5),
+        ("tests/unit/test_by_parent.py", 6),
+        ("tests/unit/test_shadowed.py", 2),
+    ]
+
+
+def test_reading_patched_functions_inside_test_bodies_is_allowed(repo: Path) -> None:
+    _write(
+        repo,
+        "tests/unit/test_inside.py",
+        "from lib.catalog import lifecycle, query\n"
+        "from lib.catalog.query import install_synced_data\n"
+        "def test_a():\n"
+        "    from lib.catalog.query import factory_snapshot\n"
+        "    assert lifecycle.utc_today() and query.factory_snapshot() and factory_snapshot()\n"
+        "LATER = lambda: query.factory_snapshot()\n",
+    )
+    _write(repo, "tests/unit/lib/catalog/test_factory_snapshot.py", "from lib.catalog.query import factory_snapshot\n")
+    _write(repo, "lib/catalog/reader.py", "from lib.catalog.query import factory_snapshot\n")
+
+    assert _patched_name_hits(repo) == []

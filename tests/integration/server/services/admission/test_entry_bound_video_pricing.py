@@ -97,7 +97,7 @@ async def test_custom_opaque_seedance_id_is_quoted_and_metered_like_the_official
     """自定义供应商的不透明 ID 绑定 Seedance 2.0：按 2.0 像素表估算视频 token，不上报服务档，报价与官方 ID 相同。"""
     provider_id = await _custom_provider(
         db_factory,
-        "ark-seedance",
+        "ark-seedance-2",
         [
             {"model_id": OPAQUE, "is_default": True, "entry_binding": SEEDANCE_2_ENTRY},
             {"model_id": SEEDANCE_2},
@@ -117,9 +117,9 @@ async def test_custom_opaque_seedance_id_is_quoted_and_metered_like_the_official
     assert (opaque_quote.amount, opaque_quote.currency) == (official_quote.amount, official_quote.currency)
 
 
-async def test_custom_opaque_id_without_binding_keeps_the_conservative_metering(db_factory):
-    """未绑定条目的不透明 ID 不认定世代：没有视频 token 估算，按请求带的服务档上报，报价记为未定价。"""
-    provider_id = await _custom_provider(db_factory, "ark-seedance", [{"model_id": OPAQUE, "is_default": True}])
+async def test_custom_opaque_id_on_the_seedance_1_endpoint_keeps_the_conservative_metering(db_factory):
+    """未绑定条目的不透明 ID 挂 1.x 端点（迁移按拆分前的认定回填）：没有视频 token 估算，按请求带的服务档上报，报价记为未定价。"""
+    provider_id = await _custom_provider(db_factory, "ark-seedance-1", [{"model_id": OPAQUE, "is_default": True}])
 
     quote, _, estimate, _ = await _quote_and_usage(db_factory, provider_id, OPAQUE)
 
@@ -150,12 +150,20 @@ async def test_builtin_user_added_seedance_id_is_quoted_and_metered_like_the_off
 async def test_builtin_user_added_kling_id_takes_the_entry_audio_pricing_parameter(
     db_factory, official: str, generates_audio: bool
 ):
-    """内置可灵下用户添加的不透明 ID：默认执行档的音频计价参数按绑定的条目取得，与官方模型一致。
+    """内置可灵下用户添加的不透明 ID：选择与官方模型相同的端点、绑定相同的条目后，默认执行档的音频计价参数一致。
 
     v3 有声不受分辨率约束，默认档按有声计价；v2-6 有声只支持 1080P，没有档位上下文时保守按无声计价。
     """
     catalog.install_user_added_models(
-        [catalog.UserAddedModel("kling", OPAQUE, "video", entry_binding=f"kuaishou/{official}")]
+        [
+            catalog.UserAddedModel(
+                "kling",
+                OPAQUE,
+                "video",
+                entry_binding=f"kuaishou/{official}",
+                endpoint=catalog.provider_model_endpoint("kling", official, "video"),
+            )
+        ]
     )
     resolver = ConfigResolver(db_factory)
 
@@ -167,10 +175,10 @@ async def test_builtin_user_added_kling_id_takes_the_entry_audio_pricing_paramet
 
 @pytest.mark.parametrize("model", [OPAQUE, "kling-v2-6"])
 async def test_custom_kling_id_bound_to_v2_6_meters_720p_as_silent(db_factory, model: str):
-    """自定义可灵端点上绑定 v2-6 的不透明 ID：720P 档实际发 ``sound=off``，结算计量按无声上报，与官方 ID 一致。"""
+    """自定义可灵端点上绑定 v2-6 的不透明 ID：720P 档请求档位收窄为无声，结算计量按无声上报，与官方 ID 一致。"""
     provider_id = await _custom_provider(
         db_factory,
-        "kling-video",
+        "kling-video-pro-audio",
         [{"model_id": model, "is_default": True, "entry_binding": "kuaishou/kling-v2-6" if model == OPAQUE else None}],
     )
     resolver = ConfigResolver(db_factory)

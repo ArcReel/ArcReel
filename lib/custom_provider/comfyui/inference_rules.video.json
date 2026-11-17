@@ -1,6 +1,8 @@
 {
   "media_type": "video",
   "semantic_keys": {
+    "reference_audio": { "input_names": ["audio"], "class_types": ["LoadAudio"], "input_name_class_types": { "audio": ["LoadAudio"] } },
+    "aspect_ratio": { "input_names": ["aspect_ratio"], "class_types": ["ResolutionSelector"] },
     "prompt": {
       "input_names": ["text", "prompt", "positive_prompt"],
       "class_types": [
@@ -112,6 +114,7 @@
     { "class_type": "ComfyUIDeployExternalImage", "input": "default_value" }
   ],
   "consumer_ports": {
+    "reference_audio": [{ "input_prefix": "ref_audios.ref_audio_", "class_types": ["MiniMaxH3ReferenceToVideo"] }],
     "start_image": [
       { "input": "start_image" },
       { "input": "init_image" },
@@ -237,6 +240,7 @@
     "PrimitiveStringMultiline": "value"
   },
   "optional_inputs": [
+    { "class_type": "MiniMaxH3ReferenceToVideo", "input_prefix": "ref_audios.ref_audio_" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image1" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image2" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image3" },

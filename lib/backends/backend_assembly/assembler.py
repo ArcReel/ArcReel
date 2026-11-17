@@ -12,8 +12,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
-from lib.backends.backend_assembly.specs import get_provider_spec
-from lib.catalog import builtin_models
+from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINT_SPECS, builtin_model_endpoint, get_provider_endpoints
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
@@ -48,6 +47,7 @@ async def assemble_backend(
     rate_limiter: Any | None = None,
     generation_type: str | None = None,
     submitted_job: bool = False,
+    builtin_endpoint: str | None = None,
 ) -> Any:
     """统一构造入口。按 provider_id 是否自定义分流；未登记的内置 provider × media fail-loud。
 
@@ -56,6 +56,9 @@ async def assemble_backend(
 
     ``submitted_job`` 为真表示构造出的 backend 只用于续跑已提交给厂商的任务（只轮询、不发起新的生成）：模型已下线
     也照常构造，其余检查不变。新调用恒为假。
+
+    ``builtin_endpoint`` 是调用方已经定下的内置调用端点：传入时内置供应商按它构造，调用方据同一次读取冻结的续跑守卫
+    与构造出的实例一致；为 None 时这里按模型挂接的端点现定（:func:`builtin_model_endpoint`）。自定义供应商不读它。
     """
     if is_custom_provider(provider_id):
         from lib.custom_provider.loader import load_custom_backend
@@ -71,8 +74,11 @@ async def assemble_backend(
                 generation_type=generation_type,
                 submitted_job=submitted_job,
             )
-    spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
+    get_provider_endpoints(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
     model_id = await _callable_builtin_model(provider_id, media_type, model_id, resolver, submitted_job=submitted_job)
+    # 先定下供应商模型挂接的内置调用端点，再由端点构造：供应商给凭证，端点决定请求
+    endpoint = builtin_endpoint or builtin_model_endpoint(provider_id, media_type, model_id)
+    spec = PROVIDER_ENDPOINT_SPECS[(provider_id, endpoint)]
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
     # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。工作线程里没有事件循环，
     # backend 构造时不能创建要求事件循环的 SDK 客户端（xai_sdk.AsyncClient 的做法见 grok_shared.LazyGrokClient）。
@@ -95,8 +101,8 @@ async def callable_model_key(
 
     缓存里的实例可能构造于关停日期之前，命中缓存会绕过 :func:`assemble_backend` 里的检查，所以调用方在查缓存前调用本函数。
 
-    - 内置供应商：``model_id`` 为 ``None`` 时取可用的默认模型（已下线或被用户停用的不算，没有时抛 ``ModelNotInCatalogError``，与装配同一口径），
-      返回定下的模型键；已下线抛 ``ModelDiscontinuedError``。这里刻意不查「是否在清单里」，完整检查在真正构造时执行。
+    - 内置供应商：``model_id`` 为 ``None`` 时抛 ``ModelNotInCatalogError``，不按目录推荐补模型（docs/adr/0099），与装配同一口径；
+      返回模型键；已下线抛 ``ModelDiscontinuedError``。这里刻意不查「是否在清单里」，完整检查在真正构造时执行。
     - 自定义供应商：按装载同一条规则（``lib.custom_provider.loader.select_custom_model``）定下模型行，显式引用的模型已下线、
       或回退后没有未下线的默认模型时同样报错；``model_id`` 原样返回（默认模型按任务类型桶分槽，键里另有桶）。
     - 未登记的供应商原样返回，由装配报错。
@@ -119,27 +125,20 @@ async def callable_model_key(
         return model_id
     if provider_id not in PROVIDER_REGISTRY:
         return model_id
-    model_id = await _builtin_model_or_default(provider_id, media_type, model_id, resolver)
+    model_id = _require_builtin_model(provider_id, media_type, model_id)
     if not submitted_job:
         catalog.reject_discontinued(provider_id, model_id, media_type)
     return model_id
 
 
-async def _builtin_model_or_default(
-    provider_id: str, media_type: str, model_id: str | None, resolver: ConfigResolver
-) -> str:
-    """``model_id`` 为 ``None`` 时取内置供应商在这个媒体类型下可用的默认模型（:func:`lib.catalog.builtin_models.default_builtin_model`）。
+def _require_builtin_model(provider_id: str, media_type: str, model_id: str | None) -> str:
+    """``model_id`` 为 ``None`` 时抛 ``ModelNotInCatalogError``：装配层不按目录推荐补模型（docs/adr/0099）。
 
-    默认模型只来自模型目录：没有可用的默认模型（没有指定、已下线、被用户停用或低于最低应用版本）时抛
-    ``ModelNotInCatalogError``，不落到 backend 构造函数里写死的模型名。
+    调用方的模型都来自用户设置的解析结果；没有模型时报错，不落到目录推荐或 backend 构造函数里写死的模型名。
     """
     if model_id is not None:
         return model_id
-    async with resolver._open_session() as (session, _):
-        default = await builtin_models.default_builtin_model(session, provider_id, media_type)
-    if default is None:
-        raise ModelNotInCatalogError(provider_id=provider_id, model_id="", media_type=media_type)
-    return default
+    raise ModelNotInCatalogError(provider_id=provider_id, model_id="", media_type=media_type)
 
 
 async def _callable_builtin_model(
@@ -147,13 +146,13 @@ async def _callable_builtin_model(
 ) -> str:
     """内置供应商这次调用实际使用的模型键，按今天的生命周期检查过可以调用。
 
-    ``model_id`` 为 ``None`` 时取可用的默认模型，没有时报错（:func:`_builtin_model_or_default`）。
+    ``model_id`` 为 ``None`` 时报错（:func:`_require_builtin_model`）。
     模型已下线抛 ``ModelDiscontinuedError``，不在清单里抛 ``ModelNotInCatalogError``（见
     :func:`lib.catalog.query.require_callable`）。生命周期按当天日期判定，复用 backend 实例的调用方取缓存前另行检查
     （``server.services.tasks.generation_context``）。``submitted_job`` 为真（续跑已提交的任务）时只查是否在清单里
     （:func:`lib.catalog.query.require_listed`）。
     """
-    model_id = await _builtin_model_or_default(provider_id, media_type, model_id, resolver)
+    model_id = _require_builtin_model(provider_id, media_type, model_id)
     if submitted_job:
         catalog.require_listed(provider_id, model_id, media_type)
     else:

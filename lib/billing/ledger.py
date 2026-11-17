@@ -38,6 +38,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, assert_never
 
+from arcreel_catalog_core import CJK_DOUBLE_METER
 from lib.agent.credential_tiers import AgentPricing
 from lib.backends.providers import CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallFailure, classify_call_failure
@@ -84,6 +85,7 @@ def _settlement_from_result(call_type: CallType, result: Any, *, usage: Usage | 
     - text 的总输入与三项缓存 → 互不重叠的 token 计量项（未缓存输入 = 总输入 − 缓存读 − 两档缓存写），
       降级链上的多次请求各出一份，计费时逐次落上下文档；
     - audio 的原始文本 → 计量用的 ``text``（字符数由计算器按价目表统计），另把字符数记进 ``usage_tokens``；
+      供应商回报了计费字符数（``billed_characters``）时，字符数计量项与 ``usage_tokens`` 都改用它；
       按 token 计价的 TTS 再带输入 token 与输出音频 token；
     - video 的 ``duration_seconds``（backend 回报的实际计费/生成时长）→
       ``billed_duration_seconds``（覆盖 start_call 时的请求时长）；``usage`` 是视频调用通道按用量契约上报的
@@ -102,20 +104,20 @@ def _settlement_from_result(call_type: CallType, result: Any, *, usage: Usage | 
             usage=(result.usage,) if result.usage is not None else (),
         )
     if call_type == "audio":
-        return SettlementInput(
-            usage_tokens=len(result.text),
+        quantities = token_usage(
             input_tokens=result.input_tokens,
             output_tokens=result.audio_output_tokens,
-            usage=(
-                Usage(
-                    quantities=token_usage(
-                        input_tokens=result.input_tokens,
-                        output_tokens=result.audio_output_tokens,
-                        output_meter="audio_output_tokens",
-                    ),
-                    text=result.text,
-                ),
-            ),
+            output_meter="audio_output_tokens",
+        )
+        billed_characters = result.billed_characters
+        if billed_characters is not None:
+            # 供应商回报的计费字符数优先于按文本统计的字符数。
+            quantities[CJK_DOUBLE_METER] = billed_characters
+        return SettlementInput(
+            usage_tokens=len(result.text) if billed_characters is None else billed_characters,
+            input_tokens=result.input_tokens,
+            output_tokens=result.audio_output_tokens,
+            usage=(Usage(quantities=quantities, text=result.text if billed_characters is None else None),),
         )
     if call_type == "video":
         return SettlementInput(

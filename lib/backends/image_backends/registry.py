@@ -58,6 +58,22 @@ def reference_limit_of(backend_class: object) -> int | None:
     return declared
 
 
+def channel_accepts_explicit_quality(name: str) -> bool:
+    """某个内置调用通道是否接受显式画质（类属性 ``CHANNEL_ACCEPTS_QUALITY``），不构造实例；没有声明时为不接受。"""
+    factory = _BACKEND_FACTORIES.get(name)
+    if factory is None:
+        raise ValueError(f"Unknown image backend: {name}")
+    return accepts_explicit_quality_of(factory)
+
+
+def accepts_explicit_quality_of(backend_class: object) -> bool:
+    """调用通道类是否接受显式画质，即用户选择的画质取值，区别于由分辨率档位推出的那一个（docs/adr/0104）。
+
+    读类属性 ``CHANNEL_ACCEPTS_QUALITY``，缺省为不接受：不读请求 ``quality`` 字段的通道不用声明。
+    """
+    return getattr(backend_class, "CHANNEL_ACCEPTS_QUALITY", False) is True
+
+
 def channel_usage_estimator(name: str) -> ImageUsageEstimator:
     """读某个内置调用通道的预估函数（类上的 ``estimate_usage``），不构造实例。"""
     factory = _BACKEND_FACTORIES.get(name)

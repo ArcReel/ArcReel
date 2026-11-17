@@ -10,7 +10,7 @@ ComfyUI 端点的能力只来自节点绑定，不读条目（docs/adr/0082、01
 维度跟随系统判定。
 
 同一个覆盖字典里还有模型事实维度（可选时长、文生图等，见 :mod:`lib.custom_provider.model_facts`），
-键名与通道事实不重叠，这里跳过它们。
+视频的模型事实键名与通道事实不重叠，这里跳过它们；图片的参考图上限共用同名键。
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoRoute,
     audio_capability_pair_is_coherent,
 )
-from lib.custom_provider.model_facts import ALL_MODEL_FACT_OVERRIDE_KEYS, model_entry
+from lib.custom_provider.model_facts import ALL_MODEL_FACT_OVERRIDE_KEYS, MODEL_FACT_OVERRIDE_KEYS, model_entry
 
 logger = logging.getLogger(__name__)
 
@@ -84,10 +84,11 @@ def overridden_audio_track(
     return caps.audio_track_for_route(route).value
 
 
-if CHANNEL_FACT_OVERRIDE_KEYS - CAPABILITY_OVERRIDE_FIELDS.keys() or CHANNEL_FACT_OVERRIDE_KEYS & (
-    ALL_MODEL_FACT_OVERRIDE_KEYS
+if (
+    CHANNEL_FACT_OVERRIDE_KEYS - CAPABILITY_OVERRIDE_FIELDS.keys()
+    or CHANNEL_FACT_OVERRIDE_KEYS & (MODEL_FACT_OVERRIDE_KEYS["video"])
 ):
-    raise RuntimeError("通道事实覆盖键须是 VideoCapabilities 字段，且不与模型事实覆盖键重名")
+    raise RuntimeError("通道事实覆盖键须是 VideoCapabilities 字段，且不与视频模型事实覆盖键重名")
 
 
 def _unwrap_optional(expected: object) -> tuple[object, bool]:

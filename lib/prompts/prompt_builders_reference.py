@@ -43,6 +43,8 @@ def build_reference_units_split_prompt(
     text_supported_durations: list[int] | None = None,
     max_duration: int,
     max_reference_images: int | None,
+    reference_max_speakers: int | None = None,
+    text_max_speakers: int | None = None,
     default_duration: int | None,
     episode: int,
     source_kind: str = "novel",
@@ -70,10 +72,12 @@ def build_reference_units_split_prompt(
             注意力；两套不同时**两套都写**，不假定谁包含谁。
         max_duration: 单次视频生成的时长上限（秒），即档位最大值。
         max_reference_images: 单 unit 参考图上限；None 时不写入硬性数量约束。
+        reference_max_speakers / text_max_speakers: 带 / 不带可用参考图的 unit 说话人数上限；
+            参考音频会随请求挂出时才有，None 时不约束。两桶相同时合写，不同时只写受约束的桶。
         default_duration: 用户项目偏好的默认秒数；须为 supported_durations 成员或 None。
         source_kind: 本集源文件类型；``"screenplay"`` 走提取分支（照用场次、台词逐字照搬），
             其余取值一律按 ``"novel"`` 渲染。
-        source_language: 项目源文语言码（zh / en / vi 或 None），供台词口播时长下界取语速。
+        source_language: 项目源文语言码（zh / en / vi / ru 或 None），供台词口播时长下界取语速。
         speech_rate_override: 项目级语速覆盖（阅读单位 / 秒，由调用方经
             ``project_speech_rate_override`` 解析）；None 即无覆盖、回退语言默认。
         episode_target_duration: 项目级「单集目标时长」偏好（秒，由调用方经
@@ -142,6 +146,9 @@ def build_reference_units_split_prompt(
         speech_unit=reading_unit_noun(source_language),
         max_duration=max_duration,
         max_reference_images=max_reference_images,
+        max_speakers=reference_max_speakers if reference_max_speakers == text_max_speakers else None,
+        reference_max_speakers=reference_max_speakers if reference_max_speakers != text_max_speakers else None,
+        text_max_speakers=text_max_speakers if reference_max_speakers != text_max_speakers else None,
         episode_target_duration=episode_target_duration,
         instructions=instructions,
     )

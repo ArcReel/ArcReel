@@ -263,12 +263,23 @@ def _render_node(
                 rendered_key = _render_string(value["key"], scope, enum_maps)
                 rendered_value = _render_node(value["value"], scope, enum_maps)
                 if rendered_key is not _DROP and rendered_value is not _DROP:
-                    rendered_object[_stringify(rendered_key)] = rendered_value
+                    _put_unique(rendered_object, _stringify(rendered_key), rendered_value)
             continue
         result = _render_node(value, context, enum_maps)
         if result is not _DROP:
-            rendered_object[key] = result
+            _put_unique(rendered_object, key, result)
     return rendered_object
+
+
+def _put_unique(target: dict[str, object], key: str, value: object) -> None:
+    """写入一个键；与已有键重名时报错，不覆盖。
+
+    静态键在 JSON 里本就唯一，只有对象式 ``$each`` 铺出的键会撞上。覆盖意味着前面的素材被悄悄丢掉、
+    请求照常发出，所以在提交前拒绝。
+    """
+    if key in target:
+        raise TemplateRenderError(DefinitionErrorCode.EACH_KEY_DUPLICATE, field=key)
+    target[key] = value
 
 
 def _each_values(directive: Mapping[str, Any], context: Mapping[str, object]) -> Sequence[object]:

@@ -11,7 +11,7 @@
 - **需要后端完整测试的改动**：`pyproject.toml`、`uv.lock`、根 `tests/conftest.py`、含行为的包初始化，或涉及 Alembic、profile、DB、i18n、共享测试设施；无法判断影响范围时也运行完整测试。
 - **前端测试文件变更**：直接把文件传给 Vitest。
 - **前端源码变更**：在 `frontend/` 运行 `pnpm exec vitest related --run <源文件>`；分支级检查用 `pnpm exec vitest run --changed <base>`。TypeScript 源码变更同时运行完整 typecheck。
-- **前端页面级套件（`frontend/e2e/`）变更、改动布局或滚动相关的组件、改变调用的接口集合或流连接（含 SSE）的建立时机**：在 `frontend/` 运行 `pnpm e2e`。页面级套件只回放录制替身与场景 `api` 覆盖，未录制的请求直接失败；本机渲染与 CI 不一致时以容器内结果为准，运行方式见 `CONTRIBUTING.md`「前端页面级测试」。改动后端接口的响应形状时，同时运行 `pnpm e2e:record` 重录接口替身。
+- **前端页面级套件（`frontend/e2e/`）变更、改动布局或滚动相关的组件、改变调用的接口集合或流连接（含 SSE）的建立时机**：在 `frontend/` 运行 `pnpm e2e <spec 文件>...`，只跑改动涉及的 spec：新增或修改的 spec，以及渲染了所改组件的区域对应的 spec；全量与截图比对由 CI 的 `frontend-e2e` 跑。页面级套件只回放录制替身与场景 `api` 覆盖，未录制的请求直接失败；本机渲染与 CI 不一致时以容器内结果为准，运行方式见 `CONTRIBUTING.md`「前端页面级测试」。改动后端接口的响应形状或 `tests/fixtures/catalog.json` 时，同时运行 `pnpm e2e:record` 重录接口替身；改动录制脚本或 `scripts/e2e_record_backend.py` 时运行 `pnpm e2e:record:check`。
 - **需要前端完整测试（`pnpm check`）的改动**：`package.json`、`pnpm-lock.yaml`、`vitest.config.*`、测试 setup、i18n 或 branding。
 - **子包 `packages/arcreel-market-core/` 源码变更**：运行子包全部测试（`cd packages/arcreel-market-core && uv run python -m pytest`，子包自带 pytest 配置，与主仓分开收集），并按主仓的导入方选择相关测试；子包的消息键增删时同时运行 `tests/unit/lib/i18n/`。
 - **子包 `packages/arcreel-catalog-core/` 源码变更**：运行子包全部测试（`cd packages/arcreel-catalog-core && uv run python -m pytest`），并按主仓的导入方选择相关测试。
@@ -19,6 +19,10 @@
 ## 在 worktree 里运行
 
 worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文档站在各自目录 `pnpm install --frozen-lockfile`。把主检出的 `.testmondata` 复制进 worktree 可以跳过 testmon 的首次建库；文件里记录的是按代码指纹索引的覆盖关系，与当前代码不一致的部分会被当作改动重跑。标了 `local_port` 的用例在禁止绑定本地端口的沙箱里会被跳过并注明原因，完整测试需要在允许绑定端口的环境里运行一次。根 conftest 为测试进程设置 `PYTHON_DOTENV_DISABLED=1`，不读取任何 `.env`，worktree 根不必为挡住主检出的 `.env` 再放一份空文件；验证 `.env` 读取规则的用例自行 `delenv`。
+
+## 模型目录的测试数据
+
+根 conftest 让目录查询读测试目录数据 `tests/fixtures/catalog.json`，不读出厂快照 `lib/catalog/snapshot/`。出厂快照由发版 PR 刷新成目录数据仓库的最新数据，那边改数据时不跑本仓的测试，用例断言出厂快照里的模型或取值，就会在发版 PR 上失败。用例需要的目录数据变化，用 `tests/catalog_support.py` 的 `install_catalog`、`catalog_of` 与 `with_*` 在用例内构造，或修改测试目录数据。只有 `tests/unit/lib/catalog/test_factory_snapshot.py` 换回出厂快照，核对它本身的格式与可加载性。生命周期判定的「今天」同时固定为测试目录数据的数据集日期，其中登记的关停日期不会随真实日期到来而改变用例结果；需要跨过关停日期的用例自己调用 `set_catalog_today`。发布数据必须满足的约束写进 `arcreel_catalog_core` 的构建侧校验，由目录数据仓库在合入与发布时检查。
 
 ## 事件循环阻塞护栏
 

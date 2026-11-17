@@ -1,12 +1,13 @@
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 // Stub URL object APIs not available in jsdom
 globalThis.URL.createObjectURL ??= vi.fn(() => "blob:mock");
 globalThis.URL.revokeObjectURL ??= vi.fn();
 import i18n from "@/i18n";
 import { CreateProjectModal } from "./CreateProjectModal";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 
@@ -113,7 +114,7 @@ function installStubs(name = "demo-proj") {
   vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
   vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
   vi.spyOn(API, "getAutoBackends").mockResolvedValue({ t2i: null, i2i: null, i2v: null, r2v: null, text: null });
-  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+  vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
   stubModelVideoCapabilities();
   vi.spyOn(API, "createProject").mockResolvedValue({ success: true, name, project: {} as never });
   vi.spyOn(API, "uploadStyleImage").mockResolvedValue({
@@ -140,6 +141,16 @@ async function walkToStyle() {
   await waitFor(() => expect(nextButton()).toBeEnabled());
   clickNext();
   return screen.findByRole("button", { name: "创建项目" });
+}
+
+/** 在第三步切到「自定义」并选中一张风格参考图，返回选中的文件。 */
+function pickCustomStyleFile() {
+  fireEvent.click(screen.getByRole("tab", { name: "自定义" }));
+  const file = new File(["content"], "style.png", { type: "image/png" });
+  const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+  Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+  fireEvent.change(fileInput);
+  return file;
 }
 
 async function createWithDefaults() {
@@ -428,6 +439,43 @@ describe("CreateProjectModal", () => {
     expect(payload.model_settings).toBeUndefined();
   });
 
+  it("writes the image quality picked on step 2 into model_settings under the executing image model", async () => {
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...mockSysConfig,
+      settings: { ...mockSysConfig.settings, default_image_backend: "openai/gpt-image-2" },
+      options: { ...mockSysConfig.options, image_backends: ["openai/gpt-image-2"] },
+    } as never);
+    vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [
+        ...mockProviders.providers,
+        {
+          id: "openai", display_name: "OpenAI", description: "", status: "ready" as const,
+          media_types: ["image"], capabilities: [], credential_count: 0,
+          models: {
+            "gpt-image-2": {
+              display_name: "GPT Image 2", media_type: "image", capabilities: [], default: true,
+              supported_durations: [], resolutions: ["1K", "2K"], qualities: ["low", "medium", "high"],
+            },
+          },
+        },
+      ],
+    } as never);
+
+    const user = userEvent.setup();
+    render(<CreateProjectModal />);
+    fillBasics();
+    clickNext();
+    await user.click(await screen.findByRole("combobox", { name: "画质" }));
+    await user.click(await screen.findByRole("option", { name: "high" }));
+    expect(screen.getByRole("combobox", { name: "画质" })).toHaveTextContent("high");
+    clickNext();
+    fireEvent.click(await screen.findByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    const payload = vi.mocked(API.createProject).mock.calls[0][0] as { model_settings?: Record<string, unknown> };
+    expect(payload.model_settings).toEqual({ "openai/gpt-image-2": { quality: "high" } });
+  });
+
   it("shows an error toast and stays on step 3 when createProject fails", async () => {
     vi.spyOn(API, "createProject").mockRejectedValueOnce(new Error("boom"));
     render(<CreateProjectModal />);
@@ -442,18 +490,53 @@ describe("CreateProjectModal", () => {
     render(<CreateProjectModal />);
     fillBasics();
     const create = await walkToStyle();
-
-    fireEvent.click(screen.getByRole("tab", { name: "自定义" }));
-    const file = new File(["content"], "style.png", { type: "image/png" });
-    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
-    Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
-    fireEvent.change(fileInput);
+    const file = pickCustomStyleFile();
     fireEvent.click(create);
 
     await waitFor(() =>
       expect(API.createProject).toHaveBeenCalledWith(expect.objectContaining({ style_template_id: null })),
     );
     await waitFor(() => expect(API.uploadStyleImage).toHaveBeenCalledWith("demo-proj", file));
+  });
+
+  it("shows the server's reason, as one sentence, when the style image upload is rejected", async () => {
+    vi.spyOn(API, "uploadStyleImage").mockRejectedValueOnce(
+      new ApiRequestError("还没有设置文本默认模型：请在「全局设置 → 默认模型」中选择。", undefined, 400),
+    );
+    render(<CreateProjectModal />);
+    fillBasics();
+    const create = await walkToStyle();
+    pickCustomStyleFile();
+    fireEvent.click(create);
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "风格参考图上传失败：还没有设置文本默认模型：请在「全局设置 → 默认模型」中选择。可稍后在项目设置中重新上传。",
+        tone: "warning",
+      }),
+    );
+    expect(navigateMock).toHaveBeenCalledWith("/app/projects/demo-proj");
+  });
+
+  it.each([
+    ["a network failure", new TypeError("Failed to fetch")],
+    ["a gateway timeout", new ApiRequestError("Gateway Timeout", undefined, 504)],
+    ["a request error the server gave no detail for", new ApiRequestError("上传失败", undefined, 413)],
+  ])("falls back to the generic hint when the style image upload fails with %s", async (_case, error) => {
+    vi.spyOn(API, "uploadStyleImage").mockRejectedValueOnce(error);
+    render(<CreateProjectModal />);
+    fillBasics();
+    const create = await walkToStyle();
+    pickCustomStyleFile();
+    fireEvent.click(create);
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "风格参考图上传失败，可稍后在项目设置中重新上传",
+        tone: "warning",
+      }),
+    );
+    expect(navigateMock).toHaveBeenCalledWith("/app/projects/demo-proj");
   });
 
   it("keeps the uploaded style preview across leaving and returning to step 3, and frees every preview it stops using", async () => {
@@ -559,7 +642,7 @@ describe("CreateProjectModal language switch", () => {
     vi.spyOn(API, "getProviders").mockResolvedValue(mockProviders as never);
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "getNarrationDefaults").mockResolvedValue(narrationDefaults);
-    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true });
+    vi.spyOn(API, "getTtsModelCapabilities").mockResolvedValue({ supports_speed: true, voices: [] });
     stubModelVideoCapabilities();
   });
 

@@ -225,6 +225,32 @@ def write_legacy_retired_model_references_project(root: Path) -> Path:
     return project_dir
 
 
+def write_legacy_bare_provider_project(root: Path, *, schema_version: int = 19) -> Path:
+    """项目模型字段只写了内置供应商、没写模型（升级前运行时按目录默认模型补全）。
+
+    视频默认写裸 ``ark``，图片文生图桶是缺模型的脏值 ``openai/``，复杂档文本写裸 ``grok``；视频参考生桶写
+    没有视频推荐的 ``openai``，配音写自定义供应商的裸 id，图片默认是完整的 ``provider/model``。
+    """
+
+    project_dir = write_legacy_storyboard_project(root, name=f"legacy-bare-provider-v{schema_version}")
+    if schema_version > 7:
+        advance_project_schema(project_dir, to_version=schema_version)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project.update(
+        {
+            "video_backend": "ark",
+            "image_provider_t2i": "openai/",
+            "text_backend_complex": " grok ",
+            "video_provider_r2v": "openai",
+            "audio_backend": "custom-3",
+            "default_image_backend": "openai/gpt-image-2",
+        }
+    )
+    _write_json(project_path, project)
+    return project_dir
+
+
 def write_legacy_timeline_agent_turn_project(root: Path) -> Path:
     """schema 17 项目的剪辑时间线修订仍带 Agent 轮次字段（新建与编辑各一个修订）。"""
 
@@ -1237,6 +1263,53 @@ def write_legacy_shared_reference_project(root: Path, *, padded_names: bool = Fa
     return project_dir
 
 
+def share_a_sheet_with_an_occupied_copy_target(project_dir: Path) -> None:
+    """Bob 的资产图借用 Alice，Bob 的原图仍引用将被资产图副本占用的落点。"""
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    project["characters"] = {
+        "Alice": {"description": "Alice", "character_sheet": "characters/Alice.png"},
+        "Bob": {
+            "description": "Bob",
+            "character_sheet": "characters/Alice.png",
+            "reference_image": "characters/Bob.png",
+        },
+    }
+    for rel, content in (("characters/Alice.png", b"Alice-sheet"), ("characters/Bob.png", b"Bob-reference")):
+        path = project_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    _write_json(project_path, project)
+
+
+def share_a_sheet_with_a_missing_reference_and_occupied_target(project_dir: Path) -> None:
+    """缺失原图指向资产图副本落点，原图自己的规范落点又被孤立文件占用。"""
+    share_a_sheet_with_an_occupied_copy_target(project_dir)
+    (project_dir / "characters/Bob.png").unlink()
+    target = project_dir / "characters/refs/Bob.png"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"orphan-reference")
+
+
+def share_reference_files_with_occupied_targets(project_dir: Path, directory: str) -> None:
+    """参考图或音频副本的落点仍被资产图引用，音频落点还同时被原图引用。"""
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    field = "reference_image" if directory == "refs" else "reference_audio"
+    source, target = f"characters/{directory}/Alice.png", f"characters/{directory}/Bob.png"
+    project["characters"] = {
+        "Alice": {"description": "Alice", field: source},
+        "Bob": {"description": "Bob", "character_sheet": target, field: source},
+    }
+    if directory == "refs_audio":
+        project["characters"]["Bob"]["reference_image"] = target
+    for rel, content in ((source, b"Alice-reference"), (target, b"Bob-sheet")):
+        path = project_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    _write_json(project_path, project)
+
+
 def share_reference_files(project_dir: Path) -> dict[str, bytes]:
     """旧版资产 PATCH 接受任意路径，参考图与参考音频可以指向别的资产名下的文件。
 
@@ -1690,6 +1763,7 @@ __all__ = [
     "share_reference_files",
     "without_version_content_digests",
     "write_legacy_ad_reference_video_project",
+    "write_legacy_bare_provider_project",
     "write_legacy_drama_storyboard_project",
     "write_legacy_episode_id_remnants_project",
     "write_legacy_item_id_reuse_project",

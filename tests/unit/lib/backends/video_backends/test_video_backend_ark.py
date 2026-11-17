@@ -15,9 +15,14 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
-from lib.backends.video_backends.ark import ArkVideoBackend
+from lib.backends.video_backends.ark import (
+    SEEDANCE_BACKENDS,
+    ArkVideoBackend,
+    Seedance1VideoBackend,
+    Seedance2VideoBackend,
+    Seedance25VideoBackend,
+)
 from lib.backends.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
-from lib.catalog import query as catalog
 from tests.fakes import (
     blocking_file_read_gate,
     bounded_poll_clock,
@@ -41,7 +46,7 @@ def mock_ark_client():
 @pytest.fixture
 def ark_backend(mock_ark_client):
     with patch("lib.backends.video_backends.ark.create_ark_client", return_value=mock_ark_client):
-        b = ArkVideoBackend(
+        b = Seedance1VideoBackend(
             api_key="test-ark-key",
             model=_SEEDANCE_1_5_PRO,
         )
@@ -340,7 +345,7 @@ class TestArkGenerate:
 
     def test_missing_api_key_raises(self):
         with patch.dict(os.environ, {}, clear=True), pytest.raises(ValueError, match="Ark API Key"):
-            ArkVideoBackend(api_key=None, model=_SEEDANCE_1_5_PRO)
+            Seedance1VideoBackend(api_key=None, model=_SEEDANCE_1_5_PRO)
 
 
 class TestArkRetryBehavior:
@@ -432,22 +437,25 @@ class TestArkRetryBehavior:
         assert ark_backend._client.content_generation.tasks.get.call_count == 1
 
 
+def _effective(model: str):
+    """自定义供应商下按名字预填的 Seedance 端点与模型条目两侧求值的生效能力。"""
+    from lib.custom_provider.capabilities import two_sided_video_capabilities
+    from lib.custom_provider.endpoints import infer_endpoint
+
+    return two_sided_video_capabilities(endpoint=infer_endpoint(model, "openai", "video"), model_id=model)
+
+
 class TestArkModelCapabilities:
     """方舟通道的声明与按名字对应条目后的生效能力（两侧求值，docs/adr/0104）。
 
-    通道声明与型号名无关；首尾帧、参考图与参考音频按型号的差异来自条目。对应不上条目的型号（未上条目的
+    通道声明随端点、与型号名无关；首尾帧、参考图与参考音频按型号的差异来自条目。对应不上条目的型号（未上条目的
     1.0 系列、上游未来新增、未知后缀）按保守回落取：首帧跟随通道，尾帧与参考音频不开，参考图上限只受通道约束。
     """
 
-    @staticmethod
-    def _effective(model: str):
-        from lib.custom_provider.capabilities import two_sided_video_capabilities
-
-        return two_sided_video_capabilities(endpoint="ark-seedance", model_id=model)
-
+    @pytest.mark.parametrize("backend", list(SEEDANCE_BACKENDS.values()))
     @pytest.mark.parametrize("model", ["doubao-seedance-1-5-pro-251215", "doubao-seedance-9-9-ultra-future"])
-    def test_channel_declares_every_input_path_regardless_of_model(self, model: str):
-        caps = ArkVideoBackend.video_capabilities_for_model(model)
+    def test_channel_declares_every_input_path_regardless_of_model(self, backend: type[ArkVideoBackend], model: str):
+        caps = backend.video_capabilities_for_model(model)
         assert caps.text_to_video is True
         assert caps.first_frame is True
         assert caps.last_frame is True
@@ -458,7 +466,7 @@ class TestArkModelCapabilities:
     @pytest.mark.parametrize("model", ["doubao-seedance-1-5-pro-251215", "doubao-seedance-1.5-pro"])
     def test_seedance_1_5_pro_entry_opens_last_frame_and_rejects_references(self, model: str):
         """1.5 Pro 的条目记录首尾帧可用、参考图不接受（显式 0），不作为参考生视频的候选，带参考图在执行时被拒。"""
-        caps = self._effective(model)
+        caps = _effective(model)
         assert caps.last_frame is True
         assert caps.max_reference_images == 0
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
@@ -475,7 +483,7 @@ class TestArkModelCapabilities:
     )
     def test_model_without_entry_falls_back_conservatively(self, model: str):
         """对应不上条目：首帧跟随通道，尾帧与参考音频不开，参考图上限只受通道约束（通道不设上限，为未收录）。"""
-        caps = self._effective(model)
+        caps = _effective(model)
         assert caps.first_frame is True
         assert caps.last_frame is False
         assert caps.max_reference_images is None
@@ -494,7 +502,7 @@ class TestArkModelCapabilities:
         ],
     )
     def test_seedance_2_known_variants_support_last_frame(self, model: str):
-        caps = self._effective(model)
+        caps = _effective(model)
         assert caps.last_frame is True
         assert caps.max_reference_images == 9
         assert caps.max_reference_audio_count == 3
@@ -502,17 +510,17 @@ class TestArkModelCapabilities:
     @pytest.mark.parametrize("model", ["doubao-seedance-2-5-260628", "doubao-seedance-2.5"])
     def test_seedance_2_5_declares_own_material_limits(self, model: str):
         """2.5 的素材上限比 2.0 宽（参考图 30 / 音频 10 段 30 秒），来自 2.5 自己的条目。"""
-        caps = self._effective(model)
+        caps = _effective(model)
         assert caps.last_frame is True
         assert caps.max_reference_images == 30
         assert caps.reference_audio_mode == ReferenceAudioMode.DIRECT
         assert caps.max_reference_audio_count == 10
         assert caps.max_reference_audio_total_seconds == 30.0
 
-    def test_seedance_2_5_requires_adaptive_first_frame_ratio(self):
-        """有首帧时比例交给上游按首帧自适应：下发固定 ratio 会与首帧尺寸冲突。这是请求形态，仍由通道按名字声明。"""
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-5-260628")
-        assert caps.first_frame_ratio_adaptive_only is True
+    @pytest.mark.parametrize("model", ["doubao-seedance-2-5-260628", "ep-20261103-opaque"])
+    def test_seedance_2_5_endpoint_requires_adaptive_first_frame_ratio(self, model: str):
+        """2.5 端点有首帧时比例交给上游按首帧自适应：下发固定 ratio 会与首帧尺寸冲突。这是端点的请求结构，与型号名无关。"""
+        assert Seedance25VideoBackend.video_capabilities_for_model(model).first_frame_ratio_adaptive_only is True
 
     @pytest.mark.parametrize("aspect_ratio", ["16:9", "9:16"])
     def test_seedance_2_5_first_frame_request_ratio_resolves_to_adaptive(self, aspect_ratio: str):
@@ -521,7 +529,7 @@ class TestArkModelCapabilities:
         单测 caps 标志位只锁住声明，锁不住「首帧任务 ratio 恒为 adaptive」这条对外承诺——
         承诺是声明与 resolve_first_frame_aspect_ratio 合起来才成立的，故在此合测。
         """
-        caps = ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-5-260628")
+        caps = Seedance25VideoBackend.video_capabilities_for_model("doubao-seedance-2-5-260628")
         resolved = resolve_first_frame_aspect_ratio(caps=caps, aspect_ratio=aspect_ratio, has_first_frame=True)
         assert resolved == FIRST_FRAME_ADAPTIVE_RATIO
         # 无首帧的纯文生 / 仅参考图请求不受影响，用户比例原样下发
@@ -530,11 +538,11 @@ class TestArkModelCapabilities:
             == aspect_ratio
         )
 
-    def test_seedance_2_0_keeps_passthrough_first_frame_ratio(self):
-        """2.0 未声明 adaptive：比例语义不随 2.5 分支走。"""
+    @pytest.mark.parametrize("backend", [Seedance1VideoBackend, Seedance2VideoBackend])
+    def test_other_endpoints_keep_passthrough_first_frame_ratio(self, backend: type[ArkVideoBackend]):
+        """1.x 与 2.0 端点不声明 adaptive，即使型号名写着 2.5：比例语义只随端点走。"""
         assert (
-            ArkVideoBackend.video_capabilities_for_model("doubao-seedance-2-0-260128").first_frame_ratio_adaptive_only
-            is False
+            backend.video_capabilities_for_model("doubao-seedance-2-5-260628").first_frame_ratio_adaptive_only is False
         )
 
 
@@ -555,81 +563,50 @@ class TestArkPollBudget:
         assert "poll_interval" not in poll.call_args.kwargs
 
 
+async def _created_params(backend_class: type[ArkVideoBackend], model: str, tmp_path, **request_fields) -> dict:
+    """``backend_class`` 对一次请求发出的创建任务参数（只走到创建任务为止）。"""
+    with patch("lib.backends.video_backends.ark.create_ark_client", return_value=MagicMock()):
+        backend = backend_class(api_key="test", model=model)
+    captured: dict = {}
+
+    def fake_create(**kwargs):
+        captured.update(kwargs)
+        raise RuntimeError("stop")
+
+    backend._client.content_generation.tasks.create = fake_create
+    with pytest.raises(RuntimeError):
+        await backend._create_task(VideoGenerationRequest(prompt="x", output_path=tmp_path / "o.mp4", **request_fields))
+    return captured
+
+
 class TestArkServiceTierParam:
-    """service_tier 只对支持该参数的模型传入，否则 API 会报错。"""
+    """service_tier 只在 Seedance 1.x 端点上发送：2.0 在参考生视频下以 400 拒绝该参数，2.5 按同代口径不带。"""
 
     @pytest.mark.parametrize(
-        "model",
-        [
-            "doubao-seedance-2-0-260128",
-            # ark-agent-plan 用点号命名，BytePlus 国际站用 dreamina- 前缀：同族的各种命名
-            # 变体都必须被 _is_seedance_2 识别，漏掉任一种都会让 r2v 请求被上游 400 拒。
-            "doubao-seedance-2.0",
-            "doubao-seedance-2.0-fast",
-            "dreamina-seedance-2-0-260128",
-            "dreamina-seedance-2-0-fast-260128",
-            # 2.5 与 2.0 同样拒收 service_tier，但走独立判定，需各自锁定
-            "doubao-seedance-2-5-260628",
-            "doubao-seedance-2.5",
-        ],
+        ("backend", "sends_tier"),
+        [(Seedance1VideoBackend, True), (Seedance2VideoBackend, False), (Seedance25VideoBackend, False)],
     )
-    async def test_seedance_2_does_not_send_service_tier(self, tmp_path, model):
-        """seedance-2 系列（含 dreamina- 前缀的自定义供应商命名）不得发 service_tier，否则 r2v 上游 400。"""
-        output = tmp_path / "out.mp4"
-        mock_client = MagicMock()
-        mock_client.content_generation = MagicMock()
-        mock_client.content_generation.tasks = MagicMock()
+    async def test_service_tier_follows_the_endpoint(self, tmp_path, backend: type[ArkVideoBackend], sends_tier: bool):
+        """不透明模型 ID 也按端点决定，请求里仍是原模型 ID。"""
+        params = await _created_params(backend, "ep-20261103-opaque", tmp_path, service_tier="flex")
 
-        with patch("lib.backends.video_backends.ark.create_ark_client", return_value=mock_client):
-            ark_backend = ArkVideoBackend(api_key="test", model=model)
-        ark_backend._client = mock_client
+        assert params["model"] == "ep-20261103-opaque"
+        assert (params.get("service_tier") == "flex") is sends_tier
+        assert ("service_tier" in params) is sends_tier
 
-        create_result = MagicMock()
-        create_result.id = "cgt-seedance2"
-        ark_backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
+    @pytest.mark.parametrize("backend", list(SEEDANCE_BACKENDS.values()))
+    async def test_model_name_does_not_change_request_or_metering(self, tmp_path, backend: type[ArkVideoBackend]):
+        """同一端点下换型号名（含写着别的代际的名字），请求与计量都不变：代际只由端点决定。"""
+        fields = {"service_tier": "flex", "resolution": "720p", "aspect_ratio": "16:9", "duration_seconds": 5}
+        names = ("doubao-seedance-1-5-pro-251215", "doubao-seedance-2-0-260128", "dreamina-seedance-2-5-x", "ep-opaque")
+        requests = [await _created_params(backend, name, tmp_path, **fields) for name in names]
+        for params in requests:
+            params.pop("model")
+        assert all(params == requests[0] for params in requests)
 
-        get_result = MagicMock()
-        get_result.status = "succeeded"
-        get_result.content = MagicMock()
-        get_result.content.video_url = "https://cdn.example.com/v.mp4"
-        get_result.seed = None
-        get_result.usage = None
-        ark_backend._client.content_generation.tasks.get = MagicMock(return_value=get_result)
-
-        patcher = _mock_httpx_stream()
-        try:
-            request = VideoGenerationRequest(prompt="test", output_path=output)
-            with bounded_poll_clock():
-                await ark_backend.generate(request)
-        finally:
-            patcher.stop()
-
-        create_kwargs = ark_backend._client.content_generation.tasks.create.call_args.kwargs
-        assert "service_tier" not in create_kwargs
-
-    @pytest.mark.parametrize(("bound", "sends_tier"), [(True, False), (False, True)], ids=["bound-2.0", "unbound"])
-    async def test_opaque_model_follows_the_bound_entry(self, tmp_path, bound: bool, sends_tier: bool):
-        """不透明模型 ID 绑定 Seedance 2.0 条目后按 2.0 不发 service_tier，请求里仍是原模型 ID；未绑定时照旧发送。"""
-        with patch("lib.backends.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            backend = ArkVideoBackend(api_key="test", model="ep-20261103-opaque")
-        if bound:
-            entry = catalog.find_bound_entry("bytedance/doubao-seedance-2.0", "video")
-            assert entry is not None
-            backend = backend.with_catalog_entry(entry)
-        captured: dict = {}
-
-        def fake_create(**kwargs):
-            captured.update(kwargs)
-            raise RuntimeError("stop")
-
-        backend._client.content_generation.tasks.create = fake_create
-        with pytest.raises(RuntimeError):
-            await backend._create_task(VideoGenerationRequest(prompt="x", output_path=tmp_path / "o.mp4"))
-
-        assert captured["model"] == "ep-20261103-opaque"
-        assert ("service_tier" in captured) is sends_tier
-        # 通道声明与绑定无关：输入能力由条目与通道两侧求值，不在 backend 上按名字或绑定改写
-        assert backend.video_capabilities.max_reference_images is None
+        request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "o.mp4", **fields)
+        usages = [backend.metered_usage(name, request) for name in names]
+        assert all(usage == usages[0] for usage in usages)
 
     async def test_seedance_1_5_sends_service_tier(self, ark_backend, tmp_path):
         output = tmp_path / "out.mp4"
@@ -661,7 +638,7 @@ class TestArkServiceTierParam:
 class TestArkVideoBackendBaseUrl:
     def test_custom_base_url_passed_through(self):
         with captured_ark_clients("lib.backends.video_backends.ark") as created:
-            ArkVideoBackend(
+            Seedance1VideoBackend(
                 api_key="k", model=_SEEDANCE_1_5_PRO, base_url="https://ark.cn-beijing.volces.com/api/plan/v3"
             )
         assert created == [
@@ -670,7 +647,7 @@ class TestArkVideoBackendBaseUrl:
 
     def test_default_base_url_is_none(self):
         with captured_ark_clients("lib.backends.video_backends.ark") as created:
-            ArkVideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO)
+            Seedance1VideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO)
         assert created == [{"api_key": "k", "base_url": None, "transport_layer": None}]
 
 
@@ -705,7 +682,7 @@ class TestArkSubmittedBaseUrlReplay:
             )
             router.get(_ARK_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"mp4"))
 
-            await ArkVideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO, base_url=f"{_RELAY_A}/").generate(
+            await Seedance1VideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO, base_url=f"{_RELAY_A}/").generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", task_id="db-task-a")
             )
 
@@ -722,7 +699,7 @@ class TestArkSubmittedBaseUrlReplay:
             )
             router.get(_ARK_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"resumed"))
 
-            result = await ArkVideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO, base_url=_RELAY_B).resume_video(
+            result = await Seedance1VideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO, base_url=_RELAY_B).resume_video(
                 "cgt-a",
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", submitted_base_url=_RELAY_A),
             )
@@ -768,7 +745,7 @@ class TestArkReferenceAudio:
     @staticmethod
     def _seedance_2_backend():
         with patch("lib.backends.video_backends.ark.create_ark_client", return_value=MagicMock()):
-            return ArkVideoBackend(api_key="test", model="doubao-seedance-2-0-260128")
+            return Seedance2VideoBackend(api_key="test", model="doubao-seedance-2-0-260128")
 
     def test_request_log_view_collapses_media_without_base64(self):
         """素材不进日志：content 内的图片与音频都是 base64 data URI，原样交给日志格式化
@@ -791,29 +768,23 @@ class TestArkReferenceAudio:
         assert view["content"] == "<1 audio_url, 1 image_url, 1 text>"
         assert view["prompt"] == "两人对话"
 
-    @staticmethod
-    def _effective(model: str):
-        from lib.custom_provider.capabilities import two_sided_video_capabilities
-
-        return two_sided_video_capabilities(endpoint="ark-seedance", model_id=model)
-
     def test_seedance_2_declares_audio_capability(self):
-        caps = self._effective("doubao-seedance-2-0-260128")
+        caps = _effective("doubao-seedance-2-0-260128")
         assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
         assert caps.max_reference_audio_count == 3
 
     @pytest.mark.parametrize("model", ["doubao-seedance-2.0-fast", "doubao-seedance-2-0-mini-260615"])
     def test_seedance_2_variants_declare_audio_capability(self, model):
-        assert self._effective(model).reference_audio_mode is ReferenceAudioMode.DIRECT
+        assert _effective(model).reference_audio_mode is ReferenceAudioMode.DIRECT
 
     def test_unverified_seedance_2_variant_does_not_inherit_audio(self):
         """对应不上条目的 2.0 变体不开参考音频：条目未收录参考音频时不开。"""
-        caps = self._effective("doubao-seedance-2-0-future")
+        caps = _effective("doubao-seedance-2-0-future")
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.max_reference_audio_count == 0
 
     def test_seedance_1_5_declares_no_audio_capability(self):
-        assert self._effective("doubao-seedance-1-5-pro-251215").reference_audio_mode is ReferenceAudioMode.NONE
+        assert _effective("doubao-seedance-1-5-pro-251215").reference_audio_mode is ReferenceAudioMode.NONE
 
     async def test_reference_audio_sent_as_audio_url_entries(self, tmp_path):
         """每段音频发一条 type=audio_url + role=reference_audio，且顺序与请求字段一致。"""
@@ -919,15 +890,12 @@ class TestArkProviderAssets:
     _PRIVACY_CODE = "InputImageSensitiveContentDetected.PrivacyInformation"
 
     @staticmethod
-    def _backend(model: str = "doubao-seedance-2-0-260128") -> ArkVideoBackend:
-        """内置方舟清单里的模型，按装配时同样的方式带上它所引的条目。"""
-        from lib.catalog import query as catalog
-
+    def _backend(
+        backend: type[ArkVideoBackend] = Seedance2VideoBackend, model: str = "doubao-seedance-2-0-260128"
+    ) -> ArkVideoBackend:
         client = MagicMock()
         with patch("lib.backends.video_backends.ark.create_ark_client", return_value=client):
-            return ArkVideoBackend(
-                api_key="TEST-ark-key", model=model, catalog_entry=catalog.provider_model_entry("ark", model, "video")
-            )
+            return backend(api_key="TEST-ark-key", model=model)
 
     @staticmethod
     def _rejection(code: str) -> Exception:
@@ -942,16 +910,14 @@ class TestArkProviderAssets:
         )
 
     def test_only_seedance_2_reference_slots_accept_asset_references(self):
-        """按模型条目认定：Seedance 2.0 / 2.5 的条目声明参考图槽位，1.x 不声明；没有条目时不按模型名推断。"""
+        """按端点认定：2.0 / 2.5 端点声明参考图槽位，1.x 端点不声明，与型号名无关。"""
         from lib.backends.provider_assets import REFERENCE_IMAGE_ROLE
 
         assert self._backend().provider_asset_roles == frozenset({REFERENCE_IMAGE_ROLE})
-        assert self._backend("doubao-seedance-2-5-260628").provider_asset_roles == frozenset({REFERENCE_IMAGE_ROLE})
-        assert self._backend(_SEEDANCE_1_5_PRO).provider_asset_roles == frozenset()
-        client = MagicMock()
-        with patch("lib.backends.video_backends.ark.create_ark_client", return_value=client):
-            unbound = ArkVideoBackend(api_key="TEST-ark-key", model="doubao-seedance-2-0-260128")
-        assert unbound.provider_asset_roles == frozenset()
+        assert self._backend(Seedance25VideoBackend, "ep-opaque").provider_asset_roles == frozenset(
+            {REFERENCE_IMAGE_ROLE}
+        )
+        assert self._backend(Seedance1VideoBackend, "doubao-seedance-2-0-260128").provider_asset_roles == frozenset()
 
     async def test_asset_reference_replaces_its_image_in_place(self, tmp_path):
         """素材引用占原图片的位置，不读本地内容；其余参考图照常内嵌，条目数量与顺序不变。"""
@@ -980,7 +946,7 @@ class TestArkProviderAssets:
         assert content[0] == {"type": "text", "text": "@图片1 的角色走进 @图片2"}
 
     async def test_model_without_asset_support_refuses_asset_references(self, tmp_path):
-        backend = self._backend(_SEEDANCE_1_5_PRO)
+        backend = self._backend(Seedance1VideoBackend, _SEEDANCE_1_5_PRO)
         backend._client.content_generation.tasks.create = MagicMock()
         request = VideoGenerationRequest(
             prompt="p",

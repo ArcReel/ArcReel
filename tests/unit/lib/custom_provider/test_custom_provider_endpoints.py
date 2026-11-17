@@ -66,23 +66,50 @@ class TestRegistry:
             "openai-video",
             "newapi-video",
             "v2-video-generations",
-            "ark-seedance",
-            "ark-seedream",
-            "vidu-video",
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
+            "ark-seedream-3",
+            "ark-seedream-4",
+            "vidu-video-q3-turbo",
+            "vidu-video-generic",
+            "vidu-video-q3-pro",
+            "vidu-video-q3-fast",
+            "vidu-video-q3-reference",
+            "vidu-video-q2",
+            "vidu-video-q2-pro",
+            "vidu-video-q2-fast",
+            "vidu-video-q1",
+            "vidu-video-q1-classic",
+            "vidu-video-2",
+            "vidu-video-q4",
             "openrouter-video",
             "xai-video",
-            "dashscope-image",
-            "dashscope-async-video",
+            "dashscope-qwen-image",
+            "dashscope-wan-image",
+            "dashscope-qwen-image-edit",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-image",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
             "minimax-h3",
             "kling-image",
-            "kling-video",
+            "kling-image-single",
+            "kling-video-pro-silent",
+            "kling-video-pro-audio",
+            "kling-video-audio",
+            "kling-video-silent",
+            "kling-video-model-path",
             "gemini-video",
+            "gemini-interactions-video",
             "openai-tts",
             "dashscope-tts",
+            "dashscope-speech-synthesizer",
             "minimax-tts",
             "gemini-tts",
         }
@@ -159,15 +186,22 @@ class TestRegistry:
         """v2/ark/vidu/dashscope/minimax/kling 不在 endpoint 维度声明上限，由 resolver 调 backend 纯 caps 函数读取。"""
         for key in (
             "v2-video-generations",
-            "ark-seedance",
-            "vidu-video",
-            "dashscope-async-video",
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
+            "vidu-video-q3-turbo",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
             "minimax-h3",
-            "kling-video",
+            "kling-video-pro-silent",
             "gemini-video",
+            "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
@@ -183,15 +217,22 @@ class TestRegistry:
         # None-cap 的 video endpoint 必须绑定纯 caps 函数
         for key in (
             "v2-video-generations",
-            "ark-seedance",
-            "vidu-video",
-            "dashscope-async-video",
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
+            "vidu-video-q3-turbo",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
             "minimax-h3",
-            "kling-video",
+            "kling-video-pro-silent",
             "gemini-video",
+            "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
@@ -199,9 +240,9 @@ class TestRegistry:
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
 
     def test_dashscope_caps_fn_reads_channel_declaration_without_client(self):
-        """dashscope-async-video 的 caps_fn 是纯函数：给出通道声明（不设参考图上限、按名字认的请求形态），
+        """百炼异步视频端点 的 caps_fn 是纯函数：给出通道声明（不设参考图上限、按名字认的请求形态），
         resolver 据此与条目两侧求值而无需构造 backend / api_key。"""
-        caps_fn = ENDPOINT_REGISTRY["dashscope-async-video"].video_caps_for_model
+        caps_fn = ENDPOINT_REGISTRY["dashscope-reference-voice-video"].video_caps_for_model
         assert caps_fn is not None
         assert caps_fn("happyhorse-1.0-r2v", None).max_reference_images is None
         assert caps_fn("wan2.7-r2v", None).reference_audio_per_image is True
@@ -224,14 +265,14 @@ class TestRegistry:
         保守关尾帧；各型号接不接受参考图由条目决定，resolver 据此两侧求值而无需构造 backend / api_key。"""
         from lib.custom_provider.capabilities import two_sided_video_capabilities
 
-        caps_fn = ENDPOINT_REGISTRY["kling-video"].video_caps_for_model
+        caps_fn = ENDPOINT_REGISTRY["kling-video-pro-silent"].video_caps_for_model
         assert caps_fn is not None
         for model_id in ("kling-v3-omni", "kling-v2-5-turbo", "kling-v4", "vendor/some-unknown-model"):
             assert caps_fn(model_id, None).max_reference_images == 4
         assert caps_fn("kling-v2-5-turbo", None).last_frame is False
 
         def effective(model_id: str):
-            return two_sided_video_capabilities(endpoint="kling-video", model_id=model_id)
+            return two_sided_video_capabilities(endpoint="kling-video-pro-silent", model_id=model_id)
 
         assert effective("kling-v3-omni").max_reference_images == 4
         assert effective("kling-video-o1").max_reference_images == 4
@@ -261,7 +302,7 @@ class TestRegistry:
 
         # 非 callable 真值（字符串）冒充 caps_fn；同时清掉 int cap 避免先撞 XOR 校验
         bad = dataclasses.replace(
-            ENDPOINT_REGISTRY["ark-seedance"],
+            ENDPOINT_REGISTRY["ark-seedance-2"],
             video_max_reference_images=None,
             video_caps_for_model="not-callable",
         )
@@ -279,7 +320,18 @@ class TestRegistry:
     def test_audio_capable_endpoints_match_backends_that_send_audio(self):
         """运输声明与 backend 实现同步：声明 True 的 endpoint 必须真的组装参考音频。"""
         audio_capable = {k for k, s in ENDPOINT_REGISTRY.items() if s.reference_audio_capable}
-        assert audio_capable == {"ark-seedance", "dashscope-async-video", "minimax-h3"}
+        assert audio_capable == {
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
+            "minimax-h3",
+            "vidu-video-q4",
+        }
 
     def test_audio_endpoint_spec(self):
         spec = ENDPOINT_REGISTRY["openai-tts"]
@@ -296,7 +348,13 @@ class TestRegistry:
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         audio_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "audio"}
-        assert audio_keys == {"openai-tts", "dashscope-tts", "minimax-tts", "gemini-tts"}
+        assert audio_keys == {
+            "openai-tts",
+            "dashscope-tts",
+            "dashscope-speech-synthesizer",
+            "minimax-tts",
+            "gemini-tts",
+        }
         assert text_keys == {"openai-chat", "openai-responses", "gemini-generate", "anthropic-messages"}
         assert image_keys == {
             "openai-images",
@@ -305,26 +363,52 @@ class TestRegistry:
             "openai-chat-image",
             "openrouter-images",
             "gemini-image",
-            "dashscope-image",
+            "dashscope-qwen-image",
+            "dashscope-wan-image",
+            "dashscope-qwen-image-edit",
             "minimax-image",
             "kling-image",
-            "ark-seedream",
+            "kling-image-single",
+            "ark-seedream-3",
+            "ark-seedream-4",
         }
         assert video_keys == {
             "openai-video",
             "newapi-video",
             "v2-video-generations",
-            "ark-seedance",
-            "vidu-video",
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
+            "vidu-video-q3-turbo",
+            "vidu-video-generic",
+            "vidu-video-q3-pro",
+            "vidu-video-q3-fast",
+            "vidu-video-q3-reference",
+            "vidu-video-q2",
+            "vidu-video-q2-pro",
+            "vidu-video-q2-fast",
+            "vidu-video-q1",
+            "vidu-video-q1-classic",
+            "vidu-video-2",
+            "vidu-video-q4",
             "openrouter-video",
             "xai-video",
-            "dashscope-async-video",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
             "minimax-h3",
-            "kling-video",
+            "kling-video-pro-silent",
+            "kling-video-pro-audio",
+            "kling-video-audio",
+            "kling-video-silent",
+            "kling-video-model-path",
             "gemini-video",
+            "gemini-interactions-video",
         }
 
 
@@ -379,6 +463,10 @@ INFER_RULE_CASES = [
     ("qwen3-tts-flash", "openai", "dashscope-tts"),
     ("Qwen3-TTS-Flash", "google", "dashscope-tts"),
     ("proxy/qwen3-tts-instruct-flash", "openai", "dashscope-tts"),
+    # ── qwen-audio-<版本>-tts 系列 → dashscope-speech-synthesizer，不分 discovery_format ──
+    ("qwen-audio-3.1-tts-flash", "openai", "dashscope-speech-synthesizer"),
+    ("qwen-audio-3.0-tts-plus", "google", "dashscope-speech-synthesizer"),
+    ("proxy/Qwen-Audio-3.1-TTS-Plus", "openai", "dashscope-speech-synthesizer"),
     ("tts-1", "openai", "openai-tts"),  # 其余 TTS 仍为 openai-tts
     ("cosyvoice-v2", "openai", "openai-tts"),
     # ── Veo 仅 google 发现协议推断为 gemini-video，其余仍为 openai-video ──
@@ -429,33 +517,35 @@ class TestInferEndpoint:
             ("gemini-2.0-flash-exp-image-generation", "openai", "gemini-image"),
             ("gemini-3-pro-image-preview", "openai", "gemini-image"),
             # ── 新视频分支路由 ──
-            ("seedance-1.0", "openai", "ark-seedance"),
-            ("doubao-seedance-2-0", "openai", "ark-seedance"),
-            ("viduq3", "openai", "vidu-video"),
-            ("viduq3-mix", "openai", "vidu-video"),
-            ("viduq3-pro", "openai", "vidu-video"),
-            ("viduq3-turbo", "openai", "vidu-video"),
-            ("viduq3-i2v", "openai", "vidu-video"),
-            ("proxy/viduq3-turbo", "openai", "vidu-video"),
-            # ── 阿里百炼 wan2.x / wan3.0 → dashscope-async-video（image 变体不受影响）──
-            ("wan2.7-i2v", "openai", "dashscope-async-video"),
-            ("wan2.7-t2v", "openai", "dashscope-async-video"),
-            ("wan-2.7-i2v", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
-            ("wan_2.7-t2v", "openai", "dashscope-async-video"),
-            ("wan3.0-video", "openai", "dashscope-async-video"),
-            ("Wan3.0-Video", "openai", "dashscope-async-video"),  # 大小写不敏感
-            ("proxy/wan3.0-video", "openai", "dashscope-async-video"),
-            ("wan-3-turbo", "openai", "dashscope-async-video"),  # 连字符形态与点号形态匹配宽度一致
-            ("wan3-turbo", "openai", "dashscope-async-video"),
+            ("seedance-1.0", "openai", "ark-seedance-1"),
+            ("doubao-seedance-2-0", "openai", "ark-seedance-2"),
+            ("dreamina-seedance-2.5-260628", "openai", "ark-seedance-2-5"),
+            ("viduq3", "openai", "vidu-video-q3-reference"),
+            ("viduq3-mix", "openai", "vidu-video-q3-reference"),
+            ("viduq3-pro", "openai", "vidu-video-q3-pro"),
+            ("viduq3-turbo", "openai", "vidu-video-q3-turbo"),
+            ("viduq4-preview", "openai", "vidu-video-q4"),
+            ("viduq3-i2v", "openai", "vidu-video-generic"),
+            ("proxy/viduq3-turbo", "openai", "vidu-video-q3-turbo"),
+            # ── 阿里百炼 wan2.x / wan3.0 → 百炼异步视频端点（image 变体不受影响）──
+            ("wan2.7-i2v", "openai", "dashscope-always-on-video"),
+            ("wan2.7-t2v", "openai", "dashscope-always-on-video"),
+            ("wan-2.7-i2v", "openai", "dashscope-always-on-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan_2.7-t2v", "openai", "dashscope-always-on-video"),
+            ("wan3.0-video", "openai", "dashscope-wan3-video"),
+            ("Wan3.0-Video", "openai", "dashscope-wan3-video"),  # 大小写不敏感
+            ("proxy/wan3.0-video", "openai", "dashscope-wan3-video"),
+            ("wan-3-turbo", "openai", "dashscope-wan3-video"),  # 连字符形态与点号形态匹配宽度一致
+            ("wan3-turbo", "openai", "dashscope-wan3-video"),
             ("wan2.7-image", "openai", "openai-images"),  # image 变体不受影响
             ("wan-2.7-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样落图像端点
             ("wan3.0-video-image", "openai", "openai-images"),  # 含 image 语义不受影响
             ("wan-3-turbo-image", "openai", "openai-images"),  # 连字符形态的 image 变体同样不受影响
-            # image-to-video 别名含 "image" 子串但本质是视频，须留在 dashscope-async-video（同
+            # image-to-video 别名含 "image" 子串但本质是视频，须留在 百炼异步视频端点（同
             # kling-image2video 的"video 语义优先"原则），不能被笼统 is_image 误判成图像变体。
-            ("wan-3-turbo-image-to-video", "openai", "dashscope-async-video"),
-            ("wan3-image2video", "openai", "dashscope-async-video"),
-            ("wan-2.7-image-to-video", "openai", "dashscope-async-video"),
+            ("wan-3-turbo-image-to-video", "openai", "dashscope-wan3-video"),
+            ("wan3-image2video", "openai", "dashscope-wan3-video"),
+            ("wan-2.7-image-to-video", "openai", "dashscope-always-on-video"),
             # 反向陷阱：真图像别名不保证以 "image" 结尾（版本/日期/变体后缀），不能靠"结尾是不是
             # image"反推是不是图像——只有显式 image-to-video 续接语法才算视频例外，其余含 image
             # 语义一律仍是图像。
@@ -463,9 +553,9 @@ class TestInferEndpoint:
             ("wan-3-turbo-image-preview", "openai", "openai-images"),
             ("wan3.0-video-image-20260801", "openai", "openai-images"),
             # 分隔符混用：下划线与连字符匹配宽度一致（WAN3_PATTERN 同时容忍二者）。
-            ("wan_3_turbo", "openai", "dashscope-async-video"),
+            ("wan_3_turbo", "openai", "dashscope-wan3-video"),
             ("wan_3.0-image", "openai", "openai-images"),
-            ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-async-video"),
+            ("WAN_3_TURBO_IMAGE_TO_VIDEO", "openai", "dashscope-wan3-video"),
             # 标识符边界：含 "wan3"/"wan2" 子串但并非该家族的型号名不得被误判——WAN2_PATTERN /
             # WAN3_PATTERN 两侧要求非字母数字边界，裸 "wan" 仍命中 _VIDEO_PATTERN 落回通用视频分支。
             ("swan3", "openai", "openai-video"),
@@ -484,7 +574,7 @@ class TestInferEndpoint:
             # 字面量判定约束，不受 WAN2_PATTERN 的版本锚定限制。
             ("wan-2.1-kf2v", "openai", "openai-video"),  # 连字符 + 非 2.7 → 通用端点
             ("wan_2.2-t2v", "openai", "openai-video"),  # 下划线 + 非 2.7 → 通用端点
-            ("wan2.1-kf2v", "openai", "dashscope-async-video"),  # 点号形态走字面量判定，非本正则
+            ("wan2.1-kf2v", "openai", "dashscope-video"),  # 点号形态走字面量判定，非本正则
             # 2.7 家族内 videoedit 模态：命中家族正则但 DashScopeVideoBackend 未实现其请求构造，
             # 排除出原生路由（见 _WAN_VIDEOEDIT_PATTERN 处的说明）。
             ("wan-2.7-videoedit", "openai", "openai-video"),
@@ -493,7 +583,7 @@ class TestInferEndpoint:
             # happyhorse 同一边界要求：与 DashScopeVideoBackend._profile_for_model 的兜底子串匹配
             # 对同一 key 保持同等边界，否则会出现"路由到本后端却拿不到对应能力档"的矛盾。
             ("myhappyhorse-1.0-r2v", "openai", "openai-chat"),
-            ("happyhorse-1.0-r2v", "openai", "dashscope-async-video"),
+            ("happyhorse-1.0-r2v", "openai", "dashscope-reference-video"),
             # ── 向后兼容（行为不变）──
             ("gpt-4o", "openai", "openai-chat"),
             ("claude-sonnet-4.5", "openai", "openai-chat"),
@@ -538,28 +628,30 @@ class TestInferEndpoint:
             ("image-01", "openai", "minimax-image"),  # image-01 含 "image" 否则会被推到通用图像家族
             ("minimax/image-01", "openai", "minimax-image"),
             ("S2V-01", "google", "minimax-s2v-01"),  # minimax 路由不分 discovery_format
-            # ── Kling 原生中转二级路由（视频 family 含 kling，须收敛到 kling-video 而非 openai-video）──
-            ("kling-v2-5-turbo", "openai", "kling-video"),
-            ("kling-v2", "openai", "kling-video"),  # 前 kling endpoint 时代默认 openai-video
-            ("kling-v3", "openai", "kling-video"),
-            ("kling-v2-6", "openai", "kling-video"),
-            ("proxy/kling-v2-5-turbo", "openai", "kling-video"),
-            ("KLING-V3", "openai", "kling-video"),  # 大小写不敏感
-            ("kling-v3-omni", "openai", "kling-video"),  # 图像/视频同名歧义 → 默认归视频
+            # ── Kling 原生中转二级路由（视频 family 含 kling，须收敛到 kling-video-* 而非 openai-video）──
+            ("kling-v2-5-turbo", "openai", "kling-video-pro-silent"),
+            ("kling-v2", "openai", "kling-video-silent"),  # 不在请求形态表里的可灵名字取无声端点
+            ("kling-v3", "openai", "kling-video-audio"),
+            ("kling-v2-6", "openai", "kling-video-pro-audio"),
+            ("proxy/kling-v2-5-turbo", "openai", "kling-video-pro-silent"),
+            ("KLING-V3", "openai", "kling-video-audio"),  # 大小写不敏感
+            ("kling-v3-omni", "openai", "kling-video-audio"),  # 图像/视频同名歧义 → 默认归视频
+            ("kling-4.0", "openai", "kling-video-model-path"),  # 只在新版 API 上提供的型号
+            ("proxy/kling-3.0-turbo", "openai", "kling-video-model-path"),
             # 含 image 语义的可灵图像 → kling-image（先于通用图像家族，不被推到 openai-images）
             ("kling-image-o1", "openai", "kling-image"),
             ("kling-v3-omni-image", "openai", "kling-image"),
             ("proxy/kling-image-o1", "openai", "kling-image"),
             ("kling-image-o1", "google", "kling-image"),  # kling 路由不分 discovery_format
             # image-to-video 含 image 语义但本质是视频 → video 优先于 image，归 kling-video
-            ("kling-image2video", "openai", "kling-video"),
-            ("kling-img2video", "openai", "kling-video"),
-            ("proxy/kling-image2video", "openai", "kling-video"),
+            ("kling-image2video", "openai", "kling-video-silent"),
+            ("kling-img2video", "openai", "kling-video-silent"),
+            ("proxy/kling-image2video", "openai", "kling-video-silent"),
             # 方舟 Seedream 没有 /images/edits，带参考图也走 /images/generations；不分 discovery_format
-            ("seedream-3.0", "openai", "ark-seedream"),
-            ("doubao-seedream-5-0-260128", "openai", "ark-seedream"),
-            ("proxy/Doubao-Seedream-4.5", "openai", "ark-seedream"),
-            ("doubao-seedream-4-0-250828", "google", "ark-seedream"),
+            ("seedream-3.0", "openai", "ark-seedream-3"),
+            ("doubao-seedream-5-0-260128", "openai", "ark-seedream-4"),
+            ("proxy/Doubao-Seedream-4.5", "openai", "ark-seedream-4"),
+            ("doubao-seedream-4-0-250828", "google", "ark-seedream-4"),
             ("jimeng-3.0", "openai", "openai-images"),
             ("jimeng-video-3.0", "openai", "openai-video"),
             ("jimengvideo-3.0", "openai", "openai-video"),
@@ -628,9 +720,9 @@ class TestInferEndpoint:
         ("model_id", "discovery_format", "media_type", "expected"),
         [
             # 名字规则推出的端点就在这个媒体类型里：照用
-            ("seedance-2.0-pro", "openai", "video", "ark-seedance"),
+            ("seedance-2.0-pro", "openai", "video", "ark-seedance-2"),
             ("gpt-5.5", "openai", "text", "openai-chat"),
-            ("doubao-seedream-5-0-260128", "openai", "image", "ark-seedream"),
+            ("doubao-seedream-5-0-260128", "openai", "image", "ark-seedream-4"),
             # 两栖模型按条目的媒体类型在名字族内选
             ("kling-v3-omni", "openai", "image", "kling-image"),
             ("gemini-3-pro-image", "openai", "text", "gemini-generate"),
@@ -657,10 +749,14 @@ def test_image_endpoint_registry_entries():
         "openai-chat-image",
         "openrouter-images",
         "gemini-image",
-        "dashscope-image",
+        "dashscope-qwen-image",
+        "dashscope-wan-image",
+        "dashscope-qwen-image-edit",
         "minimax-image",
         "kling-image",
-        "ark-seedream",
+        "kling-image-single",
+        "ark-seedream-3",
+        "ark-seedream-4",
     }
 
 
@@ -693,3 +789,23 @@ def test_existing_image_endpoints_have_full_capabilities():
     # Verify endpoint_spec_to_dict serializes capabilities to sorted list[str]
     serialized = endpoint_spec_to_dict(ENDPOINT_REGISTRY["openai-images"])
     assert serialized["image_capabilities"] == ["image_to_image", "text_to_image"]
+
+
+@pytest.mark.parametrize("discovery_format", ["google", "openai"])
+@pytest.mark.parametrize(
+    "model", ["gemini-omni-1.1-flash", "gemini-omni-1.2-flash", "proxy/Gemini-Omni-1.2-flash-preview"]
+)
+def test_omni_names_prefill_the_interactions_video_endpoint(model: str, discovery_format: str):
+    from lib.custom_provider.endpoints import infer_media_type
+
+    assert infer_endpoint(model, discovery_format) == "gemini-interactions-video"
+    assert infer_endpoint(model, discovery_format, "video") == "gemini-interactions-video"
+    assert infer_media_type(model, discovery_format) == "video"
+
+
+def test_vertex_interactions_is_not_a_custom_provider_endpoint():
+    from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS
+
+    assert "gemini-vertex-interactions-video" in PROVIDER_ONLY_ENDPOINTS
+    assert "gemini-vertex-interactions-video" not in ENDPOINT_REGISTRY
+    assert "gemini-interactions-video" not in PROVIDER_ONLY_ENDPOINTS

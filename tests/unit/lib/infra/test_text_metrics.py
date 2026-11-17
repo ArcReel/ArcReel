@@ -66,6 +66,20 @@ class TestVi:
         assert count_reading_units(text, "vi") == 11
 
 
+class TestRu:
+    def test_cyrillic_words(self) -> None:
+        # 复用 en 逻辑,unicode word-boundary 能识别西里尔字母词
+        text = "Привет, мир! Это тест."
+        assert count_reading_units(text, "ru") == 4
+
+    def test_with_digits(self) -> None:
+        # word boundary 把数字视为一个 word
+        assert count_reading_units("3 кота и 2 собаки", "ru") == 5
+
+    def test_case_insensitive(self) -> None:
+        assert count_reading_units("Привет мир", "RU") == 2
+
+
 class TestFallback:
     def test_none_language_falls_back_to_zh(self) -> None:
         assert count_reading_units("你好世界", None) == 4
@@ -149,6 +163,7 @@ class TestReadingUnitNoun:
     def test_word_based_languages_use_ci(self) -> None:
         assert reading_unit_noun("en") == "词"
         assert reading_unit_noun("vi") == "词"
+        assert reading_unit_noun("ru") == "词"
 
     def test_char_based_language_uses_zi(self) -> None:
         assert reading_unit_noun("zh") == "字"
@@ -156,6 +171,7 @@ class TestReadingUnitNoun:
     def test_case_insensitive(self) -> None:
         assert reading_unit_noun("EN") == "词"
         assert reading_unit_noun(" Vi ") == "词"
+        assert reading_unit_noun(" RU ") == "词"
 
     def test_fallback_to_zi_for_unknown_or_missing(self) -> None:
         # 未知 / None / 空 language 与 count_reading_units 同走 zh 路径 → 字

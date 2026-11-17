@@ -88,8 +88,7 @@ def storage_api(db_engine: AsyncEngine) -> Generator[TestClient]:
 _LOCAL_ONLY = {
     "connection": None,
     "new_image_target": "local",
-    "retained_relay_objects": 0,
-    "unreleased_image_objects": 0,
+    "pending_ingest_tasks": 0,
 }
 
 
@@ -139,7 +138,7 @@ def test_connection_test_failure_explains_reason(storage_api: TestClient, fake_t
 
 def test_delete_returns_instance_to_local_only(storage_api: TestClient):
     storage_api.put("/api/v1/object-storage/connection", json=_BODY)
-    assert storage_api.delete("/api/v1/object-storage/connection").status_code == 204
+    assert storage_api.delete("/api/v1/object-storage/connection").status_code == 200
     assert storage_api.get("/api/v1/object-storage/connection").json() == _LOCAL_ONLY
 
 

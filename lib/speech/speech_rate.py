@@ -4,7 +4,7 @@
 时长的上界校验共用，避免各处各自维护一套语速常量而漂移。字幕定时不读语速。
 
 语速以「阅读单位 / 秒」表示，阅读单位的语言裁剪口径复用 ``lib.infra.text_metrics``
-（zh 计汉字 / CJK 标点，en / vi 计词）——因此单位换算天然随语言切换，不必为
+（zh 计汉字 / CJK 标点，en / vi / ru 计词）——因此单位换算天然随语言切换，不必为
 中英文各写一套字符规则。语速值可调、按 ``source_language`` 覆盖、缺省回退默认；
 新增语言只在 ``SPEECH_RATE_UPS_BY_LANGUAGE`` 登记，调用点不写死任何数值。
 
@@ -24,13 +24,14 @@ from lib.infra.text_metrics import count_reading_units
 #: 未登记 / 缺失语言回退此值（与 ``count_reading_units`` 未知语言按 zh 计字的口径对齐）。
 DEFAULT_SPEECH_RATE_UPS: float = 5.0
 
-#: 按语言代码覆盖语速（阅读单位 / 秒），键用项目 ``source_language``（zh / en / vi）。
-#: en / vi 的阅读单位是「词」，正常口语约 2–3 词 / 秒，取 2.5；与 zh 的「字 / 秒」不可
+#: 按语言代码覆盖语速（阅读单位 / 秒），键用项目 ``source_language``（zh / en / vi / ru）。
+#: en / vi / ru 的阅读单位是「词」，正常口语约 2–3 词 / 秒，取 2.5；与 zh 的「字 / 秒」不可
 #: 直接通约，故必须分语言登记而非全局一个数值。值为可调估算，按实际配音节奏微调。
 SPEECH_RATE_UPS_BY_LANGUAGE: dict[str, float] = {
     "zh": 5.0,
     "en": 2.5,
     "vi": 2.5,
+    "ru": 2.5,
 }
 
 

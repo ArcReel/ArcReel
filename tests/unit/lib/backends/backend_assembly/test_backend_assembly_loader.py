@@ -17,10 +17,9 @@ from lib.backends.backend_assembly.specs import PROVIDER_SPEC_REGISTRY
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
-from lib.catalog.query import factory_snapshot
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
-from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_min_app_version
 from tests.fakes import (
     captured_backend_construction,
     captured_openai_clients,
@@ -84,7 +83,7 @@ class TestAssembleBuiltinEndToEnd:
         assert built == [
             {
                 "media": "image",
-                "backend": "ark",
+                "backend": "ark-seedream-4",
                 "kwargs": {
                     "api_key": "ark-secret",
                     "model": "doubao-seedream-5-0-lite-260128",
@@ -116,7 +115,7 @@ class TestAssembleBuiltinEndToEnd:
         assert built == []
         assert (excinfo.value.code, excinfo.value.params) == (
             "model_discontinued",
-            {"provider": "openai", "model": "sora-2"},
+            {"provider": "openai", "model": "sora-2", "shutdown_date": "2026-09-24"},
         )
 
     async def test_discontinued_model_is_rejected_with_its_successor(self, db_factory, monkeypatch):
@@ -124,7 +123,7 @@ class TestAssembleBuiltinEndToEnd:
         install_catalog(
             monkeypatch,
             with_entry_changes(
-                factory_snapshot(),
+                catalog.factory_snapshot(),
                 "ark",
                 SEEDREAM_LITE,
                 shutdown_date=date(2026, 11, 24),
@@ -144,45 +143,26 @@ class TestAssembleBuiltinEndToEnd:
             "successor": "bytedance/doubao-seedream-5-0-pro",
         }
 
-    async def test_default_resolution_skips_a_discontinued_default(self, db_factory, monkeypatch):
-        """目录默认模型已下线：装配不取它、也不落到 backend 写死的模型名；自动推断同样跳过这个供应商。"""
+    async def test_version_gated_model_is_not_assembled(self, db_factory, monkeypatch):
+        """模型的最低应用版本高于当前版本：点名调用也不装配它。"""
         from lib.db.repositories.credential_repository import CredentialRepository
 
         async with db_factory() as session:
             await CredentialRepository(session).create(provider="ark", name="主 Key", api_key="TEST-ark-key")
             await session.commit()
         resolver = ConfigResolver(db_factory)
-        snapshot = factory_snapshot()
-        default = snapshot.builtin_providers["ark"].defaults["image"]
-        resolved = await resolver.resolve_image_backend(None, None, generation_type="t2i")
-        assert (resolved.provider_id, resolved.model_id) == ("ark", default)
+        snapshot = catalog.factory_snapshot()
+        model = snapshot.builtin_providers["ark"].defaults["image"]
+        install_catalog(monkeypatch, with_min_app_version(snapshot, "ark", model, "999.0.0"))
 
-        install_catalog(monkeypatch, with_entry_changes(snapshot, "ark", default, shutdown_date=date(2026, 1, 1)))
-        with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
-            await assemble_backend(provider_id="ark", media_type="image", model_id=None, resolver=resolver)
+        with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as named:
+            await assemble_backend(provider_id="ark", media_type="image", model_id=model, resolver=resolver)
         assert built == []
-        assert excinfo.value.code == "provider_unsupported_media"
-        # 唯一 ready 的供应商没有可用的默认图片模型：自动推断找不到候选，不选中已下线的模型
-        with pytest.raises(ValueError, match="未找到可用的 image 供应商"):
-            await resolver.resolve_image_backend(None, None, generation_type="t2i")
+        assert named.value.code == "model_not_in_provider_catalog"
 
-    async def test_missing_model_takes_the_catalog_default(self, db_factory):
+    async def test_missing_model_is_rejected_without_taking_the_recommendation(self, db_factory):
+        """没给模型的装配报错，不按目录推荐补模型，也不落到 backend 写死的模型名（docs/adr/0099）。"""
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
-        resolver = ConfigResolver(db_factory)
-        with captured_backend_construction() as built:
-            await assemble_backend(provider_id="ark", media_type="video", model_id=None, resolver=resolver)
-        assert built[0]["kwargs"]["model"] == "doubao-seedance-2-0-mini-260615"
-
-    async def test_missing_model_skips_a_disabled_default(self, db_factory):
-        """用户停用了目录默认模型：没给模型的装配不取它，按没有默认模型报错，不构造 backend。"""
-        from lib.db.models.builtin_provider_model import BuiltinProviderModelState
-
-        await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
-        async with db_factory() as session:
-            session.add(
-                BuiltinProviderModelState(provider_id="ark", model_id="doubao-seedance-2-0-mini-260615", enabled=False)
-            )
-            await session.commit()
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
             await assemble_backend(provider_id="ark", media_type="video", model_id=None, resolver=resolver)
@@ -321,12 +301,17 @@ class TestAssembleBuiltinEndToEnd:
 
 
 def _any_listed_model(provider_id: str, media_type: str) -> str | None:
-    """该供应商该媒体类型的默认模型；目录没指定默认时取清单里第一个同媒体类型的模型，一个都没有时为 None。"""
+    """该供应商该媒体类型的默认模型；目录没指定默认时取清单里第一个未下线的同媒体类型模型，一个都没有时为 None。"""
     default = catalog.default_model(provider_id, media_type)
     if default is not None:
         return default
     return next(
-        (key for key, model in catalog.list_models(provider_id).items() if model.media_type == media_type), None
+        (
+            key
+            for key, model in catalog.list_models(provider_id).items()
+            if model.media_type == media_type and not model.hidden
+        ),
+        None,
     )
 
 
@@ -482,7 +467,7 @@ class TestAssembleCustomEndToEnd:
         install_catalog(
             monkeypatch,
             with_entry_changes(
-                factory_snapshot(),
+                catalog.factory_snapshot(),
                 "ark",
                 SEEDREAM_LITE,
                 shutdown_date=date(2026, 11, 24),

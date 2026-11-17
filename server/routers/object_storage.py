@@ -6,18 +6,19 @@
 新增图片的保存位置（``material_storage_target``）是另一项全局设置，缺省本地，只能在已有连接时设为对象存储；
 新增图片保存到对象存储期间不能删除连接。设置只影响之后提交的图片内容版本，已有版本照旧按各自的定位读取。
 
-连接上还有仍可能被读取的正式素材对象（上传未确认、已保存或仍有引用）时，不能更换桶、Endpoint、区域或删除连接（旧对象
-会失去可读取的位置），只能更新访问密钥。没有任何引用、只等待补偿删除的对象不阻止变更：变更时标为脱离当前连接，
-不再自动删除，数量与中转副本一样在连接设置里提示。
+连接上还有仍可能被读取的正式素材对象（上传未确认，或仍被项目、全局资产库等非入库引用方持有）时，不能更换桶、Endpoint、
+区域或删除连接（旧对象会失去可读取的位置），只能更新访问密钥。没有引用或只被入库任务持有的对象不阻止变更。
+离开旧桶时，待删除对象按用户选择删除或放弃，记录一并清除。
 另提供远端素材本地工作文件的清理入口，清理不删除对象存储里的任何对象。
 """
 
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
 from datetime import timedelta
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends
 from pydantic import AfterValidator, BaseModel, Field, NonNegativeInt
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,12 +29,11 @@ from lib.db.base import dt_to_iso
 from lib.db.models.object_storage import ObjectStorageConnection
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.infra.api_errors import BadGatewayError, ConflictError, NotFoundError, UnprocessableError
+from lib.infra.async_thread import run_noninterruptible_async
 from lib.infra.logging_utils import redact_diagnostic_text
 from lib.material.formal_objects import (
     NewContentTarget,
     connection_change_lock,
-    count_unreleased_objects,
-    detach_orphaned_objects,
     holding_object_count,
     new_content_target,
     set_new_content_target,
@@ -42,7 +42,7 @@ from lib.material.global_library import cleanup_global_work_files
 from lib.material.work_files import cleanup_work_cache
 from lib.object_storage.client import ObjectStorageError, is_s3_compatible_endpoint
 from lib.object_storage.connection import load_object_storage_client
-from lib.object_storage.relay import count_retained_relay_objects
+from lib.object_storage.disposal import dispose_connection_objects, pending_ingest_count
 from lib.project.project_manager import get_project_manager
 
 router = APIRouter(prefix="/object-storage", tags=["Object Storage"])
@@ -70,10 +70,7 @@ class ObjectStorageConnectionEnvelope(BaseModel):
     connection: ObjectStorageConnectionResponse | None
     #: 新增图片内容版本的保存位置；只配置连接不改变它。
     new_image_target: NewContentTarget
-    #: 还没有清理的中转副本数量：更换桶或 Endpoint 后，旧桶里的这些副本不再自动删除。
-    retained_relay_objects: int
-    #: 没有任何引用、还没有删除的图片对象数量（多为保存失败留下的）：更换桶或 Endpoint 后同样不再自动删除。
-    unreleased_image_objects: int
+    pending_ingest_tasks: int
 
 
 class NewImageTargetBody(BaseModel):
@@ -89,6 +86,15 @@ class SaveObjectStorageConnectionRequest(BaseModel):
     bucket: _Stripped
     access_key_id: _StrippedOpt = None
     secret_access_key: _StrippedOpt = None
+    delete_remote_objects: bool = True
+
+
+class ConnectionCleanupResponse(BaseModel):
+    cleanup_failures: dict[str, int] = Field(default_factory=dict)
+
+
+class SaveConnectionResponse(ObjectStorageConnectionResponse, ConnectionCleanupResponse):
+    pass
 
 
 class ObjectStorageTestResponse(BaseModel):
@@ -135,8 +141,7 @@ async def get_connection(session: AsyncSession = Depends(get_async_session)) -> 
     return ObjectStorageConnectionEnvelope(
         connection=_to_response(conn) if conn else None,
         new_image_target=await new_content_target(session),
-        retained_relay_objects=await count_retained_relay_objects(session),
-        unreleased_image_objects=await count_unreleased_objects(session),
+        pending_ingest_tasks=await pending_ingest_count(session, conn.id) if conn else 0,
     )
 
 
@@ -154,60 +159,79 @@ async def save_new_image_target(
     return body
 
 
-@router.put("/connection", response_model=ObjectStorageConnectionResponse)
+@router.put("/connection", response_model=SaveConnectionResponse)
 async def save_connection(
     body: SaveObjectStorageConnectionRequest, session: AsyncSession = Depends(get_async_session)
-) -> ObjectStorageConnectionResponse:
+) -> SaveConnectionResponse:
     if not body.region or not body.endpoint or not body.bucket:
         raise UnprocessableError("object_storage_fields_required")
     if is_s3_compatible_endpoint(body.endpoint):
         raise UnprocessableError("object_storage_s3_endpoint_unsupported")
-    # 与正式对象的首次登记串行：核对连接上没有仍占用它的正式对象与提交改动在同一段里完成，进行中的提交随后按新连接复核。
-    async with connection_change_lock():
-        try:
-            conn = await _save_connection(session, body)
-        except IntegrityError:
-            # 另一请求同时首次保存，已建出唯一的当前连接：回滚后按更新那一条重做一次，校验照常进行。
-            await session.rollback()
-            conn = await _save_connection(session, body)
-    return _to_response(conn)
+
+    async def apply_change() -> SaveConnectionResponse:
+        # 与正式对象的首次登记串行：核对连接上没有仍占用它的正式对象与提交改动在同一段里完成，进行中的提交随后按新连接复核。
+        async with connection_change_lock():
+            try:
+                conn, failures = await _save_connection(session, body)
+            except IntegrityError:
+                # 另一请求同时首次保存，已建出唯一的当前连接：回滚后按更新那一条重做一次，校验照常进行。
+                await session.rollback()
+                conn, failures = await _save_connection(session, body)
+        return SaveConnectionResponse(**_to_response(conn).model_dump(), cleanup_failures=failures)
+
+    return await run_noninterruptible_async(apply_change())
 
 
-async def _save_connection(session: AsyncSession, body: SaveObjectStorageConnectionRequest) -> ObjectStorageConnection:
-    repo = ObjectStorageConnectionRepository(session)
-    existing = await repo.get()
-    if existing is None and (not body.access_key_id or not body.secret_access_key):
-        raise UnprocessableError("object_storage_keys_required")
-    if existing is not None and _relocates(existing, body):
-        await _ensure_connection_unused(session, existing)
-        await detach_orphaned_objects(session, existing, endpoint=body.endpoint, bucket=body.bucket)
-    conn = await repo.save(
-        kind=body.kind,
-        region=body.region,
-        endpoint=body.endpoint,
-        bucket=body.bucket,
-        access_key_id=body.access_key_id or None,
-        secret_access_key=body.secret_access_key or None,
-    )
-    await session.commit()
-    return conn
-
-
-@router.delete("/connection", status_code=204)
-async def delete_connection(session: AsyncSession = Depends(get_async_session)) -> Response:
-    async with connection_change_lock():
+async def _save_connection(
+    session: AsyncSession, body: SaveObjectStorageConnectionRequest
+) -> tuple[ObjectStorageConnection, dict[str, int]]:
+    async with AsyncExitStack() as stack:
         repo = ObjectStorageConnectionRepository(session)
         existing = await repo.get()
-        if existing is not None:
+        if existing is None and (not body.access_key_id or not body.secret_access_key):
+            raise UnprocessableError("object_storage_keys_required")
+        failures: dict[str, int] = {}
+        if existing is not None and _relocates(existing, body):
             await _ensure_connection_unused(session, existing)
-            if await new_content_target(session) == "object_storage":
-                # 删除后每次图片提交都会失败：先把新增图片改回本地保存
-                raise ConflictError("object_storage_connection_is_new_image_target")
-            await detach_orphaned_objects(session, existing)
-        if not await repo.delete():
-            raise NotFoundError("object_storage_not_configured")
+            if (existing.endpoint, existing.bucket) != (body.endpoint, body.bucket):
+                failures = await stack.enter_async_context(
+                    dispose_connection_objects(session, existing, delete_remote=body.delete_remote_objects)
+                )
+        conn = await repo.save(
+            kind=body.kind,
+            region=body.region,
+            endpoint=body.endpoint,
+            bucket=body.bucket,
+            access_key_id=body.access_key_id or None,
+            secret_access_key=body.secret_access_key or None,
+        )
         await session.commit()
-    return Response(status_code=204)
+        return conn, failures
+
+
+@router.delete("/connection", response_model=ConnectionCleanupResponse)
+async def delete_connection(
+    delete_remote_objects: bool = True, session: AsyncSession = Depends(get_async_session)
+) -> ConnectionCleanupResponse:
+    async def apply_change() -> ConnectionCleanupResponse:
+        async with connection_change_lock(), AsyncExitStack() as stack:
+            repo = ObjectStorageConnectionRepository(session)
+            existing = await repo.get()
+            failures: dict[str, int] = {}
+            if existing is not None:
+                await _ensure_connection_unused(session, existing)
+                if await new_content_target(session) == "object_storage":
+                    # 删除后每次图片提交都会失败：先把新增图片改回本地保存
+                    raise ConflictError("object_storage_connection_is_new_image_target")
+                failures = await stack.enter_async_context(
+                    dispose_connection_objects(session, existing, delete_remote=delete_remote_objects)
+                )
+            if not await repo.delete():
+                raise NotFoundError("object_storage_not_configured")
+            await session.commit()
+        return ConnectionCleanupResponse(cleanup_failures=failures)
+
+    return await run_noninterruptible_async(apply_change())
 
 
 _TEST_FAILURE_KEYS = {

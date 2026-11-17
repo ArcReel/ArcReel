@@ -50,6 +50,7 @@ from lib.project.asset_types import (
     project_asset_name_conflicts,
 )
 from lib.project.project_manager import VALID_GENERATION_MODES as _VALID_GENERATION_MODES
+from lib.project.project_migrations.backups import is_versioned_backup_name
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.script.script_models import (
     AD_TARGET_DURATION_DRIFT_THRESHOLD,
@@ -1667,7 +1668,7 @@ class DataValidator:
 
         if project_dir.exists():
             for child in sorted(project_dir.iterdir(), key=lambda item: item.name):
-                if self._is_hidden_path(Path(child.name)):
+                if self._is_hidden_path(Path(child.name)) or is_versioned_backup_name(child.name):
                     continue
                 if child.name not in self.ALLOWED_ROOT_ENTRIES:
                     warnings.append(_m("val_unrecognized_entry", name=child.name))

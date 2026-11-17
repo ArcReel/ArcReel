@@ -98,6 +98,28 @@ describe("MigrationReportContent", () => {
     ).toBeInTheDocument();
   });
 
+  it("explains that an unreadable reference stays missing and shows the displaced file backup", () => {
+    render(
+      <MigrationReportContent
+        report={report([
+          {
+            code: "missing_reference_preserved",
+            episode: null,
+            file: "characters/refs/Bob.png",
+            backup: "characters/refs/Bob.png.kept.v18-1",
+            params: { asset_type: "character", name: "Bob", from: "characters/Bob.png" },
+          },
+        ])}
+        episodes={EPISODES}
+      />,
+    );
+
+    expect(screen.getByText(/角色「Bob」的文件 characters\/Bob.png 原本无法读取/)).toHaveTextContent(
+      "已改指到 characters/refs/Bob.png 并保持缺失",
+    );
+    expect(screen.getByText("备份：characters/refs/Bob.png.kept.v18-1")).toBeInTheDocument();
+  });
+
   it("says where references and derivatives of a removed case variant went", () => {
     const variant = { name: "ALICE", kept: "Alice" };
     render(

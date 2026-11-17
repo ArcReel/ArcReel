@@ -52,6 +52,7 @@ from lib.script.reference_video.execution_checkpoint import (
     cleanup_staged_provider_media,
     stage_provider_media,
     stage_provider_media_for_task,
+    staged_source_paths,
 )
 from lib.script.reference_video.prompt_render import (
     RenderedUnitPrompt,
@@ -126,16 +127,15 @@ def _render_unit_prompt(
     )
 
 
-def _reference_limit_warning(
-    *, backend_name: str, provider_id: str, model: str, count: int, max_refs: int
-) -> dict[str, Any]:
+def _reference_limit_warning(*, provider_id: str, model: str, count: int, max_refs: int) -> dict[str, Any]:
     """参考图片超限 warning；通用路径与商品优先裁剪共用。
 
     参数带注册表供应商 ID（族别名供应商与 backend 名不同），界面才能按 ``(供应商, 模型)`` 查到
     显示名；只带模型时，两个供应商下同一上游模型 ID 名称不同就无从区分。
     """
-    if backend_name.lower() == "openai" and model.lower().startswith("sora") and max_refs == 1:
-        return {"key": "ref_sora_single_ref", "params": {}}
+    if max_refs == 1:
+        # 生效上限为 1 即端点只接受一张参考图；文案只由上限决定，与型号名无关。
+        return {"key": "ref_single_ref_only", "params": {"provider": provider_id, "model": model}}
     return {
         "key": "ref_too_many_images",
         "params": {"count": count, "provider": provider_id, "model": model, "max_count": max_refs},
@@ -374,7 +374,6 @@ async def execute_reference_video_task(
     video = ctx.video
     actual_provider_id = video.provider_model.provider_id
     ensure_dispatch_provider(claimed_provider_id, actual_provider_id)
-    provider_name = video.backend_name
     model_name = video.backend_model
 
     # 3. 能力只读 lane 以实际 backend 身份（provider_id + backend.model）求得的视频请求事实：
@@ -447,7 +446,6 @@ async def execute_reference_video_task(
                 continue
             warnings.append(
                 _reference_limit_warning(
-                    backend_name=provider_name,
                     provider_id=actual_provider_id,
                     model=model_name,
                     count=count,
@@ -711,6 +709,7 @@ async def execute_reference_video_task(
                     resource_type="reference_videos",
                     resource_id=resource_id,
                     reference_images=provider_refs,
+                    reference_sources=staged_source_paths(project_path, staged_media),
                     reference_image_asset_uris=_asset_uris(asset_choices),
                     reference_audio_files=provider_audio,
                     reference_audio_targets=reference_audio_targets,

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from lib.backends.providers import CallStatus
 from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.catalog.errors import ModelNotInCatalogError
+from lib.config.resolver import NoAvailableProviderError
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.session_repo import SessionRepository
 from lib.db.repositories.task_repo import TaskRepository
@@ -97,6 +98,7 @@ class _FakePM:
         # generate_overview 的名义分支目标：存在但内容有问题的项目（源目录空/供应商未配置/json 损坏）
         (self.base / "bad").mkdir(parents=True, exist_ok=True)
         (self.base / "no-provider").mkdir(parents=True, exist_ok=True)
+        (self.base / "no-default-model").mkdir(parents=True, exist_ok=True)
         (self.base / "corrupted").mkdir(parents=True, exist_ok=True)
         (self.base / "bad-schema").mkdir(parents=True, exist_ok=True)
         (self.base / "truncated").mkdir(parents=True, exist_ok=True)
@@ -278,6 +280,8 @@ class _FakePM:
             raise RuntimeError("open failed: /Users/secret/projects/leaky/source/novel.txt")
         if name == "no-provider":
             raise ValueError("未找到可用的 text 供应商")
+        if name == "no-default-model":
+            raise NoAvailableProviderError("没有设置 text 默认模型", media_type="text")
         if name == "retired-upload":
             raise ModelNotInCatalogError(provider_id="ark", model_id="old-text", media_type="text")
         if name == "corrupted":

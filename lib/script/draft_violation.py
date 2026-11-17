@@ -19,6 +19,21 @@ from typing import Any
 
 from pydantic import ValidationError
 
+#: 违约的 Web 文案 key 前缀。违约 code 与错误码共用一张文案表，同名码（如 ``mixed_speech``）
+#: 不加前缀会覆盖既有的错误码文案。
+DRAFT_VIOLATION_MESSAGE_PREFIX = "draft_violation_"
+
+
+def draft_violation_message_key(code: str) -> str:
+    """违约 ``code`` 对应的 Web 文案 key。"""
+    return f"{DRAFT_VIOLATION_MESSAGE_PREFIX}{code}"
+
+
+#: ``schema_invalid`` 条目里供 Web 成文的结构化原因：``type`` 为 pydantic 的错误类型码或
+#: 本仓的形状码（如 ``non_empty_list``），可选 ``msg``（pydantic 说明原文）、``ctx``（标量约束值）
+#: 与 ``input``（当前值）。Web 用它算出 ``detail`` 再代入文案，模板本身不引用这个参数。
+SCHEMA_ERROR_PARAM = "schema_error"
+
 
 class DraftViolation(ValueError):
     """草稿产出违约。引用语法误用只是其中一类——原文锚、台词量、台词保真与生成侧的补充
@@ -37,8 +52,8 @@ class DraftViolation(ValueError):
     0-based 下标，``item_id`` 是该条目的 ID（参考单元 ``unit_id``、分镜 ``segment_id`` 等）；呈现层
     按下标把违约挂到对应条目上，不解析 ``label``。两者都为空即整集层面的违约。
 
-    ``params`` 非空表示 ``code`` 是问题码文案 key（视频请求事实一类的配置问题），呈现层按问题码与
-    参数本地化，不展示面向 Agent 的消息。
+    ``params`` 不为 None 表示 ``code`` 是文案 key，Web 按 code 与参数本地化；
+    ``str(violation)`` 始终保留面向 Agent 的原始消息。
     """
 
     def __init__(
@@ -79,17 +94,28 @@ def schema_violations(
         item = items[index] if isinstance(items, list) and index is not None and index < len(items) else None
         item_id = item.get(id_field) if isinstance(item, dict) and id_field is not None else None
         value = error.get("input")
-        shown = (
-            f"（当前值：{json.dumps(value, ensure_ascii=False)}）"
-            if error["type"] != "missing" and isinstance(value, (bool, int, float, str)) and len(str(value)) <= 40
-            else ""
-        )
+        show_value = error["type"] != "missing" and isinstance(value, (bool, int, float, str)) and len(str(value)) <= 40
+        shown = f"（当前值：{json.dumps(value, ensure_ascii=False)}）" if show_value else ""
+        schema_error: dict[str, object] = {"type": error["type"], "msg": error["msg"]}
+        # ctx 里可能带异常对象（自定义校验的 ``error``）；只留可落盘的标量约束值。
+        ctx = {key: item for key, item in (error.get("ctx") or {}).items() if isinstance(item, (bool, int, float, str))}
+        if ctx:
+            schema_error["ctx"] = ctx
+        if show_value:
+            schema_error["input"] = value
         violations.append(
             DraftViolation(
                 f"草稿的 content.{'.'.join(str(part) for part in loc)} 不符合产出结构：{error['msg']}{shown}",
                 code="schema_invalid",
                 item_index=index,
                 item_id=item_id if isinstance(item_id, str) else None,
+                # Web 按 schema_error 的类型码与约束值成文；没有对应文案时退回 pydantic 原文，
+                # detail 留给缺少 schema_error 的旧条目。
+                params={
+                    "path": "content." + ".".join(str(part) for part in loc),
+                    "detail": error["type"] + (f" ({json.dumps(value, ensure_ascii=False)})" if shown else ""),
+                    SCHEMA_ERROR_PARAM: schema_error,
+                },
             )
         )
     return violations
@@ -166,9 +192,12 @@ def render_violation_report(violations: Sequence[DraftViolation]) -> str:
 
 
 __all__ = [
+    "DRAFT_VIOLATION_MESSAGE_PREFIX",
+    "SCHEMA_ERROR_PARAM",
     "DraftViolation",
     "DraftViolations",
     "collect_violations",
+    "draft_violation_message_key",
     "locate_violations",
     "locate_violations_by_id",
     "render_violation_report",

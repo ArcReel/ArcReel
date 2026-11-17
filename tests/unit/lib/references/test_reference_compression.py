@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import tempfile
 from io import BytesIO
 from pathlib import Path
 
@@ -26,6 +25,7 @@ from lib.references.reference_compression import (
     compressed_reference_payload,
     select_ladder_step,
 )
+from tests.fakes import use_private_tempdir
 
 
 def _noise_jpeg_bytes(w: int, h: int) -> bytes:
@@ -293,9 +293,7 @@ def test_payload_passthrough_excluded_from_budget(tmp_path: Path):
 def test_payload_tempfiles_cleaned_on_floor_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # 主动预检在 __enter__ 内抛 floor，select_ladder_step 在写 tempfile 之前 → 无泄漏。
     # 临时根指向本用例私有目录：进程共享的系统 tempdir 会被并行用例/其他 worktree 写入 refcomp-*。
-    temp_root = tmp_path / "tmp"
-    temp_root.mkdir()
-    monkeypatch.setattr(tempfile, "tempdir", str(temp_root))
+    temp_root = use_private_tempdir(monkeypatch, tmp_path / "tmp")
     real = _write(tmp_path, "big.jpg", _noise_jpeg_bytes(2048, 2048))
     specs = [ReferenceSpec(source=real, role=RefRole.ARRAY)]
     with (

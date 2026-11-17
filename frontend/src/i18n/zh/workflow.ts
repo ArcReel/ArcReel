@@ -253,6 +253,8 @@ export default {
   'action_wait_for_task': '等正在跑的尝试结束',
   'action_replan_unit': '改写这个单元，让它落进可生成的时长范围',
   'action_confirm_request_duration': '确认申请的时长档位',
+  'action_configure_default_model': '到默认模型设置中选择模型',
+  'act_configure_default_model': '设置默认模型',
   'action_configure_provider': '到设置里选定视频或音频模型',
   'action_repair_artifact_state': '修复这个单元的产物状态',
   'action_retry_artifact_download': '重新下载已生成的产物，不重新生成',

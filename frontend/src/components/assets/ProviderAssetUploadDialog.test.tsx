@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { PROVIDER_ASSET_LOCAL_FAILURES } from "@/components/pages/settings/asset-library/asset-library-labels";
 import enAssets from "@/i18n/en/assets";
+import ruAssets from "@/i18n/ru/assets";
 import viAssets from "@/i18n/vi/assets";
 import zhAssets from "@/i18n/zh/assets";
 import localFailuresContract from "@/test/contracts/provider-asset-local-failures.json";
@@ -167,9 +168,9 @@ describe("ProviderAssetUploadDialog", () => {
     expect(screen.getByText("未关联")).toBeInTheDocument();
   });
 
-  it("本地失败码表与后端一致，每个码在三种语言里都有原因文案", () => {
+  it("本地失败码表与后端一致，每个码在全部语言里都有原因文案", () => {
     expect([...PROVIDER_ASSET_LOCAL_FAILURES].sort()).toEqual(localFailuresContract);
-    for (const messages of [zhAssets, enAssets, viAssets] as Record<string, string>[]) {
+    for (const messages of [zhAssets, enAssets, ruAssets, viAssets] as Record<string, string>[]) {
       for (const code of localFailuresContract) {
         expect(messages[`provider_asset_link_failure_${code}`]).toBeTruthy();
       }

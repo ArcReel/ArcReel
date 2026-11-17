@@ -25,6 +25,8 @@ async def init_db() -> None:
 
     使用 Config() 空构造 + set_main_option 编程式调用 alembic，
     而非 Config("alembic.ini")，避免 env.py 的 fileConfig() 覆盖应用日志配置。
+
+    升级前的 revision 由 env.py 在改写它之前记下（``lib.db.upgrade_source``），与命令行迁移同一条路径。
     """
     import asyncio
     from pathlib import Path

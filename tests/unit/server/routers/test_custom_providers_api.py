@@ -214,23 +214,50 @@ class TestEndpointCatalog:
             "openai-video",
             "newapi-video",
             "v2-video-generations",
-            "ark-seedance",
-            "ark-seedream",
-            "vidu-video",
+            "ark-seedance-1",
+            "ark-seedance-2",
+            "ark-seedance-2-5",
+            "ark-seedream-3",
+            "ark-seedream-4",
+            "vidu-video-q3-turbo",
+            "vidu-video-generic",
+            "vidu-video-q3-pro",
+            "vidu-video-q3-fast",
+            "vidu-video-q3-reference",
+            "vidu-video-q2",
+            "vidu-video-q2-pro",
+            "vidu-video-q2-fast",
+            "vidu-video-q1",
+            "vidu-video-q1-classic",
+            "vidu-video-2",
+            "vidu-video-q4",
             "openrouter-video",
             "xai-video",
-            "dashscope-image",
-            "dashscope-async-video",
+            "dashscope-qwen-image",
+            "dashscope-wan-image",
+            "dashscope-qwen-image-edit",
+            "dashscope-video",
+            "dashscope-always-on-video",
+            "dashscope-reference-video",
+            "dashscope-reference-voice-video",
+            "dashscope-wan3-video",
             "minimax-image",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
             "minimax-h3",
             "kling-image",
-            "kling-video",
+            "kling-image-single",
+            "kling-video-pro-silent",
+            "kling-video-pro-audio",
+            "kling-video-audio",
+            "kling-video-silent",
+            "kling-video-model-path",
             "gemini-video",
+            "gemini-interactions-video",
             "openai-tts",
             "dashscope-tts",
+            "dashscope-speech-synthesizer",
             "minimax-tts",
             "gemini-tts",
         }
@@ -284,7 +311,7 @@ class TestEndpointCatalog:
         resp = custom_providers_client.get("/api/v1/custom-providers/endpoints")
         assert resp.status_code == 200
         by_key = {e["key"]: e for e in resp.json()["endpoints"]}
-        assert by_key["kling-video"]["end_image_capable"] is True
+        assert by_key["kling-video-pro-silent"]["end_image_capable"] is True
         assert by_key["openai-chat"]["end_image_capable"] is False
         assert by_key["openai-images"]["end_image_capable"] is False
         # 与注册表保持同源，不在响应层另立一份判断
@@ -1968,3 +1995,59 @@ class TestPathOverrides:
         resp = self._create(custom_providers_client, {"result": "/api/result"})
 
         assert resp.status_code == 422
+
+
+class TestQualitiesField:
+    """模型信息带有效画质可选值：对应条目的画质取值与调用端点是否接受显式画质两侧求值。"""
+
+    def _models(self, client: TestClient, models: list[dict]) -> dict[str, dict]:
+        resp = client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Relay",
+                "discovery_format": "openai",
+                "base_url": "https://api.example.com",
+                "api_key": "k",
+                "models": [{"display_name": m["model_id"], "is_enabled": True, **m} for m in models],
+            },
+        )
+        assert resp.status_code == 201
+        resp = client.get(f"/api/v1/custom-providers/{resp.json()['id']}")
+        return {m["model_id"]: m for m in resp.json()["models"]}
+
+    def test_only_openai_images_endpoints_offer_the_entry_values(
+        self, custom_providers_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        from lib.catalog import query
+        from tests.catalog_support import install_catalog, with_entry_facts
+
+        install_catalog(
+            monkeypatch,
+            with_entry_facts(query.factory_snapshot(), "openai", "gpt-image-2", qualities=("low", "medium", "high")),
+        )
+        models = self._models(
+            custom_providers_client,
+            [
+                {"model_id": "gpt-image-2", "endpoint": "openai-images-generations", "is_default": True},
+                {"model_id": "relay-gpt", "endpoint": "openai-images", "entry_binding": "openai/gpt-image-2"},
+                {
+                    "model_id": "openai/gpt-image-2",
+                    "endpoint": "openrouter-images",
+                    "entry_binding": "openai/gpt-image-2",
+                },
+                {"model_id": "relay-unknown", "endpoint": "openai-images"},
+                {"model_id": "m-video", "endpoint": "newapi-video", "is_default": True},
+            ],
+        )
+
+        assert models["gpt-image-2"]["qualities"] == ["low", "medium", "high"]
+        assert models["relay-gpt"]["qualities"] == ["low", "medium", "high"]
+        assert models["openai/gpt-image-2"]["qualities"] == []
+        assert models["relay-unknown"]["qualities"] == []
+        assert models["m-video"]["qualities"] == []
+
+    def test_entry_without_qualities_offers_none(self, custom_providers_client: TestClient):
+        models = self._models(
+            custom_providers_client, [{"model_id": "gpt-image-2", "endpoint": "openai-images", "is_default": True}]
+        )
+        assert models["gpt-image-2"]["qualities"] == []

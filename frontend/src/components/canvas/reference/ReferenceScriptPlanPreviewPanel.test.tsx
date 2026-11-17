@@ -269,6 +269,19 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.queryByText("raw agent message")).not.toBeInTheDocument();
   });
 
+  it("uses server-rendered speech diagnostics when params are present", async () => {
+    const state = quarantinedState();
+    state.quarantine!.violations = [{
+      code: "mixed_speech", label: "unit E1U01", line: null, item_index: 0,
+      message: "unit E1U01 (text line 1): Server-rendered speech diagnostic",
+      params: { label: "unit E1U01", location: "text line 1" },
+      locations: [{ path: ["text"], line: 1 }],
+    }];
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(state);
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    expect(await screen.findByText("视频单元 1 (text line 1): Server-rendered speech diagnostic")).toBeInTheDocument();
+  });
+
   // 场景引用提示：与解析预览面板同判据，落在 unit 卡内，不阻断确认。
   it("warns on units that reference no scene while the project registers scene assets", async () => {
     const state = pendingState();

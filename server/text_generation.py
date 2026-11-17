@@ -26,7 +26,7 @@ from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextOutpu
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
 from lib.backends.text_generator import TextGenerator
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, NoAvailableProviderError
 from lib.episode.episode_ids import describe_episode_for_agent
 from lib.episode.episode_paths import (
     SCRIPT_PLAN_FILENAMES,
@@ -184,6 +184,14 @@ class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
 
 
+class DraftQuarantinedError(TextGenerationError):
+    """违约产出已存为待修复草稿；消息保持 Agent 报告原文，计数供任务摘要使用。"""
+
+    def __init__(self, report: str, count: int) -> None:
+        super().__init__(report)
+        self.count = count
+
+
 class UnexpectedTextGenerationError(TextGenerationError):
     """生成过程中的意外失败，原异常在 ``__cause__``：调用方据此区分供应商拒绝与可重试的任务失败。"""
 
@@ -297,6 +305,7 @@ def _quarantine_formal_generation_conflict(
                 f"正式内容在模型生成期间已变化（expected {expected}, actual {actual}）；"
                 "本次生成结果已保留为草稿，请合并最新正式内容后再晋升",
                 code="formal_revision_conflict",
+                params={},
             )
         ],
         meta={"source": source, "base_fingerprint": expected},
@@ -924,6 +933,7 @@ def _unregistered_reference_violations(
                     label=label,
                     item_index=item_index,
                     item_id=item_id,
+                    params={"label": label, "field": field, "names": bad},
                 )
             )
     return violations
@@ -1055,7 +1065,7 @@ async def generate_drama_script_plan(
                     request.source,
                     formal_baseline,
                 )
-            raise TextGenerationError(report)
+            raise DraftQuarantinedError(report, len(violations))
 
         await reissue_plan_item_ids(projects, project_name, episode, content)
         async with draft_locks.async_file_lock(draft_path):
@@ -1090,7 +1100,7 @@ async def generate_drama_script_plan(
         return TextGenerationResult(
             drama_script_plan_result_text(script_plan_path.relative_to(project_path), raw_scenes, action="生成")
         )
-    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
+    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
@@ -1112,8 +1122,10 @@ class ReferenceSplitCaps(NamedTuple):
     在当前分辨率下未声明生效的「参考图↔时长」联动约束，多数型号如此。
 
     ``voice`` 是 r2v 桶视频请求事实派生出的声音输入档，供声音相关的容忍 warning 消费——与时长档位
-    同源于这一次求值，分两次查会让同一份产物的档位与声音提示描述不同时刻的配置。携带值对象而非
-    事实对象本身：下游只需要声音那几位，穿整个事实过接口会把字段名耦合扩散到消费侧。
+    同源于这一次求值；``text_voice`` 是 i2v 桶声音档，解析失败时为 None，原因沿用 ``text_problem``。
+    逐 unit 的说话人数上限按引用状态取对应声音档。分两次查会让同一份产物的档位与声音提示
+    描述不同时刻的配置。携带值对象而非事实对象本身：下游只需要声音那几位，穿整个事实过接口
+    会把字段名耦合扩散到消费侧。
     """
 
     default_duration: int | None
@@ -1124,6 +1136,7 @@ class ReferenceSplitCaps(NamedTuple):
     max_duration: int
     max_refs: int | None
     voice: VoiceRenderSettings
+    text_voice: VoiceRenderSettings | None
 
     def tiers_for(self, *, has_references: bool) -> list[int]:
         """该引用状态下的生效档位。"""
@@ -1166,6 +1179,11 @@ async def fetch_reference_split_caps(
         max_duration=max(unit_durations),
         max_refs=with_ref_facts.max_reference_images,
         voice=VoiceRenderSettings.from_request_facts(with_ref_facts),
+        text_voice=(
+            VoiceRenderSettings.from_request_facts(without_ref_facts)
+            if isinstance(without_ref_facts, VideoRequestFacts)
+            else None
+        ),
     )
 
 
@@ -1202,6 +1220,7 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
         f"{label} 时长 {duration}s 不在{state}的 unit 的生效档位 {tiers} 内{remedy}",
         code="duration_off_tier",
         label=label,
+        params={"label": label, "duration": duration, "tiers": tiers},
     )
 
 
@@ -1262,7 +1281,14 @@ def collect_reference_flat_violations(
         def _check_text_and_tier(
             la: str = label, tx: str = text, d: int = duration, with_images: bool = with_reference_images
         ) -> None:
-            validate_unit_text(la, tx, planning, max_refs=caps.max_refs)
+            voice = caps.voice if with_images else caps.text_voice
+            validate_unit_text(
+                la,
+                tx,
+                planning,
+                max_refs=caps.max_refs,
+                max_speakers=voice.planning_speaker_limit if voice is not None else None,
+            )
             _validate_unit_duration_tier(la, d, has_references=with_images, caps=caps)
 
         violations.extend(
@@ -1577,6 +1603,7 @@ def collect_narration_violations(
     new_assets: object,
     novel_text: str,
     source_scope: str,
+    source_path: str = "",
 ) -> list[DraftViolation]:
     """逐分镜收齐 narration script_plan 产出的全部违约（不在首个违约处中断）。
 
@@ -1607,6 +1634,7 @@ def collect_narration_violations(
                     code="invalid_segment_id",
                     label=label,
                     item_index=index,
+                    params={"label": label, "episode": episode},
                 )
             )
 
@@ -1617,6 +1645,7 @@ def collect_narration_violations(
             DraftViolation(
                 f"segment_id 重复: {dupes}；每个分镜的 id 须全集唯一（prompt_authoring 视觉层按 id 与分镜对齐）",
                 code="duplicate_segment_id",
+                params={"ids": dupes},
             )
         )
 
@@ -1640,6 +1669,7 @@ def collect_narration_violations(
                     label=label,
                     item_index=index,
                     item_id=_narration_segment_id(segment),
+                    params={"label": label},
                 )
             )
 
@@ -1656,6 +1686,7 @@ def collect_narration_violations(
                     label=label,
                     item_index=index,
                     item_id=_narration_segment_id(segment),
+                    params={"label": label, "duration": duration, "tiers": sorted(allowed)},
                 )
             )
 
@@ -1685,6 +1716,7 @@ def collect_narration_violations(
                 "分镜正文须原样复制原文、不要转述，且按序拼接后即是整篇原文。"
                 f"本次判定依据的源文范围：{source_scope}",
                 code="novel_text_coverage",
+                params={"source": source_path or episode_source_relpath(episode)},
             )
         )
     violations.extend(new_asset_violations(project, new_assets))
@@ -1731,6 +1763,10 @@ async def generate_reference_script_plan(
             text_supported_durations=split_caps.text_durations,
             max_duration=split_caps.max_duration,
             max_reference_images=split_caps.max_refs,
+            reference_max_speakers=split_caps.voice.planning_speaker_limit,
+            text_max_speakers=split_caps.text_voice.planning_speaker_limit
+            if split_caps.text_voice is not None
+            else None,
             default_duration=split_caps.default_duration,
             episode=episode,
             source_kind=cast(str | None, prompt_inputs["source_kind"]) or DEFAULT_SOURCE_KIND,
@@ -1807,8 +1843,9 @@ async def generate_reference_script_plan(
                 )
             # 产出即违约这条路同样带上软违约段：草稿在场、Agent 这一轮就在改它，降级提示留到晋升
             # 那一刻才第一次出现的话，它已经按不完整的信息改过一遍了。处置说明与晋升被挡下时同口径。
-            raise TextGenerationError(
-                report + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED)
+            raise DraftQuarantinedError(
+                report + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED),
+                len(violations),
             )
 
         # 编号只分配、不复用：落盘前由服务端发本集从没用过的编号，回执里的降级提示按发出的编号定位。
@@ -1860,7 +1897,7 @@ async def generate_reference_script_plan(
                 action="拆分",
             )
         )
-    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
+    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
@@ -1957,6 +1994,7 @@ async def generate_narration_script_plan(
             new_assets=content.get(NEW_ASSETS_FIELD),
             novel_text=novel_text,
             source_scope=coverage_source_scope(request.source, episode=episode),
+            source_path=request.source or episode_source_relpath(episode),
         )
         if violations:
             async with draft_locks.async_file_lock(draft_path):
@@ -1973,7 +2011,7 @@ async def generate_narration_script_plan(
                     request.source,
                     formal_baseline,
                 )
-            raise TextGenerationError(report)
+            raise DraftQuarantinedError(report, len(violations))
 
         await reissue_plan_item_ids(projects, project_name, episode, content)
         async with draft_locks.async_file_lock(draft_path):
@@ -2008,7 +2046,7 @@ async def generate_narration_script_plan(
         return TextGenerationResult(
             narration_script_plan_result_text(script_plan_path.relative_to(project_path), raw_segments, action="拆分")
         )
-    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
+    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc

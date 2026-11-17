@@ -28,14 +28,17 @@ from lib.app_version import PYPROJECT_PATH, load_app_version
 from lib.backends.audio_backends.base import AudioCapability
 from lib.backends.generation_type_buckets import (
     BUCKETS_BY_MEDIA_TYPE,
+    BucketDimension,
+    BucketFit,
     GenerationTypeBucket,
-    builtin_model_buckets,
-    custom_model_buckets,
+    builtin_model_bucket_fit,
+    custom_model_bucket_fit,
 )
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.catalog.lifecycle import Lifecycle, entry_lifecycle
+from lib.config import recommended_models
 from lib.config.model_setting_keys import GLOBAL_MODEL_SETTING_KEYS, MODEL_SETTING_MEDIA_TYPES
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
@@ -43,7 +46,7 @@ from lib.config.resolver import ConfigResolver
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
 from lib.db import async_session_factory, get_async_session
 from lib.i18n import DEFAULT_LOCALE, translate_or
-from lib.infra.api_errors import UnprocessableError
+from lib.infra.api_errors import ConflictError, UnprocessableError
 from lib.infra.httpx_shared import get_http_client
 from lib.market.sources import PROXY_PREFIX_SETTING
 from lib.speech.narration_config import parse_tts_backend
@@ -52,7 +55,7 @@ from server.i18n import Locale, Translator
 from server.routers._validators import validate_backend_value
 from server.services.project.model_references import project_model_references
 from server.services.project.narration_settings import default_narration_tts
-from server.services.tasks.generation_context import audio_backend_capabilities
+from server.services.tasks.generation_context import audio_backend_profile
 
 logger = logging.getLogger(__name__)
 
@@ -165,13 +168,17 @@ class _ModelCandidate:
 
     option: str  # "provider_id/model_id"
     media_type: str
-    buckets: frozenset[GenerationTypeBucket]
+    fit: BucketFit  # 各任务类型桶的判定，连同不进桶的原因
     display_name: str  # 按请求语言成文的模型名
     entry: str | None = None  # 所对应条目的引用（「模型厂商/官方模型名」）；对应不上条目时为 None
 
     @property
     def provider(self) -> str:
         return self.option.split("/", 1)[0]
+
+    @property
+    def buckets(self) -> frozenset[GenerationTypeBucket]:
+        return self.fit.buckets
 
 
 @dataclass(frozen=True)
@@ -213,7 +220,7 @@ async def _enumerate_candidates(
                 _ModelCandidate(
                     option=f"{provider_id}/{model_id}",
                     media_type=model_info.media_type,
-                    buckets=builtin_model_buckets(provider_id, model_id, model_info),
+                    fit=builtin_model_bucket_fit(provider_id, model_id, model_info),
                     display_name=model_info.display_name,
                     entry=entry.key.ref if entry is not None else None,
                 )
@@ -242,7 +249,7 @@ async def _enumerate_candidates(
                 _ModelCandidate(
                     option=f"{pid}/{model.model_id}",
                     media_type=endpoint_spec.media_type,
-                    buckets=custom_model_buckets(
+                    fit=custom_model_bucket_fit(
                         endpoint=model.endpoint,
                         model_id=model.model_id,
                         capability_overrides=model.capability_overrides,
@@ -429,11 +436,21 @@ async def _build_options(svc: ConfigService, session: AsyncSession, locale: str 
 # ---------------------------------------------------------------------------
 
 
+class FilteredCandidate(BaseModel):
+    """默认层里有、某个任务类型桶因能力不满足而没有列出的模型。"""
+
+    option: str  # "provider_id/model_id"
+    # 不满足的能力维度，键与能力接口同名；为空表示判定不出（调用端点已下线、调用通道没有声明能力）。
+    unmet: list[BucketDimension]
+
+
 class MediaCandidates(BaseModel):
-    """单一 media_type 的候选：默认层全量 + 各任务类型桶过滤后的子集。"""
+    """单一 media_type 的候选：默认层全量 + 各任务类型桶过滤后的子集，以及各桶滤掉的模型与原因。"""
 
     default: list[str]
     buckets: dict[GenerationTypeBucket, list[str]]
+    # 只收默认层里的模型：停用、已下线或低于最低应用版本的模型不在默认层，也就不在这里。
+    filtered: dict[GenerationTypeBucket, list[FilteredCandidate]]
 
 
 class ModelCandidatesResponse(BaseModel):
@@ -574,7 +591,8 @@ async def get_model_candidates(
     """任务类型桶下拉的候选数据源：默认层全量 + 每个任务类型桶按能力过滤后的模型列表。
 
     默认层不过滤 —— 默认层不承诺能力，能力不满足由解析闸报错兜底；只有桶层承诺「配进去的
-    组合执行得了」，故按桶过滤。
+    组合执行得了」，故按桶过滤。被某个桶滤掉的默认层模型连同不满足的能力维度列在 ``filtered``，原因与进桶判定
+    同一个求值结果（:class:`BucketFit`）。
 
     另带引用处的下线提示（``lifecycle``），一键切换的目标从同一份候选里挑。设置与项目里引用了清单之外的模型时，
     按被引用的值对应本地保留的条目补上提示（:func:`_unlisted_references`）。
@@ -588,6 +606,14 @@ async def get_model_candidates(
         media[media_type] = MediaCandidates(
             default=[c.option for c in same_media],
             buckets={bucket: [c.option for c in same_media if bucket in c.buckets] for bucket in buckets},
+            filtered={
+                bucket: [
+                    FilteredCandidate(option=c.option, unmet=list(c.fit.unmet[bucket]))
+                    for c in same_media
+                    if bucket in c.fit.unmet
+                ]
+                for bucket in buckets
+            },
         )
 
     return ModelCandidatesResponse(
@@ -620,6 +646,65 @@ async def get_auto_backends() -> AutoBackendsResponse:
     )
 
 
+class RecommendationChangeItem(BaseModel):
+    """一处推荐变化：内置供应商在这个媒体类型下现在推荐 ``recommended``（``provider/model``）。
+
+    ``current`` 是这个媒体类型的全局默认模型，没有设置时为 None。
+    """
+
+    media_type: str
+    provider_id: str
+    recommended: str
+    current: str | None
+
+
+class RecommendationChangesResponse(BaseModel):
+    changes: list[RecommendationChangeItem]
+
+
+@router.get("/system/config/recommendation-changes", response_model=RecommendationChangesResponse)
+async def get_recommendation_changes(
+    session: AsyncSession = Depends(get_async_session),
+) -> RecommendationChangesResponse:
+    """内置供应商的推荐模型与已知推荐不同的地方：只提示，改不改由用户决定（docs/adr/0103）。"""
+    changes = await recommended_models.recommendation_changes(session)
+    return RecommendationChangesResponse(
+        changes=[
+            RecommendationChangeItem(
+                media_type=change.media_type,
+                provider_id=change.provider_id,
+                recommended=f"{change.provider_id}/{change.recommended_model}",
+                current=change.current,
+            )
+            for change in changes
+        ]
+    )
+
+
+class AcknowledgeRecommendationRequest(BaseModel):
+    """处理一条推荐变化：``apply`` 为真时改用推荐模型作为这个媒体类型的全局默认模型，否则保留当前设置。"""
+
+    media_type: Literal["text", "image", "video", "audio"]
+    recommended: str
+    apply: bool
+
+
+@router.post("/system/config/recommendation-changes/acknowledge", status_code=204)
+async def acknowledge_recommendation_change(
+    body: AcknowledgeRecommendationRequest,
+    session: AsyncSession = Depends(get_async_session),
+) -> None:
+    """记下这条推荐，之后不再提示；推荐在提示之后又变了时返回 409，界面重新读取提示。"""
+    provider_id, _, model = body.recommended.partition("/")
+    try:
+        await recommended_models.acknowledge_recommendation(
+            session, provider_id, body.media_type, model, apply=body.apply
+        )
+    except recommended_models.StaleRecommendationError as exc:
+        raise ConflictError("recommendation_changed_again") from exc
+    await session.commit()
+
+
 class NarrationDefaultsResponse(BaseModel):
     """新建 TTS 项目的预填值；未配置任何音频供应商时 ``audio_backend`` 为 None。"""
 
@@ -641,24 +726,38 @@ async def get_narration_defaults(
     return NarrationDefaultsResponse(audio_backend=audio_backend, narration_voice=voice, narration_speed=speed)
 
 
+class TtsVoiceOption(BaseModel):
+    id: str
+    label: str
+
+
 class TtsModelCapabilitiesResponse(BaseModel):
     supports_speed: bool
+    # 该模型所用调用端点的音色表（同一供应商的不同端点音色不同）；设置页据此列出可选音色，音色仍可自由填写。
+    voices: list[TtsVoiceOption]
 
 
 @router.get("/system/tts-model-capabilities", response_model=TtsModelCapabilitiesResponse)
-async def get_tts_model_capabilities(backend: str) -> TtsModelCapabilitiesResponse:
-    """所选 TTS 模型（``provider/model``）是否把配音语速传给供应商；不支持时设置页置灰语速输入。"""
+async def get_tts_model_capabilities(backend: str, _t: Translator) -> TtsModelCapabilitiesResponse:
+    """所选 TTS 模型（``provider/model``）是否把配音语速传给供应商，以及它可选的音色。
+
+    语速不支持时设置页置灰语速输入。音色的 label 对部分供应商是 lib/i18n 翻译 key，按请求 locale 渲染；
+    label 本就是展示名的供应商 _t() 找不到 key 时原样返回。
+    """
     pair = parse_tts_backend(backend)
     if pair is None:
         raise UnprocessableError("narration_tts_model_required")
     try:
-        capabilities = await audio_backend_capabilities(*pair)
+        profile = await audio_backend_profile(*pair)
     except ModelNotInCatalogError:
         # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
         raise
     except ValueError as exc:
         raise UnprocessableError("narration_tts_model_invalid") from exc
-    return TtsModelCapabilitiesResponse(supports_speed=AudioCapability.SPEECH_SPEED in capabilities)
+    return TtsModelCapabilitiesResponse(
+        supports_speed=AudioCapability.SPEECH_SPEED in profile.capabilities,
+        voices=[TtsVoiceOption(id=v.id, label=_t(v.label)) for v in profile.voices],
+    )
 
 
 @router.get("/system/version")

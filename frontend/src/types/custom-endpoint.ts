@@ -145,7 +145,9 @@ export const COMFYUI_VIDEO_BINDING_KEYS = [
   "negative_prompt",
   "start_image",
   "end_image",
+  "reference_audio",
   "reference_images",
+  "aspect_ratio",
   "width",
   "height",
   "frames",
@@ -160,6 +162,7 @@ export const COMFYUI_IMAGE_BINDING_KEYS: readonly ComfyuiBindingKey[] = [
   "prompt",
   "negative_prompt",
   "reference_images",
+  "aspect_ratio",
   "width",
   "height",
   "seed",
@@ -195,6 +198,7 @@ export interface ComfyuiBindingTarget {
   fps?: number;
   policy?: "random" | "keep";
   consumer?: ComfyuiConsumerTarget;
+  values?: Record<string, string>;
 }
 
 /**

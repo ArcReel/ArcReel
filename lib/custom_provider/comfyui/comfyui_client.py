@@ -124,7 +124,7 @@ class ComfyuiClient:
         """
         return url_origin(self._base_url)
 
-    async def upload_image(self, http: httpx.AsyncClient, path: Path, *, filename: str) -> str:
+    async def upload_media(self, http: httpx.AsyncClient, path: Path, *, filename: str) -> str:
         """把一份素材传进服务端 ``input`` 区，返回读图节点认的引用值。
 
         引用值以**响应**里的 ``subfolder`` / ``name`` 拼成而不是以请求里的：服务端会为重名改名、
@@ -132,6 +132,7 @@ class ComfyuiClient:
         """
         try:
             payload = await asyncio.to_thread(path.read_bytes)
+            mime_type = await asyncio.to_thread(_mime_of, path)
         except OSError as exc:
             raise ComfyuiError(UPLOAD_FAILED, detail=str(exc)) from exc
         try:
@@ -142,7 +143,7 @@ class ComfyuiClient:
                 headers=self._headers,
                 json=None,
                 auth_query=self._query,
-                files={"image": (filename, payload, _mime_of(path))},
+                files={"image": (filename, payload, mime_type)},
                 data={"subfolder": UPLOAD_SUBFOLDER, "overwrite": "true", "type": _INPUT_TYPE},
             )
             response.raise_for_status()

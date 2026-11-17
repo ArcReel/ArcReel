@@ -75,6 +75,7 @@ mcp__arcreel__get_video_capabilities({})
   **可用参考图**定桶：`hydrated_capability` 是实际会执行的桶，`allowed_durations` 是该桶生效档位，`problems` /
   `unavailable_references` 点名登记了却缺图的引用。引用的资产没有资产图时该单元按无引用档位执行，规划时不要把它当带图
 - `max_reference_images`：单个视频单元的参考图上限（即正文里去重后的 `@[名称]` 提及数上限）；为 null 时模型没有收录上限，不加硬性数量约束
+- `max_reference_audio_count`：当前视频模型的参考音频段数上限（null 为未收录，0 为不接受参考音频）。`voice_consistency` 为 `native`（角色声音绑定为参考音频，且当前模型接受参考音频）、`requested_generate_audio` 为 true 且上限大于 0 时，每个视频单元的说话人数不得超过它：按角色本体去重，衍生共享本体声音，角色未设参考音频时仍计数。超出时按说话人拆分镜头，分到不同视频单元。其余情况不加此约束
 - `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
 - `episode_target_duration`：用户在项目设置中指定的单集成片目标时长（秒，可能为 null）——本集各单元时长合计的**软目标**，据它决定本集拆多少个单元
 
@@ -102,7 +103,7 @@ mcp__arcreel__generate_script_plan({"episode_id": N, "source": "source/episode_N
 
 > dry_run=true 时仅返回 prompt 不调用模型，便于审查。模型只产出「时长 + 原文锚 + 引用语法正文」，`unit_id` 由工具按数组顺序编号；写盘前校验正文语法、资产名引用完整性、原文锚是否为源文逐字子串与台词量是否念得完。任一违约时**正式文件不写**，产出连同逐条违约报告落到 `drafts/episode_{N}/script_plan_reference_units.invalid.json`——不要重跑工具重抽，按情况 C 修复后晋升。
 >
-> 工具成功时可能附带「声音降级提示」。角色声音默认按各自的 `voice_style` 写进提示词做软约束，此时不会有参考音频相关提示；只有项目设置里把角色声音绑定方式改成「参考音频」后，才会出现角色未设参考音频 / 参考音频段数超上限一类提示（当前视频模型不会生成有声视频的提示与绑定方式无关）。这些不阻断落盘，原样转述给主 Agent 即可，不要为它们改拆分。
+> 工具成功时可能附带「声音降级提示」。角色声音默认按各自的 `voice_style` 写进提示词做软约束，此时不会有参考音频相关提示；只有项目设置里把角色声音绑定方式改成「参考音频」后，才会出现角色未设参考音频一类提示（当前视频模型不会生成有声视频的提示与绑定方式无关）。这些提示不阻断落盘，原样转述给主 Agent 即可。参考音频绑定时的说话人数上限由草稿校验拦截，按违约报告拆分镜头；规划后换模型导致的参考音频超限仍由剧本层截断并告警。
 
 **Step 2**: 验证输出
 
@@ -192,6 +193,7 @@ mcp__arcreel__generate_script_plan({"episode_id": N, "source": "source/episode_N
 | 视频单元总数 | XX 个 |
 | 预计总时长 | X 分 X 秒 |
 | `@` 提及最大数（单个视频单元） | XX / max_reference_images |
+| 说话人数（受参考音频上限约束时） | 不超过 max_reference_audio_count |
 | 本集新增资产 | XX 项（登记 a / 归并 b / 衍生 c / 不登记 d） |
 
 **文件已保存**: `drafts/episode_{N}/script_plan_reference_units.json`

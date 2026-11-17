@@ -20,7 +20,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { InlineWarning } from "@/components/shared/InlineWarning";
 import { ModelLifecycleNotice, type ModelLifecycleNotices } from "@/components/shared/ModelLifecycleNotice";
 import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
-import type { GenerationTypeBucket } from "@/types/system";
+import type { BucketDimension, FilteredCandidate, GenerationTypeBucket } from "@/types/system";
 
 /** 任务类型桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
 export function useGenerationTypeBucketLabels(): Record<GenerationTypeBucket, { label: string; caption?: string }> {
@@ -51,6 +51,8 @@ export interface LayeredSubField {
   auto?: string | null;
   /** 细分项对应的任务类型桶，下线提示据此取这一处的切换目标；文本档位不传，按默认层取。 */
   bucket?: GenerationTypeBucket;
+  /** 默认层里有、这一项因能力不满足而没有列出的模型及原因（候选接口的 `filtered`），列在下拉末尾、不能选。 */
+  filtered?: FilteredCandidate[];
   onChange: (next: string) => void;
 }
 
@@ -122,6 +124,10 @@ export function LayeredModelFields({
 }: LayeredModelFieldsProps) {
   const { t } = useTranslation(["templates", "common"]);
   const fields = subFields ?? [];
+  const unmetReason = (unmet: BucketDimension[]) =>
+    unmet.length > 0
+      ? unmet.map((dimension) => t(`model_bucket_unmet_${dimension}`)).join(t("model_bucket_unmet_separator"))
+      : t("model_bucket_unmet_unknown");
   const configuredCount = fields.filter((f) => !!f.value).length;
   const hasError = !!subFieldsError;
 
@@ -210,6 +216,11 @@ export function LayeredModelFields({
                       renderOptionMeta={
                         renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue, field.key))
                       }
+                      unavailable={field.filtered?.map((item) => ({
+                        value: item.option,
+                        reason: unmetReason(item.unmet),
+                      }))}
+                      unavailableLabel={t("model_bucket_filtered_group", { purpose: field.label })}
                     />
                     <ModelLifecycleNotice
                       value={field.value}

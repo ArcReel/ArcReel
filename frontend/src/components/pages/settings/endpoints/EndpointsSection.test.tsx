@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import type {
@@ -31,6 +31,7 @@ function model(overrides: Partial<CustomProviderModelInfo>): CustomProviderModel
     is_default: true,
     is_enabled: true,
     resolution: null,
+    qualities: [],
     multiplier: 1,
     entry_binding: null,
     matched_entry: null,
@@ -56,6 +57,11 @@ function provider(overrides: Partial<CustomProviderInfo>): CustomProviderInfo {
     models: [model({})],
     ...overrides,
   };
+}
+
+// 导入校验携带 mediaType；详情区的防抖复核只携带 excludeId 和 signal。
+function importValidationCalls(validate: MockInstance<typeof API.validateCustomEndpoint>) {
+  return validate.mock.calls.filter(([, options]) => options?.mediaType !== undefined);
 }
 
 describe("EndpointsSection", () => {
@@ -87,7 +93,7 @@ describe("EndpointsSection", () => {
     // 原始 workflow 没有 kind，送去校验的是它本身；回来的包装结果接手成为待保存的定义。
     expect(await screen.findByText(/已包装成 ComfyUI 端点定义/)).toBeInTheDocument();
     // 编辑区对默认定义的防抖校验可能先于它发生，调用次序不定，只确认原始 workflow 曾被送检。
-    expect(validate.mock.calls.map(([definition]) => definition)).toContainEqual(workflow);
+    expect(importValidationCalls(validate).map(([definition]) => definition)).toContainEqual(workflow);
     expect(screen.getByText(/workflow_api\.json · ComfyUI workflow · v1\.0\.0/)).toBeInTheDocument();
   });
 
@@ -261,7 +267,7 @@ describe("EndpointsSection", () => {
         "error",
       ),
     );
-    expect(validate).not.toHaveBeenCalled();
+    expect(importValidationCalls(validate)).toEqual([]);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
@@ -276,7 +282,7 @@ describe("EndpointsSection", () => {
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "导入" }));
 
-    expect(validate.mock.calls[0][0]).toEqual(definition);
+    expect(importValidationCalls(validate).map(([payload]) => payload)).toContainEqual(definition);
     await waitFor(() => expect(create).toHaveBeenCalledWith(definition));
   });
 

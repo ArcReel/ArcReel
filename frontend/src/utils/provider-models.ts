@@ -183,7 +183,8 @@ export function lookupVideoAudioControl(
 // Resolution lookup
 // ---------------------------------------------------------------------------
 
-export const IMAGE_STANDARD_RESOLUTIONS = ["512px", "1K", "2K", "4K"];
+// 自定义供应商的候选只是提示，输入框仍可自由填写；512px 低于 GPT Image 等模型的总像素下限，不作建议。
+export const IMAGE_STANDARD_RESOLUTIONS = ["1K", "2K", "4K"];
 export const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
 
 /** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。
@@ -218,6 +219,28 @@ export function lookupResolutions(
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[modelId];
   return { options: model?.resolutions ?? [], isCustom: false };
+}
+
+/** 该 (provider, model) 的有效画质可选值，内置与自定义供应商都取模型信息上的 `qualities`。
+ *  取值与顺序由服务端两侧求值后下发（条目收录且调用端点接受显式画质才非空），这里不排序、不过滤；
+ *  查不到模型时为空，调用方据此不提供画质选项。 */
+export function lookupQualities(
+  providers: ProviderInfo[],
+  backend: string,
+  customProviders?: CustomProviderInfo[],
+): string[] {
+  const slashIdx = backend.indexOf("/");
+  if (slashIdx === -1) return [];
+  const providerId = backend.slice(0, slashIdx);
+  const modelId = backend.slice(slashIdx + 1);
+
+  if (providerId.startsWith(CUSTOM_PREFIX)) {
+    const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
+    const model = customProviders?.find((p) => p.id === dbId)?.models?.find((m) => m.model_id === modelId);
+    return model?.qualities ?? [];
+  }
+
+  return providers.find((p) => p.id === providerId)?.models?.[modelId]?.qualities ?? [];
 }
 
 /** `provider/model` 挂接的那个端点对尺寸与时长的约束；内置供应商与查不到的模型为 undefined。

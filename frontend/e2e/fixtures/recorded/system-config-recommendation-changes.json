@@ -1,0 +1,8 @@
+{
+  "method": "GET",
+  "path": "/api/v1/system/config/recommendation-changes",
+  "status": 200,
+  "body": {
+    "changes": []
+  }
+}

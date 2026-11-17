@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { makeNarrationSegment } from "@/test/factories";
@@ -539,5 +540,196 @@ describe("VersionTimeMachine", () => {
     await waitFor(() =>
       expect(useAppStore.getState().toast?.text).toBe("生成或编辑进行中，暂无法切换版本"),
     );
+  });
+
+  describe("moving a history version to the project trash", () => {
+    const deleted = { record: { id: "rec-1" } } as Awaited<ReturnType<typeof API.deleteFileViewEntry>>;
+
+    function mockVersions() {
+      return vi.spyOn(API, "getVersions").mockResolvedValue({
+        resource_type: "storyboards",
+        resource_id: "SEG-1",
+        current_version: 2,
+        versions: [
+          { version: 1, filename: "v1.png", file: "versions/storyboards/SEG-1_v1.png", created_at: "2026-02-01", file_size: 1, is_current: false, file_url: "/v1.png" },
+          { version: 2, filename: "v2.png", file: "versions/storyboards/SEG-1_v2.png", created_at: "2026-02-02", file_size: 1, is_current: true, file_url: "/v2.png" },
+          { version: 3, filename: "v3.png", file: "versions/storyboards/SEG-1_v3.png", created_at: "2026-02-03", file_size: 1, is_current: false, file_url: "/v3.png" },
+        ],
+      });
+    }
+
+    function renderOpen(props: Partial<ComponentProps<typeof VersionTimeMachine>> = {}) {
+      render(<VersionTimeMachine projectName="demo" resourceType="storyboards" resourceId="SEG-1" open {...props} />);
+    }
+
+    it("moves a version to the trash only after a second click, and the toast restores it", async () => {
+      const list = mockVersions();
+      const remove = vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      const restore = vi.spyOn(API, "restoreTrashRecord").mockResolvedValue({} as Awaited<ReturnType<typeof API.restoreTrashRecord>>);
+      renderOpen();
+
+      fireEvent.click(await screen.findByRole("button", { name: "将 v1 移入项目回收站" }));
+      expect(remove).not.toHaveBeenCalled();
+      const confirm = screen.getByRole("button", { name: "v1：移入项目回收站？" });
+      expect(confirm).toHaveFocus();
+      expect(confirm).toHaveTextContent("移入项目回收站？");
+
+      fireEvent.click(confirm);
+      await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", "versions/storyboards/SEG-1_v1.png"));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "v1" })).not.toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "v2" })).toHaveFocus();
+
+      const toast = useAppStore.getState().toast;
+      expect(toast?.text).toBe("v1 已移入项目回收站，保留 30 天");
+      expect(toast?.action?.label).toBe("恢复");
+      const revisionBefore = useAppStore.getState().trashRevision;
+      list.mockClear();
+      act(() => toast?.action?.onClick());
+      await waitFor(() => expect(restore).toHaveBeenCalledWith("demo", "rec-1"));
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(useAppStore.getState().trashRevision).toBeGreaterThan(revisionBefore));
+    });
+
+    it("does not treat the second click of a double-click as confirmation", async () => {
+      mockVersions();
+      const remove = vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      renderOpen();
+      fireEvent.click(await screen.findByRole("button", { name: "将 v1 移入项目回收站" }));
+      fireEvent.click(screen.getByRole("button", { name: "v1：移入项目回收站？" }), { detail: 2 });
+      expect(remove).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "v1：移入项目回收站？" })).toBeInTheDocument();
+    });
+
+    it("cancels with Escape, returning focus to the icon, without closing the panel", async () => {
+      const user = userEvent.setup();
+      mockVersions();
+      const remove = vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      renderOpen();
+      await user.click(await screen.findByRole("button", { name: "将 v1 移入项目回收站" }));
+      await user.keyboard("{Escape}");
+      expect(screen.getByRole("button", { name: "将 v1 移入项目回收站" })).toHaveFocus();
+      expect(screen.getByText("历史版本")).toBeInTheDocument();
+      expect(remove).not.toHaveBeenCalled();
+    });
+
+    it("can be confirmed from the keyboard", async () => {
+      const user = userEvent.setup();
+      mockVersions();
+      const remove = vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      renderOpen();
+      screen.getByText("历史版本");
+      (await screen.findByRole("button", { name: "将 v1 移入项目回收站" })).focus();
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("button", { name: "v1：移入项目回收站？" })).toHaveFocus();
+      await user.keyboard("{Enter}");
+      await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
+    });
+
+    it("cancels when focus moves elsewhere", async () => {
+      const user = userEvent.setup();
+      mockVersions();
+      const remove = vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      renderOpen();
+      await user.click(await screen.findByRole("button", { name: "将 v1 移入项目回收站" }));
+      await user.click(screen.getByRole("button", { name: "v3" }));
+      expect(screen.queryByRole("button", { name: "v1：移入项目回收站？" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "将 v1 移入项目回收站" })).toBeInTheDocument();
+      expect(remove).not.toHaveBeenCalled();
+    });
+
+    it("greys out the current version with the reason and never deletes it", async () => {
+      mockVersions();
+      const remove = vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      renderOpen();
+      const current = await screen.findByRole("button", { name: "当前版本不能删除，先切换到其他版本" });
+      expect(current).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(current);
+      expect(screen.queryByRole("button", { name: /v2：/ })).not.toBeInTheDocument();
+      expect(remove).not.toHaveBeenCalled();
+    });
+
+    it("returns the preview to the current version after deleting the previewed one", async () => {
+      mockVersions();
+      vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      renderOpen();
+      fireEvent.click(await screen.findByRole("button", { name: "v1" }));
+      expect(screen.getByAltText("版本 v1 预览")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "将 v1 移入项目回收站" }));
+      fireEvent.click(screen.getByRole("button", { name: "v1：移入项目回收站？" }));
+
+      expect(await screen.findByAltText("版本 v2 预览")).toBeInTheDocument();
+      expect(screen.queryByAltText("版本 v1 预览")).not.toBeInTheDocument();
+    });
+
+    it("leaves the preview alone when another version is deleted", async () => {
+      mockVersions();
+      vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      renderOpen();
+      fireEvent.click(await screen.findByRole("button", { name: "v3" }));
+      fireEvent.click(screen.getByRole("button", { name: "将 v1 移入项目回收站" }));
+      fireEvent.click(screen.getByRole("button", { name: "v1：移入项目回收站？" }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "v1" })).not.toBeInTheDocument());
+      expect(screen.getByAltText("版本 v3 预览")).toBeInTheDocument();
+    });
+
+    it("keeps the version and reports the error when deletion fails", async () => {
+      const list = mockVersions();
+      vi.spyOn(API, "deleteFileViewEntry").mockRejectedValue(new Error("boom"));
+      renderOpen();
+      fireEvent.click(await screen.findByRole("button", { name: "将 v1 移入项目回收站" }));
+      list.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: "v1：移入项目回收站？" }));
+      await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("无法删除 v1：boom"));
+      // 列表可能已过期（别处切换了当前版本）：重拉，但不闪成加载态、焦点仍在图标上
+      await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+      expect(screen.getByRole("button", { name: "v1" })).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole("button", { name: "将 v1 移入项目回收站" })).toHaveFocus());
+    });
+
+    it("ignores Escape while the deletion is in flight", async () => {
+      const user = userEvent.setup();
+      const pending = createDeferred<typeof deleted>();
+      mockVersions();
+      vi.spyOn(API, "deleteFileViewEntry").mockReturnValue(pending.promise);
+      render(<VersionTimeMachine projectName="demo" resourceType="storyboards" resourceId="SEG-1" />);
+      await user.click(screen.getByRole("button", { name: /版本/ }));
+      fireEvent.click(await screen.findByRole("button", { name: "将 v1 移入项目回收站" }));
+      fireEvent.click(screen.getByRole("button", { name: "v1：移入项目回收站？" }));
+      await user.keyboard("{Escape}");
+      expect(screen.getByText("历史版本")).toBeInTheDocument();
+      await act(() => pending.resolve(deleted));
+    });
+
+    it("disables deletion while the resource is busy, explaining why", async () => {
+      mockVersions();
+      const remove = vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      renderOpen({ busy: true });
+      const hints = await screen.findAllByRole("button", { name: "生成或编辑进行中，暂无法删除版本" });
+      expect(hints).toHaveLength(2); // v1、v3；当前版本 v2 的原因优先说「当前版本」
+      expect(hints[0]).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(hints[0]);
+      expect(screen.queryByRole("button", { name: /移入项目回收站？/ })).not.toBeInTheDocument();
+      expect(remove).not.toHaveBeenCalled();
+    });
+
+    it("rechecks occupancy when confirming and refuses if the resource became busy", async () => {
+      mockVersions();
+      const remove = vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
+      renderOpen({ checkBusy: () => true });
+      fireEvent.click(await screen.findByRole("button", { name: "将 v1 移入项目回收站" }));
+      fireEvent.click(screen.getByRole("button", { name: "v1：移入项目回收站？" }));
+      await waitFor(() =>
+        expect(useAppStore.getState().toast?.text).toBe("生成或编辑进行中，暂无法删除版本"),
+      );
+      expect(remove).not.toHaveBeenCalled();
+    });
+
+    it("offers no delete entry in read-only mode", async () => {
+      mockVersions();
+      renderOpen({ readOnly: true });
+      await screen.findByRole("button", { name: "v1" });
+      expect(screen.queryByRole("button", { name: /回收站|不能删除/ })).not.toBeInTheDocument();
+    });
   });
 });

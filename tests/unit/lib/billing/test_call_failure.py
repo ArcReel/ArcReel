@@ -151,13 +151,13 @@ class TestDownloadFailed:
         assert failure.error_code == CallErrorCode.DOWNLOAD_FAILED
         assert failure.error_params == {"status": 502}
 
-    def test_other_declarative_codes_stay_unclassified(self) -> None:
+    def test_other_declarative_codes_preserve_domain_metadata(self) -> None:
         from lib.custom_provider.declarative_backend import DeclarativeRuntimeError
 
         failure = classify_call_failure(DeclarativeRuntimeError("poll_status_unreadable", detail="no status"))
 
-        assert failure.error_code is None
-        assert failure.error_params is None
+        assert failure.error_code == "poll_status_unreadable"
+        assert failure.error_params == {"detail": "no status"}
 
     def test_download_wins_over_the_timeout_that_caused_it(self) -> None:
         # 取件耗尽的根因常是一次超时，但对用户而言这是可重试取件的「下载失败」。
@@ -185,10 +185,40 @@ class TestUnclassified:
         assert failure.error_params is None
         assert failure.error_message == "provider ark has no video capacity"
 
-    def test_capability_code_is_not_mistaken_for_a_provider_error_code(self) -> None:
-        # 仓库内的能力异常同样带 ``code`` 属性，但那是任务失败码，不属于调用失败分类。
+    def test_capability_code_is_preserved_without_becoming_a_provider_category(self) -> None:
         exc = VideoCapabilityError(code="video_duration_invalid", duration=99)
 
         failure = classify_call_failure(exc)
 
+        assert failure.error_code == "video_duration_invalid"
+        assert failure.error_params == {"duration": 99}
+
+
+class TestDomainParams:
+    def test_non_json_parameter_uses_the_task_encoding_string_fallback(self, tmp_path) -> None:
+        from lib.infra.api_errors import BadRequestError
+
+        failure = classify_call_failure(BadRequestError("invalid_input", path=tmp_path))
+
+        assert failure.error_code == "invalid_input"
+        assert failure.error_params == {"path": str(tmp_path)}
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")], ids=["nan", "inf"])
+    def test_non_finite_params_keep_the_original_failure(self, value: float) -> None:
+        # NaN / Infinity 不是 JSON 原生值，PostgreSQL 的 JSON 列拒收，失败结算会写不进去。
+        failure = classify_call_failure(VideoCapabilityError(code="video_duration_invalid", duration=value))
+
+        assert failure.error_message == "video_duration_invalid"
         assert failure.error_code is None
+        assert failure.error_params is None
+
+    def test_unserializable_params_keep_the_original_failure(self) -> None:
+        from lib.infra.api_errors import BadRequestError
+
+        params: dict[str, object] = {}
+        params["self"] = params
+        failure = classify_call_failure(BadRequestError("invalid_input", detail=params))
+
+        assert failure.error_message == "invalid_input"
+        assert failure.error_code is None
+        assert failure.error_params is None

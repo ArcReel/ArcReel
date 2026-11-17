@@ -39,6 +39,7 @@ from arcreel_market_core.comfyui.bindings import targets_of as _targets
 from arcreel_market_core.comfyui.workflow import is_link, node_inputs
 from lib.prompts.prompt_utils import append_avoid_text, split_avoid_lines
 
+from .audio_inputs import apply_reference_audio
 from .capabilities import keeps_its_own_frame_count, size_is_fixed
 from .failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from .inference_rules import InferenceRules, MergeNode, load_inference_rules
@@ -63,6 +64,7 @@ class MediaInputs:
     start_image: str | None = None
     end_image: str | None = None
     reference_images: Sequence[str] = ()
+    reference_audio_files: Sequence[str] = ()
 
 
 @dataclass(frozen=True)
@@ -111,7 +113,14 @@ def build_workflow(
     bindings: Mapping[str, Any] = definition.get("bindings") or {}
     media_type = "image" if definition.get("media_type") == "image" else "video"
 
-    dropped = _apply_media(workflow, bindings, media or MediaInputs(), load_inference_rules(media_type))
+    media = media or MediaInputs()
+    audio_dropped = apply_reference_audio(workflow, bindings, media.reference_audio_files)
+    dropped = audio_dropped + _apply_media(workflow, bindings, media, load_inference_rules(media_type))
+    for target in _targets(bindings.get("aspect_ratio")):
+        value = target["values"].get(aspect_ratio)
+        if value is None:
+            raise ComfyuiError("comfyui_aspect_ratio_unmapped", aspect_ratio=aspect_ratio, node=target["node"])
+        _write_one(workflow, target, value)
 
     body, avoid_text = split_avoid_lines(prompt)
     _write_all(workflow, _targets(bindings.get("prompt")), body)

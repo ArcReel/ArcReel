@@ -9,7 +9,7 @@
         "name": "episode_1.json",
         "path": "scripts/episode_1.json",
         "type": "file",
-        "size": 389,
+        "size": 4096,
         "modified_at": "2026-01-01T08:00:00.000Z",
         "role": "structure",
         "owner": {

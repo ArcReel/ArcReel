@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import cast
 
+from .endpoints import BUILTIN_ENDPOINTS, is_app_version, provider_endpoint_options
 from .model import (
     AudioFacts,
     BuiltinProviderListing,
@@ -29,6 +30,7 @@ from .model import (
     ModelFacts,
     PriceRow,
     PriceTable,
+    ScaledOutputTokenBase,
     TextFacts,
     VideoFacts,
     matching_entries,
@@ -46,7 +48,6 @@ from .vocabulary import (
 
 #: 数据集版本是 UTC 时间戳，定长，字符串顺序即时间顺序。
 DATASET_VERSION_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-_APP_VERSION = re.compile(r"\d+(\.\d+){0,2}")
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _CONTEXT_TIER = "context_tier"
 
@@ -96,7 +97,15 @@ _ENTRY_FIELDS = frozenset(
 _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
     "image": frozenset(
-        {"text_to_image", "image_to_image", "resolutions", "max_reference_images", "output_token_bases"}
+        {
+            "text_to_image",
+            "image_to_image",
+            "resolutions",
+            "max_reference_images",
+            "output_token_bases",
+            "output_token_scaled_bases",
+            "qualities",
+        }
     ),
     "video": frozenset(
         {
@@ -114,12 +123,15 @@ _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
     ),
     "audio": frozenset(),
 }
+_SCALED_OUTPUT_TOKEN_BASE_FIELDS = frozenset({"base", "multiplier"})
 _CONSTRAINT_FIELDS = frozenset({"by_resolution", "with_reference_images"})
 _PRICE_FIELDS = frozenset({"currency", "meters"})
 _METER_FIELDS = frozenset({"meter", "dims", "rows", "defaults", "free_allowance", "cjk_double"})
 _ROW_FIELDS = frozenset({"when", "price"})
 _LISTING_FIELDS = frozenset({"models", "defaults"})
-_PROVIDER_MODEL_FIELDS = frozenset({"api_model_name", "entry", "media_type", "multiplier", "min_app_version"})
+_PROVIDER_MODEL_FIELDS = frozenset(
+    {"api_model_name", "entry", "media_type", "multiplier", "min_app_version", "endpoint"}
+)
 
 
 class CatalogReader:
@@ -323,6 +335,7 @@ class CatalogReader:
         if data.get("price") is not None:
             price = self.price_table(data["price"], known_media_type, _at(path, "price"))
             self.check_price_resolutions(price, facts, _at(path, "price"))
+            self.check_output_token_rules(price, facts, _at(path, "facts"))
         return CatalogEntry(
             maker=maker,
             name=name,
@@ -349,14 +362,36 @@ class CatalogReader:
                     max_output_tokens=self.positive_int(data, "max_output_tokens", path),
                 )
             case "image":
+                output_token_bases = self.output_token_bases(
+                    data.get("output_token_bases"), _at(path, "output_token_bases")
+                )
+                scaled_path = _at(path, "output_token_scaled_bases")
+                scaled_bases = self.output_token_scaled_bases(data.get("output_token_scaled_bases"), scaled_path)
+                for quality in scaled_bases.keys() & output_token_bases.keys():
+                    self.flag(
+                        _at(scaled_path, quality),
+                        "output_token_quality_overlap",
+                        "同一质量档不能同时写在普通基数和带系数基数中，旧实例会按普通基数漏乘系数",
+                    )
+                qualities_path = _at(path, "qualities")
+                qualities = self.texts(data.get("qualities"), qualities_path)
+                if output_token_bases or scaled_bases:
+                    for index, quality in enumerate(qualities):
+                        if quality not in output_token_bases and quality not in scaled_bases:
+                            self.flag(
+                                f"{qualities_path}[{index}]",
+                                "quality_without_output_token_rule",
+                                "收录了输出 token 估算规则时，每个画质取值都要在普通基数或带系数基数中有规则，"
+                                "否则选了这个画质无法预估费用",
+                            )
                 return ImageFacts(
                     text_to_image=self.flag_value(data, "text_to_image", path),
                     image_to_image=self.flag_value(data, "image_to_image", path),
                     max_reference_images=self.nonnegative_int(data, "max_reference_images", path),
-                    output_token_bases=self.output_token_bases(
-                        data.get("output_token_bases"), _at(path, "output_token_bases")
-                    ),
+                    output_token_bases=output_token_bases,
+                    output_token_scaled_bases=scaled_bases,
                     resolutions=self.texts(data.get("resolutions"), _at(path, "resolutions")),
+                    qualities=qualities,
                 )
             case "video":
                 durations = self.durations(data.get("durations"), _at(path, "durations"))
@@ -401,6 +436,26 @@ class CatalogReader:
                 result[quality] = base
             else:
                 self.reject(_at(path, quality), "invalid_positive_int", "应为正整数")
+        return result
+
+    def output_token_scaled_bases(self, raw: object, path: str) -> Mapping[str, ScaledOutputTokenBase]:
+        data = {} if raw is None else self.obj(raw, path)
+        result: dict[str, ScaledOutputTokenBase] = {}
+        for quality, item in data.items():
+            if not is_valid_dimension_value("quality", quality):
+                self.reject(path, "invalid_text", "质量档应为非空字符串")
+                continue
+            item_path = _at(path, quality)
+            rule = self.obj(item, item_path)
+            self.known_fields(rule, item_path, _SCALED_OUTPUT_TOKEN_BASE_FIELDS)
+            base = self.positive_int(rule, "base", item_path)
+            if rule.get("base") is None:
+                self.reject(_at(item_path, "base"), "invalid_positive_int", "应为正整数")
+            multiplier = _as_float(rule.get("multiplier"))
+            if multiplier is None or not math.isfinite(multiplier) or multiplier <= 0:
+                self.reject(_at(item_path, "multiplier"), "invalid_positive_number", "应为正的有限数")
+            elif base is not None:
+                result[quality] = ScaledOutputTokenBase(base=base, multiplier=multiplier)
         return result
 
     def duration_constraints(
@@ -533,6 +588,17 @@ class CatalogReader:
                         f"分辨率与条目声明的「{declared}」只差大小写",
                     )
 
+    def check_output_token_rules(self, price: PriceTable, facts: ModelFacts, path: str) -> None:
+        """按输出图片 token 计价的图片条目必须收录输出 token 估算规则：调用前只能靠它估出这一项的用量。"""
+        if not isinstance(facts, ImageFacts) or facts.output_token_bases or facts.output_token_scaled_bases:
+            return
+        if any(meter.meter == "image_output_tokens" for meter in price.meters):
+            self.flag(
+                path,
+                "missing_output_token_rules",
+                "按输出图片 token 计价时须收录 output_token_bases 或 output_token_scaled_bases，否则无法预估费用",
+            )
+
     def check_dimension_values(self, values: Mapping[str, object], dims: tuple[str, ...], path: str) -> None:
         for dim, value in values.items():
             if dim not in dims:
@@ -565,7 +631,7 @@ class CatalogReader:
         if data.get("multiplier") is not None:
             multiplier = self.number(data["multiplier"], _at(path, "multiplier"))
         min_app_version = self.optional_text(data, "min_app_version", path)
-        if min_app_version and not _APP_VERSION.fullmatch(min_app_version):
+        if min_app_version and not is_app_version(min_app_version):
             self.flag(_at(path, "min_app_version"), "invalid_app_version", "应为形如 0.34.0 的应用版本")
         return BuiltinProviderModel(
             api_model_name=api_model_name,
@@ -573,6 +639,7 @@ class CatalogReader:
             media_type=media_type,
             multiplier=multiplier,
             min_app_version=min_app_version,
+            endpoint=self.optional_text(data, "endpoint", path),
         )
 
     # ---- 跨条目的构建侧检查 ----
@@ -617,6 +684,7 @@ class CatalogReader:
                 if entry is None:
                     unresolved.add(model.api_model_name)
                     continue
+                self.check_endpoint(provider_id, model, entry, model_path)
                 slot = (model.api_model_name, entry.media_type)
                 if slot in listed:
                     self.flag(model_path, "duplicate_provider_model", "同一供应商下 API 模型名与媒体类型重复")
@@ -635,6 +703,24 @@ class CatalogReader:
                     self.flag(default_path, "default_model_discontinued", "默认模型已下线")
                 elif default_entry.shutdown_date is not None:
                     self.flag(default_path, "default_model_retiring", "默认模型带关停日期")
+
+    def check_endpoint(self, provider_id: str, model: BuiltinProviderModel, entry: CatalogEntry, path: str) -> None:
+        """端点声明在端点清单里，媒体类型与所引用的条目一致，且是该供应商这一媒体类型的可选端点。"""
+        path = _at(path, "endpoint")
+        if model.endpoint is None:
+            self.flag(path, "missing_endpoint", "发布的供应商模型必须声明调用端点")
+            return
+        declared = BUILTIN_ENDPOINTS.get(model.endpoint)
+        if declared is None:
+            self.flag(path, "unknown_endpoint", "端点清单里没有这个调用端点")
+        elif declared.media_type != entry.media_type:
+            self.flag(
+                path, "endpoint_media_type_mismatch", f"这是 {declared.media_type} 端点，条目是 {entry.media_type}"
+            )
+        else:
+            options = provider_endpoint_options(provider_id, entry.media_type)
+            if options is None or model.endpoint not in options.endpoints:
+                self.flag(path, "endpoint_not_selectable", "这个调用端点不在该供应商这一媒体类型的可选端点里")
 
     def listed_entry(self, data: CatalogData, model: BuiltinProviderModel, path: str) -> CatalogEntry | None:
         if model.media_type is not None and model.media_type not in MEDIA_TYPES:

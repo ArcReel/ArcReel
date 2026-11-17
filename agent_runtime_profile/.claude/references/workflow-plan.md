@@ -140,12 +140,13 @@ ID 参数时，前者传入，后者必须**省略该参数**，不得把 `[]` �
 | `fix_input` | 剧本/声明本身不合法：按 `admission.units[].problems[].detail` 定位，经 `mcp__arcreel__patch_episode_script` 改对再重查 |
 | `replan_unit` | 视频单元需要重新规划：走 `repair_video_units` 那一行的改法 |
 | `generate_dependency` | 缺上游产物（资产图等参考图）：先补齐依赖再重查 |
+| `configure_default_model` | 没有设置默认模型：引导用户到「全局设置 → 默认模型」选择，设置后再生成 |
 | `configure_provider` | 当前供应商或档位不支持这次请求：告知用户要改哪项配置，**重试同一请求只会被同样拒绝** |
 | `repair_artifact_state` | 产物状态读不出来：报为独立缺口，绝不当作缺失去重生 |
 | `retry` | 可安全重发同一请求 |
 | `retry_artifact_download` | 产物已在供应商侧生成、只是没取回来：调 `POST /tasks/{id}/retry-download` 接续取件，**不要重发生成请求**——那会再建一个付费任务 |
 
-`retry` 与 `configure_provider` 在不入队新批次之前，先把动作原因说给用户；
+`retry`、`configure_provider` 与 `configure_default_model` 在不入队新批次之前，先把动作原因说给用户；
 凡是会产生新费用的动作，取得用户明确同意再执行。
 
 ## 旁白交付

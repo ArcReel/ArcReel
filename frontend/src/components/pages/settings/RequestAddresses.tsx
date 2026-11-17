@@ -8,6 +8,7 @@ import { InfoTip, InfoTipContent, InfoTipTrigger } from "@/components/ui/info-ti
 import type { EndpointRequest, PathOverrides } from "@/types";
 
 const MODEL_PLACEHOLDER = /\{\{\s*model\s*\}\}/g;
+// 与服务端 url_utils.strip_base_url_version 同口径（只认 ASCII 数字）
 const VERSION_SUFFIX = /\/v\d+(?:\.\d+)?[a-zA-Z]*$/;
 const ENSURED_SUFFIX: Partial<Record<EndpointRequest["base_url_rule"], string>> = {
   ensure_api_v3: "/api/v3",

@@ -86,10 +86,10 @@ def test_custom_video_quote_carries_overridden_capabilities():
     request = VideoGenerationRequest(
         prompt="p", output_path=Path("o.mp4"), duration_seconds=5, generate_audio=False, service_tier="pro"
     )
-    spec = get_endpoint_spec("kling-video")
-    plain = CustomPriceSource(CustomModelPricing(endpoint="kling-video"), spec)
+    spec = get_endpoint_spec("kling-video-pro-silent")
+    plain = CustomPriceSource(CustomModelPricing(endpoint="kling-video-pro-silent"), spec)
     overridden = CustomPriceSource(
-        CustomModelPricing(endpoint="kling-video", capability_overrides={"audio_track": "always_on"}), spec
+        CustomModelPricing(endpoint="kling-video-pro-silent", capability_overrides={"audio_track": "always_on"}), spec
     )
 
     assert plain.video_usage("kling-v3", request).dimensions["audio"] is False
@@ -117,3 +117,32 @@ def test_custom_image_quote_estimates_output_tokens_from_the_bound_entry(monkeyp
 
     assert bound.image_usage(facts).quantities["image_output_tokens"] == 1756
     assert "image_output_tokens" not in unbound.image_usage(facts).quantities
+
+
+def test_custom_image_quote_applies_scaled_bases_from_the_bound_entry(monkeypatch: pytest.MonkeyPatch):
+    """中转模型 ID 绑定带系数基数的条目时，结果与内置同条目一致（官方计算器 1024x1024、medium 为 1449）。"""
+    from arcreel_catalog_core import ScaledOutputTokenBase
+    from lib.backends.image_backends.base import ImageRequestFacts
+    from lib.catalog import query
+    from lib.custom_provider.endpoints import get_endpoint_spec
+    from lib.custom_provider.metering import CustomPriceSource
+    from lib.db.repositories.custom_provider_repo import CustomModelPricing
+    from tests.catalog_support import install_catalog, with_entry_facts
+
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            query.factory_snapshot(),
+            "openai",
+            "gpt-image-2",
+            output_token_bases={},
+            output_token_scaled_bases={"medium": ScaledOutputTokenBase(base=24, multiplier=3.3)},
+        ),
+    )
+    facts = ImageRequestFacts(model="relay-image-xyz", aspect_ratio="1:1", image_size="1K", reference_count=0)
+    source = CustomPriceSource(
+        CustomModelPricing(endpoint="openai-images", entry_binding="openai/gpt-image-2"),
+        get_endpoint_spec("openai-images"),
+    )
+
+    assert source.image_usage(facts).quantities["image_output_tokens"] == 1449

@@ -36,6 +36,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -54,6 +55,7 @@
               "2K",
               "4K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -72,6 +74,7 @@
               "2K",
               "4K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -91,6 +94,7 @@
               "1080p",
               "4k"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -110,6 +114,7 @@
               "1080p",
               "4k"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -118,7 +123,7 @@
             "display_name": "Veo 3.1 Lite",
             "media_type": "video",
             "capabilities": [],
-            "default": true,
+            "default": false,
             "supported_durations": [
               4,
               6,
@@ -128,6 +133,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -141,6 +147,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -154,6 +161,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -169,6 +177,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -184,21 +193,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "gemini-3.5-flash": {
-            "display_name": "Gemini 3.5 Flash",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation",
-              "structured_output",
-              "vision"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -214,6 +209,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -229,21 +225,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "gemini-3.7-flash": {
-            "display_name": "Gemini 3.7 Flash",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation",
-              "structured_output",
-              "vision"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -259,6 +241,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -274,6 +257,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -289,6 +273,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -304,6 +289,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -342,6 +328,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -360,6 +347,7 @@
               "2K",
               "4K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -378,6 +366,7 @@
               "2K",
               "4K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -397,6 +386,7 @@
               "1080p",
               "4k"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -415,6 +405,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -428,6 +419,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -441,6 +433,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -456,6 +449,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -471,6 +465,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -486,6 +481,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -501,6 +497,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -516,6 +513,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -531,6 +529,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -546,6 +545,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -561,6 +561,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -591,11 +592,59 @@
             "media_type": "text",
             "capabilities": [
               "text_generation",
+              "structured_output",
               "vision"
             ],
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "doubao-seed-2-1-pro-260915": {
+            "display_name": "豆包 Seed 2.1 Pro",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation",
+              "structured_output",
+              "vision"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "doubao-seedream-5-0-pro-260628": {
+            "display_name": "Seedream 5.0 Pro",
+            "media_type": "image",
+            "capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "default": true,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "doubao-seedream-5-0-flash-260915": {
+            "display_name": "Seedream 5.0 Flash",
+            "media_type": "image",
+            "capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -607,9 +656,10 @@
               "text_to_image",
               "image_to_image"
             ],
-            "default": true,
+            "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -624,6 +674,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -638,6 +689,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -652,6 +704,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -681,6 +734,7 @@
               "1080p",
               "4k"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -708,6 +762,7 @@
               "480p",
               "720p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -735,6 +790,7 @@
               "480p",
               "720p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -778,12 +834,28 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
           },
-          "doubao-seed-2-0-lite-260428": {
-            "display_name": "Seed 2.0 Lite",
+          "doubao-seed-2-0-pro-260215": {
+            "display_name": "豆包 Seed 2.0 Pro",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation",
+              "vision"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "doubao-seed-2-0-code-preview-260215": {
+            "display_name": "Seed 2.0 Code",
             "media_type": "text",
             "capabilities": [
               "text_generation",
@@ -793,6 +865,23 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "doubao-seed-2-0-lite-260428": {
+            "display_name": "豆包 Seed 2.0 Lite",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation",
+              "structured_output",
+              "vision"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -807,6 +896,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -822,6 +912,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -837,6 +928,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -852,12 +944,13 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
           "doubao-seed-evolving": {
-            "display_name": "Seed Evolving",
+            "display_name": "豆包 Seed Evolving",
             "media_type": "text",
             "capabilities": [
               "text_generation",
@@ -867,6 +960,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -902,102 +996,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "doubao-seed-2.0-lite": {
-            "display_name": "豆包 Seed 2.0 Lite",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation",
-              "vision"
-            ],
-            "default": true,
-            "supported_durations": [],
-            "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "doubao-seed-2.0-pro": {
-            "display_name": "豆包 Seed 2.0 Pro",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation",
-              "vision"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "doubao-seed-2.0-code": {
-            "display_name": "豆包 Seed 2.0 Code",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "glm-5.1": {
-            "display_name": "GLM-5.1",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation",
-              "structured_output"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "kimi-k2.6": {
-            "display_name": "Kimi K2.6",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "minimax-m2.7": {
-            "display_name": "MiniMax M2.7",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation",
-              "structured_output"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "doubao-seedream-5.0-lite": {
-            "display_name": "Seedream 5.0 Lite",
-            "media_type": "image",
-            "capabilities": [
-              "text_to_image",
-              "image_to_image"
-            ],
-            "default": true,
-            "supported_durations": [],
-            "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1027,6 +1026,7 @@
               "1080p",
               "4k"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -1054,6 +1054,7 @@
               "480p",
               "720p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -1081,12 +1082,13 @@
               "480p",
               "720p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
           },
-          "doubao-seed-evolving": {
-            "display_name": "Seed Evolving",
+          "doubao-seed-2.1-lite": {
+            "display_name": "豆包 Seed 2.1 Lite",
             "media_type": "text",
             "capabilities": [
               "text_generation",
@@ -1096,12 +1098,103 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "deepseek-v4-flash": {
-            "display_name": "DeepSeek V4 Flash",
+          "doubao-seedream-5-0-pro": {
+            "display_name": "Seedream 5.0 Pro",
+            "media_type": "image",
+            "capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "doubao-seedream-5.0-flash": {
+            "display_name": "Seedream 5.0 Flash",
+            "media_type": "image",
+            "capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "doubao-seedance-2.5": {
+            "display_name": "Seedance 2.5",
+            "media_type": "video",
+            "capabilities": [],
+            "default": false,
+            "supported_durations": [
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30
+            ],
+            "resolutions": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "qualities": [],
+            "audio_track": "controllable",
+            "reference_route_audio_track": "controllable",
+            "voice_consistency": "soft"
+          },
+          "doubao-seed-evolving": {
+            "display_name": "豆包 Seed Evolving",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation",
+              "structured_output",
+              "vision"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "deepseek-v4-pro": {
+            "display_name": "DeepSeek V4 Pro",
             "media_type": "text",
             "capabilities": [
               "text_generation"
@@ -1109,6 +1202,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1124,6 +1218,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1138,6 +1233,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1153,12 +1249,13 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "deepseek-v4-pro": {
-            "display_name": "DeepSeek V4 Pro",
+          "deepseek-v4-flash": {
+            "display_name": "DeepSeek V4 Flash",
             "media_type": "text",
             "capabilities": [
               "text_generation"
@@ -1166,6 +1263,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1202,6 +1300,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1219,6 +1318,25 @@
               "1K",
               "2K"
             ],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "grok-imagine-image-2.0": {
+            "display_name": "Grok Imagine Image 2.0",
+            "media_type": "image",
+            "capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [
+              "1K",
+              "2K"
+            ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1249,6 +1367,7 @@
               "480p",
               "720p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -1280,6 +1399,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -1311,6 +1431,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -1326,6 +1447,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1341,6 +1463,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1356,6 +1479,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1371,6 +1495,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1386,6 +1511,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1401,6 +1527,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1416,6 +1543,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1451,6 +1579,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1466,6 +1595,45 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "gpt-image-2.5-sunburst": {
+            "display_name": "GPT Image 2.5 Sunburst",
+            "media_type": "image",
+            "capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [
+              "512px",
+              "1K",
+              "2K"
+            ],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "gpt-image-2.5-flare": {
+            "display_name": "GPT Image 2.5 Flare",
+            "media_type": "image",
+            "capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [
+              "512px",
+              "1K",
+              "2K"
+            ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1484,6 +1652,7 @@
               "1K",
               "2K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1499,6 +1668,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1514,6 +1684,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1529,6 +1700,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1543,6 +1715,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1558,6 +1731,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1573,6 +1747,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1588,6 +1763,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1603,6 +1779,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1618,6 +1795,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1633,6 +1811,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1648,6 +1827,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1663,6 +1843,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1678,6 +1859,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1693,6 +1875,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1708,6 +1891,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1743,6 +1927,7 @@
               "2K",
               "4K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1758,6 +1943,7 @@
             "resolutions": [
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1790,6 +1976,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -1822,6 +2009,39 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
+            "audio_track": "controllable",
+            "reference_route_audio_track": "controllable",
+            "voice_consistency": "soft"
+          },
+          "viduq3-pro-fast": {
+            "display_name": "Vidu Q3 Pro Fast",
+            "media_type": "video",
+            "capabilities": [],
+            "default": false,
+            "supported_durations": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16
+            ],
+            "resolutions": [
+              "720p",
+              "1080p"
+            ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -1852,6 +2072,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -1870,6 +2091,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1907,6 +2129,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1921,6 +2144,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1934,6 +2158,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1954,6 +2179,7 @@
               "2368*1728",
               "1728*2368"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1974,6 +2200,28 @@
               "2368*1728",
               "1728*2368"
             ],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "qwen-image-3.0": {
+            "display_name": "Qwen Image 3.0",
+            "media_type": "image",
+            "capabilities": [
+              "text_to_image",
+              "image_to_image"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [
+              "2048*2048",
+              "2688*1536",
+              "1536*2688",
+              "2368*1728",
+              "1728*2368"
+            ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -1993,6 +2241,7 @@
               "2048*1536",
               "1536*2048"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2012,6 +2261,7 @@
               "2048*1536",
               "1536*2048"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2029,6 +2279,7 @@
               "1K",
               "2K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2047,6 +2298,7 @@
               "2K",
               "4K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2076,6 +2328,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2105,6 +2358,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2134,6 +2388,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2162,6 +2417,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2190,6 +2446,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2218,6 +2475,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2247,6 +2505,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2276,6 +2535,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2305,6 +2565,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2350,6 +2611,53 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
+            "audio_track": "controllable",
+            "reference_route_audio_track": "controllable",
+            "voice_consistency": "soft"
+          },
+          "wan3.0-video-prime": {
+            "display_name": "万相 3.0 视频 Prime",
+            "media_type": "video",
+            "capabilities": [],
+            "default": false,
+            "supported_durations": [
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24,
+              25,
+              26,
+              27,
+              28,
+              29,
+              30
+            ],
+            "resolutions": [
+              "480p",
+              "720p",
+              "1080p"
+            ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
@@ -2363,6 +2671,36 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "qwen3.6-max-preview": {
+            "display_name": "Qwen3.6 Max Preview",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation",
+              "structured_output"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "MiniMax-M2.5": {
+            "display_name": "MiniMax-M2.5",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2378,6 +2716,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2393,6 +2732,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2408,6 +2748,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2423,6 +2764,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2438,6 +2780,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2452,6 +2795,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2467,6 +2811,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2482,6 +2827,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2497,20 +2843,21 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "glm-5.1": {
-            "display_name": "GLM-5.1",
+          "glm-5": {
+            "display_name": "GLM-5",
             "media_type": "text",
             "capabilities": [
-              "text_generation",
-              "structured_output"
+              "text_generation"
             ],
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2525,6 +2872,50 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "glm-5.1": {
+            "display_name": "GLM-5.1",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation",
+              "structured_output"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "deepseek-v4-pro": {
+            "display_name": "DeepSeek V4 Pro",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "kimi-k2.6": {
+            "display_name": "Kimi K2.6",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2539,6 +2930,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2554,45 +2946,23 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "glm-5": {
-            "display_name": "GLM-5",
+          "deepseek-v4.1-flash": {
+            "display_name": "DeepSeek V4.1 Flash",
             "media_type": "text",
             "capabilities": [
-              "text_generation"
+              "text_generation",
+              "structured_output",
+              "vision"
             ],
             "default": false,
             "supported_durations": [],
             "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "deepseek-v4-pro": {
-            "display_name": "DeepSeek V4 Pro",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
-          "kimi-k2.6": {
-            "display_name": "Kimi K2.6",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2631,6 +3001,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2645,6 +3016,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2662,6 +3034,7 @@
               "1K",
               "2K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2689,6 +3062,87 @@
               "768p",
               "2k"
             ],
+            "qualities": [],
+            "audio_track": "always_on",
+            "reference_route_audio_track": "always_on",
+            "voice_consistency": "soft"
+          },
+          "MiniMax-H3-Highspeed": {
+            "display_name": "MiniMax H3 Highspeed",
+            "media_type": "video",
+            "capabilities": [],
+            "default": false,
+            "supported_durations": [
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "resolutions": [
+              "768p"
+            ],
+            "qualities": [],
+            "audio_track": "always_on",
+            "reference_route_audio_track": "always_on",
+            "voice_consistency": "soft"
+          },
+          "MiniMax-H3-Lite": {
+            "display_name": "MiniMax H3 Lite",
+            "media_type": "video",
+            "capabilities": [],
+            "default": false,
+            "supported_durations": [
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "resolutions": [
+              "768p"
+            ],
+            "qualities": [],
+            "audio_track": "always_on",
+            "reference_route_audio_track": "always_on",
+            "voice_consistency": "soft"
+          },
+          "MiniMax-H3-Max": {
+            "display_name": "MiniMax H3 Max",
+            "media_type": "video",
+            "capabilities": [],
+            "default": false,
+            "supported_durations": [
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "resolutions": [
+              "768p"
+            ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -2706,6 +3160,7 @@
               "768p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2723,6 +3178,7 @@
               "768p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2736,6 +3192,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2749,6 +3206,49 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "MiniMax-M2.5": {
+            "display_name": "MiniMax-M2.5",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "MiniMax-M2.5-highspeed": {
+            "display_name": "MiniMax-M2.5-highspeed",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "MiniMax-M2.7-highspeed": {
+            "display_name": "MiniMax-M2.7-highspeed",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2763,6 +3263,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2797,6 +3298,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2814,6 +3316,7 @@
               "1K",
               "2K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2832,6 +3335,7 @@
               "2K",
               "4K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2861,6 +3365,7 @@
               "1080p",
               "4k"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "soft"
@@ -2890,6 +3395,7 @@
               "1080p",
               "4k"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "soft"
@@ -2907,6 +3413,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "controllable",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "soft"
@@ -2924,6 +3431,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2958,6 +3466,7 @@
             "default": true,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2972,6 +3481,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -2986,6 +3496,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -3000,6 +3511,7 @@
             "default": false,
             "supported_durations": [],
             "resolutions": [],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -3019,6 +3531,7 @@
               "3K",
               "4K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -3036,6 +3549,7 @@
               "1K",
               "2K"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
@@ -3059,6 +3573,7 @@
             "resolutions": [
               "720p"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -3084,6 +3599,7 @@
               "1080p",
               "2K"
             ],
+            "qualities": [],
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
@@ -3118,6 +3634,7 @@
               "720p",
               "1080p"
             ],
+            "qualities": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"

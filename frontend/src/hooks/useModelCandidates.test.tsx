@@ -7,8 +7,8 @@ import { useModelCandidates } from "@/hooks/useModelCandidates";
 import type { ModelCandidatesResponse } from "@/types/system";
 
 const CANDIDATES = {
-  video: { default: ["gemini/veo-3"], buckets: { i2v: ["gemini/veo-3"], r2v: [] } },
-  image: { default: ["gemini/imagen-4"], buckets: { t2i: ["gemini/imagen-4"], i2i: [] } },
+  video: { default: ["gemini/veo-3"], buckets: { i2v: ["gemini/veo-3"], r2v: [] }, filtered: {} },
+  image: { default: ["gemini/imagen-4"], buckets: { t2i: ["gemini/imagen-4"], i2i: [] }, filtered: {} },
 } as unknown as ModelCandidatesResponse;
 
 afterEach(() => {
@@ -47,8 +47,8 @@ describe("useModelCandidates", () => {
 
   it("does not treat an empty candidate set as a failure", async () => {
     const empty = {
-      video: { default: [], buckets: { i2v: [], r2v: [] } },
-      image: { default: [], buckets: { t2i: [], i2i: [] } },
+      video: { default: [], buckets: { i2v: [], r2v: [] }, filtered: {} },
+      image: { default: [], buckets: { t2i: [], i2i: [] }, filtered: {} },
     } as unknown as ModelCandidatesResponse;
     vi.spyOn(API, "getModelCandidates").mockResolvedValue(empty);
     const { result } = renderHook(() => useModelCandidates());

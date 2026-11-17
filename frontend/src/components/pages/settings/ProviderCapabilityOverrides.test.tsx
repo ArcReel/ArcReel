@@ -169,6 +169,24 @@ describe("ProviderCapabilityOverrides", () => {
     expect(onValidityChange).toHaveBeenLastCalledWith("duration_constraints", true);
   });
 
+  it.each([
+    ["image", true],
+    ["video", false],
+  ] as const)("explains the image reference limit only on %s models", (media, shown) => {
+    const base = { max_reference_images: 3 };
+    render(
+      <Harness
+        capabilities={{ media_type: media, editable: ["max_reference_images"], displayed: ["max_reference_images"],
+          base, overrides: {}, effective: base }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "修改「参考图上限」" }));
+
+    expect(screen.getByRole("textbox", { name: "「参考图上限」的值" })).toHaveValue("3");
+    expect(screen.queryByText("0 表示不接受参考图；修改上限不会开启调用端点未实现的图生图能力") !== null).toBe(shown);
+  });
+
   it("edits the audio track as a whole dimension", () => {
     render(<Harness />);
 

@@ -40,7 +40,7 @@
 #   "pr": <int>,
 #   "pr_created_at": "<ISO8601>",                       # PR createdAt — distinct from last_push_at
 #   "head": "<sha>",                                    # current PR head commit SHA
-#   "last_push_at": "<ISO8601>",                        # head commit committedDate — see PITFALL 1
+#   "last_push_at": "<ISO8601>",                        # head commit committer date — see PITFALL 1
 #   "rounds": <int>,                                    # disposed feedback batches recorded by `round.sh mark`
 #                                                       # (0 until the first mark) — the convergence budget counter
 #   "triage_hint": "<str>",                             # present only while has_new_findings holds (a non-ack new
@@ -48,9 +48,6 @@
 #                                                       # points back to SKILL「工程判断」 at the moment a batch is
 #                                                       # judged; from rounds >= 3 it also points to「收敛」
 #   "snapshot_file": "<path>",                          # full snapshot staged for query.sh
-#   "base_oid": "<sha>" | null,                         # last commit at/before PR creation — SINCE_SHA for the
-#                                                       # first fix batch (null when every commit postdates creation)
-#   "commits_since_pr_created": [{oid, committedDate}], # fix-round commits only; pre-PR dev commits stay in snapshot
 #   "coderabbit": {
 #     "walkthrough": {                                  # CR's first comment (auto-edited each review)
 #       "id":                    <int>,                 # REST issue comment id — stable across rewrites
@@ -74,7 +71,8 @@
 #     "comments_history": {total, last_created_at}      # older ones collapsed to counts ({total: 0} when empty)
 #   },
 #   "codex": {
-#     "has_started":      <bool>,                       # Codex has acknowledged with eyes or a clean-pass comment
+#     "started_current_head": <bool>,                   # Codex has picked up the current HEAD (see FLAG SEMANTICS)
+#     "failed_current_head":  <bool>,                   # Codex's summary reports the review of the current HEAD as failed
 #     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head,
 #                            has_body_finding, is_new, preview}], # listed while is_new OR reviewed_current_head
 #     "reviews_history":  {total, last_submitted_at},
@@ -110,7 +108,9 @@
 #   "own_trigger_comments": [{author, createdAt, command, has_codex_eyes}] # human-authored trigger commands — see PITFALL 4
 # }
 #
-# FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
+# FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name).
+# Judgments wait.sh also needs (rate limit, skip, pause, quota, pass marker, failing
+# conclusion) are defined once in signals.jq and included by both scripts.
 #   is_new                 new this round: created_at/submittedAt > max(last_push_at, last round's marked_at)
 #                          (PITFALL 2 and 8), OR id absent from the seen ledger (straggler catch, PITFALL 6)
 #   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND
@@ -140,10 +140,16 @@
 #                            nitpick         "_🧹 Nitpick"             low_value "_💤 Low value"
 #   severity_alt           Codex "Pn Badge" from the inline badge image alt text
 #   has_pass_marker        Codex top-level comment is the clean-pass "Codex Review: Didn't find any major
-#                          issues." (any case)
-#   has_started            Codex has posted eyes on the PR or an @codex review trigger comment, or a
-#                          clean-pass comment; reactions count only when the reactor is
-#                          chatgpt-codex-connector[bot] — anyone else's eyes never register
+#                          issues." (any case; leading HTML comments ignored)
+#   started_current_head   Codex has picked up the current HEAD: a PR reaction after last_push_at, a review
+#                          or comment row with reviewed_current_head, its summary comment naming the head
+#                          as the commit under review, or eyes on an @codex review trigger posted after
+#                          last_push_at; reactions count only when the reactor is
+#                          chatgpt-codex-connector[bot] — anyone else's eyes never register. false after a
+#                          push means Codex has not started on that head (reviewers.md: when to trigger).
+#                          Always false while failed_current_head holds
+#   failed_current_head    Codex's summary comment names the head and reports its code review as failed:
+#                          nothing was reviewed and Codex will not retry by itself
 #   has_outside_diff       CodeRabbit review body carries one or more "Outside diff range
 #                          comments" that could not be posted as inline comments
 #   has_body_finding       Codex review body itself carries a P0-P3 finding badge; this shape
@@ -154,16 +160,23 @@
 #
 # SNAPSHOT SCHEMA — same tree as the index, except: `other_comments`/`comments`/`reviews`/
 #   `inline_comments_by_user` are FULL lists (no new/history split) with full `body` and `is_new`
-#   on every row, walkthrough keeps `body`, `commits` is the full list, own_trigger_comments
+#   on every row, walkthrough keeps `body`, `commits` lists the PR commits ({oid,
+#   committedDate}), codex comment rows keep `summary_on_current_head` and `summary_failed_current_head`, own_trigger_comments
 #   keeps `body`, `codeql_checks` is the full row list ({name, app, status, conclusion,
 #   started_at, is_failing}) instead of the summary, plus top-level `repo` and `generated_at`
 #   for query.sh provenance.
 #
 # PITFALLS
 #
-# 1. last_push_at uses head commit committedDate, NOT pushedDate.
-#    pushedDate is null on the PR's head commit — GitHub's PR API doesn't surface push event time
-#    here. committedDate is the most reliable timestamp available.
+# 1. last_push_at is the committer date of the head commit (the PR commit whose sha is the
+#    head; the last listed commit when the list is truncated), NOT the push time — the REST
+#    PR API does not surface push events. Amending or rebasing rewrites the committer date,
+#    so the watermark advances on a force push exactly as on an appended commit, and the
+#    index carries no field that compares commit dates with the PR creation time: after a
+#    rebase every commit postdates it. The commit is made before it is pushed, so anything a
+#    reviewer posts on the previous head in between (while the gate runs) sorts after
+#    last_push_at; rows with a commit anchor are still judged by the anchor, and a Codex
+#    reaction in that window is the one signal that can read as current-HEAD by mistake.
 #
 # 2. is_new uses `created_at > last_push_at`, NOT `commit_id == head`.
 #    CodeRabbit's old inline comments get their commit_id advanced when it re-reviews a new HEAD
@@ -412,7 +425,7 @@ fi
 # --slurpfile wraps each file in [...]. Paginated REST array responses hold one array per
 # page, so `add` flattens them; non-paginated files and the locally assembled sub_b2 hold
 # one JSON value and use [0].
-jq -n \
+jq -n -L "$SCRIPT_DIR" \
   --slurpfile main_w "$WORKDIR/main.json" \
   --slurpfile sub_a_w "$WORKDIR/sub_a.json" \
   --slurpfile sub_b_w "$WORKDIR/sub_b.json" \
@@ -429,6 +442,7 @@ jq -n \
   --arg generated_at "$GENERATED_AT" \
   --arg last_marked "$LAST_MARKED_AT" \
   '
+  include "signals";
   ($main_w[0]) as $main
   | (($sub_a_w | add) // []) as $sub_a
   | (($sub_b_w | add) // []) as $sub_b
@@ -437,7 +451,8 @@ jq -n \
   | (($sub_c2_w | add) // []) as $sub_c2
   | ($sub_c2 | map(select(.node_id != null))
      | map({key: .node_id, value: .commit_id}) | from_entries) as $review_commit_by_id
-  | ($main.commits | last | .committedDate) as $last_push
+  | (($main.commits | map(select(.oid == $main.headRefOid)) | first)
+     // ($main.commits | last) | .committedDate) as $last_push
   | (if $last_marked > $last_push then $last_marked else $last_push end) as $fresh_since
   | ($seen_w[0]) as $seen_ids
   # Check-suite reruns leave same-name duplicates; keep only the latest run per name so a
@@ -468,9 +483,6 @@ jq -n \
        or (test("<!--\\s*<review_comment_withdrawn>"))
        or (test("^### Summary")));
 
-  def is_failing_conclusion:
-    IN("failure", "timed_out", "cancelled", "action_required", "startup_failure");
-
   def cr_markers_of:
     (. // "")[0:300] as $h
     | [
@@ -485,39 +497,14 @@ jq -n \
       ]
     | map(select(.[1] as $pat | $h | contains($pat)) | .[0]);
 
-  def codex_reviewed_commit_from_body:
-    (. // "")
-    | ([capture("Reviewed commit:[* `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null);
-
   def codex_commit_is_current_head:
     . as $sha
     | ($sha != null
        and (($main.headRefOid | startswith($sha))
             or ($sha | startswith($main.headRefOid))));
 
-  def codex_comment_has_pass_marker:
-    (. // "") | test("^\\s*Codex Review:\\s*Didn(\\x27|\\x{2019})t find any major issues\\."; "i");
-
   def codex_body_has_finding:
     (. // "") | test("!\\[P[0-3] Badge\\]"; "i");
-
-  def cr_rate_limited_body:
-    # CodeRabbit wraps its rate-limit banner in a dedicated HTML marker. One match backs both
-    # quota_alerts and walkthrough.is_rate_limited so the two judgments cannot drift apart.
-    (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->");
-
-  def cr_skip_marker_body:
-    # CodeRabbit marks every skipped review with a dedicated HTML marker.
-    (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*skip review by coderabbit\\.ai\\s*-->");
-
-  def cr_no_reviewable_changes_body:
-    # A skip because the new commits have no reviewable changes leaves nothing to review: the
-    # head counts as covered once the skip notice names it.
-    cr_skip_marker_body and ((. // "") | test("did not have any reviewable changes"; "i"));
-
-  def cr_review_skipped_body:
-    # Any other skip notice (draft, bot author) means the head was never reviewed.
-    cr_skip_marker_body and (cr_no_reviewable_changes_body | not);
 
   def has_outside_diff_body:
     (. // "") | test("Outside diff range comments \\([1-9][0-9]*\\)"; "i");
@@ -569,7 +556,7 @@ jq -n \
           is_rate_limited: $rate_limited,
           is_review_skipped: $skipped,
           is_ok:          ($wb | test("No actionable comments were generated in the recent review")),
-          is_paused:      ($wb | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
+          is_paused:      ($wb | cr_paused_body),
           is_in_progress: ($wb | test("(review in progress by coderabbit|currently processing new changes)"; "i")),
           actionable_count:
             (if ($wb | test("Actionable comments posted:"))
@@ -596,14 +583,18 @@ jq -n \
   def codex_comment_row:
     (.body // "") as $cb
     | ($cb | codex_reviewed_commit_from_body) as $reviewed_commit
+    | ($cb | codex_summary_commit) as $summary_commit
     | {id, createdAt, is_new: fresh(.createdAt; .id),
        reviewed_commit: $reviewed_commit,
        reviewed_current_head:
-         (if $reviewed_commit == null
-          then (.createdAt > $last_push)
-          else ($reviewed_commit | codex_commit_is_current_head)
+         (if $reviewed_commit != null then ($reviewed_commit | codex_commit_is_current_head)
+          # The summary names its commit itself (summary_on_current_head); its creation time says nothing.
+          elif $summary_commit != null then false
+          else (.createdAt > $last_push)
           end),
        has_pass_marker: ($cb | codex_comment_has_pass_marker),
+       summary_on_current_head: (($summary_commit | codex_commit_is_current_head) and ($cb | codex_summary_failed | not)),
+       summary_failed_current_head: (($summary_commit | codex_commit_is_current_head) and ($cb | codex_summary_failed)),
        preview: ($cb | mk_preview), body};
 
   def inline_by_bot:
@@ -627,26 +618,11 @@ jq -n \
     | from_entries;
 
   def quota_alerts:
-    # Match ONLY explicit quota/rate-limit ERROR phrases, restricted to body head.
-    # Bare keywords like "quota" / "rate limit" alone produce false positives when a
-    # bot reply happens to discuss quota as a topic (e.g. a PR description that mentions quota).
-    # Real alerts always pair a keyword with a verb like "exceeded" / "reached" / "exhausted",
-    # or use a fixed phrase like "You have / You\x27ve reached your ... limit".
-    # CodeRabbit additionally always wraps its rate-limit banner in a dedicated
-    # HTML marker ("rate limited by coderabbit.ai"); matching that marker directly
-    # is CodeRabbit-authored and unambiguous, so this check is not restricted to
-    # the body head — a preceding change-stack link banner can otherwise push
-    # the phrase itself past the 500-char window and cause a silent miss.
+    # PR-level reviewer comments that carry a quota or rate-limit error (quota_alert_body).
     [$sub_a[]
      | select(.user.login | test("(chatgpt-codex-connector|coderabbitai)\\[bot\\]$"))
      | (.body // "") as $qb
-     | select(
-         ($qb | cr_rate_limited_body)
-         or ($qb[0:500] | test("you(\\x27ve|\\x{2019}ve|\\s+have)\\s+reached your[^\\n]*?limit"; "i"))
-         or ($qb[0:500] | test("(usage|rate|api|daily|monthly)\\s+limit[^\\n]*?(exceeded|reached|hit|reset)"; "i"))
-         or ($qb[0:500] | test("quota[^\\n]*?(exceeded|exhausted|reached|reset|limit hit)"; "i"))
-         or ($qb[0:500] | test("(http\\s*)?429\\b|too many requests"; "i"))
-       )
+     | select($qb | quota_alert_body)
      | {user: .user.login, created_at, body_head: ($qb[0:300])}];
 
   # ---- snapshot projection ----
@@ -758,7 +734,6 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
       + (if $rounds >= 3 then "已处置 \($rounds) 批：同一处又出意见时，回到根因重整实现（SKILL「收敛」）。" else "" end)
     else null end;
   . as $s
-  | ($s.pr_created_at) as $created
   | {
       pr:             $s.pr,
       pr_created_at:  $s.pr_created_at,
@@ -767,8 +742,6 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
       rounds:         $rounds,
       triage_hint:    ($s | triage_hint($rounds)),
       snapshot_file:  $snapshot_file,
-      base_oid:       ([$s.commits[] | select(.committedDate <= $created)] | (last | .oid) // null),
-      commits_since_pr_created: [$s.commits[] | select(.committedDate > $created)],
 
       coderabbit: {
         walkthrough: ($s.coderabbit.walkthrough | if . == null then null else del(.body) end),
@@ -785,11 +758,15 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
       },
 
       codex: {
-        has_started:
-          ((any($s.codex.reactions[]; .content == "eyes"))
-           or (any($s.codex.comments[]; .has_pass_marker))
-           or (any($s.own_trigger_comments[];
-                   .command == "@codex review" and .has_codex_eyes))),
+        started_current_head:
+          ((any($s.codex.comments[]; .summary_failed_current_head) | not)
+           and ((any($s.codex.reactions[]; .is_new))
+                or (any($s.codex.reviews[]; .reviewed_current_head))
+                or (any($s.codex.comments[]; .reviewed_current_head or .summary_on_current_head))
+                or (any($s.own_trigger_comments[];
+                        .command == "@codex review" and .has_codex_eyes
+                        and .createdAt > $s.last_push_at)))),
+        failed_current_head: any($s.codex.comments[]; .summary_failed_current_head),
         reviews:
           [$s.codex.reviews[] | select(shown)
            | {id, submittedAt, state, reviewed_commit, reviewed_current_head,

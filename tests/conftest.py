@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import functools
 import ipaddress
+import json
 import os
 import shutil
 import socket
@@ -30,6 +32,7 @@ import tempfile
 import uuid as _uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -260,6 +263,51 @@ def stub_sandbox_check(isolated_data_root, monkeypatch, request):
     if request.path.name == "test_startup_assertions.py":
         return
     monkeypatch.setattr("server.app.check_sandbox_available", lambda: True)
+
+
+_TEST_CATALOG_FILE = Path(__file__).parent / "fixtures" / "catalog.json"
+
+
+@functools.cache
+def _test_catalog_data():
+    """测试目录数据：进程内只读一次，各用例共用同一个对象，目录查询的索引缓存因此跨用例有效。"""
+    from arcreel_catalog_core import parse_catalog
+
+    return parse_catalog(json.loads(_TEST_CATALOG_FILE.read_text(encoding="utf-8")))
+
+
+@pytest.fixture(autouse=True)
+def use_test_catalog_data(monkeypatch):
+    """目录查询读测试目录数据 ``tests/fixtures/catalog.json``，不读出厂快照。
+
+    出厂快照由发版 PR 刷新成目录数据仓库的最新数据，那边改数据时不跑本仓的测试；用例若读出厂快照，
+    数据一变就在发版 PR 上失败。用例自己装入的目录数据（``install_catalog``）在本 fixture 之后生效。
+    只有 ``tests/unit/lib/catalog/test_factory_snapshot.py`` 换回出厂快照，核对它本身的格式与可加载性。
+
+    生命周期判定的「今天」同时固定为这份数据的数据集日期：数据冻结后，其中登记的关停日期不能随真实日期到来而让
+    用例改判已下线。需要跨过关停日期的用例自己调用 ``set_catalog_today``。
+    """
+    from tests.catalog_support import install_catalog, set_catalog_today
+
+    data = _test_catalog_data()
+    install_catalog(monkeypatch, data)
+    set_catalog_today(monkeypatch, datetime.fromisoformat(data.dataset_version).date())
+
+
+@pytest.fixture(autouse=True)
+def installed_bare_provider_models():
+    """v19→v20 迁移的补全来源换成测试目录此刻的推荐（不查停用状态），用例结束后还原。
+
+    生产环境由应用启动装入升级前的推荐（``lib.config.pre_upgrade_recommendations``）；只走迁移链、不起应用的用例
+    没有这一步。要验证补全来源本身的用例自己装入（``install_bare_provider_models``）或传入。
+    """
+    from lib.catalog import query as catalog
+    from lib.project.project_migrations import v19_to_v20_bare_provider_models as v19_to_v20
+
+    previous = v19_to_v20.installed_bare_provider_models()
+    v19_to_v20.install_bare_provider_models(catalog.default_model)
+    yield
+    v19_to_v20.install_bare_provider_models(previous)
 
 
 @pytest.fixture(autouse=True)

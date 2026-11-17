@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { API } from "@/api";
 import { createDeferred } from "@/test/deferred";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
@@ -26,6 +26,11 @@ import {
   stubEndpointsSection,
   validation,
 } from "./endpoints-section-test-utils";
+
+// 导入校验携带 mediaType；详情区的防抖复核只携带 excludeId 和 signal。
+function importValidationCalls(validate: MockInstance<typeof API.validateCustomEndpoint>) {
+  return validate.mock.calls.filter(([, options]) => options?.mediaType !== undefined);
+}
 
 describe("EndpointsSection", () => {
   beforeEach(stubEndpointsSection);
@@ -395,7 +400,7 @@ describe("EndpointsSection", () => {
       await pasteSource(JSON.stringify(workflow));
       await userEvent.click(await screen.findByRole("button", { name: "去绑定节点" }));
 
-      expect(validate.mock.calls[0][0]).toEqual(workflow);
+      expect(importValidationCalls(validate).map(([payload]) => payload)).toContainEqual(workflow);
       expect(infer).toHaveBeenCalledWith(wrapped, { mediaType: "video" });
       expect(await screen.findByLabelText("端点名称")).toHaveValue("ComfyUI workflow");
       // 粘贴进来的没有文件名，头部的「来源文件」因此不显示。
@@ -410,13 +415,21 @@ describe("EndpointsSection", () => {
       renderSection();
       await screen.findByRole("navigation");
 
-      await pickFile(new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" }));
+      // 保留详情区先发出的防抖复核，确保导入断言能容忍两个调用方交错。
+      await clickRail("新建端点");
+      await waitFor(() =>
+        expect(validate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ signal: expect.any(AbortSignal) })),
+      );
+      await userEvent.click(await screen.findByRole("button", { name: "导入定义" }));
+      fireEvent.change(importFileInput(), {
+        target: { files: [new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" })] },
+      });
       await userEvent.click(await screen.findByRole("button", { name: "图片" }));
 
-      await waitFor(() => expect(validate).toHaveBeenCalledTimes(2));
-      expect(validate.mock.calls[0][1]).toMatchObject({ mediaType: "video" });
-      expect(validate.mock.calls[1][1]).toMatchObject({ mediaType: "image" });
-      expect(validate.mock.calls[1][0]).toEqual(workflow);
+      await waitFor(() =>
+        expect(importValidationCalls(validate)).toContainEqual([workflow, expect.objectContaining({ mediaType: "image" })]),
+      );
+      expect(importValidationCalls(validate)).toContainEqual([workflow, expect.objectContaining({ mediaType: "video" })]);
     });
 
     it("lands a re-imported workflow on the endpoint it was started from, identity and bindings intact", async () => {
@@ -450,7 +463,7 @@ describe("EndpointsSection", () => {
       await waitFor(() => expect(infer).toHaveBeenCalledTimes(2));
       expect(infer.mock.calls[1][0]).toEqual({ ...COMFYUI_MINE.definition, workflow });
       // 判重时要把这个端点自己排除掉，不然它跟自己同名。
-      expect(validate.mock.calls[0][1]).toMatchObject({ excludeId: 8 });
+      expect(importValidationCalls(validate)).toContainEqual([workflow, expect.objectContaining({ excludeId: 8 })]);
       expect(await screen.findByText("来自 v2_api.json")).toBeInTheDocument();
       expect(screen.getByLabelText("端点名称")).toHaveValue("我的 ComfyUI");
     });
@@ -526,7 +539,7 @@ describe("EndpointsSection", () => {
       await pickFile("v3_api.json");
 
       // excludeId 取的就是这份草稿背着的 record.id，它也是保存时会被写回的那一行。
-      expect(validate.mock.calls.at(-1)?.[1]).toMatchObject({ excludeId: 9 });
+      expect(importValidationCalls(validate)).toContainEqual([workflow, expect.objectContaining({ excludeId: 9 })]);
     });
 
     it("asks before switching away from a workflow endpoint with unsaved edits", async () => {

@@ -25,6 +25,7 @@ DELETE_PROJECT_FILE = ToolDeclaration(
         "这是 Agent 删除项目文件的唯一途径：媒体目录与 versions/ 不能直接写入或删除。"
         "删除前在项目锁内按引用关系重新判定，被项目数据、剧本、产物清单或版本历史引用的文件"
         "返回 file_view_delete_not_allowed，当前版本返回 version_delete_current，未纳入整本源文的源文件返回 file_view_delete_source_in_episodes，"
+        "所属资源正在更新时返回 version_delete_in_use，等待更新结束后重试。"
         "文件不存在返回 file_not_found。只删创作者明确要删的文件；回收站的清空与彻底删除只能由创作者在文件视图里操作。"
         "成功返回 record（含 id、files、deleted_at、size）。"
     ),

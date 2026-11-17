@@ -31,6 +31,7 @@ export const PROVIDER_ASSET_LOCAL_FAILURES: ReadonlySet<string> = new Set([
   "account_missing",
   "account_scope_changed",
   "object_storage_missing",
+  "object_storage_changed",
   "content_unavailable",
   "content_changed",
   "relay_upload_failed",

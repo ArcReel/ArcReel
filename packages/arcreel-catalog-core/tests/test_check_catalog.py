@@ -158,7 +158,12 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
         ),
         pytest.param(
             lambda data: data["builtin_providers"]["kling"]["models"].append(
-                {"api_model_name": "kling-v3-omni", "entry": "kuaishou/kling-v3-omni", "media_type": "video"}
+                {
+                    "api_model_name": "kling-v3-omni",
+                    "entry": "kuaishou/kling-v3-omni",
+                    "media_type": "video",
+                    "endpoint": "kling-video-audio",
+                }
             ),
             ("builtin_providers.kling.models[2]", "duplicate_provider_model"),
             id="同一供应商下 API 模型名与媒体类型重复",
@@ -199,6 +204,21 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
             id="最低应用版本格式不对",
         ),
         pytest.param(
+            _mutate("builtin_providers.kling.models[0].endpoint", "kling-video-v9"),
+            ("builtin_providers.kling.models[0].endpoint", "unknown_endpoint"),
+            id="调用端点不在端点清单里",
+        ),
+        pytest.param(
+            _mutate("builtin_providers.kling.models[0].endpoint", "kling-image"),
+            ("builtin_providers.kling.models[0].endpoint", "endpoint_media_type_mismatch"),
+            id="调用端点的媒体类型与条目不同",
+        ),
+        pytest.param(
+            _mutate("builtin_providers.kling.models[0].endpoint", "ark-seedance-2"),
+            ("builtin_providers.kling.models[0].endpoint", "endpoint_not_selectable"),
+            id="调用端点不是该供应商的可选端点",
+        ),
+        pytest.param(
             lambda data: data["entries"][1]["facts"].update(reference_audio=True, max_reference_audio_count=0),
             ("entries[1].facts.max_reference_audio_count", "reference_audio_without_count"),
             id="接受参考音频但数量上限为 0",
@@ -215,6 +235,127 @@ def test_build_side_rejects(mutation: Callable[[dict[str, Any]], None], expected
     mutation(data)
 
     assert _codes(data) == [expected]
+
+
+def test_valid_output_token_scaled_bases_have_no_issues():
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        output_token_bases={"high": 48},
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2}, "medium": {"base": 24, "multiplier": 3.3}},
+    )
+
+    assert _codes(data) == []
+
+
+def test_quality_with_both_plain_and_scaled_base_is_rejected():
+    """同一质量档同时写进两张表时，不认识新字段的旧实例会按普通基数算出不带系数的低估值。"""
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        output_token_bases={"low": 16, "high": 48},
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2}},
+    )
+
+    assert _codes(data) == [("entries[2].facts.output_token_scaled_bases.low", "output_token_quality_overlap")]
+
+
+def _priced_by_output_tokens(data: dict[str, Any]) -> dict[str, Any]:
+    """把图片条目换成按输出图片 token 计价。"""
+    entry = data["entries"][2]
+    entry["price"]["meters"] = [{"meter": "image_output_tokens", "dims": [], "rows": [{"when": {}, "price": 30.0}]}]
+    return entry
+
+
+def test_image_priced_by_output_tokens_without_estimation_rules_is_rejected():
+    """按输出图片 token 计价、却没有收录估算规则的图片条目，调用前估不出费用。"""
+    data = catalog()
+    _priced_by_output_tokens(data)
+
+    assert _codes(data) == [("entries[2].facts", "missing_output_token_rules")]
+
+
+@pytest.mark.parametrize(
+    "rules",
+    [
+        pytest.param({"output_token_bases": {"medium": 48}}, id="普通基数"),
+        pytest.param({"output_token_scaled_bases": {"low": {"base": 16, "multiplier": 4.2}}}, id="带系数基数"),
+    ],
+)
+def test_image_priced_by_output_tokens_with_either_rule_table_has_no_issues(rules: dict[str, Any]):
+    data = catalog()
+    _priced_by_output_tokens(data)["facts"].update(rules)
+
+    assert _codes(data) == []
+
+
+def test_image_qualities_covered_by_either_rule_table_have_no_issues():
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        qualities=["low", "medium", "high"],
+        output_token_bases={"high": 48},
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2}, "medium": {"base": 24, "multiplier": 3.3}},
+    )
+
+    assert _codes(data) == []
+
+
+def test_image_qualities_are_unchecked_when_entry_has_no_output_token_rules():
+    """按张计价的条目没有估算规则，也可以收录画质取值。"""
+    data = catalog()
+    data["entries"][2]["facts"]["qualities"] = ["standard", "hd"]
+
+    assert _codes(data) == []
+
+
+def test_image_quality_without_output_token_rule_is_rejected():
+    """收录了估算规则时，每个可选画质都要能预估费用。"""
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        qualities=["low", "medium", "high", "max"],
+        output_token_bases={"medium": 48, "high": 96},
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2}},
+    )
+
+    assert _codes(data) == [("entries[2].facts.qualities[3]", "quality_without_output_token_rule")]
+
+
+def test_duplicate_image_quality_is_rejected():
+    data = catalog()
+    data["entries"][2]["facts"]["qualities"] = ["low", "high", "low"]
+
+    assert _codes(data) == [("entries[2].facts.qualities[2]", "duplicate_value")]
+
+
+@pytest.mark.parametrize("entry_index", [0, 1, 3], ids=["文本", "视频", "音频"])
+def test_qualities_on_non_image_entry_is_an_unknown_field(entry_index: int):
+    data = catalog()
+    data["entries"][entry_index].setdefault("facts", {})["qualities"] = ["low", "high"]
+
+    assert _codes(data) == [(f"entries[{entry_index}].facts.qualities", "unknown_field")]
+
+
+def test_unknown_field_inside_scaled_base_is_reported():
+    data = catalog()
+    data["entries"][2]["facts"].update(
+        output_token_scaled_bases={"low": {"base": 16, "multiplier": 4.2, "rounding": "ceil"}}
+    )
+
+    assert _codes(data) == [("entries[2].facts.output_token_scaled_bases.low.rounding", "unknown_field")]
+
+
+@pytest.mark.parametrize(
+    ("multiplier", "code"),
+    [
+        pytest.param(0, "invalid_positive_number", id="零"),
+        pytest.param(-1, "invalid_positive_number", id="负数"),
+        pytest.param(10**400, "invalid_positive_number", id="超出浮点范围"),
+        pytest.param(True, "invalid_positive_number", id="布尔值"),
+    ],
+)
+def test_invalid_multiplier_is_reported(multiplier: object, code: str):
+    data = catalog()
+    data["entries"][2]["facts"].update(output_token_scaled_bases={"low": {"base": 16, "multiplier": multiplier}})
+
+    assert _codes(data) == [("entries[2].facts.output_token_scaled_bases.low.multiplier", code)]
 
 
 def test_price_rows_for_resolutions_beyond_entry_facts_are_allowed():
@@ -248,3 +389,10 @@ def test_entry_with_lifecycle_and_valid_successor_passes():
     data["entries"][0].update(successor="google/gemini-3.5-pro")
 
     assert check_catalog(data) == []
+
+
+def test_published_provider_model_requires_an_endpoint():
+    data = catalog()
+    data["builtin_providers"]["kling"]["models"][1].pop("endpoint")
+
+    assert ("builtin_providers.kling.models[1].endpoint", "missing_endpoint") in _codes(data)

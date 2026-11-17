@@ -47,7 +47,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
   - 生命周期表示模型厂商层面的退役，对所有供应商（包括自定义供应商）都适用。
 - `facts` 是模型事实，按媒体类型取不同字段：
   - `text`：`image_input`、`structured_output`、`max_output_tokens`；
-  - `image`：`text_to_image`、`image_to_image`、`resolutions`（可选分辨率档位），以及可选的 `max_reference_images`、`output_token_bases`；
+  - `image`：`text_to_image`、`image_to_image`、`resolutions`（可选分辨率档位），以及可选的 `max_reference_images`、`output_token_bases`、`output_token_scaled_bases`、`qualities`；
   - `video`：`durations`（可选时长，必填）、`resolutions`、`duration_constraints`
     （`by_resolution` 按分辨率收窄可选时长，`with_reference_images` 是使用参考图时允许的时长），以及可选的 `max_reference_images`、`text_to_video`、`first_frame`、`last_frame`、`reference_audio`、`max_reference_audio_count`、`max_reference_audio_total_seconds`；
   - `audio`：无。
@@ -58,7 +58,11 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 - `max_reference_images` 是非负整数，`0` 表示参考图数量上限为零，不表示无限制。图片是否接受图生图由 `image_to_image` 表达；视频首帧、尾帧是独立输入槽位。
 - 视频的 `text_to_video`、`first_frame`、`last_frame`、`reference_audio` 是可选布尔值，分别表示是否接受文生视频、首帧、尾帧、参考音频。显式 `false` 与缺失不同。
 - `max_reference_audio_count` 是参考音频数量上限（非负整数）；`max_reference_audio_total_seconds` 是多段参考音频合计时长上限（非负有限数，单位为秒）。显式 `0` 与缺失不同。`reference_audio` 为 `true` 时，`max_reference_audio_count` 不能为 `0`。
-- 图片的 `output_token_bases` 是质量档到正整数估算基数的映射，例如 `{"low": 16, "medium": 48, "high": 96}`；未收录时为空映射，写出时省略。分辨率档到请求 `quality` 的映射属于端点代码，不记在条目上。
+- 图片的 `output_token_bases` 是质量档到正整数估算基数的映射，例如 `{"low": 16, "medium": 48, "high": 96}`；未收录时为空映射，写出时省略。分辨率档到请求 `quality` 的映射属于端点代码，不记在条目上，只在未选择画质时使用。
+- 图片的 `output_token_scaled_bases` 是质量档到带系数基数的映射，例如 `{"low": {"base": 16, "multiplier": 4.2}}`，`base` 为正整数，`multiplier` 为正的有限数。适用于估算结果要再乘系数的质量档：先按 `base` 算出整数 token，再乘 `multiplier` 并四舍五入（恰好 .5 时进位），系数不能折进基数。未收录时为空映射，写出时省略，此时质量档只按 `output_token_bases` 估算，不乘系数；两个字段都没有的质量档不估算。
+- 价目表含 `image_output_tokens` 计量项的图片条目，必须在 `output_token_bases` 或 `output_token_scaled_bases` 中至少收录一个质量档，否则调用前估不出这一项的用量；构建侧校验拒绝两者都缺的条目。
+- 同一质量档只能写在 `output_token_bases` 或 `output_token_scaled_bases` 其中之一，构建侧校验拒绝重复。不认识 `output_token_scaled_bases` 的旧实例会忽略这个字段，带系数的质量档在旧实例上保持未估算；写进 `output_token_bases` 则会算出漏乘系数的结果。
+- 图片的 `qualities` 是模型接受的画质取值，即请求 `quality` 参数的合法值，按从低到高排列，例如 `["low", "medium", "high"]`。缺失或 `null` 表示未收录，读入为空，写出时省略。条目不声明默认画质，也不收录 `auto`。构建侧校验拒绝重复取值；条目收录了 `output_token_bases` 或 `output_token_scaled_bases` 时，每个画质取值都要在其中一个字段里有估算规则，否则选了这个画质无法预估费用；两个字段都没有时不查这一条。不认识 `qualities` 的旧实例会忽略这个字段。
 
 ### 价目表
 
@@ -98,9 +102,10 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 {
   "kling": {
     "models": [
-      {"api_model_name": "kling-v3-omni", "entry": "kuaishou/kling-v3-omni", "media_type": "video"},
+      {"api_model_name": "kling-v3-omni", "entry": "kuaishou/kling-v3-omni", "media_type": "video",
+       "endpoint": "kling-video-audio"},
       {"api_model_name": "kling-v3-omni", "entry": "kuaishou/kling-v3-omni", "media_type": "image",
-       "multiplier": 1.0, "min_app_version": "0.34.0"}
+       "multiplier": 1.0, "min_app_version": "0.34.0", "endpoint": "kling-image"}
     ],
     "defaults": {"video": "kling-v3-omni", "image": "kling-v3-omni"}
   }
@@ -109,8 +114,24 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 
 - 每个供应商模型给出 API 模型名、引用的条目（「模型厂商/官方模型名」）、供应商模型倍率（默认 1）与
   可选的最低应用版本。只有引用两栖模型时才需要 `media_type` 指明条目。
+- `endpoint` 是供应商模型挂接的内置调用端点，发布数据必填。它必须在端点清单里，媒体类型与所引用的条目相同，且是该供应商在这一媒体类型下的可选端点。实例侧仍兼容缺失字段，缺失时取供应商默认端点。
 - 同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
 - `defaults` 按媒体类型给出默认模型的 API 模型名，必须在该供应商这一媒体类型的清单中，且条目既未下线，也没有关停日期。
+
+### 端点清单
+
+端点清单定义在 `arcreel_catalog_core.endpoints`，是代码里调用端点的一份副本，主仓用测试保证二者一致：
+
+- `BUILTIN_ENDPOINTS`：内置供应商可挂接的每个内置调用端点的媒体类型与可选的起始版本 `since`。清单首次发布时已有的
+  端点都是基线端点，不带起始版本。
+- `BUILTIN_PROVIDER_ENDPOINTS`：每个内置供应商按媒体类型列出的可选端点与默认端点。
+- `ENDPOINT_DECLARATIONS_SINCE`：实例开始读取端点声明的应用版本。
+
+`endpoint_version_floor(供应商, 媒体类型, 端点)` 给出端点决定的最低应用版本下限：取端点的起始版本，以及该供应商在这一
+媒体类型下有多个可选端点时实例开始读取端点声明的版本，两者中较高的那个。目录构建再与手写的最低应用版本取较高者。
+已逐条核验的首发模型传 `include_declaration_version=False`，仅豁免声明读取版本，仍计入端点起始版本。
+`app_version_key(版本)` 返回用于 `max(..., key=app_version_key)` 的数字比较键，省略的次版本、补丁号按 0 计；格式不合法时抛 `ValueError`。
+推导规则与起始版本的填写方式见主仓 `docs/adr/0103`。
 
 ## 两侧的判定
 
@@ -121,6 +142,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 | 不认识的媒体类型 | 跳过该条目 | 报告 |
 | 结构无法解析、哈希或数据集版本对不上 | 抛 `CatalogFormatError`，整份拒收 | 报告 |
 | 条目身份重复、名字冲突、清单引用不存在的条目、后继模型不存在或媒体类型不同、默认模型带关停日期、价目表行重叠等 | 不检查 | 报告 |
+| 端点缺失、端点不在端点清单里、端点媒体类型与条目不同、端点不是该供应商的可选端点 | 照常读入 | 报告 |
 
 问题以 `CatalogIssue(path, code, detail)` 给出，`code` 是稳定的比较依据。
 

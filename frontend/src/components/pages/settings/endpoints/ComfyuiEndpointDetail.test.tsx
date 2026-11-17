@@ -246,8 +246,8 @@ describe("ComfyuiEndpointDetail", () => {
     expect(within(row("start_image")).getByText("未找到")).toBeInTheDocument();
     expect(within(row("end_image")).getByText("不支持")).toBeInTheDocument();
     expect(within(row("output")).getByText("必填未绑定")).toBeInTheDocument();
-    // 没被推断提到的语义键一并算未找到：reference_images、宽、高、帧数、帧率与 output 共 7 项。
-    expect(screen.getByText("已绑定 2 · 需选择 1 · 未找到 7 · 不支持 1")).toBeInTheDocument();
+    // 没被推断提到的语义键一并算未找到：reference_audio、reference_images、aspect_ratio、宽、高、帧数、帧率，连同 start_image 与 output 共 9 项。
+    expect(screen.getByText("已绑定 2 · 需选择 1 · 未找到 9 · 不支持 1")).toBeInTheDocument();
   });
 
   it("opens the tied row on arrival and leaves the settled ones folded", () => {
@@ -665,4 +665,59 @@ describe("ComfyuiEndpointDetail", () => {
     expect(await screen.findByRole("button", { name: "渲染 /prompt 请求体" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "真实提交一次" })).toBeDisabled();
   });
+});
+
+it("offers an inferred aspect input without selecting it, so definitions without one stay savable", async () => {
+  const aspect: ComfyuiBindingTarget = { node: "115", input: "aspect_ratio", class_type: "ResolutionSelector" };
+  const draft = definition({ workflow: {
+    ...WORKFLOW,
+    "115": { class_type: "ResolutionSelector", inputs: { aspect_ratio: "16:9 (Widescreen)" } },
+  } });
+  renderDetail({ definition: draft, inference: inference({ bindings: {
+    prompt: picked(PROMPT), output: picked(OUTPUT),
+    aspect_ratio: { state: "not_found", candidates: [candidate(aspect)], notes: [] },
+  } }) });
+  expect(screen.queryByText("画幅绑定需要至少一个有效的对应值")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+
+  await userEvent.click(within(row("aspect_ratio")).getByRole("button"));
+  const group = screen.getByRole("group", { name: "候选落点" });
+  await userEvent.click(within(group).getAllByRole("checkbox")[0]);
+  expect(screen.getByText("画幅绑定需要至少一个有效的对应值")).toBeInTheDocument();
+});
+
+it("saves ordered audio and explicit aspect values, and passes both to reimport", async () => {
+  const audioA: ComfyuiBindingTarget = { node: "501", input: "audio", class_type: "LoadAudio" };
+  const audioB: ComfyuiBindingTarget = { node: "502", input: "audio", class_type: "LoadAudio" };
+  const aspect: ComfyuiBindingTarget = { node: "115", input: "aspect_ratio", class_type: "ResolutionSelector" };
+  const draft = definition({ workflow: {
+    ...WORKFLOW,
+    "501": { class_type: "LoadAudio", inputs: { audio: "a.wav" } },
+    "502": { class_type: "LoadAudio", inputs: { audio: "b.wav" } },
+    "115": { class_type: "ResolutionSelector", inputs: { aspect_ratio: "16:9 (Widescreen)" } },
+  } });
+  const create = vi.spyOn(API, "createCustomEndpoint").mockResolvedValue(savedRecord(draft));
+  const onReimport = vi.fn();
+  renderDetail({ definition: draft, onReimport, inference: inference({ bindings: {
+    prompt: picked(PROMPT), output: picked(OUTPUT),
+    reference_audio: { state: "auto_selected", candidates: [candidate(audioA, { selected: true }), candidate(audioB, { selected: true })], notes: [] },
+    aspect_ratio: picked(aspect),
+  } }) });
+  expect(screen.getByText("画幅绑定需要至少一个有效的对应值")).toBeInTheDocument();
+  await userEvent.click(within(row("aspect_ratio")).getByRole("button"));
+  await userEvent.type(screen.getByLabelText("16:9 对应值"), "16:9 (Widescreen)");
+  await userEvent.type(screen.getByLabelText("9:16 对应值"), "9:16 (Portrait)");
+  await userEvent.click(within(row("reference_audio")).getByRole("button"));
+  await userEvent.click(screen.getAllByRole("button", { name: "上移" })[1]);
+  await userEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(create).toHaveBeenCalled());
+  expect(create.mock.calls[0][0]).toMatchObject({ bindings: {
+    reference_audio: [audioB, audioA],
+    aspect_ratio: [{ ...aspect, values: { "16:9": "16:9 (Widescreen)", "9:16": "9:16 (Portrait)" } }],
+  } });
+  await userEvent.click(screen.getByRole("button", { name: "重新导入" }));
+  expect(onReimport).toHaveBeenCalledWith(expect.objectContaining({ bindings: expect.objectContaining({
+    reference_audio: [audioB, audioA],
+    aspect_ratio: [{ ...aspect, values: { "16:9": "16:9 (Widescreen)", "9:16": "9:16 (Portrait)" } }],
+  }) }));
 });

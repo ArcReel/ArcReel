@@ -124,6 +124,7 @@ class GenerationAction(StrEnum):
     REPLAN_UNIT = "replan_unit"
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
+    CONFIGURE_DEFAULT_MODEL = "configure_default_model"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
     RETRY_ARTIFACT_DOWNLOAD = "retry_artifact_download"
     """产物已在供应商侧生成、只是没取回来：接续原任务取件，不重新提交、不再计费。"""
@@ -138,6 +139,11 @@ class GenerationAction(StrEnum):
 # again for the same rejection. The coverage test in
 # ``tests/unit/lib/generation/test_generation_result.py`` is the drift guard.
 _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
+    "text_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
+    "audio_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
+    "image_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
+    "video_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
+    "internal_server_error": GenerationAction.RETRY,
     "needs_replan": GenerationAction.REPLAN_UNIT,
     "reference_duration_confirmation_required": GenerationAction.CONFIRM_REQUEST_DURATION,
     "reference_asset_missing": GenerationAction.GENERATE_DEPENDENCY,
@@ -165,7 +171,16 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     # Seedream 挂在 OpenAI 图片端点上：改选方舟 Seedream 端点即可。
     "image_seedream_edits_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "provider_unsupported_media": GenerationAction.CONFIGURE_PROVIDER,
+    "narration_tts_speed_out_of_range": GenerationAction.FIX_INPUT,
+    # 套餐、API Key 或音色授权的问题要在供应商侧处理，原样重发只会被同样拒绝。
+    "ark_agent_plan_tts_access_denied": GenerationAction.CONFIGURE_PROVIDER,
+    "ark_agent_plan_tts_failed": GenerationAction.RETRY,
+    # 音频没收完整、没有落成产物：重新生成是唯一的一步，文案提示先到控制台确认用量。
+    "ark_agent_plan_tts_incomplete": GenerationAction.RETRY,
+    # 请求没有送达、没有计费：检查网络后重新生成。
+    "ark_agent_plan_tts_unreachable": GenerationAction.RETRY,
     "model_not_in_provider_catalog": GenerationAction.CONFIGURE_PROVIDER,
+    "model_not_selected": GenerationAction.CONFIGURE_PROVIDER,
     "model_discontinued": GenerationAction.CONFIGURE_PROVIDER,
     # 上游按确定性 4xx 拒了这个请求：原样重发只会被同样拒绝，还要再付一次。
     "provider_rejected": GenerationAction.FIX_INPUT,
@@ -177,6 +192,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
     # 图片已出但没取回：图片不续跑，「重试下载」接不回原任务，重新生成是唯一的一步。
     "declarative_image_save_failed": GenerationAction.RETRY,
+    "comfyui_reference_audio_invalid": GenerationAction.CONFIGURE_PROVIDER,
+    "comfyui_aspect_ratio_unmapped": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_image_drop_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     # 传不上去多半是地址、凭据或磁盘的一次性问题，重发同一请求可能就好了。
     "comfyui_upload_failed": GenerationAction.RETRY,
@@ -1077,6 +1094,7 @@ _ACTION_LABELS: dict[GenerationAction, str] = {
     GenerationAction.REPLAN_UNIT: "需重新规划内容",
     GenerationAction.CONFIRM_REQUEST_DURATION: "需确认时长档位",
     GenerationAction.CONFIGURE_PROVIDER: "需配置供应商",
+    GenerationAction.CONFIGURE_DEFAULT_MODEL: "需设置默认模型",
     GenerationAction.REPAIR_ARTIFACT_STATE: "需修复产物状态",
     GenerationAction.RETRY_ARTIFACT_DOWNLOAD: "需重试下载，不必重新生成",
     GenerationAction.RETRY_PROJECT_MIGRATION: "需重试项目迁移",

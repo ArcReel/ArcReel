@@ -70,38 +70,50 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
     ),
     "frontend": (Step(("pnpm", "check"), ROOT / "frontend"),),
     "website": (Step(("pnpm", "check"), ROOT / "website"),),
+    # 页面级套件的接口替身与录制日期、出厂快照、版本号无关：两个后端各录一次比对，不写文件。
+    "e2e-record": (Step(("pnpm", "e2e:record:check"), ROOT / "frontend"),),
 }
 
 # 域 → 触发路径，fnmatch 通配（`*` 也跨目录分隔符）。与 CI 的 .github/actions/domain-filter/action.yml
 # 对照维护：CI 的 backend 域对应这里的 backend、market-core 与 catalog-core，workflow 域对应 workflows；
-# CI 的 docker 域（Dockerfile、public/）没有本地闸门。tests 与 conventions 两个域是秒级的
+# CI 的 docker 域（Dockerfile、public/）没有本地闸门；e2e-record 对应 CI 的 e2e-record-drift job（backend 或
+# frontend 域命中时运行，本地只在录制脚本及其引用的文件变化时随前端触发）。tests 与 conventions 两个域是秒级的
 # 结构审计，触发条件含「新增豁免注释」这类看路径判断不了的情况，按改动选域时总是跑。
+BACKEND_TRIGGERS = (
+    "lib/*",
+    "server/*",
+    "alembic/*",
+    "alembic.ini",
+    "scripts/*",
+    "tests/*",
+    "agent_runtime_profile/*",
+    "packages/*",
+    "pyproject.toml",
+    "uv.lock",
+    ".gitignore",  # ruff 的文件发现尊重 gitignore
+    # 后端契约测试直接读取的前端源文件
+    "frontend/src/i18n/*/dashboard.ts",
+    "frontend/src/i18n/*/events.ts",
+    "frontend/src/types/workflow.ts",
+    "frontend/src/data/example-templates/*",
+    "frontend/src/test/contracts/*",
+)
 TRIGGERS: dict[str, tuple[str, ...]] = {
-    "backend": (
-        "lib/*",
-        "server/*",
-        "alembic/*",
-        "alembic.ini",
-        "scripts/*",
-        "tests/*",
-        "agent_runtime_profile/*",
-        "packages/*",
-        "pyproject.toml",
-        "uv.lock",
-        ".gitignore",  # ruff 的文件发现尊重 gitignore
-        # 后端契约测试直接读取的前端源文件
-        "frontend/src/i18n/*/dashboard.ts",
-        "frontend/src/i18n/*/events.ts",
-        "frontend/src/types/workflow.ts",
-        "frontend/src/data/example-templates/*",
-        "frontend/src/test/contracts/*",
-    ),
+    "backend": BACKEND_TRIGGERS,
     "market-core": ("packages/arcreel-market-core/*",),
     "catalog-core": ("packages/arcreel-catalog-core/*",),
     "workflows": (".github/*", ".pre-commit-config.yaml"),
     "frontend": ("frontend/*",),
     # website-checks 同时跑翻译 lockfile 的缺译与滞后报告，CONTRIBUTING 与两个 README 在其特例映射内
     "website": ("website/*", "CONTRIBUTING.md", "README.md", "README.en.md", ".claude/skills/translate-docs/*"),
+    # 替身漂移的来源是录制后端读到的输入，后端的任何改动都可能带进来；另加录制脚本自身。
+    "e2e-record": (
+        *BACKEND_TRIGGERS,
+        "frontend/e2e/record-fixtures.ts",
+        "frontend/e2e/support/recorded.ts",
+        "frontend/e2e/fixtures/comfyui.ts",
+        "frontend/package.json",
+    ),
 }
 ALWAYS_WHEN_CHANGED = ("tests", "conventions")
 

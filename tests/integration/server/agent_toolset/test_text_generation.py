@@ -155,7 +155,7 @@ async def test_get_video_capabilities_reports_endpoint_fixed_per_bucket(
     from lib.config.resolver import ConfigResolver
 
     fixed_model = await seed_endpoint_fixed_video_model(db_factory, reference_images=True)
-    veo = "gemini-aistudio/veo-3.1-generate-preview"
+    veo = "gemini-vertex/veo-3.1-generate-001"
     fake_ctx.pm.project_payload.update(
         {
             "generation_mode": "reference_video",

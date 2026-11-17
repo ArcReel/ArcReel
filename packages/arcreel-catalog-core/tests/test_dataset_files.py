@@ -22,6 +22,19 @@ def test_matching_pair_loads():
     assert load_catalog(manifest, content).dataset_version == DATASET_VERSION
 
 
+def test_endpoint_declarations_survive_publishing():
+    """供应商模型写成发布文件再读回，端点声明保持原样。"""
+    data = catalog()
+    data["builtin_providers"]["kling"]["models"][0]["endpoint"] = "kling-video-audio"
+    manifest, content = _files(data)
+
+    providers = load_catalog(manifest, content).builtin_providers
+
+    assert check_catalog_files(manifest, content) == []
+    assert [model.endpoint for model in providers["kling"].models] == ["kling-video-audio", "kling-image"]
+    assert providers["gemini-aistudio"].models[0].endpoint == "gemini-generate"
+
+
 def test_data_file_not_matching_manifest_hash_is_rejected():
     manifest, content = _files()
     tampered = content.replace(b"12.0", b"1.2")

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import tempfile
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
@@ -915,6 +916,15 @@ def captured_openai_clients(client: Any = None) -> Generator[list[dict[str, Any]
 
 
 @contextmanager
+def patched_genai_client(client: Any = None, *, error: Exception | None = None) -> Generator[Any]:
+    """替换 Google SDK 客户端构造；可返回给定客户端或模拟构造失败。"""
+    with patch("google.genai.Client", side_effect=error) as factory:
+        if client is not None:
+            factory.return_value = client
+        yield factory
+
+
+@contextmanager
 def patched_instructor_from_openai(patched: Any = None, **patch_kwargs: Any) -> Generator[Any]:
     """在 SDK 边界替换 ``instructor.from_openai``，yield 该替身，供测试断言传给 ``from_openai`` 的参数。
 
@@ -1110,6 +1120,16 @@ class HangingProcess:
         return b"", None
 
 
+def use_private_tempdir(monkeypatch, root: Path) -> Path:
+    """让 ``tempfile`` 的默认临时根指向用例私有目录 *root* 并返回它。
+
+    进程共享的系统 tempdir 会被并行用例或其他 worktree 写入；断言「临时产物已清理」的用例要在私有目录里观察。
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(tempfile, "tempdir", str(root))
+    return root
+
+
 def use_project_manager(monkeypatch, pm: Any) -> None:
     """让读 ``get_project_manager()`` 的项目入口、路由与任务执行模块都拿到 *pm*。
 
@@ -1120,6 +1140,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("lib.asset_library.ingest.get_project_manager", for_pm)
     monkeypatch.setattr("lib.config.resolver.get_project_manager", for_pm)
     monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.asset_sheets.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.assets.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.characters.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.derivative_uploads.get_project_manager", for_pm)
@@ -1177,6 +1198,11 @@ def use_video_thumbnail_extractor(monkeypatch, extract: Callable[..., Any]) -> N
 def use_text_generator(monkeypatch, create: Callable[..., Any]) -> None:
     """``TextGenerator.create`` 换成 *create*：所有经它取文本模型的调用方都拿到替身生成器。"""
     monkeypatch.setattr("lib.backends.text_generator.TextGenerator.create", create)
+
+
+def use_text_backend_sessions(monkeypatch, factory) -> None:
+    """文本 backend 工厂经 *factory* 解析真实模型配置，不替换模型解析器。"""
+    monkeypatch.setattr("lib.backends.text_backends.factory.async_session_factory", factory)
 
 
 def bind_session_factory(monkeypatch, factory) -> None:

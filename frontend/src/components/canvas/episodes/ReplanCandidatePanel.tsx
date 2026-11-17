@@ -5,7 +5,6 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodeReplanContinue } from "@/actions/generation";
-import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -20,6 +19,7 @@ import { episodeDisplayName } from "@/utils/episode-display";
 import { lastPlanningFailure } from "./episode-planning-model";
 import { ImpactConfirmDialog } from "./ImpactConfirmDialog";
 import { episodeHue, formatVolume } from "./episodes-view-model";
+import { PlanningFailureNote } from "./PlanningFailureNote";
 
 interface Props {
   projectName: string;
@@ -162,8 +162,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
     const reason = replan.interrupted === null ? "dashboard:replan_stopped" : `dashboard:replan_stopped_${replan.interrupted}`;
     notice = t(reason, { end: point(view, replan.end) });
   }
-  const truncated =
-    stopped && replan.interrupted === "failed" ? (lastPlanningFailure(tasks, projectName)?.truncated ?? null) : null;
+  const failure = stopped && replan.interrupted === "failed" ? lastPlanningFailure(tasks, projectName) : null;
 
   return shell(
     <>
@@ -181,7 +180,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
           </span>
         </p>
       ) : null}
-      {truncated ? <OutputTruncationHint truncation={truncated} /> : null}
+      {failure ? <PlanningFailureNote failure={failure} /> : null}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
         <SummaryRow label={t("dashboard:replan_count")}>
           {replan.old_count === null

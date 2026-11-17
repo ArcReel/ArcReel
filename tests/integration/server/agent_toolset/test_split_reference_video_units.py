@@ -141,6 +141,7 @@ async def test_fetch_reference_split_caps_reports_unavailable_i2v_as_text_proble
     assert caps.text_durations == []
     assert caps.durations == [6, 10]
     assert caps.text_problem is not None
+    assert caps.text_voice is None
     assert caps.text_problem.code == "reference_capability_unavailable"
     assert caps.text_problem.parameters() == {"capability": "i2v"}
 
@@ -196,7 +197,7 @@ async def test_reference_split_planning_reports_empty_intersection_as_incompatib
     from server.text_generation import fetch_reference_split_caps
     from tests.catalog_support import install_catalog, with_entry_facts
 
-    provider_id, model_id = "gemini-aistudio", "veo-3.1-generate-preview"
+    provider_id, model_id = "gemini-vertex", "veo-3.1-generate-001"
     constraints = DurationConstraints(by_resolution={"1080p": (6,)}, with_reference_images=(8,))
     install_catalog(
         monkeypatch, with_entry_facts(factory_snapshot(), provider_id, model_id, duration_constraints=constraints)
@@ -226,6 +227,7 @@ async def test_reference_split_planning_reports_unavailable_i2v_instead_of_r2v_f
     assert caps.reference_durations == list(range(3, 16))
     assert caps.text_durations == []
     assert caps.text_problem is not None
+    assert caps.text_voice is None
     assert caps.text_problem.code == "reference_capability_unavailable"
     assert caps.text_problem.parameters() == {"capability": "i2v"}
     assert caps.text_problem.action == "configure_video_model"
@@ -239,7 +241,7 @@ async def test_reference_split_planning_accepts_five_seconds_from_i2v_facts(db_f
 
     project = {
         "generation_mode": "reference_video",
-        "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
+        "video_provider_r2v": "gemini-vertex/veo-3.1-generate-001",
         "video_provider_i2v": "ark/doubao-seedance-2-0-260128",
     }
     caps = await fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
@@ -260,7 +262,7 @@ async def test_reference_split_planning_borrows_planning_tiers_for_endpoint_fixe
     from server.text_generation import fetch_reference_split_caps
 
     fixed_model = await seed_endpoint_fixed_video_model(db_factory, reference_images=True)
-    veo = "gemini-aistudio/veo-3.1-generate-preview"
+    veo = "gemini-vertex/veo-3.1-generate-001"
     project = {
         "generation_mode": "reference_video",
         "video_provider_r2v": fixed_model if "r2v" in fixed_buckets else veo,
@@ -625,7 +627,8 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
     """逐图挂载型 backend 下 warning 照常呈现：拆分阶段还没有参考图，那一位不该参与判定。
 
     开着 ``reference_audio_per_image`` 而不给参考图集合，会把每个说话人都判成「无画面可挂」，
-    那条 warning 不在容忍列表内会被丢弃——超出段数上限这类提示反而不见了。
+    那条 warning 不在容忍列表内会被丢弃——超出段数上限这类提示反而不见了。说话人数超限的单元
+    同时被规划约束拦下，超限提示随违约报告的降级提示段呈现。
     """
     rv_source(fake_ctx)
     fake_ctx.pm.project_payload["characters"] = {
@@ -645,5 +648,142 @@ async def test_split_reference_video_units_keeps_voice_warnings_on_per_image_bac
         fake_ctx, monkeypatch, [rv_unit("@[张三] 起身\n@[张三]：{我来了。}\n@[李四]：{你终于来了。}")]
     )
 
-    assert out.problem is None, out
-    assert "参考音频最多 1 段" in said(out)
+    assert out.problem is not None
+    text = said(out)
+    assert "说话人数 2 超过模型参考音频段数上限 1" in text
+    assert "参考音频最多 1 段" in text
+
+
+@pytest.mark.parametrize(
+    ("binding", "accepts_audio", "limit", "blocked"),
+    [
+        ("reference_audio", True, 1, True),
+        ("reference_audio", True, 2, False),
+        ("reference_audio", True, None, False),
+        ("prompt", True, 1, False),
+        # 绑定为参考音频但模型不收参考音频：生效上限为 0，没有音频可绑，不约束说话人数
+        ("reference_audio", False, 1, False),
+    ],
+)
+async def test_planning_reference_audio_limit_from_catalog(
+    fake_ctx: ToolHarness, monkeypatch, db_factory, binding, accepts_audio, limit, blocked
+) -> None:
+    from arcreel_catalog_core import CatalogEntry, VideoFacts
+    from lib.config.resolver import ConfigResolver
+    from tests.catalog_support import catalog_of, install_catalog
+
+    model = "doubao-seedance-2-0-260128"
+    entry = CatalogEntry(
+        maker="test",
+        name=model,
+        media_type="video",
+        display_name="Planning test",
+        facts=VideoFacts(
+            durations=(8,),
+            max_reference_images=4,
+            first_frame=True,
+            reference_audio=accepts_audio,
+            max_reference_audio_count=limit,
+        ),
+    )
+    install_catalog(monkeypatch, catalog_of((entry,), {"ark": (f"test/{model}",)}))
+    rv_source(fake_ctx)
+    project = fake_ctx.pm.project_payload
+    project.update(
+        {
+            "character_voice_binding": binding,
+            "video_provider_r2v": f"ark/{model}",
+            "video_provider_i2v": f"ark/{model}",
+        }
+    )
+    fake_ctx.config_resolver = ConfigResolver(db_factory)
+    capabilities = await run_declared_tool("get_video_capabilities", fake_ctx, {})
+    assert capabilities.problem is None, capabilities
+    assert capabilities.value["max_reference_audio_count"] == (limit if accepts_audio else 0)
+
+    dry = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
+    assert dry.problem is None, dry
+    constrained = binding == "reference_audio" and accepts_audio and limit is not None
+    assert ("**参考音频上限**" in said(dry)) is constrained
+    if constrained:
+        assert f"不超过 {limit}" in said(dry)
+
+    use_text_generator(monkeypatch, rv_generator_returning([rv_unit("门开了\n@[张三]{走。}\n@[李四]{好。}")]))
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
+    assert (out.problem is not None) is blocked, out
+    assert rv_script_plan_path(fake_ctx).exists() is not blocked
+    if blocked:
+        violations = read_rv_quarantine(fake_ctx)["violations"]
+        assert [v["code"] for v in violations] == ["speakers_over_limit"]
+        assert "请按说话人拆分镜头" in said(out)
+
+
+@pytest.mark.parametrize(
+    ("i2v_accepts_audio", "i2v_limit", "r2v_limit", "blocked_without_images", "blocked_with_images"),
+    [(False, 1, 1, False, True), (True, 1, 2, True, False), (True, 3, 1, False, True)],
+)
+@pytest.mark.parametrize("with_images", [False, True])
+async def test_planning_speaker_limit_follows_unit_bucket(
+    fake_ctx: ToolHarness,
+    monkeypatch,
+    db_factory,
+    i2v_accepts_audio,
+    i2v_limit,
+    r2v_limit,
+    blocked_without_images,
+    blocked_with_images,
+    with_images,
+) -> None:
+    from arcreel_catalog_core import CatalogEntry, VideoFacts
+    from lib.config.resolver import ConfigResolver
+    from tests.catalog_support import catalog_of, install_catalog
+
+    entries = tuple(
+        CatalogEntry(
+            maker="test",
+            name=name,
+            media_type="video",
+            display_name=name,
+            facts=VideoFacts(
+                durations=(8,),
+                max_reference_images=4,
+                first_frame=True,
+                reference_audio=accepts_audio,
+                max_reference_audio_count=limit,
+            ),
+        )
+        for name, accepts_audio, limit in [
+            ("with-images", True, r2v_limit),
+            ("without-images", i2v_accepts_audio, i2v_limit),
+        ]
+    )
+    install_catalog(monkeypatch, catalog_of(entries, {"ark": ("test/with-images", "test/without-images")}))
+    rv_source(fake_ctx)
+    fake_ctx.pm.project_payload.update(
+        {
+            "character_voice_binding": "reference_audio",
+            "video_provider_r2v": "ark/with-images",
+            "video_provider_i2v": "ark/without-images",
+        }
+    )
+    if with_images:
+        rv_character_sheet(fake_ctx, "张三", claimed=True)
+    fake_ctx.config_resolver = ConfigResolver(db_factory)
+    dry = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
+    assert dry.problem is None, dry
+    prompt = said(dry)
+    assert f"带可用参考图的视频单元的说话人数（按角色本体去重，衍生共享本体声音）不超过 {r2v_limit}" in prompt
+    without_rule = "无可用参考图的视频单元的说话人数"
+    assert (without_rule in prompt) is i2v_accepts_audio
+    if i2v_accepts_audio:
+        assert f"{without_rule}（按角色本体去重，衍生共享本体声音）不超过 {i2v_limit}" in prompt
+    text = ("@[张三] 起身" if with_images else "门开了") + "\n@[张三]{走。}\n@[李四]{好。}"
+    use_text_generator(monkeypatch, rv_generator_returning([rv_unit(text)]))
+    out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
+    blocked = blocked_with_images if with_images else blocked_without_images
+    assert (out.problem is not None) is blocked, out
+    assert rv_script_plan_path(fake_ctx).exists() is not blocked
+    if blocked:
+        violations = read_rv_quarantine(fake_ctx)["violations"]
+        assert [v["code"] for v in violations] == ["speakers_over_limit"]
+        assert "说话人数 2 超过模型参考音频段数上限 1" in said(out)

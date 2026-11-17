@@ -77,14 +77,15 @@ def generation_admission_lock_sync(
     project_name: str,
     script_file: str,
     resource_id: str,
+    blocking: bool = True,
 ) -> Generator[None]:
-    """Blocking counterpart for synchronous compensation after the async guard is released."""
+    """Synchronous guard; non-blocking callers receive ``AlreadyLocked`` on contention."""
 
     path = _lock_path(project_name=project_name, resource_id=resource_id)
     handle = path.open("a+b")
     acquired = False
     try:
-        portalocker.lock(handle, portalocker.LOCK_EX)
+        portalocker.lock(handle, portalocker.LOCK_EX if blocking else portalocker.LOCK_EX | portalocker.LOCK_NB)
         acquired = True
         yield
     finally:

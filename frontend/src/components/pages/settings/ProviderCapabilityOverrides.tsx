@@ -44,7 +44,7 @@ interface Props {
 
 /**
  * 「这个供应商支持的参数」：每个维度一行。可以修改的维度显示原值与「修改」，修改后整维替换并可编辑，「恢复」即去掉
- * 这一维的覆盖；不能修改的维度（官方收录的模型的全部维度、图片的参考图上限等）只读显示生效值。原值是没有修改时运行时
+ * 这一维的覆盖；不能修改的维度（官方收录的模型的全部维度等）只读显示生效值。原值是没有修改时运行时
  * 采用的值（模型条目与调用通道两侧求值的结果），两侧都没有声明的数值显示「未收录」。可选时长下方紧跟时长联动约束。
  */
 export function ProviderCapabilityOverrides({ capabilities, value, onChange, onValidityChange }: Props) {
@@ -129,6 +129,11 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
                 label={label}
                 value={value[key]}
                 resolutions={effectiveResolutions}
+                hint={
+                  capabilities.media_type === "image" && key === "max_reference_images"
+                    ? t("pm_cap_reference_images_hint")
+                    : undefined
+                }
                 onChange={(next) => set(key, next)}
                 onValidityChange={(valid) => onValidityChange(key, valid)}
               />
@@ -156,6 +161,8 @@ interface EditorProps {
   label: string;
   value: unknown;
   resolutions: string[];
+  /** 数值输入下方的提示，给出时替换该维度的默认提示（如图片参考图上限的 0 与图生图的关系）。 */
+  hint?: string;
   onChange: (next: unknown) => void;
   onValidityChange: (valid: boolean) => void;
 }
@@ -164,7 +171,7 @@ interface EditorProps {
  * 一个能力维度的取值编辑器，「这个供应商支持的参数」与「模型信息」共用。文本输入只在挂载时取 `value` 作初值，
  * 外部改了取值（放弃修改、采用官方值）时由调用方换 `key` 重新挂载；卸载的文本输入不再拦着保存。
  */
-export function CapabilityValueEditor({ dimension, label, value, resolutions, onChange, onValidityChange }: EditorProps) {
+export function CapabilityValueEditor({ dimension, label, value, resolutions, hint, onChange, onValidityChange }: EditorProps) {
   const { t } = useTranslation("dashboard");
   const editLabel = t("pm_cap_edit_named", { name: label });
 
@@ -250,7 +257,7 @@ export function CapabilityValueEditor({ dimension, label, value, resolutions, on
       label={editLabel}
       initial={value === null || value === undefined ? "" : scalarText(value)}
       inputMode={numeric.float ? "decimal" : "numeric"}
-      hint={numeric.nullable ? t("pm_cap_empty_unrecorded_hint") : undefined}
+      hint={hint ?? (numeric.nullable ? t("pm_cap_empty_unrecorded_hint") : undefined)}
       parse={(text) => {
         const trimmed = text.trim();
         if (!trimmed) return numeric.nullable ? { value: null } : { error: t("pm_cap_error_required") };

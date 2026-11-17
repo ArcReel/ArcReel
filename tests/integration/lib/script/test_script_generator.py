@@ -1162,7 +1162,7 @@ def _sg_with_project(tmp_path, project: dict, *, config_resolver: ConfigResolver
     return sg
 
 
-_VEO = "gemini-aistudio/veo-3.1-generate-preview"
+_VEO = "gemini-vertex/veo-3.1-generate-001"
 
 
 class TestPlanningVideoFacts:
@@ -1283,7 +1283,7 @@ async def test_planning_and_execution_read_the_same_tiers_under_one_configuratio
         project,
         route=planning.require(bucket).route,
         generation_type=bucket,
-        identity=ExecutionVideoIdentity("gemini-aistudio", "veo-3.1-generate-preview"),
+        identity=ExecutionVideoIdentity("gemini-vertex", "veo-3.1-generate-001"),
         resolver=resolver,
     )
 

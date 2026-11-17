@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from sqlalchemy.exc import StatementError
 
 from lib.generation.task_failure import FAILURE_CODE_KEYS, bound_reason, encode_failure, parse_failure, render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
@@ -109,15 +110,17 @@ class TestRenderKnownCodes:
         [
             (
                 {"shutdown_date": "2026-11-24", "successor": "bytedance/doubao-seedream-5-0-pro"},
-                "该模型已于 2026-11-24 下线，官方建议改用 bytedance/doubao-seedream-5-0-pro；",
+                "该模型已于 2026-11-24 下线，官方建议改用 Seedream 5.0 Pro；",
             ),
             ({"shutdown_date": "2026-11-24"}, "该模型已于 2026-11-24 下线；"),
-            ({"successor": "openai/gpt-5.6-sol"}, "该模型已下线，官方建议改用 openai/gpt-5.6-sol；"),
+            ({"successor": "openai/gpt-5.6-sol"}, "该模型已下线，官方建议改用 GPT-5.6 Sol；"),
+            # 目录里查不到后继条目时，回退为条目引用
+            ({"successor": "acme/never-registered"}, "该模型已下线，官方建议改用 acme/never-registered；"),
             ({}, "该模型已下线；"),
         ],
     )
     def test_discontinued_model_omits_what_the_entry_does_not_record(self, params, expected):
-        """下线报错写明下线日期与后继；条目没有登记的那一句整句省去，不留空占位。"""
+        """下线报错写明下线日期与后继（条目显示名）；条目没有登记的那一句整句省去，不留空占位。"""
         encoded = encode_failure(
             "model_discontinued", provider="ark", model="doubao-seedream-5-0-lite-260128", **params
         )
@@ -287,6 +290,25 @@ class TestBoundReason:
 
 
 class TestPassthrough:
+    @pytest.mark.parametrize("wrapper", ["none", "cause", "context", "cycle"])
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
+    def test_database_error_renders_generic_message_without_sql(self, locale, wrapper):
+        exc = StatementError("database failed", "INSERT INTO api_calls VALUES (:secret)", {"secret": "private"}, None)
+        if wrapper != "none":
+            outer = RuntimeError(str(exc))
+            if wrapper == "context":
+                outer.__context__ = exc
+            else:
+                outer.__cause__ = exc
+            if wrapper == "cycle":
+                exc.__cause__ = outer
+            exc = outer
+        encoded = encode_task_failure_message(exc)
+        assert encoded == "[internal_server_error]"
+        assert render_failure(encoded, _translator(locale), make_display_names(locale)) == translate_message(
+            "internal_server_error", locale=locale
+        )
+
     def test_none_and_empty(self):
         assert render_failure(None, _translator("en"), make_display_names("en")) is None
         assert render_failure("", _translator("en"), make_display_names("en")) == ""
@@ -370,3 +392,16 @@ def test_grpc_transient_error_is_not_classified_as_rejection():
     stored = encode_task_failure_message(_aio_rpc_error(grpc.StatusCode.UNAVAILABLE, "Socket closed"))
 
     assert not stored.startswith("[provider_rejected]")
+
+
+@pytest.mark.parametrize("locale", ["zh", "en", "vi", "ru"])
+def test_missing_text_default_encodes_params_and_renders_guidance(locale: str) -> None:
+    from lib.config.resolver import NoAvailableProviderError
+    from lib.generation.generation_result import problem_from_task_failure
+
+    encoded = encode_task_failure_message(NoAvailableProviderError("固定中文诊断", media_type="text"))
+    assert parse_failure(encoded) == ("text_default_model_not_set", {"media_type": "text"})
+    assert problem_from_task_failure(encoded).action.value == "configure_default_model"
+    assert render_failure(encoded, _translator(locale), make_display_names(locale)) == translate_message(
+        "text_default_model_not_set", locale=locale
+    )

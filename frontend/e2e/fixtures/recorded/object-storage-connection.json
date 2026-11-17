@@ -5,7 +5,6 @@
   "body": {
     "connection": null,
     "new_image_target": "local",
-    "retained_relay_objects": 0,
-    "unreleased_image_objects": 0
+    "pending_ingest_tasks": 0
   }
 }

@@ -5,7 +5,7 @@ import { SpeechRateField } from "./SpeechRateField";
 import { isValidSpeechRate } from "./speech-rate";
 
 describe("SpeechRateField", () => {
-  it("shows 字/秒 for zh, 词/秒 for en / vi", () => {
+  it("shows 字/秒 for zh, 词/秒 for en / vi / ru", () => {
     const { rerender } = render(<SpeechRateField value={null} onChange={() => {}} sourceLanguage="zh" />);
     expect(screen.getByText("字/秒")).toBeInTheDocument();
 
@@ -13,6 +13,9 @@ describe("SpeechRateField", () => {
     expect(screen.getByText("词/秒")).toBeInTheDocument();
 
     rerender(<SpeechRateField value={null} onChange={() => {}} sourceLanguage="VI" />);
+    expect(screen.getByText("词/秒")).toBeInTheDocument();
+
+    rerender(<SpeechRateField value={null} onChange={() => {}} sourceLanguage="ru" />);
     expect(screen.getByText("词/秒")).toBeInTheDocument();
   });
 

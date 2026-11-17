@@ -124,12 +124,12 @@ class TestGenerateT2I:
             )
             result = await grok_backend.generate(request)
 
-        # 验证 SDK 调用参数（image_size 透传，不再做小写映射）
+        # 验证 SDK 调用参数（目录取值 "2K" 下发前转成 SDK 接受的小写 "2k"）
         grok_backend._client.image.sample.assert_awaited_once_with(
             prompt="A beautiful sunset",
             model="grok-imagine-image",
             aspect_ratio="16:9",
-            resolution="2K",
+            resolution="2k",
         )
         assert result.image_path == output
         assert result.provider == "grok"
@@ -202,8 +202,8 @@ class TestGenerateI2I:
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert len(call_kwargs["image_urls"]) == 2
 
-    async def test_i2i_truncates_references_over_the_declared_limit(self, grok_backend, tmp_path):
-        """编排层未裁剪时的兜底：只发前 reference_image_limit() 张。"""
+    async def test_i2i_sends_every_reference_above_the_channel_limit(self, grok_backend, tmp_path):
+        """能力覆盖放行的参考图全部下发。"""
         refs = []
         for index in range(7):
             ref_path = tmp_path / f"ref{index}.png"
@@ -214,13 +214,23 @@ class TestGenerateI2I:
         mock_response.url = "https://example.com/merged.png"
         grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
 
+        from lib.backends.image_capabilities import gate_image_request
+        from lib.custom_provider.backends import CustomImageBackend
+
+        wrapped = CustomImageBackend(
+            provider_id="custom-1",
+            delegate=grok_backend,
+            model=grok_backend.model,
+            reference_limit_override=7,
+        )
+        await gate_image_request(wrapped, provider_id="custom-1", reference_count=7)
         with _image_download(mock_response.url, b"\x89PNG\r\n\x1a\n" + b"\x00" * 50):
-            await grok_backend.generate(
+            await wrapped.generate(
                 ImageGenerationRequest(prompt="Merge", output_path=tmp_path / "out.png", reference_images=refs)
             )
 
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
-        assert len(call_kwargs["image_urls"]) == (await grok_backend.reference_image_limit()) == 5
+        assert len(call_kwargs["image_urls"]) == 7
 
     async def test_i2i_reference_encoding_keeps_event_loop_running(self, grok_backend, tmp_path, monkeypatch):
         """参考图 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""
@@ -265,8 +275,10 @@ class TestGenerateI2I:
                 output_path=output,
                 reference_images=[ReferenceImage(path="/nonexistent/ref.png")],
             )
-            await grok_backend.generate(request)
+            result = await grok_backend.generate(request)
 
+        assert result.usage is not None
+        assert result.usage.dimensions["quality"] == "low"
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert "image_urls" not in call_kwargs
         assert "image_url" not in call_kwargs
@@ -294,11 +306,11 @@ class TestModeration:
 
 
 # ---------------------------------------------------------------------------
-# resolution 透传测试
+# resolution 小写转换测试
 # ---------------------------------------------------------------------------
 
 
-class TestResolutionPassthrough:
+class TestResolutionLowercase:
     @pytest.mark.asyncio
     async def test_image_size_none_omits_resolution_kwarg(self, grok_backend, tmp_path):
         captured: dict = {}
@@ -320,7 +332,7 @@ class TestResolutionPassthrough:
         assert "resolution" not in captured
 
     @pytest.mark.asyncio
-    async def test_image_size_passed_as_is(self, grok_backend, tmp_path):
+    async def test_image_size_lowercased_for_sdk(self, grok_backend, tmp_path):
         captured: dict = {}
 
         async def fake_sample(**kwargs):
@@ -337,7 +349,7 @@ class TestResolutionPassthrough:
         with pytest.raises(RuntimeError):
             await grok_backend.generate(request)
 
-        assert captured["resolution"] == "2K"
+        assert captured["resolution"] == "2k"
 
 
 # ---------------------------------------------------------------------------
@@ -357,3 +369,66 @@ class TestAspectRatioValidation:
 
         # 不支持的比例透传给 API，不做映射
         assert _validate_aspect_ratio("5:4") == "5:4"
+
+
+@pytest.mark.parametrize(
+    ("size", "reference_count", "quality", "amount"),
+    [
+        ("1K", 0, "low", 0.04),
+        ("2K", 0, "low", 0.06),
+        ("1K", 1, "medium", 0.07),
+        ("2K", 1, "medium", 0.09),
+    ],
+)
+async def test_default_quality_prices_the_actual_request(
+    grok_backend, tmp_path, size, reference_count, quality, amount
+):
+    from lib.backends.image_backends.base import ImageRequestFacts
+    from lib.billing.catalog_pricing import price_builtin_call
+    from lib.billing.metering import Priced
+
+    grok_backend._model = "grok-imagine-image-2.0"
+    ref = tmp_path / "ref.png"
+    ref.write_bytes(b"\x89PNG\r\n\x1a\nref")
+    request = ImageGenerationRequest(
+        prompt="cat",
+        output_path=tmp_path / "out.png",
+        image_size=size,
+        reference_images=[ReferenceImage(path=str(ref))] if reference_count else [],
+    )
+    grok_backend._client.image.sample = AsyncMock(
+        return_value=MagicMock(
+            respect_moderation=True,
+            url="https://example.com/generated.png",
+        )
+    )
+    with _image_download("https://example.com/generated.png", b"image"):
+        result = await grok_backend.generate(request)
+    estimate = grok_backend.estimate_usage(
+        ImageRequestFacts(
+            model=grok_backend.model,
+            aspect_ratio=request.aspect_ratio,
+            image_size=size,
+            reference_count=reference_count,
+        )
+    )
+    expected_request = {
+        "prompt": "cat",
+        "model": grok_backend.model,
+        "aspect_ratio": request.aspect_ratio,
+        "resolution": size.lower(),
+    }
+    if reference_count:
+        expected_request["image_urls"] = ["data:image/png;base64,iVBORw0KGgpyZWY="]
+    grok_backend._client.image.sample.assert_awaited_once_with(**expected_request)
+    for usage, estimating in [(estimate, True), (result.usage, False)]:
+        assert usage is not None
+        assert usage.dimensions == {"resolution": size, "quality": quality}
+        assert price_builtin_call(
+            provider="grok",
+            model=grok_backend.model,
+            media_type="image",
+            requests=(usage,),
+            provider_multiplier=1.0,
+            estimate=estimating,
+        ) == Priced(pytest.approx(amount), "USD")

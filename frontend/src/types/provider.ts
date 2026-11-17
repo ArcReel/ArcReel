@@ -28,6 +28,9 @@ export interface ModelInfoResponse {
   // 端点按上下文算好回传（见 types/project.ts::DurationConstraints），前端不持有规则。
   supported_durations: number[];
   resolutions: string[];
+  // 图片模型的有效画质可选值：条目收录且调用端点接受显式画质时才非空，顺序即条目顺序，原样展示。
+  // 非图片模型与不接受显式画质的端点为空数组。见 utils/provider-models.ts::lookupQualities。
+  qualities: string[];
   // 成片音轨形态（可控 / 恒有声 / 恒无声），按执行路径各给一份：同一 model 在图生与参考生两条
   // 子路径上的请求形态可以不同（可灵 v3-omni 的多图主体子路径不带音轨开关，成片必然无声）。
   // 服务端从 backend 的 VideoCapabilities 派生，前端只取值、不合成三态；非视频 model 恒
@@ -156,6 +159,13 @@ export interface ProviderModelItem {
   lifecycle: ProviderModelLifecycle;
   /** 自定义供应商模型的调用端点键；内置供应商为 null。 */
   endpoint: string | null;
+  /** 官方收录的模型标注的最低应用版本；没有标注、或不是官方收录的模型时为 null。 */
+  min_app_version: string | null;
+  /**
+   * 应用版本达到 `min_app_version`。不满足的模型排在列表末尾，不启用、不作默认，不进入任何候选、也不能调用；
+   * 不能启用，也没有模型设置可打开。
+   */
+  min_app_version_satisfied: boolean;
 }
 
 /** 供应商模型列表（GET /providers/{id}/models）；`discoverable` 为真时可以「获取模型」。 */
@@ -296,11 +306,21 @@ export interface ProviderModelDetail {
   /** 用户指定的条目绑定（「模型厂商/官方模型名」）；按名字对应或官方收录的模型为 null。 */
   entry_binding: string | null;
   capabilities: ProviderModelCapabilities;
-  /** 以下只有自定义供应商的模型有。 */
+  /** 调用端点：自定义供应商的模型，以及内置供应商下用户添加的模型有；官方收录的模型为 null，端点跟随官方。 */
   endpoint: string | null;
+  /** 以下只有自定义供应商的模型有。 */
   resolution: string | null;
   path_overrides: PathOverrides | null;
   requests: EndpointRequest[];
+  /** 内置供应商下用户添加的模型可选的调用端点（这个供应商在该媒体类型下的内置调用端点）；其余为空。 */
+  endpoint_options: BuiltinEndpointOption[];
+}
+
+/** 内置供应商的一个调用端点选项。`display_name_key` 为空串时显示 `display_name`。 */
+export interface BuiltinEndpointOption {
+  key: string;
+  display_name_key: string;
+  display_name: string | null;
 }
 
 /** 保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。 */

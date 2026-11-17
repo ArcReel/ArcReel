@@ -144,3 +144,39 @@ def test_web_save_blocked_by_a_formal_unit_names_it_by_position(
         assert phrase in body["detail"]
     assert "E1U01" not in body["detail"]
     assert quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()
+
+
+def test_web_repair_returns_localized_default_model_problem(tmp_path: Path, monkeypatch) -> None:
+    from server.auth import CurrentUserInfo, get_current_user
+    from server.tool_runtime import ToolOutcome, ToolProblem
+
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    use_project_manager(monkeypatch, pm)
+
+    async def missing_default(*_args, **_kwargs):
+        return ToolOutcome(
+            problem=ToolProblem(
+                "text_default_model_not_set",
+                "固定中文诊断",
+                action="configure_default_model",
+                params={"media_type": "text"},
+            )
+        )
+
+    monkeypatch.setattr(episode_drafts, "repair_draft", missing_default)
+    app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="test", role="admin")
+    app.include_router(episode_drafts.router)
+    register_error_handlers(app)
+    with TestClient(app) as client:
+        response = client.post(
+            "/projects/demo/episodes/1/drafts/narration_script_plan/repair",
+            json={"base_revision": "revision"},
+            headers={"Accept-Language": "en"},
+        )
+    assert response.status_code == 422
+    body = response.json()
+    assert body["diagnostic"] == {"code": "text_default_model_not_set", "params": {"media_type": "text"}}
+    assert body["detail"].startswith("No default text model is set")
+    assert "固定中文诊断" not in body["detail"]

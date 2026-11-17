@@ -12,6 +12,7 @@ import httpx
 import openai
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
@@ -56,8 +57,10 @@ from lib.script.draft_quarantine import (
     draft_revision,
     quarantine_path,
     read_quarantine,
+    render_report,
     write_quarantine,
 )
+from lib.script.draft_violation import DraftViolation
 from server import draft_repair as draft_repair_module
 from server.text_generation import TextGenerationRequest
 from server.tool_runtime import (
@@ -76,7 +79,7 @@ from server.tool_runtime import (
     repair_draft,
 )
 from tests.factories import register_project_sources
-from tests.fakes import FakeTextGenerator, refuse_resume_execution, use_text_generator
+from tests.fakes import FakeTextGenerator, refuse_resume_execution, use_text_backend_sessions, use_text_generator
 
 
 def _admit_text_operations(projects: ProjectManager, project_name: str) -> None:
@@ -276,6 +279,57 @@ async def test_prompt_authoring_off_tier_fails_as_fix_input_through_the_worker(
     )
     assert "generate_episode_script 失败" not in problem.detail
     assert model.requests == []
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_prompt_authoring_quarantine_preserves_report_in_task_failure(monkeypatch) -> None:
+    projects = ProjectManager(DataRootLayout.current().root)
+    project_path = projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.update_project("demo", lambda project: project.update(generation_mode="reference_video"))
+    projects.add_character("demo", "张三", "村民")
+    projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+    _admit_text_operations(projects, "demo")
+    projects.save_script(
+        "demo",
+        {
+            "title": "第一集",
+            "episode": 1,
+            "content_mode": "narration",
+            "video_units": [
+                {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4, "pending_authoring": True}
+            ],
+        },
+        "episode_1.json",
+    )
+    activate_artifact_target_state(project_path, bump_schema=False)
+    model = FakeTextGenerator('{"title":"第一集","units":[{"text":"@[未登记角色] 起身"}]}')
+    use_text_generator(monkeypatch, model.create)
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(
+            {
+                "task_id": "bad-prompt",
+                "project_name": "demo",
+                "task_type": "text_episode_script",
+                "payload": {"episode": 1},
+            }
+        )
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "draft_generation_invalid",
+        GenerationAction.FIX_INPUT,
+        {"count": 1},
+    )
+    draft = read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
+    assert draft is not None
+    assert "open_draft" in problem.detail
+    assert "patch_draft" in problem.detail
+    assert problem.detail == "generate_episode_script 失败: " + render_report(
+        quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).relative_to(project_path),
+        QUARANTINE_KIND_PROMPT_AUTHORING,
+        [DraftViolation(v["message"], code=v["code"]) for v in draft.violations],
+        episode=1,
+    )
 
 
 def _narration_segment(**overrides: Any) -> dict[str, Any]:
@@ -895,6 +949,10 @@ _TEXT_TASK_SHAPES = [
 ]
 
 
+def _database_failure() -> Exception:
+    return IntegrityError("INSERT INTO api_calls (prompt) VALUES (?)", ("secret prompt",), Exception("value too long"))
+
+
 @pytest.mark.usefixtures("video_request_facts")
 @pytest.mark.parametrize(("content_mode", "task_type", "reference"), _TEXT_TASK_SHAPES)
 @pytest.mark.parametrize(
@@ -906,12 +964,14 @@ _TEXT_TASK_SHAPES = [
             GenerationAction.RETRY,
             id="unexpected",
         ),
+        pytest.param(_database_failure, "internal_server_error", GenerationAction.RETRY, id="database"),
         pytest.param(_content_filter_rejection, "generation_refused", GenerationAction.FIX_INPUT, id="content-policy"),
         pytest.param(_provider_rejected, "generation_refused", GenerationAction.FIX_INPUT, id="provider-rejected"),
     ],
 )
 async def test_queued_text_task_failure_is_refused_only_when_the_provider_refused(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     content_mode: str,
     task_type: str,
     reference: bool,
@@ -938,6 +998,17 @@ async def test_queued_text_task_failure_is_refused_only_when_the_provider_refuse
 
     problem = problem_from_task_failure(str(raised.value))
     assert (problem.code, problem.action) == (code, action)
+    if code == "generation_task_failed":
+        operation = "generate_episode_script" if task_type == "text_episode_script" else "generate_script_plan"
+        assert problem.detail == f"{operation} 失败: backend 构造失败"
+    if code == "internal_server_error":
+        from lib.generation.task_failure_encoding import encode_task_failure_message
+
+        encoded = encode_task_failure_message(raised.value)
+        assert "INSERT INTO" not in encoded
+        assert "secret prompt" not in encoded
+        assert "INSERT INTO" in caplog.text
+        assert "secret prompt" in caplog.text
 
 
 async def test_queued_reference_plan_fails_with_the_real_video_model_problem(set_video_request_facts) -> None:
@@ -1232,8 +1303,129 @@ async def test_cancel_during_invalid_script_plan_quarantine_leaves_member_runnin
         await worker.stop()
 
     assert task["status"] == "failed"
-    assert problem_from_task_failure(task["error_message"]).code == "generation_refused"
+    problem = problem_from_task_failure(task["error_message"])
+    assert problem.code == "draft_generation_invalid"
+    draft = read_quarantine(project_path, 1, quarantine_kind)
+    assert draft is not None
+    assert problem.params == {"count": len(draft.violations)}
+    assert "open_draft" in problem.detail
+    assert "base_revision" in problem.detail
     batch = await queue.get_generation_batch(project_name=project_name, batch_id=batch_id)
     assert batch.done is True
     assert batch.members[0].status == "failed"
     assert draft_path.exists()
+
+
+@pytest.mark.usefixtures("video_request_facts")
+@pytest.mark.parametrize(
+    ("project_name", "content_mode", "generation_mode", "handler", "expected_task_type"),
+    [
+        ("script", "ad", "storyboard", "script", "text_episode_script"),
+        ("drama", "drama", "storyboard", "script_plan", "text_drama_script_plan"),
+        ("narration", "narration", "storyboard", "script_plan", "text_narration_script_plan"),
+        ("reference", "narration", "reference_video", "script_plan", "text_reference_script_plan"),
+        ("planning", "narration", "storyboard", "plan", "text_episode_plan"),
+    ],
+)
+async def test_missing_text_default_survives_submission_execution_and_persistence(
+    tmp_path: Path,
+    file_db_factory,
+    monkeypatch: pytest.MonkeyPatch,
+    project_name: str,
+    content_mode: str,
+    generation_mode: str,
+    handler: str,
+    expected_task_type: str,
+) -> None:
+    projects = ProjectManager(tmp_path / "projects")
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
+    projects.create_project(project_name, content_mode=content_mode)
+    projects.create_project_metadata(project_name, project_name, "", content_mode)
+    projects.update_project(project_name, lambda project: project.update(generation_mode=generation_mode))
+    _admit_text_operations(projects, project_name)
+    use_text_backend_sessions(monkeypatch, file_db_factory)
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+
+    async def execute(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
+        del claimed_provider_id
+        return await execute_queued_text_task(task)
+
+    worker = await _start_text_worker(queue, execute)
+    try:
+        services = Services(
+            projects=projects,
+            workflow_planner=object(),
+            capabilities=ConfigResolver(file_db_factory),
+            queue=queue,
+        )
+        scope = ProjectScope(project_name=project_name, data_root=projects.data_root)
+        caller = CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
+        if handler == "script":
+            outcome = await generate_episode_script(
+                ToolRequest(GenerateEpisodeScriptRequest(episode_id=1)), scope, caller, services
+            )
+        elif handler == "script_plan":
+            outcome = await generate_script_plan(
+                ToolRequest(GenerateScriptPlanRequest(episode_id=1)), scope, caller, services
+            )
+        else:
+            outcome = await plan_episodes(ToolRequest(PlanEpisodesRequest()), scope, caller, services)
+
+        assert outcome.problem is None
+        batch = outcome.value
+        assert batch is not None
+        task_id = batch.members[0].task_id
+        assert task_id is not None
+
+        task = await wait_for_task(task_id, 0.01, queue=queue)
+    finally:
+        await worker.stop()
+    assert task["task_type"] == expected_task_type
+    assert task["status"] == "failed"
+    problem = problem_from_task_failure(task["error_message"])
+    assert (problem.code, problem.action.value, problem.params) == (
+        "text_default_model_not_set",
+        "configure_default_model",
+        {"media_type": "text"},
+    )
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_missing_text_default_during_draft_repair_keeps_original_bytes(
+    file_db_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
+    path = quarantine_path(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+    before = path.read_bytes()
+    use_text_backend_sessions(monkeypatch, file_db_factory)
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+    services = Services(
+        projects=projects, workflow_planner=object(), capabilities=ConfigResolver(file_db_factory), queue=queue
+    )
+
+    async def execute(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
+        del claimed_provider_id
+        return await execute_queued_text_task(task)
+
+    worker = await _start_text_worker(queue, execute)
+    try:
+        submitted = await repair_draft(
+            ToolRequest(RepairDraftRequest(episode_id=1, doc_type="narration_script_plan", base_revision=revision)),
+            ProjectScope(project_name="demo", data_root=projects.data_root),
+            CallerContext(user_id=DEFAULT_USER_ID, source="webui"),
+            services,
+        )
+        assert submitted.value is not None, submitted.problem
+        task_id = submitted.value.members[0].task_id
+        assert task_id is not None
+        task = await wait_for_task(task_id, 0.01, queue=queue)
+    finally:
+        await worker.stop()
+    assert path.read_bytes() == before
+    problem = problem_from_task_failure(task["error_message"])
+    assert (problem.code, problem.action.value, problem.params) == (
+        "text_default_model_not_set",
+        "configure_default_model",
+        {"media_type": "text"},
+    )

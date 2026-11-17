@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -13,6 +14,14 @@ from lib.db.models.credential import ProviderCredential
 from lib.db.repositories.credential_repository import CredentialRepository
 from server.routers import providers
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+
+
+@pytest.fixture(autouse=True)
+def seed_recommendations(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """会话是替身：首次配置写推荐模型的那一步单独替换，用例按需断言它的调用。"""
+    seed = AsyncMock()
+    monkeypatch.setattr(providers, "seed_provider_recommendations", seed)
+    return seed
 
 
 def _make_app() -> tuple[FastAPI, MagicMock]:
@@ -74,16 +83,22 @@ class TestListCredentials:
 
 
 class TestCreateCredential:
-    def test_returns_201(self):
-        app, _ = _make_app()
+    @pytest.mark.parametrize("first", [True, False])
+    def test_returns_201(self, seed_recommendations: AsyncMock, first: bool):
+        """第一个凭证（创建即生效）写入推荐模型；之后的凭证不再写。"""
+        app, session = _make_app()
         mock_repo = MagicMock(spec=CredentialRepository)
-        mock_repo.create = AsyncMock(return_value=_fake_cred())
+        mock_repo.create = AsyncMock(return_value=_fake_cred(is_active=first))
         with patch("server.routers.providers.CredentialRepository", return_value=mock_repo), TestClient(app) as client:
             resp = client.post(
                 "/api/v1/providers/gemini-aistudio/credentials",
                 json={"name": "测试Key", "api_key": "AIza-new"},
             )
         assert resp.status_code == 201
+        if first:
+            seed_recommendations.assert_awaited_once_with(session, "gemini-aistudio")
+        else:
+            seed_recommendations.assert_not_awaited()
 
     def test_requires_name(self):
         app, _ = _make_app()

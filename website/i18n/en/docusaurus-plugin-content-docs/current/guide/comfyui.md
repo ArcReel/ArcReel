@@ -58,6 +58,8 @@ ComfyUI has no shared convention for parameters: each node in an export carries 
 | Positive prompt | Writes the prompt body without `Avoid:` lines; required |
 | Negative prompt | Appends exclusions from the prompt's `Avoid:` lines to the node's existing literal value |
 | Start frame, end frame, reference images | Uploads assets supplied for this request and writes the references returned by ComfyUI into image-loader nodes |
+| Reference audio | Uploads the request audio in binding order and writes the returned filenames into audio loaders |
+| Aspect ratio | Writes the explicitly configured node value for the project ratio |
 | Width, height | Converts the aspect ratio and resolution tier, then rounds each value down to its alignment step |
 | Frame count | Converts seconds using the frame rate and aligns the result to `step × n + 1` |
 | Frame rate | Read-only binding; ArcReel reads the workflow literal for its conversions and never overwrites it |
@@ -81,11 +83,21 @@ When inference picks the wrong node, or too many candidates tie, there are two w
 
 Both mechanisms only raise a candidate's score. What finally counts is the binding you confirm and save on the import screen.
 
+### 3.3 Reference audio and aspect-ratio values {#audio-and-aspect-bindings}
+
+For video endpoints, `reference_audio` is an ordered list of node bindings. Bind filename inputs such as `LoadAudio.audio` and use Move up to match prompt audio numbering. ArcReel uploads the existing ordered `reference_audio_files` request without selecting speakers again. Bindings determine support and count; no total-duration limit is inferred. Audio input and the output audio track remain separate capabilities.
+
+MiniMax H3 `ref_audios.ref_audio_*` inputs are rewired in binding order, independently of loader node IDs. All reference-audio inputs on that node must be bound, without reference videos that would consume audio numbers first. With zero or fewer audio files, only known optional inputs and their loaders are removed. Unsafe shapes fail before upload or submission, without reusing draft audio or repeating the final file. Nodes such as `MiniMaxH3AddGuide` require all bound inputs when safe omission cannot be established. This does not change storyboard character-voice consistency rules.
+
+Bind `aspect_ratio` to an enum input such as `ResolutionSelector.aspect_ratio`. These inputs are only listed as candidates and are never selected automatically; an unbound workflow keeps its original value. After selecting one, enter the node's accepted values for project ratios `16:9` and `9:16`, for example `16:9 (Widescreen)` and `9:16 (Portrait)`. The explicit `values` map is saved, exported and retained on reimport. API workflows do not include complete enum choices: ArcReel validates target identity and mapping structure, but cannot prove that a custom node accepts a value offline. An unmapped requested ratio fails before upload and submission.
+
+Aspect-ratio bindings do not enable pixel-resolution control. Width and height must both be bound for that; when enum and pixel bindings coexist, they use the same project ratio. Different semantics cannot write the same input.
+
 ## 4. Size, Duration, and Seed {#parameters}
 
 ### 4.1 Fixed Size {#fixed-size}
 
-ArcReel rewrites dimensions only when **both** width and height are bound. Binding one side is not enough: the derived values can only be written into the side that is bound, so the output ratio is neither the workflow's own nor the one you picked — worse than binding neither. A missing side therefore makes the whole dimension fixed, the resolution selector is disabled, and the size follows the workflow.
+ArcReel rewrites pixel dimensions only when **both** width and height are bound. An independent aspect-ratio enum binding can still change the ratio, but does not enable pixel-resolution control. Binding one side is not enough: the derived values can only be written into the side that is bound, so the output ratio is neither the workflow's own nor the one you picked — worse than binding neither. A missing side therefore makes the whole dimension fixed, the resolution selector is disabled, and the size follows the workflow.
 
 When both sides are bound and every bound input reads back the same positive integer literal, the resolution selector's empty-value placeholder shows the native tier inferred from it (for example "workflow native (480p)"), so you can see what you get by not choosing a tier. It is omitted when the literals cannot be read or disagree. The fixed-size branch has no such value at all — there, the UI states outright that the workflow controls the size.
 
@@ -159,9 +171,11 @@ Test runs appear in the ComfyUI queue as `endpoint-test-…`, with a random suff
 | `comfyui_output_missing` | The bound output node emitted no file. Check that node and its upstream output chain |
 | `comfyui_output_type_mismatch` | The artifact extension is not in this endpoint's container whitelist. Rebind the node that exports the final media, or switch the save node to a supported format |
 | `comfyui_output_container_mismatch` | The extension matches, but the file contents are not a container this endpoint should output. Switch the save node to a supported format |
+| `comfyui_reference_audio_invalid` | Audio cannot be connected safely; check unbound inputs, reference videos and required audio |
+| `comfyui_aspect_ratio_unmapped` | The requested ratio has no mapped value; add it to the aspect-ratio binding |
 | `comfyui_image_drop_unsupported` | Removing a branch for a missing asset would affect the output. Supply the asset or use another workflow |
 
-`comfyui_upload_failed`, `comfyui_job_lost`, and `comfyui_interrupted` are transient environment problems, and both the failure card and the project page point at retrying. The remaining six point at the endpoint configuration: change a binding in the endpoint detail, or fix the workflow in ComfyUI and re-import it.
+`comfyui_upload_failed`, `comfyui_job_lost`, and `comfyui_interrupted` are transient environment problems, and both the failure card and the project page point at retrying. The other ComfyUI failure codes point at the endpoint configuration: change a binding in the endpoint detail, or fix the workflow in ComfyUI and re-import it.
 
 If a task reports multiple outputs but keeps only one, that is the current channel selection rule; it does not mean ComfyUI generated fewer files. Confirm the output node in the preview, then inspect the complete output in ComfyUI history.
 

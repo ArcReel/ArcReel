@@ -63,6 +63,7 @@ from lib.project.project_migrations.v17_to_v18_timeline_agent_turn import (
     timeline_backup_sources,
 )
 from lib.project.project_migrations.v18_to_v19_item_id_high_water import migrate_v18_to_v19
+from lib.project.project_migrations.v19_to_v20_bare_provider_models import BareProviderModels, migrate_v19_to_v20
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -167,7 +168,12 @@ def _hardlink_backup_clues(project_dir: Path, from_version: int) -> None:
         logger.warning("clues 备份失败（非阻塞）：%s: %s", project_dir, exc)
 
 
-def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpisodeIds | None = None) -> bool:
+def migrate_project_dir(
+    project_dir: Path,
+    *,
+    recorded_episode_ids: RecordedEpisodeIds | None = None,
+    bare_provider_models: BareProviderModels | None = None,
+) -> bool:
     """将单个项目目录逐级升级到 CURRENT_SCHEMA_VERSION，返回是否实际迁移。
 
     供启动期 ``run_project_migrations`` 与项目导入路径共用：启动期 runner 只覆盖启动时已存在的
@@ -175,7 +181,8 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
     字段）会让该项目静默回退到全局默认。非项目目录 / 已是最新版本返回 False。
 
     ``recorded_episode_ids`` 按项目名查任务与调用记录里出现过的最大集 ID，转交 v15→v16 覆盖进
-    项目历史最高号；缺省时只看项目目录本身。"""
+    项目历史最高号；缺省时只看项目目录本身。``bare_provider_models`` 转交 v19→v20 补全裸供应商，缺省时用
+    启动时装入的升级前推荐（归档导入传入导入这一刻的推荐）。"""
     version = _load_schema_version(project_dir)
     if version < 0:
         return False
@@ -217,6 +224,8 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
                 step_outcome = migrate_v5_to_v6(project_dir, record=adjusted)
             elif migrator is migrate_v6_to_v7:
                 step_outcome = migrate_v6_to_v7(project_dir, record=adjusted)
+            elif migrator is migrate_v19_to_v20:
+                step_outcome = migrate_v19_to_v20(project_dir, bare_provider_models=bare_provider_models)
             else:
                 step_outcome = migrator(project_dir)
             if step_outcome is not None:
@@ -443,3 +452,4 @@ MIGRATORS[15] = migrate_v15_to_v16
 MIGRATORS[16] = migrate_v16_to_v17
 MIGRATORS[17] = migrate_v17_to_v18
 MIGRATORS[18] = migrate_v18_to_v19
+MIGRATORS[19] = migrate_v19_to_v20

@@ -8,22 +8,34 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import cast
 
 import pytest
+from PIL import Image
 from sqlalchemy import update
 
 from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.base import VoiceOption
-from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES, ImageCapability
+from lib.backends.backend_assembly.loaded_config import LoadedConfig
+from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model, get_provider_spec
+from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
+    ImageCapability,
+)
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
-from lib.catalog.query import factory_snapshot
-from lib.config.resolver import ConfigResolver, ProviderModel, VideoBucketCapabilityError, VoiceConsistency
+from lib.config.resolver import (
+    ConfigResolver,
+    ImageBucketCapabilityError,
+    ProviderModel,
+    VideoBucketCapabilityError,
+    VoiceConsistency,
+)
+from lib.config.service import ConfigService
 from lib.custom_provider import make_provider_id
 from lib.db.models.config import SystemSetting
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -46,9 +58,10 @@ from server.services.tasks.generation_context import (
     VideoLaneResult,
     resolve_generation_context,
 )
-from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes
+from tests.catalog_support import install_catalog, set_catalog_today, with_entry_changes, with_entry_facts
 from tests.factories import make_video_request_facts
 from tests.fakes import bind_session_factory, use_backend_assembler, use_project_manager
+from tests.http_capture import capture_http, only_request, request_form_fields, request_json
 
 
 def _registry_video_model(provider_id: str) -> str:
@@ -108,7 +121,15 @@ def fake_assemble(monkeypatch):
     calls: list[tuple[str, str, str | None]] = []
 
     async def _assemble(
-        *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+        *,
+        provider_id,
+        media_type,
+        model_id,
+        resolver,
+        rate_limiter=None,
+        generation_type=None,
+        submitted_job=False,
+        builtin_endpoint=None,
     ):
         calls.append((provider_id, media_type, model_id))
         return _FakeBackend(name=provider_id, model=model_id or "default-model")
@@ -288,7 +309,15 @@ class TestVideoLane:
         """续跑这类不声明路线的 lane 只交付身份：registry 之外的 model 也照常构造，不求值能力。"""
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
@@ -319,7 +348,15 @@ class TestVideoLane:
         """声明路线的事实失败由执行器阻断，音频开关没有独立降级值。"""
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
@@ -347,6 +384,103 @@ class TestVideoLane:
         )
         assert ctx.video.provider_model == ProviderModel("grok", grok_model)
 
+    async def test_resume_guard_follows_the_endpoint_the_backend_was_built_with(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
+        """构造之后用户改了模型挂接的端点：冻结的守卫仍是实际提交任务的那个端点，续跑不会按新端点放行。"""
+        model_id = "ep-guard-race"
+        catalog.install_user_added_models(
+            (catalog.UserAddedModel("ark", model_id, "video", endpoint="ark-seedance-2"),)
+        )
+        built_with: list[str | None] = []
+
+        async def _assemble(
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
+        ):
+            built_with.append(builtin_endpoint)
+            # 构造完成到守卫写入之间，设置页把这个模型改挂 2.5 端点。
+            catalog.install_user_added_models(
+                (catalog.UserAddedModel("ark", model_id, "video", endpoint="ark-seedance-2-5"),)
+            )
+            return _FakeBackend(name=provider_id, model=model_id)
+
+        use_backend_assembler(monkeypatch, _assemble)
+        try:
+            ctx = await resolve_generation_context(
+                "demo", None, project={"video_backend": f"ark/{model_id}"}, video=VideoLaneRequest()
+            )
+        finally:
+            catalog.install_user_added_models(())
+
+        assert built_with == ["ark-seedance-2"]
+        assert ctx.video.endpoint == "builtin:ark-seedance-2"
+
+    @pytest.mark.parametrize(
+        ("endpoint", "changed_endpoint", "has_audio"),
+        [
+            ("kling-video-pro-silent", "kling-video-audio", False),
+            ("kling-video-audio", "kling-video-pro-silent", True),
+        ],
+    )
+    async def test_request_facts_use_the_endpoint_the_backend_was_built_with(
+        self, patched_session_factory, project_env, monkeypatch, endpoint, changed_endpoint, has_audio
+    ):
+        """构造期间切换端点，事实和读侧能力仍按本次实际构造的端点求值。"""
+        model_id = "endpoint-race-video"
+
+        def install_endpoint(value):
+            catalog.install_user_added_models(
+                (catalog.UserAddedModel("kling", model_id, "video", fallback_durations=(5,), endpoint=value),)
+            )
+
+        install_endpoint(endpoint)
+        backends = []
+
+        async def _assemble(*, provider_id, media_type, model_id, builtin_endpoint, **kwargs):
+            backend = get_provider_spec(provider_id, media_type, builtin_endpoint).build_backend(
+                LoadedConfig(
+                    credentials={"access_key": "test", "secret_key": "test"}, provider_meta=None, rate_limiter=None
+                ),
+                model_id,
+            )
+            backends.append(backend)
+            install_endpoint(changed_endpoint)
+            return backend
+
+        use_backend_assembler(monkeypatch, _assemble)
+        project = {"video_backend": f"kling/{model_id}", "video_generate_audio": True}
+        try:
+            ctx = await resolve_generation_context(
+                "demo", None, project=project, video=VideoLaneRequest(route="storyboard")
+            )
+            facts = ctx.video.request_facts
+            assert isinstance(facts, VideoRequestFacts)
+            assert facts.has_audio_track is has_audio
+            caps = await ConfigResolver(patched_session_factory).video_capabilities_for_model(
+                "kling", model_id, project, generation_type="i2v", builtin_endpoint=endpoint
+            )
+            current_caps = await ConfigResolver(patched_session_factory).video_capabilities_for_model(
+                "kling", model_id, project, generation_type="i2v"
+            )
+        finally:
+            catalog.install_user_added_models(())
+
+        assert ctx.video.endpoint == f"builtin:{endpoint}"
+        assert backends[0].video_capabilities.audio_track.value == ("controllable" if has_audio else "always_off")
+        assert facts.audio_switch_controllable is has_audio
+        assert facts.generate_audio is has_audio
+        assert caps["generate_audio"] is has_audio
+        assert facts.voice_consistency == caps["voice_consistency"] == ("soft" if has_audio else "none")
+        assert current_caps["generate_audio"] is not has_audio
+
     async def test_submitted_job_requires_a_pinned_identity(self, patched_session_factory, project_env, fake_assemble):
         """续跑的下线豁免只给提交时锁定的身份：没有锁定身份时不按当前配置解析，直接报错，也不构造 backend。"""
         ark_model = _registry_video_model("ark")
@@ -368,7 +502,15 @@ class TestActualIdentityQueries:
         provider_id = await _seed_custom_video_provider(patched_session_factory)
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             # 模拟 load_custom_backend 的回退：请求 m-dead，实际构造出默认启用的 m-live
             return _FakeBackend(name=provider_id, model="m-live")
@@ -426,7 +568,15 @@ class TestVideoRequestFacts:
         self, patched_session_factory, project_env, monkeypatch, db_engine, route
     ):
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             async with db_engine.begin() as connection:
                 await connection.run_sync(SystemSetting.__table__.drop)
@@ -484,8 +634,18 @@ class TestVideoRequestFacts:
         ],
     )
     async def test_lane_facts_equal_the_read_side_facts_for_the_same_configuration(
-        self, patched_session_factory, project_env, fake_assemble, route, generation_type, project, allowed
+        self, patched_session_factory, project_env, fake_assemble, route, generation_type, project, allowed, monkeypatch
     ):
+        install_catalog(
+            monkeypatch,
+            with_entry_changes(
+                catalog.factory_snapshot(),
+                "gemini-aistudio",
+                "veo-3.1-generate-preview",
+                discontinued=False,
+                shutdown_date=None,
+            ),
+        )
         ctx = await resolve_generation_context(
             "demo", None, project=project, video=VideoLaneRequest(generation_type=generation_type, route=route)
         )
@@ -517,7 +677,15 @@ class TestVideoRequestFacts:
             await session.commit()
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(name=provider_id, model="m-live")
 
@@ -539,7 +707,15 @@ class TestVideoRequestFacts:
         self, patched_session_factory, project_env, monkeypatch
     ):
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
@@ -574,7 +750,15 @@ class TestAudioLane:
         """
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             return _FakeBackend(
                 name=provider_id, model=model_id or "default-model", voices=[VoiceOption(id="Cherry", label="Cherry")]
@@ -593,7 +777,15 @@ class TestAtomicFailure:
         """image 成功后 video 构造失败：整次调用原样上抛，无部分结果。"""
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             if media_type == "video":
                 raise ValueError("video backend 构造失败")
@@ -627,30 +819,40 @@ class TestBackendCache:
         assert len(fake_assemble) == 2, "失效后须重建 backend"
 
     async def test_cached_backend_is_not_reused_once_the_model_is_discontinued(self, db_factory, monkeypatch):
-        """同一进程跨过关停日期：缓存里关停前构造的 backend 不再被取用，调用报下线，默认模型也不再沿用。"""
+        """同一进程跨过关停日期：缓存里关停前构造的 backend 不再被取用，调用报下线；没给模型的调用始终报错。"""
         default = catalog.default_model("ark", "image")
         assert default is not None
         install_catalog(
             monkeypatch,
             with_entry_changes(
-                factory_snapshot(), "ark", default, shutdown_date=date(2026, 11, 24), successor="bytedance/next"
+                catalog.factory_snapshot(), "ark", default, shutdown_date=date(2026, 11, 24), successor="bytedance/next"
             ),
         )
         built: list[str | None] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             built.append(model_id)
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
         use_backend_assembler(monkeypatch, _assemble)
-        resolver = ConfigResolver(db_factory)  # 没给模型时按目录默认与停用状态补默认模型
+        resolver = ConfigResolver(db_factory)
 
         set_catalog_today(monkeypatch, date(2026, 11, 23))
         explicit = await generation_context._get_or_create_image_backend("ark", {"model": default}, resolver)
-        implicit = await generation_context._get_or_create_image_backend("ark", {}, resolver)
-        assert (explicit.model, implicit.model, built) == (default, default, [default])
+        assert (explicit.model, built) == (default, [default])
+        # 没给模型时不按目录推荐补模型（docs/adr/0099）
+        with pytest.raises(ModelNotInCatalogError):
+            await generation_context._get_or_create_image_backend("ark", {}, resolver)
 
         set_catalog_today(monkeypatch, date(2026, 11, 24))
         with pytest.raises(ModelDiscontinuedError) as excinfo:
@@ -668,7 +870,7 @@ class TestBackendCache:
         install_catalog(
             monkeypatch,
             with_entry_changes(
-                factory_snapshot(),
+                catalog.factory_snapshot(),
                 "ark",
                 SEEDREAM_LITE,
                 shutdown_date=date(2026, 11, 24),
@@ -685,7 +887,15 @@ class TestBackendCache:
         built: list[str | None] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             built.append(model_id)
             return _FakeBackend(name=provider_id, model=model_id or SEEDREAM_LITE)
@@ -733,7 +943,15 @@ class TestBackendCache:
         seen: list[str | None] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             seen.append(generation_type)
             return _FakeBackend(name=provider_id, model=f"{generation_type}-model")
@@ -751,6 +969,38 @@ class TestBackendCache:
         assert (t2i.model, i2i.model) == ("t2i-model", "i2i-model")
         assert t2i_again is t2i
 
+    async def test_a_changed_endpoint_is_not_served_from_the_cache(self, monkeypatch):
+        """模型挂接的端点变了（如官方目录同步不经缓存失效），下一次取到的是按新端点构造的实例。"""
+        built_with: list[str | None] = []
+
+        async def _assemble(
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
+        ):
+            built_with.append(builtin_endpoint)
+            return _FakeBackend(name=provider_id, model=model_id)
+
+        use_backend_assembler(monkeypatch, _assemble)
+        resolver = cast(ConfigResolver, None)
+        model_id = "ep-image-endpoint"
+        try:
+            for endpoint in ("ark-seedream-3", "ark-seedream-4"):
+                catalog.install_user_added_models(
+                    (catalog.UserAddedModel("ark", model_id, "image", endpoint=endpoint),)
+                )
+                await generation_context._get_or_create_image_backend("ark", {"model": model_id}, resolver)
+        finally:
+            catalog.install_user_added_models(())
+
+        assert built_with == ["ark-seedream-3", "ark-seedream-4"]
+
     async def test_invalidate_during_construction_discards_instance(self, monkeypatch):
         """构造中途（assemble_backend await 挂起期间）触发 invalidate：完成的实例不写回缓存。"""
         entered = asyncio.Event()
@@ -758,7 +1008,15 @@ class TestBackendCache:
         built: list[_FakeBackend] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
             built.append(backend)
@@ -774,9 +1032,9 @@ class TestBackendCache:
         await entered.wait()
         generation_context.invalidate_backend_cache()
         release.set()
-        stale = await task
+        stale, _ = await task
 
-        fresh = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
+        fresh, _ = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
         assert len(built) == 2, "缓存中不得残留失效期间构造的实例，后续访问须重新构造"
         assert stale is built[0]
         assert fresh is built[1]
@@ -789,7 +1047,15 @@ class TestBackendCache:
         construct_count = 0
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             nonlocal construct_count
             construct_count += 1
@@ -807,7 +1073,7 @@ class TestBackendCache:
         for _ in range(3):
             await asyncio.sleep(0)
         release.set()
-        b1, b2 = await asyncio.gather(t1, t2)
+        (b1, _), (b2, _) = await asyncio.gather(t1, t2)
 
         assert construct_count == 1, "同 key 并发 miss 须 single-flight，只构造一次"
         assert b1 is b2
@@ -826,7 +1092,15 @@ class TestBackendCache:
         built: list[_FakeBackend] = []
 
         async def _assemble(
-            *, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None, submitted_job=False
+            *,
+            provider_id,
+            media_type,
+            model_id,
+            resolver,
+            rate_limiter=None,
+            generation_type=None,
+            submitted_job=False,
+            builtin_endpoint=None,
         ):
             backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
             built.append(backend)
@@ -848,14 +1122,14 @@ class TestBackendCache:
 
         generation_context.invalidate_backend_cache()  # 失效边界：此时 follower 已排队，代数已翻篇
         release.set()  # 放行 leader，完成构造
-        stale = await leader
-        stale_from_follower = await follower
+        stale, _ = await leader
+        stale_from_follower, _ = await follower
 
         assert stale is built[0]
         assert stale_from_follower is built[1]
         assert stale is not stale_from_follower
 
-        fresh = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
+        fresh, _ = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
         assert len(built) == 3, "leader 与 follower 的旧代际实例均不得写回，后续访问须重新构造"
         assert fresh is built[2]
         assert fresh is not stale
@@ -925,3 +1199,180 @@ class TestValueObjectAssembly:
         )
         with pytest.raises(VideoRequestFactsError, match="video_capability_unavailable"):
             _ = lane.is_silent
+
+
+# ---------------------------------------------------------------------------
+# 画质：项目存值经两侧求值后进入请求（docs/adr/0104）
+# ---------------------------------------------------------------------------
+
+_QUALITIES = ("low", "medium", "high")
+
+
+def _with_qualities(monkeypatch) -> None:
+    install_catalog(
+        monkeypatch, with_entry_facts(catalog.factory_snapshot(), "openai", "gpt-image-2", qualities=_QUALITIES)
+    )
+
+
+async def _send(
+    ctx: GenerationContext, tmp_path: Path, *, refs: bool, base_url: str = "https://api.openai.com/v1"
+) -> dict:
+    """经过真实生成器和 SDK，返回 HTTP 请求中的尺寸与画质。"""
+    references: list[Path] = []
+    if refs:
+        ref = tmp_path / "ref.png"
+        Image.new("RGB", (64, 64)).save(ref)
+        references = [ref]
+    with capture_http() as router:
+        path = "edits" if refs else "generations"
+        route = router.post(f"{base_url}/images/{path}").respond(
+            json={"created": 0, "data": [{"b64_json": base64.b64encode(b"img").decode()}]}
+        )
+        output, version = await ctx.generator.generate_image_async(
+            prompt="p",
+            resource_type="storyboards",
+            resource_id="E1S01",
+            reference_images=references,
+            aspect_ratio="9:16",
+            image_size=ctx.image.resolution,
+            quality=ctx.image.quality,
+        )
+        request = only_request(route)
+        fields = request_form_fields(request) if refs else request_json(request)
+    assert output.read_bytes() == b"img"
+    assert version >= 1
+    return {key: fields[key] for key in ("size", "quality") if key in fields}
+
+
+class TestImageQuality:
+    @pytest.fixture(autouse=True)
+    async def provider_credentials(self, patched_session_factory):
+        async with patched_session_factory() as session:
+            for provider in ("openai", "vidu"):
+                await ConfigService(session).set_provider_config(provider, "api_key", "test-key")
+            await session.commit()
+
+    @pytest.mark.parametrize("generation_type", ["t2i", "i2i"])
+    async def test_builtin_openai_sends_the_stored_quality_with_the_tier_size(
+        self, patched_session_factory, project_env, monkeypatch, tmp_path, generation_type
+    ):
+        _with_qualities(monkeypatch)
+
+        async def _sent(resolution: str, quality: str) -> dict:
+            generation_context.reset_backend_cache_for_tests()
+            project = {
+                f"image_provider_{generation_type}": "openai/gpt-image-2",
+                "model_settings": {"openai/gpt-image-2": {"resolution": resolution, "quality": quality}},
+            }
+            ctx = await resolve_generation_context(
+                "demo", None, project=project, image=ImageLaneRequest(generation_type=generation_type)
+            )
+            return await _send(ctx, tmp_path, refs=generation_type == "i2i")
+
+        assert await _sent("1K", " low ") == {"size": "1008x1792", "quality": "low"}
+        assert await _sent("1K", "high") == {"size": "1008x1792", "quality": "high"}
+        assert await _sent("2K", "low") == {"size": "1440x2560", "quality": "low"}
+        # 不在可选值内照发；存量 512px 原样进入请求
+        assert await _sent("1K", "LOW") == {"size": "1008x1792", "quality": "LOW"}
+        assert await _sent("512px", "medium") == {"size": "576x1024", "quality": "medium"}
+
+    async def test_stored_quality_is_ignored_without_options(
+        self, patched_session_factory, project_env, monkeypatch, tmp_path
+    ):
+        """条目未收录画质取值：存值不生效，``quality`` 按档位推出（1K → medium）。"""
+        project = {
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "1K", "quality": "low"}},
+        }
+        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+
+        assert ctx.image.quality is None
+        assert await _send(ctx, tmp_path, refs=False) == {
+            "size": "1008x1792",
+            "quality": "medium",
+        }
+
+    async def test_unselected_quality_keeps_the_tier_mapping(
+        self, patched_session_factory, project_env, monkeypatch, tmp_path
+    ):
+        _with_qualities(monkeypatch)
+        project = {
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "2K"}},
+        }
+        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+
+        assert ctx.image.quality is None
+        assert await _send(ctx, tmp_path, refs=False) == {
+            "size": "1440x2560",
+            "quality": "high",
+        }
+
+    @pytest.mark.parametrize(
+        ("endpoint", "paths"),
+        [
+            ("openai-images", {"generate": True, "edit": True}),
+            ("openai-images-generations", {"generate": True, "edit": False}),
+            ("openai-images-edits", {"generate": False, "edit": True}),
+        ],
+    )
+    async def test_custom_openai_images_endpoints_send_the_stored_quality(
+        self, patched_session_factory, project_env, monkeypatch, tmp_path, endpoint, paths
+    ):
+        _with_qualities(monkeypatch)
+        provider_id = await _seed_custom_image_provider(
+            patched_session_factory, [{"model_id": "gpt-image-2", "endpoint": endpoint, "is_default": True}]
+        )
+        key = f"{provider_id}/gpt-image-2"
+
+        async def _sent(resolution: str, quality: str, *, refs: bool) -> dict:
+            generation_context.reset_backend_cache_for_tests()
+            project = {
+                "image_provider_t2i": key,
+                "image_provider_i2i": key,
+                "model_settings": {key: {"resolution": resolution, "quality": quality}},
+            }
+            ctx = await resolve_generation_context(
+                "demo", None, project=project, image=ImageLaneRequest(generation_type="i2i" if refs else "t2i")
+            )
+            return await _send(ctx, tmp_path, refs=refs, base_url="https://relay.test/v1")
+
+        for refs, supported in ((False, paths["generate"]), (True, paths["edit"])):
+            if not supported:
+                # 端点没有实现的路径保持原有拒绝：任务类型桶解析时就不接受这个模型
+                with pytest.raises(ImageBucketCapabilityError):
+                    await _sent("1K", "low", refs=refs)
+                continue
+            assert await _sent("1K", "low", refs=refs) == {"size": "1008x1792", "quality": "low"}
+            assert await _sent("1K", "high", refs=refs) == {"size": "1008x1792", "quality": "high"}
+            assert await _sent("2K", "low", refs=refs) == {"size": "1440x2560", "quality": "low"}
+
+    async def test_openrouter_endpoint_offers_no_quality_choice(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
+        """OpenRouter 调用通道不接受显式画质：条目收录了画质取值、项目存了画质，lane 也不带画质。"""
+        _with_qualities(monkeypatch)
+        provider_id = await _seed_custom_image_provider(
+            patched_session_factory, [{"model_id": "gpt-image-2", "endpoint": "openrouter-images", "is_default": True}]
+        )
+        key = f"{provider_id}/gpt-image-2"
+        project = {"image_provider_t2i": key, "model_settings": {key: {"resolution": "1K", "quality": "low"}}}
+
+        with capture_http() as router:
+            router.get("https://relay.test/v1/images/models").respond(json={"data": []})
+            ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+
+        assert (ctx.image.resolution, ctx.image.quality) == ("1K", None)
+
+    async def test_channel_without_explicit_quality_ignores_the_stored_value(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
+        """非 OpenAI 兼容的调用通道：条目收录了画质取值、项目存了画质，lane 也不带画质，请求不含它。"""
+        install_catalog(
+            monkeypatch, with_entry_facts(catalog.factory_snapshot(), "vidu", "viduq2", qualities=_QUALITIES)
+        )
+        project = {"image_provider_t2i": "vidu/viduq2", "model_settings": {"vidu/viduq2": {"quality": "low"}}}
+
+        ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
+
+        assert ctx.image.quality is None

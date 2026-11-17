@@ -58,3 +58,19 @@ def test_is_silent_covers_both_silent_paths(voice_consistency: str, requested_ge
         requested_generate_audio=requested_generate_audio,
     )
     assert settings.is_silent is expected
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        (VoiceRenderSettings(voice_consistency="native", max_reference_audio=2), 2),
+        (VoiceRenderSettings(voice_consistency="native", max_reference_audio=None), None),
+        (VoiceRenderSettings(voice_consistency="native", max_reference_audio=0), None),
+        (VoiceRenderSettings(voice_consistency="native", max_reference_audio=2, requested_generate_audio=False), None),
+        (VoiceRenderSettings(voice_consistency="soft", max_reference_audio=2), None),
+        (VoiceRenderSettings(voice_consistency="none", max_reference_audio=2), None),
+    ],
+)
+def test_planning_speaker_limit_only_when_reference_audio_is_bound(settings, expected):
+    """规划期说话人数上限只在参考音频确实随请求挂出时生效，与渲染层截断同用 native 档判定。"""
+    assert settings.planning_speaker_limit == expected

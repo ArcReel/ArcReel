@@ -251,6 +251,8 @@ export default {
   'action_wait_for_task': 'wait for the running attempt to finish',
   'action_replan_unit': 'rewrite this unit so it fits the length you can generate',
   'action_confirm_request_duration': 'confirm the requested length',
+  'action_configure_default_model': 'choose a model in Settings → Default models',
+  'act_configure_default_model': 'Set default model',
   'action_configure_provider': 'set the video or audio model in Settings',
   'action_repair_artifact_state': "repair this unit's file state",
   'action_retry_artifact_download': 'download the finished file again, without regenerating it',

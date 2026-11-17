@@ -26,12 +26,15 @@ FROM python:3.12-slim AS production
 
 # 安装系统依赖，并把基础镜像预装的系统包升级到当前仓库版本。
 # APT_REFRESH 由 CI 按 ISO 周传入，值变化时本层缓存失效，保证系统包定期刷新
+# git：Agent 派发子智能体时可以要求 worktree 隔离，Claude Code 先用 git 校验 WorktreeCreate 钩子
+# 返回的项目目录，缺少 git 就拒绝隔离，这次派发随之失败（钩子见 agent_runtime_profile/.claude/settings.json）
 ARG APT_REFRESH=unset
 RUN echo "apt refresh: ${APT_REFRESH}" \
     && apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     curl \
+    git \
     bubblewrap \
     socat \
     tzdata \

@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 OPENAI_RETRYABLE_ERRORS: tuple[type[Exception], ...] = ()
 
+#: 分辨率档位 → 请求的 ``quality``。只在项目没有选择画质，或模型没有有效画质可选值时使用：显式选择的画质原样发送，
+#: 档位只决定尺寸（docs/adr/0104）。保留这张映射是兼容规则，升级不改变已有项目的请求与费用预估。
 OPENAI_IMAGE_QUALITY_MAP: dict[str, str] = {
     "512px": "low",
     "1K": "medium",

@@ -1,0 +1,204 @@
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+<!-- review_stack_entry_start -->
+
+<a href="https://app.coderabbit.ai/change-stack/ArcReel/ArcReel/pull/3813?scope=REDACTED&amp;cs_source=review_comment"><picture><source media="(prefers-color-scheme: dark)" srcset="https://storage.googleapis.com/coderabbit_public_assets/review-stack-buttons-v1/explain-change-dark.svg"><source media="(prefers-color-scheme: light)" srcset="https://storage.googleapis.com/coderabbit_public_assets/review-stack-buttons-v1/explain-change.svg"><img src="https://storage.googleapis.com/coderabbit_public_assets/review-stack-buttons-v1/explain-change.svg" alt="Explain Change →" height="32"></picture></a>
+
+<!-- review_stack_entry_end -->
+<!-- walkthrough_start -->
+
+<details>
+<summary><strong>Walkthrough</strong></summary>
+<dl>
+<dd>
+<br>
+
+本次变更新增 Ark Agent Plan 专用 TTS 端点、后端实现、计费处理、错误文案和文档，并补充测试。草稿 schema 违约现在携带结构化错误信息，Web 视图可按界面语言显示约束原因。
+
+**Changes: Ark Agent Plan TTS**
+
+|Layer / File(s)|Summary|
+|:---|:---|
+|**端点接入与文档** <br> `packages/arcreel-catalog-core/.../endpoints.py`, `lib/backends/backend_assembly/specs.py`, `lib/config/registry.py`, `docs/api-docs/endpoints/*`, `docs/api-docs/providers/*`, `website/docs/guide/providers.md`, `website/i18n/en/docusaurus-plugin-content-docs/current/guide/providers.md`, `frontend/src/i18n/*/dashboard.ts`|新增音频端点和供应商规格，并补充端点索引、产品文档和界面显示名称。|
+|**后端实现** <br> `lib/backends/audio_backends/*`, `lib/backends/backend_runtime.py`|新增专用流式 TTS 后端，处理鉴权、请求组装、流解析、音频编码、失败分类和提交重试。|
+|**计费与错误反馈** <br> `lib/backends/audio_backends/base.py`, `lib/billing/ledger.py`, `lib/generation/*`, `lib/i18n/*`, `frontend/src/i18n/*/errors.ts`, `frontend/src/components/usage/UsageRecordsSection.detail.test.tsx`|音频结算改为优先使用上游计费字符数；新增失败码、错误文案、音色标签和使用说明。|
+|**验证** <br> `tests/loopback_http.py`, `tests/unit/lib/backends/audio_backends/*`, `tests/unit/lib/backends/backend_assembly/*`, `tests/unit/lib/billing/*`, `tests/integration/lib/backends/audio_backends/*`, `tests/integration/lib/generation/*`, `tests/integration/server/routers/test_provider_config_lanes.py`|新增单元和集成测试，覆盖协议、生成结果、计量、失败处理、连接错误和配置字段。|
+
+**草稿 schema 错误本地化**
+
+|Layer / File(s)|Summary|
+|:---|:---|
+|**结构化 schema 错误信息** <br> `lib/script/draft_violation.py`, `lib/script/script_generator.py`, `server/draft_workflow.py`|违约参数增加 schema 错误类型和受限上下文；空数组和提示词编写错误也添加结构化标记。|
+|**约束原因本地化** <br> `server/routers/script_review.py`, `lib/i18n/*/validation.py`|Web 视图使用 schema 错误类型和上下文生成本地化详情；四种语言新增对应模板。|
+|**草稿流程与本地化验证** <br> `tests/unit/lib/i18n/test_draft_violation_messages.py`, `tests/unit/server/routers/test_script_review_localization.py`, `tests/integration/server/agent_toolset/test_promote_draft.py`, `tests/integration/server/services/project/test_episode_drafts.py`|新增测试，验证 schema 模板、详情本地化和回退行为，以及草稿晋升和空数组错误展示。|
+
+<!-- change_assessment_start -->
+
+
+
+
+**Estimated code review effort:** 4  
+
+<!-- change_assessment_commit:"f250154adca3b572cdde28c4fea5acbb58097b84" -->
+<!-- change_assessment_priority:{"version":1,"urgency":"p2","manual":false} -->
+**Change:** Feature · **Severity of issue fixed:** Medium
+<!-- change_assessment_end -->
+
+**Fixed issue severity:** Medium
+
+**Possibly related issues**
+- [ArcReel/ArcReel#3747](https://github.com/ArcReel/ArcReel/issues/3747)：新增 Agent Plan TTS 后端、专属 API Key 接入和计量处理，对应该需求。
+- [ArcReel/ArcReel#3810](https://github.com/ArcReel/ArcReel/issues/3810)：新增 TTS 领域错误码及错误映射，与使用记录详情中的错误显示相关。
+- [ArcReel/ArcReel#3784](https://github.com/ArcReel/ArcReel/issues/3784)：草稿 schema 违约现在携带结构化原因，并按界面语言渲染。
+- [ArcReel/ArcReel#3629](https://github.com/ArcReel/ArcReel/issues/3629)：新增端点清单和起始版本信息，影响端点可用性推导。
+
+**Suggested labels:** `enhancement`
+
+</dd>
+</dl>
+</details>
+
+<!-- walkthrough_end -->
+<details>
+<summary><strong>Merge Risk:</strong> <strong><picture><img src="https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/risk-low-16.svg" width="16" height="16" align="absmiddle" alt=""></picture> Low</strong> · up to <code>f2501</code></summary>
+<dl>
+<dd>
+<br>
+
+<!-- final_review_risk_start -->
+<!-- final_review_risk_label
+**Merge Risk:** **🔵 Low** · up to `f2501`
+-->
+<!-- final_review_risk_coverage:{"sourceCommitId":"f250154adca3b572cdde28c4fea5acbb58097b84","coveredCommitId":"f250154adca3b572cdde28c4fea5acbb58097b84","kind":"reviewed"} -->
+
+The new Ark Agent Plan speech synthesis path and the schema-reason localization look mergeable. Remaining items are a Chinese-only configuration error for invalid API keys and a test that will need adjusting when the model catalog data lands; neither affects normal use.
+<!-- final_review_risk_end -->
+
+</dd>
+</dl>
+</details>
+<!-- pre_merge_checks_walkthrough_start -->
+
+<details>
+<summary><strong>Pre-merge checks: <sup><picture><img src="https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-counter-passed-14-v2.svg" width="14" height="14" align="middle" alt="Passed" title="Passed"></picture></sup> 3 · <sup><picture><img src="https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-counter-failed-14-v2.svg" width="14" height="14" align="middle" alt="Failed" title="Failed"></picture></sup> 1</strong></summary>
+<dl>
+<dd>
+<br>
+
+<strong><sup><picture><img src="https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-counter-failed-14-v2.svg" width="14" height="14" align="middle" alt="Failed" title="Failed"></picture></sup> Failed checks: 1 warning</strong>
+
+|         Check name         |                                              Status                                              | Explanation                                                                                                                                                                                                        | Resolution                                                                                                                                                                                                                                        |
+| :------------------------ | :----------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Out of Scope Changes check | ![Warning](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-warning.svg) | PR 仍包含与 `#3808` 无关的大量改动。这些改动实现 `#3747`（方舟 Agent Plan 豆包语音合成），而 `#3747` 不在直接关联议题中。PR 描述以 `#3747` 为标题主体，并使用 `Refs #3747`。<br><br>与 `#3808` 无关的改动包括：<br>- 新增 `lib/backends/audio_backends/ark_agent_plan.py`（`ArkAgentPlanAudi… | 将 `#3747` 的改动拆分到单独 PR，并在该 PR 中关联 `#3747`。拆分后，本 PR 只保留 `#3808` 相关改动：`lib/script/draft_violation.py`、`lib/script/script_generator.py`、`server/draft_workflow.py`、`server/routers/script_review.py`、`lib/i18n/*/validation.py`，以及对应测试（`test_draft_violati… |
+
+<details>
+<summary><strong><sup><picture><img src="https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-counter-passed-14-v2.svg" width="14" height="14" align="middle" alt="Passed" title="Passed"></picture></sup> Passed checks: 3 passed</strong></summary>
+<dl>
+<dd>
+<br>
+
+|      Check name     |                                             Status                                             | Explanation                                                                                                                                                                                                        |
+| :----------------- | :--------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|     Title check     | ![Passed](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-passed.svg) | 标题 feat(audio): 方舟 Agent Plan 支持豆包语音合成配音与试听 符合 Conventional Commit 格式，并概括了 PR 的主要变更：新增 Agent Plan 语音合成后端、内置端点、旁白配音与角色试音支持。变更中还包含 `#3808` 草稿结构校验说明的修复，标题未覆盖该部分，但作者已说明标题取前者，这属于可接受的范围。                                 |
+| Linked Issues check | ![Passed](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-passed.svg) | 直接关联议题只有 `#3808`。以下依据 PR 摘要、PR 描述与变更清单判断，未逐行读取差异。<br><br>需求与对应改动：<br>1. 网页显示约束原因 [`#3808` 范围 1]：`lib/script/draft_violation.py` 为 `schema_invalid` 写入 `SCHEMA_ERROR_PARAM`（`schema_error`，含 type、msg、ctx、input）。`serv… |
+|  Description check  | ![Passed](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-passed.svg) | PR 描述基本完整，覆盖模板的三个部分。「Summary」说明两项改动（#3747 方舟 Agent Plan 语音合成、#3808 草稿结构校验说明）；「Evidence」给出 QA、单元与集成测试及全量闸门结果；「Merge Danger」与「自行裁决」说明影响范围和取舍。模板要求的「Closes #」已用「Closes `#3808`」填写，「Refs `#3747`」也已注明。对照模板，PR 描述…          |
+
+<details>
+<summary><strong>Full details: Linked Issues check</strong></summary>
+<dl>
+<dd>
+<br>
+
+**Explanation**
+
+直接关联议题只有 `#3808`。以下依据 PR 摘要、PR 描述与变更清单判断，未逐行读取差异。
+
+需求与对应改动：
+1. 网页显示约束原因 [`#3808` 范围 1]：`lib/script/draft_violation.py` 为 `schema_invalid` 写入 `SCHEMA_ERROR_PARAM`（`schema_error`，含 type、msg、ctx、input）。`server/routers/script_review.py` 的 `localize_draft_view` 对已登记类型码使用各语言模板，并从 ctx 填入上限、下限与允许取值。未登记类型码回退到 pydantic 原文。`tests/unit/server/routers/test_script_review_localization.py` 覆盖上限、允许值与回退。
+2. 四种界面语言文案 [`#3808` 范围 1、验收条件 2]：`lib/i18n/{zh,en,ru,vi}/validation.py` 各新增 26 行 schema 约束模板。`tests/unit/lib/i18n/test_draft_violation_messages.py` 检查模板存在及跨语言占位符一致。
+3. 三处写死的 `detail` [`#3808` 范围 2]：`server/draft_workflow.py` 的空数组违约改为 `non_empty_list` 类型码；`lib/script/script_generator.py` 的 `prompt_authoring` 改为 `prompt_authoring_unreadable` 类型码。两者都有本地化模板。`tests/integration/server/services/project/test_episode_drafts.py` 覆盖空数组的本地化。
+4. Agent 读取的 `code` 与 `message` 不变 [`#3808` 范围 3]：`schema_error` 只在网页渲染时使用。`tests/integration/server/agent_toolset/test_promote_draft.py` 验证 `open_draft` 与 `promote_draft` 的结果。
+5. 旧条目兼容 [`#3808` 范围 4]：缺少 `schema_error` 的旧条目回退到原 `detail`。
+6. 回归用例 [验收条件 6]：PR 描述记录修复前 7 个用例失败，修复后通过。
+
+证据限制：PR 描述记录的全量闸门针对 `156ff7ef7`（tree 与最终代码相同）。当前 head 为 `f250154`，增量改动为文档与说明，未见 `#3808` 代码路径变化。`gate.py --changed` 未在当前 head 上重新核实。
+
+</dd>
+</dl>
+</details>
+
+<details>
+<summary><strong>Full details: Description check</strong></summary>
+<dl>
+<dd>
+<br>
+
+**Explanation**
+
+PR 描述基本完整，覆盖模板的三个部分。「Summary」说明两项改动（#3747 方舟 Agent Plan 语音合成、#3808 草稿结构校验说明）；「Evidence」给出 QA、单元与集成测试及全量闸门结果；「Merge Danger」与「自行裁决」说明影响范围和取舍。模板要求的「Closes #」已用「Closes `#3808`」填写，「Refs `#3747`」也已注明。对照模板，PR 描述使用「Summary」「Evidence」等章节名，与模板的「变更」「验证」「风险与遗留」章节名不一致，但内容可一一对应。另有两点不足：PR 标题未在描述中明确给出 Conventional Commit 格式（作者称标题取 `#3747` 一项，该标题见目标文档为 feat(audio)...，格式符合要求）；「变更」部分没有以模板的「-」列表形式逐条列出改动范围，改动说明分散在 Summary 与 diff 块中。这些不影响理解，因此判定为通过。
+
+</dd>
+</dl>
+</details>
+
+</dd>
+</dl>
+</details>
+
+<details>
+<summary><strong>Full details: Out of Scope Changes check</strong></summary>
+<dl>
+<dd>
+<br>
+
+**Explanation**
+
+PR 仍包含与 `#3808` 无关的大量改动。这些改动实现 `#3747`（方舟 Agent Plan 豆包语音合成），而 `#3747` 不在直接关联议题中。PR 描述以 `#3747` 为标题主体，并使用 `Refs #3747`。
+
+与 `#3808` 无关的改动包括：
+- 新增 `lib/backends/audio_backends/ark_agent_plan.py`（`ArkAgentPlanAudioBackend`）及其注册。
+- `packages/arcreel-catalog-core` 新增 `ark-agent-plan-tts` 端点；`lib/backends/backend_assembly/specs.py` 新增音频 ProviderSpec。
+- `lib/billing/ledger.py` 与 `lib/backends/audio_backends/base.py` 改为优先使用 `billed_characters`，改变音频记账口径。
+- `lib/backends/backend_runtime.py` 的 `submit_post` 新增 `log_response_body` 参数。
+- `lib/config/registry.py` 新增 `audio_max_workers`；`lib/generation/task_failure.py`、`generation_result.py` 新增 Ark TTS 失败码。
+- 前端 i18n 与测试、`lib/i18n/*/assets.py` 音色标签、`tests/loopback_http.py` 及音频相关测试。
+- `docs/api-docs/`、`website/docs/guide/providers.md` 中的 Ark TTS 说明。
+
+这些改动不实现 `#3808` 的任何验收条件。`Refs #3747` 不足以使其成为本 PR 的关联目标。PR 描述称两项改动为有意合并。该说明不改变事实：#3747 的代码改动存在于本 PR 中，且未被列为直接关联议题。
+
+**Resolution**
+
+将 `#3747` 的改动拆分到单独 PR，并在该 PR 中关联 `#3747`。拆分后，本 PR 只保留 `#3808` 相关改动：`lib/script/draft_violation.py`、`lib/script/script_generator.py`、`server/draft_workflow.py`、`server/routers/script_review.py`、`lib/i18n/*/validation.py`，以及对应测试（`test_draft_violation_messages.py`、`test_script_review_localization.py`、`test_episode_drafts.py`、`test_promote_draft.py`）。若维护者决定以 `#3747` 作为本 PR 的目标，则必须在 linkedIssues 中把 `#3747` 设为直接关联议题，并重新执行本评估。
+
+</dd>
+</dl>
+</details>
+
+</dd>
+</dl>
+</details>
+
+<!-- pre_merge_checks_walkthrough_end -->
+<!-- tips_start -->
+
+
+
+Thanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=ArcReel/ArcReel&utm_content=3813)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.
+
+<details>
+<summary><strong>Share</strong></summary>
+<dl>
+<dd>
+<br>
+
+- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)
+- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)
+- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)
+- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)
+
+</dd>
+</dl>
+</details>
+
+<!-- tips_end -->

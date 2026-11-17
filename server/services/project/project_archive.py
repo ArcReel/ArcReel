@@ -46,6 +46,7 @@ from lib.asset_library.links import (
     archivable_links,
 )
 from lib.catalog import query as catalog
+from lib.config import pre_upgrade_recommendations
 from lib.config.resolver import VideoGenerationType, project_video_backend_ids
 from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.infra.api_errors import BadGatewayError
@@ -83,6 +84,13 @@ from lib.project.project_migration_report import (
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v1_to_v2_normalize_providers import (
     migrate_project_dict as normalize_legacy_providers,
+)
+from lib.project.project_migrations.v19_to_v20_bare_provider_models import (
+    BareProviderModels,
+    installed_bare_provider_models,
+)
+from lib.project.project_migrations.v19_to_v20_bare_provider_models import (
+    migrate_project_dict as freeze_bare_provider_models,
 )
 from lib.project.project_schema import project_schema_is_current
 from lib.project.resource_paths import (
@@ -143,6 +151,31 @@ def provider_asset_link_archive_on(
 ) -> ProviderAssetLinkArchive:
     """给工作线程里的导出与导入用的关联读写：投回 ``bridge`` 的事件循环执行，只能在工作线程里使用。"""
     return _LinkArchiveOnLoop(bridge, session_factory)
+
+
+ImportRecommendations = Callable[[], BareProviderModels]
+
+
+def _no_bare_provider_models(provider_id: str, media_type: str) -> str | None:
+    return None
+
+
+def import_recommendations_on(
+    bridge: EventLoopBridge, session_factory: async_sessionmaker[AsyncSession]
+) -> ImportRecommendations:
+    """导入这一刻的推荐模型（当前目录、当前版本、去掉停用的），补全归档里只写了内置供应商的模型字段。
+
+    投回 ``bridge`` 的事件循环查停用状态，只能在工作线程里使用。
+    """
+
+    def _load() -> BareProviderModels:
+        async def _query() -> pre_upgrade_recommendations.RecommendationTable:
+            async with session_factory() as session:
+                return await pre_upgrade_recommendations.current_recommendations(session)
+
+        return bridge.run(_query()).model
+
+    return _load
 
 
 logger = logging.getLogger(__name__)
@@ -408,6 +441,7 @@ class ProjectArchiveService:
         retire_project: RetireProject | None = None,
         formal_commit: FormalCommit | None = None,
         provider_asset_links: ProviderAssetLinkArchive | None = None,
+        import_recommendations: ImportRecommendations | None = None,
     ):
         """``retire_project`` 收尾覆盖导入替换掉的现有项目，覆盖现有项目时必需。
 
@@ -416,11 +450,17 @@ class ProjectArchiveService:
 
         ``provider_asset_links`` 读写归档携带的供应商素材关联（:func:`provider_asset_link_archive_on`）；缺省时导出
         不带关联，导入也不写入。
+
+        ``import_recommendations`` 给出导入这一刻的推荐模型（:func:`import_recommendations_on`），补全旧归档里只写了
+        内置供应商的模型字段；缺省时按启动时装入的升级前推荐补全。
         """
         self.project_manager = project_manager
         self._retire_project = retire_project
         self._formal_commit = formal_commit
         self._provider_asset_links = provider_asset_links
+        self._import_recommendations = import_recommendations
+        # 每次导入开始时取一次，修复与迁移用同一份
+        self._bare_provider_models: BareProviderModels | None = None
         self.validator = DataValidator(projects_dir=str(project_manager.projects_dir))
 
     @asynccontextmanager
@@ -543,7 +583,7 @@ class ProjectArchiveService:
                     project_name=project_name,
                     scope=scope,
                 )
-        except Exception:
+        except BaseException:
             archive_path.unlink(missing_ok=True)  # hard-delete: temp -- 导出失败的半成品归档
             raise
         finally:
@@ -704,6 +744,7 @@ class ProjectArchiveService:
                 errors=[ValidationMessage("arch_conflict_policy_unsupported", {"value": conflict_policy})],
             )
 
+        self._bare_provider_models = self._import_recommendations() if self._import_recommendations else None
         try:
             with zipfile.ZipFile(archive_path) as archive:
                 members = self._scan_archive_members(archive)
@@ -756,7 +797,7 @@ class ProjectArchiveService:
                     except _ARTIFACT_ACTIVATION_ERRORS as exc:
                         self._raise_artifact_activation_validation_error(diagnostics, exc)
                     try:
-                        migrate_project_dir(staging_dir)
+                        migrate_project_dir(staging_dir, bare_provider_models=self._bare_provider_models)
                     except Exception as exc:
                         self._raise_migration_validation_error(diagnostics, exc)
                     if preserved_manifest is not None and staged:
@@ -878,57 +919,57 @@ class ProjectArchiveService:
     ) -> tuple[tempfile.TemporaryDirectory[str], Path, dict[str, Any], ArchiveDiagnostics]:
         source_dir = self.project_manager.get_project_path(project_name)
         temp_dir = tempfile.TemporaryDirectory(prefix="arcreel-export-")
-        snapshot_dir = Path(temp_dir.name) / project_name
-        source_manifest_entries = self._capture_stable_visible_tree(source_dir, snapshot_dir)
         try:
+            snapshot_dir = Path(temp_dir.name) / project_name
+            source_manifest_entries = self._capture_stable_visible_tree(source_dir, snapshot_dir)
             self._verify_remote_content(snapshot_dir, scope)
+            snapshot_versions_path = snapshot_dir / "versions" / "versions.json"
+            snapshot_versions = self._load_json_file(snapshot_versions_path)
+            if isinstance(snapshot_versions, dict) and self._drop_remote_locators(snapshot_versions):
+                self._write_json_file(snapshot_versions_path, snapshot_versions)
+
+            diagnostics = self._repair_project_tree(snapshot_dir)
+            # 源项目已在当前 schema 上，正文就位，与导入路径共用同一遍提及自愈。
+            self._repair_unit_mentions_tree(snapshot_dir, diagnostics)
+            diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
+
+            # 从源目录收集非标准顶层条目，记录到诊断中（即使已被过滤不导出）
+            excluded_entries = self._collect_pass_through_entries(source_dir)
+            for entry in excluded_entries:
+                diagnostics.add(
+                    "warnings",
+                    "non_standard_entry_excluded",
+                    ValidationMessage("arch_non_standard_entry_excluded", {"entry": entry}),
+                    location=entry,
+                )
+
+            snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
+            artifact_manifest = None
+            if isinstance(snapshot_project, dict) and project_schema_is_current(snapshot_project):
+                if source_manifest_entries is None:
+                    raise ArtifactManifestError("archive snapshot has no matching Artifact Manifest state")
+                artifact_manifest = encode_artifact_manifest_payload(
+                    snapshot_preserved_artifact_manifest(
+                        snapshot_dir,
+                        source_manifest_entries,
+                        # 仅当前版本的包只带选中版本的快照（CURRENT_EXPORT_VERSION_RETENTION）
+                        ships_unselected_versions=scope == "full",
+                    )
+                )
+            manifest = self._build_archive_manifest(
+                project_name,
+                snapshot_project,
+                scope=scope,
+                # 归档内的诊断快照是随包分发的数据，按默认语言渲染——导入方与导出方的语言未必相同，
+                # 面向请求的渲染只发生在 router 边界。
+                diagnostics=diagnostics.to_export_payload(),
+                pass_through_entries=excluded_entries,
+                artifact_manifest=artifact_manifest,
+            )
+            return temp_dir, snapshot_dir, manifest, diagnostics
         except BaseException:
             temp_dir.cleanup()
             raise
-        snapshot_versions_path = snapshot_dir / "versions" / "versions.json"
-        snapshot_versions = self._load_json_file(snapshot_versions_path)
-        if isinstance(snapshot_versions, dict) and self._drop_remote_locators(snapshot_versions):
-            self._write_json_file(snapshot_versions_path, snapshot_versions)
-
-        diagnostics = self._repair_project_tree(snapshot_dir)
-        # 源项目已在当前 schema 上，正文就位，与导入路径共用同一遍提及自愈。
-        self._repair_unit_mentions_tree(snapshot_dir, diagnostics)
-        diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
-
-        # 从源目录收集非标准顶层条目，记录到诊断中（即使已被过滤不导出）
-        excluded_entries = self._collect_pass_through_entries(source_dir)
-        for entry in excluded_entries:
-            diagnostics.add(
-                "warnings",
-                "non_standard_entry_excluded",
-                ValidationMessage("arch_non_standard_entry_excluded", {"entry": entry}),
-                location=entry,
-            )
-
-        snapshot_project = self._load_json_file(snapshot_dir / self.project_manager.PROJECT_FILE)
-        artifact_manifest = None
-        if isinstance(snapshot_project, dict) and project_schema_is_current(snapshot_project):
-            if source_manifest_entries is None:
-                raise ArtifactManifestError("archive snapshot has no matching Artifact Manifest state")
-            artifact_manifest = encode_artifact_manifest_payload(
-                snapshot_preserved_artifact_manifest(
-                    snapshot_dir,
-                    source_manifest_entries,
-                    # 仅当前版本的包只带选中版本的快照（CURRENT_EXPORT_VERSION_RETENTION）
-                    ships_unselected_versions=scope == "full",
-                )
-            )
-        manifest = self._build_archive_manifest(
-            project_name,
-            snapshot_project,
-            scope=scope,
-            # 归档内的诊断快照是随包分发的数据，按默认语言渲染——导入方与导出方的语言未必相同，
-            # 面向请求的渲染只发生在 router 边界。
-            diagnostics=diagnostics.to_export_payload(),
-            pass_through_entries=excluded_entries,
-            artifact_manifest=artifact_manifest,
-        )
-        return temp_dir, snapshot_dir, manifest, diagnostics
 
     def _build_archive_manifest(
         self,
@@ -1740,8 +1781,12 @@ class ProjectArchiveService:
         # 偏移由之后的预检 / 执行取档承担。
         # provider 先在副本上归一化：本方法跑在 migrate_project_dir 之前，存量归档里可能还是
         # legacy 别名（如 gemini/…），registry 查不到会让档位解析落空，而迁移幂等、归一化之后
-        # 再无机会取档。归一化是纯函数且幂等，不影响随后的正式迁移。
-        normalized_project = normalize_legacy_providers(project_payload)
+        # 再无机会取档。只写了供应商的旧值同样先按导入这一刻的推荐补上模型（v19→v20 的同一改写），否则查不到档位。
+        # 两步都是纯函数且幂等，不影响随后的正式迁移。
+        normalized_project = freeze_bare_provider_models(
+            normalize_legacy_providers(project_payload),
+            self._bare_provider_models or installed_bare_provider_models() or _no_bare_provider_models,
+        )
         migrated, migration_warnings = migrate_unit_durations(
             raw_units, supported_durations=_registry_supported_durations(normalized_project)
         )
@@ -1790,7 +1835,7 @@ class ProjectArchiveService:
             ):
                 changed = True
 
-            # 缩略图无版本历史，仅在 canonical 文件存在时规范化路径
+            # 缩略图无版本历史：只在原引用读不到且 canonical 文件存在时改指 canonical
             if self._repair_path_to_canonical(
                 project_dir,
                 assets,
@@ -1941,6 +1986,9 @@ class ProjectArchiveService:
         resolved_raw = self._resolve_existing_relative(project_dir, normalized_value)
 
         if canonical_path.exists():
+            # 有效的原引用优先，规范落点可能属于另一字段的不同内容。
+            if resolved_raw and resolved_raw != canonical_rel:
+                return False
             if normalized_value != canonical_rel:
                 payload[field_name] = canonical_rel
                 diagnostics.add(

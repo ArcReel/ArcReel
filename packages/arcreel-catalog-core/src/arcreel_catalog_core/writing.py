@@ -33,6 +33,12 @@ def _facts(facts: ModelFacts) -> dict[str, object]:
                 {
                     "max_reference_images": facts.max_reference_images,
                     "output_token_bases": dict(facts.output_token_bases) or None,
+                    "output_token_scaled_bases": {
+                        quality: {"base": rule.base, "multiplier": rule.multiplier}
+                        for quality, rule in facts.output_token_scaled_bases.items()
+                    }
+                    or None,
+                    "qualities": list(facts.qualities) or None,
                 },
             )
             return raw

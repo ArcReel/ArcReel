@@ -62,6 +62,25 @@ export function showsEpisodeSource(
   return meta !== undefined && !script && !hasEpisodeDraft(meta) && projectData?.content_mode !== "ad" && !demo;
 }
 
+/** 本集原文的来源，以分集账本为准；账本没写时按有无原文范围推断，不看磁盘上有没有同名文件。 */
+export function episodeSourceOrigin(meta: EpisodeMeta | undefined): NonNullable<EpisodeMeta["source_origin"]> {
+  return meta?.source_origin ?? (meta?.source_range ? "whole_source" : "none");
+}
+
+/**
+ * 集页提供只读的「查看原文」：已有正式剧本，且账本记录本集有原文。没有剧本时原文由脚本规划视图呈现；
+ * 广告/短片与演示项目没有集原文可看。
+ */
+export function canViewEpisodeSource(
+  projectData: ProjectData | null,
+  episode: number,
+  script: EpisodeScript | null,
+  demo: boolean,
+): boolean {
+  const meta = projectData?.episodes?.find((entry) => entry.episode === episode);
+  return meta !== undefined && Boolean(script) && episodeSourceOrigin(meta) !== "none" && projectData?.content_mode !== "ad" && !demo;
+}
+
 export interface EpisodeViewTab {
   view: EpisodeView;
   disabled: boolean;

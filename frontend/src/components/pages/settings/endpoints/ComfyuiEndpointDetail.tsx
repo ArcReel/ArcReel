@@ -271,6 +271,8 @@ export function ComfyuiEndpointDetail({
   const blockerText = (blocker: ComfyuiSaveBlocker): string => {
     const name = blocker.key ? t(`ce_cf_key_${blocker.key}`) : "";
     switch (blocker.code) {
+      case "aspect_mapping":
+        return t("ce_cf_blocked_aspect_mapping");
       case "placeholder_name":
         return t("ce_cf_blocked_name");
       case "required_unbound":

@@ -17,6 +17,7 @@ import {
   catalogDurations,
   lookupCatalogVideoAudio,
   lookupEndpointConstraints,
+  lookupQualities,
   lookupResolutions,
   lookupVideoAudioControl,
   resolutionPlaceholder,
@@ -52,6 +53,8 @@ export interface ModelConfigValue {
   videoResolution: string | null;
   videoResolutions?: Record<string, string | null>;
   imageResolution: string | null;
+  /** 图片执行模型的画质；null 即未选择，后端按分辨率档位推出画质。存值原样保留，不在这里去空白。 */
+  imageQuality: string | null;
 }
 
 export interface ModelConfigSectionProps {
@@ -215,7 +218,9 @@ export function ModelConfigSection({
   const withImageLayer = (base: ModelConfigValue, patch: Partial<ModelConfigValue>): ModelConfigValue => {
     const next = { ...base, ...patch };
     const nextExecuting = executingImageModel(next, globalDefaults);
-    return nextExecuting === executingImageModel(base, globalDefaults) ? next : { ...next, imageResolution: null };
+    return nextExecuting === executingImageModel(base, globalDefaults)
+      ? next
+      : { ...next, imageResolution: null, imageQuality: null };
   };
 
   const applyVideoLayer = (patch: Partial<ModelConfigValue>) => onChange(withVideoLayer(value, patch));
@@ -250,6 +255,7 @@ export function ModelConfigSection({
           bucket: "i2v",
           value: value.videoProviderI2V,
           options: mediaCandidates?.video.buckets.i2v ?? [],
+          filtered: mediaCandidates?.video.filtered.i2v,
           effective: effectiveModel(value.videoBackend, globalDefaults.videoI2V, globalDefaults.video),
           auto: globalDefaults.auto?.i2v,
           onChange: (next: string) => applyVideoLayer({ videoProviderI2V: next }),
@@ -260,6 +266,7 @@ export function ModelConfigSection({
           bucket: "r2v",
           value: value.videoProviderR2V,
           options: mediaCandidates?.video.buckets.r2v ?? [],
+          filtered: mediaCandidates?.video.filtered.r2v,
           effective: effectiveModel(value.videoBackend, globalDefaults.videoR2V, globalDefaults.video),
           auto: globalDefaults.auto?.r2v,
           onChange: (next: string) => applyVideoLayer({ videoProviderR2V: next }),
@@ -275,6 +282,7 @@ export function ModelConfigSection({
           bucket: "t2i",
           value: value.imageBackendT2I,
           options: mediaCandidates?.image.buckets.t2i ?? [],
+          filtered: mediaCandidates?.image.filtered.t2i,
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageT2I, globalDefaults.image),
           auto: globalDefaults.auto?.t2i,
           onChange: (next: string) => applyImageLayer({ imageBackendT2I: next }),
@@ -285,6 +293,7 @@ export function ModelConfigSection({
           bucket: "i2i",
           value: value.imageBackendI2I,
           options: mediaCandidates?.image.buckets.i2i ?? [],
+          filtered: mediaCandidates?.image.filtered.i2i,
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageI2I, globalDefaults.image),
           auto: globalDefaults.auto?.i2i,
           onChange: (next: string) => applyImageLayer({ imageBackendI2I: next }),
@@ -308,6 +317,19 @@ export function ModelConfigSection({
     usesReferenceImages: false,
     enabled: !!usesReferenceImages && !!value.videoResolutions,
   });
+  // 这条生成路径的执行模型取自本卡片的引用（该路径的细分项优先，其次默认层），且那里已显示「已下线」或「不可用」
+  // 提示时，能力查询的报错说的是同一件事，不再重复显示。即将下线的模型仍可调用，报错另有原因，照常显示；执行模型
+  // 来自全局默认、或来自本页未显示的细分项时，本页没有对应提示，也照常显示。别的路径引用了同一模型不算。
+  const videoModelError = (bucketReference: string, error: string | null) => {
+    const reference = bucketReference ? (showSubFields ? bucketReference : "") : value.videoBackend;
+    const status = reference ? candidates?.lifecycle?.[reference]?.status : undefined;
+    return status === "discontinued" || status === "unavailable" ? null : error;
+  };
+  const executingVideoError = videoModelError(
+    usesReferenceImages ? value.videoProviderR2V : value.videoProviderI2V,
+    capabilities.videoModelError,
+  );
+  const executingI2VError = videoModelError(value.videoProviderI2V, i2vCapabilities.videoModelError);
   const { rawDurations, supportedDurations, voiceConsistency } = capabilities;
   // 约束上下文（分辨率 / 参考图路径）变了但模型没变时，旧的收窄结果会一直挂到新结果落地：
   // 这样切档位不闪加载态，但这段窗口里的选项属于上一个上下文。期间只展示、不接受选择，
@@ -395,6 +417,7 @@ export function ModelConfigSection({
     resolution: string | null,
     onResolutionChange: (v: string | null) => void,
     label = t("resolution_label"),
+    flagStale = false,
   ) => {
     const res = lookupResolutions(providers, backend, customProviders, endpointToMediaType);
     if (res.options.length === 0) return null;
@@ -402,6 +425,8 @@ export function ModelConfigSection({
     // 只会让用户以为自己选的档位生效了。
     const constraints = lookupEndpointConstraints(backend, customProviders, endpointConstraints);
     const sizeFixed = constraints?.sizeFixed ?? false;
+    // 失效存值只在下拉形态下提示：输入框形态允许自由填写，候选之外的值是用户有意为之。
+    const stale = flagStale && !res.isCustom && resolutionStale(resolution, res.options);
     return (
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
@@ -418,6 +443,43 @@ export function ModelConfigSection({
         </div>
         {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
         {sizeFixed && <p className="text-xs text-muted-foreground">{t("resolution_fixed_hint")}</p>}
+        {stale && (
+          <InlineWarning
+            message={t("resolution_unavailable_notice", { value: resolution })}
+            action={{ label: t("resolution_reset_default"), onClick: () => onResolutionChange(null) }}
+          />
+        )}
+      </div>
+    );
+  };
+
+  // 画质只在执行模型有有效可选值时出现；取值原样列出、不翻译，新增取值不依赖发版补译文。
+  const renderImageQualityField = () => {
+    const qualities = lookupQualities(providers, executingImage, customProviders);
+    if (qualities.length === 0) return null;
+    // 下拉按清洗后的存值选中，与后端读到的一致；表单里的存值保持原样，不经用户操作不改写。
+    const quality = storedValue(value.imageQuality);
+    const stale = quality !== null && !qualities.includes(quality);
+    const setQuality = (next: string | null) => onChange({ ...value, imageQuality: next });
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">{t("quality_label")}</span>
+          <ResolutionPicker
+            mode="select"
+            options={qualities}
+            value={quality}
+            onChange={setQuality}
+            placeholder={t("quality_auto_placeholder")}
+            aria-label={t("quality_label")}
+          />
+        </div>
+        {stale && (
+          <InlineWarning
+            message={t("quality_unavailable_notice", { value: quality })}
+            action={{ label: t("quality_reset_auto"), onClick: () => setQuality(null) }}
+          />
+        )}
       </div>
     );
   };
@@ -533,9 +595,7 @@ export function ModelConfigSection({
             (v) => onChange({ ...value, videoResolutions: { ...value.videoResolutions, [executingI2V]: v } }),
             `${bucketLabels.i2v.label} · ${t("resolution_label")}`,
           )}
-          {usesReferenceImages && i2vCapabilities.videoModelError && (
-            <InlineWarning message={i2vCapabilities.videoModelError} />
-          )}
+          {usesReferenceImages && executingI2VError && <InlineWarning message={executingI2VError} />}
           {renderResolutionField(
             executingVideo,
             value.videoResolution,
@@ -546,7 +606,7 @@ export function ModelConfigSection({
               ? `${bucketLabels.r2v.label} · ${t("resolution_label")}`
               : t("resolution_label"),
           )}
-          {capabilities.videoModelError && <InlineWarning message={capabilities.videoModelError} />}
+          {executingVideoError && <InlineWarning message={executingVideoError} />}
 
           {/* 档位空集且该模型的时长本就不由 ArcReel 驱动：控件无从渲染，但要说清为什么没有，
               否则用户只会看见时长这一节凭空消失。 */}
@@ -651,9 +711,14 @@ export function ModelConfigSection({
             subFieldsError={mediaCandidatesError}
             lifecycle={candidates?.lifecycle}
           >
-            {renderResolutionField(executingImage, value.imageResolution, (v) =>
-              onChange({ ...value, imageResolution: v }),
+            {renderResolutionField(
+              executingImage,
+              value.imageResolution,
+              (v) => onChange({ ...value, imageResolution: v }),
+              t("resolution_label"),
+              true,
             )}
+            {renderImageQualityField()}
           </LayeredModelFields>
         </ChannelCard>
       )}
@@ -703,6 +768,26 @@ export function ModelConfigSection({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Stale stored values
+// ---------------------------------------------------------------------------
+
+/** 未选择：null 与纯空白都按未设置读，与后端读取存值的清洗一致。 */
+function storedValue(stored: string | null): string | null {
+  const trimmed = stored?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * 已存分辨率不在当前选项内。比较不区分大小写、忽略首尾空白，与 OpenAI Images 通道读取档位的
+ * 口径一致，`2k` 这类能正常生成的写法不提示。
+ */
+function resolutionStale(stored: string | null, options: readonly string[]): boolean {
+  const value = storedValue(stored)?.toLowerCase();
+  return value !== undefined && !options.some((option) => option.trim().toLowerCase() === value);
+}
+
 
 // ---------------------------------------------------------------------------
 // Duration sub-components

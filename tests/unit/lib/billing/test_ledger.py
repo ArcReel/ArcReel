@@ -21,13 +21,14 @@ from openai import BadRequestError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from arcreel_catalog_core import parse_entry
 from arcreel_market_core.video_backend_contract import ResumeExpiredError
 from lib.agent.credential_tiers import AgentPricing
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import CallPurpose, CallStatus
 from lib.backends.text_backends.base import TextGenerationResult, merge_billed_usage
 from lib.billing.ledger import Ledger, _settlement_from_result
-from lib.billing.metering import Usage, token_usage
+from lib.billing.metering import Priced, Usage, price_usage, token_usage
 from lib.db.base import utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import AgentModelCall, UsageRepository
@@ -73,6 +74,7 @@ class _AudioResult:
     text: str = "念" * 25_000
     input_tokens: int | None = None
     audio_output_tokens: int | None = None
+    billed_characters: int | None = None
 
 
 @dataclass
@@ -100,6 +102,28 @@ class TestSettlementDispatch:
         s = _settlement_from_result("audio", _AudioResult(text="念" * 25_000))
         assert s.usage_tokens == 25_000
         assert [usage.text for usage in s.usage] == ["念" * 25_000]
+
+    def test_audio_prefers_the_billed_character_count_the_provider_reports(self) -> None:
+        # 供应商回报了计费字符数：字符数计量项与 usage_tokens 都取它，不再按文本统计
+        s = _settlement_from_result("audio", _AudioResult(text="你好，世界", billed_characters=7))
+        assert s.usage_tokens == 7
+        [usage] = s.usage
+        assert (dict(usage.quantities), usage.text) == ({"characters": 7}, None)
+        table = parse_entry(
+            {
+                "maker": "bytedance",
+                "name": "seed-tts-2.0",
+                "media_type": "audio",
+                "display_name": "TTS",
+                "facts": {},
+                "price": {
+                    "currency": "CNY",
+                    "meters": [{"meter": "characters", "dims": [], "rows": [{"when": {}, "price": 3.0}]}],
+                },
+            }
+        ).price
+        # 3 元 / 万字符 × 7 字符
+        assert price_usage(table, usage, multiplier=1.0) == Priced(pytest.approx(0.0021), "CNY")
 
     def test_video_transcribes_duration_to_billed(self) -> None:
         # 语义转写②：backend 实际计费时长 → billed_duration_seconds（覆盖请求时长）

@@ -38,6 +38,7 @@ import type {
 import { errMsg, voidCall } from "@/utils/async";
 import { parseMultiplier } from "@/utils/multiplier";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS, resolutionPlaceholder } from "@/utils/provider-models";
+import { BuiltinEndpointSelect } from "./BuiltinEndpointSelect";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { EndpointSelect } from "./EndpointSelect";
 import { ProviderCapabilityOverrides } from "./ProviderCapabilityOverrides";
@@ -264,6 +265,8 @@ function ModelSheetForm({
   const official = detail.model.official;
   const userOwned = !official;
   const isCustom = custom !== undefined && detail.endpoint !== null;
+  // 内置供应商下用户添加的模型：调用端点只能在这个供应商的内置调用端点里选
+  const builtinEndpoint = !isCustom && userOwned && detail.endpoint !== null;
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
   const setValidity = useCallback((key: string, valid: boolean) => {
     setInvalidKeys((prev) => {
@@ -302,6 +305,7 @@ function ModelSheetForm({
           patch.capability_overrides = Object.keys(value.overrides).length > 0 ? value.overrides : null;
         }
       }
+      if (builtinEndpoint && value.endpoint !== saved.endpoint) patch.endpoint = value.endpoint;
       if (isCustom) {
         if (!value.endpoint) throw new Error(t("cp_model_endpoint_unselected"));
         if (value.endpoint !== saved.endpoint) patch.endpoint = value.endpoint;
@@ -333,7 +337,7 @@ function ModelSheetForm({
       onSaved(updated.model, detail.model.model_id);
       return draftOf(updated);
     },
-    [isCustom, userOwned, providerInvalid, entryInvalid, providerId, detail.model.model_id, detail.entry, onDetailChange, onSaved, t],
+    [isCustom, builtinEndpoint, userOwned, providerInvalid, entryInvalid, providerId, detail.model.model_id, detail.entry, onDetailChange, onSaved, t],
   );
   const unit = useEditUnit({ source, save, isEqual: sameDraft, leaveTitle: t("pm_sheet_leave_title", { name: detail.model.display_name ?? detail.model.model_id }) });
   const draft = unit.value;
@@ -346,7 +350,7 @@ function ModelSheetForm({
     requestCloseRef.current = busy ? () => confirmLeave(onClose) : onClose;
   }, [busy, confirmLeave, onClose, requestCloseRef]);
 
-  const endpointChanged = isCustom && draft.endpoint !== detail.endpoint;
+  const endpointChanged = (isCustom || builtinEndpoint) && draft.endpoint !== detail.endpoint;
   const endpointMedia = useEndpointCatalogStore((s) => s.endpointToMediaType[draft.endpoint]);
   const endpointConstraints = useEndpointCatalogStore((s) => s.endpointConstraints[draft.endpoint]);
   const endpointRequests = useEndpointCatalogStore((s) => s.endpoints.find((e) => e.key === draft.endpoint)?.requests);
@@ -481,6 +485,24 @@ function ModelSheetForm({
                   {t("cp_open_endpoint")}
                 </Link>
               )}
+            </FieldRow>
+          )}
+
+          {builtinEndpoint && (
+            <FieldRow label={t("endpoint_label")} htmlFor={`${idPrefix}-endpoint`}>
+              <BuiltinEndpointSelect
+                id={`${idPrefix}-endpoint`}
+                value={draft.endpoint}
+                options={detail.endpoint_options}
+                onChange={(endpoint) =>
+                  // 换回原来的端点时取回保存的参数修改；换到别的端点时作废，保存后再按新端点修改
+                  unit.setValue((prev) => ({
+                    ...prev,
+                    endpoint,
+                    overrides: endpoint === detail.endpoint ? source.overrides : {},
+                  }))
+                }
+              />
             </FieldRow>
           )}
 

@@ -496,7 +496,7 @@ def test_malformed_worker_warnings_are_skipped_not_fatal() -> None:
                         "not a dict",
                         {"params": {}},
                         {"key": "", "params": {}},
-                        {"key": "ref_sora_single_ref"},
+                        {"key": "ref_single_ref_only"},
                     ],
                 },
             ),
@@ -506,7 +506,7 @@ def test_malformed_worker_warnings_are_skipped_not_fatal() -> None:
     )
 
     items = {item.unit_id: item for item in builder.build().items}
-    assert items["A"].warnings == [GenerationWarning(key="ref_sora_single_ref", params={})]
+    assert items["A"].warnings == [GenerationWarning(key="ref_single_ref_only", params={})]
     assert items["B"].warnings == []
 
 
@@ -550,7 +550,7 @@ def test_worker_warnings_whose_params_shadow_translate_arguments_are_skipped() -
                     "file_path": "storyboards/scene_A.png",
                     "warnings": [
                         {"key": "ref_too_many_images", "params": {"key": "x", "locale": "en"}},
-                        {"key": "ref_sora_single_ref", "params": {}},
+                        {"key": "ref_single_ref_only", "params": {}},
                     ],
                 },
             )
@@ -559,7 +559,7 @@ def test_worker_warnings_whose_params_shadow_translate_arguments_are_skipped() -
     )
 
     items = {item.unit_id: item for item in builder.build().items}
-    assert items["A"].warnings == [GenerationWarning(key="ref_sora_single_ref", params={})]
+    assert items["A"].warnings == [GenerationWarning(key="ref_single_ref_only", params={})]
 
 
 def test_a_failed_batch_item_keeps_the_old_artifact_and_its_status() -> None:

@@ -27,9 +27,10 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
 )
 from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
+from lib.backends.backend_assembly.specs import builtin_model_endpoint
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import PROVIDER_KLING
-from lib.backends.video_backends.kling import KlingVideoBackend
+from lib.backends.video_backends.kling import KLING_BACKENDS, KlingVideoBackend
 from lib.backends.video_backends.registry import effective_generate_audio_for_model
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request
@@ -74,11 +75,15 @@ def _query(status: str, url: str = "", status_msg: str = "") -> dict:
 
 
 def _jwt_backend(model: str | None = None) -> KlingVideoBackend:
-    return KlingVideoBackend(auth_mode="jwt", access_key="ak-1", secret_key=_SECRET, model=model)
+    return KLING_BACKENDS[builtin_model_endpoint("kling", "video", model or "kling-v2-5-turbo")](
+        auth_mode="jwt", access_key="ak-1", secret_key=_SECRET, model=model
+    )
 
 
-def _bearer_backend(model: str | None = None) -> KlingVideoBackend:
-    return KlingVideoBackend(auth_mode="bearer", api_key="static-key", model=model)
+def _bearer_backend(model: str | None = None, *, endpoint: str | None = None) -> KlingVideoBackend:
+    return KLING_BACKENDS[endpoint or builtin_model_endpoint("kling", "video", model or "kling-v2-5-turbo")](
+        auth_mode="bearer", api_key="static-key", model=model
+    )
 
 
 def _effective(model: str, service_tier: str = "std") -> VideoCapabilities:
@@ -204,12 +209,11 @@ class TestPerModelCapabilities:
         assert vc.first_frame is True
         assert vc.max_reference_images == 4
 
-    def test_prefixed_and_cased_model_normalizes_to_registered_caps(self):
-        # 中转 model_id 带厂商前缀（仓库既有约定 / 与 :）+ 非规范大小写/空白：归一化后仍命中已登记的请求形态
-        # （v3-omni 走 omni 音轨形态），生成时防御与 resolver 裁剪同源。
+    def test_the_same_endpoint_keeps_its_capabilities_when_the_model_name_changes(self):
+        # 请求形态由所选端点决定，中转模型名不影响通道能力。
         registered = _bearer_backend("kling-v3-omni").video_capabilities
         for model in ("vendor/Kling-V3-Omni", "provider:kling-v3-omni", "  provider:kling-v3-omni  "):
-            assert _bearer_backend(model).video_capabilities == registered
+            assert _bearer_backend(model, endpoint="kling-video-audio").video_capabilities == registered
 
     def test_future_version_does_not_inherit_caps_by_substring(self):
         # 形如 kling-v3-omni-pro 的未登记型号不得被子串误判继承已登记型号的请求形态，拿通道声明本身。
@@ -250,7 +254,7 @@ class TestAudioGating:
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
         )
-        assert payload["sound"] == "off"
+        assert "sound" not in payload
 
     def test_1080p_resolves_pro_mode_and_enables_v2_6_audio(self, tmp_path):
         # 选 1080p 即 pro 档，不依赖 service_tier（生产路径从不写入它）
@@ -277,7 +281,7 @@ class TestAudioGating:
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="4k", service_tier="pro", generate_audio=True)
         )
-        assert payload["sound"] == "off"
+        assert "sound" not in payload
 
     def test_v3_audio_enabled_without_tier_constraint(self, tmp_path):
         # v3 系官方未声明分辨率/档位约束：请求要人声即开启，不按未记载的限制降级
@@ -344,7 +348,7 @@ class TestMultiImageSubpath:
         展示层（设置页音频开关置灰）与入队预检读的就是这一份；两者若各写一遍，界面会继续
         放行一个执行期必然被丢弃的开关——用户开了音频却拿到无声成片。
         """
-        caps = KlingVideoBackend.video_capabilities_for_model("kling-v3-omni")
+        caps = KLING_BACKENDS["kling-video-audio"].video_capabilities_for_model("kling-v3-omni")
         assert caps.audio_track_for_route("i2v") is VideoAudioMode.CONTROLLABLE
         assert caps.audio_track_for_route("r2v") is VideoAudioMode.ALWAYS_OFF
 
@@ -651,7 +655,8 @@ class TestPayloadBuilding:
                     tmp_path,
                     start_image=first,
                     end_image=last,
-                    video_capabilities=_effective("kling-unlisted-model"),
+                    video_capabilities=_effective("kling-unlisted-model", "pro"),
+                    service_tier="pro",
                 )
             )
         assert exc.value.code == "video_last_frame_unsupported"

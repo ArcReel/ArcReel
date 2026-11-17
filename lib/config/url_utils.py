@@ -95,6 +95,16 @@ def ensure_google_base_url(url: str | None) -> str | None:
     return url
 
 
+#: 路径覆盖 ``strip_version`` 规则剥去的末尾版本段（``/v1``、``/v2beta``、``/v1.5``）。只认 ASCII 数字，与前端
+#: ``RequestAddresses`` 的 ``VERSION_SUFFIX`` 同口径：JS 的 ``\d`` 只匹配 ASCII，Python 默认还匹配全角数字。
+_VERSION_SUFFIX = re.compile(r"/v\d+(?:\.\d+)?[a-zA-Z]*$", re.ASCII)
+
+
+def strip_base_url_version(base_url: str) -> str:
+    """按 ``strip_version`` 规则剥去 base_url 末尾的版本段；调用方先补协议、去尾斜杠。"""
+    return _VERSION_SUFFIX.sub("", base_url)
+
+
 class InvalidAnthropicBaseUrlError(ValueError):
     """Agent 凭证 base_url 含不支持的成分（query / fragment / userinfo）或不是绝对 http(s) 地址。"""
 

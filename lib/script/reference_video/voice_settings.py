@@ -91,6 +91,20 @@ class VoiceRenderSettings:
         """
         return self.voice_consistency == "none" or not self.requested_generate_audio
 
+    @property
+    def planning_speaker_limit(self) -> int | None:
+        """规划期单个视频单元的说话人数上限；None 为不约束。
+
+        只在参考音频确实会随请求挂出时生效：``native`` 档（项目绑定为参考音频、模型直接接受参考音频、
+        参考生视频模式，见 :func:`lib.config.resolver.derive_voice_consistency`）且本集有声。上限取
+        参考音频段数上限，未收录（None）或不接受（0）时同样不约束——0 段时没有参考音频可绑，约束说话人数
+        只会把所有台词拦下。与渲染层截断（:func:`lib.script.reference_video.script_preview
+        .derive_voice_bindings`）同用这一档判定，规划约束不会在截断不发生的配置下生效。
+        """
+        if self.voice_consistency != "native" or self.is_silent or not self.max_reference_audio:
+            return None
+        return self.max_reference_audio
+
 
 def _audio_count(value: object) -> int | None:
     """能力 dict 里的参考音频段数上限：``None`` 为未收录（不截断），其余按整数读，读不出时按 0。"""

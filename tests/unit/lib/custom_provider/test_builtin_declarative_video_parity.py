@@ -191,6 +191,17 @@ CASES = [
         id="minimax/h3-default-resolution",
     ),
     pytest.param(
+        "minimax-h3",
+        "MiniMax-H3",
+        {"resolution": "480p"},
+        {"task_id": "t-1"},
+        [{"task": {"status": "succeeded", "content": {"url": "https://cdn.test/mm/h3.mp4"}}}],
+        _h3_body(resolution="480P"),
+        "https://cdn.test/mm/h3.mp4",
+        None,
+        id="minimax/h3-480p-resolution",
+    ),
+    pytest.param(
         # 显式指定时缺省值不得插手：请求带的是调用方选的档位，经 enum_maps 映射为供应商侧字面。
         "minimax-h3",
         "MiniMax-H3",
@@ -657,7 +668,7 @@ def _request(tmp_path: Path) -> VideoGenerationRequest:
 def test_minimax_models_route_to_their_own_endpoint(model: str, endpoint: str):
     """一份定义一种请求形状加一组能力：2.3-Fast 与 2.3 形状相同但仅图生视频，故各占一键。
 
-    发现路由与 `backend_assembly.specs._minimax_video_endpoint` 的派发口径必须一致，否则会出现
+    发现路由与 官方数据声明的端点必须一致，否则会出现
     「发现落 Fast 键、派发却回落 2.3 键」的裂缝。
     """
     assert infer_endpoint(model, "openai") == endpoint

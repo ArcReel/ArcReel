@@ -38,6 +38,7 @@ import {
 import { EpisodeHead } from "./EpisodeHead";
 import { EpisodeHeaderActions, EpisodeHeaderSlotProvider } from "./EpisodeHeaderActions";
 import { EpisodePageHeader } from "./EpisodePageHeader";
+import { EpisodeSourceViewer } from "./EpisodeSourceViewer";
 import { EpisodeViewFactsProvider } from "./EpisodeViewScope";
 import { StorySettingView } from "./StorySettingView";
 
@@ -207,6 +208,17 @@ function EpisodePageContent({
               canEditTitle={Boolean(meta) && !demo}
               onSaveTitle={onSaveTitle}
               canDelete={!isAd && !demo}
+            />
+          }
+          sourceEntry={
+            // 换集时重置：弹层与读取结果都属于这一集
+            <EpisodeSourceViewer
+              key={`source::${projectName}::${episode}`}
+              projectName={projectName}
+              episode={episode}
+              projectData={projectData}
+              script={script}
+              demo={demo}
             />
           }
           progress={

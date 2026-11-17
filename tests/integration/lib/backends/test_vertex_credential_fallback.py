@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.backends.backend_assembly.assembler import assemble_backend
+from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver
 from lib.db.repositories.credential_repository import CredentialRepository
-from tests.fakes import captured_vertex_credentials
+from tests.fakes import captured_vertex_credentials, patched_genai_client
 
 
 @pytest.mark.parametrize("media_type", ["image", "video", "text"])
@@ -33,11 +33,14 @@ async def test_vertex_uses_recorded_credential_when_derived_file_is_absent(
     await db_session.commit()
 
     with (
-        patch("google.genai.Client"),
+        patched_genai_client(),
         captured_vertex_credentials() as load_credentials,
     ):
         backend = await assemble_backend(
-            provider_id="gemini-vertex", media_type=media_type, model_id=None, resolver=ConfigResolver(db_factory)
+            provider_id="gemini-vertex",
+            media_type=media_type,
+            model_id=catalog.default_model("gemini-vertex", media_type),
+            resolver=ConfigResolver(db_factory),
         )
 
     assert backend is not None

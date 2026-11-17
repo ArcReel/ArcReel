@@ -124,6 +124,7 @@ def _new_session_frames() -> list[ScriptedFrame]:
 
 
 async def _wait_for_entries(store: EventLogStore, session_id: str, count: int, timeout: float = 5.0) -> list[dict]:  # noqa: ASYNC109 -- 测试轮询 helper 的等待上限，非生产取消语义
+    """只等条目落库，不代表排队消息已结算；依赖出队结果时须等消息移除广播。"""
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
         entries = await store.list_after(session_id)
@@ -572,8 +573,8 @@ class TestNewSessionEventLogFlow:
         try:
             assert (await _send())["queued_message"] == first["queued_message"]
 
-            client.push_frame(started_frame(session_id=SDK_ID))
-            entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 1)
+            await _start_queued_message(manager, client, first["queued_message"]["id"])
+            entries = await manager.event_log_store.list_after(SDK_ID)
             retry = await _send()
 
             assert retry == {"entry": entries[0]}
@@ -763,6 +764,16 @@ async def _next_broadcast(stream, msg_type: str, timeout: float = 5.0) -> dict[s
         raise AssertionError(f"stream ended before {msg_type!r}")
 
     return await asyncio.wait_for(_read(), timeout=timeout)
+
+
+async def _start_queued_message(manager: SessionManager, client: FakeSDKClient, message_id: str) -> None:
+    """先订阅再让 CLI 接纳消息，等指定消息移出队列后返回。"""
+    async with manager.stream_messages(SDK_ID, idle_timeout=5) as stream:
+        client.push_frame(started_frame(session_id=SDK_ID))
+        while True:
+            message = await _next_broadcast(stream, "queued_message")
+            if message.get("op") == "remove" and message.get("id") == message_id:
+                return
 
 
 class TestSessionStatusFollowsCliIdle:
@@ -1493,8 +1504,8 @@ class TestQueuedMessageWithdrawal:
             result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent="edit")
 
             assert result == {"session_id": SDK_ID, "id": queued["id"], "outcome": "accepted", "message": None}
-            client.push_frame(started_frame(session_id=SDK_ID))
-            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 3)
+            await _start_queued_message(service.session_manager, client, queued["id"])
+            entries = await service.event_log_store.list_after(SDK_ID)
             assert entries[2]["uuid"] == queued["id"]
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
         finally:
@@ -1504,8 +1515,7 @@ class TestQueuedMessageWithdrawal:
         client = self._client()
         queued = await self._queue(service, client)
         try:
-            client.push_frame(started_frame(session_id=SDK_ID))
-            await _wait_for_entries(service.event_log_store, SDK_ID, 3)
+            await _start_queued_message(service.session_manager, client, queued["id"])
 
             result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent="delete")
 
@@ -1640,8 +1650,8 @@ class TestUnsentQueuedMessages:
             await service.resend_queued_message("demo", SDK_ID, queued["id"])
             assert len(revived.sent_messages) == 1
 
-            revived.push_frame(started_frame(session_id=SDK_ID))
-            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 3)
+            await _start_queued_message(service.session_manager, revived, queued["id"])
+            entries = await service.event_log_store.list_after(SDK_ID)
             assert entries[2]["uuid"] == queued["id"]
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
         finally:
@@ -1666,8 +1676,8 @@ class TestUnsentQueuedMessages:
                 result["queued_message"],
             ]
 
-            revived.push_frame(started_frame(session_id=SDK_ID))
-            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 3)
+            await _start_queued_message(service.session_manager, revived, result["queued_message"]["id"])
+            entries = await service.event_log_store.list_after(SDK_ID)
             assert entries[2]["uuid"] == result["queued_message"]["id"]
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [{**unsent, "state": "unsent"}]
         finally:

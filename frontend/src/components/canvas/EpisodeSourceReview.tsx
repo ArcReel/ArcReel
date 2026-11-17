@@ -4,6 +4,7 @@ import { Anchor, ChevronRight } from "lucide-react";
 import { Link } from "wouter";
 import { cn } from "cn";
 import { API } from "@/api";
+import { episodeSourceOrigin } from "@/components/canvas/episode-page/episode-view";
 import { useStaysInEpisodeView } from "@/components/canvas/episode-page/EpisodeViewScope";
 import { ImpactConfirmDialog } from "@/components/canvas/episodes/ImpactConfirmDialog";
 import { SourceKindSelect } from "@/components/canvas/episodes/SourceKindSelect";
@@ -31,12 +32,6 @@ import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
  * 与无原文的集就地编辑，原文是一个编辑单元。剧情演绎项目一并选源文件类型，改类型会让本集已有的
  * 脚本规划过期时，保存前先确认。
  */
-
-type SourceOrigin = NonNullable<EpisodeMeta["source_origin"]>;
-
-function sourceOriginOf(meta: EpisodeMeta | undefined): SourceOrigin {
-  return meta?.source_origin ?? (meta?.source_range ? "whole_source" : "none");
-}
 
 // ---------------------------------------------------------------------------
 // 本集导览：节拍是顺序，保留编号；尾钩子单独一块
@@ -158,7 +153,14 @@ function SourceRangeNote({ meta }: { meta: EpisodeMeta | undefined }) {
   );
 }
 
-const READING_CLS = "max-w-[40em] font-editorial text-base leading-loose whitespace-pre-wrap text-subtle-foreground";
+/** 集原文的阅读排版：编辑体、保留原文换行，长串折行。 */
+export function EpisodeSourceText({ text }: { text: string }) {
+  return (
+    <p className="max-w-[40em] font-editorial text-base leading-loose wrap-break-word whitespace-pre-wrap text-subtle-foreground">
+      {text}
+    </p>
+  );
+}
 
 interface SourceValue {
   text: string;
@@ -334,7 +336,7 @@ function EpisodeSource({
   const { t } = useTranslation("dashboard");
   const titleId = useId();
   const isDrama = useProjectsStore((s) => s.currentProjectData?.content_mode === "drama");
-  const origin = sourceOriginOf(meta);
+  const origin = episodeSourceOrigin(meta);
   const editable = origin !== "whole_source";
   // 无原文的集没有集原文文件：盘上同名的 episode_N.txt 是未登记文件，不当作本集原文读取
   const withoutSource = meta !== undefined && origin === "none";
@@ -380,7 +382,7 @@ function EpisodeSource({
       />
     );
   } else if (text) {
-    body = <p className={READING_CLS}>{text}</p>;
+    body = <EpisodeSourceText text={text} />;
   } else {
     body = <p className="text-sm text-muted-foreground">{t("episode_workspace_source_missing")}</p>;
   }

@@ -87,14 +87,15 @@ _SAFE_LOG_KEYS: frozenset[str] = frozenset(
 
 
 def safe_body_for_log(body: dict) -> dict:
-    """生成安全的日志视图：仅保留白名单字段 + prompt 截断 + images 仅计数。"""
+    """生成安全的日志视图：仅保留白名单字段 + prompt 截断 + images、sounds 仅计数。"""
     view: dict = {k: body[k] for k in _SAFE_LOG_KEYS if k in body}
     if "prompt" in body:
         prompt = body["prompt"] or ""
         view["prompt"] = prompt[:120] + ("…" if len(prompt) > 120 else "")
-    imgs = body.get("images") or []
-    if imgs:
-        view["images"] = f"<{len(imgs)} data uri>"
+    for key in ("images", "sounds"):
+        items = body.get(key) or []
+        if items:
+            view[key] = f"<{len(items)} data uri>"
     return view
 
 

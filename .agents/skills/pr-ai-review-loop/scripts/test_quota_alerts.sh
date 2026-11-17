@@ -6,9 +6,9 @@
 # USAGE
 #   bash test_quota_alerts.sh
 #
-# Extracts the `cr_rate_limited_body`, `quota_alerts` and `cr_walkthrough_rest`
-# jq defs verbatim out of poll.sh (so this test always exercises the functions
-# actually shipped, not a copy that can drift) and runs them against fixture
+# Includes signals.jq for `cr_rate_limited_body` and extracts the `quota_alerts` and
+# `cr_walkthrough_rest` jq defs verbatim out of poll.sh (so this test always exercises
+# the functions actually shipped, not a copy that can drift) and runs them against fixture
 # comment bodies in testdata/. `cr_walkthrough_rest` is exercised because the
 # banner match alone is not the guarantee that matters: what the loop reads is
 # the walkthrough projection, and a rate-limited body must surface there as
@@ -39,13 +39,9 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 3
 fi
 
-# Pull each def verbatim: cr_rate_limited_body ends on its single expression line
-# (`;`), quota_alerts on the line ending `];` that closes it.
-RL_DEF=$(awk '/^[[:space:]]*def cr_rate_limited_body:/{flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
-if [[ -z "$RL_DEF" ]]; then
-  echo "could not extract cr_rate_limited_body def from $POLL_SH" >&2
-  exit 4
-fi
+# cr_rate_limited_body, quota_alert_body and the skip/pause judgments live in signals.jq,
+# shared with wait.sh; every jq program below includes it. The remaining defs are pulled
+# verbatim from poll.sh: quota_alerts ends on the line ending `];` that closes it.
 QUOTA_DEF=$(awk '/^[[:space:]]*def quota_alerts:/{flag=1} flag{print; if (/\];[[:space:]]*$/) exit}' "$POLL_SH")
 if [[ -z "$QUOTA_DEF" ]]; then
   echo "could not extract quota_alerts def from $POLL_SH" >&2
@@ -58,16 +54,6 @@ if [[ -z "$WT_HEAD_DEF" ]]; then
   echo "could not extract cr_walkthrough_head def from $POLL_SH" >&2
   exit 4
 fi
-SKIP_DEF=""
-for name in cr_skip_marker_body cr_no_reviewable_changes_body cr_review_skipped_body; do
-  def=$(awk -v target="$name" '$0 ~ "^[[:space:]]*def " target ":" {flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
-  if [[ -z "$def" ]]; then
-    echo "could not extract $name def from $POLL_SH" >&2
-    exit 4
-  fi
-  SKIP_DEF+="$def"$'\n'
-done
-
 WT_DEF=$(awk '/^[[:space:]]*def cr_walkthrough_rest:/{flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
 if [[ -z "$WT_DEF" ]]; then
   echo "could not extract cr_walkthrough_rest def from $POLL_SH" >&2
@@ -102,38 +88,37 @@ for tc in "${CASES[@]}"; do
     continue
   fi
 
-  got=$(jq -n \
+  got=$(jq -n -L "$SCRIPT_DIR" \
     --rawfile body "$body_file" \
     --arg login "$login" \
     "
+    include \"signals\";
     [{user: {login: \$login}, created_at: \"2026-07-13T00:00:00Z\", body: \$body}] as \$sub_a
-    | $RL_DEF
-      $QUOTA_DEF
+    | $QUOTA_DEF
       (quota_alerts | length) > 0
     ")
 
-  got_rl=$(jq -n \
+  got_rl=$(jq -n -L "$SCRIPT_DIR" \
     --rawfile body "$body_file" \
     "
-    $RL_DEF
+    include \"signals\";
     \$body | cr_rate_limited_body
     ")
 
   # Rate-limited bodies must suppress reviewed_current_head; non-alert ones must not.
   if [[ "$expect_rl" == "true" ]]; then expect_wt="true:false"; else expect_wt="false:true"; fi
-  got_wt=$(jq -rn \
+  got_wt=$(jq -rn -L "$SCRIPT_DIR" \
     --rawfile body "$body_file" \
     --arg login "$login" \
     --arg last_push "$LAST_PUSH" \
     --arg updated_at "$WT_UPDATED_AT" \
     "
+    include \"signals\";
     [{id: 1, user: {login: \$login}, created_at: \"2026-07-13T00:00:00Z\",
       updated_at: \$updated_at, body: \$body}] as \$sub_a
     | {reviews: [], headRefOid: \"test-head\"} as \$main
     | {} as \$review_commit_by_id
     | def codex_commit_is_current_head: true;
-      $RL_DEF
-      $SKIP_DEF
       $WT_HEAD_DEF
       $WT_DEF
       (cr_walkthrough_rest | \"\\(.is_rate_limited):\\(.reviewed_current_head)\")

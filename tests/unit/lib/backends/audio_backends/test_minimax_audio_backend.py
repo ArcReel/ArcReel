@@ -73,6 +73,24 @@ def test_declares_speed_and_voice_catalog():
     assert len(ids) == len(set(ids))
 
 
+@pytest.mark.parametrize(
+    ("model", "listed"),
+    [
+        # t2a_v2 的 voice_id 引用同一份系统音色列表，没有按型号区分；model 取值是官方枚举里的型号
+        ("speech-2.8-turbo", True),
+        ("speech-02-hd", True),
+        ("speech-01-turbo", True),
+        # 同端点但不在官方枚举里：认不出是哪个模型，不借用系统音色
+        ("speech-2.9-hd", False),
+        ("speech-1.5", False),
+    ],
+)
+def test_system_voices_are_listed_only_for_official_t2a_models(model: str, listed: bool):
+    ids = [v.id for v in MiniMaxAudioBackend(api_key="sk", model=model, provider_name="my-relay").list_voices()]
+    assert ("female-shaonv" in ids) is listed
+    assert bool(ids) is listed
+
+
 async def test_custom_endpoint_routes_to_relay_and_bills_provider(tmp_path: Path):
     from types import SimpleNamespace
 

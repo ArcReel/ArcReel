@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import i18n from "@/i18n";
+import comfyuiSuffixesContract from "@/test/contracts/comfyui-artifact-suffixes.json";
 import { formatElapsedMs } from "@/utils/task-elapsed";
 import {
+  COMFYUI_EXPECTED_SUFFIXES,
   formatCalendarDay,
   formatCount,
   formatDurationMs,
@@ -133,5 +135,11 @@ describe("formatTokenAmount", () => {
     await i18n.changeLanguage("en");
 
     expect(formatTokenAmount(123_000, "en", dashboardT())).toBe("123K tokens");
+  });
+});
+
+describe("COMFYUI_EXPECTED_SUFFIXES", () => {
+  it("与后端产物白名单的契约一致", () => {
+    expect(COMFYUI_EXPECTED_SUFFIXES).toEqual(comfyuiSuffixesContract);
   });
 });

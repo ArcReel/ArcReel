@@ -34,7 +34,7 @@ from server.routers import assets, usage
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import bind_session_factory, use_assets_router_sessions
+from tests.fakes import bind_safe_session_factory, bind_session_factory, use_assets_router_sessions
 from tests.integration.server.agent_tool_support import CLAIMED_BASIS_DIGEST, ToolHarness, fake_caps_resolver
 
 
@@ -275,6 +275,8 @@ async def fake_ctx(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[ToolHarness]:
     ctx = _build_fake_ctx(tmp_path, concurrent_session_factory, monkeypatch)
+    # worker 启动时按库装载容量表，指到本用例的库，不读进程级共享库。
+    bind_safe_session_factory(monkeypatch, concurrent_session_factory)
     queue = ctx.queue
 
     async def text_provider(_task: dict[str, Any]) -> str:

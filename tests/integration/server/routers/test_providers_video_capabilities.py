@@ -29,7 +29,7 @@ from tests.factories import make_display_names
 from tests.fakes import use_project_manager
 
 #: registry 里声明了「1080p 只剩 8 秒」的型号，用来观察真实 resolver 算出的收窄结果。
-VEO = "gemini-aistudio/veo-3.1-generate-preview"
+VEO = "gemini-vertex/veo-3.1-generate-001"
 
 
 def _app() -> FastAPI:
@@ -62,11 +62,13 @@ class TestGetModelVideoCapabilities:
             resp = client.get("/api/v1/providers/video-capabilities")
         assert resp.status_code == 422
 
-    def test_malformed_video_backend_returns_400(self, monkeypatch):
+    @pytest.mark.parametrize("value", ["no-such-provider", "grok"])
+    def test_malformed_video_backend_returns_400(self, monkeypatch, value):
+        """拆不出 ``provider/model`` 的值报 400；裸内置供应商也不按目录推荐补模型（docs/adr/0099）。"""
         with _client(monkeypatch, MagicMock()) as client:
-            resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": "no-such-provider"})
+            resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": value})
         assert resp.status_code == 400
-        assert resp.json()["detail"] == zh_errors.MESSAGES["video_backend_malformed"].format(value="no-such-provider")
+        assert resp.json()["detail"] == zh_errors.MESSAGES["video_backend_malformed"].format(value=value)
 
     def test_resolver_value_error_returns_localized_422(self, monkeypatch):
         resolver_instance = MagicMock()
@@ -125,8 +127,8 @@ class TestRealResolverResponse:
             )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["provider_id"] == "gemini-aistudio"
-        assert body["model"] == "veo-3.1-generate-preview"
+        assert body["provider_id"] == "gemini-vertex"
+        assert body["model"] == "veo-3.1-generate-001"
         assert body["supported_durations"] == [4, 6, 8]
         # excluded 在 Python 侧是 int 键；经 JSON 后只能是字符串键，前端按 String(duration) 查表。
         assert body["duration_constraints"] == {
@@ -198,7 +200,7 @@ class TestRealResolverResponse:
         assert body["generation_mode"] is None
         assert body["duration_constraints"]["resolution"] is None
 
-    @pytest.mark.parametrize("candidate", ["grok/grok-imagine-video", "grok"])
+    @pytest.mark.parametrize("candidate", ["grok/grok-imagine-video"])
     def test_candidate_identity_and_default_constraints(self, real_resolver_client, candidate):
         with real_resolver_client as client:
             response = client.get("/api/v1/providers/video-capabilities", params={"video_backend": candidate})
@@ -251,7 +253,7 @@ def test_facts_failure_reports_its_problem_code(real_resolver_client, set_video_
     set_video_request_facts(
         VideoRequestFactsFailure(
             "reference_supported_durations_incompatible",
-            (("provider", "gemini-aistudio"), ("model", "veo-3.1-generate-preview"), ("resolution", "4k")),
+            (("provider", "gemini-vertex"), ("model", "veo-3.1-generate-001"), ("resolution", "4k")),
         )
     )
     with real_resolver_client as client:
@@ -261,7 +263,7 @@ def test_facts_failure_reports_its_problem_code(real_resolver_client, set_video_
         )
     assert response.status_code == 422
     assert response.json()["detail"] == zh_errors.MESSAGES["reference_supported_durations_incompatible"].format(
-        **make_display_names().apply({"provider": "gemini-aistudio", "model": "veo-3.1-generate-preview"})
+        **make_display_names().apply({"provider": "gemini-vertex", "model": "veo-3.1-generate-001"})
     )
 
 

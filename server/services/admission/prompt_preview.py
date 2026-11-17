@@ -9,7 +9,7 @@ warning，用户在生成前就能看到有参考图不会随请求发出。视�
 声音绑定。
 
 只读：不向供应商发请求、不产生费用、不写产物清单。参考生视频路径的 unit 正文本身即提示词
-主体，其预览走 ``lib.script.reference_video.script_preview``，不经本模块。
+主体，最终文本复用参考视频请求投影与共享预览 renderer。
 """
 
 from __future__ import annotations
@@ -27,11 +27,14 @@ from lib.artifacts.generation_input import (
     storyboard_image_input,
 )
 from lib.infra.async_thread import run_sync_transaction
-from lib.project.project_manager import ProjectManager, get_project_manager
+from lib.project.project_manager import ProjectManager, get_project_manager, is_reference_video_project
 from lib.prompts.prompt_utils import render_storyboard_video_prompt
+from lib.script.reference_video.request_projection import project_reference_unit_request
+from lib.script.script_editor import resolve_items
 from lib.script.script_models import resolve_content_mode
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
 from server.services.admission.reference_admission import input_refusal_error
+from server.services.admission.reference_prompt_preview import reference_prompt_preview_facts
 from server.services.admission.video_batch_admission import resolve_voice_context
 from server.services.tasks.generation_context import ImageLaneRequest, resolve_generation_context
 
@@ -119,6 +122,39 @@ async def reference_image_limit(
     return ctx.image.max_reference_images, ctx.image.backend_model
 
 
+async def _render_reference_unit_video(
+    project: dict[str, Any],
+    script: dict[str, Any],
+    unit: dict[str, Any],
+    project_path: Path,
+) -> RenderedPrompt:
+    """参考视频单元的视频侧：与 Web 预览同一份请求投影与 renderer。"""
+    try:
+        projection = await project_reference_unit_request(
+            project=project,
+            script=script,
+            unit=unit,
+            project_path=project_path,
+        )
+        rendered = await asyncio.to_thread(
+            reference_prompt_preview_facts,
+            project=project,
+            unit=unit,
+            project_path=project_path,
+            projection=projection,
+        )
+    except (ValueError, TypeError, KeyError):
+        logger.warning("参考视频单元 %s 的字段不合规，无法渲染预览", unit.get("unit_id"), exc_info=True)
+        return RenderedPrompt(unavailable=UNAVAILABLE_INVALID, is_text_form=True)
+    return RenderedPrompt(
+        text=rendered["text"],
+        unavailable=rendered["unavailable"],
+        unavailable_params=rendered["unavailable_params"],
+        is_text_form=rendered["is_text_form"],
+        warnings=tuple(rendered["warnings"]),
+    )
+
+
 async def preview_item_prompts(
     project_name: str,
     script_file: str,
@@ -126,23 +162,36 @@ async def preview_item_prompts(
     *,
     projects: ProjectManager | None = None,
 ) -> ItemPromptPreview:
-    """渲染一个分镜条目的分镜图与视频最终提示词文本。
+    """渲染分镜条目或参考视频单元的最终提示词文本。
 
     ``projects`` 供工具运行时把已解析的 ProjectManager 注入进来（REST 路由用进程默认实例）。
     """
 
-    def _load() -> tuple[dict[str, Any], Path, dict[str, Any], dict[str, Any], str]:
+    def _load() -> tuple[dict[str, Any], Path, dict[str, Any], dict[str, Any], str, bool]:
         manager = projects if projects is not None else get_project_manager()
         project = manager.load_project(project_name)
         project_path = manager.get_project_path(project_name)
         script = manager.load_script(project_name, script_file)
-        items, id_field, *_ = get_storyboard_items(script)
+        # 与执行期同一分派：生成模式定路径。只看骨架时，残留分镜数组会遮住合法单元，
+        # 分镜项目里的游离单元又会预览出一份永远不会发出的文本。
+        is_reference_unit = is_reference_video_project(project) and "video_units" in script
+        items, id_field, *_ = (
+            resolve_items(script, kind="video_units") if is_reference_unit else get_storyboard_items(script)
+        )
         resolved = find_storyboard_item(items, id_field, item_id)
         if resolved is None:
             raise ScriptItemNotFound(item_id)
-        return project, project_path, script, resolved[0], resolve_content_mode(script, project)
+        content_mode = resolve_content_mode(script, project)
+        return project, project_path, script, resolved[0], content_mode, is_reference_unit
 
-    project, project_path, script, item, content_mode = await run_sync_transaction(_load)
+    project, project_path, script, item, content_mode, is_reference_unit = await run_sync_transaction(_load)
+    if is_reference_unit:
+        return ItemPromptPreview(
+            item_id=item_id,
+            content_mode=content_mode,
+            storyboard_image=RenderedPrompt(unavailable="storyboard_script_required"),
+            video=await _render_reference_unit_video(project, script, item, project_path),
+        )
     # 声音绑定按项目当前的视频能力档解析（非 drama 或无声一律 None），与执行期同一判据。
     voice_characters = await resolve_voice_context(project, content_mode)
 

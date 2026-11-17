@@ -103,6 +103,7 @@ class DefinitionErrorCode(StrEnum):
     ENUM_MAP_VALUE_MISSING = "enum_map_value_missing"
     TEMPLATE_TEXT_VARIABLE_NULL = "template_text_variable_null"
     EACH_VALUE_NOT_LIST = "each_value_not_list"
+    EACH_KEY_DUPLICATE = "each_key_duplicate"
 
     # ---- ComfyUI 节点绑定 ----
     COMFYUI_BINDING_REQUIRED = "comfyui_binding_required"

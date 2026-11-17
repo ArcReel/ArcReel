@@ -32,6 +32,19 @@ class ModelNotInCatalogError(ValueError):
         super().__init__(f"{message}; re-select a model")
 
 
+class ModelNotSelectedError(ModelNotInCatalogError):
+    """项目的模型字段只写了内置供应商、没有选定模型（v19→v20 迁移补全不了的旧值，docs/adr/0099）。
+
+    不按推荐补模型，也不回退到别的设置去生成和计费；用户在项目设置里重新选择模型后即可继续。
+    """
+
+    def __init__(self, *, provider_id: str, media_type: str):
+        super().__init__(provider_id=provider_id, model_id="", media_type=media_type)
+        self.code = "model_not_selected"
+        self.params = {"provider": provider_id}
+        self.args = (f"project {media_type} model names only the provider {provider_id}; re-select a model",)
+
+
 class ModelDiscontinuedError(ModelNotInCatalogError):
     """引用的模型已下线（docs/adr/0103）：报错带上下线日期与官方后继，引用同样原样保留、由用户重新选择。
 

@@ -371,4 +371,5 @@ export default {
   "provider_asset_link_failure_content_unavailable": "Không tìm thấy tệp phiên bản ảnh nên chưa gửi gì.",
   "provider_asset_link_failure_content_changed": "Tệp phiên bản ảnh không còn khớp với bản ghi nên chưa gửi gì.",
   "provider_asset_link_failure_relay_upload_failed": "Tải lên lưu trữ đối tượng thất bại nên chưa gửi gì. Kiểm tra kết nối lưu trữ đối tượng, rồi gỡ liên kết và tải lên lại.",
+  "provider_asset_link_failure_object_storage_changed": "Kết nối lưu trữ đối tượng đã đổi hoặc bị xóa nên tác vụ nhập đã dừng. Ảnh gốc vẫn còn trong ArcReel. Gỡ liên kết rồi tải lên lại.",
 } satisfies Record<keyof typeof enAssets, string>;

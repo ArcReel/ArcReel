@@ -159,6 +159,7 @@ class WorkflowActionType(StrEnum):
     REPLAN_UNIT = "replan_unit"
     CONFIRM_REQUEST_DURATION = "confirm_request_duration"
     CONFIGURE_PROVIDER = "configure_provider"
+    CONFIGURE_DEFAULT_MODEL = "configure_default_model"
     REPAIR_ARTIFACT_STATE = "repair_artifact_state"
     RETRY_ARTIFACT_DOWNLOAD = "retry_artifact_download"
 

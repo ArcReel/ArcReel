@@ -16,11 +16,18 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping
-from typing import Any, TypeGuard
+from typing import Any
 
 from lib.custom_provider.comfyui.artifacts import expected_suffixes_text
 from lib.i18n import render_generation_input_error, render_message
 from lib.i18n.display_names import DisplayNames
+from lib.infra.error_params import (
+    is_validation_message,
+    nested_detail_slots,
+    params_budget,
+    shrink_json_strings,
+    shrinkable_copy,
+)
 
 # Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
 # ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
@@ -129,14 +136,29 @@ PROVIDER_ASSET_FAILURE_CODES: frozenset[str] = frozenset(
 # Stable failure code -> i18n errors key. The code is agent-facing and persisted
 # in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
+    "text_default_model_not_set": "text_default_model_not_set",
+    "audio_default_model_not_set": "audio_default_model_not_set",
+    "image_default_model_not_set": "image_default_model_not_set",
+    "video_default_model_not_set": "video_default_model_not_set",
+    "internal_server_error": "internal_server_error",
     **{code: code for code in CAPABILITY_FAILURE_CODES},
     **{code: code for code in REFERENCE_PROJECTION_FAILURE_CODES},
     **{code: code for code in GENERATION_INPUT_FAILURE_CODES},
     **{code: code for code in VIDEO_REQUEST_FACTS_FAILURE_CODES},
     **{code: code for code in PROVIDER_ASSET_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
+    # 配音语速超出所选模型的取值范围：提交前拒绝，没有发出计费请求。
+    "narration_tts_speed_out_of_range": "narration_tts_speed_out_of_range",
+    # 方舟 Agent Plan 语音合成：上游拒绝（鉴权、套餐权限、额度或并发、音色授权）、其他业务错误码、流在合成成功结束
+    # 之前中断或内容残缺，以及重试用尽后仍连不上（请求没有送达）。参数只带有界的数字错误码，不保留上游与底层异常原文。
+    "ark_agent_plan_tts_access_denied": "ark_agent_plan_tts_access_denied",
+    "ark_agent_plan_tts_failed": "ark_agent_plan_tts_failed",
+    "ark_agent_plan_tts_incomplete": "ark_agent_plan_tts_incomplete",
+    "ark_agent_plan_tts_unreachable": "ark_agent_plan_tts_unreachable",
     # 内置供应商的模型引用不在模型清单中（已改名或从未收录）：引用原样保留，由用户重新选择。
     "model_not_in_provider_catalog": "model_not_in_provider_catalog",
+    # 项目模型字段只写了内置供应商、没有选定模型（迁移补全不了的旧值）：由用户重新选择。
+    "model_not_selected": "model_not_selected",
     # 引用的模型已下线：带下线日期与官方后继，没有登记的那一句按 failure_message_key 换用省去它的文案。
     "model_discontinued": "model_discontinued",
     # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进
@@ -159,6 +181,8 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "declarative_template_render_failed": "task_fail_declarative_template_render_failed",
     "declarative_response_extract_failed": "task_fail_declarative_response_extract_failed",
     "declarative_image_save_failed": "task_fail_declarative_image_save_failed",
+    "comfyui_reference_audio_invalid": "task_fail_comfyui_reference_audio_invalid",
+    "comfyui_aspect_ratio_unmapped": "task_fail_comfyui_aspect_ratio_unmapped",
     # 参考图或首尾帧不足时的改图失败：级联触到产物节点，这份 workflow 出片本身依赖那张图。
     "comfyui_image_drop_unsupported": "task_fail_comfyui_image_drop_unsupported",
     "comfyui_upload_failed": "task_fail_comfyui_upload_failed",
@@ -216,36 +240,6 @@ def encode_failure(code: str, /, **params: Any) -> str:
     if params:
         return f"[{code}] {json.dumps(params, ensure_ascii=False, sort_keys=True, default=str)}"
     return f"[{code}]"
-
-
-def _as_shrinkable(value: Any) -> Any:
-    """把容器参数值换成自身的 JSON 文本，好让裁剪逻辑能收窄它。
-
-    截断一个容器的字符串形态比截断 JSON 字面量安全——后者会留下不闭合的括号。嵌套过深到
-    ``json.dumps`` 撞递归上限的值降级为省略号：裁剪发生在落库路径上，抛出去会让任务卡在
-    running。
-
-    只动容器：``int`` / ``float`` / ``bool`` / ``None`` 本就是 JSON 原生标量，撑不爆预算也
-    无从收窄，转成文本反而会在重新编码时被加上引号存回去（``42`` 变 ``"42"``、``True`` 变
-    ``"true"``、``None`` 变 ``"null"``），把落库信封里的参数类型改掉。而裁剪是整个 params
-    一起过一遍的，所以只要有任一参数触发裁剪，同条失败里全部标量都会跟着变形。
-    """
-    if not isinstance(value, dict | list):
-        return value
-    try:
-        return json.dumps(value, ensure_ascii=False, default=str)
-    except RecursionError:
-        return "…"
-
-
-def _is_validation_message(value: Any) -> TypeGuard[dict[str, Any]]:
-    """Return whether ``value`` is the locale-neutral nested diagnostic envelope."""
-    return (
-        isinstance(value, dict)
-        and set(value) == {"key", "params"}
-        and isinstance(value.get("key"), str)
-        and isinstance(value.get("params"), dict)
-    )
 
 
 def collapse_cascade_reason(reason: str) -> str:
@@ -310,15 +304,7 @@ def bound_reason(reason: str, limit: int) -> str:
         return reason[:limit]
     if not isinstance(parsed, dict):
         return reason[:limit]
-    params: dict[str, Any] = {key: _as_shrinkable(value) for key, value in parsed.items()}
-    detail = parsed.get("detail")
-    if _is_validation_message(detail):
-        # ``detail`` 必须保持机器结构，读侧才能按请求 locale 渲染。只把它的 params 中可能
-        # 过大的容器降级成可裁剪文本，并把字符串叶子加入与顶层参数相同的预算竞争。
-        params["detail"] = {
-            "key": detail["key"],
-            "params": {key: _as_shrinkable(value) for key, value in detail["params"].items()},
-        }
+    params = shrinkable_copy(parsed)
 
     gaps = parsed.get("gaps")
     kept_gaps: dict[str, dict[str, Any]] = {}
@@ -345,29 +331,13 @@ def bound_reason(reason: str, limit: int) -> str:
         (params, key) for key, value in params.items() if isinstance(value, str)
     ]
     shrinkable.extend((gap, "name") for gap in kept_gaps.values())
-    nested_detail = params.get("detail")
-    if _is_validation_message(nested_detail):
-        nested_params = nested_detail["params"]
-        shrinkable.extend((nested_params, key) for key, value in nested_params.items() if isinstance(value, str))
+    shrinkable.extend(nested_detail_slots(params))
     if not shrinkable:
         return reason[:limit]
 
-    encoded = encode_failure(code, **params)
-    while len(encoded) > limit:
-        owner, longest_key = max(shrinkable, key=lambda item: len(item[0][item[1]]))
-        current: str = owner[longest_key]
-        if not current:
-            # 字符串参数全被削空仍超限，说明预算连信封骨架都装不下，只能退回按字符裁剪。
-            return reason[:limit]
-        # 超额长度以编码后的字符计，而原始字符经 JSON 转义可能占多列，两者不等长：拿它当
-        # 要砍的原始字符数只是个下界估算，砍完重编码再看，直到真正装下为止。估算超过参数
-        # 自身长度时改砍一半而非削空——转义参数的超额长度常大于原始长度，一次削空会把本
-        # 可保留的诊断内容全丢掉。至少砍一个字符保证收敛。
-        deficit = len(encoded) - limit
-        drop = deficit if deficit < len(current) else max(1, len(current) // 2)
-        owner[longest_key] = current[: len(current) - drop]
-        encoded = encode_failure(code, **params)
-    return encoded
+    if not shrink_json_strings(params, shrinkable, params_budget(code, limit)):
+        return reason[:limit]
+    return encode_failure(code, **params)
 
 
 #: 文案里带一段「该端点应产出的扩展名」的两条失败码；清单在渲染时按落库的 media_type 现算。
@@ -417,7 +387,7 @@ def render_failure(error_message: str | None, translate: Callable[..., str], nam
             params = {**params, "reason": render_failure(nested_reason, translate, names)}
     if code in {"declarative_template_render_failed", "declarative_response_extract_failed"}:
         detail = params.get("detail")
-        if _is_validation_message(detail):
+        if is_validation_message(detail):
             params = {**params, "detail": render_message(detail["key"], detail["params"], translate, names)}
     if code in _COMFYUI_ARTIFACT_MISMATCH_CODES:
         media_type = params.get("media_type")

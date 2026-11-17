@@ -22,14 +22,12 @@ from lib.backends.data_uri import image_to_data_uri
 from lib.backends.grok_shared import create_grok_client
 from lib.backends.providers import PROVIDER_GROK
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import EntryBoundCapabilities, match_by_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities
 from lib.billing.metering import Usage
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
-
-_MODEL_CLASSIC = "grok-imagine-video"
 
 
 # 全系参考生视频（带参考图，或带尾帧）的分辨率上限：「Reference-to-video is capped at 720p」，且首帧与
@@ -40,6 +38,9 @@ _REFERENCE_ROUTE_MAX_RESOLUTION = "720p"
 
 class GrokVideoBackend(EntryBoundCapabilities):
     """xAI Grok 视频生成后端。"""
+
+    endpoint_key = "grok-video-classic"
+    mixed_frames_and_references = False
 
     DEFAULT_MODEL = "grok-imagine-video"
 
@@ -69,7 +70,7 @@ class GrokVideoBackend(EntryBoundCapabilities):
         各型号接受哪些输入（如 1.5 lite 不收参考图、只有 1.5 收尾帧）、能接受几张参考图记在模型条目上，与本声明两侧
         求值（``lib.backends.video_capabilities``，docs/adr/0104）。
 
-        随输入组合变化的限制仍在 ``generate`` 请求期校验（待移进调用端点）：参考生视频路径分辨率上限 720p，
+        随输入组合变化的限制仍在 ``generate`` 请求期校验（两种调用端点共用）：参考生视频路径分辨率上限 720p，
         经典版拒收首帧与参考图并存。
 
         音轨可开关：请求把音轨意图下发为 SDK 的 ``generate_audio``（缺省有声，``False`` 出无声
@@ -170,11 +171,8 @@ class GrokVideoBackend(EntryBoundCapabilities):
         """classic 模型拒收首帧与参考图并存（参考生视频页「Classic grok-imagine-video ... rejects combining
         ``image`` with reference inputs」），在付费调用前拒绝，而不是两者一并下发后由供应商判失败。
 
-        是不是 classic 按名字族认定（与能力声明同一套名字，绑定 classic 条目的不透明模型同样拒绝）。"""
-        family = match_by_names(
-            self._model, lambda name: name if name.startswith(_MODEL_CLASSIC) else None, entry=self._catalog_entry
-        )
-        if family == _MODEL_CLASSIC and request.start_image and request.reference_images:
+        是否允许混用由所选调用端点声明，与型号名及条目无关。"""
+        if not self.mixed_frames_and_references and request.start_image and request.reference_images:
             raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
 
     async def _create_video(self, request: VideoGenerationRequest):
@@ -227,3 +225,20 @@ class GrokVideoBackend(EntryBoundCapabilities):
                 )
             kwargs["reference_image_urls"] = [image_to_data_uri(p, IMAGE_MIME_TYPES) for p in request.reference_images]
         return kwargs
+
+
+class GrokClassicVideoBackend(GrokVideoBackend):
+    """经典协议拒绝首帧与参考图混用。"""
+
+    endpoint_key = "grok-video-classic"
+    mixed_frames_and_references = False
+
+
+class GrokMixedVideoBackend(GrokVideoBackend):
+    """允许首帧与参考图混用的请求契约。"""
+
+    endpoint_key = "grok-video-mixed"
+    mixed_frames_and_references = True
+
+
+GROK_BACKENDS = {backend.endpoint_key: backend for backend in (GrokClassicVideoBackend, GrokMixedVideoBackend)}

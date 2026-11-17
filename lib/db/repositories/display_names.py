@@ -74,8 +74,8 @@ def build_display_names(
 ) -> DisplayNames:
     """在注册表与模型目录的内置名称之上合入自定义供应商与模型的名称，按 ``locale`` 成文。
 
-    内置供应商的名称有译名表的按语言翻译，没有的用注册表的原名；模型名取模型目录条目的显示名，不分语言。
-    已隐藏的模型同样收录，旧失败记录仍可能引用它们。``agent_providers`` 是 ``agent-<凭证 id>`` 到
+    内置供应商的名称有译名表的按语言翻译，没有的用注册表的原名；模型名与条目名取模型目录条目的显示名，不分语言。
+    已隐藏的模型同样收录，旧失败记录仍可能引用它们。条目名按条目引用收录，两栖条目各媒体类型的显示名不同时不收。``agent_providers`` 是 ``agent-<凭证 id>`` 到
     Agent 凭证显示名的映射。
     """
     from lib.catalog import query as catalog  # 同 _builtin_provider_name
@@ -87,11 +87,15 @@ def build_display_names(
         providers[provider_id] = translate_or(f"provider_name_{provider_id}", meta.display_name, locale)
         for model_id, info in catalog.list_models(provider_id).items():
             models[(provider_id, model_id)] = info.display_name
+    entry_names: dict[str, set[str]] = {}
+    for entry in catalog.catalog_data().entries:
+        entry_names.setdefault(catalog.entry_ref(entry), set()).add(entry.display_name)
     return DisplayNames(
         providers={**providers, **custom_providers, **(agent_providers or {})},
         models={**models, **custom_models},
         deleted_provider=_("deleted_provider_display_name", locale=locale),
         deleted_agent_provider=_("deleted_agent_provider_display_name", locale=locale),
+        entries={ref: next(iter(names)) for ref, names in entry_names.items() if len(names) == 1},
     )
 
 

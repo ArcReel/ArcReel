@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Buffer, Callable
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, ClassVar
 
 from PIL import Image
 
@@ -45,7 +45,7 @@ from lib.backends.gemini_shared import (
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
-from lib.backends.video_backends.name_family import EntryBoundCapabilities, capability_names
+from lib.backends.video_backends.name_family import EntryBoundCapabilities
 from lib.billing.metering import Usage
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
@@ -61,24 +61,17 @@ _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 #: 未配置 base_url 时 google-genai 发往的 AI Studio 域名（SDK 缺省值），续跑回放据此比对提交域名。
 _AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
-# 官方声明音轨可控的 Veo 型号（即 Vertex 目录）：`_create_task` 只在 backend_type == "vertex"
-# 时下发 generate_audio，AI Studio 的请求没有这个字段。只决定能力声明，计费跟随实际请求。两家目录的 model 命名不重叠，一致性由
-# tests/unit/lib/backends/video_backends/test_video_backend_capabilities.py 的音轨立场守卫锁定（新增型号漏登记会在那里暴露）。
-_AUDIO_SWITCH_MODELS: frozenset[str] = frozenset(
-    {
-        "veo-3.1-generate-001",
-        "veo-3.1-fast-generate-001",
-    }
-)
-
 
 class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     """Gemini (Veo) 视频生成后端。"""
 
+    audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
+    default_backend_type: ClassVar[str] = "aistudio"
+
     def __init__(
         self,
         *,
-        backend_type: str = "aistudio",
+        backend_type: str | None = None,
         api_key: str | None = None,
         rate_limiter: RateLimiter | None = None,
         video_model: str | None = None,
@@ -91,7 +84,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         self._types = _types
         self._rate_limiter = rate_limiter or get_shared_rate_limiter()
-        self._backend_type = backend_type.strip().lower()
+        self._backend_type = (backend_type or self.default_backend_type).strip().lower()
         self._credentials = None
         self._project_id = None
         self._api_key: str | None = None
@@ -172,27 +165,19 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             audio=request.generate_audio,
         )
 
-    @staticmethod
-    def video_capabilities_for_model(model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """Veo 调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key）。``entry`` 是模型对应的条目。
-
-        通道对任何型号都按同一份请求构造发出首帧（``source.image``）、尾帧（``last_frame``）与参考图
-        （``reference_images``），不限张数；不收参考音频。各型号接受哪些输入、能接受几张参考图记在模型条目上，
-        与本声明两侧求值（``lib.backends.video_capabilities``，docs/adr/0104）。
-
-        音轨形态按对应条目的名字分派：Veo 成片恒带音轨，只有 Vertex 的请求带 ``generate_audio`` 开关
-        （见 ``_create_task``），AI Studio 的不带、开关无处可下发。registry 名 ``gemini`` 同时服务
-        gemini-vertex 与 gemini-aistudio，静态查询按两家互不重叠的条目名字判定；无对应条目时回落 API 名，
-        未登记的 Veo model 保守按「有音轨、无开关」声明。
-        """
-        # 显式绑定优先于 API 名；实际是否下发开关仍由 backend_type 决定，AI Studio 不会因此发出静音请求。
-        names = set(capability_names(model, entry))
-        audio_track = VideoAudioMode.CONTROLLABLE if names & _AUDIO_SWITCH_MODELS else VideoAudioMode.ALWAYS_ON
-        return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=audio_track)
+    @classmethod
+    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
+        """AI Studio 不带音轨开关；Vertex 调用端点可下发 generate_audio。"""
+        return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=cls.audio_track)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        return self.video_capabilities_for_model(self._video_model, self._catalog_entry)
+        caps = self.video_capabilities_for_model(self._video_model)
+        if self._backend_type == "vertex":
+            from dataclasses import replace
+
+            return replace(caps, audio_track=VideoAudioMode.CONTROLLABLE)
+        return caps
 
     @property
     def _request_base_url(self) -> str | None:
@@ -222,11 +207,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return await self._collect_video(done_operation, request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        """接续已 submit 的 Gemini operation：用 name 重建 GenerateVideosOperation 走 poll + 下载。
-
-        Operation 是 ABC，不可实例化；具体 LRO 子类 GenerateVideosOperation 通过
-        Pydantic v2 ``model_validate`` 接收 dict 构造（pyright 对 Pydantic 多继承的
-        字段推断不全，用 model_validate 绕开）。
+        """接续已 submit 的 Gemini 任务：按任务 ID 轮询并取件（见 :meth:`_resume_on_current_client`）。
 
         过期判定只覆盖按 job_id 查询 operation 的阶段：远端 GC 了 LRO 时，初次
         ``operations.get`` 与 mid-poll 的查询都会收到 NOT_FOUND，归类为 ResumeExpiredError
@@ -238,7 +219,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         """
         submitted = normalize_base_url(request.submitted_base_url)
         if submitted and self._backend_type != "vertex" and submitted != self._request_base_url:
-            replay = GeminiVideoBackend(
+            replay = type(self)(
                 backend_type=self._backend_type,
                 api_key=self._api_key,
                 rate_limiter=self._rate_limiter,
@@ -252,6 +233,14 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
                 await replay._client.aio.aclose()
                 replay._client.close()
                 await replay._close_injected_http_clients()
+        return await self._resume_on_current_client(job_id, request)
+
+    async def _resume_on_current_client(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
+        """在当前客户端上按 ``job_id`` 轮询并取件；提交域名的回放由 :meth:`resume_video` 处理。
+
+        用 name 重建 GenerateVideosOperation：Operation 是 ABC，不可实例化；具体 LRO 子类通过
+        Pydantic v2 ``model_validate`` 接收 dict 构造（pyright 对 Pydantic 多继承的字段推断不全，用 model_validate 绕开）。
+        """
         op = self._types.GenerateVideosOperation.model_validate({"name": job_id, "done": False})
         try:
             refreshed = await self._client.aio.operations.get(op)
@@ -421,7 +410,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if self._backend_type == "vertex" and video_ref and getattr(video_ref, "video_bytes", None):
             # 已有字节只需落盘，不进入网络取件的超时与重试预算。
             await run_noninterruptible_sync(
-                _write_atomically, output_path, lambda target: target.write_bytes(video_ref.video_bytes)
+                write_atomically, output_path, lambda target: target.write_bytes(video_ref.video_bytes)
             )
             return
         # 线程里写 .part 再替换成片：取消须等这次写盘结束、结果确定后再传播，否则调用方清理后线程才落盘。
@@ -437,7 +426,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     def _download_video(self, video_ref, output_path: Path, *, deadline: float) -> None:
         """下载视频到本地文件 — 提取自 GeminiClient。
 
-        三条落盘路径都经 ``_write_atomically``：先写同目录 ``.part``，成功后原子改名，
+        三条落盘路径都经 ``write_atomically``：先写同目录 ``.part``，成功后原子改名，
         失败时 output_path 上不会出现被当作成品的残片（已有的旧成片也保持原样）。
         两条网络路径都设 I/O 超时并逐块比对 ``deadline``（``time.monotonic()`` 时刻），
         到期抛 ``TimeoutError``，线程不会比取件预算活得更久。
@@ -445,10 +434,10 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if self._backend_type == "vertex":
             if video_ref and hasattr(video_ref, "video_bytes") and video_ref.video_bytes:
                 video_bytes = video_ref.video_bytes
-                _write_atomically(output_path, lambda target: target.write_bytes(video_bytes))
+                write_atomically(output_path, lambda target: target.write_bytes(video_bytes))
             elif video_ref and hasattr(video_ref, "uri") and video_ref.uri:
                 uri = video_ref.uri
-                _write_atomically(output_path, lambda target: _fetch_uri(uri, target, deadline))
+                write_atomically(output_path, lambda target: _fetch_uri(uri, target, deadline))
             else:
                 raise RuntimeError("视频生成成功但无法获取视频数据")
         else:
@@ -462,7 +451,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
                         config={"http_options": {"timeout": timeout_ms}},
                     )
 
-            _write_atomically(output_path, write)
+            write_atomically(output_path, write)
 
 
 class _DeadlineWriter(io.RawIOBase):
@@ -514,7 +503,7 @@ def _fetch_uri(uri: str, target: Path, deadline: float) -> None:
             )
 
 
-def _write_atomically(output_path: Path, write: Callable[[Path], object]) -> None:
+def write_atomically(output_path: Path, write: Callable[[Path], object]) -> None:
     """让 ``write`` 把内容写进同目录 ``<name>.part``，成功后 ``os.replace`` 改名为 output_path。
 
     各写入方都以 "wb" 直开目标路径，中途失败会留下截断文件；写 ``.part``
@@ -553,3 +542,10 @@ def _is_gemini_not_found(exc: BaseException) -> bool:
     from google.genai import errors as genai_errors
 
     return isinstance(exc, genai_errors.APIError) and exc.code == 404
+
+
+class VertexVideoBackend(GeminiVideoBackend):
+    """以 Vertex 服务账号调用 Veo，可控制音轨。"""
+
+    audio_track = VideoAudioMode.CONTROLLABLE
+    default_backend_type = "vertex"

@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import FormData, UploadFile
 
 from arcreel_market_core.endpoint_definition import AssetData, DefinitionDiagnostics, validate_definition
+from arcreel_market_core.video_backend_contract import VideoCapabilityError
 from lib.backends.backend_assembly.specs import builtin_declarative_video_diagnostics
 from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta
@@ -381,8 +382,8 @@ async def preview_endpoint_request(
         preview = support.preview(definition, body.parameters.to_parameters(), credentials=credentials, assets=assets)
     except EndpointTestDefinitionError as exc:
         raise _invalid(exc.diagnostics, _t) from exc
-    except ComfyuiError as exc:
-        # 构造期的 ComfyUI 失败（如参考图少于格子数、改图的级联触到产物节点）不是定义有错，而是
+    except (ComfyuiError, VideoCapabilityError) as exc:
+        # 构造期的 ComfyUI 失败（如参考图少于格子数、改图的级联触到产物节点、参考音频多于绑定段数）不是定义有错，而是
         # 这份定义配上这组参数渲染不出请求。用失败码本身的三语文案说明，不另写一套措辞。
         raise BadRequestError(
             "endpoint_test_preview_failed", detail=render_failure(encode_failure(exc.code, **exc.params), _t, names)

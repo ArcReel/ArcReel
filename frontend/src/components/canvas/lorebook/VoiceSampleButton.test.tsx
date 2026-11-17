@@ -52,10 +52,40 @@ describe("VoiceSampleButton", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
     // 默认文案按界面语言预填，且可编辑
     expect(screen.getByDisplayValue(/这是一段声音示例/)).toBeInTheDocument();
+  });
+
+  it("lets the voice id be typed when the model has no voice list", async () => {
+    setAudioConfigured(true);
+    vi.spyOn(API, "getAudioBackendVoices").mockResolvedValue({
+      configured: true,
+      provider_id: "custom-1",
+      model: "qwen-audio-3.1-tts-next",
+      voices: [],
+    });
+    vi.spyOn(API, "generateCharacterVoiceSample").mockResolvedValue({ success: true, task_id: "task-1", deduped: false, message: "" });
+
+    render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
+    await screen.findByText("当前 TTS 模型没有可选音色，照供应商文档填写音色 id");
+
+    const voiceInput = screen.getByRole("combobox", { name: "音色" });
+    expect(voiceInput).toBeEnabled();
+    expect(screen.getByRole("button", { name: "生成" })).toBeDisabled();
+    fireEvent.change(voiceInput, { target: { value: " my-cloned-voice " } });
+    fireEvent.click(screen.getByRole("button", { name: "生成" }));
+
+    await waitFor(() =>
+      expect(API.generateCharacterVoiceSample).toHaveBeenCalledWith(
+        "demo",
+        "艾莉",
+        expect.any(String),
+        "my-cloned-voice",
+      ),
+    );
   });
 
   it("stays disabled while the character is busy with another task", () => {
@@ -82,7 +112,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
 
     // 点击「生成」提交样本 A，taskId 落定为 task-1。
@@ -137,7 +167,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -194,7 +224,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -247,7 +277,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -274,8 +304,10 @@ describe("VoiceSampleButton", () => {
 
     // 用 Cherry 生成成功后改选 Serena：Confirm 此时仍指向 Cherry 合成的旧字节，继续显示
     // 会诱导用户以为确认的是当前选中的 Serena——须随选择变化一并隐藏，逼用户重新生成。
-    await userEvent.click(screen.getByRole("combobox", { name: "音色" }));
-    await userEvent.click(await screen.findByRole("option", { name: "苏瑶 · 温柔女声" }));
+    const voiceInput = screen.getByRole("combobox", { name: "音色" });
+    await userEvent.clear(voiceInput);
+    await userEvent.click(voiceInput);
+    await userEvent.click(await screen.findByRole("option", { name: "Serena · 苏瑶 · 温柔女声" }));
     expect(screen.queryByRole("button", { name: "确认并保存" })).not.toBeInTheDocument();
   });
 
@@ -296,7 +328,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -342,7 +374,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
@@ -392,7 +424,7 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: /用 TTS 生成参考音频/ }));
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "音色" })).toHaveTextContent("芊悦 · 阳光正向的自然年轻女声");
+      expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
 
     fireEvent.click(screen.getByRole("button", { name: "生成" }));

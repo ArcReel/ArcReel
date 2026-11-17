@@ -9,16 +9,16 @@ import { SPEECH_RATE_MAX, SPEECH_RATE_MIN, isValidSpeechRate } from "./speech-ra
  * 秒数的估算速度，驱动时长下界指引、说话量提示与字幕定时。两者在界面上从不同栏位进入，
  * 措辞也各自独立，避免同名混淆。
  *
- * 单位名词随项目源语言：zh 计「字」、en / vi 计「词」——与后端 ``count_reading_units``
+ * 单位名词随项目源语言：zh 计「字」、en / vi / ru 计「词」——与后端 ``count_reading_units``
  * 的裁剪口径同源。语言未定时（创建向导阶段项目还没有 source_language）用中性的「字或词」
- * 并提示单位待定：具体名词在这里是错误承诺——按「字/秒」填入的数值，在语言被检测为 en / vi
+ * 并提示单位待定：具体名词在这里是错误承诺——按「字/秒」填入的数值，在语言被检测为 en / vi / ru
  * 后会被同一个估算器按「词/秒」解释，数字不变而含义变了。
  */
 
-/** 阅读单位名词的 i18n key：en / vi 计「词」、zh 计「字」，语言未定时用中性的「字或词」。 */
+/** 阅读单位名词的 i18n key：en / vi / ru 计「词」、zh 计「字」，语言未定时用中性的「字或词」。 */
 function readingUnitKey(sourceLanguage?: string | null): string {
   const code = (sourceLanguage ?? "").trim().toLowerCase();
-  if (code === "en" || code === "vi") return "reading_unit_word";
+  if (code === "en" || code === "vi" || code === "ru") return "reading_unit_word";
   if (code === "zh") return "reading_unit_char";
   return "reading_unit_generic";
 }
@@ -31,7 +31,7 @@ function isLanguagePending(sourceLanguage?: string | null): boolean {
 export interface SpeechRateFieldProps {
   value: number | null;
   onChange: (next: number | null) => void;
-  /** 项目 source_language（zh / en / vi）；创建阶段项目还没有语言事实，留空即可。 */
+  /** 项目 source_language（zh / en / vi / ru）；创建阶段项目还没有语言事实，留空即可。 */
   sourceLanguage?: string | null;
 }
 

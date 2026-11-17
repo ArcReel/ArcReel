@@ -934,6 +934,13 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
     expect(screen.queryByRole("button", { name: "交给 Agent" })).not.toBeInTheDocument();
   });
 
+  it("未设置默认模型时直接打开默认模型分区", async () => {
+    await renderExpanded(scenario({ next: nextAction("configure_default_model") }));
+    fireEvent.click(await screen.findByRole("button", { name: "设置默认模型" }));
+    expect(window.location.pathname).toBe("/app/settings");
+    expect(new URLSearchParams(window.location.search).get("section")).toBe("default-models");
+  });
+
   it("需确认档位时确认动作只带回档位并重新求解，不直接入队", async () => {
     const spy = mockPlan(
       videoScenario({

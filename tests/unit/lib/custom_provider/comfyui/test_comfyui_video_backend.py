@@ -18,6 +18,7 @@ from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
 )
 from lib.backends.artifact_download_guard import (
@@ -246,29 +247,31 @@ class TestGenerate:
         assert result.video_path.exists()
         assert request_json(submit.calls.last.request)["prompt"]["9"]["inputs"]["fps"] == 16
 
-    async def test_only_bound_and_supplied_media_is_uploaded(self, tmp_path: Path):
-        """多出来的参考图一张都不传：格子数就是这份 workflow 能收几张，多传只是白占带宽。"""
-        definition = _with_image_bindings()
-        references = []
-        for index in range(4):
-            path = tmp_path / f"ref{index}.png"
-            path.write_bytes(b"png")
-            references.append(path)
+    async def test_excess_references_rejected_before_upload_or_submit(self, tmp_path: Path):
+        references = [tmp_path / f"ref{i}.png" for i in range(4)]
+        from lib.custom_provider.backends import CustomVideoBackend
 
-        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
-            upload = router.post(f"{BASE_URL}/upload/image").mock(
-                return_value=httpx.Response(200, json={"name": "stored.png", "subfolder": "arcreel"})
-            )
-            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
-            router.get(f"{BASE_URL}/history/p-1").mock(
-                return_value=httpx.Response(200, json=_history({"9": _video_output()}))
-            )
-            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
+        delegate = _backend(_with_image_bindings())
+        backend = CustomVideoBackend(
+            provider_id="custom-1",
+            delegate=delegate,
+            model=delegate.model,
+            capability_overrides={"max_reference_images": 4},
+        )
+        gate_video_request(
+            caps=resolve_video_capabilities(backend),
+            provider=backend.name,
+            model=backend.model,
+            has_image=True,
+            reference_images=references,
+        )
+        with capture_http() as router, pytest.raises(VideoCapabilityError) as exc:
+            await backend.generate(_request(tmp_path, reference_images=references))
 
-            await _backend(definition).generate(_request(tmp_path, reference_images=references))
-
-        # 两个格子传两张；首帧绑定了但这次没给，不传。
-        assert upload.call_count == 2
+        assert exc.value.code == "video_reference_images_exceeded"
+        assert exc.value.params["limit"] == 2
+        assert exc.value.params["count"] == 4
+        assert not router.calls
 
     async def test_a_root_level_history_entry_is_accepted(self, tmp_path: Path):
         """两种形状都得认：不同版本与代理各回一种，只认包裹那种会让另一半部署永远等不到终态。"""

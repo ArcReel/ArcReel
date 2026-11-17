@@ -9,6 +9,9 @@
 - ``kling_bearer_headers`` — bearer 模式旁路 JWT、用静态 api_key 的鉴权头。
 - 异步任务响应解析：``code`` 信封错误、``data.task_id``、``data.task_status``
   （submitted/processing/succeed/failed）、``data.task_result.{videos,images}[].url``。
+- 新版 API（模型名写在路径里，只收 API Key）：``KLING_MODEL_PATH_BASE_URL`` 不带 ``/v1``；提交响应取 ``data.id``，
+  ``GET /tasks?task_ids=`` 的 ``data[]`` 里取 ``status``（submitted/processing/succeeded/failed）、
+  ``outputs[type=video].url`` 与计费时长 ``usage.output_duration``。
 """
 
 from __future__ import annotations
@@ -16,15 +19,21 @@ from __future__ import annotations
 import base64
 import time
 from collections.abc import Callable, Mapping
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Literal
 
 import jwt
 
+from lib.config.url_utils import strip_base_url_version
+from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
+
 # 官方 base（含 /v1），对齐 ark_shared.ARK_BASE_URL 约定。国内调用域名官方已由 api.klingai.com
 # 迁移至 api-beijing.klingai.com（旧域名仍可用，未强制下线）；此处只影响未显式配置 base_url 的
 # 新用户，registry.default_base_url 同步该值（两处保持一致，单一真相源）。
 KLING_BASE_URL = "https://api-beijing.klingai.com/v1"
+# 新版 API 的调用域名不带版本段，请求路径直接是 /text-to-video/<模型名>、/tasks（官方「接口鉴权」页）。
+KLING_MODEL_PATH_BASE_URL = "https://api-beijing.klingai.com"
 
 # JWT token 寿命与刷新策略。
 _TOKEN_TTL_SECONDS = 1800  # 约 30 分钟过期（官方）。
@@ -253,3 +262,94 @@ def extract_kling_image_urls(payload: dict) -> list[str]:
         return urls
     reason = kling_response_error(payload)
     raise RuntimeError(reason or f"Kling 图像任务完成但缺少图片 URL: {payload}")
+
+
+# ── 新版 API（模型名在路径里）的响应解析 ──────────────────────────────────────
+
+# 新版 API 的任务状态：submitted / processing / succeeded / failed。
+KLING_MODEL_PATH_SUCCEEDED = "succeeded"
+_MODEL_PATH_TERMINAL_STATES = frozenset({KLING_MODEL_PATH_SUCCEEDED, KLING_STATUS_FAILED})
+
+
+def kling_model_path_base_url(base_url: str | None) -> str:
+    """新版 API 的 base_url：补协议、去尾斜杠并剥去末尾的版本段（如内置供应商默认值里的 ``/v1``）。
+
+    未配置时取 :data:`KLING_MODEL_PATH_BASE_URL`。剥版本段即路径覆盖的 ``strip_version`` 规则。
+    """
+    stripped = (base_url or "").strip().rstrip("/")
+    if not stripped:
+        return KLING_MODEL_PATH_BASE_URL
+    if "://" not in stripped:
+        stripped = f"https://{stripped}"
+    return strip_base_url_version(stripped)
+
+
+def kling_model_path_task_id(submit_payload: dict) -> str:
+    """从新版 API 的提交响应提取 ``data.id``；缺失则按 code 错误或原样抛出。"""
+    task_id = _as_dict(submit_payload.get("data")).get("id")
+    if not task_id:
+        reason = kling_response_error(submit_payload)
+        raise RuntimeError(reason or f"Kling 提交响应缺少任务 id: {submit_payload}")
+    return str(task_id)
+
+
+def kling_model_path_task(payload: dict) -> dict:
+    """``GET /tasks?task_ids=<id>`` 响应里本次查询的那条任务（``data`` 是数组，按单个 id 查询只有一条）。"""
+    data = payload.get("data")
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                return item
+    return {}
+
+
+def kling_model_path_status(payload: dict) -> str | None:
+    status = kling_model_path_task(payload).get("status")
+    return status if isinstance(status, str) else None
+
+
+def is_kling_model_path_terminal(payload: dict) -> bool:
+    """succeeded / failed 为终态；其余（含未知、查询结果为空）继续轮询。"""
+    return kling_model_path_status(payload) in _MODEL_PATH_TERMINAL_STATES
+
+
+def kling_model_path_failure_reason(payload: dict) -> str | None:
+    """顶层 ``code`` 硬错误或 ``status=failed`` → 错误描述（失败原因在任务的 ``message``）；否则 None。"""
+    err = kling_response_error(payload)
+    if err is not None:
+        return err
+    task = kling_model_path_task(payload)
+    if task.get("status") == KLING_STATUS_FAILED:
+        return f"Kling 任务失败 task_id={_as_str(task.get('id'))}: {_as_str(task.get('message'))}".strip()
+    return None
+
+
+def extract_kling_model_path_video_url(payload: dict) -> str:
+    """从 succeeded 的查询响应提取 ``outputs[]`` 里首个 ``type=video`` 的 ``url``（不取含水印版本）。"""
+    outputs = kling_model_path_task(payload).get("outputs")
+    if isinstance(outputs, list):
+        for item in outputs:
+            output = _as_dict(item)
+            url = output.get("url")
+            if output.get("type") == "video" and isinstance(url, str) and url:
+                return url
+    reason = kling_response_error(payload)
+    raise RuntimeError(reason or f"Kling 视频任务完成但缺少视频 URL: {payload}")
+
+
+def kling_model_path_output_duration(payload: dict) -> int | None:
+    """``usage.output_duration``：官方用于计费核算的输出时长（秒，字符串），只在任务结束且有用量时返回。
+
+    按 half-up 取整；缺失、非正、无法解析或超出 ``MAX_BILLED_DURATION_SECONDS`` 时回 None，由调用方回落请求时长。
+    """
+    raw = _as_dict(kling_model_path_task(payload).get("usage")).get("output_duration")
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        value = Decimal(str(raw))
+        if not 0 < value <= MAX_BILLED_DURATION_SECONDS:
+            return None
+        seconds = int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return seconds if seconds > 0 else None

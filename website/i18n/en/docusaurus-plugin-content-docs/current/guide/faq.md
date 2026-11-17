@@ -144,6 +144,17 @@ uv run uvicorn server.app:app --port 1241
 
 You can also run `uv run python -m server.app`. It does not enable reload on Windows and reads the listen address from `LISTEN_HOST` and `LISTEN_PORT`. Without reload, restart the backend manually after changing code.
 
+### A subagent fails with `Refusing to use … as an isolation worktree`. What should I do? {#subagent-isolation-worktree}
+
+When the Agent dispatches a subagent, it can ask for the subagent to run in an isolated worktree. ArcReel has subagents share the project directory with the Agent, and Claude Code first uses git to confirm that this directory can serve as the isolated directory; if it cannot confirm this, it refuses the dispatch. Handle it according to the reason in the error:
+
+- **`git could not be run to resolve it`**: git is not available in the runtime environment. Official images include git starting with v0.37.0; for Docker deployments, update the image as described in [How do I update Docker?](#docker-update). When starting from source, install git and restart the backend.
+- **`git resolves its working tree to …`**: the project directory is inside the ArcReel source repository. When starting from source, the default data root `projects/` is inside the source repository. Move the data root outside the source repository:
+  1. Stop the backend.
+  2. Move the entire data root directory out of the source repository, for example to `~/arcreel-data`. The path in the error is `<data root>/projects/<project name>`; drop the trailing `/projects/<project name>` to get the data root. The data root also holds the default SQLite database, logs, and Vertex credentials, so move it as a whole.
+  3. Set `ARCREEL_DATA_DIR` to the absolute path of the new directory. This usually goes in `.env`; if the startup environment (such as the shell or a systemd service configuration) already sets this variable, change it there, otherwise the value in `.env` does not take effect.
+  4. Start the backend. Existing Agent sessions are linked to the new path automatically at startup.
+
 ## Providers, models, and APIs {#providers-models-api}
 
 ### Which providers and models does ArcReel support? {#supported-providers}

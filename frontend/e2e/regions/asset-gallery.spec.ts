@@ -123,6 +123,7 @@ const BASE: ApiOverrides = {
       versions: [1, 2, 3].map((version) => ({
         version,
         filename: `林夕_v${version}.png`,
+        file: `versions/characters/林夕_v${version}.png`,
         created_at: `2026-02-0${version} 21:3${version}`,
         file_size: 1024,
         is_current: version === 3,

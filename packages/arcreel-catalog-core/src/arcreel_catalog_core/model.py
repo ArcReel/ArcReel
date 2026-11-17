@@ -22,12 +22,24 @@ class TextFacts:
 
 
 @dataclass(frozen=True)
+class ScaledOutputTokenBase:
+    """一个质量档的带系数估算规则：先按 ``base`` 算出整数 token，再乘 ``multiplier`` 取整。"""
+
+    base: int
+    multiplier: float
+
+
+@dataclass(frozen=True)
 class ImageFacts:
     text_to_image: bool = False
     image_to_image: bool = False
     resolutions: tuple[str, ...] = ()
     max_reference_images: int | None = None
     output_token_bases: Mapping[str, int] = field(default_factory=dict)
+    #: 与 ``output_token_bases`` 分开收录：不认识本字段的旧实例读不到这些质量档，保持未知，不会漏乘系数。
+    output_token_scaled_bases: Mapping[str, ScaledOutputTokenBase] = field(default_factory=dict)
+    #: 模型接受的画质取值，即请求 ``quality`` 参数的合法值，按从低到高排列；空元组表示未收录。
+    qualities: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -154,8 +166,9 @@ class BuiltinProviderModel:
     """内置供应商官方收录的一个供应商模型。
 
     ``entry`` 是「模型厂商/官方模型名」；只有引用两栖模型时才需要 ``media_type`` 指明是哪一个条目。
-    ``multiplier`` 是供应商模型倍率；``min_app_version`` 之下的应用版本不展示、也不启用它。
-    同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
+    ``multiplier`` 是供应商模型倍率；``min_app_version`` 之下的应用版本不启用它，只在设置页列出所需版本。``endpoint`` 是它挂接的
+    内置调用端点，取该供应商在条目媒体类型下的可选端点之一（见 ``endpoints.BUILTIN_PROVIDER_ENDPOINTS``）；
+    缺失表示没有声明。同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
     """
 
     api_model_name: str
@@ -163,6 +176,7 @@ class BuiltinProviderModel:
     media_type: str | None = None
     multiplier: float = 1.0
     min_app_version: str | None = None
+    endpoint: str | None = None
 
 
 @dataclass(frozen=True)

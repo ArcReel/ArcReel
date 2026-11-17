@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_runtime import install_provider_job_id_store
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskNotCancellableError, TaskRepository
@@ -295,7 +296,7 @@ async def _derive_execution_model_for_enqueue(
 
     ``provider_id`` 落 task 行，worker 认领时按它做池满过滤与槽位归属；两种视频生成模式都只保存
     advisory provider，执行入口按项目现状核对，不一致时改写记录并回队。与 worker ``_extract_provider``
-    同套解析逻辑，但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
+    同套解析逻辑；模型目录错误保留异常里的供应商，其余失败返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
     兜底分支，由 worker claim 后推算，比硬塞一个可能错误的 provider 安全。
     """
     if media_type == RENDER_MEDIA_TYPE:
@@ -337,6 +338,10 @@ async def _derive_execution_model_for_enqueue(
             # 槽解析；其余 image 任务的任务类型执行时才定，取 t2i 作代表性 provider。
             generation_type = "i2i" if task_type in I2I_ONLY_TASK_TYPES else "t2i"
             resolved = await resolver.resolve_image_backend(project, payload or {}, generation_type=generation_type)
+    except ModelNotInCatalogError as exc:
+        from lib.config.resolver import ProviderModel
+
+        return ProviderModel(exc.provider_id, exc.model_id), video_generation_type
     except Exception:
         logger.debug("入队时派生执行身份失败，留 NULL 由 worker 兜底", exc_info=True)
         return None

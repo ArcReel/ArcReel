@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import tempfile
 import threading
 import zipfile
 from collections import Counter
@@ -42,6 +41,7 @@ from server.services.presentation.presentation_read_model import (
     PresentationUnavailableError,
 )
 from tests.factories import make_test_video, make_test_video_with_audio_tail, run_bundled_ffmpeg, wav_bytes
+from tests.fakes import use_private_tempdir
 from tests.legacy_project_shapes import advance_project_schema, write_legacy_storyboard_project
 
 
@@ -643,9 +643,7 @@ async def test_cancelling_a_bundle_export_settles_the_packaging_and_removes_its_
         settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
         duration_probe=probe,
     )
-    temp_root = tmp_path / "tmp"
-    temp_root.mkdir()
-    monkeypatch.setattr(tempfile, "tempdir", str(temp_root))
+    temp_root = use_private_tempdir(monkeypatch, tmp_path / "tmp")
     packaging, release, closed = threading.Event(), threading.Event(), threading.Event()
 
     class _GatedZipFile(zipfile.ZipFile):

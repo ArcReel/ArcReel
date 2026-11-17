@@ -30,6 +30,7 @@ from sqlalchemy import update
 
 from lib.billing.ledger import Ledger
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService, read_video_poll_timeout_seconds
@@ -419,7 +420,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     project/script/unit，以实际可用资产调用公共 request projection。
     这份 provider 投影只服务槽位归属与限流路由，不是执行身份；executor 在开始时按最新状态
     物化请求，与认领槽位不一致时回队。
-    解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
+    模型目录错误保留异常里的供应商；其余解析失败（未配置供应商）回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
     raw_payload = task.get("payload")
@@ -459,6 +460,8 @@ async def _extract_provider(task: dict[str, Any]) -> str:
         else:
             generation_type = "i2i" if task.get("task_type") in I2I_ONLY_TASK_TYPES else "t2i"
             resolved = await resolver.resolve_image_backend(project, payload, generation_type=generation_type)
+    except ModelNotInCatalogError as exc:
+        return exc.provider_id
     except Exception:
         logger.debug("provider 解析失败，回退 DEFAULT_PROVIDER 仅供限流路由", exc_info=True)
         return DEFAULT_PROVIDER
@@ -499,6 +502,7 @@ class GenerationWorker:
         self.poll_interval = max(0.1, float(TASK_POLL_INTERVAL_SEC))
 
         self._main_task: asyncio.Task | None = None
+        self._reload_lock = asyncio.Lock()
         self._stop_event = asyncio.Event()
         self._wake_event = asyncio.Event()
         self._owns_lease = False
@@ -539,15 +543,17 @@ class GenerationWorker:
         引用恒定，彻底消除"reload 时活体搬运在跑 task"的脆弱性。某 provider 被删后其
         在跑占用照常 drain；新任务的容量判定经 ``CapacityTable.get``：lane 被降级为不
         支持→0（fail-fast），provider 整个消失→懒默认（此时该 provider 已无法解析，
-        任务回退 DEFAULT_PROVIDER 或在执行层失败，不会真按默认容量占用它）。
+        任务回退 DEFAULT_PROVIDER 或在执行层失败，不会真按默认容量占用它）。读库与替换
+        整体串行，并发重载结束后容量表反映最后一次读到的数据库状态。
         """
-        try:
-            new = await CapacityTable.from_db()
-        except Exception:
-            logger.warning("从 DB 加载供应商配置失败，保持当前配置", exc_info=True)
-            return
-        self._capacity.replace(new._limits)
-        logger.info("已更新供应商容量表: %s", self._capacity._limits)
+        async with self._reload_lock:
+            try:
+                new = await CapacityTable.from_db()
+            except Exception:
+                logger.warning("从 DB 加载供应商配置失败，保持当前配置", exc_info=True)
+                return
+            self._capacity.replace(new._limits)
+            logger.info("已更新供应商容量表: %s", self._capacity._limits)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -556,6 +562,7 @@ class GenerationWorker:
     async def start(self) -> None:
         if self._main_task and not self._main_task.done():
             return
+        await self.reload_limits()
         self._stop_event.clear()
         self._wake_event.clear()
         self._main_task = asyncio.create_task(self._run_loop(), name="generation-worker")

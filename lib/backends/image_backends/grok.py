@@ -67,6 +67,10 @@ class GrokImageBackend:
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _MAX_REFERENCE_IMAGES
 
+    # auto 当前按生成 / 编辑分别采用 low / medium；只计量，不向上游发送 quality。
+    # https://docs.x.ai/developers/model-capabilities/images/generation#quality
+    CHANNEL_DEFAULT_QUALITY: ClassVar[dict[bool, str]] = {False: "low", True: "medium"}
+
     def __init__(
         self,
         *,
@@ -91,14 +95,16 @@ class GrokImageBackend:
     async def reference_image_limit(self) -> int | None:
         return self.CHANNEL_REFERENCE_LIMIT
 
-    @staticmethod
-    def estimate_usage(facts: ImageRequestFacts) -> Usage:
-        refs = facts.reference_count
-        return per_image_usage(
-            output_images=1,
-            input_images=None if refs is None else min(refs, _MAX_REFERENCE_IMAGES),
-            dimensions={"resolution": facts.image_size} if facts.image_size is not None else None,
-        )
+    @classmethod
+    def _usage(cls, image_size: str | None, reference_count: int | None) -> Usage:
+        dimensions: dict[str, object] = {"quality": cls.CHANNEL_DEFAULT_QUALITY[reference_count != 0]}
+        if image_size is not None:
+            dimensions["resolution"] = image_size
+        return per_image_usage(output_images=1, input_images=reference_count, dimensions=dimensions)
+
+    @classmethod
+    def estimate_usage(cls, facts: ImageRequestFacts) -> Usage:
+        return cls._usage(facts.image_size, facts.reference_count)
 
     @with_retry_async(retry_if=grok_should_retry)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -109,15 +115,13 @@ class GrokImageBackend:
             "aspect_ratio": _validate_aspect_ratio(request.aspect_ratio),
         }
         if request.image_size is not None:
-            generate_kwargs["resolution"] = request.image_size
+            # xai-sdk 的 convert_image_resolution_to_pb 只接受小写 "1k"/"2k"，目录取值为 "1K"/"2K"
+            generate_kwargs["resolution"] = request.image_size.lower()
 
         # I2I：将所有参考图转为 base64 data URI 列表
         reference_count = 0
         if request.reference_images:
             refs = request.reference_images
-            if len(refs) > _MAX_REFERENCE_IMAGES:
-                logger.warning("Grok 参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
-                refs = refs[:_MAX_REFERENCE_IMAGES]
             # 存在性检查与读图编码都是阻塞 I/O，整体卸载到线程，避免堵住事件循环
             data_uris = await asyncio.to_thread(_encode_existing_refs, [ref.path for ref in refs])
             if data_uris:
@@ -143,9 +147,5 @@ class GrokImageBackend:
             provider=PROVIDER_GROK,
             model=self._model,
             image_uri=response.url,
-            usage=per_image_usage(
-                output_images=1,
-                input_images=reference_count,
-                dimensions={"resolution": generate_kwargs["resolution"]} if "resolution" in generate_kwargs else None,
-            ),
+            usage=self._usage(request.image_size, reference_count),
         )

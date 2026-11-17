@@ -10,7 +10,7 @@ from lib.script.reference_video.request_projection import configured_reference_r
 from server.services.tasks.reference_video_tasks import default_unit_duration
 from tests.factories import make_video_request_facts
 
-VEO = "gemini-aistudio/veo-3.1-generate-preview"
+VEO = "gemini-vertex/veo-3.1-generate-001"
 
 
 @pytest.mark.parametrize(("bucket", "expected"), [("i2v", 4), ("r2v", 8)])

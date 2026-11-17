@@ -263,6 +263,18 @@ async def test_unexpected_failure_still_shows_in_sync_status() -> None:
     assert official_sync.sync_status().last_error == "database is locked"
 
 
+async def test_recording_can_skip_sync_without_requesting_the_official_catalog(db_factory, http_client, monkeypatch):
+    monkeypatch.setenv("ARCREEL_SKIP_CATALOG_SYNC", "1")
+    with capture_http() as http:
+        task = official_sync.start_official_sync(db_factory, lambda: http_client)
+        try:
+            assert task is None
+        finally:
+            await official_sync.stop_official_sync(task)
+        assert not http.calls
+    assert catalog.official_data() is SNAPSHOT
+
+
 class _AnyioConnectTransport(httpx.AsyncBaseTransport):
     """同 httpcore 经 ``anyio.connect_tcp`` 建连：连接建立后 anyio 取消自己的任务组，再返回清单响应。"""
 
@@ -290,6 +302,7 @@ async def test_stop_ends_the_sync_when_anyio_absorbs_the_cancellation(db_factory
     transport = _AnyioConnectTransport(status_code)
     async with httpx.AsyncClient(transport=transport) as client:
         task = official_sync.start_official_sync(db_factory, lambda: client)
+        assert task is not None
 
         async def stop_once_connected() -> None:
             await transport.connected.wait()
@@ -332,6 +345,7 @@ async def test_stop_returns_after_the_interrupted_database_write_is_cleaned_up(t
         with capture_http() as http:
             http.get(official_sync.MANIFEST_URL).respond(status_code=500)
             task = official_sync.start_official_sync(async_sessionmaker(engine), lambda: http_client)
+            assert task is not None
             await insert_running.wait()
 
             stopping = asyncio.create_task(official_sync.stop_official_sync(task))

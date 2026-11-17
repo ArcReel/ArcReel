@@ -91,6 +91,7 @@ function AddModelBody({
         (m) =>
           m.official &&
           !m.enabled &&
+          m.min_app_version_satisfied &&
           (filter === "all" || m.media_type === filter) &&
           (!needle ||
             m.api_model_name.toLowerCase().includes(needle) ||

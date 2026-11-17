@@ -90,7 +90,8 @@ def test_minimax_h3_reference_slots_are_one_prefixed_entry_per_section():
     video = read("video")
 
     assert [item for item in video["optional_inputs"] if item["class_type"] == "MiniMaxH3ReferenceToVideo"] == [
-        {"class_type": "MiniMaxH3ReferenceToVideo", "input_prefix": "ref_images.ref_image_"}
+        {"class_type": "MiniMaxH3ReferenceToVideo", "input_prefix": "ref_audios.ref_audio_"},
+        {"class_type": "MiniMaxH3ReferenceToVideo", "input_prefix": "ref_images.ref_image_"},
     ]
     assert [
         port

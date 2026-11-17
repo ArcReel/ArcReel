@@ -154,6 +154,33 @@ class TestProjectArchiveReferenceVideo:
         assert (project_dir / "reference_videos" / "E1U1.mp4").exists()
         assert (project_dir / "reference_videos" / "thumbnails" / "E1U1.jpg").exists()
 
+    @pytest.mark.parametrize("canonical_exists", [True, False])
+    def test_import_preserves_borrowed_video_and_thumbnail_bytes(self, tmp_path, canonical_exists):
+        pm = ProjectManager(tmp_path / "projects")
+        unit = _build_unit(video_clip="reference_videos/borrowed.mp4")
+        unit["generated_assets"]["video_thumbnail"] = "reference_videos/thumbnails/borrowed.jpg"
+        project_dir = _create_reference_video_project(
+            pm, unit=unit, write_clip=canonical_exists, write_thumbnail=canonical_exists
+        )
+        project = pm.load_project("refdemo")
+        project["schema_version"] = 18
+        _write_json(project_dir / "project.json", project)
+        _write_bytes(project_dir / "reference_videos/borrowed.mp4", b"borrowed-video")
+        _write_bytes(project_dir / "reference_videos/thumbnails/borrowed.jpg", b"borrowed-thumbnail")
+        archive_path = tmp_path / "borrowed.zip"
+        _make_manual_zip(project_dir, archive_path)
+        target = ProjectManager(tmp_path / "imported")
+
+        result = ProjectArchiveService(target).import_project_archive(
+            archive_path, uploaded_filename="borrowed.zip", confirm_report=True
+        )
+
+        imported_dir = target.get_project_path(result.project_name)
+        script = json.loads((imported_dir / "scripts/episode_1.json").read_text(encoding="utf-8"))
+        assets = script["video_units"][0]["generated_assets"]
+        assert (imported_dir / assets["video_clip"]).read_bytes() == b"borrowed-video"
+        assert (imported_dir / assets["video_thumbnail"]).read_bytes() == b"borrowed-thumbnail"
+
     def test_import_migrates_legacy_per_shot_duration_before_validation(self, tmp_path):
         """存量归档的 unit 仍是收编前形状（时长挂在 shots 上、无 unit 级 duration_seconds）：
         结构校验要求 duration_seconds 落在合理区间内，早于迁移执行的话会把这类归档直接拒绝，

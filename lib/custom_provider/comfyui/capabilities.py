@@ -49,8 +49,7 @@ class BindingCapabilities:
     ``last_frame`` 是「支持」而非「要求」：绑了尾帧的 workflow 在用户没给尾帧时照常出片，那一格
     由构造层按参考图同一套改图规则摘掉。
 
-    参考音频三项与 ``max_prompt_chars`` 不在此列：绑定表里没有对应的语义键，声明任何值都是凭空
-    捏造，投影处按 ``VideoCapabilities`` 的默认值留空。
+    参考音频只声明绑定数量，不从数量推测总时长；成片音轨仍从产物链独立推导。
     """
 
     text_to_video: bool
@@ -58,6 +57,7 @@ class BindingCapabilities:
     last_frame: bool
     max_reference_images: int
     audio_track: AudioTrack
+    max_reference_audio_count: int
 
 
 def derive_video_capabilities(definition: Mapping[str, Any]) -> BindingCapabilities:
@@ -71,6 +71,7 @@ def derive_video_capabilities(definition: Mapping[str, Any]) -> BindingCapabilit
         last_frame=bool(targets_of(bindings.get("end_image"))),
         max_reference_images=len(targets_of(bindings.get("reference_images"))),
         audio_track=derive_audio_track(workflow, bindings),
+        max_reference_audio_count=len(targets_of(bindings.get("reference_audio"))),
     )
 
 

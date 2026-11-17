@@ -6,6 +6,7 @@ from copy import deepcopy
 
 import pytest
 
+from lib.i18n.zh import errors as zh_errors
 from lib.project.project_manager import ProjectManager
 from lib.script.script_batch_edit import ScriptBatchEditor
 from server.routers import projects
@@ -316,6 +317,11 @@ class TestProjectsRouter:
             gen_overview_no_provider = client.post("/api/v1/projects/no-provider/generate-overview")
             assert gen_overview_no_provider.status_code == 400
             assert "配置文本供应商" in gen_overview_no_provider.json()["detail"]
+
+            # 没有文本默认模型：指引到默认模型设置，不说成未配置供应商
+            gen_overview_no_default = client.post("/api/v1/projects/no-default-model/generate-overview")
+            assert gen_overview_no_default.status_code == 400
+            assert gen_overview_no_default.json()["detail"] == zh_errors.MESSAGES["text_default_model_not_set"]
 
             update_overview = client.patch(
                 "/api/v1/projects/ready/overview",

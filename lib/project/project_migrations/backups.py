@@ -9,10 +9,18 @@ failing on an unchanged project leaves one backup, not one per attempt.
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
 from lib.infra.json_io import atomic_write_bytes
+
+_BACKUP_RE = re.compile(r"\.bak\.v\d+-\d+$")
+
+
+def is_versioned_backup_name(name: str) -> bool:
+    """Recognize the version and timestamp suffix used for migration backups."""
+    return _BACKUP_RE.search(name) is not None
 
 
 def versioned_backup_name(base_name: str, from_version: int, ts: int) -> str:
@@ -89,6 +97,7 @@ def set_aside_as_kept_copy(source: Path, from_version: int, *, copy: bool = Fals
 
 __all__ = [
     "ensure_versioned_backup",
+    "is_versioned_backup_name",
     "kept_copy_name",
     "set_aside_as_kept_copy",
     "versioned_backup_candidates",

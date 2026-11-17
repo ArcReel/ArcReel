@@ -24,7 +24,7 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.routers import catalog as catalog_router
 from server.routers import provider_models
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
-from tests.catalog_support import install_catalog
+from tests.catalog_support import install_catalog, with_min_app_version
 from tests.http_capture import capture_http
 
 
@@ -81,6 +81,34 @@ def test_builtin_list_has_state_flags_and_price_summary(models_client: TestClien
     assert (legacy["enabled"], legacy["is_default"]) == (False, False)
     assert "discontinued" in legacy["flags"]
     assert models_client.get("/api/v1/providers/nope/models").status_code == 404
+
+
+async def test_version_gated_model_is_listed_with_its_requirement_but_never_usable(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """最低应用版本高于当前版本的官方收录模型：列表末尾照常列出并带所需版本，但不启用、不作默认，也不能启用。"""
+    install_catalog(
+        monkeypatch, with_min_app_version(catalog.factory_snapshot(), "agnes", "agnes-3.0-flash", "999.0.0")
+    )
+
+    resp = models_client.get("/api/v1/providers/agnes/models")
+    assert resp.status_code == 200
+    gated = resp.json()["models"][-1]
+    assert gated["model_id"] == "agnes-3.0-flash"
+    assert (gated["min_app_version"], gated["min_app_version_satisfied"]) == ("999.0.0", False)
+    assert (gated["enabled"], gated["is_default"], gated["official"]) == (False, False, True)
+    others = resp.json()["models"][:-1]
+    assert others
+    assert all(item["min_app_version_satisfied"] for item in others)
+
+    enable = models_client.put(
+        "/api/v1/providers/agnes/models/enabled", json={"model_id": "agnes-3.0-flash", "enabled": True}
+    )
+    assert enable.status_code == 404
+    async with db_factory() as session:
+        statuses = await ConfigService(session).get_all_providers_status()
+    agnes = next(s for s in statuses if s.name == "agnes")
+    assert "agnes-3.0-flash" not in (agnes.models or {})
 
 
 async def test_disabling_default_model_takes_effect_immediately(
@@ -841,6 +869,80 @@ async def test_custom_add_by_id_infers_endpoint_and_takes_default(
     )
 
 
+def test_builtin_user_added_model_prefills_and_switches_its_endpoint(models_client: TestClient) -> None:
+    """内置供应商下添加的模型按名字预填调用端点，候选只有这个供应商的端点；换端点后调用通道随之改变。"""
+    from lib.backends.backend_assembly.specs import declared_builtin_video_capabilities
+
+    _add_user_model(models_client, "minimax", "MiniMax-H3-Preview", "video")
+    url = "/api/v1/providers/minimax/models/MiniMax-H3-Preview"
+    detail = models_client.get(url).json()
+    assert detail["endpoint"] == "minimax-h3"
+    assert [option["key"] for option in detail["endpoint_options"]] == [
+        "minimax-hailuo-v1",
+        "minimax-hailuo-v1-fast",
+        "minimax-s2v-01",
+        "minimax-h3",
+    ]
+    assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is True
+
+    rejected = models_client.patch(url, json={"endpoint": "ark-seedance-2"})
+    assert rejected.status_code == 422
+    assert "ark-seedance-2" in rejected.json()["detail"]
+
+    switched = models_client.patch(url, json={"endpoint": "minimax-hailuo-v1-fast"})
+    assert switched.status_code == 200
+    assert switched.json()["endpoint"] == "minimax-hailuo-v1-fast"
+    # Fast 只接受图生视频
+    assert switched.json()["capabilities"]["base"]["text_to_video"] is False
+    assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is False
+
+
+def test_switching_the_endpoint_alone_clears_overrides_checked_against_the_old_one(models_client: TestClient) -> None:
+    """能力覆盖按端点校验后保存；只换端点不一并提交覆盖时，旧端点下的覆盖不套到新端点上。"""
+    _add_user_model(models_client, "ark", "my-switch-ep", "video")
+    url = "/api/v1/providers/ark/models/my-switch-ep"
+    assert models_client.patch(url, json={"endpoint": "ark-seedance-1"}).status_code == 200
+    overridden = models_client.patch(url, json={"capability_overrides": {"durations": [5]}})
+    assert overridden.json()["capabilities"]["effective"]["durations"] == [5]
+
+    same = models_client.patch(url, json={"endpoint": "ark-seedance-1"})
+    assert same.json()["capabilities"]["effective"]["durations"] == [5]
+
+    switched = models_client.patch(url, json={"endpoint": "ark-seedance-2"}).json()
+    assert switched["endpoint"] == "ark-seedance-2"
+    assert switched["capabilities"]["effective"]["durations"] == switched["capabilities"]["base"]["durations"]
+
+    resubmitted = models_client.patch(
+        url, json={"endpoint": "ark-seedance-1", "capability_overrides": {"durations": [5]}}
+    ).json()
+    assert resubmitted["capabilities"]["effective"]["durations"] == [5]
+
+
+def test_builtin_add_rejects_an_endpoint_of_another_provider(models_client: TestClient) -> None:
+    resp = models_client.post(
+        "/api/v1/providers/grok/models",
+        json={"model_id": "grok-imagine-video-2", "media_type": "video", "endpoint": "openai-video"},
+    )
+    assert resp.status_code == 422
+    accepted = models_client.post(
+        "/api/v1/providers/grok/models",
+        json={"model_id": "grok-imagine-video-2", "media_type": "video"},
+    )
+    assert accepted.status_code == 201
+    detail = models_client.get("/api/v1/providers/grok/models/grok-imagine-video-2").json()
+    assert (detail["endpoint"], [o["key"] for o in detail["endpoint_options"]]) == (
+        "grok-video-classic",
+        ["grok-video-classic", "grok-video-mixed"],
+    )
+
+
+def test_official_builtin_models_have_no_endpoint_setting(models_client: TestClient) -> None:
+    detail = models_client.get("/api/v1/providers/minimax/models/MiniMax-H3").json()
+    assert (detail["endpoint"], detail["endpoint_options"]) == (None, [])
+    resp = models_client.patch("/api/v1/providers/minimax/models/MiniMax-H3", json={"endpoint": "minimax-h3"})
+    assert resp.status_code == 422
+
+
 # 供应商模型 Sheet：关联其他模型、手动填写模型信息
 # ---------------------------------------------------------------------------
 
@@ -929,7 +1031,7 @@ async def test_manual_entry_rejects_a_name_the_catalog_already_has(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     _, url = await _house_model(db_factory)
-    clash = {**_NEW_IMAGE, "maker": "my-relay", "name": "gemini-3.1-flash-image-preview"}
+    clash = {**_NEW_IMAGE, "maker": "my-relay", "name": "gemini-3.1-flash-image"}
     assert catalog.find_entry(clash["name"], media_type="image") is not None
 
     resp = models_client.patch(url, json={"new_entry": clash})
@@ -945,7 +1047,7 @@ async def test_link_to_another_entry_then_unlink(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     _, url = await _house_model(db_factory)
-    target = catalog.find_entry("gemini-3.1-flash-image-preview", media_type="image")
+    target = catalog.find_entry("gemini-3.1-flash-image", media_type="image")
     assert target is not None
 
     resp = models_client.patch(url, json={"entry_binding": target.key.ref})
@@ -979,7 +1081,7 @@ async def test_link_is_validated_against_the_catalog_and_the_media_type(
     assert models_client.get(url).json()["entry_binding"] is None
 
     # 已关联的模型换到另一种媒体类型的调用端点：原绑定不再成立，要求同一次保存里重新关联或解除
-    image_entry = catalog.find_entry("gemini-3.1-flash-image-preview", media_type="image")
+    image_entry = catalog.find_entry("gemini-3.1-flash-image", media_type="image")
     assert image_entry is not None
     assert models_client.patch(url, json={"entry_binding": image_entry.key.ref}).status_code == 200
     switched = models_client.patch(url, json={"endpoint": "openai-chat"})
@@ -1139,3 +1241,130 @@ def test_model_reference_setting_keys_have_i18n_labels() -> None:
         content = (i18n_dir / locale / "dashboard.ts").read_text(encoding="utf-8")
         for key in GLOBAL_MODEL_SETTING_KEYS:
             assert f"'global_bucket_label_{key}'" in content, f"{locale} 缺 global_bucket_label_{key} 文案"
+
+
+@pytest.mark.parametrize("custom", [False, True])
+@pytest.mark.parametrize("entry_limit", [0, 3])
+async def test_image_reference_override_controls_api_candidates_and_execution(
+    models_client, db_factory, monkeypatch, custom, entry_limit
+):
+    from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
+    from lib.backends.image_backends.base import ImageCapabilityError
+    from lib.backends.image_backends.grok import GrokImageBackend
+    from lib.backends.image_capabilities import backend_reference_image_limit, gate_image_request
+    from lib.custom_provider.loader import load_custom_backend
+    from tests.catalog_support import with_entry_facts
+
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(catalog.factory_snapshot(), "grok", "grok-imagine-image", max_reference_images=entry_limit),
+    )
+    if custom:
+        pid = await _custom_provider(
+            db_factory,
+            [
+                {
+                    "model_id": "grok-imagine-image",
+                    "display_name": "Image",
+                    "endpoint": "openai-images",
+                    "is_enabled": True,
+                }
+            ],
+        )
+        provider = f"custom-{pid}"
+    else:
+        provider = "grok"
+        _add_user_model(models_client, provider, "relay-image", "image")
+        linked = models_client.patch(
+            f"/api/v1/providers/{provider}/models/relay-image",
+            json={"entry_binding": catalog.find_entry("grok-imagine-image", media_type="image").key.ref},
+        )
+        assert linked.status_code == 200, linked.text
+    model_id = "grok-imagine-image" if custom else "relay-image"
+    url = f"/api/v1/providers/{provider}/models/{model_id}"
+
+    async def runtime(expected):
+        if custom:
+            async with db_factory() as session:
+                backend = await load_custom_backend(
+                    session=session, provider_id=provider, model_id=model_id, media_type="image"
+                )
+        else:
+            backend = GrokImageBackend(api_key="fake", model=model_id)
+        limit = await backend_reference_image_limit(backend, provider_id=provider)
+        assert limit.to_json() == expected
+        if expected:
+            await gate_image_request(backend, provider_id=provider, reference_count=expected)
+            with pytest.raises(ImageCapabilityError) as error:
+                await gate_image_request(backend, provider_id=provider, reference_count=expected + 1)
+            assert error.value.code == "image_reference_images_exceeded"
+        else:
+            with pytest.raises(ImageCapabilityError) as error:
+                await gate_image_request(backend, provider_id=provider, reference_count=1)
+            assert error.value.code == "image_capability_missing_i2i"
+
+    for override, expected in [(8, 8), (0, 0), (None, entry_limit)]:
+        overrides = {"image_to_image": True}
+        if override is not None:
+            overrides["max_reference_images"] = override
+        response = models_client.patch(url, json={"capability_overrides": overrides})
+        assert response.status_code == 200, response.text
+        detail = models_client.get(url).json()
+        caps = detail["capabilities"]
+        assert "max_reference_images" in caps["editable"]
+        assert caps["base"]["max_reference_images"] == entry_limit
+        assert caps["overrides"] == overrides
+        assert caps["effective"]["max_reference_images"] == expected
+        assert caps["effective"]["image_to_image"] is bool(expected)
+        buckets = (
+            custom_model_buckets(endpoint="openai-images", model_id=model_id, capability_overrides=overrides)
+            if custom
+            else builtin_model_buckets(provider, model_id, catalog.get_model(provider, model_id, media_type="image"))
+        )
+        assert ("i2i" in buckets) is bool(expected)
+        await runtime(expected)
+
+
+@pytest.mark.parametrize("value", [-1, True, 1.5, None])
+@pytest.mark.parametrize("custom", [False, True])
+async def test_image_reference_override_rejects_invalid_values(models_client, db_factory, value, custom):
+    if custom:
+        _, url = await _house_model(db_factory)
+    else:
+        _add_user_model(models_client, "grok", "relay-image", "image")
+        url = "/api/v1/providers/grok/models/relay-image"
+    response = models_client.patch(url, json={"capability_overrides": {"max_reference_images": value}})
+    assert response.status_code == 422, response.text
+
+
+def test_editing_an_image_entry_keeps_its_qualities(models_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """条目编辑界面不编辑画质取值：按界面回传的模型事实（不含画质取值）保存后，副本保留它，画质选项不消失。"""
+    from lib.backends.image_capabilities import builtin_image_quality_options
+    from tests.catalog_support import with_entry_facts
+
+    qualities = ("low", "medium", "high")
+    install_catalog(
+        monkeypatch, with_entry_facts(catalog.factory_snapshot(), "openai", "gpt-image-2", qualities=qualities)
+    )
+    url = "/api/v1/providers/openai/models/gpt-image-2"
+    entry = models_client.get(url).json()["entry"]
+    assert "qualities" not in entry["facts"]
+
+    resp = models_client.patch(
+        url,
+        json={
+            "entry": {
+                "maker": "openai",
+                "name": "gpt-image-2",
+                "media_type": "image",
+                "facts": {**entry["facts"], "resolutions": ["1K", "2K"]},
+            }
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["entry"]["source"] == "modified"
+    saved = catalog.get_entry(EntryKey("openai", "gpt-image-2", "image"))
+    assert saved is not None
+    assert (saved.facts.resolutions, saved.facts.qualities) == (("1K", "2K"), qualities)
+    assert builtin_image_quality_options("openai", "gpt-image-2") == qualities

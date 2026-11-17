@@ -12,11 +12,16 @@ from lib.backends.kling_shared import (
     KLING_BASE_URL,
     KlingJWTManager,
     extract_kling_image_urls,
+    extract_kling_model_path_video_url,
     extract_kling_task_id,
     extract_kling_video_url,
+    is_kling_model_path_terminal,
     is_kling_task_terminal,
     kling_auth_mode,
     kling_bearer_headers,
+    kling_model_path_failure_reason,
+    kling_model_path_output_duration,
+    kling_model_path_task_id,
     kling_response_error,
     kling_task_failure_reason,
     resolve_kling_api_key,
@@ -247,3 +252,57 @@ class TestResponseParsing:
         assert "视频" not in reason
         assert "t-9" in reason
         assert "boom" in reason
+
+
+def _tasks(**task) -> dict:
+    return {"code": 0, "message": "SUCCEED", "data": [task]}
+
+
+class TestModelPathResponses:
+    """新版 API（模型名在路径里）的提交与 ``GET /tasks`` 响应解析。"""
+
+    def test_task_id_from_data_id(self):
+        assert kling_model_path_task_id({"code": 0, "data": {"id": "893605946402811985", "status": "submitted"}}) == (
+            "893605946402811985"
+        )
+
+    def test_task_id_missing_raises_with_code_error(self):
+        with pytest.raises(RuntimeError, match="code=1102"):
+            kling_model_path_task_id({"code": 1102, "message": "resource pack exhausted", "data": None})
+
+    @pytest.mark.parametrize(
+        ("status", "terminal"),
+        [("submitted", False), ("processing", False), ("succeeded", True), ("failed", True), ("succeed", False)],
+    )
+    def test_terminal_states(self, status, terminal):
+        assert is_kling_model_path_terminal(_tasks(id="t", status=status)) is terminal
+
+    def test_empty_query_result_keeps_polling(self):
+        assert is_kling_model_path_terminal({"code": 0, "data": []}) is False
+
+    def test_failure_reason_reads_task_message(self):
+        reason = kling_model_path_failure_reason(_tasks(id="t-9", status="failed", message="risk control"))
+        assert reason is not None
+        assert "t-9" in reason
+        assert "risk control" in reason
+        assert kling_model_path_failure_reason(_tasks(id="t-9", status="processing")) is None
+
+    def test_video_url_skips_non_video_outputs(self):
+        payload = _tasks(
+            id="t",
+            status="succeeded",
+            outputs=[{"type": "audio", "mp3_url": "https://x/a.mp3"}, {"type": "video", "url": "https://x/v.mp4"}],
+        )
+        assert extract_kling_model_path_video_url(payload) == "https://x/v.mp4"
+
+    def test_video_url_missing_raises(self):
+        with pytest.raises(RuntimeError, match="缺少视频 URL"):
+            extract_kling_model_path_video_url(_tasks(id="t", status="succeeded", outputs=[]))
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [("5", 5), ("12.5", 13), (8, 8), ("0", None), ("-1", None), ("abc", None), (None, None), ("90000", None)],
+    )
+    def test_output_duration(self, raw, expected):
+        usage = {} if raw is None else {"output_duration": raw}
+        assert kling_model_path_output_duration(_tasks(id="t", status="succeeded", usage=usage)) == expected

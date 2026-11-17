@@ -8,6 +8,7 @@ import copy
 import functools
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -26,7 +27,12 @@ from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.catalog.errors import ModelNotInCatalogError
-from lib.config.resolver import ConfigResolver, caps_generation_mode, video_bucket_for_generation_mode
+from lib.config.resolver import (
+    ConfigResolver,
+    NoAvailableProviderError,
+    caps_generation_mode,
+    video_bucket_for_generation_mode,
+)
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskNotCancellableError
@@ -124,7 +130,7 @@ from lib.generation.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
-from lib.generation.task_failure_encoding import is_provider_refusal
+from lib.generation.task_failure_encoding import is_database_failure, is_provider_refusal
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.async_thread import run_sync_transaction
@@ -150,6 +156,7 @@ from lib.project.project_migration_failure import (
 from lib.project.project_migration_guard import project_migration_failure
 from lib.project.project_migrations import migrate_project_with_verdict
 from lib.project.source_revision import SourceScope, compute_source_revision
+from lib.script.draft_violation import DraftViolation
 from lib.script.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditLocation,
@@ -228,6 +235,7 @@ from server.text_generation import (
     MAX_INSTRUCTIONS_LEN,
     SCOPE_REMOVED_MESSAGE,
     AdScriptRejectedError,
+    DraftQuarantinedError,
     OperationNotAdmittedError,
     PromptAuthoringInputError,
     PromptOverwriteRequiredError,
@@ -638,6 +646,15 @@ def truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
     )
 
 
+def no_available_provider_problem(exc: NoAvailableProviderError) -> ToolProblem:
+    return ToolProblem(
+        f"{exc.media_type}_default_model_not_set",
+        str(exc),
+        action=GenerationAction.CONFIGURE_DEFAULT_MODEL,
+        params={"media_type": exc.media_type},
+    )
+
+
 def model_not_in_catalog_problem(exc: ModelNotInCatalogError) -> ToolProblem:
     """引用的内置模型已不在供应商清单中：沿用任务失败的稳定码与参数，出路是重新选择模型（去配置供应商）。"""
     return ToolProblem(
@@ -703,16 +720,31 @@ async def _run_text_generation(
         )
     except UnexpectedTextGenerationError as exc:
         return ToolOutcome(problem=_unexpected_text_failure_problem(str(exc), exc))
+    except DraftQuarantinedError as exc:
+        return ToolOutcome(problem=_draft_generation_problem(str(exc), exc.count))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
+    except NoAvailableProviderError as exc:
+        return ToolOutcome(problem=no_available_provider_problem(exc))
     except ModelNotInCatalogError as exc:
         return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except Exception as exc:
         return ToolOutcome(problem=_unexpected_text_failure_problem(f"{operation} 失败: {exc}", exc))
 
 
+def _draft_generation_problem(detail: str, count: int) -> ToolProblem:
+    return ToolProblem("draft_generation_invalid", detail, action=GenerationAction.FIX_INPUT, params={"count": count})
+
+
 def _unexpected_text_failure_problem(detail: str, cause: BaseException) -> ToolProblem:
     """生成中的意外异常：供应商真正拒绝了内容或输入时归为拒绝（修改输入），其余按任务失败重试，与图片任务一致。"""
+    if is_database_failure(cause):
+        logging.getLogger(__name__).error("文本生成数据库异常", exc_info=cause)
+        return ToolProblem("internal_server_error", "internal_server_error", action=GenerationAction.RETRY)
+    if isinstance(cause, DraftViolation) and cause.code == "quarantined" and cause.params is not None:
+        count = cause.params.get("count")
+        if type(count) is int:
+            return _draft_generation_problem(detail, count)
     if is_provider_refusal(cause):
         return ToolProblem("generation_refused", detail)
     return ToolProblem(GenerationProblemCode.TASK_FAILED.value, detail, action=GenerationAction.RETRY)
@@ -1344,7 +1376,7 @@ class PromptPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     script: str = Field(min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json")
-    item_id: str = Field(min_length=1, description="分镜条目 id（segment_id / scene_id / shot_id / unit_id），如 E1S01")
+    item_id: str = Field(min_length=1, description="条目 id（segment_id / scene_id / shot_id / unit_id），如 E1S01")
 
 
 async def get_prompt_preview(
@@ -1369,7 +1401,7 @@ async def get_prompt_preview(
             scope.project_name, filename, request.value.item_id, projects=services.projects
         )
     except ScriptItemNotFound:
-        return ToolOutcome(problem=ToolProblem("item_not_found", f"剧本中不存在分镜 {request.value.item_id}"))
+        return ToolOutcome(problem=ToolProblem("item_not_found", f"剧本中不存在条目 {request.value.item_id}"))
     except FileNotFoundError as exc:
         return ToolOutcome(problem=ToolProblem("file_not_found", str(exc)))
     except (TypeError, ValueError) as exc:
@@ -1514,6 +1546,8 @@ async def _run_draft(
         return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
+    except NoAvailableProviderError as exc:
+        return ToolOutcome(problem=no_available_provider_problem(exc))
     except ModelNotInCatalogError as exc:
         return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except Exception as exc:
@@ -2495,7 +2529,7 @@ PROJECT_SETTINGS = (
 PROJECT_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
 EPISODE_META_FIELDS = ("title",)
 
-_SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
+_SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi", "ru")
 _POSITIVE_INT_SETTINGS = (EPISODE_TARGET_UNITS_FIELD,)
 
 
@@ -2878,6 +2912,8 @@ async def _execute_plan_episodes(
             )
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
+    except NoAvailableProviderError as exc:
+        return ToolOutcome(problem=no_available_provider_problem(exc))
     except ModelNotInCatalogError as exc:
         return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except NoCutPointError as exc:
@@ -3169,6 +3205,8 @@ async def _draft_replan_window(
         )
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
+    except NoAvailableProviderError as exc:
+        return ToolOutcome(problem=no_available_provider_problem(exc))
     except ModelNotInCatalogError as exc:
         return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except NoCutPointError as exc:

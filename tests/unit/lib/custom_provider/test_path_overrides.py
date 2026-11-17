@@ -101,7 +101,7 @@ async def test_resume_after_base_path_change_still_hits_the_overrides(tmp_path: 
 
 async def test_dashscope_resume_restores_the_replaced_base_suffix(tmp_path: Path):
     provider = SimpleNamespace(provider_id="cp", base_url="https://relay.test/new/compatible-mode/v1", api_key="k")
-    backend = ENDPOINT_REGISTRY["dashscope-async-video"].build_backend(
+    backend = ENDPOINT_REGISTRY["dashscope-video"].build_backend(
         cast("Any", provider), "wan2.6-t2v", {"poll": "/proxy/tasks/{{ task_id }}"}
     )
     with capture_http() as router, bounded_poll_clock():

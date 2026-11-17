@@ -118,3 +118,17 @@ def test_offratio_1024_sizes_dropped():
     assert "1024x1792" not in _SORA_LEGAL_SIZES
     assert "1792x1024" not in _SORA_LEGAL_SIZES
     assert set(_SORA_LEGAL_SIZES) == {"720x1280", "1280x720", "1080x1920", "1920x1080"}
+
+
+@pytest.mark.asyncio
+async def test_1080p_follows_entry_resolution_instead_of_pro_name(tmp_path, monkeypatch):
+    from lib.catalog import query as catalog
+    from tests.catalog_support import catalog_of, install_catalog, with_entry_facts
+
+    entry = next(e for e in catalog.factory_snapshot().entries if e.maker == "openai" and e.name == "sora-2")
+    data = catalog_of((entry,), {"openai": ("openai/sora-2",)})
+    install_catalog(monkeypatch, with_entry_facts(data, "openai", "sora-2", resolutions=("720p", "1080p")))
+    size = await _capture_size(
+        _make_backend("sora-2"), output_path=tmp_path / "out.mp4", aspect_ratio="9:16", resolution="1080p"
+    )
+    assert size == "1080x1920"

@@ -128,8 +128,8 @@ class TestCandidatesAndExecutionReadTheSameResult:
         assert exc.value.code == "video_last_frame_unsupported"
 
     def test_entry_rejects_last_frame_on_a_custom_endpoint(self, tmp_path: Path):
-        caps = two_sided_video_capabilities(endpoint="dashscope-async-video", model_id="happyhorse-1.0-i2v")
-        assert system_video_capabilities(endpoint="dashscope-async-video", model_id="happyhorse-1.0-i2v").last_frame
+        caps = two_sided_video_capabilities(endpoint="dashscope-always-on-video", model_id="happyhorse-1.0-i2v")
+        assert system_video_capabilities(endpoint="dashscope-always-on-video", model_id="happyhorse-1.0-i2v").last_frame
         assert caps.last_frame is False
         with pytest.raises(VideoCapabilityError) as exc:
             _gate(caps, tmp_path, has_first_frame=True, end_image=_images(tmp_path, 1, "e")[0])
@@ -137,8 +137,8 @@ class TestCandidatesAndExecutionReadTheSameResult:
 
     def test_unrecorded_model_follows_the_channel(self, tmp_path: Path):
         """对应不上条目：参考生视频是候选，上限未收录，执行时不裁剪；尾帧与参考音频不开。"""
-        caps = two_sided_video_capabilities(endpoint="ark-seedance", model_id="relay-video-x1")
-        assert custom_model_buckets(endpoint="ark-seedance", model_id="relay-video-x1") == frozenset({"i2v", "r2v"})
+        caps = two_sided_video_capabilities(endpoint="ark-seedance-2", model_id="relay-video-x1")
+        assert custom_model_buckets(endpoint="ark-seedance-2", model_id="relay-video-x1") == frozenset({"i2v", "r2v"})
         _gate(caps, tmp_path, reference_images=_images(tmp_path, 12))
         with pytest.raises(VideoCapabilityError) as exc:
             _gate(caps, tmp_path, has_first_frame=True, end_image=_images(tmp_path, 1, "e")[0])
@@ -163,13 +163,13 @@ class TestCandidatesAndExecutionReadTheSameResult:
 
     def test_custom_override_replaces_the_whole_dimension(self, tmp_path: Path):
         """Vidu Q3 Pro 的条目不接受参考图；用户覆盖上限 3 后候选列出参考生视频，执行时按 3 校验。"""
-        assert "r2v" not in custom_model_buckets(endpoint="vidu-video", model_id="viduq3-pro")
+        assert "r2v" not in custom_model_buckets(endpoint="vidu-video-q3-turbo", model_id="viduq3-pro")
         overrides = {"max_reference_images": 3}
         assert "r2v" in custom_model_buckets(
-            endpoint="vidu-video", model_id="viduq3-pro", capability_overrides=overrides
+            endpoint="vidu-video-q3-turbo", model_id="viduq3-pro", capability_overrides=overrides
         )
 
-        caps = synthesize_video_capabilities(endpoint="vidu-video", model_id="viduq3-pro", overrides=overrides)
+        caps = synthesize_video_capabilities(endpoint="vidu-video-q3-turbo", model_id="viduq3-pro", overrides=overrides)
         _gate(caps, tmp_path, reference_images=_images(tmp_path, 3))
         with pytest.raises(VideoCapabilityError) as exc:
             _gate(caps, tmp_path, reference_images=_images(tmp_path, 4))
@@ -177,9 +177,9 @@ class TestCandidatesAndExecutionReadTheSameResult:
 
     def test_custom_override_can_open_a_dimension_the_entry_rejects(self, tmp_path: Path):
         """Vidu Q3 的条目不接受首尾帧（只做参考生视频）；覆盖整维替换后执行时放行。"""
-        assert two_sided_video_capabilities(endpoint="vidu-video", model_id="viduq3").last_frame is False
+        assert two_sided_video_capabilities(endpoint="vidu-video-q3-turbo", model_id="viduq3").last_frame is False
         caps = synthesize_video_capabilities(
-            endpoint="vidu-video", model_id="viduq3", overrides={"first_frame": True, "last_frame": True}
+            endpoint="vidu-video-q3-turbo", model_id="viduq3", overrides={"first_frame": True, "last_frame": True}
         )
         assert caps.last_frame is True
         _gate(caps, tmp_path, has_first_frame=True, end_image=_images(tmp_path, 1, "e")[0])

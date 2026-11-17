@@ -75,7 +75,7 @@ pnpm check-consistency
 
 ### 前端页面级测试
 
-`frontend/e2e/` 是 Playwright 页面级套件。它在 1024×600 到 2560×1440 的五个视口上打开各页面区域，检查文档本身不滚动、没有被裁切又无法滚动到达的内容、纵向滚动区（含弹层正文）没有被撑出横向滚动，并用 axe 按 WCAG 2.2 AA 检查可访问性。CI 的 `frontend-e2e` job 在官方 Playwright 镜像里运行。本地用 run-server 远程模式在同一镜像里渲染，结果与 CI 一致：
+`frontend/e2e/` 是 Playwright 页面级套件。它在 1024×600 到 2560×1440 的五个视口上打开各页面区域，检查文档本身不滚动、没有被裁切又无法滚动到达的内容、纵向滚动区（含弹层正文）没有被撑出横向滚动，并用 axe 按 WCAG 2.2 AA 检查可访问性。CI 的 `frontend-e2e` job 在官方 Playwright 镜像里运行，PR 上只跑有截图基线的三个视口（`E2E_VIEWPORTS=screenshot`），每日全量 CI 跑全部五个。本地用 run-server 远程模式在同一镜像里渲染，结果与 CI 一致：
 
 ```bash
 cd frontend
@@ -89,7 +89,7 @@ pnpm e2e:remote   # 终端二：构建前端，连接容器里的浏览器运行
 
 - **新增场景**：在 `frontend/e2e/regions/` 下用 `defineRegionScenarios` 登记，写明打开的路由、就绪条件和要探测的状态。场景以会改变可用高度的状态为主，例如展开面板、打开弹层。
 - **豁免**：装饰性的裁切层用 `data-overflow-ok="原因"` 豁免，属性值必须写明原因。确需横向滚动的区域（时间线轨道、代码块、标签带）写 `overflow-x-auto`，探针按这个类名识别，不需要另加豁免。
-- **接口数据替身**：`frontend/e2e/fixtures/recorded/` 由 `pnpm e2e:record` 对真实后端录制。脚本需要 `uv`，会在临时数据目录里启动后端并创建演示项目。后端改动接口形状的 PR 同时重录，形状变化体现为替身文件的 diff。长文本、多条目等压力变体写在场景的 `api` 字段里。
+- **接口数据替身**：`frontend/e2e/fixtures/recorded/` 由 `pnpm e2e:record` 对真实后端录制。脚本需要 `uv`，会在临时数据目录里启动后端并创建演示项目。录制后端（`scripts/e2e_record_backend.py`）只读仓库内的输入：目录数据取后端测试共用的 `tests/fixtures/catalog.json`，生命周期判定的「今天」固定为它的数据集日期，应用版本固定，不做线上目录同步，也不读 `.env`。后端改动接口形状或改动这份测试目录数据的 PR 同时重录，变化体现为替身文件的 diff。`pnpm e2e:record:check` 再起一个前移系统时钟、换掉出厂快照与版本号的后端，两边各录一次，替身不同即失败；CI 的 `e2e-record-drift` 与本地闸门的 `e2e-record` 域运行它。长文本、多条目等压力变体写在场景的 `api` 字段里。
 - **页面截图**：场景登记 `screenshot` 后，设置 `E2E_SCREENSHOTS=1` 运行才会比对，只在 1024×600、1440×900、2560×1440 三个视口拍。CI 的 `frontend-e2e` 设置了这个变量，截图出现差异或缺少基线时 job 失败。基线只能在容器里生成和比对：用 `pnpm e2e:server` 与 `pnpm e2e:remote` 运行，新增或有意改动的截图加 `--update-snapshots=changed` 重新生成，逐张核对后提交。本机渲染的字体与容器不同，不要用它生成基线。
 
 ## 代码质量
@@ -163,7 +163,7 @@ AFK 团队流程的短期运行分支例外使用 `afk/<batch-id>/stage-<K>` 与
 
 每个 PR 压缩为 1 个 commit 合并回 `main`，commit message 遵循 conventional commits 规范（见下节）。GitHub 上选择 "Squash and merge"。
 
-`afk-team-workflow` 生成的 stage PR 是例外：它用 "Rebase and merge" 保留每个 issue 的 conventional commit；清尾与 review loop 产生的非 issue commits 在合并前压成一个 conventional integration-fix commit。
+`afk-team-workflow` 生成的 stage PR 是例外：它用 "Rebase and merge" 保留每个 issue 的 conventional commit；集成审查、验收与 review loop 的修复都并入 issue commits 之后的同一个 conventional integration-fix commit，以 `--force-with-lease` push。
 
 ## 提交规范
 

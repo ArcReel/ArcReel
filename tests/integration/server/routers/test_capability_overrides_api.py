@@ -30,10 +30,10 @@ VIDEO_MODEL = "relay-sora"
 
 # openai-video 的 delegate 不序列化 end_image（见 _check_capability_overrides 的
 # end_image_capable 门槛），last_frame 覆盖为 True 的用例须换一个真正支持尾帧的 endpoint。
-# ark-seedance 的 1.0 pro fast 系统判定 last_frame=False（docs/api-docs/providers/ark.md
+# ark-seedance-2 端点下 1.0 pro fast 系统判定 last_frame=False（docs/api-docs/providers/ark.md
 # 能力表标 "-"），可类比断言覆盖前后差异；不用 seedance-2 系列是因为那两系模型系统判定
 # 本身就是 True，无法体现覆盖生效前后的差异。
-LAST_FRAME_ENDPOINT = "ark-seedance"
+LAST_FRAME_ENDPOINT = "ark-seedance-2"
 LAST_FRAME_MODEL = "doubao-seedance-1-0-pro-fast-251015"
 
 
@@ -439,6 +439,35 @@ class TestSaveValidatesOpenOverrides:
         )
         assert resp.status_code == 201
 
+    def test_reference_audio_direct_accepted_on_vidu_q4(self, capability_client: TestClient):
+        """Vidu Q4 参考生视频把参考音频写进 sounds：保存直接参考音频覆盖应当成功。"""
+        resp = _post_provider(
+            capability_client,
+            [
+                _video_model(
+                    endpoint="vidu-video-q4",
+                    model_id="viduq4-preview",
+                    capability_overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 3},
+                )
+            ],
+        )
+        assert resp.status_code == 201
+
+    def test_reference_audio_direct_rejected_on_vidu_endpoint_without_sounds(self, capability_client: TestClient):
+        """同族的 Vidu Q3 Turbo 不收参考音频：开放只给真正下发 sounds 的端点，不按供应商族整体开放。"""
+        resp = _post_provider(
+            capability_client,
+            [
+                _video_model(
+                    endpoint="vidu-video-q3-turbo",
+                    model_id="viduq3-turbo",
+                    capability_overrides={"reference_audio_mode": "direct", "max_reference_audio_count": 3},
+                )
+            ],
+        )
+        assert resp.status_code == 422
+        assert "reference_audio_mode" in resp.json()["detail"]
+
     def test_direct_without_positive_count_rejected(self, capability_client: TestClient):
         """合并后不变式：宣称支持音色输入却限 0 段的组合在写入侧就拒。
 
@@ -784,7 +813,7 @@ class TestResolverReturnsEffectiveCapabilities:
         caps = await self._resolve(db_session, pid)
         assert caps["last_frame"] is False
 
-    @patch("lib.custom_provider.endpoints.ArkVideoBackend", new=MagicMock())
+    @patch.dict("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", {"ark-seedance-2": MagicMock()})
     async def test_resolver_matches_execution_layer(self, db_session: AsyncSession):
         """展示层与执行层出自同一合成函数：逐字段比对 resolver 与装载出的 backend。"""
         pid = await self._seed(
@@ -974,3 +1003,17 @@ class TestVideoCapabilitiesEndpoint:
 
         assert two_sided_video_capabilities(endpoint=LAST_FRAME_ENDPOINT, model_id=LAST_FRAME_MODEL).last_frame is False
         assert body["last_frame"] is True
+
+
+def test_image_reference_limit_override_roundtrip(capability_client: TestClient):
+    model = {
+        "model_id": "grok-imagine-image",
+        "display_name": "Image",
+        "endpoint": "openai-images",
+        "is_enabled": True,
+        "capability_overrides": {"image_to_image": True, "max_reference_images": 8},
+    }
+    pid = _create_provider(capability_client, [model])
+    url = f"/api/v1/custom-providers/{pid}"
+    saved = capability_client.get(url).json()["models"][0]
+    assert saved["capability_overrides"] == model["capability_overrides"]

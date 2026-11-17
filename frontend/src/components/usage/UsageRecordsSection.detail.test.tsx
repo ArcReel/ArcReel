@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import i18n from "@/i18n";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageRecordsStore } from "@/stores/usage-records-store";
 import {
@@ -13,7 +14,8 @@ import {
 import { renderUsageRecordsSection } from "./usage-test-utils";
 
 describe("UsageRecordsSection detail", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh");
     useUsageRecordsStore.setState(useUsageRecordsStore.getInitialState(), true);
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
@@ -238,6 +240,42 @@ describe("UsageRecordsSection detail", () => {
     expect(dialog.getByText(/"service_tier": "default"/)).toBeInTheDocument();
   });
 
+  it.each(["success", "failed"] as const)("renders reference thumbnails for %s calls", async (status) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
+      id: 42, project_name: "demo", media_type: "image", status, output_path: null,
+      inputs: { reference_images: [{ path: "characters/hero.png", label: null, role: "array" }] },
+    }));
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByRole("img", { name: "参考图" })).toHaveAttribute("src", "/api/v1/files/demo/characters/hero.png?w=320");
+    expect(dialog.queryByText("array")).not.toBeInTheDocument();
+  });
+
+  it("keeps the missing-file fallback for expired historical inputs", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
+      id: 42, output_path: null,
+      inputs: { reference_images: [{ path: "/tmp/deleted/ref.png", label: null, role: "array" }] },
+    }));
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.error(dialog.getByRole("img", { name: "参考图" }));
+    expect(dialog.getByText("文件不存在")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["timeout", "超时"],
+    ["rate_limited", "限流"],
+  ])("hides registered domain keys below %s", async (errorCode, phrase) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(makeUsageRecordDetail({
+      id: 42, status: "failed", error_code: errorCode,
+      error_message: "ark_agent_plan_tts_unreachable",
+    }));
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(phrase)).toBeInTheDocument();
+    expect(dialog.queryByText("ark_agent_plan_tts_unreachable")).not.toBeInTheDocument();
+  });
+
   it("shows 无记录 for groups the record never captured", async () => {
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
       makeUsageRecordDetail({ id: 42, prompt: null, inputs: null, output_path: null }),
@@ -248,6 +286,126 @@ describe("UsageRecordsSection detail", () => {
 
     // 输入与产出两组都无数据：显示「无记录」而不是消失或报错。
     expect(screen.getAllByText("无记录")).toHaveLength(2);
+  });
+
+  it.each([
+    {
+      code: "narration_tts_speed_out_of_range",
+      params: { minimum: 0.7, maximum: 1.5, speed: 0.5 },
+      message: "所选 TTS 模型的配音语速范围是 0.7～1.5，当前为 0.5。请调整或清空配音语速",
+    },
+    {
+      code: "image_reference_images_exceeded",
+      params: { model: "m", limit: 1, count: 2 },
+      message: "模型 m 最多支持 1 张参考图，本次请求带了 2 张，未提交生成；请重新生成",
+    },
+    {
+      code: "video_duration_not_supported",
+      params: { duration: 7, supported: "5, 10" },
+      message: "视频时长 7s 不在该模型支持的时长（5, 10）内",
+    },
+    {
+      code: "video_reference_audio_duration_exceeded",
+      params: { model: "m", limit: 15, total: 16.04 },
+      message: "模型 m 参考音频总时长最多 15 秒，当前合计 16.0 秒；请减少参考音频段数或换用更短的音频",
+    },
+  ])("localizes $code with the recorded parameters", async ({ code, params, message }) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, status: "failed", error_code: code, error_params: params, error_message: code }),
+    );
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(message)).toBeInTheDocument();
+    expect(dialog.queryByText(code)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      code: "ref_payload_floor_exceeded", params: {},
+      zh: "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
+      en: "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
+    },
+    {
+      code: "ark_agent_plan_tts_unreachable", params: {},
+      zh: "多次重试后仍无法连接火山方舟 Agent Plan 语音合成服务，没有生成音频，也不会计入套餐用量。检查网络与代理设置后重试",
+      en: "Could not connect to the Volcengine Ark Agent Plan speech synthesis service after several retries. No audio was generated, and nothing counts toward your plan usage. Check your network and proxy settings, then retry",
+    },
+    {
+      code: "image_output_missing", params: { model: "m" },
+      zh: "模型 m 没有返回图片，可能触发了内容安全过滤；请调整提示词或参考图后重试",
+      en: "Model m returned no image, possibly because of content safety filtering; adjust the prompt or reference images and try again",
+    },
+    {
+      code: "image_output_format_unsupported", params: { model: "m", media_type: "image/svg+xml" },
+      zh: "模型 m 返回了 image/svg+xml 格式的图片，无法转成 PNG 使用；请换用输出位图的模型",
+      en: "Model m returned an image in image/svg+xml format that cannot be converted to PNG; switch to a model that outputs raster images",
+    },
+    {
+      code: "declarative_response_extract_failed", params: { detail: "missing output" },
+      zh: "调用端点响应提取失败：missing output",
+      en: "Endpoint response extraction failed: missing output",
+    },
+    {
+      code: "declarative_response_extract_failed", params: { detail: "x".repeat(1900) },
+      zh: `调用端点响应提取失败：${"x".repeat(1900)}`,
+      en: `Endpoint response extraction failed: ${"x".repeat(1900)}`,
+    },
+    {
+      code: "comfyui_output_type_mismatch", params: { filename: "result.webm", media_type: "video" },
+      zh: "ComfyUI 产出的 result.webm 不是这个端点应产出的文件类型（应为 .m4v / .mov / .mp4），请把产物节点的节点绑定指到导出最终产物的那个节点，或在该保存节点上改用受支持的格式（如 SaveVideo 选 h264-mp4）",
+      en: "ComfyUI produced result.webm, which is not a file type this endpoint should output (expected .m4v / .mov / .mp4); point the output node bindings at the node that exports the final artifact, or switch that save node to a supported format (for SaveVideo, pick h264-mp4)",
+    },
+    {
+      code: "declarative_template_render_failed",
+      params: { detail: { key: "val_ce_undeclared_variable", params: { name: "prompt" } } },
+      zh: "调用端点请求渲染失败：占位符 prompt 引用了未声明的变量",
+      en: "Endpoint request rendering failed: Placeholder prompt references a variable that is not declared",
+    },
+  ])("translates recorded $code when the language changes", async ({ code, params, zh, en }) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, status: "failed", error_code: code, error_params: params, error_message: code }),
+    );
+    renderUsageRecordsSection("section=usage&record=42");
+    await screen.findByRole("dialog");
+    expect(await screen.findByText(zh)).toBeInTheDocument();
+    await act(() => i18n.changeLanguage("en"));
+    expect(await screen.findByText(en)).toBeInTheDocument();
+    expect(screen.queryByText(code)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { error_code: null, error_params: null, error_message: "narration_tts_speed_out_of_range" },
+    { error_code: "future_error", error_params: {}, error_message: "original failure" },
+  ])("preserves legacy or unknown failure text: $error_message", async (failure) => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, status: "failed", ...failure }),
+    );
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(failure.error_message)).toBeInTheDocument();
+    expect(dialog.queryByText(/\{\{/)).not.toBeInTheDocument();
+  });
+
+  it("updates the domain reason in all four languages without refetching", async () => {
+    const getRecord = vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({
+        id: 42, status: "failed", error_code: "narration_tts_speed_out_of_range",
+        error_params: { minimum: 0.7, maximum: 1.5, speed: 0.5 },
+        error_message: "narration_tts_speed_out_of_range",
+      }),
+    );
+    renderUsageRecordsSection("section=usage&record=42");
+    await screen.findByRole("dialog");
+    for (const [language, message] of [
+      ["zh", "所选 TTS 模型的配音语速范围是 0.7～1.5，当前为 0.5。请调整或清空配音语速"],
+      ["en", "The selected TTS model supports voice speeds from 0.7 to 1.5, but the current value is 0.5. Change or clear the voice speed"],
+      ["vi", "Mô hình TTS đã chọn hỗ trợ tốc độ giọng đọc từ 0.7 đến 1.5, giá trị hiện tại là 0.5. Hãy thay đổi hoặc xóa tốc độ giọng đọc"],
+      ["ru", "Выбранная модель TTS поддерживает скорость голоса от 0.7 до 1.5, текущее значение: 0.5. Измените или очистите скорость голоса"],
+    ]) {
+      await act(() => i18n.changeLanguage(language));
+      expect(await screen.findByText(message)).toBeInTheDocument();
+    }
+    expect(getRecord).toHaveBeenCalledTimes(1);
   });
 
   it("renders the failure phrase above the raw message", async () => {

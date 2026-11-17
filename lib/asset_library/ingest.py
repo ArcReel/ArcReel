@@ -43,7 +43,13 @@ from lib.infra.api_errors import ApiError
 from lib.infra.async_thread import run_noninterruptible_async
 from lib.infra.logging_utils import redact_diagnostic_text
 from lib.infra.task_cancel import raise_if_cancel_absorbed
-from lib.material.formal_objects import REF_ACTIVE, add_reference, release_holder
+from lib.material.formal_objects import (
+    INGEST_HOLDER_PREFIX,
+    REF_ACTIVE,
+    add_reference,
+    connection_change_lock,
+    release_holder,
+)
 from lib.material.storage import (
     ContentVersion,
     LocalLocator,
@@ -80,9 +86,6 @@ UNCERTAIN_LOOKUP_WINDOW = RELAY_URL_TTL + timedelta(hours=1)
 LOOP_INTERVAL_SECONDS = 10.0
 
 _MESSAGE_LIMIT = 500
-
-#: 入库任务对直接签名的正式对象持有引用时的引用方键前缀（不是项目的消费者，见 ``docs/adr/0118``）。
-INGEST_HOLDER_PREFIX = "ingest:"
 
 
 def ingest_holder(link_id: int) -> str:
@@ -178,20 +181,21 @@ async def _update(
     async with session_factory() as session:
         result = await session.execute(
             update(ProviderAssetLink)
-            .where(ProviderAssetLink.id == link_id, *conditions)
+            .where(ProviderAssetLink.id == link_id, ProviderAssetLink.state != "failed", *conditions)
             .values(updated_at=utc_now(), **values)
         )
         await session.commit()
         return bool(getattr(result, "rowcount", 0))
 
 
-#: ArcReel 自己判定的提交前失败。界面按码给出本地化原因，不当作供应商原文；前端的码表与它
+#: ArcReel 判定的本地失败。界面按码给出本地化原因，不当作供应商原文；前端的码表与它
 #: 经 ``frontend/src/test/contracts/provider-asset-local-failures.json`` 双向核对。
 LocalFailureCode = Literal[
     "unlinked_before_submit",
     "account_missing",
     "account_scope_changed",
     "object_storage_missing",
+    "object_storage_changed",
     "content_unavailable",
     "content_changed",
     "relay_upload_failed",
@@ -287,7 +291,6 @@ async def _submit(
         return
 
     # 内容按提交时冻结的内容版本读取并校验摘要：入库期间改选或替换图片不影响这次上传。
-    client = ObjectStorageClient(config_from_connection(connection))
     try:
         project_path = await asyncio.to_thread(project_path_of, link.project_name)
         content_version = await asyncio.to_thread(_frozen_content_version, project_path, link)
@@ -303,18 +306,14 @@ async def _submit(
         return
 
     try:
-        if formal_key is not None:
-            url = await client.presign_get(formal_key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
-        else:
-            assert data is not None
-            suffix = Path(link.locator_path).suffix or ".png"
-            key = relay_object_key(suffix, now=now)
-            relay_id = await record_relay_object(session_factory, connection, key, link_id=link.id)
-            await client.put_bytes(key, data, content_type=IMAGE_CONTENT_TYPES.get(suffix.lower()))
-            url = await client.presign_get(key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
-            await mark_relay_signed(session_factory, relay_id, now + RELAY_URL_TTL)
+        url = await run_noninterruptible_async(
+            _prepare_download(session_factory, connection, link, formal_key, data, now)
+        )
     except ObjectStorageError as exc:
         await _fail(session_factory, link.id, now, "relay_upload_failed", f"{exc.kind}:{exc.code}")
+        return
+    if url is None:
+        await _fail(session_factory, link.id, now, "object_storage_changed")
         return
 
     credentials = credentials_of(account)
@@ -372,6 +371,36 @@ async def _submit(
         )
     )
     raise_if_cancel_absorbed()
+
+
+async def _prepare_download(
+    session_factory: async_sessionmaker[AsyncSession],
+    connection: ObjectStorageConnection,
+    link: _LinkSnapshot,
+    formal_key: str | None,
+    data: bytes | None,
+    now: datetime,
+) -> str | None:
+    # 与连接处置串行：旧连接不能在清理之后继续上传或签发地址。
+    async with connection_change_lock():
+        async with session_factory() as session:
+            current = await ObjectStorageConnectionRepository(session).get()
+            job = await session.get(ProviderAssetLink, link.id)
+        if current is None or job is None or job.state != "pending":
+            return None
+        if (current.id, current.endpoint, current.bucket) != (connection.id, connection.endpoint, connection.bucket):
+            return None
+        client = ObjectStorageClient(config_from_connection(current))
+        if formal_key is not None:
+            return await client.presign_get(formal_key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+        assert data is not None
+        suffix = Path(link.locator_path).suffix or ".png"
+        key = relay_object_key(suffix, now=now)
+        relay_id = await record_relay_object(session_factory, current, key, link_id=link.id)
+        await client.put_bytes(key, data, content_type=IMAGE_CONTENT_TYPES.get(suffix.lower()))
+        url = await client.presign_get(key, expires_seconds=int(RELAY_URL_TTL.total_seconds()))
+        await mark_relay_signed(session_factory, relay_id, now + RELAY_URL_TTL)
+        return url
 
 
 async def _hold_formal_object(

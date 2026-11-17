@@ -59,8 +59,8 @@ export interface ProjectSettingsForm {
   };
   narration: NarrationDeliveryValue;
   voiceBinding: CharacterVoiceBinding;
-  /** 项目已保存的 `model_settings` 全表，保存分辨率时在它上面合并。 */
-  modelSettings: Record<string, { resolution: string | null }>;
+  /** 项目已保存的 `model_settings` 全表，保存分辨率与画质时在它上面合并。 */
+  modelSettings: Record<string, ModelSettingEntry>;
 }
 
 /** 属于各表单分页的字段，用于在侧栏标出有修改的分页。 */
@@ -135,8 +135,17 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
 function finiteOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** `model_settings` 的一项；project.json 里写坏的项（null、裸字符串）按空项读，合并时不把它们展开成字符下标。 */
+function settingEntry(value: unknown): ModelSettingEntry {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 /**
@@ -169,10 +178,10 @@ export function deriveForm(
   const executingVb = executingVideoModel(models, globals, route === "reference_video");
   const executingI2V = executingVideoModel(models, globals, false);
   const executingIb = executingImageModel(models, globals);
-  const modelSettings = (project.model_settings ?? {}) as Record<string, { resolution: string | null }>;
+  const modelSettings = (project.model_settings ?? {}) as Record<string, ModelSettingEntry>;
   const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
   const videoResolutions: Record<string, string | null> = Object.fromEntries(
-    Object.entries(modelSettings).map(([model, settings]) => [model, settings?.resolution ?? null]),
+    Object.entries(modelSettings).map(([model, settings]) => [model, settingEntry(settings).resolution ?? null]),
   );
   for (const model of new Set([executingVb, executingI2V])) {
     if (!model) continue;
@@ -206,7 +215,8 @@ export function deriveForm(
       ...models,
       defaultDuration: finiteOrNull(project.default_duration),
       videoResolutions,
-      imageResolution: executingIb ? (modelSettings[executingIb]?.resolution ?? null) : null,
+      imageResolution: executingIb ? (settingEntry(modelSettings[executingIb]).resolution ?? null) : null,
+      imageQuality: executingIb ? stringOrNull(settingEntry(modelSettings[executingIb]).quality) : null,
       generateAudio: typeof project.video_generate_audio === "boolean" ? project.video_generate_audio : null,
     },
     narration: {
@@ -241,13 +251,22 @@ function fullProjectPatch(
 ): ProjectPatch {
   const { models, narration } = value;
 
-  // resolution 的 key 用执行模型，与读侧一致
+  // resolution 与 quality 的 key 用执行模型，与读侧一致。接口整表替换 model_settings，每项都在已保存的
+  // 那一项上合并：只写本表单管的字段，其余字段（别的模型上的画质）原样带回，否则改一次分辨率就会抹掉它们。
   const executingImage = executingImageModel(models, globals);
-  const modelSettings: Record<string, { resolution: string | null }> = { ...value.modelSettings };
+  const modelSettings: Record<string, ModelSettingEntry> = { ...value.modelSettings };
   for (const [model, resolution] of Object.entries(models.videoResolutions ?? {})) {
-    modelSettings[model] = { resolution };
+    modelSettings[model] = { ...settingEntry(modelSettings[model]), resolution };
   }
-  if (executingImage) modelSettings[executingImage] = { resolution: models.imageResolution };
+  if (executingImage) {
+    // 画质为空即未选择：不写这个键，后端按分辨率档位推出画质
+    const { quality: _quality, ...rest } = settingEntry(modelSettings[executingImage]);
+    modelSettings[executingImage] = {
+      ...rest,
+      resolution: models.imageResolution,
+      ...(models.imageQuality ? { quality: models.imageQuality } : {}),
+    };
+  }
 
   const styleChanged = !sameStyle(value.style, saved.style);
   const stylePatch =
@@ -294,7 +313,15 @@ function fullProjectPatch(
 
 function sameModelSettings(a: Record<string, ModelSettingEntry>, b: Record<string, ModelSettingEntry>): boolean {
   const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every((key) => key in b && a[key].resolution === b[key].resolution);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every(
+      (key) =>
+        key in b &&
+        a[key].resolution === b[key].resolution &&
+        (a[key].quality ?? null) === (b[key].quality ?? null),
+    )
+  );
 }
 
 /**

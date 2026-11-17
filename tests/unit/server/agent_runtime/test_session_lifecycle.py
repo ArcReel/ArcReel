@@ -127,37 +127,88 @@ class TestConfigReading:
         assert result == 5
 
 
+class _CleanupTimerGate:
+    """替换整个进程的 ``asyncio.sleep``，拦截正数延迟：记录延迟秒数，由调用方显式触发到期。
+
+    patch 期间任何协程的正数等待都会进入本闸门，用例以 ``delays`` 断言只有清理定时器在等。
+    """
+
+    def __init__(self) -> None:
+        self.delays: list[float] = []
+        self.waiting = asyncio.Event()
+        self._expired = asyncio.Event()
+        self._real_sleep = asyncio.sleep
+
+    async def sleep(self, delay: float) -> None:
+        if delay <= 0:
+            await self._real_sleep(delay)
+            return
+        self.delays.append(delay)
+        self.waiting.set()
+        await self._expired.wait()
+
+    def expire(self) -> None:
+        self._expired.set()
+
+
 class TestCleanup:
     async def test_cleanup_disconnects_after_delay(self, tmp_path):
-        """会话应在配置的延迟后被清理。"""
+        """会话在配置的延迟到期前保持连接，到期后断开并移除。"""
         mgr = _make_manager(tmp_path)
         managed, client = _make_managed("s1", status="completed")
         await _start(managed)
         mgr.sessions["s1"] = managed
-
-        with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=1):
-            mgr._schedule_cleanup("s1")
-            await asyncio.sleep(1.5)
-
-        assert "s1" not in mgr.sessions
-        assert client.disconnected is True
-
-    async def test_cleanup_skips_if_session_resumed(self, tmp_path):
-        """会话在清理前恢复为 running 则跳过。"""
-        mgr = _make_manager(tmp_path)
-        managed, client = _make_managed("s1", status="completed")
-        await _start(managed)
-        mgr.sessions["s1"] = managed
+        timer = _CleanupTimerGate()
 
         try:
-            with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=1):
+            with (
+                patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60),
+                patch("asyncio.sleep", new=timer.sleep),
+            ):
                 mgr._schedule_cleanup("s1")
+                cleanup_task = managed._cleanup_task
+                assert cleanup_task is not None
+
+                await asyncio.wait_for(timer.waiting.wait(), timeout=5.0)
+                assert timer.delays == [60]
+                assert "s1" in mgr.sessions
+                assert client.disconnected is False
+
+                timer.expire()
+                await asyncio.wait_for(cleanup_task, timeout=5.0)
+
+            assert "s1" not in mgr.sessions
+            assert client.disconnected is True
+        finally:
+            timer.expire()
+            await mgr.close_session("s1")
+
+    async def test_cleanup_skips_if_session_resumed(self, tmp_path):
+        """会话在清理延迟到期前恢复为 running 则跳过。"""
+        mgr = _make_manager(tmp_path)
+        managed, client = _make_managed("s1", status="completed")
+        await _start(managed)
+        mgr.sessions["s1"] = managed
+        timer = _CleanupTimerGate()
+
+        try:
+            with (
+                patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=60),
+                patch("asyncio.sleep", new=timer.sleep),
+            ):
+                mgr._schedule_cleanup("s1")
+                cleanup_task = managed._cleanup_task
+                assert cleanup_task is not None
+
+                await asyncio.wait_for(timer.waiting.wait(), timeout=5.0)
                 managed.status = "running"
-                await asyncio.sleep(1.5)
+                timer.expire()
+                await asyncio.wait_for(cleanup_task, timeout=5.0)
 
             assert "s1" in mgr.sessions
             assert client.disconnected is False
         finally:
+            timer.expire()
             managed.status = "idle"
             await mgr.close_session("s1")
 

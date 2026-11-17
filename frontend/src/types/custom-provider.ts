@@ -87,6 +87,8 @@ export interface CustomProviderModelInfo {
   is_default: boolean;
   is_enabled: boolean;
   resolution: string | null;
+  /** 有效画质可选值，语义同内置供应商的 `ModelInfoResponse.qualities`；为空时不提供画质选项。 */
+  qualities: string[];
   /** 供应商模型倍率：与供应商倍率相乘，作用在这个模型的参考费用上。 */
   multiplier: number;
   /** 条目绑定「模型厂商/官方模型名」；null = 按模型名对应条目。整表保存时必须原样回传。 */

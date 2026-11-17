@@ -22,16 +22,16 @@ from lib.db.models.task import BatchTask, GenerationBatch, Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.generation.task_failure import bound_reason, collapse_cascade_reason, encode_failure, parse_failure
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
+from lib.infra.error_params import FAILURE_MESSAGE_LIMIT
 
 logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running")
 
-# 落库 error_message 的长度上限。裸切片会把结构化原因切在 JSON 中途，使 render_failure
+# 落库 error_message 的长度上限取 FAILURE_MESSAGE_LIMIT。裸切片会把结构化原因切在 JSON 中途，使 render_failure
 # 无法解析、用户看到机器码碎片而非本地化文案，因此两条落库路径都经 bound_reason 收窄。
 # 级联编码另在编码前按预算裁剪 reason（_encode_bounded_cascade_failure），保证结果本身
 # 不需要再被截断，深层依赖链也不会近指数增长。
-_MAX_ERROR_MESSAGE_LEN = 2000
 
 
 def _active_dedupe_clauses(
@@ -63,18 +63,18 @@ def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> 
     # 切在 JSON 中途，读侧会把残缺内层当普通文本嵌进本地化文案。折叠后串长与链深无关。
     reason = collapse_cascade_reason(reason)
     encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
-    if len(encoded) <= _MAX_ERROR_MESSAGE_LEN:
+    if len(encoded) <= FAILURE_MESSAGE_LIMIT:
         return encoded
 
     overhead = len(encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=""))
-    budget = max(_MAX_ERROR_MESSAGE_LEN - overhead, 0)
+    budget = max(FAILURE_MESSAGE_LIMIT - overhead, 0)
     # JSON 转义（reason 中的引号/反斜杠）会让 budget 字符的 reason 编码后略超预算；始终经
     # bound_reason 收窄以保持结构化 reason 合法，不对已裁剪结果做原始字符再截断（那会切断
-    # JSON 尾部）。极少数迭代仍超限时接受结果略超 _MAX_ERROR_MESSAGE_LEN，好过写坏 JSON。
+    # JSON 尾部）。极少数迭代仍超限时接受结果略超 FAILURE_MESSAGE_LIMIT，好过写坏 JSON。
     for _ in range(5):
         reason = bound_reason(reason, budget)
         encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
-        overflow = len(encoded) - _MAX_ERROR_MESSAGE_LEN
+        overflow = len(encoded) - FAILURE_MESSAGE_LIMIT
         if overflow <= 0 or budget <= 0:
             break
         budget = max(budget - overflow, 0)
@@ -669,7 +669,7 @@ class TaskRepository(BaseRepository):
             .where(Task.task_id == task_id, Task.status == "running")
             .values(
                 status="failed",
-                error_message=bound_reason(error_message, _MAX_ERROR_MESSAGE_LEN),
+                error_message=bound_reason(error_message, FAILURE_MESSAGE_LIMIT),
                 finished_at=now,
                 updated_at=now,
             )
@@ -697,7 +697,7 @@ class TaskRepository(BaseRepository):
             .where(Task.task_id == task_id, Task.status == "queued")
             .values(
                 status="failed",
-                error_message=bound_reason(error_message, _MAX_ERROR_MESSAGE_LEN),
+                error_message=bound_reason(error_message, FAILURE_MESSAGE_LIMIT),
                 finished_at=now,
                 updated_at=now,
             )

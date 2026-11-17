@@ -17,6 +17,7 @@ from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
 from lib.backends.audio_backends.base import AudioSynthesisRequest
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+from lib.backends.audio_backends.dashscope_speech_synthesizer import DashScopeSpeechSynthesizerBackend
 from lib.backends.image_backends.agnes import AgnesImageBackend
 from lib.backends.image_backends.base import ImageGenerationRequest
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
@@ -25,6 +26,7 @@ from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from lib.backends.video_backends.agnes import AgnesVideoBackend
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http
@@ -46,10 +48,13 @@ _CALLS: dict[str, Call] = {
     "dashscope-audio": lambda tmp_path: DashScopeAudioBackend(api_key="k", base_url=METADATA_BASE_URL).synthesize(
         AudioSynthesisRequest(text="你好", output_path=tmp_path / "out.wav", voice="Cherry")
     ),
+    "dashscope-speech-synthesizer": lambda tmp_path: DashScopeSpeechSynthesizerBackend(
+        api_key="k", base_url=METADATA_BASE_URL
+    ).synthesize(AudioSynthesisRequest(text="你好", output_path=tmp_path / "out.wav", voice="longanhuan_v3.1")),
     "agnes-image": lambda tmp_path: AgnesImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
         _image(tmp_path)
     ),
-    "dashscope-image": lambda tmp_path: DashScopeImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
+    "dashscope-qwen-image": lambda tmp_path: DashScopeImageBackend(api_key="k", base_url=METADATA_BASE_URL).generate(
         _image(tmp_path)
     ),
     "kling-image": lambda tmp_path: KlingImageBackend(
@@ -73,9 +78,15 @@ _CALLS: dict[str, Call] = {
     "dashscope-video-resume": lambda tmp_path: DashScopeVideoBackend(
         api_key="k", base_url=METADATA_BASE_URL
     ).resume_video("job-1", _video(tmp_path)),
-    "vidu-video": lambda tmp_path: ViduVideoBackend(api_key="k", base_url=f"{METADATA_BASE_URL}/ent/v2").generate(
-        _video(tmp_path)
-    ),
+    "vidu-video-q3-turbo": lambda tmp_path: ViduVideoBackend(
+        api_key="k", base_url=f"{METADATA_BASE_URL}/ent/v2"
+    ).generate(_video(tmp_path)),
+    "kling-video-model-path": lambda tmp_path: KlingModelPathVideoBackend(
+        api_key="k", base_url=METADATA_BASE_URL
+    ).generate(_video(tmp_path)),
+    "kling-video-model-path-resume": lambda tmp_path: KlingModelPathVideoBackend(
+        api_key="k", base_url=METADATA_BASE_URL
+    ).resume_video("tasks:job-1", _video(tmp_path)),
 }
 
 
