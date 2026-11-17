@@ -353,7 +353,7 @@ class RestartRecovery:
                 if await self._still_running(task["task_id"]):
                     running.setdefault(provider_id, []).append(task)
                 else:
-                    self._release_ownership(task["task_id"], tokens.get(task["task_id"]))
+                    self._release_ownership(task["task_id"], tokens[task["task_id"]])
         if running:
             await self.dispatch_resumable(running, tokens)
 
@@ -381,12 +381,12 @@ class RestartRecovery:
     async def dispatch_resumable(
         self,
         resumable_by_provider: dict[str, list[dict[str, Any]]],
-        tokens: Mapping[str, asyncio.Event] | None = None,
+        tokens: Mapping[str, asyncio.Event],
     ) -> None:
         """后台 dispatcher：按 provider 分桶并发，受 video 容量约束分批入 inflight。
 
         ``tokens`` 是 ``_spawn_dispatcher`` 为这批任务发的归属令牌，任务续跑结束时据此放开归属；
-        不经 ``_spawn_dispatcher`` 直接调用时没有令牌，也就不放开任何归属。
+        没有令牌的任务（只在直接调用的测试里出现）不放开任何归属。
 
         - 不同 provider 之间无容量耦合 → 并发跑独立 sub-task；
         - 同 provider 内顺序入队：满则 `asyncio.wait(inflight, FIRST_COMPLETED)` 等任一
@@ -454,7 +454,7 @@ class RestartRecovery:
         self,
         provider_id: str,
         tasks: list[dict[str, Any]],
-        tokens: Mapping[str, asyncio.Event] | None = None,
+        tokens: Mapping[str, asyncio.Event],
     ) -> None:
         """同 provider 桶并发跑 resume task，pending/inflight 用 phase 标志精确容量与 cancel 跟踪。
 
@@ -528,7 +528,7 @@ class RestartRecovery:
                 break
             # 父协程同步：先 create_task、再立即以 PENDING 登记——避免「create_task
             # 是异步调度，has_room 在调度未发生前看占用=0 误判可有容量」的瞬时 race。
-            token = None if tokens is None else tokens.get(t["task_id"])
+            token = tokens.get(t["task_id"])
             sub_task = asyncio.create_task(_run_one(t, token), name=f"resume-video-{t['task_id']}")
             self._slots.register(provider_id, "video", t["task_id"], sub_task, pending=True)
             sub.append(sub_task)

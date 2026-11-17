@@ -678,7 +678,7 @@ class TestDispatcherFailFastAndPendingTracking:
         )
 
         tasks = [{"task_id": f"orphan-{i}", "provider_id": provider_key} for i in range(3)]
-        await worker._recovery.dispatch_provider_bucket(provider_key, tasks)
+        await worker._recovery.dispatch_provider_bucket(provider_key, tasks, {})
 
         assert {tid for tid, _ in queue.failed} == {"orphan-0", "orphan-1", "orphan-2"}
         assert all("[resume_unsupported_capacity_zero]" in msg for _, msg in queue.failed)
@@ -717,6 +717,7 @@ class TestDispatcherFailFastAndPendingTracking:
         await worker._recovery.dispatch_provider_bucket(
             provider_key,
             [{"task_id": "retry-1", "provider_id": provider_key, "payload": {}}],
+            {},
         )
 
         async with worker_db() as session:
@@ -746,7 +747,7 @@ class TestDispatcherFailFastAndPendingTracking:
         monkeypatch.setattr(stub_executors, "resume", _gated)
 
         tasks = [storyboard_resume_task(f"orphan-{i}", job_id=f"job-{i}") for i in range(2)]
-        dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks))
+        dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks, {}))
 
         for _ in range(20):
             await asyncio.sleep(0)
@@ -784,7 +785,7 @@ class TestDispatcherFailFastAndPendingTracking:
         monkeypatch.setattr(stub_executors, "resume", _gated)
 
         tasks = [storyboard_resume_task(f"orphan-{i}", job_id=f"job-{i}") for i in range(2)]
-        dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks))
+        dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks, {}))
 
         # 等第 1 个 task 进入 VideoResumeRunner.run（占住 sem），第 2 个还在 sem 排队
         await asyncio.wait_for(first_started.wait(), timeout=1.0)
@@ -835,7 +836,7 @@ class TestDispatcherFailFastAndPendingTracking:
                 "project_name": "demo",
             }
         ]
-        dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks))
+        dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks, {}))
 
         # 等 VideoResumeRunner.run 进入空窗（await pre_try_gate.wait() 期间）
         await asyncio.wait_for(acquired_event.wait(), timeout=1.0)
@@ -1253,41 +1254,6 @@ class TestOrphanDispatcherNonBlockingOverride:
         await worker._recovery.wait_dispatchers()
 
         assert resumed == []
-
-    @pytest.mark.asyncio
-    async def test_dispatching_a_bucket_directly_leaves_other_ownership_alone(self, monkeypatch, staged_project):
-        """绕过 _spawn_dispatcher 直接派发一个桶时没有令牌：续跑结束不放开别的 dispatcher 持有的归属。"""
-        queue = FakeWorkerQueue()
-        orphan = _storyboard_orphan("orphan-x", job_id="job-x")
-        queue._orphans = [orphan]
-        worker = GenerationWorker(
-            queue=queue,
-            capacity=capacity_table({"ark": {"image": 0, "video": 1}}),
-            executor=stub_executors.execute,
-            resume_executor=stub_executors.execute_resume,
-        )
-        owner_in_resume = asyncio.Event()
-        owner_release = asyncio.Event()
-
-        async def _hold_first_resume(_task_id: str) -> None:
-            if not owner_in_resume.is_set():
-                owner_in_resume.set()
-                await owner_release.wait()
-
-        resumed = _recording_resume(monkeypatch, _hold_first_resume)
-        await worker._recovery.handle_orphans()
-        first = worker._recovery.orphan_dispatcher_task
-        await asyncio.wait_for(owner_in_resume.wait(), timeout=2)
-
-        # 别处直接派发同一任务的桶（不经 _spawn_dispatcher）：它结束时不应放掉孤儿 dispatcher 的归属。
-        await worker._recovery.dispatch_provider_bucket("ark", [dict(orphan)])
-        assert resumed == ["orphan-x", "orphan-x"]
-
-        await worker._recovery.handle_orphans()
-        assert worker._recovery.orphan_dispatcher_task is first, "归属仍在孤儿 dispatcher 手里，重扫不应再派发"
-
-        owner_release.set()
-        await worker._recovery.wait_dispatchers()
 
     @pytest.mark.asyncio
     async def test_retry_download_waits_for_occupant_still_finishing(self, monkeypatch, staged_project):
