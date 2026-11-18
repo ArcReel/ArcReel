@@ -249,3 +249,22 @@ def test_a_long_voice_style_does_not_break_the_index(tmp_path: Path) -> None:
     index = ReferenceIndex.build(root)
 
     assert index.role_of("characters/Sophia.png") is FileRole.REFERENCED
+
+
+def test_other_io_errors_while_canonicalizing_still_fail_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 只放过名称过长；I/O 错误时不能把在用文件按项目记录的拼写入表、让它看起来未被引用
+    import errno
+
+    root = tmp_path / "demo"
+    _write(root / "project.json", {"title": "demo", "characters": {"A": {"character_sheet": "characters/A.png"}}})
+    _write(root / "characters" / "A.png", "png")
+
+    def _io_error(self: Path) -> bool:
+        raise OSError(errno.EIO, "I/O error", str(self))
+
+    monkeypatch.setattr(Path, "is_symlink", _io_error)
+    with pytest.raises(OSError, match="I/O error") as raised:
+        ReferenceIndex.build(root)
+    assert raised.value.errno == errno.EIO
