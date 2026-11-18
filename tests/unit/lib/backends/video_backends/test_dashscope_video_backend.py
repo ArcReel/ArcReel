@@ -1473,3 +1473,37 @@ class TestPollErrorRedaction:
 
         assert "SECRETKEY" not in str(excinfo.value)
         assert excinfo.value.response.status_code == 403
+
+
+async def test_custom_silent_model_executes_without_audio_switch_and_settles_silent(tmp_path):
+    from lib.custom_provider.backends import CustomVideoBackend
+    from lib.custom_provider.factory import create_custom_backend
+    from lib.db.models.custom_provider import CustomProvider
+    from tests.http_capture import request_json
+
+    backend = create_custom_backend(
+        provider=CustomProvider(
+            id=1, display_name="P", discovery_format="openai", base_url="https://relay.test", api_key="k"
+        ),
+        model_id="wan2.2",
+        endpoint="dashscope-video",
+        capability_overrides={"audio_track": "always_off"},
+    )
+    assert isinstance(backend, CustomVideoBackend)
+    request = VideoGenerationRequest(
+        prompt="p",
+        output_path=tmp_path / "out.mp4",
+        generate_audio=False,
+        video_capabilities=backend.video_capabilities,
+    )
+    with capture_http() as http, bounded_poll_clock():
+        submit = http.post("https://relay.test/api/v1/services/aigc/video-generation/video-synthesis").respond(
+            200, json=_submit()
+        )
+        http.get("https://relay.test/api/v1/tasks/t-1").respond(200, json=_succeeded("https://relay.test/out.mp4"))
+        http.get("https://relay.test/out.mp4").respond(200, content=b"video")
+        result = await backend.generate(request)
+    assert "audio" not in request_json(submit.calls.last.request)["parameters"]
+    assert result.generate_audio is False
+    assert backend.metered_usage("wan2.2", request).dimensions["audio"] is False
+    assert backend.metered_usage("wan2.2", request, result).dimensions["audio"] is False

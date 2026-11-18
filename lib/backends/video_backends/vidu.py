@@ -300,7 +300,9 @@ class ViduVideoBackend(EntryBoundCapabilities):
             seed=request.seed,
             usage_tokens=int(actual_credits) if actual_credits is not None else None,
             task_id=task_id,
-            generate_audio=self.endpoint.output_audio(request.generate_audio),
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
         )
 
     # ── request building ────────────────────────────────────────────────
@@ -384,7 +386,13 @@ class ViduVideoBackend(EntryBoundCapabilities):
         # 6) audio 只发给文档声明了音轨开关的端点；固定有声端点发不出静音请求，提交前拒绝
         if self.endpoint.audio:
             body["audio"] = bool(request.generate_audio)
-        elif self.endpoint.native_audio and not request.generate_audio:
+        elif (
+            self.endpoint.native_audio
+            and not request.generate_audio
+            and (request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .has_audio_track
+        ):
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         # 7) aspect_ratio 仅 text2video / reference2video 接受

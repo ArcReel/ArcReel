@@ -231,6 +231,7 @@ class TestCustomVideoBackend:
             duration_seconds=5,
         )
         delegate = AsyncMock()
+        delegate.video_capabilities = VideoCapabilities()
         delegate.generate = AsyncMock(return_value=expected_result)
 
         backend = CustomVideoBackend(provider_id="custom-vid", delegate=delegate, model="wan-pro")
@@ -243,6 +244,7 @@ class TestCustomVideoBackend:
     async def test_generate_passes_request_unchanged(self, tmp_path: Path):
         output_path = tmp_path / "vid.mp4"
         delegate = AsyncMock()
+        delegate.video_capabilities = VideoCapabilities()
         delegate.generate = AsyncMock(
             return_value=VideoGenerationResult(video_path=output_path, provider="x", model="y", duration_seconds=5)
         )
@@ -261,6 +263,7 @@ class TestCustomVideoBackend:
         """
         output_path = tmp_path / "vid.mp4"
         delegate = AsyncMock()
+        delegate.video_capabilities = VideoCapabilities()
         delegate.generate = AsyncMock(
             return_value=VideoGenerationResult(video_path=output_path, provider="x", model="y", duration_seconds=5)
         )

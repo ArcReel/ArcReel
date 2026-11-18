@@ -143,7 +143,12 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         """请求体表达不了的输入在付费前拒绝，不静默丢弃（能力被用户覆盖放宽时也会走到这里）。"""
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._video_model)
-        if not request.generate_audio:
+        if (
+            not request.generate_audio
+            and (request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .has_audio_track
+        ):
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._video_model)
         if request.reference_images and (request.start_image or request.end_image):
             raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._video_model)
@@ -254,7 +259,9 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
             model=self._video_model,
             duration_seconds=request.duration_seconds,
             usage_tokens=_output_video_tokens(interaction),
-            generate_audio=True,
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
         )
 
 

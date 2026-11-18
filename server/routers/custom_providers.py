@@ -17,7 +17,11 @@ from pydantic import AfterValidator, BaseModel, Field, ValidationError, field_va
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
-from arcreel_market_core.video_backend_contract import ReferenceAudioMode, audio_capability_pair_is_coherent
+from arcreel_market_core.video_backend_contract import (
+    ReferenceAudioMode,
+    VideoAudioMode,
+    audio_capability_pair_is_coherent,
+)
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
@@ -26,6 +30,7 @@ from lib.catalog.model_id import has_dot_segment
 from lib.catalog.query import binding_key, find_bound_entry
 from lib.config.model_setting_keys import PROJECT_MODEL_SETTING_KEYS
 from lib.config.repository import mask_secret
+from lib.config.resolver import VoiceConsistency, derive_voice_consistency
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
@@ -34,6 +39,7 @@ from lib.custom_provider.capabilities import (
     filter_valid_overrides,
     resolve_audio_pair,
     strip_incoherent_audio_overrides,
+    synthesize_video_capabilities,
     two_sided_video_capabilities,
 )
 from lib.custom_provider.capability_view import (
@@ -302,7 +308,11 @@ class ModelResponse(BaseModel):
     resolution: str | None = None
     # 系统判定值（四字段全量），video endpoint 才有；非 video 或 endpoint 声明异常时为 None。
     system_capabilities: dict[str, object] | None = None
-    # 用户覆盖（稀疏字典），与 system_capabilities 平凡合并即为生效值。
+    # 已求值的音轨视图，供全局与项目设置读取，不由前端合并覆盖。
+    audio_track: VideoAudioMode | None = None
+    reference_route_audio_track: VideoAudioMode | None = None
+    voice_consistency: VoiceConsistency | None = None
+    # 用户覆盖（稀疏字典）；音轨生效值由上面的服务端字段提供。
     capability_overrides: dict[str, object] | None = None
     # 生效的路径覆盖（docs/adr/0101）：端点定义里已不存在的请求名不回显，下次保存随之丢弃。
     path_overrides: dict[str, str] | None = None
@@ -517,7 +527,29 @@ def _model_to_response(
         media_type = endpoint_spec.media_type if endpoint_spec is not None else static_media_type(m.endpoint)
     except ValueError:
         media_type = None
+    audio_caps = None
+    if media_type == "video":
+        try:
+            audio_caps = synthesize_video_capabilities(
+                endpoint=m.endpoint,
+                model_id=m.model_id,
+                overrides=m.capability_overrides,
+                endpoint_spec=endpoint_spec,
+                entry_binding=m.entry_binding,
+            )
+        except ValueError:
+            logger.warning("无法判定视频音轨: endpoint=%r model_id=%r", m.endpoint, m.model_id)
     return ModelResponse(
+        audio_track=audio_caps.audio_track_for_route("i2v") if audio_caps else None,
+        reference_route_audio_track=audio_caps.audio_track_for_route("r2v") if audio_caps else None,
+        voice_consistency=derive_voice_consistency(
+            reference_audio_mode=audio_caps.reference_audio_mode,
+            generation_mode=None,
+            has_audio=audio_caps.audio_track_for_route("i2v").has_audio_track,
+            character_voice_binding=None,
+        )
+        if audio_caps
+        else None,
         path_overrides=effective_path_overrides(m.path_overrides, requests) or None,
         requests=[EndpointRequestDescriptor(**asdict(r)) for r in requests],
         system_capabilities=_system_capabilities_for(m.endpoint, m.model_id, endpoint_spec, m.entry_binding),

@@ -1,3 +1,5 @@
+import type { VoiceConsistencyTier } from "./provider";
+
 // Endpoint key 使用 string 别名；后端 ENDPOINT_REGISTRY 是真相源，前端通过
 // GET /api/v1/custom-providers/endpoints 读取运行时 catalog，因此 endpoint 扩展
 // 无需同步修改前端联合类型。
@@ -97,7 +99,11 @@ export interface CustomProviderModelInfo {
   matched_entry: MatchedCatalogEntry | null;
   /** 系统判定的视频能力（全字段）；非视频模型为 null。 */
   system_capabilities: VideoCapabilityFlags | null;
-  /** 用户覆盖（稀疏），与 system_capabilities 合并即为生效值；无覆盖为 null。 */
+  /** 服务端求值后的音轨视图；不可从系统能力与覆盖自行拼装。 */
+  audio_track?: VideoAudioMode | null;
+  reference_route_audio_track?: VideoAudioMode | null;
+  voice_consistency?: VoiceConsistencyTier | null;
+  /** 用户覆盖（稀疏）；音轨生效值读取服务端字段，无覆盖为 null。 */
   capability_overrides: CapabilityOverrides | null;
   /** 生效的请求地址修改；无修改为 null。 */
   path_overrides: PathOverrides | null;

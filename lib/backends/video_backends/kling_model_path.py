@@ -203,7 +203,12 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         if request.reference_images and any(_has_image(p) for p in request.reference_images):
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
         # 请求体没有音轨开关；静音请求只在能力被用户覆盖放宽时走到这里。
-        if not request.generate_audio:
+        if (
+            not request.generate_audio
+            and (request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .has_audio_track
+        ):
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         caps = request.video_capabilities or self.video_capabilities
@@ -312,5 +317,7 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             duration_seconds=billed_seconds if billed_seconds is not None else request.duration_seconds,
             video_uri=download_url,
             task_id=task_id,
-            generate_audio=True,
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
         )

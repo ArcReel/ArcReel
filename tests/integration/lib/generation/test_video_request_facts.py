@@ -55,8 +55,7 @@ async def _seed_custom_video_models(db_factory, *rows: dict) -> str:
                 CustomProviderModel(
                     provider_id=provider.id,
                     display_name=row["model_id"],
-                    endpoint="newapi-video",
-                    **row,
+                    **{"endpoint": "newapi-video", **row},
                 )
             )
         await session.commit()
@@ -540,3 +539,130 @@ async def test_request_shaping_capabilities_come_from_the_same_evaluation(resolv
     assert (facts.text_to_video, facts.first_frame) == (declared.text_to_video, declared.first_frame)
     assert facts.max_reference_audio_count == declared.max_reference_audio_count
     assert facts.reference_audio_per_image is declared.reference_audio_per_image
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "overrides", "mode", "has_audio", "controllable"),
+    [
+        ("dashscope-video", {}, "always_on", True, False),
+        ("gemini-interactions-video", {}, "always_on", True, False),
+        ("kling-video-model-path", {}, "always_on", True, False),
+        ("minimax-h3", {}, "always_on", True, False),
+        ("minimax-hailuo-v1", {}, "always_off", False, False),
+        ("minimax-s2v-01", {}, "always_off", False, False),
+        ("dashscope-video", {"audio_track": "always_off"}, "always_off", False, False),
+        ("newapi-video", {}, "controllable", True, True),
+        ("newapi-video", {"audio_track": "always_off"}, "always_off", False, True),
+        ("newapi-video", {"audio_track": "always_on"}, "controllable", True, True),
+        ("dashscope-video", {"audio_track": "controllable"}, "always_on", True, False),
+    ],
+)
+async def test_custom_audio_facts_agree_across_settings_preflight_and_voice(
+    resolver, db_factory, endpoint, overrides, mode, has_audio, controllable
+):
+    from pathlib import Path
+
+    from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+    from lib.custom_provider.capabilities import synthesize_video_capabilities
+    from lib.custom_provider.capability_view import custom_capability_view
+    from lib.custom_provider.endpoints import get_endpoint_spec
+    from lib.custom_provider.metering import custom_video_usage, video_metering_for
+    from lib.generation.video_request_facts import audio_switch_conflict
+    from tests.http_capture import capture_http
+
+    provider = await _seed_custom_video_models(
+        db_factory,
+        {
+            "model_id": "unrecorded-model",
+            "endpoint": endpoint,
+            "capability_overrides": {"durations": [5], **overrides},
+            "is_default": True,
+        },
+    )
+    view = custom_capability_view(
+        model_id="unrecorded-model",
+        endpoint=endpoint,
+        spec=get_endpoint_spec(endpoint),
+        raw_overrides=overrides,
+        applied_overrides=overrides,
+        entry_binding=None,
+    )
+    assert view.effective["audio_track"] == mode
+    assert view.effective["reference_route_audio_track"] == mode
+    generation_type = "r2v" if endpoint == "minimax-s2v-01" else "i2v"
+    with capture_http() as http:
+        facts = await _read(
+            resolver,
+            {
+                f"video_provider_{generation_type}": f"{provider}/unrecorded-model",
+                "video_generate_audio": False,
+            },
+            generation_type=generation_type,
+        )
+        assert isinstance(facts, VideoRequestFacts)
+        assert (facts.has_audio_track, facts.audio_switch_controllable) == (has_audio, controllable)
+        assert facts.voice_consistency == ("soft" if has_audio else "none")
+        failure = audio_switch_conflict(facts)
+        assert (failure.code if failure else None) == (
+            "video_audio_switch_not_supported" if has_audio and not controllable else None
+        )
+        assert not http.calls
+    spec = get_endpoint_spec(endpoint)
+    request = VideoGenerationRequest(
+        prompt="p",
+        output_path=Path("unused.mp4"),
+        generate_audio=True,
+        video_capabilities=synthesize_video_capabilities(
+            endpoint=endpoint, model_id="unrecorded-model", overrides=overrides
+        ),
+    )
+    usage = custom_video_usage(video_metering_for(spec.metering_backend, spec.definition), "unrecorded-model", request)
+    assert usage.dimensions["audio"] is has_audio
+
+
+async def test_comfyui_silent_binding_reaches_preflight_and_voice(resolver, db_factory):
+    pair = await seed_endpoint_fixed_video_model(db_factory)
+    facts = await _read(resolver, {"video_provider_i2v": pair, "video_generate_audio": True})
+    assert isinstance(facts, VideoRequestFacts)
+    assert (facts.has_audio_track, facts.audio_switch_controllable, facts.generate_audio) == (False, False, False)
+    assert facts.voice_consistency == "none"
+
+    from pathlib import Path
+
+    from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+    from lib.custom_provider.capabilities import synthesize_video_capabilities
+    from lib.custom_provider.capability_view import custom_capability_view
+    from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+    from lib.custom_provider.metering import custom_video_usage
+    from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+    async with db_factory() as session:
+        model = await CustomProviderRepository(session).get_model_by_ids(
+            int(pair.split("/")[0].removeprefix("custom-")), "wan-workflow"
+        )
+        assert model is not None
+        spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
+        caps = synthesize_video_capabilities(
+            endpoint=model.endpoint, model_id=model.model_id, overrides=None, endpoint_spec=spec
+        )
+        view = custom_capability_view(
+            model_id=model.model_id,
+            endpoint=model.endpoint,
+            spec=spec,
+            raw_overrides=None,
+            applied_overrides=None,
+            entry_binding=None,
+        )
+    assert view.effective["audio_track"] == "always_off"
+    usage = custom_video_usage(
+        None,
+        "wan-workflow",
+        VideoGenerationRequest(
+            prompt="p",
+            output_path=Path("unused.mp4"),
+            generate_audio=True,
+            video_capabilities=caps,
+        ),
+    )
+    assert usage.dimensions["audio"] is False

@@ -41,7 +41,6 @@ from arcreel_market_core.video_backend_contract import (
     ProviderJobStatus,
     ProviderResponseStage,
     ResumeExpiredError,
-    VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -890,7 +889,9 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             duration_seconds=duration or request.duration_seconds,
             video_uri=video_url,
             task_id=job_id,
-            generate_audio=request.generate_audio,
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
         )
 
 
@@ -908,8 +909,10 @@ def declarative_video_usage(
     defaults = definition.get("defaults")
     default_resolution = defaults.get("resolution") if isinstance(defaults, Mapping) else None
     resolution = request.resolution or (default_resolution if isinstance(default_resolution, str) else None)
-    audio_track = video_capabilities_from_definition(definition).audio_track
-    audio = {VideoAudioMode.ALWAYS_OFF: False, VideoAudioMode.ALWAYS_ON: True}.get(audio_track, request.generate_audio)
+    caps = request.video_capabilities or video_capabilities_from_definition(definition)
+    audio = caps.audio_track_for_route("r2v" if request.reference_images else "i2v").output_audio(
+        request.generate_audio
+    )
     return video_usage(request, result, seconds=request.duration_seconds, resolution=resolution, audio=audio)
 
 

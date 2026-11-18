@@ -192,7 +192,13 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._video_model)
         # AI Studio 请求体没有音轨开关，同理拒绝静音请求；续跑（resume_video）的任务已提交，不在此列。
-        if not request.generate_audio and self._backend_type != "vertex":
+        if (
+            not request.generate_audio
+            and self._backend_type != "vertex"
+            and (request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .has_audio_track
+        ):
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._video_model)
         operation = await self._create_task(request)
         op_name = getattr(operation, "name", None)
@@ -370,7 +376,9 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             model=self._video_model,
             duration_seconds=request.duration_seconds,
             video_uri=video_uri,
-            generate_audio=request.generate_audio if self._backend_type == "vertex" else True,
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
         )
 
     # ------------------------------------------------------------------

@@ -1330,6 +1330,7 @@ describe("音频开关的模型可控性", () => {
     onVideoGenerateAudioChange = vi.fn(),
     globalVideoGenerateAudio = true,
     usesReferenceImages = false,
+    customProviders: CustomProviderInfo[] = [],
   ) {
     render(
       <ModelConfigSection
@@ -1337,6 +1338,7 @@ describe("音频开关的模型可控性", () => {
         value={{ ...EMPTY_VALUE, videoBackend }}
         onChange={() => {}}
         providers={AUDIO_PROVIDERS}
+        customProviders={customProviders}
         usesReferenceImages={usesReferenceImages}
         options={{
           videoBackends: ["ark/seedance", "dashscope/wan", "minimax/hailuo-02", "kling/v3-omni"],
@@ -1353,6 +1355,25 @@ describe("音频开关的模型可控性", () => {
     );
     return onVideoGenerateAudioChange;
   }
+
+  it.each(["always_on", "always_off"] as const)("uses server audio facts for a custom %s model", (mode) => {
+    const customProviders: CustomProviderInfo[] = [{
+      id: 1, display_name: "Custom", discovery_format: "openai", base_url: "https://example.invalid",
+      api_key_masked: "", created_at: "", image_max_workers: null, video_max_workers: null, audio_max_workers: null,
+      models: [{
+        id: 1, model_id: "video", display_name: "Video", endpoint: "dashscope-video",
+        is_default: true, is_enabled: true, resolution: null, qualities: [], multiplier: 1,
+        entry_binding: null, matched_entry: null, system_capabilities: null,
+        capability_overrides: null, path_overrides: null, requests: [],
+        audio_track: mode, reference_route_audio_track: mode,
+        voice_consistency: mode === "always_off" ? "none" : "soft",
+      }],
+    }];
+    renderAudio("custom-1/video", null, vi.fn(), true, false, customProviders);
+    expect(screen.getByRole("radio", { name: "开启" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("radio", { name: mode === "always_on" ? "开启" : "关闭" })).toBeChecked();
+    expect(screen.getByText(mode === "always_on" ? /始终带声音/ : /没有声音/)).toBeInTheDocument();
+  });
 
   it("keeps the switch interactive for a model whose audio track is controllable", async () => {
     const user = userEvent.setup();

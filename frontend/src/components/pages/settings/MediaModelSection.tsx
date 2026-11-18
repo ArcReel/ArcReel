@@ -321,7 +321,7 @@ export function MediaModelSection() {
   // 全局设置页无项目上下文，档位读目录端点的服务端派生值（generation_mode 未知，native 恒降格），
   // 不打 /video-capabilities——该端点按项目解析。
   const videoSpecTier = videoSpecBackend
-    ? (lookupCatalogVideoAudio(providers, videoSpecBackend)?.voiceConsistency ?? null)
+    ? (lookupCatalogVideoAudio(providers, videoSpecBackend, customProviders)?.voiceConsistency ?? null)
     : null;
   // 音频勾选框按两个生效桶（细分桶留空即回退基础默认）的开关可控性判定：两桶同为恒有声或
   // 同为恒无声时，无论选择哪种生成模式都收不到音轨开关，置灰并展示成片的实际音轨状态。只要还有一个
@@ -331,7 +331,7 @@ export function MediaModelSection() {
   // 每个桶按它自己的执行路径取值：同一模型在两条路径上的音轨形态可以不同（可灵 v3-omni 图生
   // 可控、参考生无开关），按无路径上下文的值取会让 r2v 桶报出一个执行期不存在的开关。
   const bucketAudioControl = (backend: string, route: VideoRoute) =>
-    backend ? lookupVideoAudioControl(providers, backend, route) : null;
+    backend ? lookupVideoAudioControl(providers, backend, route, customProviders) : null;
   // 各层全空时执行期用自动选中的模型，判据同样接上预览。
   const i2vAudioControl = bucketAudioControl(currentVideoI2V || currentVideo || auto?.i2v || "", "i2v");
   const r2vAudioControl = bucketAudioControl(currentVideoR2V || currentVideo || auto?.r2v || "", "r2v");

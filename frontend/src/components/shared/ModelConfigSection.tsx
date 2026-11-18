@@ -341,13 +341,13 @@ export function ModelConfigSection({
   // 同样由服务端派生，前端两条路径都不含派生公式。
   const videoSpecTier: VoiceConsistencyTier | null = projectName
     ? voiceConsistency
-    : (lookupCatalogVideoAudio(providers, executingVideo)?.voiceConsistency ?? null);
+    : (lookupCatalogVideoAudio(providers, executingVideo, customProviders)?.voiceConsistency ?? null);
 
   // 音频开关按执行模型的可控性判定：恒有声 / 恒无声的模型收不到音轨开关，置灰并展示成片的
   // 实际音轨状态（而非存量配置值），存量的「关闭」由下方警告给一键修正入口，不静默改写配置。
   // 按路径取值而非按模型：可灵 v3-omni 图生可控、参考生无开关，只按模型取会让参考生视频放行一个
   // 执行期必然被丢弃的开关。
-  const audioControl = lookupVideoAudioControl(providers, executingVideo, usesReferenceImages ? "r2v" : "i2v");
+  const audioControl = lookupVideoAudioControl(providers, executingVideo, usesReferenceImages ? "r2v" : "i2v", customProviders);
   const audioLocked = audioControl === "always_on" || audioControl === "always_off";
   const audioDisplayValue = audioLocked
     ? audioControl === "always_on"

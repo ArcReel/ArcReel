@@ -198,6 +198,7 @@ class TestGenerate:
 
         assert result.video_path.read_bytes() == MP4_BYTES
         assert result.task_id == "p-1"
+        assert result.generate_audio is False
         assert upload.call_count == 2
         assert history.call_count == 2
         assert queue.call_count == 1
