@@ -261,10 +261,16 @@ def test_other_io_errors_while_canonicalizing_still_fail_the_build(
     _write(root / "project.json", {"title": "demo", "characters": {"A": {"character_sheet": "characters/A.png"}}})
     _write(root / "characters" / "A.png", "png")
 
-    def _io_error(self: Path) -> bool:
-        raise OSError(errno.EIO, "I/O error", str(self))
+    sheet = root / "characters" / "A.png"
+    original_is_symlink = Path.is_symlink
 
-    monkeypatch.setattr(Path, "is_symlink", _io_error)
+    def _io_error_on_the_sheet(self: Path) -> bool:
+        # 只让 _canonical 解析这张资产图时出错：读 project.json 等其它路径照常
+        if self == sheet:
+            raise OSError(errno.EIO, "I/O error", str(self))
+        return original_is_symlink(self)
+
+    monkeypatch.setattr(Path, "is_symlink", _io_error_on_the_sheet)
     with pytest.raises(OSError, match="I/O error") as raised:
         ReferenceIndex.build(root)
     assert raised.value.errno == errno.EIO
