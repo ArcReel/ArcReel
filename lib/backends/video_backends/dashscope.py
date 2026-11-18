@@ -549,11 +549,16 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
             parameters["ratio"] = request.aspect_ratio
         if request.seed is not None:
             parameters["seed"] = request.seed
-        # 只有带音轨开关的端点下发 audio；其他端点不发送未知参数，成片固定有声。
+        # 只有带音轨开关的端点下发 audio；成片有无音轨另读模型生效能力。
         if self.endpoint.audio_switch:
             parameters["audio"] = request.generate_audio
-        elif not request.generate_audio:
-            # 发不出静音请求；执行期能力被用户覆盖放宽时才会走到这里，付费前拒绝而不是照常出有声成片。
+        elif (
+            not request.generate_audio
+            and (request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .has_audio_track
+        ):
+            # 发不出关闭音轨的请求；直接调用或覆盖放宽时也须在付费前拒绝。
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         return {
@@ -812,8 +817,10 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
             duration_seconds=billing_duration if billing_duration is not None else request.duration_seconds,
             video_uri=video_url,
             task_id=task_id,
-            # 结算以这一位为准：不下发开关的端点成片固定有声，续跑升级前以静音提交的任务也照有声上报。
-            generate_audio=request.generate_audio if self.endpoint.audio_switch else True,
+            # 结算与预检同读生效音轨事实，包括模型的无声覆盖。
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
         )
 
     @staticmethod

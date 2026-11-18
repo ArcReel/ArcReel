@@ -15,6 +15,7 @@ from lib.config.service import ConfigService
 from lib.infra.api_errors import BadRequestError
 from server.routers._validators import require_audio_switch_supported
 from tests.fakes import bind_session_factory
+from tests.http_capture import capture_http
 
 _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
 _CONTROLLABLE = "ark/doubao-seedance-2-0-260128"
@@ -61,9 +62,25 @@ class TestRequireAudioSwitchSupported:
 
         assert await require_audio_switch_supported({}, "i2v") is None
 
-    @pytest.mark.parametrize(("audio_track", "rejected"), [("always_on", True), ("controllable", False)])
-    async def test_custom_model_follows_its_audio_track_override(self, db_factory, monkeypatch, audio_track, rejected):
-        """自定义供应商的模型按用户覆盖的音轨形态判开关：覆盖为恒有声时与内置恒有声模型同样在入口拒绝。"""
+    @pytest.mark.parametrize(
+        ("endpoint", "audio_track", "rejected"),
+        [
+            ("ark-seedance-2", "always_on", False),
+            ("ark-seedance-2", "controllable", False),
+            ("dashscope-video", None, True),
+            ("dashscope-video", "controllable", True),
+            ("gemini-interactions-video", None, True),
+            ("kling-video-model-path", None, True),
+            ("minimax-h3", None, True),
+            ("minimax-hailuo-v1", None, False),
+            ("dashscope-video", "always_off", False),
+            ("ark-seedance-2", None, False),
+        ],
+    )
+    async def test_custom_model_keeps_endpoint_audio_facts_at_admission(
+        self, db_factory, monkeypatch, endpoint, audio_track, rejected
+    ):
+        """端点声明与模型覆盖一起决定准入；无开关端点的关闭请求在任何 HTTP 前被拒。"""
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 
         async with db_factory() as session:
@@ -77,8 +94,8 @@ class TestRequireAudioSwitchSupported:
                     provider_id=provider.id,
                     model_id="relay-video-x1",
                     display_name="relay-video-x1",
-                    endpoint="ark-seedance-2",
-                    capability_overrides={"audio_track": audio_track},
+                    endpoint=endpoint,
+                    capability_overrides={"durations": [5], **({"audio_track": audio_track} if audio_track else {})},
                 )
             )
             await session.commit()
@@ -86,12 +103,14 @@ class TestRequireAudioSwitchSupported:
         await _seed_settings(db_factory, default_video_backend=backend, video_generate_audio="false")
         bind_session_factory(monkeypatch, db_factory)
 
-        if rejected:
-            with pytest.raises(BadRequestError) as exc_info:
-                await require_audio_switch_supported({}, "i2v")
-            assert exc_info.value.key == "video_audio_switch_not_supported"
-        else:
-            assert await require_audio_switch_supported({}, "i2v") is None
+        with capture_http() as http:
+            if rejected:
+                with pytest.raises(BadRequestError) as exc_info:
+                    await require_audio_switch_supported({}, "i2v")
+                assert exc_info.value.key == "video_audio_switch_not_supported"
+            else:
+                assert await require_audio_switch_supported({}, "i2v") is None
+            assert not http.calls
 
     async def test_no_provider_configured_passes_through(self, db_factory, monkeypatch):
         await _seed_settings(db_factory, video_generate_audio="false")

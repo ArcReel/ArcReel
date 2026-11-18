@@ -1017,3 +1017,20 @@ def test_image_reference_limit_override_roundtrip(capability_client: TestClient)
     url = f"/api/v1/custom-providers/{pid}"
     saved = capability_client.get(url).json()["models"][0]
     assert saved["capability_overrides"] == model["capability_overrides"]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "overrides", "expected"),
+    [
+        ("dashscope-video", None, "always_on"),
+        ("minimax-hailuo-v1", None, "always_off"),
+        ("newapi-video", None, "controllable"),
+        ("newapi-video", {"audio_track": "always_off"}, "always_off"),
+    ],
+)
+def test_custom_model_catalog_exposes_effective_audio_for_settings(capability_client, endpoint, overrides, expected):
+    pid = _create_provider(capability_client, [_video_model(endpoint=endpoint, capability_overrides=overrides)])
+    model = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"][0]
+    assert model["audio_track"] == expected
+    assert model["reference_route_audio_track"] == expected
+    assert model["voice_consistency"] == ("none" if expected == "always_off" else "soft")

@@ -102,13 +102,8 @@ describe("lookupCatalogVideoAudio", () => {
     expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "no-slash")).toBeNull();
   });
 
-  // 自定义供应商目录无逐模型声明，与服务端 `_resolve_video_caps_for_model` 同口径固定假定
-  // 有声（soft）——不是「未知」，故不返回 null。
-  it("assumes audible/soft for custom backends (no per-model declaration, same default as the server)", () => {
-    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "custom-3/my-model")).toEqual({
-      hasAudioTrack: true,
-      voiceConsistency: "soft",
-    });
+  it("returns null when the custom model declaration is unavailable", () => {
+    expect(lookupCatalogVideoAudio(VEO_PROVIDERS, "custom-3/my-model")).toBeNull();
   });
 });
 
@@ -157,10 +152,9 @@ describe("lookupVideoAudioControl", () => {
     expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/route-split", "r2v")).toBe("always_off");
   });
 
-  // 自定义供应商无逐模型音轨声明：无信号不收紧，开关保持可控。
-  it("keeps custom backends controllable", () => {
-    expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model", "i2v")).toBe("controllable");
-    expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model", "r2v")).toBe("controllable");
+  it("returns null without the custom model declaration", () => {
+    expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model", "i2v")).toBeNull();
+    expect(lookupVideoAudioControl(PROVIDERS, "custom-3/my-model", "r2v")).toBeNull();
   });
 
   it("returns null for unknown model, unknown provider and malformed strings", () => {
@@ -277,5 +271,17 @@ describe("lookupResolutions", () => {
       options: ["512px", "1K", "2K"],
       isCustom: false,
     });
+  });
+});
+
+describe("custom video audio declarations", () => {
+  const custom = [{ id: 3, models: [
+    { model_id: "fixed", audio_track: "always_on", reference_route_audio_track: "always_off", voice_consistency: "soft" },
+    { model_id: "silent", audio_track: "always_off", reference_route_audio_track: "always_off", voice_consistency: "none" },
+  ] }] as unknown as CustomProviderInfo[];
+  it("uses the effective server declaration on each route", () => {
+    expect(lookupVideoAudioControl([], "custom-3/fixed", "i2v", custom)).toBe("always_on");
+    expect(lookupVideoAudioControl([], "custom-3/fixed", "r2v", custom)).toBe("always_off");
+    expect(lookupCatalogVideoAudio([], "custom-3/silent", custom)).toEqual({ hasAudioTrack: false, voiceConsistency: "none" });
   });
 });

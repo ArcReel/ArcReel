@@ -1,7 +1,7 @@
 """自定义供应商视频能力的唯一合成点：endpoint spec 系统判定与模型条目两侧求值 ⊕ 模型级用户覆盖。
 
 系统判定是调用端点的声明（通道事实）；它与模型对应条目上的输入能力（模型事实）两侧求值
-（:func:`lib.backends.video_capabilities.effective_video_capabilities`），能力覆盖在两侧求值之后整维替换。
+（:func:`lib.backends.video_capabilities.effective_video_capabilities`），能力覆盖在两侧求值之后整维替换；音轨覆盖只改变模型出声事实，不改变端点的开关事实。
 ComfyUI 端点的能力只来自节点绑定，不读条目（docs/adr/0082、0104）。
 
 合成语义只此一份：需要生效能力的调用方一律走这里，不得自行合并覆盖，否则「界面允许的
@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, get_args, get_type_hints
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND, requires_image_input
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
+    VideoAudioFacts,
     VideoCapabilities,
     VideoRoute,
     audio_capability_pair_is_coherent,
@@ -67,21 +68,8 @@ CHANNEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset(
     }
 )
 
-#: 音轨形态两维。自定义供应商只在用户覆盖了它们时才按音轨形态派生（见 :func:`overridden_audio_track`）。
+
 AUDIO_TRACK_OVERRIDE_KEYS: frozenset[str] = frozenset({"audio_track", "reference_route_audio_track"})
-
-
-def overridden_audio_track(
-    caps: VideoCapabilities, applied_overrides: Mapping[str, object], route: VideoRoute
-) -> str | None:
-    """自定义供应商模型在该执行路径上的成片音轨形态；用户没有覆盖音轨形态时为 ``None``。
-
-    调用通道按模型名声明的音轨形态不参与派生：endpoint 背后的上游 model 由用户填写、无从核实，误判恒无声会把
-    合法配置挡在入队之外。没有覆盖时由调用方按「假定有声、开关可控」处理。返回值是 ``VideoAudioMode`` 的字面量。
-    """
-    if not AUDIO_TRACK_OVERRIDE_KEYS & applied_overrides.keys():
-        return None
-    return caps.audio_track_for_route(route).value
 
 
 if (
@@ -301,6 +289,27 @@ def filter_valid_overrides(
     return applied
 
 
+def video_audio_facts(channel: VideoCapabilities, effective: VideoCapabilities, route: VideoRoute) -> VideoAudioFacts:
+    """开关只取端点声明，成片音轨取模型覆盖或端点无声信号；缺少无声信号时默认有声。"""
+    return VideoAudioFacts(
+        has_audio_track=effective.audio_track_for_route(route).has_audio_track,
+        audio_switch_controllable=channel.audio_track_for_route(route).audio_switch_controllable,
+    )
+
+
+def retain_channel_audio_switch(channel: VideoCapabilities, effective: VideoCapabilities) -> VideoCapabilities:
+    """把独立音轨事实投影回兼容枚举；覆盖模型音轨时不改写端点是否下发开关。"""
+    primary = video_audio_facts(channel, effective, "i2v").mode
+    reference = video_audio_facts(channel, effective, "r2v").mode
+    return replace(
+        effective,
+        audio_track=primary,
+        reference_route_audio_track=(
+            reference if effective.reference_route_audio_track is not None or reference != primary else None
+        ),
+    )
+
+
 def synthesize_video_capabilities(
     *,
     endpoint: str,
@@ -349,7 +358,7 @@ def synthesize_video_capabilities_with_overrides(
     applied = filter_valid_overrides(
         endpoint=endpoint, model_id=model_id, overrides=overrides, endpoint_spec=endpoint_spec
     )
-    merged = merge_overrides(caps, applied)
+    merged = retain_channel_audio_switch(caps, merge_overrides(caps, applied))
     return enforce_audio_capability_invariant(merged, endpoint=endpoint, model_id=model_id), applied
 
 

@@ -1372,3 +1372,41 @@ class TestExtractDuration:
                 "params": {"path_expression": "$[?@.a == 1e400]"},
             }
         }
+
+
+@pytest.mark.parametrize(
+    ("mode", "override", "expected"),
+    [
+        ("always_off", None, False),
+        ("always_on", None, True),
+        ("controllable", None, True),
+        ("controllable", "always_off", False),
+    ],
+)
+async def test_output_audio_and_metering_follow_effective_capabilities(tmp_path, mode, override, expected):
+    definition = _definition()
+    definition.setdefault("capabilities", {})["audio_track"] = mode
+    backend = DeclarativeVideoBackend(
+        api_key="k", base_url="https://relay.test", model="m", definition=definition, provider="custom-1"
+    )
+    if override:
+        from arcreel_market_core.video_backend_contract import VideoAudioMode, VideoCapabilities
+        from lib.custom_provider.backends import CustomVideoBackend
+
+        backend = CustomVideoBackend(
+            provider_id="custom-1",
+            model="m",
+            delegate=backend,
+            video_capabilities=VideoCapabilities(audio_track=VideoAudioMode(override)),
+        )
+    request = _request(tmp_path, generate_audio=True)
+    with capture_http() as http, bounded_poll_clock():
+        http.post("https://relay.test/v1/video/create").respond(200, json={"task_id": "1"})
+        http.get("https://relay.test/v1/video/fetch/1").respond(
+            200, json={"status": "completed", "video_url": "https://relay.test/video.mp4"}
+        )
+        http.get("https://relay.test/video.mp4").respond(200, content=b"video")
+        result = await backend.generate(request)
+    assert result.generate_audio is expected
+    assert backend.metered_usage("m", request).dimensions["audio"] is expected
+    assert backend.metered_usage("m", request, result).dimensions["audio"] is expected

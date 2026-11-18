@@ -129,19 +129,23 @@ export interface CatalogVideoAudio {
 
 /**
  * 给定 "provider/model"，查目录里的音频相关声明——下拉能力线（音轨）与全局设置页的档位
- * 徽章共用同一份查表。自定义供应商目录无逐模型声明，与服务端 `_resolve_video_caps_for_model`
- * 同口径固定假定有声（soft）——无信号时判定为有声但保证降级，比误判为无声更不易误导。
+ * 徽章共用同一份查表。自定义供应商同样读取服务端已求值的声明，不在前端推断音轨能力。
  */
 export function lookupCatalogVideoAudio(
   providers: ProviderInfo[],
   videoBackend: string,
+  customProviders: CustomProviderInfo[] = [],
 ): CatalogVideoAudio | null {
   const slashIdx = videoBackend.indexOf("/");
   if (slashIdx === -1) return null;
   const providerId = videoBackend.slice(0, slashIdx);
   const modelId = videoBackend.slice(slashIdx + 1);
 
-  if (providerId.startsWith(CUSTOM_PREFIX)) return { hasAudioTrack: true, voiceConsistency: "soft" };
+  if (providerId.startsWith(CUSTOM_PREFIX)) {
+    const model = customProviders.find((p) => `${CUSTOM_PREFIX}${p.id}` === providerId)?.models.find((m) => m.model_id === modelId);
+    if (!model?.audio_track || !model.voice_consistency) return null;
+    return { hasAudioTrack: model.audio_track !== "always_off", voiceConsistency: model.voice_consistency };
+  }
 
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[modelId];
@@ -160,18 +164,21 @@ export function lookupCatalogVideoAudio(
  * `route` 必传：同一 model 的两条子路径可以给出不同答案（可灵 v3-omni 图生可控、参考生无
  * 开关），按无路径上下文的值渲染会让参考生视频的用户开了音频却拿到无声成片。
  *
- * 自定义供应商目录无逐模型音轨声明，与服务端 `_resolve_video_caps_for_model` 同口径按「无
- * 信号不收紧」处理，保持开关可控。
+ * 自定义供应商同样读取服务端已求值的逐路径声明，不把未知端点替换为可控。
  */
 export function lookupVideoAudioControl(
   providers: ProviderInfo[],
   videoBackend: string,
   route: VideoRoute,
+  customProviders: CustomProviderInfo[] = [],
 ): VideoAudioControl | null {
   const slashIdx = videoBackend.indexOf("/");
   if (slashIdx === -1) return null;
   const providerId = videoBackend.slice(0, slashIdx);
-  if (providerId.startsWith(CUSTOM_PREFIX)) return "controllable";
+  if (providerId.startsWith(CUSTOM_PREFIX)) {
+    const model = customProviders.find((p) => `${CUSTOM_PREFIX}${p.id}` === providerId)?.models.find((m) => m.model_id === videoBackend.slice(slashIdx + 1));
+    return (route === "r2v" ? model?.reference_route_audio_track : model?.audio_track) ?? null;
+  }
 
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[videoBackend.slice(slashIdx + 1)];

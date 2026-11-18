@@ -276,19 +276,6 @@ def audio_switch_conflict(facts: VideoRequestFacts) -> VideoRequestFactsFailure 
     return None
 
 
-def video_audio_model_facts(audio_track: str | None, *, voice_consistency: str) -> tuple[bool, bool]:
-    """按该桶的成片音轨形态返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
-
-    音轨形态按执行子路径分叉，须按落入的桶取值（可灵 v3-omni 这类「图生可控、参考生无开关」的
-    型号），见 :meth:`ConfigResolver.video_audio_track`。没有信号（``None``：未登记模型、没有覆盖音轨形态的
-    自定义供应商模型）时按无信号不收紧。
-    """
-
-    if audio_track is None:
-        return voice_consistency != "none", True
-    return audio_track != "always_off", audio_track == "controllable"
-
-
 async def evaluate_video_request_facts(
     project: dict,
     *,
@@ -386,14 +373,13 @@ async def evaluate_video_request_facts(
 
     voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
     try:
-        audio_track = await resolver.video_audio_track(
+        audio = await resolver.video_audio_facts(
             provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
         )
     except SQLAlchemyError:
         return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
-    has_audio_track, audio_switch_controllable = video_audio_model_facts(
-        audio_track, voice_consistency=voice_consistency
-    )
+    has_audio_track = audio.has_audio_track if audio is not None else voice_consistency != "none"
+    audio_switch_controllable = audio.audio_switch_controllable if audio is not None else True
     max_reference_images = caps.get("max_reference_images")
     return VideoRequestFacts(
         route=route,

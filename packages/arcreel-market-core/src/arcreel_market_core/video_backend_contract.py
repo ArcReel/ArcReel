@@ -148,10 +148,13 @@ class ReferenceAudioMode(StrEnum):
 
 
 class VideoAudioMode(StrEnum):
-    """成片音轨与音轨开关的三态。
+    """成片音轨与音轨开关的兼容三态视图。
+
+    完整事实由 ``VideoAudioFacts`` 表达：无声模型可以挂在可下发开关的端点上，三态视图
+    把这一组合显示为 ``ALWAYS_OFF``，不能据此反推端点没有开关。
 
     ``CONTROLLABLE`` 表示请求携带音轨开关，用户的开/关意图能抵达供应商；``ALWAYS_ON`` 表示
-    成片必然带音轨而请求里没有开关可下发（关闭意图必然落空）；``ALWAYS_OFF`` 表示该路径不产
+    成片按有声处理而请求里没有开关可下发（关闭意图无法下发）；``ALWAYS_OFF`` 表示该路径不产
     音轨、也没有开关（开启意图必然落空）。
 
     与 ``reference_audio_mode`` 是两回事：后者描述**输入**通道（能否给模型一段音色参考），本
@@ -161,6 +164,38 @@ class VideoAudioMode(StrEnum):
     CONTROLLABLE = "controllable"
     ALWAYS_ON = "always_on"
     ALWAYS_OFF = "always_off"
+
+    @property
+    def has_audio_track(self) -> bool:
+        """成片是否有声：确定的无声信号之外默认有声。"""
+        return self is not VideoAudioMode.ALWAYS_OFF
+
+    @property
+    def audio_switch_controllable(self) -> bool:
+        """调用端点是否能下发音轨开关，与模型是否有声分别求值。"""
+        return self is VideoAudioMode.CONTROLLABLE
+
+    def output_audio(self, requested: bool) -> bool:
+        """用户意图与两项能力共同决定的成片音轨，供执行和计量共用。"""
+        return VideoAudioFacts(self.has_audio_track, self.audio_switch_controllable).output_audio(requested)
+
+
+@dataclass(frozen=True)
+class VideoAudioFacts:
+    """音轨的独立事实：模型是否产出音轨，以及调用端点是否下发开关。"""
+
+    has_audio_track: bool
+    audio_switch_controllable: bool
+
+    @property
+    def mode(self) -> VideoAudioMode:
+        """兼容已有 API 的三态视图；无声模型不显示可用开关，但保留端点事实。"""
+        if not self.has_audio_track:
+            return VideoAudioMode.ALWAYS_OFF
+        return VideoAudioMode.CONTROLLABLE if self.audio_switch_controllable else VideoAudioMode.ALWAYS_ON
+
+    def output_audio(self, requested: bool) -> bool:
+        return self.has_audio_track and (requested or not self.audio_switch_controllable)
 
 
 def audio_capability_pair_is_coherent(*, mode: object, count: int | None) -> bool:
@@ -210,8 +245,9 @@ class VideoCapabilities:
     后端核实。
 
     ``audio_track`` / ``reference_route_audio_track`` 描述**成片音轨**（有无音轨、开关是否可
-    控），是该维度的唯一真相源——与请求构造同源，backend 是否往请求体里放音轨开关就是这一位
-    的字面含义。两条执行路径各声明一次，与 ``first_frame`` / ``max_reference_images`` 把两条
+    控）的兼容视图：是否下发开关来自调用端点，是否有声来自模型覆盖或确定的端点无声信号，
+    无声信号缺席时默认有声。完整的两项事实由 ``VideoAudioFacts`` 表达，枚举只供兼容读取。
+    两条执行路径各声明一次，与 ``first_frame`` / ``max_reference_images`` 把两条
     路径摊平进同一个对象同构：``reference_route_audio_track`` 为 None 表示参考生视频路径与
     ``audio_track`` 同形（绝大多数 backend 如此），非 None 时表示该路径的请求形态另有一套音轨
     行为（可灵 v3-omni 的多图主体子路径原生 schema 不含音轨开关，故该路径恒无声）。默认取
