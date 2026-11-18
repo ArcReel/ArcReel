@@ -800,3 +800,40 @@ async def test_resume_hands_backend_warnings_to_the_caller(tmp_path):
     )
 
     assert collected == [warning]
+
+
+@pytest.mark.parametrize(
+    ("frozen", "current", "expected"),
+    [("always_off", "always_on", False), ("always_on", "always_off", True), (None, "always_off", True)],
+)
+async def test_resume_uses_frozen_route_audio_after_model_override_changes(tmp_path, frozen, current, expected):
+    from arcreel_market_core.video_backend_contract import VideoAudioMode, VideoCapabilities, VideoGenerationResult
+    from lib.custom_provider.backends import CustomVideoBackend
+
+    gen = _build_generator(tmp_path)
+    delegate = _FakeVideoBackend(
+        result=VideoGenerationResult(
+            video_path=tmp_path / "resumed.mp4",
+            provider="custom-1",
+            model="m",
+            duration_seconds=8,
+            generate_audio=True,
+        )
+    )
+    gen._video_backend = CustomVideoBackend(
+        provider_id="custom-1",
+        delegate=delegate,
+        model="m",
+        video_capabilities=VideoCapabilities(audio_track=VideoAudioMode(current)),
+    )
+    await gen.resume_video_async(
+        job_id="provider-job-1",
+        resource_type="reference_videos",
+        resource_id="E1U1",
+        task_id="T-1",
+        generate_audio=True,
+        audio_track=VideoAudioMode(frozen) if frozen is not None else None,
+    )
+    assert gen.ledger.resumed[0]["result"].generate_audio is expected
+    assert gen.ledger.resumed[0]["usage"].dimensions["audio"] is expected
+    assert all("audio_track" not in kwargs for kwargs in gen.versions.add_calls)

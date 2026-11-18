@@ -340,8 +340,10 @@ class CustomVideoBackend:
                 retain_channel_audio_switch,
             )
 
+            channel_caps = getattr(self._delegate, "video_capabilities", None)
+            channel = channel_caps if isinstance(channel_caps, VideoCapabilities) else base
             return enforce_audio_capability_invariant(
-                retain_channel_audio_switch(base, merge_overrides(base, self._capability_overrides)),
+                retain_channel_audio_switch(channel, merge_overrides(base, self._capability_overrides)),
                 endpoint=self._delegate.name,
                 model_id=self._model,
             )
@@ -377,7 +379,7 @@ class CustomVideoBackend:
         ``entry`` 是模型对应的条目，结算经 ``backend_metered_usage`` 调用时取 :attr:`catalog_entry`，被包装的调用通道
         按它认定模型。见 :mod:`lib.custom_provider.metering`。
         """
-        if request.video_capabilities is None and self._video_capabilities is not None:
+        if result is None and request.video_capabilities is None and self._video_capabilities is not None:
             request = replace(request, video_capabilities=self._video_capabilities)
         return custom_video_usage(getattr(self._delegate, "metered_usage", None), model, request, result, entry=entry)
 
@@ -386,7 +388,8 @@ class CustomVideoBackend:
         # 由 orphan handler 标 [resume_unsupported]。回放提交时的 base，让路径覆盖按它认出续跑请求。
         with replaying_base_url(request.submitted_base_url):
             result = await self._delegate.resume_video(job_id, request)
-        mode = (request.video_capabilities or self.video_capabilities).audio_track_for_route(
-            "r2v" if request.reference_images else "i2v"
-        )
+        # 旧检查点没有冻结音轨：保留通道回报，不用当前模型覆盖改写已提交任务。
+        if request.video_capabilities is None:
+            return result
+        mode = request.video_capabilities.audio_track_for_route("r2v" if request.reference_images else "i2v")
         return result if mode.has_audio_track else replace(result, generate_audio=False)

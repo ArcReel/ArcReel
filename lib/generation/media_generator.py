@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from PIL import Image
 
 if TYPE_CHECKING:
-    from arcreel_market_core.video_backend_contract import VideoGenerationResult
+    from arcreel_market_core.video_backend_contract import VideoAudioMode, VideoGenerationResult
     from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource
     from lib.backends.audio_backends.base import AudioBackend
     from lib.backends.image_backends.base import ImageBackend
@@ -1282,6 +1282,7 @@ class MediaGenerator:
         resolution: str | None = None,
         task_id: str | None = None,
         submitted_base_url: str | None = None,
+        audio_track: "VideoAudioMode | None" = None,
         poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         formal_output: bool = False,
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
@@ -1301,6 +1302,8 @@ class MediaGenerator:
         - prompt / start_image / reference_images 仅用于日志/版本元数据，不影响 provider 端结果。
         - ``submitted_base_url`` 是具名参数而非 version_metadata：它是提交时域名的回放值、
           只喂给 backend 轮询，落进版本元数据会污染 versions.json。
+
+        ``audio_track`` 是检查点冻结的提交路线音轨，续跑不按当前模型覆盖或缺席的参考图重算。
 
         Returns: (output_path, version_number, video_ref, video_uri) 四元组。
         """
@@ -1343,7 +1346,11 @@ class MediaGenerator:
         if before_formal_commit is not None and staged_output_path is None:
             raise ValueError("before_formal_commit requires formal video output")
 
-        from arcreel_market_core.video_backend_contract import ResumeExpiredError, VideoGenerationRequest
+        from arcreel_market_core.video_backend_contract import (
+            ResumeExpiredError,
+            VideoCapabilities,
+            VideoGenerationRequest,
+        )
         from lib.backends.video_backends.registry import backend_metered_usage
 
         request = VideoGenerationRequest(
@@ -1364,6 +1371,7 @@ class MediaGenerator:
             service_tier=version_metadata.get("service_tier", "default"),
             seed=version_metadata.get("seed"),
             submitted_base_url=submitted_base_url,
+            video_capabilities=VideoCapabilities(audio_track=audio_track) if audio_track is not None else None,
         )
 
         try:

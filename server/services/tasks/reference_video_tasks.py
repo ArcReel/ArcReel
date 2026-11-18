@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from arcreel_market_core.video_backend_contract import VideoAudioFacts
 from lib.artifacts.artifact_activation import (
     assert_current_artifact_input_claims_usable,
     resolve_usable_episode_script_input,
@@ -646,6 +647,9 @@ async def execute_reference_video_task(
                     aspect_ratio=aspect_ratio,
                     resolution=resolution,
                     generate_audio=request_facts.requested_generate_audio,
+                    audio_track=VideoAudioFacts(
+                        request_facts.has_audio_track, request_facts.audio_switch_controllable
+                    ).mode,
                     service_tier="default",
                     seed=None,
                     visual_basis_digest=visual_basis_digest,

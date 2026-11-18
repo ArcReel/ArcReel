@@ -694,6 +694,7 @@ MESSAGES = {
     # Video Capability
     "video_duration_invalid": "Thời lượng video {duration} không phải là số giây nguyên hợp lệ",
     "video_duration_not_supported": "Thời lượng video {duration}s không nằm trong các thời lượng mà mô hình này hỗ trợ ({supported})",
+    "video_end_frame_durations_incompatible": "Không có thời lượng video với khung hình cuối phù hợp với cấu hình hiện tại. Đổi cấu hình video hoặc bỏ khung hình cuối.",
     "video_duration_end_frame_not_supported": "Thời lượng {duration}s không khả dụng khi có khung hình cuối; khả dụng: {supported}. Đổi thời lượng hoặc bỏ khung hình cuối.",
     "video_capability_missing_t2v": "{provider}/{model} không hỗ trợ text-to-video; hãy cung cấp ảnh khung hình đầu hoặc chuyển sang mô hình có hỗ trợ text-to-video",
     "video_capability_missing_i2v": "{provider}/{model} không hỗ trợ tạo video từ ảnh; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video từ ảnh trong Cài đặt, hoặc đổi mô hình video mặc định",

@@ -690,6 +690,7 @@ MESSAGES = {
     # Video Capability
     "video_duration_invalid": "Длительность видео {duration} не является целым числом секунд",
     "video_duration_not_supported": "Длительность видео {duration} с не входит в поддерживаемые этой моделью ({supported})",
+    "video_end_frame_durations_incompatible": "При текущих настройках нет доступной длительности видео с конечным кадром. Измените настройки видео или уберите конечный кадр.",
     "video_duration_end_frame_not_supported": "Длительность {duration} с недоступна с конечным кадром; доступно: {supported}. Измените длительность или уберите конечный кадр.",
     "video_capability_missing_t2v": "{provider}/{model} не поддерживает text-to-video; передайте изображение первого кадра или переключитесь на модель с поддержкой text-to-video",
     "video_capability_missing_i2v": "{provider}/{model} не поддерживает генерацию image-to-video; назначьте в настройках модель с поддержкой image-to-video или смените модель видео по умолчанию",

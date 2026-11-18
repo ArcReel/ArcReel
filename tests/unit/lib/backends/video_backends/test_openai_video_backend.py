@@ -75,7 +75,11 @@ class TestOpenAIVideoBackend:
 
     @pytest.mark.parametrize(
         ("field", "code"),
-        [("end_image", "video_last_frame_unsupported"), ("reference_audio_files", "video_reference_audio_unsupported")],
+        [
+            ("end_image", "video_last_frame_unsupported"),
+            ("reference_audio_files", "video_reference_audio_unsupported"),
+            ("generate_audio", "video_audio_switch_not_supported"),
+        ],
     )
     async def test_unsendable_input_rejected_before_submit(self, tmp_path: Path, field: str, code: str):
         """Sora 请求体没有尾帧与参考音频字段，拒绝而不是丢弃后照常提交。"""
@@ -83,7 +87,7 @@ class TestOpenAIVideoBackend:
         _stub_client_completed(mock_client)
         source = tmp_path / "input.bin"
         source.write_bytes(b"x")
-        value = [source] if field == "reference_audio_files" else source
+        value = False if field == "generate_audio" else [source] if field == "reference_audio_files" else source
 
         with captured_openai_clients(mock_client):
             from lib.backends.video_backends.openai import OpenAIVideoBackend
@@ -95,6 +99,36 @@ class TestOpenAIVideoBackend:
                 )
         assert exc.value.code == code
         mock_client.videos.create.assert_not_awaited()
+
+    async def test_silent_reference_route_override_allows_muted_request(self, tmp_path: Path):
+        """主路线恒有声、参考路线覆盖为无声时，带参考图的静音请求按 r2v 放行而非按主路线误拒。"""
+        from arcreel_market_core.video_backend_contract import VideoAudioMode, VideoCapabilities
+
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client)
+        ref = tmp_path / "ref.png"
+        ref.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        with bounded_poll_clock(), captured_openai_clients(mock_client):
+            from lib.backends.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key", model="sora-2")
+            caps = VideoCapabilities(
+                max_reference_images=1,
+                audio_track=VideoAudioMode.ALWAYS_ON,
+                reference_route_audio_track=VideoAudioMode.ALWAYS_OFF,
+            )
+            result = await backend.generate(
+                VideoGenerationRequest(
+                    prompt="p",
+                    output_path=tmp_path / "o.mp4",
+                    reference_images=[ref],
+                    generate_audio=False,
+                    video_capabilities=caps,
+                )
+            )
+        assert result.video_path == tmp_path / "o.mp4"
+        mock_client.videos.create.assert_awaited_once()
 
     @pytest.mark.parametrize(
         ("kind", "code"),

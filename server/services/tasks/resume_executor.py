@@ -155,6 +155,7 @@ async def execute_resume_video_task(
         resolution = checkpoint.resolution
         optional_kwargs: dict[str, Any] = {
             "generate_audio": checkpoint.generate_audio,
+            "audio_track": checkpoint.audio_track,
             "formal_output": True,
             "visual_basis_digest": checkpoint.visual_basis_digest,
             **checkpoint_version_metadata(checkpoint),

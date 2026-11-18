@@ -233,6 +233,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_duration_invalid": GenerationAction.FIX_INPUT,
     "video_duration_not_supported": GenerationAction.FIX_INPUT,
     "video_duration_end_frame_not_supported": GenerationAction.FIX_INPUT,
+    "video_end_frame_durations_incompatible": GenerationAction.FIX_INPUT,
     "video_end_image_requires_start_image": GenerationAction.FIX_INPUT,
     "video_prompt_too_long": GenerationAction.FIX_INPUT,
     "video_aspect_ratio_not_supported": GenerationAction.FIX_INPUT,

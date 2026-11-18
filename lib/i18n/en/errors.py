@@ -692,6 +692,7 @@ MESSAGES = {
     # Video Capability
     "video_duration_invalid": "Video duration {duration} is not a valid integer number of seconds",
     "video_duration_not_supported": "Video duration {duration}s is not within the durations supported by this model ({supported})",
+    "video_end_frame_durations_incompatible": "No end-frame video duration is available with the current settings. Change the video settings or remove the end frame.",
     "video_duration_end_frame_not_supported": "Video duration {duration}s is unavailable with an end frame; allowed: {supported}. Change the duration or remove the end frame.",
     "video_capability_missing_t2v": "{provider}/{model} does not support text-to-video; provide a first-frame image or switch to a model that supports text-to-video",
     "video_capability_missing_i2v": "{provider}/{model} does not support image-to-video generation; assign a model that supports it for image-to-video in Settings, or change the default video model",

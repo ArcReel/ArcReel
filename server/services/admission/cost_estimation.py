@@ -37,9 +37,12 @@ from lib.db.repositories.custom_provider_repo import CustomModelPricing
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
+    DEFAULT_PLANNED_DURATION_SECONDS,
+    ExecutionVideoIdentity,
     VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
+    end_frame_duration_failure,
     evaluate_video_request_facts,
 )
 from lib.infra.schema_guards import is_int
@@ -384,6 +387,22 @@ class _AssumeResolvedAssetsAvailable:
         return True
 
 
+def _scripts_have_end_frame(episodes_meta: Sequence[Any], scripts: dict[str, dict[str, Any]]) -> bool:
+    for ep_meta in episodes_meta:
+        if not isinstance(ep_meta, dict):
+            continue
+        script = scripts.get(ep_meta.get("script_file", ""))
+        if not script:
+            continue
+        try:
+            raw_segments, _, _, _, _ = get_storyboard_items(script)
+        except ScriptEditError:
+            continue
+        if any(isinstance(seg, dict) and seg.get("end_frame_image") for seg in raw_segments):
+            return True
+    return False
+
+
 class CostEstimationService:
     def __init__(
         self,
@@ -412,6 +431,7 @@ class CostEstimationService:
         # payload>project>全局默认 链路，此处 payload 传 None（预估无历史任务 payload 可排空）。
         request_facts_lookup = configured_reference_request_facts(project_data, self._resolver)
         reference_facts: dict[VideoGenerationType, VideoRequestFacts] = {}
+        end_frame_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
         if is_reference_video:
             for generation_type in _VIDEO_BUCKETS:
                 # 真正使用该 bucket 的 unit 会由 projector 返回结构化 blocker；未使用 bucket
@@ -431,6 +451,20 @@ class CostEstimationService:
                 if not is_reference_video
                 else None
             )
+            if not is_reference_video and _scripts_have_end_frame(episodes_meta, scripts):
+                end_frame_identity = (
+                    ExecutionVideoIdentity(storyboard_facts.provider_id, storyboard_facts.model_id)
+                    if isinstance(storyboard_facts, VideoRequestFacts)
+                    else CONFIGURED_VIDEO_IDENTITY
+                )
+                end_frame_facts = await evaluate_video_request_facts(
+                    project_data,
+                    route="storyboard",
+                    generation_type="i2v",
+                    identity=end_frame_identity,
+                    resolver=r,
+                    uses_end_frame=True,
+                )
             try:
                 resolved_image = await r.resolve_image_backend(project_data, None, generation_type="t2i")
                 image_provider, image_model = resolved_image.provider_id, resolved_image.model_id
@@ -509,7 +543,12 @@ class CostEstimationService:
             audio_multiplier = await get_provider_multiplier(session, audio_provider)
             # 两个桶常解析到同一个模型，按身份去重后再查单价，不重复打 DB。
             video_prices: dict[tuple[str, str], VideoPriceSource] = {}
-            for bucket_provider, bucket_model, _, _ in video_identity.values():
+            price_identities = [
+                (bucket_provider, bucket_model) for bucket_provider, bucket_model, _, _ in video_identity.values()
+            ]
+            if isinstance(end_frame_facts, VideoRequestFacts):
+                price_identities.append((end_frame_facts.provider_id, end_frame_facts.model_id))
+            for bucket_provider, bucket_model in price_identities:
                 if (bucket_provider, bucket_model) not in video_prices:
                     video_prices[(bucket_provider, bucket_model)] = await load_video_price_source(
                         session, bucket_provider, bucket_model
@@ -697,7 +736,18 @@ class CostEstimationService:
 
             for idx, seg in enumerate(raw_segments):
                 seg_id = seg.get(id_key, "")
-                duration = seg.get("duration_seconds", 8)
+                unit_facts = end_frame_facts if seg.get("end_frame_image") else storyboard_facts
+                duration = seg.get("duration_seconds")
+                if duration is None:
+                    duration = project_data.get("default_duration")
+                    if not duration:
+                        duration = (
+                            unit_facts.allowed_durations[0]
+                            if isinstance(unit_facts, VideoRequestFacts) and unit_facts.allowed_durations
+                            else DEFAULT_PLANNED_DURATION_SECONDS
+                        )
+                if seg.get("end_frame_image") and isinstance(unit_facts, VideoRequestFacts):
+                    unit_facts = end_frame_duration_failure(unit_facts, duration) or unit_facts
 
                 est_image: CostBreakdown = {}
                 est_video: CostBreakdown = {}
@@ -712,19 +762,19 @@ class CostEstimationService:
                     _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
                 # 剧本上的秒数可能被外部编辑成非整数：单条脏数据只让该分镜没有视频报价，不进计价。
-                if isinstance(storyboard_facts, VideoRequestFacts) and is_int(duration, minimum=1):
+                if isinstance(unit_facts, VideoRequestFacts) and is_int(duration, minimum=1):
                     try:
                         video_quote = quote_video_request_from_price(
                             VideoRequestCostFacts(
-                                storyboard_facts,
+                                unit_facts,
                                 duration,
                                 aspect_ratio=video_aspect_ratio,
                                 has_first_frame=True,
                             ),
-                            episode_video.price,
+                            video_prices.get((unit_facts.provider_id, unit_facts.model_id), episode_video.price),
                         )
                         if video_quote.amount is None or video_quote.currency is None:
-                            estimate_unpriced["video", storyboard_facts.provider_id, storyboard_facts.model_id] += 1
+                            estimate_unpriced["video", unit_facts.provider_id, unit_facts.model_id] += 1
                         else:
                             _add_cost(est_video, video_quote.amount, video_quote.currency)
                     except ValueError:
@@ -778,12 +828,12 @@ class CostEstimationService:
                                     "allowed": False,
                                     "problems": [
                                         ProjectionProblem.from_request_facts_failure(
-                                            storyboard_facts, locations=(("video_provider_i2v",),)
+                                            unit_facts, locations=(("video_provider_i2v",),)
                                         ).to_payload(unit_id=seg_id)
                                     ],
                                 }
                             }
-                            if isinstance(storyboard_facts, VideoRequestFactsFailure)
+                            if isinstance(unit_facts, VideoRequestFactsFailure)
                             else {}
                         ),
                         "estimate": {"image": est_image, "video": est_video, "audio": est_audio},

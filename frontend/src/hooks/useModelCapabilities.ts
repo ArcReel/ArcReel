@@ -95,6 +95,7 @@ export function durationOutOfRangeReason(
 ): DurationOutOfRangeReason | null {
   const { rawDurations, supportedDurations, excludedDurations } = caps;
   if (saved == null || !supportedDurations || supportedDurations.includes(saved)) return null;
+  if (supportedDurations.length === 0 && !rawDurations) return null;
   if (!rawDurations?.includes(saved)) return "model";
   return excludedDurations[String(saved)] ?? "model";
 }

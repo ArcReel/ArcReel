@@ -68,6 +68,8 @@ class TestRequireAudioSwitchSupported:
             ("ark-seedance-2", "always_on", False),
             ("ark-seedance-2", "controllable", False),
             ("dashscope-video", None, True),
+            ("openai-video", None, True),
+            ("openai-video", "always_off", False),
             ("dashscope-video", "controllable", True),
             ("gemini-interactions-video", None, True),
             ("kling-video-model-path", None, True),

@@ -210,7 +210,7 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         分辨率取下发的 ``size`` 的短边档（如 ``1024x1792`` 记为 1024p），``size`` 与请求构造按模型对应的同一个
-        条目（``entry``）求得。请求没有音轨开关，不上报是否有声。
+        条目（``entry``）求得。请求没有音轨开关，通道本身不声明音轨维度；模型无声覆盖由共享计量层处理。
         """
         width, _, height = _resolve_size(model, request.resolution, request.aspect_ratio, entry=entry).partition("x")
         return video_usage(
@@ -222,6 +222,13 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         )
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        if (
+            not request.generate_audio
+            and (request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .has_audio_track
+        ):
+            raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
         # Sora 请求体没有尾帧与参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
         if request.end_image:
             raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)

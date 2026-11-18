@@ -554,6 +554,7 @@ def _as_schema_v3(checkpoint_json: str, narration: dict[str, Any]) -> str:
     raw = json.loads(checkpoint_json)
     raw.pop("request_digest")
     raw.pop("provider_asset_references")
+    raw.pop("audio_track")
     raw["schema_version"] = 3
     raw["narration"] = narration
     raw["request_digest"] = canonical_json_digest(raw)

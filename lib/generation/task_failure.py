@@ -116,6 +116,7 @@ GENERATION_INPUT_FAILURE_CODES: frozenset[str] = frozenset(
 VIDEO_REQUEST_FACTS_FAILURE_CODES: frozenset[str] = frozenset(
     {
         "video_duration_end_frame_not_supported",
+        "video_end_frame_durations_incompatible",
         "video_audio_switch_not_supported",
         "video_capability_unavailable",
         "video_supported_durations_incompatible",

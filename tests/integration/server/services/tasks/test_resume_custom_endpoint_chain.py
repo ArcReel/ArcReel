@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 import pytest
 
+from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.artifacts.artifact_manifest import ArtifactBasis, compose_video_artifact_basis
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.catalog import query as catalog
@@ -168,7 +169,12 @@ async def _seed_custom_video_rows(
 
 
 def _storyboard_checkpoint_json(
-    task_id: str, *, provider_id: str, endpoint_guard: str | None, model_id: str = "video-x"
+    task_id: str,
+    *,
+    provider_id: str,
+    endpoint_guard: str | None,
+    model_id: str = "video-x",
+    audio_track: VideoAudioMode | None = None,
 ) -> str:
     """真实 ``StoryboardSubmissionCheckpoint.create(...).to_json()``：身份指向 ``provider_id`` 的 ``model_id``。"""
     visual = ArtifactBasis.build(
@@ -202,6 +208,7 @@ def _storyboard_checkpoint_json(
         aspect_ratio="9:16",
         resolution="720p",
         generate_audio=True,
+        audio_track=audio_track,
         service_tier="default",
         seed=None,
         visual_basis_digest="b" * 64,
@@ -749,3 +756,53 @@ async def test_dashscope_legacy_job_resumes_only_on_successor(chain_project: Pat
         assert row.error_message
         assert "resume_endpoint_changed" in row.error_message
         assert len(router.calls) == 0
+
+
+@pytest.mark.parametrize(("submitted", "current"), [("always_off", "always_on"), ("always_on", "always_off")])
+async def test_resume_settles_frozen_audio_after_override_change(chain_project, session_factory, submitted, current):
+    from sqlalchemy import update
+
+    from lib.db.models.api_call import ApiCall
+    from lib.db.models.custom_provider import CustomProviderModel
+    from lib.db.repositories.usage_repo import UsageRepository
+
+    rows = await _seed_custom_video_rows(session_factory)
+    task_id = "T-audio-resume"
+    await _seed_running_video_task(
+        session_factory,
+        task_id=task_id,
+        provider_id=rows["provider_id"],
+        checkpoint_json=_storyboard_checkpoint_json(
+            task_id,
+            provider_id=rows["provider_id"],
+            endpoint_guard=rows["endpoint_keys"][0],
+            audio_track=VideoAudioMode(submitted),
+        ),
+    )
+    async with session_factory() as session:
+        await session.execute(update(CustomProviderModel).values(capability_overrides={"audio_track": current}))
+        call_id = await UsageRepository(session).start_call(
+            project_name="demo",
+            call_type="video",
+            model="video-x",
+            provider=rows["provider_id"],
+            task_id=task_id,
+            generate_audio=True,
+        )
+        await session.commit()
+    with capture_http() as http:
+        submit = http.post("https://relay.test/v1/video/create")
+        poll = http.get("https://relay.test/v1/video/fetch/job-old").respond(
+            200, json={"status": "completed", "video_url": "https://relay.test/files/job.mp4"}
+        )
+        download = http.get("https://relay.test/files/job.mp4").respond(200, content=b"paid-result")
+        await _run_orphan_recovery(session_factory)
+    assert submit.call_count == 0
+    assert poll.call_count == download.call_count == 1
+    assert (await _load_task_row(session_factory, task_id)).status == "succeeded"
+    async with session_factory() as session:
+        call = await session.get(ApiCall, call_id)
+        assert call is not None
+        assert call.status == "success"
+        assert call.generate_audio is (submitted == "always_on")
+    assert [p.read_bytes() for p in (chain_project / "versions" / "videos").glob("E1S01_v*.mp4")] == [b"paid-result"]

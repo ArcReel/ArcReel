@@ -283,6 +283,8 @@ interface DurationPillProps {
   scriptFile?: string;
   durationOptions: number[];
   durationEndpointFixed?: boolean;
+  durationLoading?: boolean;
+  durationUnavailableReason?: string | null;
   durationWarningReason?: ShotDetailProps["durationWarningReason"];
   /** 选中的时长写进未保存修改；缺省时只读展示。 */
   onChange?: (seconds: number) => void;
@@ -297,6 +299,8 @@ function DurationPill({
   scriptFile,
   durationOptions,
   durationEndpointFixed = false,
+  durationLoading = false,
+  durationUnavailableReason = null,
   durationWarningReason,
   onChange,
   busy = false,
@@ -321,9 +325,11 @@ function DurationPill({
     if (locked) setOpen(false);
   }
 
-  const isIncompatible = durationOptions.length > 0 && !durationOptions.includes(seconds);
+  const warningReason = durationWarningReason?.(seconds) ?? null;
+  const isIncompatible =
+    durationOptions.length > 0 ? !durationOptions.includes(seconds) : warningReason !== null;
   // 与项目默认时长的三种提示同一套判定（见 useModelCapabilities.durationOutOfRangeReason）。
-  const incompatibleLabel = durationIncompatibleLabel(t, seconds, durationOptions, durationWarningReason?.(seconds));
+  const incompatibleLabel = durationIncompatibleLabel(t, seconds, durationOptions, warningReason);
   const useSlider = isContinuousIntegerRange(durationOptions) && durationOptions.length >= 5;
 
   const select = (next: number) => {
@@ -354,7 +360,11 @@ function DurationPill({
   if (locked) {
     const reason = busy
       ? t("duration_locked_generating")
-      : t(durationEndpointFixed ? "duration_not_driven_notice" : "duration_no_options");
+      : durationLoading
+        ? t("end_frame_capability_checking")
+        : isIncompatible
+          ? incompatibleLabel
+          : durationUnavailableReason ?? t(durationEndpointFixed ? "duration_not_driven_notice" : "duration_no_options");
     return (
       <>
         <Tooltip>
@@ -472,11 +482,22 @@ export function ShotDetail({
   editRef,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
+  const readOnly = !onUpdatePrompt;
+  const hasEndFrame = Boolean(segment.end_frame_image);
   const endFrameCapabilities = useModelCapabilities({
-    projectName, usesEndFrame: true, enabled: !!segment.end_frame_image,
+    projectName,
+    usesEndFrame: true,
+    enabled: hasEndFrame && !readOnly,
   });
-  if (segment.end_frame_image && endFrameCapabilities.supportedDurations !== null) {
-    durationOptions = endFrameCapabilities.supportedDurations;
+  let durationLoading = false;
+  let durationUnavailableReason: string | null = null;
+  if (hasEndFrame && !readOnly) {
+    durationOptions = endFrameCapabilities.supportedDurations ?? [];
+    durationEndpointFixed = endFrameCapabilities.durationEndpointFixed;
+    durationLoading = endFrameCapabilities.loading;
+    if (!endFrameCapabilities.loading && endFrameCapabilities.supportedDurations === null) {
+      durationUnavailableReason = endFrameCapabilities.videoModelError ?? t("duration_end_frame_unavailable");
+    }
     durationWarningReason = (seconds) => durationOutOfRangeReason(seconds, endFrameCapabilities);
   }
   const itemLabel = useItemPositionLabel(segmentId);
@@ -485,7 +506,6 @@ export function ShotDetail({
   const isAd = contentMode === "ad";
   const isDrama = contentMode === "drama";
   const isNarration = contentMode === "narration";
-  const readOnly = !onUpdatePrompt;
   const charField = charactersFieldFor(contentMode);
 
   // 父级 ShotSplitView 按 segmentId 作 key 挂载：切换分镜前由离开拦截询问。
@@ -1077,6 +1097,8 @@ export function ShotDetail({
             scriptFile={scriptFile}
             durationOptions={durationOptions}
             durationEndpointFixed={durationEndpointFixed}
+            durationLoading={durationLoading}
+            durationUnavailableReason={durationUnavailableReason}
             durationWarningReason={durationWarningReason}
             onChange={readOnly ? undefined : (seconds) => setField("duration_seconds", seconds)}
             busy={durationBusy}
