@@ -48,6 +48,7 @@ class DurationConstraints:
 
     by_resolution: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     with_reference_images: tuple[int, ...] = ()
+    with_end_frame: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

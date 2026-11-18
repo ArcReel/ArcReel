@@ -64,6 +64,7 @@ from lib.generation.video_request_facts import (
     DEFAULT_PLANNED_DURATION_SECONDS,
     VideoRequestFactsError,
     audio_switch_conflict,
+    end_frame_duration_failure,
     require_video_request_facts,
 )
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
@@ -1073,6 +1074,7 @@ async def execute_video_task(
         video=VideoLaneRequest(
             generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
             route="storyboard",
+            uses_end_frame=bool(item.get("end_frame_image")),
         ),
     )
     generator = ctx.generator
@@ -1173,6 +1175,8 @@ async def execute_video_task(
         raise ValueError("video request duration must be an integer or integer string")
     # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
     # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
+    if (failure := end_frame_duration_failure(request_facts, duration_seconds)) is not None:
+        raise VideoRequestFactsError(failure)
     assert_duration_supported(duration_seconds, supported_durations)
     duration_seconds = int(float(duration_seconds))
 

@@ -53,6 +53,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
+    end_frame_duration_failure,
     evaluate_video_request_facts,
 )
 from lib.prompts.prompt_utils import (
@@ -751,6 +752,16 @@ async def admit_storyboard_video_batch(
             resolver=config_resolver or ConfigResolver(async_session_factory),
         )
 
+    end_frame_facts = None
+    if any(item.get("end_frame_image") for _, item in items):
+        end_frame_facts = await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type=generation_type,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=config_resolver or ConfigResolver(async_session_factory),
+            uses_end_frame=True,
+        )
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
     for resource_id, item in items:
         if resource_id in conflicts:
@@ -768,7 +779,18 @@ async def admit_storyboard_video_batch(
                 )
             )
             continue
-        tickets.append(UnitAdmissionTicket(unit_id=resource_id, problems=reference_problems))
+        unit_facts = end_frame_facts if item.get("end_frame_image") else video_request_facts
+        failure = (
+            unit_facts
+            if isinstance(unit_facts, VideoRequestFactsFailure)
+            else (
+                end_frame_duration_failure(unit_facts, item.get("duration_seconds", project.get("default_duration")))
+                if isinstance(unit_facts, VideoRequestFacts)
+                else None
+            )
+        )
+        problems = (_facts_failure_problem(failure, resource_id),) if failure is not None else ()
+        tickets.append(UnitAdmissionTicket(unit_id=resource_id, problems=(*problems, *reference_problems)))
 
     return BatchAdmission(
         operation=operation,

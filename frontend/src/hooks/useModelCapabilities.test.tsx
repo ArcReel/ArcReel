@@ -374,3 +374,21 @@ describe("durationOutOfRangeReason", () => {
     expect(durationOutOfRangeReason(4, { ...capsIn, supportedDurations: null })).toBeNull();
   });
 });
+
+
+it("带尾帧时读取服务端首尾帧档位，规划保留无尾帧全集", async () => {
+  vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps({
+    end_frame_unit_durations: {
+      without_end_frame: [4, 6, 8], with_end_frame: [4, 6], excluded: { "8": "end_frame" }, problem: null,
+    },
+  }));
+  const { result, rerender } = renderHook(
+    (usesEndFrame: boolean) => useModelCapabilities({ projectName: PROJECT, usesEndFrame }),
+    { initialProps: false },
+  );
+  await waitFor(() => expect(result.current.supportedDurations).toEqual([4, 6, 8]));
+  rerender(true);
+  expect(result.current.supportedDurations).toEqual([4, 6]);
+  expect(result.current.planningDurations).toEqual([4, 6, 8]);
+  expect(durationOutOfRangeReason(8, result.current)).toBe("end_frame");
+});

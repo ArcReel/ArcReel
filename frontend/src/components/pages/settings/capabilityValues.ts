@@ -64,6 +64,9 @@ export function capabilityValueText(t: TFunction, key: CapabilityKey, value: unk
     if (constraints.with_reference_images?.length) {
       parts.push(t("pm_cap_constraint_reference_item", { list: compactRangeFormat(constraints.with_reference_images) }));
     }
+    if (constraints.with_end_frame?.length) {
+      parts.push(t("pm_cap_constraint_end_frame_item", { list: compactRangeFormat(constraints.with_end_frame) }));
+    }
     return parts.length ? parts.join(t("pm_cap_value_group_separator")) : t("pm_cap_value_none");
   }
   if (ENUM_OPTIONS[key]) return t(`pm_cap_option_${key === "reference_audio_mode" ? "audio_mode" : "audio_track"}_${scalarText(value)}`);

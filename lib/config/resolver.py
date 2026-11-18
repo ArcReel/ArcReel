@@ -538,8 +538,9 @@ def constrain_durations(
     *,
     resolution: str | None = None,
     uses_reference_images: bool = False,
+    uses_end_frame: bool = False,
 ) -> list[int]:
-    """按内置型号在目录上声明的「分辨率↔时长」「参考图↔时长」约束收窄候选。
+    """按内置型号在目录上声明的「分辨率↔时长」「参考图↔时长」「尾帧↔时长」约束收窄候选。
 
     型号不在目录中时返回原候选。自定义供应商的约束经 :meth:`ConfigResolver.video_duration_constraints`
     取得后交给 :func:`apply_duration_constraints`。
@@ -549,6 +550,7 @@ def constrain_durations(
         builtin_duration_constraints(provider_id, model_id),
         resolution=resolution,
         uses_reference_images=uses_reference_images,
+        uses_end_frame=uses_end_frame,
     )
 
 
@@ -560,6 +562,7 @@ def builtin_duration_constraints(provider_id: str | None, model_id: str | None) 
     return DurationConstraints(
         by_resolution={res: tuple(allowed) for res, allowed in model_info.duration_resolution_constraints.items()},
         with_reference_images=tuple(model_info.reference_image_durations),
+        with_end_frame=tuple(model_info.end_frame_durations),
     )
 
 
@@ -569,10 +572,11 @@ def apply_duration_constraints(
     *,
     resolution: str | None = None,
     uses_reference_images: bool = False,
+    uses_end_frame: bool = False,
 ) -> list[int]:
     """按时长联动约束收窄候选。
 
-    两条约束各自独立触发、可同时生效，取交集。没有约束时返回原候选。交集为空时返回空集，由消费方按
+    三条约束各自独立触发、可同时生效，取交集。没有约束时返回原候选。交集为空时返回空集，由消费方按
     阶段处理。分辨率键按小写比较。
     """
     if not durations or constraints is None:
@@ -580,15 +584,17 @@ def apply_duration_constraints(
     allowed = list(durations)
     if uses_reference_images and constraints.with_reference_images:
         allowed = [d for d in allowed if d in constraints.with_reference_images]
+    if uses_end_frame and constraints.with_end_frame:
+        allowed = [d for d in allowed if d in constraints.with_end_frame]
     by_resolution = constraints.by_resolution.get(resolution.strip().lower()) if resolution else None
     if by_resolution:
         allowed = [d for d in allowed if d in by_resolution]
     return allowed
 
 
-#: 时长被联动约束剔除的成因：``resolution`` = 当前分辨率下不可用，``reference`` = 参考图路径下不可用。
+#: 时长被联动约束剔除的成因：``resolution`` = 当前分辨率下不可用，``reference`` = 参考图路径下不可用，``end_frame`` = 首尾帧路径下不可用。
 #: 「型号全集就不含」不在此列——那不是收窄，消费方按不在 ``supported_durations`` 内判定。
-DurationExclusionReason = Literal["resolution", "reference"]
+DurationExclusionReason = Literal["resolution", "reference", "end_frame"]
 
 
 #: 端点固定标志的成因值：能力载荷里 ``*_endpoint_fixed_reason`` 的唯一取值，标志为假时成因为 None。

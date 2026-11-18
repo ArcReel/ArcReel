@@ -26,7 +26,13 @@ from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError, video_bucket_for_generation_mode
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
-from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.generation.video_request_facts import (
+    CONFIGURED_VIDEO_IDENTITY,
+    VideoRequestFactsFailure,
+    end_frame_duration_failure,
+    evaluate_video_request_facts,
+)
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import domain_error_on_value_error
 from lib.infra.path_safety import safe_exists, safe_join
@@ -198,7 +204,7 @@ async def generate_video(
     仅服务分镜图生视频：参考生视频没有分镜图这一步，在此拒绝并指引换入口。
     """
 
-    def _sync() -> dict:
+    def _sync() -> tuple[dict, dict]:
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
@@ -246,9 +252,9 @@ async def generate_video(
             raise BadRequestError("generate_storyboard_first", segment_id=segment_id) from None
         except ValueError:
             raise BadRequestError("invalid_storyboard_image_path", segment_id=segment_id) from None
-        return project
+        return project, resolved[0]
 
-    project = await run_sync_transaction(_sync)
+    project, item = await run_sync_transaction(_sync)
 
     # 归桶按项目生成模式求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
     # 上面的生成模式检查已挡掉参考生视频，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
@@ -256,9 +262,28 @@ async def generate_video(
     _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
     await require_video_bucket_capability(project, _video_bucket)
     await require_audio_switch_supported(project, _video_bucket)
+    if item.get("end_frame_image"):
+        from lib.db import async_session_factory
+
+        facts = await evaluate_video_request_facts(
+            project,
+            route="storyboard",
+            generation_type=_video_bucket,
+            identity=CONFIGURED_VIDEO_IDENTITY,
+            resolver=ConfigResolver(async_session_factory),
+            uses_end_frame=True,
+        )
+        if isinstance(facts, VideoRequestFactsFailure):
+            raise UnprocessableError(facts.code, **facts.parameters())
+        # 排队执行读取盘上单元秒数；请求体不能绕过该单元的尾帧约束。
+        duration = item.get("duration_seconds")
+        if duration is None:
+            duration = project.get("default_duration")
+        if (failure := end_frame_duration_failure(facts, duration)) is not None:
+            raise UnprocessableError(failure.code, **failure.parameters())
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）。
-    # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）。
+    # 尾帧联动约束已前置拒绝；worker 仍按实际执行身份复核（见 ADR-0001）。
     extra_payload: dict[str, object] = {
         "seed": req.seed,
         "duration_seconds": req.duration_seconds,

@@ -342,7 +342,7 @@ interface ConstraintsEditorProps {
   onValidityChange: (valid: boolean) => void;
 }
 
-/** 时长联动约束：每个分辨率一行可选时长，另有「使用参考图时」一行；留空表示这一行不限定时长。 */
+/** 时长联动约束：每个分辨率一行可选时长，另有「使用参考图时」与「使用尾帧时」两行；留空表示这一行不限定时长。 */
 function ConstraintsEditor({ value, resolutions, onChange, onValidityChange }: ConstraintsEditorProps) {
   const { t } = useTranslation("dashboard");
   // 各行输入是否合法只用来汇总成整维的合法性，不参与渲染
@@ -381,6 +381,10 @@ function ConstraintsEditor({ value, resolutions, onChange, onValidityChange }: C
       {row("reference", t("pm_cap_constraint_reference"), value.with_reference_images, (list) => ({
         ...value,
         with_reference_images: list,
+      }))}
+      {row("end_frame", t("pm_cap_constraint_end_frame"), value.with_end_frame, (list) => ({
+        ...value,
+        with_end_frame: list,
       }))}
       <p className="text-xs text-muted-foreground">{t("pm_cap_constraint_row_hint")}</p>
     </div>

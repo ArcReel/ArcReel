@@ -1546,3 +1546,31 @@ async def test_generate_episode_script_truncation_offers_the_way_out(fake_ctx: T
         GenerationAction.CONFIGURE_PROVIDER,
         _TRUNCATION_PARAMS,
     )
+
+
+async def test_agent_capability_query_returns_both_end_frame_tiers(fake_ctx, db_factory, monkeypatch):
+    from arcreel_catalog_core import DurationConstraints
+    from lib.catalog.query import catalog_data
+    from lib.config.resolver import ConfigResolver
+    from tests.catalog_support import install_catalog, with_entry_facts
+
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog_data(),
+            "gemini-vertex",
+            "veo-3.1-generate-001",
+            duration_constraints=DurationConstraints(with_end_frame=(4, 6)),
+        ),
+    )
+    fake_ctx.pm.project_payload["video_provider_i2v"] = "gemini-vertex/veo-3.1-generate-001"
+    fake_ctx.config_resolver = ConfigResolver(db_factory)
+    outcome = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {})
+    assert outcome.problem is None, outcome.problem
+    payload = _as_json(outcome.value)
+    assert payload["end_frame_unit_durations"] == {
+        "without_end_frame": [4, 6, 8],
+        "with_end_frame": [4, 6],
+        "excluded": {"8": "end_frame"},
+        "problem": None,
+    }

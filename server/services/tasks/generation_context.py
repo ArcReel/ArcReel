@@ -284,6 +284,7 @@ class VideoLaneRequest:
     generation_type: VideoGenerationType | None = None
     route: VideoRoute | None = None
     submitted_job: bool = False
+    uses_end_frame: bool = False
 
 
 @dataclass(frozen=True)
@@ -510,6 +511,7 @@ async def resolve_generation_context(
                     identity=ExecutionVideoIdentity(resolved.provider_id, actual_model),
                     resolver=r,
                     builtin_endpoint=builtin_endpoint,
+                    uses_end_frame=video.uses_end_frame,
                 )
             requested_generate_audio_fallback = True
             if isinstance(request_facts, VideoRequestFacts):

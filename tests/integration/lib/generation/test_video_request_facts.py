@@ -666,3 +666,78 @@ async def test_comfyui_silent_binding_reaches_preflight_and_voice(resolver, db_f
         ),
     )
     assert usage.dimensions["audio"] is False
+
+
+async def test_end_frame_narrows_request_but_not_planning(resolver, monkeypatch):
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog_data(),
+            VEO_PROVIDER,
+            VEO_MODEL,
+            duration_constraints=DurationConstraints(with_end_frame=(4, 6)),
+        ),
+    )
+    project = {"video_provider_i2v": VEO}
+    planning = await _read(resolver, project)
+    request = await evaluate_video_request_facts(
+        project,
+        route="storyboard",
+        generation_type="i2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+        uses_end_frame=True,
+    )
+    assert isinstance(planning, VideoRequestFacts)
+    assert planning.allowed_durations == (4, 6, 8)
+    assert isinstance(request, VideoRequestFacts)
+    assert request.allowed_durations == (4, 6)
+    assert request.excluded_durations == ((8, "end_frame"),)
+
+
+async def test_end_frame_intersects_resolution_and_reference_constraints(resolver, monkeypatch):
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog_data(),
+            VEO_PROVIDER,
+            VEO_MODEL,
+            duration_constraints=DurationConstraints(
+                by_resolution={"1080p": (6, 8)},
+                with_reference_images=(4, 8),
+                with_end_frame=(4, 6),
+            ),
+        ),
+    )
+    failure = await evaluate_video_request_facts(
+        _with_resolution({"video_provider_r2v": VEO}, VEO, "1080p"),
+        route="reference_video",
+        generation_type="r2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+        uses_end_frame=True,
+    )
+    assert isinstance(failure, VideoRequestFactsFailure)
+    assert failure.code == "reference_supported_durations_incompatible"
+
+
+async def test_custom_model_end_frame_override_replaces_entry_constraints(resolver, db_factory):
+    provider = await _seed_custom_video_models(
+        db_factory,
+        {
+            "model_id": "vendor/Veo-3.1-Generate-001",
+            "is_default": True,
+            "capability_overrides": {"duration_constraints": {"with_end_frame": [4, 6]}},
+        },
+    )
+    result = await evaluate_video_request_facts(
+        {"video_provider_i2v": f"{provider}/vendor/Veo-3.1-Generate-001"},
+        route="storyboard",
+        generation_type="i2v",
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=resolver,
+        uses_end_frame=True,
+    )
+    assert isinstance(result, VideoRequestFacts)
+    assert result.allowed_durations == (4, 6)
+    assert result.excluded_durations == ((8, "end_frame"),)

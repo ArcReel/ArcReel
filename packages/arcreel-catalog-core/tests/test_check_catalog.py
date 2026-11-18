@@ -418,3 +418,17 @@ def test_published_provider_model_requires_an_endpoint():
     data["builtin_providers"]["kling"]["models"][1].pop("endpoint")
 
     assert ("builtin_providers.kling.models[1].endpoint", "missing_endpoint") in _codes(data)
+
+
+@pytest.mark.parametrize("values", [[True], [0], [-1], [5.5], [15], "5"])
+def test_end_frame_durations_must_be_valid_model_tiers(values):
+    data = catalog()
+    data["entries"][1]["facts"]["duration_constraints"]["with_end_frame"] = values
+    issues = check_catalog(data)
+    assert any("with_end_frame" in issue.path for issue in issues)
+
+
+def test_end_frame_constraint_is_a_known_build_field():
+    data = catalog()
+    data["entries"][1]["facts"]["duration_constraints"]["with_end_frame"] = [5]
+    assert check_catalog(data) == []

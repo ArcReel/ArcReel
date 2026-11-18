@@ -38,7 +38,7 @@ MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
 ALL_MODEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset().union(*MODEL_FACT_OVERRIDE_KEYS.values())
 
 _BOOL_KEYS = frozenset({"image_input", "structured_output", "text_to_image", "image_to_image"})
-_CONSTRAINT_KEYS = frozenset({"by_resolution", "with_reference_images"})
+_CONSTRAINT_KEYS = frozenset({"by_resolution", "with_reference_images", "with_end_frame"})
 
 
 def _is_positive_int(value: object) -> bool:
@@ -61,14 +61,20 @@ def _is_constraints(value: object) -> bool:
     ):
         return False
     with_reference = value.get("with_reference_images", [])
-    return isinstance(with_reference, list) and all(_is_positive_int(item) for item in with_reference)
+    with_end_frame = value.get("with_end_frame", [])
+    return (
+        isinstance(with_reference, list)
+        and all(_is_positive_int(item) for item in with_reference)
+        and isinstance(with_end_frame, list)
+        and all(_is_positive_int(item) for item in with_end_frame)
+    )
 
 
 def model_fact_value_matches(key: str, value: object) -> bool:
     """覆盖值能否整维替换该模型事实维度；写入侧校验与读取侧过滤共用这一判定。
 
     布尔维度只认 ``bool``；参考图上限是非负整数；最大输出 token 是正整数；可选时长、分辨率是非空列表；时长联动约束只含
-    ``by_resolution``（分辨率 → 非空时长列表）与 ``with_reference_images``（时长列表）两个键。
+    ``by_resolution``（分辨率 → 非空时长列表）、``with_reference_images`` 与 ``with_end_frame``（时长列表）三个键。
     """
     if key in _BOOL_KEYS:
         return isinstance(value, bool)
@@ -90,7 +96,7 @@ _TYPE_NAMES: Mapping[str, str] = {
     "max_reference_images": "int >= 0",
     "durations": "list[int > 0]（非空）",
     "resolutions": "list[str]（非空）",
-    "duration_constraints": "{by_resolution: {str: list[int > 0]}, with_reference_images: list[int > 0]}",
+    "duration_constraints": "{by_resolution: {str: list[int > 0]}, with_reference_images: list[int > 0], with_end_frame: list[int > 0]}",
 }
 
 
@@ -242,7 +248,12 @@ def _constraints_from_override(raw: Mapping[str, object]) -> DurationConstraints
                 by_resolution[str(res).strip().lower()] = tuple(int(d) for d in allowed)
     with_reference_raw = raw.get("with_reference_images")
     with_reference = tuple(int(d) for d in with_reference_raw) if isinstance(with_reference_raw, list) else ()
-    return DurationConstraints(by_resolution=by_resolution, with_reference_images=with_reference)
+    end_raw = raw.get("with_end_frame")
+    return DurationConstraints(
+        by_resolution=by_resolution,
+        with_reference_images=with_reference,
+        with_end_frame=tuple(int(d) for d in end_raw) if isinstance(end_raw, list) else (),
+    )
 
 
 def matched_entry_summary(model_id: str, media_type: str, entry_binding: str | None = None) -> dict[str, object] | None:

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
+import { API } from "@/api";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { DramaScene } from "@/types";
 
@@ -357,4 +358,23 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
       "时长由端点固定：每段成片多长由 workflow 决定。",
     );
   });
+});
+
+
+it("挂尾帧后保留越界秒数并显示尾帧成因，只提供带尾帧档位", async () => {
+  vi.spyOn(API, "getVideoCapabilities").mockResolvedValue({
+    provider_id: "gemini", model: "omni", supported_durations: [4, 6, 8], max_duration: 8,
+    max_reference_images: 3, first_frame: true, last_frame: true, source: "registry", voice_consistency: "soft",
+    duration_constraints: { resolution: null, uses_reference_images: false, allowed: [4, 6, 8], excluded: {} },
+    end_frame_unit_durations: {
+      without_end_frame: [4, 6, 8], with_end_frame: [4, 6], excluded: { "8": "end_frame" }, problem: null,
+    },
+  });
+  const onUpdatePrompt = saved();
+  renderDetail({ segment: { ...makeScene(8), end_frame_image: "end_frames/E1S01.png" }, onUpdatePrompt, durationOptions: [4, 6, 8] });
+  await waitFor(() => expect(screen.getByRole("button", { name: /^8 秒/ })).toHaveTextContent("首尾帧"));
+  expect(onUpdatePrompt).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: /^8 秒/ }));
+  expect(screen.queryByRole("radio", { name: /8 秒/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: /6 秒/ })).toBeInTheDocument();
 });

@@ -764,6 +764,7 @@ def _facts_json(entry: CatalogEntry) -> dict[str, Any]:
                 "duration_constraints": {
                     "by_resolution": {res: list(allowed) for res, allowed in constraints.by_resolution.items()},
                     "with_reference_images": list(constraints.with_reference_images),
+                    **({"with_end_frame": list(constraints.with_end_frame)} if constraints.with_end_frame else {}),
                 },
             }
         case AudioFacts():
