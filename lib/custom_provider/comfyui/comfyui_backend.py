@@ -222,9 +222,9 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
             # 实发种子与 workflow 指纹只在提交那一次的构造里存在：两者一起才说得清「这一版是照
             # 哪份图、用哪个种子出的」，而续跑这条路一样都没构造，故一起缺席而不是各给一个假值。
             seed=built.seed if built is not None else None,
-            generate_audio=self.video_capabilities.audio_track_for_route(
-                "r2v" if request.reference_images else "i2v"
-            ).output_audio(request.generate_audio),
+            generate_audio=(request.video_capabilities or self.video_capabilities)
+            .audio_track_for_route("r2v" if request.reference_images else "i2v")
+            .output_audio(request.generate_audio),
             provenance={"workflow_sha256": built.workflow_sha256} if built is not None else None,
             warnings=warnings,
         )

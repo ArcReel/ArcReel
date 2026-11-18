@@ -266,6 +266,7 @@ async def test_constraints_narrowing_to_nothing_fail_instead_of_falling_back(res
     assert facts == VideoRequestFactsFailure(
         "video_supported_durations_incompatible",
         (("provider", VEO_PROVIDER), ("model", VEO_MODEL), ("resolution", "1080p"), ("capability", "i2v")),
+        excluded_durations=((4, "resolution"), (6, "resolution"), (8, "resolution")),
     )
 
 
@@ -545,6 +546,7 @@ async def test_request_shaping_capabilities_come_from_the_same_evaluation(resolv
     ("endpoint", "overrides", "mode", "has_audio", "controllable"),
     [
         ("dashscope-video", {}, "always_on", True, False),
+        ("openai-video", {}, "always_on", True, False),
         ("gemini-interactions-video", {}, "always_on", True, False),
         ("kling-video-model-path", {}, "always_on", True, False),
         ("minimax-h3", {}, "always_on", True, False),
@@ -718,7 +720,9 @@ async def test_end_frame_intersects_resolution_and_reference_constraints(resolve
         uses_end_frame=True,
     )
     assert isinstance(failure, VideoRequestFactsFailure)
-    assert failure.code == "reference_supported_durations_incompatible"
+    assert failure.code == "video_end_frame_durations_incompatible"
+    assert failure.action == "fix_input"
+    assert dict(failure.excluded_durations)[8] == "end_frame"
 
 
 async def test_custom_model_end_frame_override_replaces_entry_constraints(resolver, db_factory):

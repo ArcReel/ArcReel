@@ -631,6 +631,7 @@ MESSAGES = {
     # Video Capability
     "video_duration_invalid": "视频时长 {duration} 不是合法的整数秒数",
     "video_duration_not_supported": "视频时长 {duration}s 不在该模型支持的时长（{supported}）内",
+    "video_end_frame_durations_incompatible": "当前配置下没有可用的首尾帧视频时长，请修改视频配置或移除尾帧",
     "video_duration_end_frame_not_supported": "视频时长 {duration}s 在首尾帧路径下不可用，可选时长：{supported}；请修改时长或移除尾帧",
     "video_capability_missing_t2v": "{provider}/{model} 不支持文生视频；请提供首帧图，或换一个支持文生视频的模型",
     "video_capability_missing_i2v": "{provider}/{model} 不支持图生视频；请在设置中为「图生视频」单独指定支持该用途的模型，或更换默认视频模型",

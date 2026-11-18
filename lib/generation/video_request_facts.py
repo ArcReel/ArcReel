@@ -198,6 +198,7 @@ class VideoRequestFactsFailure:
     code: str
     params: tuple[tuple[str, object], ...] = ()
     action: str = CONFIGURE_VIDEO_MODEL_ACTION
+    excluded_durations: tuple[tuple[int, DurationExclusionReason], ...] = ()
 
     def parameters(self) -> dict[str, object]:
         return dict(self.params)
@@ -358,11 +359,6 @@ async def evaluate_video_request_facts(
             uses_end_frame=uses_end_frame,
         )
     )
-    if supported and not allowed:
-        return VideoRequestFactsFailure(
-            codes["incompatible"],
-            (*identity_params, ("resolution", resolution), ("capability", generation_type)),
-        )
     # 输入路径约束优先于分辨率：只改分辨率救不回它。
     reference_allowed = (
         apply_duration_constraints(list(supported), constraints, uses_reference_images=True)
@@ -379,6 +375,22 @@ async def evaluate_video_request_facts(
         for d in supported
         if d not in allowed
     )
+
+    if supported and not allowed:
+        if uses_end_frame and apply_duration_constraints(
+            list(supported), constraints, resolution=resolution, uses_reference_images=uses_reference_images
+        ):
+            return VideoRequestFactsFailure(
+                "video_end_frame_durations_incompatible",
+                identity_params,
+                action="fix_input",
+                excluded_durations=excluded,
+            )
+        return VideoRequestFactsFailure(
+            codes["incompatible"],
+            (*identity_params, ("resolution", resolution), ("capability", generation_type)),
+            excluded_durations=excluded,
+        )
 
     voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
     try:

@@ -202,7 +202,7 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         if request.reference_images and any(_has_image(p) for p in request.reference_images):
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
-        # 请求体没有音轨开关；静音请求只在能力被用户覆盖放宽时走到这里。
+        # 请求体没有音轨开关；直接调用也须在付费前拒绝无法下发的静音请求。
         if (
             not request.generate_audio
             and (request.video_capabilities or self.video_capabilities)

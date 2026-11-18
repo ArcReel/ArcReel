@@ -178,7 +178,7 @@ async def annotate_end_frame_tiers(
         "with_end_frame": list(with_end_frame.allowed_durations)
         if isinstance(with_end_frame, VideoRequestFacts)
         else [],
-        "excluded": dict(with_end_frame.excluded_durations) if isinstance(with_end_frame, VideoRequestFacts) else {},
+        "excluded": dict(with_end_frame.excluded_durations),
         "problem": None if isinstance(with_end_frame, VideoRequestFacts) else video_facts_problem(with_end_frame),
     }
 

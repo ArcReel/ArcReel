@@ -208,8 +208,7 @@ class TestRegistry:
             "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
-        # 既有显式 int 保留，行为零变化
-        assert ENDPOINT_REGISTRY["openai-video"].video_max_reference_images == 1
+        assert ENDPOINT_REGISTRY["openai-video"].video_max_reference_images is None
         assert ENDPOINT_REGISTRY["newapi-video"].video_max_reference_images is None
 
     def test_video_caps_declaration_bindings(self):
@@ -239,9 +238,7 @@ class TestRegistry:
             "gemini-interactions-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
-        # 显式 int 的 video endpoint 不应再绑 caps 函数
-        for key in ("openai-video",):
-            assert ENDPOINT_REGISTRY[key].video_caps_for_model is None
+        assert ENDPOINT_REGISTRY["openai-video"].video_caps_for_model is not None
 
     def test_dashscope_caps_fn_reads_channel_declaration_without_client(self):
         """百炼异步视频端点 的 caps_fn 是纯函数：给出通道声明（不设参考图上限、按名字认的请求形态），

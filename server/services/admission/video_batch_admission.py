@@ -780,13 +780,14 @@ async def admit_storyboard_video_batch(
             )
             continue
         unit_facts = end_frame_facts if item.get("end_frame_image") else video_request_facts
+        duration = item.get("duration_seconds")
+        if duration is None:
+            duration = project.get("default_duration")
         failure = (
             unit_facts
             if isinstance(unit_facts, VideoRequestFactsFailure)
             else (
-                end_frame_duration_failure(unit_facts, item.get("duration_seconds", project.get("default_duration")))
-                if isinstance(unit_facts, VideoRequestFacts)
-                else None
+                end_frame_duration_failure(unit_facts, duration) if isinstance(unit_facts, VideoRequestFacts) else None
             )
         )
         problems = (_facts_failure_problem(failure, resource_id),) if failure is not None else ()

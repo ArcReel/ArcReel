@@ -130,12 +130,15 @@ def custom_video_usage(
 
 
 def _with_video_audio(usage: Usage, request: VideoGenerationRequest, result: VideoGenerationResult | None) -> Usage:
-    """音轨按同一份生效能力求值；实际回报优先，未携带能力的调用保留通道口径。"""
+    """模型确定无声时按无声，其余保留通道档位与实际回报；未携带能力时保留通道口径。"""
     caps = request.video_capabilities
     if caps is None:
         return usage
     mode = caps.audio_track_for_route("r2v" if request.reference_images else "i2v")
     audio = mode.output_audio(request.generate_audio)
+    channel_audio = usage.dimensions.get("audio")
+    if mode.has_audio_track and mode.audio_switch_controllable and isinstance(channel_audio, bool):
+        audio = channel_audio
     if mode.has_audio_track and result is not None and result.generate_audio is not None:
         audio = result.generate_audio
     return replace(usage, dimensions={**usage.dimensions, "audio": audio})

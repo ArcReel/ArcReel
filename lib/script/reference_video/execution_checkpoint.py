@@ -18,6 +18,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, Literal, Self, cast
 
+from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.artifacts.artifact_manifest import ArtifactBasisDescriptor
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.content_digest import canonical_json, canonical_json_digest, sha256_file_with_size
@@ -31,7 +32,8 @@ logger = logging.getLogger(__name__)
 ProviderMediaRole = Literal["reference_image", "reference_audio", "start_image", "end_image"]
 ReferenceGenerationType = Literal["i2v", "r2v"]
 
-_SCHEMA_VERSION = 5
+_SCHEMA_VERSION = 6
+_PROVIDER_ASSET_SCHEMA_VERSION = 5
 #: 版本记录 ``execution_checkpoint_schema_version`` 的当前值，供补写来源的迁移与写侧共用一个字面量。
 CHECKPOINT_SCHEMA_VERSION = _SCHEMA_VERSION
 #: 不再记录旁白交付事实、也还没有记录供应商素材引用的检查点。
@@ -42,7 +44,7 @@ _VISUAL_BASIS_SCHEMA_VERSION = 2
 _LEGACY_SCHEMA_VERSION = 1
 #: 带完整产物时效事实的检查点版本；版本记录按它们判断来源是否完整。
 CURRENCY_CHECKPOINT_SCHEMA_VERSIONS = frozenset(
-    {_NARRATION_CURRENCY_SCHEMA_VERSION, _NO_NARRATION_SCHEMA_VERSION, _SCHEMA_VERSION}
+    {_NARRATION_CURRENCY_SCHEMA_VERSION, _NO_NARRATION_SCHEMA_VERSION, _PROVIDER_ASSET_SCHEMA_VERSION, _SCHEMA_VERSION}
 )
 _SUPPORTED_SCHEMA_VERSIONS = frozenset(
     {
@@ -50,6 +52,7 @@ _SUPPORTED_SCHEMA_VERSIONS = frozenset(
         _VISUAL_BASIS_SCHEMA_VERSION,
         _NARRATION_CURRENCY_SCHEMA_VERSION,
         _NO_NARRATION_SCHEMA_VERSION,
+        _PROVIDER_ASSET_SCHEMA_VERSION,
         _SCHEMA_VERSION,
     }
 )
@@ -547,6 +550,8 @@ class _VideoSubmissionCheckpoint:
     #: schema v5 起记录：以供应商素材引用代替图片内容发出的参考图，按 ``media_index`` 升序。
     provider_asset_references: tuple[ProviderAssetReference, ...]
     request_digest: str
+    #: schema v6 冻结本次请求路线的音轨形态；旧检查点没有此事实，不从当前覆盖补写。
+    audio_track: VideoAudioMode | None = None
 
     _LEGACY_FIELDS = frozenset(
         {
@@ -579,7 +584,8 @@ class _VideoSubmissionCheckpoint:
     _VISUAL_BASIS_FIELDS = _LEGACY_FIELDS | {"artifact_visual_basis"}
     _NARRATION_CURRENCY_FIELDS = _LEGACY_FIELDS | {"artifact_currency"}
     _NO_NARRATION_FIELDS = _NARRATION_CURRENCY_FIELDS - {"narration"}
-    _FIELDS = _NO_NARRATION_FIELDS | {"provider_asset_references"}
+    _PROVIDER_ASSET_FIELDS = _NO_NARRATION_FIELDS | {"provider_asset_references"}
+    _FIELDS = _PROVIDER_ASSET_FIELDS | {"audio_track"}
 
     @property
     def artifact_episode(self) -> int | None:
@@ -642,6 +648,10 @@ class _VideoSubmissionCheckpoint:
         _require_optional_string(self.resolution, "resolution")
         if not is_bool(self.generate_audio):
             raise ValueError("generate_audio must be a boolean")
+        if self.audio_track is not None and type(self.audio_track) is not VideoAudioMode:
+            raise ValueError("audio_track must be a video audio mode or null")
+        if self.schema_version < _SCHEMA_VERSION and self.audio_track is not None:
+            raise ValueError("older checkpoint cannot carry audio_track")
         _require_nonempty_string(self.service_tier, "service_tier")
         if self.seed is not None and not is_int(self.seed):
             raise ValueError("seed must be an integer or null")
@@ -662,7 +672,7 @@ class _VideoSubmissionCheckpoint:
                 raise ValueError("artifact currency visual kind does not match checkpoint kind")
         elif self.artifact_currency is not None:
             raise ValueError("older checkpoint cannot carry complete artifact currency facts")
-        if self.schema_version in (_NO_NARRATION_SCHEMA_VERSION, _SCHEMA_VERSION):
+        if self.schema_version >= _NO_NARRATION_SCHEMA_VERSION:
             if self.legacy_narration is not None:
                 raise ValueError("current checkpoint schema does not record narration delivery")
         elif not isinstance(self.legacy_narration, dict):
@@ -702,7 +712,7 @@ class _VideoSubmissionCheckpoint:
 
     def _validate_provider_asset_references(self) -> None:
         refs = self.provider_asset_references
-        if self.schema_version != _SCHEMA_VERSION:
+        if self.schema_version < _PROVIDER_ASSET_SCHEMA_VERSION:
             if refs:
                 raise ValueError("older checkpoint cannot carry provider asset references")
             return
@@ -743,6 +753,8 @@ class _VideoSubmissionCheckpoint:
         if self.legacy_narration is not None:
             payload["narration"] = self.legacy_narration
         if self.schema_version == _SCHEMA_VERSION:
+            payload["audio_track"] = self.audio_track.value if self.audio_track is not None else None
+        if self.schema_version >= _PROVIDER_ASSET_SCHEMA_VERSION:
             payload["provider_asset_references"] = [ref.to_dict() for ref in self.provider_asset_references]
         if self.schema_version == _VISUAL_BASIS_SCHEMA_VERSION:
             assert self.legacy_artifact_visual_basis is not None
@@ -794,6 +806,7 @@ class _VideoSubmissionCheckpoint:
         media: tuple[StagedProviderMedia, ...],
         reference_audio_targets: tuple[int, ...] | None,
         provider_asset_references: tuple[ProviderAssetReference, ...] = (),
+        audio_track: VideoAudioMode | None = None,
     ) -> Self:
         prompt_sha256 = _sha256_bytes(prompt.encode("utf-8"))
         values: dict[str, object] = {
@@ -814,6 +827,7 @@ class _VideoSubmissionCheckpoint:
             "aspect_ratio": aspect_ratio,
             "resolution": resolution,
             "generate_audio": generate_audio,
+            "audio_track": audio_track.value if audio_track is not None else None,
             "service_tier": service_tier,
             "seed": seed,
             "visual_basis_digest": visual_basis_digest,
@@ -841,6 +855,7 @@ class _VideoSubmissionCheckpoint:
             aspect_ratio=aspect_ratio,
             resolution=resolution,
             generate_audio=generate_audio,
+            audio_track=audio_track,
             service_tier=service_tier,
             seed=seed,
             visual_basis_digest=visual_basis_digest,
@@ -882,6 +897,8 @@ class _VideoSubmissionCheckpoint:
                 if schema_version == _NARRATION_CURRENCY_SCHEMA_VERSION
                 else cls._NO_NARRATION_FIELDS
                 if schema_version == _NO_NARRATION_SCHEMA_VERSION
+                else cls._PROVIDER_ASSET_FIELDS
+                if schema_version == _PROVIDER_ASSET_SCHEMA_VERSION
                 else cls._FIELDS
             ),
             "checkpoint",
@@ -913,6 +930,7 @@ class _VideoSubmissionCheckpoint:
             aspect_ratio=raw["aspect_ratio"],
             resolution=raw["resolution"],
             generate_audio=raw["generate_audio"],
+            audio_track=VideoAudioMode(raw["audio_track"]) if raw.get("audio_track") is not None else None,
             service_tier=raw["service_tier"],
             seed=raw["seed"],
             visual_basis_digest=raw["visual_basis_digest"],

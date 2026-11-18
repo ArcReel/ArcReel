@@ -314,7 +314,7 @@ def test_checkpoint_round_trip_is_versioned_strict_and_self_authenticating(tmp_p
     assert restored.prompt_sha256 == "0a90e70b38c8a4b4675f11f2fca1da4324d41f12b15c9b6151581d41753c34b7"
     assert len(restored.request_digest) == 64
     assert restored.media[0].source_locator == "characters/Alice.png"
-    assert restored.schema_version == 5
+    assert restored.schema_version == 6
     assert restored.provider_asset_references == ()
     assert restored.legacy_narration is None
     assert "narration" not in json.loads(checkpoint.to_json())
@@ -429,6 +429,7 @@ def test_legacy_checkpoint_remains_resumable_without_inventing_artifact_basis(tm
     raw["schema_version"] = 1
     raw.pop("artifact_currency")
     raw.pop("provider_asset_references")
+    raw.pop("audio_track")
     raw["narration"] = _LEGACY_NARRATION
     _redigest(raw)
 
@@ -446,6 +447,7 @@ def test_visual_only_checkpoint_remains_resumable_but_cannot_claim_complete_vide
     raw["schema_version"] = 2
     raw.pop("artifact_currency")
     raw.pop("provider_asset_references")
+    raw.pop("audio_track")
     raw["artifact_visual_basis"] = {
         "kind": artifact_visual_basis["kind"],
         "kind_version": artifact_visual_basis["kind_version"],
@@ -470,6 +472,7 @@ def test_narration_recording_checkpoint_stays_resumable_with_complete_currency(t
     raw["schema_version"] = 3
     raw["narration"] = _LEGACY_NARRATION
     raw.pop("provider_asset_references")
+    raw.pop("audio_track")
     _redigest(raw)
 
     restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
@@ -667,6 +670,7 @@ def test_v4_checkpoint_without_provider_asset_references_stays_resumable(tmp_pat
     raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
     raw["schema_version"] = 4
     raw.pop("provider_asset_references")
+    raw.pop("audio_track")
     _redigest(raw)
 
     restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
@@ -729,3 +733,32 @@ _CREATE_FIELDS = (
     "media",
     "reference_audio_targets",
 )
+
+
+@pytest.mark.parametrize("audio_track", ["always_off", "always_on", "controllable"])
+def test_checkpoint_freezes_audio_track_and_authenticates_it(tmp_path, audio_track):
+    from dataclasses import replace
+
+    from arcreel_market_core.video_backend_contract import VideoAudioMode
+
+    original = _checkpoint(tmp_path / "demo")
+    raw = original.to_dict()
+    raw["audio_track"] = audio_track
+    _redigest(raw)
+    restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+    assert restored.audio_track is VideoAudioMode(audio_track)
+    with pytest.raises(ValueError, match="request_digest"):
+        replace(
+            restored,
+            audio_track=VideoAudioMode.CONTROLLABLE if audio_track != "controllable" else VideoAudioMode.ALWAYS_OFF,
+        )
+
+
+def test_v5_checkpoint_retains_original_digest_without_audio_track(tmp_path):
+    raw = json.loads(_checkpoint(tmp_path / "demo").to_json())
+    raw["schema_version"] = 5
+    raw.pop("audio_track")
+    _redigest(raw)
+    restored = ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
+    assert restored.audio_track is None
+    assert json.loads(restored.to_json()) == raw

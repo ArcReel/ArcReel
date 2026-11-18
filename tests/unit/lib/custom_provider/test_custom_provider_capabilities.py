@@ -194,10 +194,12 @@ class TestOptionalDimensionSchema:
 
 
 class TestSystemCapabilities:
-    def test_endpoint_declaring_int_cap_rebuilds_capabilities(self):
-        """endpoint 维度声明硬上限时原样落到 max_reference_images，其余维度取默认。"""
+    def test_openai_capabilities_keep_single_image_and_no_audio_switch(self):
+        """OpenAI 端点的单图槽与无音轨开关同取后端声明。"""
         caps = system_video_capabilities(endpoint="openai-video", model_id="sora-2")
-        assert caps == VideoCapabilities(first_frame=True, last_frame=False, max_reference_images=1)
+        assert caps == VideoCapabilities(
+            first_frame=True, last_frame=False, max_reference_images=1, audio_track=VideoAudioMode.ALWAYS_ON
+        )
 
     def test_endpoint_declaring_zero_cap_yields_no_reference_images(self):
         caps = system_video_capabilities(endpoint="newapi-video", model_id="whatever")

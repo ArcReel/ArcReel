@@ -996,8 +996,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_openai_video,
         requests=_OPENAI_VIDEO_REQUESTS,
         metering_backend=OpenAIVideoBackend,
-        # OpenAI Sora input_reference 为单张首帧图。
-        video_max_reference_images=1,
+        video_caps_for_model=OpenAIVideoBackend.video_capabilities_for_model,
     ),
     # Seedance 1、2、2.5 共用创建任务与轮询接口，请求体与计量不同，各是一个端点（见 ark.SeedanceEndpoint）
     **{

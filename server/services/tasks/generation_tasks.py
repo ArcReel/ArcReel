@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from arcreel_market_core.video_backend_contract import VideoCapabilityError
+from arcreel_market_core.video_backend_contract import VideoAudioFacts, VideoCapabilityError
 from lib.artifacts.artifact_activation import (
     ArtifactCurrencyResolver,
     ArtifactInputClaim,
@@ -1297,6 +1297,9 @@ async def execute_video_task(
                     aspect_ratio=aspect_ratio,
                     resolution=resolution,
                     generate_audio=requested_generate_audio,
+                    audio_track=VideoAudioFacts(
+                        request_facts.has_audio_track, request_facts.audio_switch_controllable
+                    ).mode,
                     service_tier=service_tier,
                     seed=seed,
                     visual_basis_digest=visual_basis_digest,

@@ -1,8 +1,8 @@
 """视频调用通道按用量契约上报的计量（docs/adr/0100）。
 
 每个内置视频调用通道提供静态方法 ``metered_usage(model, request, result=None)``：给出这次请求的计量项用量与
-选择维度。选择维度取自真正发给供应商的请求字段，与请求构造走同一个变换（docs/adr/0056），没发送的维度不写，
-由价目表的默认值补上。
+选择维度。选择维度取自真正发给供应商的请求字段，与请求构造走同一个变换（docs/adr/0056）；音轨同时采用生效模型的
+无声事实（docs/adr/0104）。其余没发送的维度不写，由价目表的默认值补上。
 
 - ``result`` 为 ``None`` 时用于提交前预估：用量全部取自请求事实；需要换算的计量项（如方舟视频 token）由通道
   的估算函数给出，算不出就不上报，预估因此记为未定价。
@@ -45,6 +45,13 @@ def video_usage(
     """
     reported = result.duration_seconds if result is not None else None
     output_seconds = reported if reported is not None and 0 < reported <= MAX_BILLED_DURATION_SECONDS else seconds
+    if (
+        request.video_capabilities is not None
+        and not request.video_capabilities.audio_track_for_route(
+            "r2v" if request.reference_images else "i2v"
+        ).has_audio_track
+    ):
+        audio = False
     if result is not None and result.generate_audio is not None:
         audio = result.generate_audio
     if reference_images is None:

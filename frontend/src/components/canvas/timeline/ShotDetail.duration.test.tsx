@@ -378,3 +378,121 @@ it("挂尾帧后保留越界秒数并显示尾帧成因，只提供带尾帧档�
   expect(screen.queryByRole("radio", { name: /8 秒/ })).not.toBeInTheDocument();
   expect(screen.getByRole("radio", { name: /6 秒/ })).toBeInTheDocument();
 });
+
+it("已有尾帧的分镜在能力查询未返回或失败时禁用时长选择，不回落父级普通档位", async () => {
+  let resolveCaps: (value: Awaited<ReturnType<typeof API.getVideoCapabilities>>) => void = () => {};
+  vi.spyOn(API, "getVideoCapabilities").mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveCaps = resolve;
+    }),
+  );
+  const { unmount } = renderDetail(
+    { segment: { ...makeScene(8), end_frame_image: "end_frames/E1S01.png" }, durationOptions: [4, 6, 8] },
+    8,
+  );
+  const loadingPill = screen.getByRole("button", { name: /^8 秒/ });
+  expect(loadingPill).toBeDisabled();
+  expect(loadingPill).toHaveAccessibleDescription("检查中…");
+  fireEvent.click(loadingPill);
+  expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+
+  resolveCaps({
+    provider_id: "gemini",
+    model: "omni",
+    supported_durations: [4, 6, 8],
+    max_duration: 8,
+    max_reference_images: 3,
+    first_frame: true,
+    last_frame: true,
+    source: "registry",
+    voice_consistency: "soft",
+    duration_constraints: { resolution: null, uses_reference_images: false, allowed: [4, 6, 8], excluded: {} },
+    end_frame_unit_durations: {
+      without_end_frame: [4, 6, 8],
+      with_end_frame: [4, 6],
+      excluded: { "8": "end_frame" },
+      problem: null,
+    },
+  });
+  await waitFor(() => expect(screen.getByRole("button", { name: /^8 秒/ })).toBeEnabled());
+  unmount();
+
+  vi.spyOn(API, "getVideoCapabilities").mockRejectedValueOnce(new Error("network down"));
+  renderDetail(
+    { segment: { ...makeScene(8), end_frame_image: "end_frames/E1S01.png" }, durationOptions: [4, 6, 8] },
+    8,
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /^8 秒/ })).toHaveAccessibleDescription(/未能获取首尾帧可用时长/),
+  );
+  expect(screen.getByRole("button", { name: /^8 秒/ })).toBeDisabled();
+});
+
+it("尾帧与分辨率交集为空时保持禁用，同时显示尾帧越界成因与移除尾帧指引", async () => {
+  vi.spyOn(API, "getVideoCapabilities").mockResolvedValue({
+    provider_id: "gemini",
+    model: "omni",
+    supported_durations: [4, 6, 8],
+    max_duration: 8,
+    max_reference_images: 3,
+    first_frame: true,
+    last_frame: true,
+    source: "registry",
+    voice_consistency: "soft",
+    duration_constraints: {
+      resolution: "1080p",
+      uses_reference_images: false,
+      allowed: [8],
+      excluded: { "4": "resolution", "6": "resolution" },
+    },
+    end_frame_unit_durations: {
+      without_end_frame: [8],
+      with_end_frame: [],
+      excluded: { "4": "resolution", "6": "resolution", "8": "end_frame" },
+      problem: { code: "video_end_frame_durations_incompatible", params: {}, action: "fix_input" },
+    },
+  });
+  renderDetail(
+    { segment: { ...makeScene(8), end_frame_image: "end_frames/E1S01.png" }, durationOptions: [8] },
+    8,
+  );
+  await waitFor(() => expect(screen.getByRole("button", { name: /^8 秒/ })).toHaveTextContent("移除尾帧"));
+  const pill = screen.getByRole("button", { name: /^8 秒/ });
+  expect(pill).toBeDisabled();
+  expect(pill).toHaveAccessibleDescription(/移除尾帧/);
+  expect(pill).not.toHaveAccessibleDescription(/未配置可用时长/);
+});
+
+it("尾帧与分辨率交集为空但已存秒数本就被分辨率排除时保留分辨率成因", async () => {
+  vi.spyOn(API, "getVideoCapabilities").mockResolvedValue({
+    provider_id: "gemini",
+    model: "omni",
+    supported_durations: [4, 6, 8],
+    max_duration: 8,
+    max_reference_images: 3,
+    first_frame: true,
+    last_frame: true,
+    source: "registry",
+    voice_consistency: "soft",
+    duration_constraints: {
+      resolution: "1080p",
+      uses_reference_images: false,
+      allowed: [8],
+      excluded: { "4": "resolution", "6": "resolution" },
+    },
+    end_frame_unit_durations: {
+      without_end_frame: [8],
+      with_end_frame: [],
+      excluded: { "4": "resolution", "6": "resolution", "8": "end_frame" },
+      problem: { code: "video_end_frame_durations_incompatible", params: {}, action: "fix_input" },
+    },
+  });
+  renderDetail(
+    { segment: { ...makeScene(4), end_frame_image: "end_frames/E1S01.png" }, durationOptions: [8] },
+    4,
+  );
+  await waitFor(() => expect(screen.getByRole("button", { name: /^4 秒/ })).toHaveTextContent("当前分辨率"));
+  const pill = screen.getByRole("button", { name: /^4 秒/ });
+  expect(pill).toBeDisabled();
+  expect(pill).toHaveAccessibleDescription(/当前分辨率/);
+});

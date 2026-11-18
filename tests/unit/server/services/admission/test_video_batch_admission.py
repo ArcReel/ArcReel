@@ -445,7 +445,8 @@ async def test_reference_admission_is_identical_for_tts_and_post_production_proj
     assert [unit["request_duration_seconds"] for unit in use_tts["units"]] == [8, 4]
 
 
-async def test_end_frame_duration_is_refused_without_changing_selected_seconds(monkeypatch):
+@pytest.mark.parametrize("duration", [8, None])
+async def test_end_frame_duration_is_refused_without_changing_selected_seconds(monkeypatch, duration):
     _stub_state(monkeypatch)
 
     async def facts(*_args, **kwargs):
@@ -457,10 +458,10 @@ async def test_end_frame_duration_is_refused_without_changing_selected_seconds(m
         )
 
     monkeypatch.setattr(admission_mod, "evaluate_video_request_facts", facts)
-    item = {"duration_seconds": 8, "end_frame_image": "end_frames/E1S01.png"}
+    item = {"duration_seconds": duration, "end_frame_image": "end_frames/E1S01.png"}
     result = await admit_storyboard_video_batch(
         project_name="demo",
-        project={},
+        project={"default_duration": 8},
         script_file="episode_1.json",
         items=[("E1S01", item)],
         operation="generate_videos",
@@ -472,4 +473,4 @@ async def test_end_frame_duration_is_refused_without_changing_selected_seconds(m
     assert problem.code == "video_duration_end_frame_not_supported"
     assert problem.params["duration"] == 8
     assert problem.action == GenerationAction.FIX_INPUT
-    assert item["duration_seconds"] == 8
+    assert item["duration_seconds"] == duration

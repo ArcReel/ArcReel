@@ -2311,7 +2311,7 @@ class TestCostEstimationService:
                         "model_id": "relay/kling-v2-6",
                         "display_name": "Vid",
                         "endpoint": "openai-video",
-                        "capability_overrides": {"durations": [6]},
+                        "capability_overrides": {"durations": [6], "audio_track": "always_off"},
                         "multiplier": 0.5,
                     },
                     {

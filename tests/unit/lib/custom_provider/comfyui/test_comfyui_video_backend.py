@@ -987,7 +987,8 @@ class TestJobLost:
 class TestResume:
     """``provider_job_id`` 就是 ``prompt_id``：接续的是同一次执行，不重传也不重提交。"""
 
-    async def test_a_resume_goes_straight_to_polling(self, tmp_path: Path):
+    @pytest.mark.parametrize("frozen_audio", [None, True, False])
+    async def test_a_resume_goes_straight_to_polling(self, tmp_path: Path, frozen_audio):
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids() as persisted:
             upload = router.post(f"{BASE_URL}/upload/image")
             submit = router.post(f"{BASE_URL}/prompt")
@@ -996,10 +997,18 @@ class TestResume:
             )
             router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
-            result = await _backend(_with_image_bindings()).resume_video("p-1", _request(tmp_path))
+            caps = (
+                VideoCapabilities(audio_track=VideoAudioMode.ALWAYS_ON if frozen_audio else VideoAudioMode.ALWAYS_OFF)
+                if frozen_audio is not None
+                else None
+            )
+            result = await _backend(_with_image_bindings()).resume_video(
+                "p-1", _request(tmp_path, video_capabilities=caps)
+            )
 
         assert result.video_path.read_bytes() == MP4_BYTES
         assert result.task_id == "p-1"
+        assert result.generate_audio is (frozen_audio or False)
         assert upload.call_count == 0
         assert submit.call_count == 0
         # 提交发生在上一个进程里，这一次没有新的 job_id 要落库。
