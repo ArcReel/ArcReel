@@ -5,6 +5,7 @@ const INCOMPATIBLE_KEY: Record<DurationOutOfRangeReason, string> = {
   model: "duration_incompatible_warning",
   resolution: "duration_incompatible_resolution_warning",
   reference: "duration_incompatible_reference_warning",
+  end_frame: "duration_incompatible_end_frame_warning",
 };
 
 /**

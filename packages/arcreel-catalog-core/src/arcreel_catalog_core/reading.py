@@ -124,7 +124,7 @@ _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
     "audio": frozenset(),
 }
 _SCALED_OUTPUT_TOKEN_BASE_FIELDS = frozenset({"base", "multiplier"})
-_CONSTRAINT_FIELDS = frozenset({"by_resolution", "with_reference_images"})
+_CONSTRAINT_FIELDS = frozenset({"by_resolution", "with_reference_images", "with_end_frame"})
 _PRICE_FIELDS = frozenset({"currency", "meters"})
 _METER_FIELDS = frozenset({"meter", "dims", "rows", "defaults", "free_allowance", "cjk_double"})
 _ROW_FIELDS = frozenset({"when", "price"})
@@ -473,7 +473,11 @@ class CatalogReader:
             by_resolution[resolution] = values
         with_reference_images = self.durations(data.get("with_reference_images"), _at(path, "with_reference_images"))
         self.check_constraint_durations(with_reference_images, durations, _at(path, "with_reference_images"))
-        return DurationConstraints(by_resolution=by_resolution, with_reference_images=with_reference_images)
+        with_end_frame = self.durations(data.get("with_end_frame"), _at(path, "with_end_frame"))
+        self.check_constraint_durations(with_end_frame, durations, _at(path, "with_end_frame"))
+        return DurationConstraints(
+            by_resolution=by_resolution, with_reference_images=with_reference_images, with_end_frame=with_end_frame
+        )
 
     def check_constraint_durations(self, values: tuple[int, ...], durations: tuple[int, ...], path: str) -> None:
         if any(value not in durations for value in values):

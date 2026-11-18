@@ -91,6 +91,7 @@ class CatalogModel:
     supported_durations: list[int] = field(default_factory=list)
     duration_resolution_constraints: dict[str, list[int]] = field(default_factory=dict)
     reference_image_durations: list[int] = field(default_factory=list)
+    end_frame_durations: list[int] = field(default_factory=list)
     resolutions: list[str] = field(default_factory=list)
     hidden: bool = False
     api_model_name: str | None = None
@@ -142,6 +143,7 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
     durations: list[int] = []
     by_resolution: dict[str, list[int]] = {}
     reference_durations: list[int] = []
+    end_frame_durations: list[int] = []
     resolutions: list[str] = []
     max_output_tokens: int | None = None
     max_reference_images: int | None = None
@@ -168,6 +170,7 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
             constraints = facts.duration_constraints
             by_resolution = {res: list(allowed) for res, allowed in constraints.by_resolution.items()}
             reference_durations = list(constraints.with_reference_images)
+            end_frame_durations = list(constraints.with_end_frame)
         case AudioFacts():
             capabilities.append("text_to_speech")
         case _:
@@ -180,6 +183,7 @@ def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, defaul
         supported_durations=durations,
         duration_resolution_constraints=by_resolution,
         reference_image_durations=reference_durations,
+        end_frame_durations=end_frame_durations,
         resolutions=resolutions,
         api_model_name=None if key == api_model_name else api_model_name,
         max_output_tokens=max_output_tokens,
@@ -326,15 +330,18 @@ def _with_model_fact_overrides(model: CatalogModel, overrides: Mapping[str, obje
     constraints = overrides.get("duration_constraints")
     by_resolution = model.duration_resolution_constraints
     reference_durations = model.reference_image_durations
+    end_frame_durations = model.end_frame_durations
     if isinstance(constraints, Mapping):
         raw_by_resolution = constraints.get("by_resolution")
         raw_reference = constraints.get("with_reference_images")
+        raw_end_frame = constraints.get("with_end_frame")
         by_resolution = (
             {str(res).strip().lower(): [int(d) for d in allowed] for res, allowed in raw_by_resolution.items()}
             if isinstance(raw_by_resolution, Mapping)
             else {}
         )
         reference_durations = [int(d) for d in raw_reference] if isinstance(raw_reference, list) else []
+        end_frame_durations = [int(d) for d in raw_end_frame] if isinstance(raw_end_frame, list) else []
     return replace(
         model,
         capabilities=capabilities,
@@ -345,6 +352,7 @@ def _with_model_fact_overrides(model: CatalogModel, overrides: Mapping[str, obje
         resolutions=[str(r).strip() for r in resolutions] if isinstance(resolutions, list) else model.resolutions,
         duration_resolution_constraints=by_resolution,
         reference_image_durations=reference_durations,
+        end_frame_durations=end_frame_durations,
     )
 
 

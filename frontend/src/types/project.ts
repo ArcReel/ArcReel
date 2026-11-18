@@ -308,7 +308,7 @@ export interface ImportProjectResponse {
 }
 
 /** 时长被联动约束剔除的成因；「型号全集就不含」不在此列，按不在 supported_durations 内判定。 */
-export type DurationExclusionReason = "resolution" | "reference";
+export type DurationExclusionReason = "resolution" | "reference" | "end_frame";
 
 /**
  * 一次约束上下文下的时长收窄结果与成因，由服务端该桶的视频请求事实
@@ -358,6 +358,12 @@ export interface VideoCapabilities {
   /** 声音一致性三级标识（模型能力 × generation_mode 二维派生），服务端唯一派生点。 */
   voice_consistency: VoiceConsistencyTier;
   duration_constraints: DurationConstraints;
+  end_frame_unit_durations?: {
+    without_end_frame: number[];
+    with_end_frame: number[];
+    excluded: Record<string, DurationExclusionReason>;
+    problem: VideoCapabilityProblem | null;
+  };
   /** 时长这一维由端点固定（ComfyUI workflow 自己定片长）：档位为空集不是「声明缺失」。 */
   duration_endpoint_fixed?: boolean;
   duration_endpoint_fixed_reason?: "endpoint" | null;

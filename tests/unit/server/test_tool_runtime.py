@@ -172,6 +172,12 @@ async def test_video_capabilities_returns_typed_domain_outcome(set_video_request
         "provider_id": "fake",
         "model": "video-1",
         "supported_durations": [4, 6],
+        "end_frame_unit_durations": {
+            "without_end_frame": [4, 6],
+            "with_end_frame": [4, 6],
+            "excluded": {},
+            "problem": None,
+        },
         "duration_constraints": {
             "resolution": None,
             "uses_reference_images": False,

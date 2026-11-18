@@ -160,6 +160,7 @@ export interface ModelFactOverrides {
   duration_constraints: {
     by_resolution?: Record<string, number[]>;
     with_reference_images?: number[];
+    with_end_frame?: number[];
   };
 }
 

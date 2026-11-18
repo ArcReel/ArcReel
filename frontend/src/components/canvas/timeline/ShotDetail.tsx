@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Film, ImageIcon, Timer } from "lucide-react";
-import type { DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
+import { durationOutOfRangeReason, useModelCapabilities, type DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
 import type {
   NarrationSegment,
   DramaScene,
@@ -472,6 +472,13 @@ export function ShotDetail({
   editRef,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
+  const endFrameCapabilities = useModelCapabilities({
+    projectName, usesEndFrame: true, enabled: !!segment.end_frame_image,
+  });
+  if (segment.end_frame_image && endFrameCapabilities.supportedDurations !== null) {
+    durationOptions = endFrameCapabilities.supportedDurations;
+    durationWarningReason = (seconds) => durationOutOfRangeReason(seconds, endFrameCapabilities);
+  }
   const itemLabel = useItemPositionLabel(segmentId);
   const status = statusFromAssets(segment.generated_assets?.status);
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));

@@ -105,7 +105,7 @@ class VideoRequestFacts:
     """一次视频请求的执行事实。
 
     ``resolution`` 为 None 表示请求不携带分辨率参数。``supported_durations`` 是模型声明的全集，
-    ``allowed_durations`` 是按请求分辨率与参考图收窄后的档位，``excluded_durations`` 给出全集中
+    ``allowed_durations`` 是按请求分辨率、参考图与尾帧收窄后的档位，``excluded_durations`` 给出全集中
     每个被排除秒数的成因。时长由端点固定时（``docs/adr/0082``）三者都是合法空集。
 
     音轨四项：``requested_generate_audio`` 是用户的音频开关，``generate_audio`` 是计价口径的
@@ -285,6 +285,7 @@ async def evaluate_video_request_facts(
     resolver: ConfigResolver,
     resolution_override: ResolutionOverride | None = None,
     builtin_endpoint: str | None = None,
+    uses_end_frame: bool = False,
 ) -> VideoRequestFacts | VideoRequestFactsFailure:
     """对一次视频请求求值执行事实；解析不出时返回带类型的失败，不抛出、不回退。
 
@@ -354,6 +355,7 @@ async def evaluate_video_request_facts(
             constraints,
             resolution=resolution,
             uses_reference_images=uses_reference_images,
+            uses_end_frame=uses_end_frame,
         )
     )
     if supported and not allowed:
@@ -361,14 +363,21 @@ async def evaluate_video_request_facts(
             codes["incompatible"],
             (*identity_params, ("resolution", resolution), ("capability", generation_type)),
         )
-    # 两条约束都排除同一秒数时报参考图：改分辨率救不回它。
+    # 输入路径约束优先于分辨率：只改分辨率救不回它。
     reference_allowed = (
         apply_duration_constraints(list(supported), constraints, uses_reference_images=True)
         if uses_reference_images
         else list(supported)
     )
+    end_frame_allowed = (
+        apply_duration_constraints(list(supported), constraints, uses_end_frame=True)
+        if uses_end_frame
+        else list(supported)
+    )
     excluded: tuple[tuple[int, DurationExclusionReason], ...] = tuple(
-        (d, "reference" if d not in reference_allowed else "resolution") for d in supported if d not in allowed
+        (d, "end_frame" if d not in end_frame_allowed else "reference" if d not in reference_allowed else "resolution")
+        for d in supported
+        if d not in allowed
     )
 
     voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
@@ -409,3 +418,20 @@ def _optional_count(value: object) -> int | None:
     if value is None:
         return None
     return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0
+
+
+def end_frame_duration_failure(facts: VideoRequestFacts, duration: object) -> VideoRequestFactsFailure | None:
+    """已选秒数被尾帧约束剔除时明确拒绝；不替用户改秒数。"""
+    if not isinstance(duration, int | float | str) or isinstance(duration, bool):
+        return None
+    try:
+        seconds = float(duration)
+    except ValueError:
+        return None
+    if not seconds.is_integer() or dict(facts.excluded_durations).get(int(seconds)) != "end_frame":
+        return None
+    return VideoRequestFactsFailure(
+        "video_duration_end_frame_not_supported",
+        (("duration", int(seconds)), ("supported", ", ".join(str(d) for d in facts.allowed_durations))),
+        action="fix_input",
+    )

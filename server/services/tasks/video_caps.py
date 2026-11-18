@@ -154,6 +154,35 @@ async def capability_request_facts(
     )
 
 
+async def annotate_end_frame_tiers(
+    payload: dict,
+    project: dict,
+    *,
+    generation_type: VideoGenerationType,
+    config_resolver: ConfigResolver,
+    without_end_frame: VideoRequestFacts,
+    resolution_override: ResolutionOverride | None = None,
+) -> None:
+    """规划期与首尾帧路径各自的档位；尾帧路径失败不影响普通规划。"""
+    with_end_frame = await evaluate_video_request_facts(
+        project,
+        route=without_end_frame.route,
+        generation_type=generation_type,
+        identity=CONFIGURED_VIDEO_IDENTITY,
+        resolver=config_resolver,
+        resolution_override=resolution_override,
+        uses_end_frame=True,
+    )
+    payload["end_frame_unit_durations"] = {
+        "without_end_frame": list(without_end_frame.allowed_durations),
+        "with_end_frame": list(with_end_frame.allowed_durations)
+        if isinstance(with_end_frame, VideoRequestFacts)
+        else [],
+        "excluded": dict(with_end_frame.excluded_durations) if isinstance(with_end_frame, VideoRequestFacts) else {},
+        "problem": None if isinstance(with_end_frame, VideoRequestFacts) else video_facts_problem(with_end_frame),
+    }
+
+
 async def annotate_reference_unit_tiers(
     payload: dict,
     project: dict,

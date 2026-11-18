@@ -1536,3 +1536,50 @@ class TestDedupedPassthrough:
             )
             assert resp.status_code == 200, resp.text
             assert resp.json()["deduped"] is True
+
+
+@pytest.mark.parametrize("submitted_duration", [None, 6])
+def test_end_frame_out_of_range_duration_refused_before_enqueue_and_http(
+    tmp_path, monkeypatch, db_engine, respx_mock, submitted_duration
+):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from arcreel_catalog_core import DurationConstraints
+    from lib.catalog.query import catalog_data
+    from lib.config.resolver import ConfigResolver
+    from tests.catalog_support import install_catalog, with_entry_facts
+
+    install_catalog(
+        monkeypatch,
+        with_entry_facts(
+            catalog_data(),
+            "gemini-vertex",
+            "veo-3.1-generate-001",
+            duration_constraints=DurationConstraints(with_end_frame=(4, 6)),
+        ),
+    )
+    project_path = _prepare_files(tmp_path)
+    fake_pm = _FakePM(project_path)
+    fake_pm.project["video_provider_i2v"] = "gemini-vertex/veo-3.1-generate-001"
+    item = fake_pm.script["segments"][0]
+    item.update(duration_seconds=8, end_frame_image="end_frames/scene_E1S01.png")
+    (project_path / "end_frames").mkdir()
+    from PIL import Image
+
+    Image.new("RGB", (8, 8)).save(project_path / item["end_frame_image"])
+    fake_queue = _FakeQueue()
+    monkeypatch.setattr(
+        generate,
+        "ConfigResolver",
+        lambda _factory: ConfigResolver(async_sessionmaker(db_engine, expire_on_commit=False)),
+    )
+    with _client(monkeypatch, fake_pm, fake_queue) as client:
+        response = client.post(
+            "/api/v1/projects/demo/generate/video/E1S01",
+            json={"script_file": "episode_1.json", "prompt": "转身", "duration_seconds": submitted_duration},
+        )
+    assert response.status_code == 422, response.text
+    assert "首尾帧" in response.json()["detail"]
+    assert fake_queue.calls == []
+    assert len(respx_mock.calls) == 0
+    assert item["duration_seconds"] == 8

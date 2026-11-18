@@ -35,6 +35,8 @@ export interface ModelCapabilitiesInput {
   videoResolution?: string | null;
   /** 是否按参考图路径收窄；undefined = 服务端按项目生成模式判定。 */
   usesReferenceImages?: boolean;
+  /** 分镜已挂尾帧时读取服务端的首尾帧档位；规划期缺省为 false。 */
+  usesEndFrame?: boolean;
   /** 置 false 时不查（演示态等）。 */
   enabled?: boolean;
 }
@@ -117,6 +119,7 @@ export function useModelCapabilities({
   videoBackend,
   videoResolution,
   usesReferenceImages,
+  usesEndFrame = false,
   enabled = true,
 }: ModelCapabilitiesInput): ModelCapabilities {
   const revision = useCapabilitiesStore((s) => s.revision);
@@ -188,15 +191,17 @@ export function useModelCapabilities({
 
   return {
     rawDurations: caps?.supported_durations?.length ? ascending(caps.supported_durations) : null,
-    supportedDurations: constraints ? constraints.allowed : null,
+    supportedDurations: usesEndFrame && caps?.end_frame_unit_durations
+      ? caps.end_frame_unit_durations.with_end_frame : constraints ? constraints.allowed : null,
     planningDurations: constraints ? (constraints.planning ?? constraints.allowed) : null,
-    excludedDurations: constraints?.excluded ?? EMPTY_EXCLUSIONS,
+    excludedDurations: usesEndFrame && caps?.end_frame_unit_durations
+      ? caps.end_frame_unit_durations.excluded : constraints?.excluded ?? EMPTY_EXCLUSIONS,
     durationEndpointFixed: caps?.duration_endpoint_fixed ?? false,
     resolvedVideoBackend: caps ? `${caps.provider_id}/${caps.model}` : null,
     firstFrame: caps ? caps.first_frame : null,
     lastFrame: caps ? caps.last_frame : null,
     voiceConsistency: caps ? caps.voice_consistency : null,
-    videoModelUnresolved: fresh && result.unresolved,
+    videoModelUnresolved: fresh && (result.unresolved || !!(usesEndFrame && caps?.end_frame_unit_durations?.problem)),
     videoModelError: fresh ? result.error : null,
     loading: key !== null && !fresh,
   };

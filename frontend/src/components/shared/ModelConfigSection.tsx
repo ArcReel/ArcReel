@@ -408,6 +408,7 @@ export function ModelConfigSection({
     return {
       model: "duration_unsupported_notice",
       reference: "duration_unsupported_reference_notice",
+      end_frame: "duration_unsupported_end_frame_notice",
       resolution: "duration_unsupported_resolution_notice",
     }[reason];
   }, [value.defaultDuration, capabilities, durationStale]);

@@ -196,3 +196,17 @@ describe("ProviderCapabilityOverrides", () => {
     expect(screen.getByRole("combobox", { name: "「音轨形态」的值" })).toBeInTheDocument();
   });
 });
+
+it("首尾帧时长约束可独立编辑且保留其他维度", () => {
+  render(<Harness initial={{ duration_constraints: { by_resolution: {}, with_reference_images: [8], with_end_frame: [4, 6] } }} />);
+  const input = screen.getByRole("textbox", { name: "使用尾帧时的可选时长" });
+  expect(input).toHaveValue("4, 6");
+  fireEvent.change(input, { target: { value: "3-5" } });
+  expect(current().duration_constraints).toEqual({ by_resolution: {}, with_reference_images: [8], with_end_frame: [3, 4, 5] });
+});
+
+it("官方模型的只读时长约束显示首尾帧档位", () => {
+  const facts = { duration_constraints: { by_resolution: {}, with_end_frame: [4, 6] } };
+  render(<Harness capabilities={{ media_type: "video", editable: [], displayed: ["duration_constraints"], base: facts, effective: facts, overrides: {} }} />);
+  expect(screen.getByRole("listitem")).toHaveTextContent("使用尾帧时：4, 6 秒");
+});

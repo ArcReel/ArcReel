@@ -157,6 +157,7 @@ def _constraints_json(constraints: DurationConstraints) -> dict[str, object]:
     return {
         "by_resolution": {res: list(allowed) for res, allowed in constraints.by_resolution.items()},
         "with_reference_images": list(constraints.with_reference_images),
+        **({"with_end_frame": list(constraints.with_end_frame)} if constraints.with_end_frame else {}),
     }
 
 
@@ -181,6 +182,7 @@ def _normalized_overrides(overrides: Mapping[str, object]) -> dict[str, object]:
     if isinstance(constraints, Mapping):
         by_resolution = constraints.get("by_resolution")
         with_reference = constraints.get("with_reference_images")
+        with_end_frame = constraints.get("with_end_frame")
         result["duration_constraints"] = {
             "by_resolution": (
                 {str(res).strip().lower(): list(allowed) for res, allowed in by_resolution.items()}
@@ -188,6 +190,7 @@ def _normalized_overrides(overrides: Mapping[str, object]) -> dict[str, object]:
                 else {}
             ),
             "with_reference_images": list(with_reference) if isinstance(with_reference, list) else [],
+            **({"with_end_frame": list(with_end_frame)} if isinstance(with_end_frame, list) and with_end_frame else {}),
         }
     return result
 
@@ -323,6 +326,7 @@ def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -
                         res: list(allowed) for res, allowed in model.duration_resolution_constraints.items()
                     },
                     "with_reference_images": list(model.reference_image_durations),
+                    **({"with_end_frame": list(model.end_frame_durations)} if model.end_frame_durations else {}),
                 },
                 "resolutions": list(model.resolutions) or None,
             }

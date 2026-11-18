@@ -132,6 +132,7 @@ from server.services.project.project_archive import (
 from server.services.project.project_cover import resolve_project_cover
 from server.services.project.project_retirement import restore_retired_project, retire_project_on, retiring_project
 from server.services.tasks.video_caps import (
+    annotate_end_frame_tiers,
     capability_request_facts,
     duration_constraints_payload,
 )
@@ -855,6 +856,14 @@ async def get_video_capabilities(
         caps["duration_constraints"] = duration_constraints_payload(request_facts)
         # 内容确认页的时长按剧本规划档位选与判：确认转换用的是同一份 planning_durations。
         caps["duration_constraints"]["planning"] = planning_durations(request_facts)
+        await annotate_end_frame_tiers(
+            caps,
+            project,
+            generation_type=generation_type,
+            config_resolver=resolver,
+            without_end_frame=request_facts,
+            resolution_override=resolution_override,
+        )
         return caps
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
