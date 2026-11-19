@@ -14,15 +14,33 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+_reference_sources: ContextVar[Mapping[Path, Path] | None] = ContextVar("reference_image_sources", default=None)
+
+
+@contextmanager
+def reference_image_sources(paths: Mapping[Path, Path]):
+    """将本次调用的暂存／冻结／压缩路径还原为作者认识的来源名，多个并发请求各自隔离。"""
+    token = _reference_sources.set(paths)
+    try:
+        yield
+    finally:
+        _reference_sources.reset(token)
+
+
+def reference_image_name(path: Path) -> str:
+    return (_reference_sources.get() or {}).get(path, path).name
+
 
 def excess_image_names(limit: int, count: int, paths: Iterable[str | Path] = ()) -> str:
     """供应商请求没有资产名时优先报告文件名，否则给出从 1 开始的图片序号。"""
-    names = [Path(path).name for path in paths]
+    names = [reference_image_name(Path(path)) for path in paths]
     return ", ".join(names[i] if i < len(names) and names[i] else f"#{i + 1}" for i in range(limit, count))
 
 

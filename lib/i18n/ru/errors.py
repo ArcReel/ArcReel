@@ -680,7 +680,7 @@ MESSAGES = {
     "image_resolution_not_supported": "Модель {model} не поддерживает разрешение {resolution} (только {supported}); выберите поддерживаемое разрешение",
     "image_aspect_ratio_not_supported": "Модель {model} не поддерживает соотношение сторон {aspect_ratio} (только {supported}); выберите поддерживаемое соотношение сторон",
     "image_reference_images_exceeded": "Модель {model} принимает до {limit} референсов. В запросе {count}. Сверх лимита: {names}. Уменьшите число материалов или упоминаний, разделите сцену либо выберите модель с большим лимитом.",
-    "previous_storyboard_limit_hint": "Чтобы исключить предыдущую раскадровку {previous_storyboard}, начните новый сегмент перед этим кадром.",
+    "previous_storyboard_limit_hint": "Чтобы не использовать предыдущую раскадровку {previous_storyboard}, сделайте этот кадр разрывом главы.",
     # Image Edit
     "image_edit_resource_type_invalid": "Тип ресурса «{resource_type}» не поддерживает редактирование изображений",
     "image_edit_instruction_required": "Инструкция для редактирования не может быть пустой",

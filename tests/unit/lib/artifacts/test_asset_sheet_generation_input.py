@@ -351,7 +351,7 @@ class TestDerivativeSheet:
 
 
 class TestFreeze:
-    def test_clamp_only_limits_what_is_sent(self, tmp_path):
+    def test_freeze_rejects_over_limit_references(self, tmp_path):
         result = _Fixture(tmp_path).sheet("product", "保温杯")
         assert not result.gaps
 
@@ -381,12 +381,13 @@ class TestFreeze:
         assert not after.gaps
         assert before.expected_basis() != after.expected_basis()
 
-    @pytest.mark.parametrize("limit", [0, 1])
+    @pytest.mark.parametrize("limit", [0, 1, 2, None])
     def test_preview_render_matches_the_frozen_prompt(self, tmp_path, limit):
         result = _Fixture(tmp_path).sheet("product", "保温杯")
         assert not result.gaps
+        assert len(result.references) == 2
 
-        if limit in (0, 1):
+        if limit is not None and limit < len(result.references):
             with pytest.raises(ImageCapabilityError) as preview:
                 result.render(max_reference_images=limit, model="m")
             with (

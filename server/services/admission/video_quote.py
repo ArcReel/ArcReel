@@ -14,7 +14,12 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from lib.db import async_session_factory
-from lib.generation.batch_admission import DURATION_CONFIRMATION_CODE, BatchAdmission, UnitAdmissionTicket
+from lib.generation.batch_admission import (
+    DURATION_CONFIRMATION_CODE,
+    REFERENCE_OVERFLOW_CODE,
+    BatchAdmission,
+    UnitAdmissionTicket,
+)
 from lib.generation.generation_result import GenerationProblem
 from lib.generation.video_request_facts import VideoRequestCostFacts, VideoRequestFacts, VideoRequestFactsFailure
 from server.services.admission.cost_estimation import quote_video_request
@@ -91,12 +96,11 @@ class VideoQuoteSheet:
     def submittable(self) -> bool:
         """带上确认档位正式提交时整批能入队。"""
 
+        # 只因参考图超限受阻的单元单独剔除；带有其他缺口的单元仍扣下整批（docs/adr/0061 修订）。
         blocked = [unit for unit in self.units if unit.outcome is VideoQuoteOutcome.BLOCKED]
         return not blocked or (
             any(unit.outcome is VideoQuoteOutcome.GENERATE for unit in self.units)
-            and all(
-                any(problem.code == "video_reference_images_exceeded" for problem in unit.problems) for unit in blocked
-            )
+            and all(all(problem.code == REFERENCE_OVERFLOW_CODE for problem in unit.problems) for unit in blocked)
         )
 
     @property

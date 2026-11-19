@@ -171,7 +171,9 @@ async def generate_storyboard(
         try:
             await asyncio.to_thread(check_limit)
         except ImageCapabilityError as exc:
-            raise BadRequestError(exc.code, **exc.params) from exc
+            raise BadRequestError(exc.code, **exc.params).with_diagnostic(
+                {"code": exc.code, "params": exc.params}
+            ) from exc
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）；
     # 校验失败抛 TaskSpecValidationError，由 app 级 handler 映射为 400
@@ -734,7 +736,7 @@ async def _check_asset_limit(
     try:
         await asyncio.to_thread(check_asset_image_limit, project, path, asset_type, name, owner=owner, limit=limit)
     except ImageCapabilityError as exc:
-        raise BadRequestError(exc.code, **exc.params) from exc
+        raise BadRequestError(exc.code, **exc.params).with_diagnostic({"code": exc.code, "params": exc.params}) from exc
 
 
 async def _enqueue_asset_generation(

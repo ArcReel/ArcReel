@@ -46,6 +46,7 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.image_capabilities import gate_image_request
+from lib.backends.input_limits import reference_image_sources
 from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio, resolve_video_capabilities
 from lib.billing.ledger import Ledger
@@ -321,6 +322,7 @@ class TrialRunManager:
         *,
         user_id: str = DEFAULT_USER_ID,
         assets: Mapping[str, Path | list[Path] | None] | None = None,
+        asset_sources: Mapping[Path, Path] | None = None,
         staging: Path | None = None,
         request_preview: dict[str, Any] | None = None,
     ) -> TrialRun:
@@ -350,7 +352,8 @@ class TrialRunManager:
         # 占位也必须在第一次 await 之前：并发闸靠的是「查 busy」与「占位」之间没有让出点。
         try:
             run_dir = await run_sync_transaction(self._prepare_run_dir, run_id, frozenset(self._runs))
-            task = asyncio.create_task(self._execute(run, run_dir, target, parameters, assets or {}))
+            with reference_image_sources(asset_sources or {}):
+                task = asyncio.create_task(self._execute(run, run_dir, target, parameters, assets or {}))
         except BaseException:
             await run_sync_transaction(self._discard, run_id, self._release(run_id))
             raise

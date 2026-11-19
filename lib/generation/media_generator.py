@@ -613,7 +613,7 @@ class MediaGenerator:
         请求并返回 backend.generate 协程。无参考图时直接单次调用、不做降档（T2I/T2V 的 413 与
         参考图无关，不应被误转成 floor 错误）。
         """
-        from lib.backends.backend_runtime import reference_image_sources
+        from lib.backends.input_limits import reference_image_sources
         from lib.references.reference_compression import (
             LADDER_STEPS,
             ReferencePayloadFloorError,

@@ -627,8 +627,8 @@ class TestPayloadBuilding:
         assert "image" in payload
         assert "image_tail" in payload
 
-    def test_image2video_empty_end_frame_is_omitted(self, tmp_path):
-        # 空串 end_image 等价于"无尾帧"，按 truthy 判定跳过，不应误当路径去编码而崩溃。
+    def test_image2video_empty_end_frame_is_rejected(self, tmp_path):
+        # 显式给出的空串 end_image 指不到任何文件，按尾帧读不到在提交前拒绝，不当作无尾帧丢掉。
         first = tmp_path / "first.png"
         first.write_bytes(image_bytes())
         with pytest.raises(VideoCapabilityError) as exc:

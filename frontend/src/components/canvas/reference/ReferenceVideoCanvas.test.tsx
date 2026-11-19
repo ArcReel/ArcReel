@@ -3,7 +3,9 @@ import { render as rtlRender, screen, waitFor, fireEvent, act, within } from "@t
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { Router, useLocation } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import { LeaveGuardProvider, useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
+import { EpisodePage } from "@/components/canvas/episode-page/EpisodePage";
 import { EpisodeViewFactsProvider } from "@/components/canvas/episode-page/EpisodeViewScope";
 import type { EpisodeViewFacts } from "@/components/canvas/episode-page/episode-view";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
@@ -12,7 +14,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
-import { API } from "@/api";
+import { API, ReferenceProjectionError } from "@/api";
 import { makeReferenceUnitCapability } from "@/test/factories";
 import addUnitContract from "@/test/contracts/reference-unit-add-requests.json";
 import { createDeferred } from "@/test/deferred";
@@ -1682,6 +1684,112 @@ describe("ReferenceVideoCanvas", () => {
       });
       expect(genSpy).not.toHaveBeenCalled();
     });
+
+    it("从脚本规划点击超限提示会打开目标视频单元的文稿", async () => {
+      seedFormalUnits(["E1U1"]);
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1", "需要调整的文稿")], unit_capabilities: {},
+      });
+      vi.spyOn(API, "getScriptReview").mockRejectedValue(new Error("no draft"));
+      stubOverflowPrecheck();
+      const { hook, searchHook } = memoryLocation({ path: "/episodes/1" });
+      rtlRender(
+        <Router hook={hook} searchHook={searchHook}>
+          <LeaveGuardProvider>
+            <EpisodePage
+              projectName="proj"
+              episode={1}
+              projectData={{ ...STUB_PROJECT, generation_mode: "reference_video" }}
+              script={useProjectsStore.getState().currentScripts["episode_1.json"]}
+              demo
+              onSaveTitle={async () => {}}
+              onViewUnit={() => {}}
+              renderCanvas={(props) => <ReferenceVideoCanvas {...props} projectName="proj" episode={1} />}
+            />
+          </LeaveGuardProvider>
+        </Router>,
+      );
+
+      const edit = await overflowEditAction();
+      await userEvent.click(screen.getByRole("tab", { name: /脚本规划|Script plan/ }));
+      expect(screen.getByRole("tab", { name: /脚本规划|Script plan/, selected: true })).toBeInTheDocument();
+
+      act(() => edit.onClick());
+
+      expect(await screen.findByRole("combobox", { name: "视频单元提示词" })).toHaveValue("需要调整的文稿");
+    });
+
+    function stubOverflowPrecheck() {
+      vi.spyOn(API, "precheckReferenceVideoDuration").mockRejectedValue(new ReferenceProjectionError({
+        allowed: false,
+        kind: "reference_request_projection",
+        unit_id: "E1U1",
+        problems: [{
+          code: "video_reference_images_exceeded",
+          blocking: true,
+          unit_id: "E1U1",
+          locations: [],
+          params: {},
+          action: "fix_input",
+        }],
+      }));
+    }
+
+    async function overflowEditAction() {
+      fireEvent.click(await screen.findByRole("button", { name: UNIT_GENERATE_CTA }));
+      return waitFor(() => {
+        const action = useAppStore.getState().toast?.action;
+        expect(action?.label).toMatch(/编辑 E1U1 的引用|Edit references for E1U1/);
+        return action!;
+      });
+    }
+
+    it.each([
+      { transition: "切换项目", projectName: "other", episode: 1, waitsForSave: false },
+      { transition: "切换集", projectName: "proj", episode: 2, waitsForSave: false },
+      { transition: "确认保存期间切换集", projectName: "proj", episode: 2, waitsForSave: true },
+    ])("$transition 后，旧提示不选中同 ID 的单元", async ({ projectName, episode, waitsForSave }) => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {},
+      });
+      stubOverflowPrecheck();
+      const pendingSave = createDeferred<boolean>();
+      const save = vi.fn(() => pendingSave.promise);
+      function DirtyUnit() {
+        useLeaveGuard({ dirty: true, save });
+        return null;
+      }
+      const canvas = (project: string, episodeNumber: number) => (
+        <>
+          {waitsForSave && <DirtyUnit />}
+          <ReferenceVideoCanvas
+            key={referenceVideoCacheKey(project, episodeNumber)}
+            {...BOARD}
+            projectName={project}
+            episode={episodeNumber}
+          />
+        </>
+      );
+
+      const { rerender } = render(canvas("proj", 1));
+      const edit = await overflowEditAction();
+      if (waitsForSave) {
+        act(() => edit.onClick());
+        fireEvent.click(await screen.findByRole("button", { name: /Save and switch|保存并切换/ }));
+      }
+      expect(save).toHaveBeenCalledTimes(waitsForSave ? 1 : 0);
+
+      rerender(canvas(projectName, episode));
+      await waitFor(() => expect(useReferenceVideoStore.getState().loading).toBe(false));
+      act(() => useReferenceVideoStore.getState().select("E1U2"));
+
+      if (waitsForSave) {
+        await act(async () => pendingSave.resolve(true));
+      } else {
+        act(() => edit.onClick());
+      }
+      expect(useReferenceVideoStore.getState().selectedUnitId).toBe("E1U2");
+    });
   });
 
   // 批量的三种结局都是评估成功：admitted 已建任务，confirmation_required 与 blocked
@@ -1781,6 +1889,33 @@ describe("ReferenceVideoCanvas", () => {
       expect(dialog.getByRole("button", { name: /编辑 E1U2 的引用|Edit references for E1U2/ })).toBeEnabled();
       await confirmBatchPreview();
       await waitFor(() => expect(submit).toHaveBeenCalledWith("proj", 1, { unit_ids: ["E1U1"] }));
+    });
+
+    it("停在解析预览时，超限单元的编辑入口切回可编辑的文稿", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {},
+      });
+      vi.spyOn(API, "previewReferenceScript").mockResolvedValue({ utterances: [], warnings: [] });
+      vi.spyOn(API, "previewReferenceVideoBatch").mockResolvedValue(mkPreview({
+        units: [
+          { unit_id: "E1U1", admitted: true, problems: [] },
+          { unit_id: "E1U2", admitted: false, problems: [
+            { code: "video_reference_images_exceeded", action: "fix_input", message: "超出 1 张上限的参考图：花店", params: {} },
+          ] },
+        ],
+      }));
+
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+      await screen.findByRole("combobox");
+      fireEvent.click(await screen.findByRole("tab", { name: /Parse preview|解析预览/ }));
+      expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+
+      await clickBatch();
+      const dialog = within(await screen.findByRole("alertdialog"));
+      fireEvent.click(await dialog.findByRole("button", { name: /编辑 E1U2 的引用|Edit references for E1U2/ }));
+
+      expect(await screen.findByRole("tab", { name: /^(Script|文稿)$/, selected: true })).toBeInTheDocument();
+      expect(await screen.findByRole("combobox")).toBeInTheDocument();
     });
 
     // 时长档位的确认并进同一个确认框：档位分组与名单、费用一起摊开，确认一次就按档位提交，

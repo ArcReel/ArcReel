@@ -5,7 +5,12 @@ from __future__ import annotations
 import pytest
 
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
-from lib.generation.generation_result import GenerationSelectionMode
+from lib.generation.generation_result import (
+    GenerationAction,
+    GenerationProblem,
+    GenerationProblemCode,
+    GenerationSelectionMode,
+)
 from server.services.admission.video_quote import VideoQuoteOutcome, VideoUnitQuote, quote_sheet
 
 
@@ -82,6 +87,21 @@ def test_a_sheet_with_nothing_to_charge_has_an_empty_total() -> None:
 
     assert sheet.estimated_total == {}
     assert sheet.unpriced_count == 0
+
+
+def test_only_a_unit_blocked_by_reference_overflow_alone_is_left_out_of_the_batch() -> None:
+    overflow = GenerationProblem(
+        code="video_reference_images_exceeded", detail="参考图超限", action=GenerationAction.FIX_INPUT
+    )
+    unusable = GenerationProblem(
+        code=GenerationProblemCode.UNIT_INPUT_UNUSABLE, detail="缺分镜图", action=GenerationAction.GENERATE_DEPENDENCY
+    )
+
+    withdrawn = VideoUnitQuote("E1U2", VideoQuoteOutcome.BLOCKED, problems=(overflow,))
+    held = VideoUnitQuote("E1U2", VideoQuoteOutcome.BLOCKED, problems=(overflow, unusable))
+
+    assert _sheet(_priced("E1U1", 1.0), withdrawn).submittable is True
+    assert _sheet(_priced("E1U1", 1.0), held).submittable is False
 
 
 def test_quote_sheet_carries_the_ticket_quote_through_as_unpriced() -> None:

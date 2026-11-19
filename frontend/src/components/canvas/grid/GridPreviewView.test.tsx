@@ -106,6 +106,25 @@ describe("GridPreviewView 的档位与批次预览", () => {
     expect(capability).toHaveBeenCalledWith("demo", expect.objectContaining({ episode: 1, scriptFile: "episode_1.json" }));
   });
 
+  it("切到另一集后不再显示上一集的超限原因，即使新一集的能力请求失败", async () => {
+    const reason = "本次有 3 张参考图，超出 2 张上限的是花店";
+    vi.spyOn(API, "getGridCapability")
+      .mockResolvedValueOnce({
+        large_grid_allowed: false, max_cell_count: 9,
+        reference_inputs: [{ scene_ids: ["SEG-1"], count: 3, limit: 2, message: reason }],
+      })
+      .mockRejectedValue(new Error("boom"));
+    const segments = makeSegments(2);
+    const view = renderView(segments);
+    expect(await screen.findByText(new RegExp(reason))).toBeInTheDocument();
+
+    view.rerender(
+      <GridPreviewView projectName="demo" episode={2} scriptFile="episode_2.json" segments={segments} contentMode="narration" />,
+    );
+
+    await waitFor(() => expect(screen.queryByText(new RegExp(reason))).not.toBeInTheDocument());
+  });
+
   it("放行大宫格时按 5×5 切块，批次数取实际入队张数", async () => {
     vi.spyOn(API, "getGridCapability").mockResolvedValue({
       large_grid_allowed: true,

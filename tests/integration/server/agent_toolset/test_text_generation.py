@@ -69,6 +69,29 @@ async def test_get_image_capabilities_reports_each_selected_lane(fake_ctx, monke
     }
 
 
+async def test_get_image_capabilities_reports_model_missing_from_catalog_with_provider_guidance(fake_ctx, monkeypatch):
+    """模型已不在供应商清单时沿用任务失败的稳定码与「去配置供应商」指引，不塌成通用的解析失败。"""
+    from types import SimpleNamespace
+
+    from lib.catalog.errors import ModelNotInCatalogError
+
+    async def lane(project_name, project, path, bucket):
+        if bucket == "i2i":
+            raise ModelNotInCatalogError(provider_id="gemini-aistudio", model_id="retired-image", media_type="image")
+        return SimpleNamespace(
+            backend_model="t2i-model", provider_model=SimpleNamespace(provider_id="local"), max_reference_images=None
+        )
+
+    monkeypatch.setattr("server.tool_runtime.project_image_lane", lane)
+    outcome = await run_declared_tool("get_image_capabilities", fake_ctx, {})
+    assert outcome.problem is None
+    assert outcome.value["t2i"] == {"provider": "local", "model": "t2i-model", "max_reference_images": None}
+    problem = outcome.value["i2i"]["problem"]
+    assert problem["code"] == "model_not_in_provider_catalog"
+    assert problem["action"] == GenerationAction.CONFIGURE_PROVIDER
+    assert problem["params"] == {"provider": "gemini-aistudio", "model": "retired-image"}
+
+
 async def test_get_video_capabilities_happy(fake_ctx: ToolHarness, video_request_facts) -> None:
     use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     out = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {})

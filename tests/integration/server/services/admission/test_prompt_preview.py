@@ -6,9 +6,14 @@ import pytest
 
 from lib.backends.image_errors import ImageCapabilityError
 from lib.infra.api_errors import BadRequestError
-from server.services.admission import image_references, prompt_preview
+from server.services.admission import prompt_preview
 from server.services.tasks import generation_tasks
-from tests.fakes import use_generation_context, use_project_manager, use_video_thumbnail_extractor
+from tests.fakes import (
+    use_generation_context,
+    use_image_admission_context,
+    use_project_manager,
+    use_video_thumbnail_extractor,
+)
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -266,7 +271,7 @@ class TestPreviewMatchesReferenceLimit:
         _patch_execution(monkeypatch, pm, generator, register_artifacts=True)
         limited_lane = fake_resolve_ctx(generator, image_max_reference_images=7)
         use_generation_context(monkeypatch, limited_lane)
-        monkeypatch.setattr(image_references, "resolve_generation_context", limited_lane)
+        use_image_admission_context(monkeypatch, limited_lane)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
         with pytest.raises(ImageCapabilityError) as exc:
@@ -283,9 +288,7 @@ class TestPreviewMatchesReferenceLimit:
         pm = pm_with_eight_references(project_path)
         generator = FakeGenerator(project_path)
         _patch_execution(monkeypatch, pm, generator, register_artifacts=True)
-        monkeypatch.setattr(
-            image_references, "resolve_generation_context", fake_resolve_ctx(generator, image_max_reference_images=8)
-        )
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(generator, image_max_reference_images=8))
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
@@ -302,7 +305,7 @@ class TestPreviewMatchesReferenceLimit:
         async def _unresolvable(*_args, **_kwargs):
             raise RuntimeError("no image provider configured")
 
-        monkeypatch.setattr(image_references, "resolve_generation_context", _unresolvable)
+        use_image_admission_context(monkeypatch, _unresolvable)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)
 
@@ -464,7 +467,7 @@ class TestPromptPreviewTool:
         _patch_execution(monkeypatch, pm, generator, register_artifacts=True)
         lane = fake_resolve_ctx(generator, image_max_reference_images=7)
         use_generation_context(monkeypatch, lane)
-        monkeypatch.setattr(image_references, "resolve_generation_context", lane)
+        use_image_admission_context(monkeypatch, lane)
 
         preview = await self._call(pm, project_path)
         with pytest.raises(ImageCapabilityError) as failure:

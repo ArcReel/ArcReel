@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -609,12 +609,28 @@ export function ReferenceVideoCanvas({
     [projectName, episode, uploading.ref, restoring.ref, durationSaving.ref],
   );
 
+  // 编辑器列内的两种视图：写文稿 / 看解析结果。解析预览是只读派生视图，与正文同一份
+  // 文本，故共用编辑器列的空间而非再占一栏（右栏留给成片预览）。
+  const [editorView, setEditorView] = useState<"script" | "parse">("script");
+  const editScope = useMemo(() => ({ projectName, episode }), [projectName, episode]);
+  const activeEditView = useRef<{ scope: typeof editScope; onViewChange: typeof onViewChange } | null>(null);
+  useLayoutEffect(() => {
+    activeEditView.current = { scope: editScope, onViewChange };
+    return () => { activeEditView.current = null; };
+  }, [editScope, onViewChange]);
+  // 调整入口要落在可编辑的文稿上：停在解析预览时只读，看不到要改的引用。
   const editUnitReferences = useCallback((unitId: string) => {
+    if (activeEditView.current?.scope !== editScope) return;
     confirmLeave(() => {
+      // 保存确认可能跨越画布切换，放行时重新核对最初的作用域。
+      const currentView = activeEditView.current;
+      if (currentView?.scope !== editScope) return Promise.resolve(false);
+      currentView.onViewChange("board", { replace: true });
       select(unitId);
       setStackTab("editor");
+      setEditorView("script");
     }, { saveLabel: t("common:save_and_switch") });
-  }, [confirmLeave, select, t]);
+  }, [confirmLeave, editScope, select, t]);
   const durationGate = useReferenceDurationGate({ projectName, episode, onEditReferences: editUnitReferences });
   /** 整批准入判定的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
   const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
@@ -896,10 +912,6 @@ export function ReferenceVideoCanvas({
     [patchUnit, projectName, episode],
   );
   const allowNavigation = useStaysInEpisodeView();
-
-  // 编辑器列内的两种视图：写文稿 / 看解析结果。解析预览是只读派生视图，与正文同一份
-  // 文本，故共用编辑器列的空间而非再占一栏（右栏留给成片预览）。
-  const [editorView, setEditorView] = useState<"script" | "parse">("script");
 
   const videoGap = useBatchGap(projectName, episode, "videos", "reference_video");
 

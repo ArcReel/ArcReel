@@ -539,3 +539,16 @@ async def test_a_product_with_one_missing_original_cannot_send_only_its_other_or
     problem = next(problem for problem in projection.problems if problem.code == "video_reference_images_unreadable")
     assert problem.blocking
     assert dict(problem.params)["names"] == "back.png"
+
+
+async def test_excess_originals_of_one_product_name_the_product_once():
+    originals = [_asset("product", "手袋", f"/fake/view-{index}.png") for index in range(4)]
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
+    unit = {"unit_id": "E1U1", "text": "@[手袋]", "duration_seconds": 8}
+    projection = await projector.project_current(
+        project={"products": {"手袋": {}}}, script={"video_units": [unit]}, unit=unit, resolved_assets=originals
+    )
+    problem = next(problem for problem in projection.problems if problem.code == "video_reference_images_exceeded")
+    assert problem.blocking
+    params = dict(problem.params)
+    assert (params["count"], params["limit"], params["names"]) == (4, 2, "手袋")

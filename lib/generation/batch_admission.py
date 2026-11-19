@@ -35,6 +35,9 @@ from lib.generation.generation_result import (
 DURATION_CONFIRMATION_CODE = "reference_duration_confirmation_required"
 """The one blocker a user can clear by agreeing to the request tier and cost."""
 
+REFERENCE_OVERFLOW_CODE = "video_reference_images_exceeded"
+"""The one blocker that withdraws only its own unit instead of holding the batch (ADR 0061)."""
+
 
 class BatchAdmissionDecision(StrEnum):
     """Whether this request may create its task set."""
@@ -66,7 +69,26 @@ class UnitAdmissionTicket:
 
     @property
     def reference_limit_exceeded(self) -> bool:
-        return any(problem.code == "video_reference_images_exceeded" for problem in self.problems)
+        """This unit is withdrawn from the request on its own and never runs in it."""
+
+        return any(problem.code == REFERENCE_OVERFLOW_CODE for problem in self.problems)
+
+    @property
+    def batch_problems(self) -> tuple[GenerationProblem, ...]:
+        """The problems the all-or-nothing verdict still answers to.
+
+        A withdrawn unit no longer runs, so neither its overflow nor the consent it
+        would have needed matter to the rest of the batch; any other gap it has keeps
+        holding the whole request, as it would without the overflow.
+        """
+
+        if not self.reference_limit_exceeded:
+            return self.problems
+        return tuple(
+            problem
+            for problem in self.problems
+            if problem.code not in {REFERENCE_OVERFLOW_CODE, DURATION_CONFIRMATION_CODE}
+        )
 
     @property
     def confirmation_only(self) -> bool:
@@ -120,13 +142,12 @@ class BatchAdmission:
 
     @property
     def decision(self) -> BatchAdmissionDecision:
-        candidates = [ticket for ticket in self.tickets if not ticket.reference_limit_exceeded]
-        if self.tickets and not candidates:
+        if self.tickets and all(ticket.reference_limit_exceeded for ticket in self.tickets):
             return BatchAdmissionDecision.BLOCKED
-        refused = [ticket for ticket in candidates if not ticket.admitted]
-        if not refused:
+        holding = [ticket for ticket in self.tickets if ticket.batch_problems]
+        if not holding:
             return BatchAdmissionDecision.ADMITTED
-        if all(ticket.confirmation_only for ticket in refused):
+        if all(ticket.confirmation_only for ticket in holding):
             return BatchAdmissionDecision.CONFIRMATION_REQUIRED
         return BatchAdmissionDecision.BLOCKED
 
@@ -146,7 +167,7 @@ class BatchAdmission:
     def holding_unit_ids(self) -> tuple[str, ...]:
         """The units whose own problems kept the whole batch from being created."""
 
-        return tuple(ticket.unit_id for ticket in self.refused_tickets if not ticket.reference_limit_exceeded)
+        return tuple(ticket.unit_id for ticket in self.tickets if ticket.batch_problems)
 
     def withheld_problem_for(self, ticket: UnitAdmissionTicket) -> GenerationProblem | None:
         """The reason this ticket has none of its own, or ``None`` if it does.

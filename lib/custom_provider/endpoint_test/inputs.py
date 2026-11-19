@@ -43,9 +43,10 @@ class EndpointTestCredentials:
 
 @dataclass(frozen=True)
 class EndpointTestAssets:
-    """按来源名归拢的素材内容。缺席的来源取 ``None``（列表型取空列表）。"""
+    """按来源归拢素材内容与试跑诊断用的原文件名。"""
 
     by_source: Mapping[str, AssetData | Sequence[AssetData] | None] = field(default_factory=dict)
+    filenames: Mapping[str, Sequence[str]] = field(default_factory=dict)
 
     def get(self, source: str) -> AssetData | Sequence[AssetData] | None:
         return self.by_source.get(source)
