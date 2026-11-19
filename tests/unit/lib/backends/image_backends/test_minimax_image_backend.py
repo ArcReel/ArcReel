@@ -19,6 +19,7 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import PROVIDER_MINIMAX
+from tests.factories import image_bytes
 from tests.http_capture import capture_http, request_json
 
 
@@ -50,7 +51,7 @@ def _biz_error_response(status_code: int = 1004, msg: str = "invalid api key") -
 
 def _make_ref(tmp_path: Path, name: str) -> ReferenceImage:
     p = tmp_path / name
-    p.write_bytes(b"\x89PNG\r\nfake")
+    p.write_bytes(image_bytes())
     return ReferenceImage(path=str(p))
 
 
@@ -284,9 +285,7 @@ class TestSubjectReference:
         ref = _make_ref(tmp_path, "face.png")
         b = MiniMaxImageBackend(api_key="sk")
         with (
-            patch(
-                "lib.backends.image_backends.minimax.image_to_base64_data_uri", side_effect=OSError("permission denied")
-            ),
+            patch("pathlib.Path.read_bytes", autospec=True, side_effect=OSError("permission denied")),
             pytest.raises(ImageCapabilityError) as ei,
         ):
             await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png", reference_images=[ref]))

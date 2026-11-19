@@ -10,6 +10,7 @@ from typing import ClassVar
 
 from PIL import Image
 
+from lib.backends.backend_runtime import read_reference_images
 from lib.backends.gemini_shared import (
     VERTEX_SCOPES,
     RateLimiter,
@@ -136,9 +137,10 @@ class GeminiImageBackend:
 
         # 2. 构建 contents：参考图按数组序位排在前，prompt 置于末尾；
         #    参考图的身份由 prompt 内的 Reference_Images 声明行按「图N」指认，图片之间不夹任何文本标签。
-        refs = request.reference_images
-        # 打开并解码参考图是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
-        contents: list = await asyncio.gather(*[asyncio.to_thread(self._load_image_detached, ref.path) for ref in refs])
+        images = await asyncio.to_thread(
+            read_reference_images, (ref.path for ref in request.reference_images), self.model
+        )
+        contents: list = [self._types.Part.from_bytes(data=image.content, mime_type=image.mime) for image in images]
         contents.append(request.prompt)
 
         image_config_kwargs: dict = {"aspect_ratio": request.aspect_ratio}
@@ -172,12 +174,6 @@ class GeminiImageBackend:
             model=self._image_model,
             usage=self._usage(request.image_size),
         )
-
-    @staticmethod
-    def _load_image_detached(image_path: str | Path) -> Image.Image:
-        """从路径加载图片并与底层文件句柄解绑。"""
-        with Image.open(image_path) as img:
-            return img.copy()
 
     @staticmethod
     def _process_image_response(response, output_path: Path) -> Image.Image:

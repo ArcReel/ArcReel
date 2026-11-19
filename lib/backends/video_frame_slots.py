@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
-from lib.backends.input_limits import InputLimit
+from lib.backends.input_limits import InputLimit, excess_image_names
 from lib.backends.video_capabilities import reference_audio_count_limit, reference_image_limit
 
 if TYPE_CHECKING:
@@ -174,6 +174,7 @@ def gate_video_request(
         if bound is not None and len(reference_images) > bound:
             raise VideoCapabilityError(
                 "video_reference_images_exceeded",
+                names=excess_image_names(bound, len(reference_images), reference_images),
                 provider=provider,
                 model=model,
                 limit=bound,

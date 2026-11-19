@@ -6,6 +6,7 @@ import pytest
 
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
+from lib.backends.image_errors import ImageCapabilityError
 from lib.generation.task_failure import parse_failure, render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.i18n import _, render_generation_input_error
@@ -69,7 +70,7 @@ async def test_generated_storyboard_with_derivative_product_and_previous_is_curr
     assert comparison.status is ArtifactStatus.CURRENT
 
 
-async def test_clamping_only_trims_what_is_sent(tmp_path, monkeypatch):
+async def test_previous_storyboard_is_named_when_it_exceeds_the_limit(tmp_path, monkeypatch):
     project_path = prepare_files(tmp_path)
     _project_with_derivative_product_and_previous(project_path)
     pm = ProjectManager(tmp_path)
@@ -77,17 +78,12 @@ async def test_clamping_only_trims_what_is_sent(tmp_path, monkeypatch):
     _patch(monkeypatch, pm, generator)
     use_generation_context(monkeypatch, fake_resolve_ctx(generator, image_max_reference_images=2))
 
-    result = await generation_tasks.execute_storyboard_task(
-        "demo", ITEM_ID, {"script_file": "episode_1.json", "prompt": "queued prompt"}
-    )
-
-    assert len(generator.image_calls[0]["reference_images"]) == 2
-    assert [warning["key"] for warning in result["warnings"]] == ["ref_too_many_images"]
-    resolver = active_artifact_currency_resolver(project_path, pm.load_project("demo"))
-    comparison = resolver.compare(
-        ArtifactKey.episode_storyboard(1, ITEM_ID), artifact_path=f"storyboards/scene_{ITEM_ID}.png"
-    )
-    assert comparison.status is ArtifactStatus.CURRENT
+    with pytest.raises(ImageCapabilityError) as caught:
+        await generation_tasks.execute_storyboard_task(
+            "demo", ITEM_ID, {"script_file": "episode_1.json", "prompt": "queued prompt"}
+        )
+    assert caught.value.params["previous_storyboard"] in caught.value.params["names"]
+    assert not generator.image_calls
 
 
 async def test_every_gap_is_reported_before_the_provider_is_resolved(tmp_path, monkeypatch):

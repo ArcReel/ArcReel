@@ -26,6 +26,7 @@ export interface FrameCell {
  * 故保持宽松的 string 类型。
  */
 export interface GridCapability {
+  reference_inputs?: Array<{ scene_ids: string[]; count: number; limit: number | null; message?: string | null }>;
   large_grid_allowed: boolean;
   max_cell_count: number;
 }

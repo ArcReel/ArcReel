@@ -90,6 +90,22 @@ beforeEach(() => {
 });
 
 describe("GridPreviewView 的档位与批次预览", () => {
+  it("按实际装配展示每张联合图的参考数量和超限原因", async () => {
+    const reason = "本次有 3 张参考图，超出 2 张上限的是花店";
+    const capability = vi.spyOn(API, "getGridCapability").mockResolvedValue({
+      large_grid_allowed: false, max_cell_count: 9,
+      reference_inputs: [
+        { scene_ids: ["SEG-1"], count: 1, limit: 2 },
+        { scene_ids: ["SEG-10"], count: 3, limit: 2, message: reason },
+      ],
+    });
+    renderView(makeSegments(11));
+
+    expect(await screen.findByText(/参考图 1 张 .* 2/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(reason))).toBeInTheDocument();
+    expect(capability).toHaveBeenCalledWith("demo", expect.objectContaining({ episode: 1, scriptFile: "episode_1.json" }));
+  });
+
   it("放行大宫格时按 5×5 切块，批次数取实际入队张数", async () => {
     vi.spyOn(API, "getGridCapability").mockResolvedValue({
       large_grid_allowed: true,

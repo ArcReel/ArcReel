@@ -162,7 +162,7 @@ def _registration_basis(project_dir: Path) -> ArtifactBasis:
         ("asset_sheet", "祠堂"),
         ("previous_storyboard", "E1S01"),
     ]
-    with generation_input.freeze(max_reference_images=2, model="m", bind_claims=_unbound) as frozen:
+    with generation_input.freeze(max_reference_images=6, model="m", bind_claims=_unbound) as frozen:
         return frozen.basis
 
 
@@ -310,7 +310,7 @@ def _sheet_registration_basis(project_dir: Path, key: ArtifactKey, reference_cou
         generation_input = asset_sheet_input(project, asset_type=asset_type, name=name, observation=observation)
         assert not generation_input.gaps, generation_input
     assert len(generation_input.references) == reference_count
-    with generation_input.freeze(max_reference_images=1, model="m", bind_claims=_unbound) as frozen:
+    with generation_input.freeze(max_reference_images=2, model="m", bind_claims=_unbound) as frozen:
         return frozen.basis
 
 

@@ -22,6 +22,7 @@ import httpx
 from arcreel_market_core.auth_section import render_auth
 from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, ProviderResponseStage
 from lib.backends.backend_runtime import (
+    ReferenceImageData,
     faststart_video_artifact,
     request_with_scoped_credentials,
     should_retry_submit,
@@ -124,15 +125,17 @@ class ComfyuiClient:
         """
         return url_origin(self._base_url)
 
-    async def upload_media(self, http: httpx.AsyncClient, path: Path, *, filename: str) -> str:
+    async def upload_media(
+        self, http: httpx.AsyncClient, path: Path, *, filename: str, image: ReferenceImageData | None = None
+    ) -> str:
         """把一份素材传进服务端 ``input`` 区，返回读图节点认的引用值。
 
         引用值以**响应**里的 ``subfolder`` / ``name`` 拼成而不是以请求里的：服务端会为重名改名、
         也可能把子目录规整掉，按请求值填进 workflow 会指向一个并不存在的文件。
         """
         try:
-            payload = await asyncio.to_thread(path.read_bytes)
-            mime_type = await asyncio.to_thread(_mime_of, path)
+            payload = image.content if image else await asyncio.to_thread(path.read_bytes)
+            mime_type = image.mime if image else await asyncio.to_thread(_mime_of, path)
         except OSError as exc:
             raise ComfyuiError(UPLOAD_FAILED, detail=str(exc)) from exc
         try:

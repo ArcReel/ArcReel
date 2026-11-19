@@ -289,6 +289,14 @@ export function UsageRecordDetailModal({
   // 领域异常的 error_message 就是它的 key 本身，已登记的 key 不作为原文小字显示。
   const messageIsDomainKey = detail?.error_message ? registeredErrorKey(detail.error_message) !== undefined : false;
   const domainParams = { ...detail?.error_params };
+  const { limit, count } = domainParams;
+  if ((detail?.error_code === "image_reference_images_exceeded" || detail?.error_code === "video_reference_images_exceeded")
+    && !domainParams.names && typeof limit === "number" && typeof count === "number") {
+    domainParams.names = count === limit + 1 ? `#${count}` : `#${limit + 1}–#${count}`;
+  }
+  const previousStoryboardHint = detail?.error_code === "image_reference_images_exceeded" && domainParams.previous_storyboard
+    ? t("errors:previous_storyboard_limit_hint", domainParams)
+    : null;
   const nested = domainParams.detail;
   if (nested && typeof nested === "object" && "key" in nested && "params" in nested
     && typeof nested.key === "string" && nested.params && typeof nested.params === "object") {
@@ -366,7 +374,7 @@ export function UsageRecordDetailModal({
                         {phraseKey
                           ? t(`dashboard:${phraseKey}`)
                           : domainKey
-                            ? t(domainKey, domainParams)
+                            ? [t(domainKey, domainParams), previousStoryboardHint].filter(Boolean).join(" ")
                             : (detail.error_message ?? t("dashboard:usage_detail_empty"))}
                       </p>
                       {phraseKey && detail.error_message && !messageIsDomainKey && (

@@ -1,5 +1,9 @@
 import type { ReferenceBatchAdmission } from "@/types";
 
+export function hasReferenceOverflow(unit: ReferenceBatchAdmission["units"][number]): boolean {
+  return unit.problems.some((problem) => problem.code === "video_reference_images_exceeded");
+}
+
 /**
  * 一次批量入队的五种结局。服务端的 `decision` 只分到三种：入队中断不撤销已建的任务，
  * 那一路的 decision 仍是 `admitted`，与「整批都建上了」只差有没有单元没排上。中断落在

@@ -57,7 +57,7 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
             </div>
           )}
         </>
-      ) : (
+      ) : admission.decision === "confirmation_required" ? (
         <>
           <p className="text-subtle-foreground">{t("admission_confirm_intro", { count: confirmingUnitCount })}</p>
           <ul className="flex flex-col gap-2">
@@ -94,7 +94,8 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
           </ul>
           <p className="text-subtle-foreground">{t("admission_confirm_note")}</p>
         </>
-      )}
+      ) : null}
+      {!blocked && <ProblemList problems={admissionUnitViews(t, failing.filter((unit) => unit.problems.some((problem) => problem.code === "video_reference_images_exceeded")), seconds)} />}
       {skippedCount > 0 && <p className="text-subtle-foreground">{t("admission_skipped", { count: skippedCount })}</p>}
     </div>
   );

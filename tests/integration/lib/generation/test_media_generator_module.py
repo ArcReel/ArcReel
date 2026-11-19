@@ -22,7 +22,7 @@ from lib.generation.media_generator import (
     task_video_staging_path,
 )
 from lib.project import project_trash
-from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition, image_bytes
 from tests.fakes import (
     MP4_BYTES,
     PNG_BYTES,
@@ -1665,7 +1665,7 @@ class TestReferenceCompressionSeam:
         @contextlib.contextmanager
         def _slow_cleanup_payload(specs, *, limits, start_step=0):
             try:
-                yield start_step, []
+                yield start_step, [reference_compression.CompressedRef(spec.source, spec.role) for spec in specs]
             finally:
                 cleaning.set()
                 release.wait(5)
@@ -2312,7 +2312,7 @@ class TestEntryBoundVideoRequests:
         refs = []
         for i in range(5):
             ref = tmp_path / f"ref{i}.png"
-            ref.write_bytes(PNG_BYTES)
+            ref.write_bytes(image_bytes())
             refs.append(ref)
 
         with capture_http() as router:
@@ -2343,9 +2343,9 @@ class TestEntryBoundVideoRequests:
         backend = await _builtin_video_backend("grok", model, binding)
         gen = self._generator(tmp_path, backend, "grok")
         start = tmp_path / "start.png"
-        start.write_bytes(PNG_BYTES)
+        start.write_bytes(image_bytes())
         ref = tmp_path / "ref.png"
-        ref.write_bytes(PNG_BYTES)
+        ref.write_bytes(image_bytes())
 
         with pytest.raises(VideoCapabilityError) as exc:
             await gen.generate_video_async(

@@ -16,7 +16,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
 from server.routers._asset_router_factory import build_asset_router
-from server.services.admission import prompt_preview
+from server.services.admission import image_references
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.integration.server.services.tasks.generation_tasks_support import FakeGenerator, fake_resolve_ctx
 
@@ -173,14 +173,15 @@ def test_derivative_preview_is_unavailable_without_a_usable_owner_sheet(preview_
 def test_references_beyond_the_provider_limit_are_reported(preview_client, monkeypatch):
     client, _manager, _app = preview_client
     monkeypatch.setattr(
-        prompt_preview, "resolve_generation_context", fake_resolve_ctx(FakeGenerator(), image_max_reference_images=1)
+        image_references, "resolve_generation_context", fake_resolve_ctx(FakeGenerator(), image_max_reference_images=1)
     )
 
     result = _preview(client, "products/茶杯", "新外观")
 
-    assert "新外观" in result["text"]
-    assert len(result["warnings"]) == 1
-    assert "上限 1" in result["warnings"][0]
+    assert result["text"] is None
+    assert result["unavailable_code"] == "image_reference_images_exceeded"
+    assert "茶杯" in result["unavailable"]
+    assert result["warnings"] == []
 
 
 @pytest.mark.parametrize("payload", [{}, {"description": None}, {"description": 42}])

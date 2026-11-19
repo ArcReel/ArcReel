@@ -323,7 +323,8 @@ export async function enqueueGrid(
   // grid_id 由服务端现场生成，请求发出前不存在，故按响应映射在响应后逐格补打资源标记；
   // 往返窗口由上面那个 scriptFile 粒度标记覆盖。
   markResourcesByTaskId(projectName, "grid", "grid", res.task_ids_by_grid);
-  notifyEnqueued(res.deduped, res.message);
+  if (res.blocked?.length) useAppStore.getState().pushToast(res.message, "error");
+  else notifyEnqueued(res.deduped, res.message);
   return { taskIds: res.task_ids, deduped: res.deduped };
 }
 
@@ -396,6 +397,10 @@ export async function enqueueReferenceVideoBatch(
     );
     // 入队中断不撤销已建的任务，所以「建了几个」与「哪些没建」要一起说：只报成功数
     // 会让用户以为整批都在跑，回头发现少了几条却不知道为什么。
+    const refused = res.units.flatMap((unit) => unit.problems
+      .filter((problem) => problem.code === "video_reference_images_exceeded")
+      .map((problem) => `${unit.unit_id} · ${problem.message ?? problem.detail}`));
+    if (refused.length) useAppStore.getState().pushToast(refused.join("\n"), "error");
     if (res.enqueue_failures.length > 0) {
       useAppStore
         .getState()

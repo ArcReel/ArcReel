@@ -16,16 +16,14 @@ from typing import ClassVar
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.agnes_shared import agnes_base_url, agnes_headers, resolve_agnes_api_key
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
+from lib.backends.backend_runtime import read_reference_images, should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
-    ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
     ImageRequestFacts,
     download_image_to_path,
-    image_to_base64_data_uri,
     per_image_usage,
 )
 from lib.backends.providers import PROVIDER_AGNES
@@ -205,24 +203,10 @@ class AgnesImageBackend:
         任一参考图缺失 / 读取失败即 fail-loud，报 image_reference_images_unreadable，让用户
         感知有图未被使用而非静默丢弃后照常计费。
         """
-        uris: list[str] = []
-        for idx, ref in enumerate(request.reference_images, start=1):
-            # 空路径无文件名可显示，用序号标识，避免中文占位漏进非中文报错模板。
-            path = Path(ref.path) if ref.path else None
-            if path is None or not path.is_file():
-                raise ImageCapabilityError(
-                    "image_reference_images_unreadable",
-                    model=self._model,
-                    names=path.name if path and path.name else f"#{idx}",
-                )
-            try:
-                uris.append(image_to_base64_data_uri(path))
-            except OSError as exc:
-                logger.warning("Agnes 参考图读取失败: %s (%s)", path, exc)
-                raise ImageCapabilityError(
-                    "image_reference_images_unreadable", model=self._model, names=path.name
-                ) from exc
-        return uris
+        return [
+            image.data_uri()
+            for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+        ]
 
     async def _persist_image(self, data: dict, output_path: Path) -> str | None:
         """把 images/generations 响应落地为本地文件，返回远端 URL（base64 路径返回 None）。

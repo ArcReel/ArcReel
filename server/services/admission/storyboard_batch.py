@@ -30,7 +30,10 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.generation_input import project_input_observation, storyboard_image_input
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
+from lib.artifacts.visual_artifact_provenance import VisualReference
+from lib.backends.image_errors import ImageCapabilityError
 from lib.config.resolver import ConfigResolver
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
 from lib.generation.generation_batch import GenerationBatchReadModel, build_generation_batch_admission
@@ -59,6 +62,7 @@ from lib.infra.async_thread import run_sync_transaction
 from lib.infra.schema_guards import is_int
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.prompts.prompt_builders import render_storyboard_image_prompt
+from lib.prompts.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, require_reference_image_limit
 from lib.references.reference_admission import admit_storyboard_item
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script.script_models import get_generated_assets, resolve_content_mode
@@ -74,6 +78,7 @@ from server.services.admission.cost_estimation import (
     load_video_price_source,
     quote_video_request_from_price,
 )
+from server.services.admission.image_references import limit_problem, reference_image_limit
 from server.services.admission.reference_admission import reference_admission_problems
 from server.services.admission.video_batch_admission import (
     admit_storyboard_video_request,
@@ -294,6 +299,8 @@ def plan_storyboard_image_batch(
     script_file: str,
     episode: int,
     resolver: ArtifactCurrencyResolver,
+    project_path: Path,
+    image_limit: tuple[int | None, str],
     requested_ids: Sequence[str] | None = None,
 ) -> StoryboardImageBatchPlan:
     """选出这一批的分镜图目标并逐项判准入；``requested_ids`` 为 ``None`` 时只选缺分镜图的分镜。"""
@@ -322,7 +329,10 @@ def plan_storyboard_image_batch(
     targets: list[GenerationTargetState] = []
     missing_prompt: set[str] = set()
     reference_blocked: set[str] = set()
-    for state in selection.targets:
+    maximum, model = image_limit
+    observation = project_input_observation(project_path) if maximum is not None else None
+    admitted_ids: set[str] = set()
+    for state in sorted(selection.targets, key=lambda state: index_by_id[state.unit_id]):
         item = items_by_id[state.unit_id]
         # 结果集一个分镜只记一条问题：取首条（未登记排在无资产图之前——名字都没登记时
         # 「去生成资产图」指不出该对谁做），另一条在这条修完后的下一次调用里报出。
@@ -344,6 +354,33 @@ def plan_storyboard_image_batch(
                     detail=str(exc),
                     action=GenerationAction.FIX_INPUT,
                 )
+        if problem is None and observation is not None:
+            assembled = storyboard_image_input(
+                project, script, episode=episode, resource_id=state.unit_id, observation=observation
+            )
+            visuals = [ref.visual for ref in assembled.references]
+            index = index_by_id[state.unit_id]
+            previous = str(items[index - 1].get(id_field)) if index else None
+            if (
+                previous
+                and previous in admitted_ids
+                and not item.get("segment_break")
+                and not any(ref.role == PREVIOUS_STORYBOARD_ROLE for ref in visuals)
+            ):
+                # 批内依赖先生成前序图，执行时它会参与装配。
+                visuals.append(
+                    VisualReference(
+                        project_path / "storyboards" / f"scene_{previous}.png",
+                        role=PREVIOUS_STORYBOARD_ROLE,
+                        logical_type="storyboard",
+                        logical_id=previous,
+                    )
+                )
+            try:
+                require_reference_image_limit(visuals, maximum, model=model)
+            except ImageCapabilityError as exc:
+                problem = limit_problem(exc)
+                reference_blocked.add(state.unit_id)
         if problem is not None:
             builder.block(
                 state.unit_id,
@@ -354,6 +391,7 @@ def plan_storyboard_image_batch(
             )
             continue
         targets.append(state)
+        admitted_ids.add(state.unit_id)
 
     return StoryboardImageBatchPlan(
         script_file=script_file,
@@ -380,20 +418,22 @@ async def load_storyboard_image_batch_plan(
 ) -> tuple[EpisodeStoryboardScript, StoryboardImageBatchPlan]:
     """读取这一集的现状并规划一批分镜图，标出其中已在生成中的目标。"""
 
-    def _read() -> tuple[EpisodeStoryboardScript, StoryboardImageBatchPlan]:
-        loaded = load_episode_storyboard_script(projects, project_name, episode_id)
+    loaded = await run_sync_transaction(load_episode_storyboard_script, projects, project_name, episode_id)
+    image_limit = await reference_image_limit(project_name, loaded.project, loaded.project_path)
+
+    def _plan():
         resolver = active_artifact_currency_resolver(loaded.project_path, loaded.project)
-        plan = plan_storyboard_image_batch(
+        return plan_storyboard_image_batch(
             project=loaded.project,
             script=loaded.script,
             script_file=loaded.script_file,
             episode=loaded.episode,
             resolver=resolver,
+            project_path=loaded.project_path,
+            image_limit=image_limit,
         )
-        return loaded, plan
 
-    # 读剧本可能顺带落盘迁移
-    loaded, plan = await run_sync_transaction(_read)
+    plan = await asyncio.to_thread(_plan)
     generating = await _active_resource_ids(
         queue,
         project_name=project_name,

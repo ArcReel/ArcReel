@@ -679,7 +679,8 @@ MESSAGES = {
     "image_reference_images_unreadable": "У модели {model} есть отсутствующие или нечитаемые референсы; генерация прервана: {names}; проверьте пути к референсам",
     "image_resolution_not_supported": "Модель {model} не поддерживает разрешение {resolution} (только {supported}); выберите поддерживаемое разрешение",
     "image_aspect_ratio_not_supported": "Модель {model} не поддерживает соотношение сторон {aspect_ratio} (только {supported}); выберите поддерживаемое соотношение сторон",
-    "image_reference_images_exceeded": "Модель {model} принимает не более {limit} референсов, а в запросе было {count}; ничего не отправлено; сгенерируйте заново",
+    "image_reference_images_exceeded": "Модель {model} принимает до {limit} референсов. В запросе {count}. Сверх лимита: {names}. Уменьшите число материалов или упоминаний, разделите сцену либо выберите модель с большим лимитом.",
+    "previous_storyboard_limit_hint": "Чтобы исключить предыдущую раскадровку {previous_storyboard}, начните новый сегмент перед этим кадром.",
     # Image Edit
     "image_edit_resource_type_invalid": "Тип ресурса «{resource_type}» не поддерживает редактирование изображений",
     "image_edit_instruction_required": "Инструкция для редактирования не может быть пустой",
@@ -707,7 +708,7 @@ MESSAGES = {
     "video_reference_images_required": "Модели {model} нужен хотя бы один референс; передайте референсы",
     "video_reference_images_unreadable": "У модели {model} есть отсутствующие или нечитаемые референсы; генерация прервана: {names}; проверьте пути к референсам",
     "video_reference_images_unsupported": "Модель {model} не поддерживает референсы нескольких объектов; уберите референсы или переключитесь на модель с поддержкой reference-to-video",
-    "video_reference_images_exceeded": "Модель {model} принимает не более {limit} референсов, а получено {count}; уменьшите число референсов",
+    "video_reference_images_exceeded": "Модель {model} принимает до {limit} референсов. В запросе {count}. Сверх лимита: {names}. Уменьшите число материалов или упоминаний, разделите сцену либо выберите модель с большим лимитом.",
     "video_reference_images_with_frames_unsupported": "Модель {model} не позволяет сочетать референсы и образцы голоса с первым или последним кадром; используйте что-то одно",
     "video_start_image_unreadable": "Изображение первого кадра для модели {model} не читается; генерация прервана: {name}; проверьте путь к изображению первого кадра",
     "video_end_image_unreadable": "Изображение последнего кадра для модели {model} не читается; генерация прервана: {name}; проверьте путь к изображению последнего кадра",

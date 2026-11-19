@@ -200,7 +200,7 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         duration_code = "needs_replan" if expected_input > expected_slot else "reference_duration_confirmation_required"
         expected_codes = [
             "reference_asset_missing",
-            "reference_images_clamped",
+            "video_reference_images_exceeded",
             duration_code,
         ]
         for projection in (quote_projection, precheck_detail, generate_detail, agent_projection):

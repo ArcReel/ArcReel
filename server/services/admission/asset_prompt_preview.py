@@ -1,8 +1,7 @@
 """资产图草稿提示词预览：草稿描述替换进生成输入后走执行期同一渲染出口，不提交生成或保存描述。
 
 与执行器取同一份生成输入（``lib.artifacts.generation_input``）：生成会被拒时（描述为空、原图读不到、
-衍生的本体资产图不可用）预览不可用并带缺口码；否则按与执行器相同的图像后端参考图上限裁剪后渲染，
-裁剪发生时带上与执行期任务结果同形的 warning。
+衍生的本体资产图不可用）预览不可用并带缺口码；超过模型上限时返回与执行器相同的错误。
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from lib.artifacts.generation_input import (
     derivative_sheet_input,
     project_input_observation,
 )
+from lib.backends.image_errors import ImageCapabilityError
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD
 from server.services.admission.prompt_preview import UNAVAILABLE_INVALID, RenderedPrompt, reference_image_limit
 from server.services.admission.reference_admission import input_refusal_error
@@ -82,5 +82,8 @@ async def render_asset_prompt(
         if generation_input.references
         else (None, "")
     )
-    rendered = generation_input.render(max_reference_images=max_reference_images, model=model)
+    try:
+        rendered = generation_input.render(max_reference_images=max_reference_images, model=model)
+    except ImageCapabilityError as exc:
+        return RenderedPrompt(unavailable=exc.code, unavailable_params=exc.params, is_text_form=True)
     return RenderedPrompt(text=rendered.prompt, is_text_form=True, warnings=rendered.warnings)

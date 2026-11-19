@@ -568,7 +568,6 @@ async def preview_script(
         req.prompt,
         project,
         VoiceRenderSettings.from_caps(caps),
-        max_reference_images=caps.get("max_reference_images"),
     )
     return {
         "utterances": [
@@ -773,7 +772,8 @@ async def generate_units_batch(
         payload["deduped"] = False
         return payload
 
-    specs = [reference_unit_task_spec(unit, script_file) for unit in targets]
+    admitted_ids = {ticket.unit_id for ticket in admission.tickets if ticket.admitted}
+    specs = [reference_unit_task_spec(unit, script_file) for unit in targets if unit["unit_id"] in admitted_ids]
     for spec in specs:
         spec.source = "webui"
         # 确认过的档位按 unit 记进请求事实：它是本次请求的一部分，而不是全批共用的一个值。

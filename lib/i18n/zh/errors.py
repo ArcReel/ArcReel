@@ -620,7 +620,8 @@ MESSAGES = {
     "image_reference_images_unreadable": "模型 {model} 有参考图缺失或无法读取，已中止生成：{names}；请检查参考图路径",
     "image_resolution_not_supported": "模型 {model} 不支持 {resolution} 分辨率（仅支持 {supported}）；请选择支持的分辨率",
     "image_aspect_ratio_not_supported": "模型 {model} 不支持 {aspect_ratio} 比例（仅支持 {supported}）；请选择支持的比例",
-    "image_reference_images_exceeded": "模型 {model} 最多支持 {limit} 张参考图，本次请求带了 {count} 张，未提交生成；请重新生成",
+    "image_reference_images_exceeded": "模型 {model} 最多接受 {limit} 张参考图，本次共 {count} 张。超出的参考图：{names}。请减少出场资产或 @ 引用、拆分镜头，或换用上限更高的模型。",
+    "previous_storyboard_limit_hint": "可在当前分镜前设置分段，移除上一分镜图 {previous_storyboard}。",
     # Image Edit
     "image_edit_resource_type_invalid": "资源类型「{resource_type}」不支持图片编辑",
     "image_edit_instruction_required": "编辑指令不能为空",
@@ -648,7 +649,7 @@ MESSAGES = {
     "video_reference_images_required": "模型 {model} 需要至少一张参考图；请提供参考图",
     "video_reference_images_unreadable": "模型 {model} 有参考图缺失或无法读取，已中止生成：{names}；请检查参考图路径",
     "video_reference_images_unsupported": "模型 {model} 不支持多图主体参考；请移除参考图，或换一个支持参考生视频的模型",
-    "video_reference_images_exceeded": "模型 {model} 最多支持 {limit} 张参考图，收到 {count} 张；请减少参考图数量",
+    "video_reference_images_exceeded": "模型 {model} 最多接受 {limit} 张参考图，本次共 {count} 张。超出的参考图：{names}。请减少出场资产或 @ 引用、拆分镜头，或换用上限更高的模型。",
     "video_reference_images_with_frames_unsupported": "模型 {model} 的参考图/参考音频不能与首帧/尾帧叠加使用；请二选一",
     "video_start_image_unreadable": "模型 {model} 的首帧图无法读取，已中止生成：{name}；请检查首帧图路径",
     "video_end_image_unreadable": "模型 {model} 的尾帧图无法读取，已中止生成：{name}；请检查尾帧图路径",

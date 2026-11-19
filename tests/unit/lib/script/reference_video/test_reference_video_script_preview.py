@@ -223,7 +223,6 @@ def test_scene_warning_ignores_reference_image_clipping():
         "@[张三] 推门进 @[酒馆]。",
         PROJECT,
         _SOFT,
-        max_reference_images=1,  # 只留 @[张三]，@[酒馆] 的图被裁掉
     )
     assert keys(preview) == []
 
@@ -402,21 +401,6 @@ def test_warn_speaker_audio_needs_image_when_backend_requires_per_image_attachme
     assert preview.warnings[0]["params"] == {"name": "张三"}
 
 
-def test_warn_speaker_audio_needs_image_when_image_clipped_by_reference_limit():
-    """执行层会先把 references 裁到能力上限再渲染（图片N 编号与实际发出的参考图严格等长），
-    预览须按同一条裁剪线判定，否则超限角色的图被裁掉后预览仍显示音频已绑定，执行时才降级。"""
-    # 张三写在描述位上才会派生参考图；上限 1 只留 @[酒馆]，张三的图被裁掉才是告警的唯一致因。
-    text = "@[酒馆] 内景，@[张三] 推门。\n@[张三]：{我来了}"
-    preview = build_script_preview(
-        text,
-        PROJECT,
-        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
-        max_reference_images=1,  # 只留 @[酒馆]，张三的图被裁掉
-    )
-    assert keys(preview) == [WARN_SPEAKER_AUDIO_NEEDS_IMAGE]
-    assert preview.warnings[0]["params"] == {"name": "张三"}
-
-
 def test_preview_does_not_clip_references_when_model_accepts_none():
     """上限为 0 时执行层不裁参考图，原样交给执行时的校验拒绝；预览按同一条裁剪线，不把音频降级归咎于裁图。"""
     text = "@[酒馆] 内景，@[张三] 推门。\n@[张三]：{我来了}"
@@ -424,7 +408,6 @@ def test_preview_does_not_clip_references_when_model_accepts_none():
         text,
         PROJECT,
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
-        max_reference_images=0,
     )
     assert keys(preview) == []
 

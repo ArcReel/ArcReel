@@ -22,6 +22,8 @@ from typing import Any
 from urllib.parse import urlencode
 
 from arcreel_market_core.auth_section import declares_credentials, render_auth
+from arcreel_market_core.video_backend_contract import VideoCapabilityError
+from lib.backends.image_errors import ImageCapabilityError
 from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.comfyui_client import client_id_for, normalize_comfyui_base_url
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend
@@ -132,7 +134,9 @@ def preview_comfyui_request(
         resolution=parameters.resolution,
         # 时长原样转交，与 backend 同一处置：``frames`` 未绑定或读不到帧率时构造层自己跳过换算。
         duration_seconds=parameters.duration_seconds,
-        media=_preview_media(definition, assets, placeholder_missing=placeholder_missing_assets),
+        media=_preview_media(
+            definition, assets, model=parameters.model, placeholder_missing=placeholder_missing_assets
+        ),
         rng=rng,
     )
     return RequestPreview(
@@ -224,6 +228,7 @@ def _preview_media(
     definition: Mapping[str, Any],
     assets: EndpointTestAssets | None,
     *,
+    model: str,
     placeholder_missing: bool,
 ) -> MediaInputs:
     """把素材换成摘要填进读图节点。
@@ -236,8 +241,22 @@ def _preview_media(
     bindings: Mapping[str, Any] = definition.get("bindings") or {}
     uploaded = assets.items("reference_images") if assets else []
     slots = len(_targets(bindings.get("reference_images")))
+    if len(uploaded) > slots:
+        media = definition.get("media_type") or "video"
+        names = ", ".join(f"#{i}" for i in range(slots + 1, len(uploaded) + 1))
+        if media == "image":
+            raise ImageCapabilityError(
+                "image_reference_images_exceeded", model=model, limit=slots, count=len(uploaded), names=names
+            )
+        raise VideoCapabilityError(
+            "video_reference_images_exceeded", model=model, limit=slots, count=len(uploaded), names=names
+        )
+    if assets and assets.single("start_image") and not _targets(bindings.get("start_image")):
+        raise VideoCapabilityError("video_first_frame_unsupported", provider="ComfyUI", model=model)
+    if assets and assets.single("end_image") and not _targets(bindings.get("end_image")):
+        raise VideoCapabilityError("video_last_frame_unsupported", provider="ComfyUI", model=model)
     if uploaded:
-        references = tuple(_summary("reference_images", item.content) for item in uploaded[:slots])
+        references = tuple(_summary("reference_images", item.content) for item in uploaded)
     else:
         references = tuple(_placeholder("reference_images") for _ in range(slots)) if placeholder_missing else ()
     uploaded_audio = assets.items("reference_audio_files") if assets else []

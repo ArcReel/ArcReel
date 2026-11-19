@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
@@ -21,6 +22,7 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.artifacts.version_manager import VersionManager
+from lib.backends.image_errors import ImageCapabilityError
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_result import GenerationProblemCode
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
@@ -34,12 +36,13 @@ from lib.project.project_manager import get_project_manager
 from lib.script.grid.grid_access import ensure_grid_writable
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.grid_resolution import resolve_large_grid_allowed
-from lib.script.grid.layout import grid_aspect_ratio_for, max_cell_count, video_aspect_ratio_of
+from lib.script.grid.layout import grid_aspect_ratio_for, max_cell_count, plan_grid_chunks, video_aspect_ratio_of
 from lib.script.grid.models import GridGeneration, build_grid_task_payload
 from lib.script.grid.prompt_builder import pending_grid_prompt_ids
-from lib.script.storyboard_sequence import get_storyboard_items
+from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from server.auth import CurrentUser
 from server.i18n import Translator
+from server.services.admission.image_references import check_grid_image_limit, reference_image_limit
 from server.services.admission.reference_admission import require_admitted_storyboard_references
 from server.services.currency.upload_finalize import (
     UPLOAD_VERSION_SOURCE,
@@ -73,6 +76,7 @@ class GenerateGridRequest(BaseModel):
 
 
 class GenerateGridResponse(BaseModel):
+    blocked: list[dict[str, Any]]
     success: bool
     grid_ids: list[str]
     task_ids: list[str]
@@ -177,14 +181,25 @@ async def generate_grid(
             deduped_flags.append(bool(task.get("deduped", False)))
 
     unsplit_grid_ids = [chunk.grid.id for chunk in plan.unsplit if chunk.grid is not None]
+    blocked = [
+        {
+            "scene_id": item.scene_id,
+            "code": item.problem.code,
+            "params": item.problem.params,
+            "message": _t(item.problem.code, **item.problem.params),
+        }
+        for item in plan.blocked
+    ]
+    message = _submission_message(_t, submitted=len(grid_ids), unsplit=len(unsplit_grid_ids))
     return GenerateGridResponse(
-        success=True,
+        blocked=blocked,
+        success=bool(grid_ids) or not blocked,
         grid_ids=grid_ids,
         task_ids=task_ids,
         task_ids_by_grid=task_ids_by_grid,
         unsplit_grid_ids=unsplit_grid_ids,
         deduped=bool(task_ids) and all(deduped_flags),
-        message=_submission_message(_t, submitted=len(grid_ids), unsplit=len(unsplit_grid_ids)),
+        message="\n".join([message, *(f"{item['scene_id']} · {item['message']}" for item in blocked)]),
     )
 
 
@@ -221,13 +236,23 @@ def _raise_for_refused_submission(project: dict, plan: GridSubmissionPlan) -> No
 # ==================== 宫格档位能力 ====================
 
 
+class GridReferenceCount(BaseModel):
+    scene_ids: list[str]
+    count: int
+    limit: int | None
+    message: str | None = None
+
+
 class GridCapabilityResponse(BaseModel):
+    reference_inputs: list[GridReferenceCount] | None = None
     large_grid_allowed: bool
     max_cell_count: int
 
 
-@router.get("/grid-capability", response_model=GridCapabilityResponse)
-async def get_grid_capability(project_name: str):
+@router.get("/grid-capability", response_model=GridCapabilityResponse, response_model_exclude_unset=True)
+async def get_grid_capability(
+    project_name: str, _t: Translator, episode: int | None = None, script_file: str | None = None
+):
     """当前项目的宫格档位上限。
 
     前端批次预览据此镜像后端阶梯——预览与入队若各自判定 4K 门控，批次数会漂移。
@@ -240,7 +265,36 @@ async def get_grid_capability(project_name: str):
 
     project = await asyncio.to_thread(_load)
     allowed = await resolve_large_grid_allowed(project)
+    counts: dict[str, Any] = {}
+    if episode is not None and script_file:
+        path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+        limit = await reference_image_limit(project_name, project, path)
+
+        def assemble():
+            script = _load_admitted_grid_script(project_name, project, script_file, episode)
+            items, field, *_ = get_storyboard_items(script)
+            inputs = []
+            for group in group_scenes_by_segment_break(items, field):
+                for chunk, _layout in plan_grid_chunks(group, video_aspect_ratio_of(project), allow_large_grid=allowed):
+                    ids = [str(item[field]) for item in chunk]
+                    try:
+                        count = check_grid_image_limit(project, script, path, ids, limit)
+                    except ImageCapabilityError as exc:
+                        inputs.append(
+                            GridReferenceCount(
+                                scene_ids=ids,
+                                count=exc.params["count"],
+                                limit=limit[0],
+                                message=_t(exc.code, **exc.params),
+                            )
+                        )
+                    else:
+                        inputs.append(GridReferenceCount(scene_ids=ids, count=count, limit=limit[0]))
+            return inputs
+
+        counts["reference_inputs"] = await run_sync_transaction(assemble)
     return GridCapabilityResponse(
+        **counts,
         large_grid_allowed=allowed,
         max_cell_count=max_cell_count(allow_large_grid=allowed),
     )
@@ -348,8 +402,16 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
         # 剧本在两次生成之间被改过时，缺口以当前剧本为准——worker 也是按当前剧本重建请求的。
         scene_ids = set(grid.scene_ids)
         members = [item for item in items if str(item.get(id_field, "")) in scene_ids]
+        missing = scene_ids.difference(str(item[id_field]) for item in members)
+        if missing:
+            raise BadRequestError("script_item_not_found", id=", ".join(sorted(missing)))
         require_admitted_storyboard_references(project, members)
         _require_grid_prompts_written(members, id_field)
+        image_limit = await reference_image_limit(project_name, project, project_path)
+        try:
+            await asyncio.to_thread(check_grid_image_limit, project, script, project_path, grid.scene_ids, image_limit)
+        except ImageCapabilityError as exc:
+            raise BadRequestError(exc.code, **exc.params) from exc
 
         # 重生成沿用记录上冻结的 rows/cols 与比例。Worker 在执行时从同一份当前剧本、
         # 风格和冻结布局重建 provider prompt 与 provenance basis，队列里的 prompt 仅作

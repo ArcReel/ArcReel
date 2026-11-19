@@ -292,13 +292,13 @@ describe("API", () => {
         unit_id: "E1U1",
         problems: [
           {
-            code: "reference_images_clamped",
-            blocking: false,
+            code: "video_reference_images_exceeded",
+            blocking: true,
             unit_id: "E1U1",
             locations: [{ path: ["references"], line: null }],
-            params: { count: 4, max_count: 3 },
+            params: { count: 4, limit: 3, names: "张三", model: "m" },
             action: "review_reference_selection",
-            message: "参考图片将被裁剪",
+            message: "请减少参考图",
           },
           {
             code: "reference_asset_missing",
@@ -317,7 +317,7 @@ describe("API", () => {
 
       const call = API.precheckReferenceVideoDuration("demo", 1, "E1U1");
       await expect(call).rejects.toBeInstanceOf(ReferenceProjectionError);
-      await expect(call).rejects.toMatchObject({ message: "参考图缺失", projection });
+      await expect(call).rejects.toMatchObject({ message: "请减少参考图", projection });
     });
 
     it("clears auth and redirects on unauthorized responses", async () => {

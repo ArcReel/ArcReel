@@ -13,6 +13,7 @@ import pytest
 
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 from lib.backends.image_backends.openai import OpenAIImageBackend
+from tests.factories import image_bytes
 
 
 def _make_backend():
@@ -151,7 +152,7 @@ async def test_i2i_edit_sends_size_symmetric_with_t2i(tmp_path):
     captured = _stub_edit(backend)
 
     ref = tmp_path / "ref.png"
-    ref.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+    ref.write_bytes(image_bytes())
 
     req = ImageGenerationRequest(
         prompt="edit",

@@ -19,9 +19,10 @@ from lib.backends.image_capabilities import (
     image_reference_limit,
     intersect_image_capabilities,
 )
+from lib.backends.image_errors import ImageCapabilityError
 from lib.backends.input_limits import InputLimit
 from lib.catalog import query
-from lib.prompts.reference_image_numbering import clamp_reference_images
+from lib.prompts.reference_image_numbering import require_reference_image_limit
 from tests.catalog_support import install_catalog, with_entry_facts
 
 T2I = ImageCapability.TEXT_TO_IMAGE
@@ -93,8 +94,8 @@ def _sheets(count: int) -> list[VisualReference]:
     ]
 
 
-def _clamped(limit: InputLimit[int], count: int) -> int:
-    return clamp_reference_images(_sheets(count), limit.clamp_bound(), model="m").kept
+def _require_limit(limit: InputLimit[int], count: int) -> None:
+    require_reference_image_limit(_sheets(count), limit.to_json(), model="m")
 
 
 def _grok(model: str = "grok-imagine-image") -> GrokImageBackend:
@@ -108,7 +109,8 @@ async def test_entry_below_the_channel_limit_wins_and_clamps(monkeypatch: pytest
     )
     limit = await backend_reference_image_limit(_grok(), provider_id="grok")
     assert limit == InputLimit.at_most(3)
-    assert _clamped(limit, 6) == 3
+    with pytest.raises(ImageCapabilityError, match="image_reference_images_exceeded"):
+        _require_limit(limit, 6)
 
 
 async def test_unrecorded_entry_leaves_only_the_channel_limit(monkeypatch: pytest.MonkeyPatch):
@@ -117,7 +119,8 @@ async def test_unrecorded_entry_leaves_only_the_channel_limit(monkeypatch: pytes
     )
     limit = await backend_reference_image_limit(_grok(), provider_id="grok")
     assert limit == InputLimit.at_most(5)
-    assert _clamped(limit, 6) == 5
+    with pytest.raises(ImageCapabilityError, match="image_reference_images_exceeded"):
+        _require_limit(limit, 6)
 
 
 async def test_neither_side_declaring_a_limit_is_unrecorded_and_never_clamps(monkeypatch: pytest.MonkeyPatch):
@@ -128,7 +131,7 @@ async def test_neither_side_declaring_a_limit_is_unrecorded_and_never_clamps(mon
     )
     limit = await backend_reference_image_limit(AgnesImageBackend(api_key="k"), provider_id="agnes")
     assert limit == InputLimit.unrecorded()
-    assert _clamped(limit, 20) == 20
+    _require_limit(limit, 20)
 
 
 async def test_explicit_zero_accepts_no_reference_and_leaves_the_i2i_bucket(monkeypatch: pytest.MonkeyPatch):
@@ -138,7 +141,8 @@ async def test_explicit_zero_accepts_no_reference_and_leaves_the_i2i_bucket(monk
     limit = await backend_reference_image_limit(_grok(), provider_id="grok")
     assert limit == InputLimit.at_most(0)
     assert not limit.accepts_input
-    assert _clamped(limit, 4) == 4
+    with pytest.raises(ImageCapabilityError, match="image_reference_images_exceeded"):
+        _require_limit(limit, 4)
     model_info = query.get_model("grok", "grok-imagine-image", media_type="image")
     assert model_info is not None
     assert builtin_model_buckets("grok", "grok-imagine-image", model_info) == {"t2i"}
@@ -159,7 +163,8 @@ def test_custom_override_closing_i2i_makes_the_reference_path_unsupported():
         channel_limit=None,
     )
     assert limit == InputLimit.unsupported()
-    assert _clamped(limit, 16) == 16
+    with pytest.raises(ImageCapabilityError, match="image_reference_images_exceeded"):
+        _require_limit(limit, 16)
 
 
 # ---------------------------------------------------------------------------

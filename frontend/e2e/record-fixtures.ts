@@ -142,6 +142,7 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-trash", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/trash` },
   // 集页「多宫格分镜图」：宫格档位上限与宫格记录（演示项目没有宫格，多组联合图由场景替换）。
   { file: "project-demo-grid-capability", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grid-capability` },
+  { file: "project-demo-episode-grid-capability", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grid-capability?episode=1&script_file=episode_1.json` },
   { file: "project-demo-grids", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grids` },
   // 集页剪辑视图：演示集还没有视频，也就没有剪辑时间线，显示空状态；有剪辑时间线的读取结果与出片现状由场景替换。
   { file: "project-demo-edit-timelines", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/edit-timelines?episode=1` },

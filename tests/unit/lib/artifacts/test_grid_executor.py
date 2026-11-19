@@ -9,6 +9,7 @@ import pytest
 from PIL import Image
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
+from lib.backends.image_errors import ImageCapabilityError
 from lib.config.resolver import ProviderModel
 from lib.project.project_migrations.runner import migrate_project_dir
 from server.services.tasks.generation_context import GenerationContext, ImageLaneResult
@@ -502,33 +503,15 @@ class TestExecuteGridTask:
             mock_pm.update_scene_asset.return_value = {}
             mock_pm_fn.return_value = mock_pm
 
-            result = await execute_grid_task(
-                "test-project",
-                grid_json.id,
-                {"prompt": "queued prompt", "script_file": "episode_1.json"},
-                user_id="test-user",
-            )
-
-        assert len(captured[0]["reference_images"]) == 2
-        # 裁剪后实发的冻结副本仍能按映射还原到各自的来源，供使用记录引用
-        sources = captured[0]["reference_sources"]
-        assert [sources[str(ref)] for ref in captured[0]["reference_images"]] == [
-            project_with_script / "characters" / f"hero{index}.png" for index in (1, 2)
-        ]
-        # 丢弃了输入的参考图必须让用户与 Agent 感知：任务结果带与分镜图 / 参考生视频同形的 warning
-        assert result["warnings"] == [
-            {"key": "ref_too_many_images", "params": {"count": 3, "model": "gpt-image-2", "max_count": 2}}
-        ]
-        prompt = captured[0]["prompt"]
-        assert prompt.startswith("Reference_Images: 图1、图2为角色参考图。")
-        assert "图1站在门口" in prompt
-        assert "图2站在门口" in prompt
-        # 第 3 张没随请求发出，正文只留裸名，不指认一个不存在的图3
-        assert "图3" not in prompt
-        assert "hero3站在门口" in prompt
-        # 宫格记录仍登记完整装配集：目标态规划器据此重建依据，上限是供应商属性、不进记录
-        stored = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8"))
-        assert [ref["name"] for ref in stored["reference_images"]] == ["hero1", "hero2", "hero3"]
+            with pytest.raises(ImageCapabilityError) as caught:
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "queued prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+        assert not captured
+        assert caught.value.params == {"model": "gpt-image-2", "limit": 2, "count": 3, "names": "hero3"}
 
     async def test_every_member_sheet_is_sent_beyond_six_when_the_backend_allows(
         self,
@@ -638,13 +621,13 @@ class TestExecuteGridTask:
         stored = json.loads((project_with_script / "grids" / f"{grid_json.id}.json").read_text(encoding="utf-8"))
         assert stored["status"] == "failed"
 
-    async def test_a_dropped_reference_changing_before_submit_still_aborts(
+    async def test_a_reference_changing_before_submit_still_aborts(
         self,
         project_with_script,
         grid_json,
         monkeypatch,
     ):
-        """被去尾的第 3 张图仍是宫格依据的输入：它的登记在提交前被删，复核拦下，供应商未收到提交。"""
+        """第 3 张参考图也是宫格依据的输入：它的登记在提交前被删，复核拦下，供应商未收到提交。"""
         from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
         from server.services.tasks.generation_tasks import execute_grid_task
         from tests.fakes import hook_claim_recheck
@@ -670,7 +653,7 @@ class TestExecuteGridTask:
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
             patch(
                 "server.services.tasks.generation_tasks.resolve_generation_context",
-                new=_image_ctx(_Generator(), max_reference_images=2),
+                new=_image_ctx(_Generator(), max_reference_images=3),
             ),
         ):
             mock_pm = MagicMock()

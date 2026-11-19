@@ -199,11 +199,14 @@ class TestGenerate:
         call_kwargs = backend_aistudio._client.aio.models.generate_content.call_args
         contents = call_kwargs.kwargs.get("contents") or call_kwargs[1].get("contents")
         assert len(contents) == 2
-        assert isinstance(contents[0], PILImage.Image)
+        backend_aistudio._types.Part.from_bytes.assert_called_once_with(
+            data=ref_img_path.read_bytes(), mime_type="image/png"
+        )
+        assert contents[0] is backend_aistudio._types.Part.from_bytes.return_value
         assert contents[1] == "draw character"
 
     async def test_generate_sends_every_reference_before_the_prompt(self, backend_aistudio, tmp_path):
-        """裁剪归编排层（按生效上限）：通道把收到的参考图全部送入 SDK，prompt 仍在末尾。"""
+        """数量校验归编排层：通道把收到的参考图全部送入 SDK，prompt 仍在末尾。"""
         refs = []
         for index in range(16):
             ref_path = tmp_path / f"ref{index}.png"
@@ -242,12 +245,19 @@ class TestGenerate:
 # ---------------------------------------------------------------------------
 
 
-class TestHelpers:
-    def test_load_image_detached(self, tmp_path):
-        """_load_image_detached should return a copy not holding the file handle."""
-        img_path = tmp_path / "test.png"
-        PILImage.new("RGB", (10, 10), "red").save(img_path)
-        from lib.backends.image_backends.gemini import GeminiImageBackend
+async def test_corrupt_and_missing_references_are_reported_before_submission(tmp_path, backend_aistudio):
+    from lib.backends.image_errors import ImageCapabilityError
+    from tests.http_capture import capture_http
 
-        loaded = GeminiImageBackend._load_image_detached(img_path)
-        assert isinstance(loaded, PILImage.Image)
+    backend = backend_aistudio
+    corrupt = tmp_path / "broken.png"
+    corrupt.write_bytes(b"bad")
+    refs = [ReferenceImage(path=str(path)) for path in (corrupt, tmp_path / "gone.png")]
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+        await backend.generate(
+            ImageGenerationRequest(prompt="p", reference_images=refs, output_path=tmp_path / "out.png")
+        )
+    assert caught.value.code == "image_reference_images_unreadable"
+    assert caught.value.params["names"] == "broken.png, gone.png"
+    assert not router.calls
+    backend._client.aio.models.generate_content.assert_not_called()

@@ -18,6 +18,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
 )
 from lib.backends.providers import PROVIDER_GROK
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http
 
@@ -190,7 +191,7 @@ class TestGrokVideoBackend:
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         image_path = tmp_path / "start.png"
-        image_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        image_path.write_bytes(image_bytes())
 
         mock_response = MagicMock()
         mock_response.url = "https://vidgen.x.ai/test/video.mp4"
@@ -270,7 +271,7 @@ class TestGrokVideoBackend:
 
 
 def _png(path: Path) -> Path:
-    path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+    path.write_bytes(image_bytes())
     return path
 
 
@@ -556,7 +557,7 @@ async def test_mixed_inputs_follow_endpoint_after_model_rename(endpoint, tmp_pat
     from lib.backends.video_backends.grok import GROK_BACKENDS
 
     image = tmp_path / "in.png"
-    image.write_bytes(b"image")
+    image.write_bytes(image_bytes())
     request = VideoGenerationRequest(
         prompt="test", output_path=tmp_path / "out.mp4", resolution="720p", start_image=image, reference_images=[image]
     )

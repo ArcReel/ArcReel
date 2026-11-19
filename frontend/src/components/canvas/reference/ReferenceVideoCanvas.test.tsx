@@ -1759,6 +1759,30 @@ describe("ReferenceVideoCanvas", () => {
       expect(batchSpy).not.toHaveBeenCalled();
     });
 
+    it("混合报价列出超限单元的原因，确认只提交其余单元", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {},
+      });
+      const reason = "超出 1 张上限的参考图：花店";
+      vi.spyOn(API, "previewReferenceVideoBatch").mockResolvedValue(mkPreview({
+        units: [
+          { unit_id: "E1U1", admitted: true, problems: [] },
+          { unit_id: "E1U2", admitted: false, problems: [
+            { code: "video_reference_images_exceeded", action: "fix_input", message: reason, params: {} },
+          ] },
+        ],
+      }));
+      const submit = vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue(mkAdmission());
+
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+      await clickBatch();
+      const dialog = within(await screen.findByRole("alertdialog"));
+      expect(await dialog.findByText(reason)).toBeInTheDocument();
+      expect(dialog.getByRole("button", { name: /编辑 E1U2 的引用|Edit references for E1U2/ })).toBeEnabled();
+      await confirmBatchPreview();
+      await waitFor(() => expect(submit).toHaveBeenCalledWith("proj", 1, { unit_ids: ["E1U1"] }));
+    });
+
     // 时长档位的确认并进同一个确认框：档位分组与名单、费用一起摊开，确认一次就按档位提交，
     // 不再弹第二层档位确认。
     it("需确认档位时在同一个确认框里拍板，确认一次就带 confirmed_request_durations 提交", async () => {

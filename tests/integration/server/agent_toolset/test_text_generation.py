@@ -49,6 +49,26 @@ def _as_json(value: Any) -> Any:
     return json.loads(json.dumps(value, ensure_ascii=False))
 
 
+async def test_get_image_capabilities_reports_each_selected_lane(fake_ctx, monkeypatch):
+    from types import SimpleNamespace
+
+    async def lane(project_name, project, path, bucket):
+        assert project_name == fake_ctx.project_name
+        return SimpleNamespace(
+            backend_model=f"{bucket}-model",
+            provider_model=SimpleNamespace(provider_id="local"),
+            max_reference_images=0 if bucket == "t2i" else None,
+        )
+
+    monkeypatch.setattr("server.tool_runtime.project_image_lane", lane)
+    outcome = await run_declared_tool("get_image_capabilities", fake_ctx, {})
+    assert outcome.problem is None
+    assert outcome.value == {
+        "t2i": {"provider": "local", "model": "t2i-model", "max_reference_images": 0},
+        "i2i": {"provider": "local", "model": "i2i-model", "max_reference_images": None},
+    }
+
+
 async def test_get_video_capabilities_happy(fake_ctx: ToolHarness, video_request_facts) -> None:
     use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     out = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {})

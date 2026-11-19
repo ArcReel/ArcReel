@@ -49,6 +49,26 @@ def _skipped(skips: tuple[BatchSkip, ...]) -> list[dict[str, str]]:
     return [{"unit_id": skip.unit_id, "reason": skip.reason.value} for skip in skips]
 
 
+def _image_skips(plan: StoryboardImageBatchPlan, translate: Translator) -> list[dict[str, Any]]:
+    problems = {
+        item.unit_id: item.problem
+        for item in plan.preflight.items
+        if item.problem and item.problem.code == "image_reference_images_exceeded"
+    }
+    result: list[dict[str, Any]] = []
+    for skip in _skipped(plan.skips):
+        problem = problems.get(skip["unit_id"])
+        result.append(
+            {
+                **skip,
+                "problem": {**problem.model_dump(mode="json"), "message": translate(problem.code, **problem.params)},
+            }
+            if problem
+            else skip
+        )
+    return result
+
+
 @contextmanager
 def _planning_errors(project_name: str, episode: int) -> Generator[None]:
     """把规划阶段读项目、读剧本与把守生成模式的失败映射成 HTTP 错误。"""
@@ -91,7 +111,9 @@ async def _video_plan(project_name: str, episode: int, user_id: str) -> Storyboa
 
 
 @router.post("/storyboards/batch/preview")
-async def preview_storyboard_batch(project_name: str, episode: int, user: CurrentUser) -> dict[str, Any]:
+async def preview_storyboard_batch(
+    project_name: str, episode: int, user: CurrentUser, _t: Translator
+) -> dict[str, Any]:
     """规划一批分镜图但不建任务：要生成的分镜、跳过项与已定价部分的预估费用及未定价项数。"""
 
     loaded, plan = await _image_plan(project_name, episode, user.id)
@@ -105,7 +127,7 @@ async def preview_storyboard_batch(project_name: str, episode: int, user: Curren
     )
     return {
         "targets": [{"unit_id": unit_id} for unit_id in new_ids],
-        "skipped": _skipped(plan.skips),
+        "skipped": _image_skips(plan, _t),
         **estimated.to_payload(),
     }
 
@@ -121,7 +143,7 @@ async def submit_storyboard_batch(project_name: str, episode: int, user: Current
     return {
         "batch_id": batch.batch_id,
         "task_ids_by_unit": {task.resource_id: task.task_id for task in enqueued},
-        "skipped": _skipped(plan.skips),
+        "skipped": _image_skips(plan, _t),
         "enqueue_failures": [enqueue_failure_payload(failure, _t) for failure in failures],
     }
 

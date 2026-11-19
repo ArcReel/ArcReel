@@ -24,6 +24,7 @@ from lib.backends.video_backends.gemini_interactions import (
     GeminiInteractionsVideoBackend,
     VertexInteractionsVideoBackend,
 )
+from tests.factories import image_bytes
 from tests.fakes import MP4_BYTES, bounded_poll_clock, captured_provider_job_ids, captured_vertex_credentials
 from tests.http_capture import capture_http, request_json
 
@@ -70,7 +71,7 @@ def _request_fields(tmp_path: Path, inputs: dict[str, Any]) -> dict[str, Any]:
 
     def file_of(name: str) -> Path:
         path = tmp_path / name
-        path.write_bytes(Path(name).stem.encode())
+        path.write_bytes(image_bytes(sum(Path(name).stem.encode())))
         return path
 
     fields: dict[str, Any] = {}
@@ -141,7 +142,7 @@ class TestSubmit:
         }
         [step] = body["input"]
         assert step["content"] == [
-            *({"type": "image", "data": _b64(image), "mime_type": "image/png"} for image in images),
+            *({"type": "image", "data": _b64(image_bytes(sum(image))), "mime_type": "image/png"} for image in images),
             {"type": "text", "text": "一只猫走过屋顶"},
         ]
 
@@ -361,3 +362,17 @@ class TestDeclarations:
         usage = GeminiInteractionsVideoBackend.metered_usage(MODEL, request, result)
 
         assert usage.quantities["video_tokens"] == 40000
+
+
+async def test_unreadable_start_frame_prevents_generation(tmp_path):
+    from arcreel_market_core.video_backend_contract import VideoCapabilityError
+    from tests.http_capture import capture_http
+
+    backend = _aistudio()
+    with capture_http() as router, pytest.raises(VideoCapabilityError) as caught:
+        await backend.generate(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", start_image=tmp_path / "missing.png")
+        )
+    assert caught.value.code == "video_start_image_unreadable"
+    assert caught.value.params["name"] == "missing.png"
+    assert not router.calls

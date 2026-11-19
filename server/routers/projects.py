@@ -1374,12 +1374,22 @@ async def preview_script_item_prompts(
 
     def _side(rendered):
         return {
+            **(
+                {
+                    "reference_count": rendered.reference_count,
+                    "max_reference_images": rendered.max_reference_images,
+                    "previous_storyboard": rendered.previous_storyboard,
+                }
+                if rendered.reference_count is not None
+                else {}
+            ),
+            **({"unavailable_code": rendered.unavailable} if rendered.unavailable else {}),
             "text": rendered.text,
             "unavailable": render_generation_input_error(rendered.unavailable, rendered.unavailable_params, _t, names)
             if rendered.unavailable
             else None,
             "is_text_form": rendered.is_text_form,
-            # 渲染时产生的提示（如参考图超限裁剪）与任务结果的 warnings 同源，同样按请求语言渲染成成品文案
+            # 渲染时产生的提示与任务结果的 warnings 同源，同样按请求语言渲染成成品文案
             "warnings": [render_message(warning["key"], warning["params"], _t, names) for warning in rendered.warnings],
         }
 

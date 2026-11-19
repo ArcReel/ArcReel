@@ -13,10 +13,11 @@ import pytest
 
 from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
 from lib.custom_provider.endpoints import get_endpoint_spec
+from tests.factories import image_bytes
 from tests.http_capture import capture_http, only_request, request_json
 
 _PNG = b"\x89PNG\r\n\x1a\n" + b"fake-png-body"
-_REF = b"\xff\xd8\xff" + b"fake-jpeg-ref"
+_REF = image_bytes(fmt="JPEG")
 
 
 def _provider() -> SimpleNamespace:
@@ -163,3 +164,20 @@ async def test_custom_image_prices_the_sent_resolution(tmp_path, size, sent, amo
             model_multiplier=1.0,
             estimate=estimating,
         ) == Priced(pytest.approx(amount), "USD")
+
+
+async def test_corrupt_and_missing_references_are_reported_before_submission(tmp_path):
+    from lib.backends.image_errors import ImageCapabilityError
+    from tests.http_capture import capture_http
+
+    backend = get_endpoint_spec("openai-chat-image").build_backend(_provider(), "gemini-3-pro-image")
+    corrupt = tmp_path / "broken.png"
+    corrupt.write_bytes(b"bad")
+    refs = [ReferenceImage(path=str(path)) for path in (corrupt, tmp_path / "gone.png")]
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+        await backend.generate(
+            ImageGenerationRequest(prompt="p", reference_images=refs, output_path=tmp_path / "out.png")
+        )
+    assert caught.value.code == "image_reference_images_unreadable"
+    assert caught.value.params["names"] == "broken.png, gone.png"
+    assert not router.calls

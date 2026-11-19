@@ -87,6 +87,7 @@ def render_reference_prompt_preview(
     )
     params = result.pop("unavailable_params")
     if result["unavailable"] is not None:
+        result["unavailable_code"] = result["unavailable"]
         result["unavailable"] = render_message(result["unavailable"], params, translate, names)
     result["warnings"] = [
         render_message(warning["key"], warning["params"], translate, names) for warning in result["warnings"]

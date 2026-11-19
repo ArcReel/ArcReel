@@ -27,11 +27,13 @@ from arcreel_market_core.video_backend_contract import (
 from lib.backends.backend_runtime import (
     download_video,
     poll_with_retry,
+    read_video_images,
     recording_poll,
     reference_audio_to_data_uri,
     should_retry_submit,
     submit_post,
 )
+from lib.backends.input_limits import excess_image_names
 from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
@@ -42,7 +44,6 @@ from lib.backends.vidu_shared import (
     create_vidu_client,
     extract_vidu_url,
     fetch_vidu_task,
-    image_to_data_uri,
     is_vidu_done,
     safe_body_for_log,
     vidu_failure_reason,
@@ -332,6 +333,7 @@ class ViduVideoBackend(EntryBoundCapabilities):
             if count > profile.max_reference_images:
                 raise VideoCapabilityError(
                     "video_reference_images_exceeded",
+                    names=excess_image_names(profile.max_reference_images, count, request.reference_images or []),
                     model=self._model,
                     limit=profile.max_reference_images,
                     count=count,
@@ -399,9 +401,10 @@ class ViduVideoBackend(EntryBoundCapabilities):
         if endpoint in _ENDPOINTS_WITH_ASPECT_RATIO and request.aspect_ratio:
             body["aspect_ratio"] = request.aspect_ratio
 
+        images = read_video_images(request, self._model)
         # 8) images 按端点形态填充；参考音频按请求顺序放进 sounds，prompt 里的「参考音频N」按这个顺序编号
         if endpoint == "/reference2video":
-            body["images"] = [image_to_data_uri(p) for p in _reference_images(request)]
+            body["images"] = [images[Path(p)].data_uri() for p in _reference_images(request)]
             if audio_files:
                 body["sounds"] = [
                     reference_audio_to_data_uri(p, model=self._model, mime_types=_REFERENCE_AUDIO_MIME_TYPES)
@@ -411,22 +414,17 @@ class ViduVideoBackend(EntryBoundCapabilities):
             assert request.start_image is not None
             assert request.end_image is not None
             body["images"] = [
-                image_to_data_uri(Path(request.start_image)),
-                image_to_data_uri(Path(request.end_image)),
+                images[Path(request.start_image)].data_uri(),
+                images[Path(request.end_image)].data_uri(),
             ]
         elif endpoint == "/img2video":
             assert request.start_image is not None
-            body["images"] = [image_to_data_uri(Path(request.start_image))]
+            body["images"] = [images[Path(request.start_image)].data_uri()]
         # /text2video 不带 images
 
         return endpoint, body
 
     def _select_endpoint(self, request: VideoGenerationRequest) -> str:
-        # 若用户显式传了 start/end_image 但文件不存在，应直接失败而不是静默降级到 text2video。
-        if request.start_image is not None and not Path(request.start_image).exists():
-            raise FileNotFoundError(f"start_image 文件不存在: {request.start_image}")
-        if request.end_image is not None and not Path(request.end_image).exists():
-            raise FileNotFoundError(f"end_image 文件不存在: {request.end_image}")
         return _endpoint_for(request)
 
     @classmethod
@@ -501,7 +499,7 @@ def _endpoint_for(request: VideoGenerationRequest) -> str:
 
 def _reference_images(request: VideoGenerationRequest) -> list[Path]:
     """参考生视频发出的参考图（张数上限由 ``_build_request`` 校验）。"""
-    return [Path(p) for p in (request.reference_images or []) if p]
+    return [Path(p or "") for p in (request.reference_images or [])]
 
 
 def _coerce_duration(profile: ViduEndpoint, endpoint: str, requested: int | None) -> int:

@@ -461,20 +461,17 @@ class TestCanvasRatio:
 
 
 class TestFreeze:
-    def test_registration_basis_equals_expected_basis_even_when_clamped(self, tmp_path):
+    def test_registration_basis_equals_expected_basis_at_limit(self, tmp_path):
         fixture = _Fixture(tmp_path)
         generation_input = _admitted(fixture)
         expected = generation_input.expected_basis()
 
-        with generation_input.freeze(max_reference_images=2, model="m", bind_claims=_identity_binder) as frozen:
+        with generation_input.freeze(max_reference_images=6, model="m", bind_claims=_identity_binder) as frozen:
             snapshot_dir = Path(str(frozen.references.visual_references[0].path)).parent
             assert frozen.basis == expected
-            assert len(frozen.references.visual_references) == 2
-            assert frozen.warnings == (
-                {"key": "ref_too_many_images", "params": {"count": 6, "model": "m", "max_count": 2}},
-            )
-            assert "图1、图2为商品参考图" in frozen.prompt
-            assert "图3" not in frozen.prompt
+            assert len(frozen.references.visual_references) == 6
+            assert not frozen.warnings
+            assert "图6为上一分镜图" in frozen.prompt
             assert snapshot_dir.is_dir()
 
         assert not snapshot_dir.exists()
@@ -496,14 +493,23 @@ class TestFreeze:
             if ref.claim is not None
         }
 
-    def test_preview_render_numbers_the_same_clamped_references(self, tmp_path):
-        fixture = _Fixture(tmp_path)
-        generation_input = _admitted(fixture)
+    def test_preview_and_execution_reject_excess_including_previous_storyboard(self, tmp_path):
+        from lib.backends.image_errors import ImageCapabilityError
 
-        rendered = generation_input.render(max_reference_images=3, model="m")
-        with generation_input.freeze(max_reference_images=3, model="m", bind_claims=_identity_binder) as frozen:
-            assert rendered.prompt == frozen.prompt
-            assert rendered.warnings == frozen.warnings
+        generation_input = _admitted(_Fixture(tmp_path))
+        with pytest.raises(ImageCapabilityError) as preview:
+            generation_input.render(max_reference_images=5, model="m")
+        with pytest.raises(ImageCapabilityError) as execution:
+            generation_input.freeze(max_reference_images=5, model="m", bind_claims=_identity_binder)
+        assert preview.value.code == execution.value.code == "image_reference_images_exceeded"
+        assert preview.value.params == execution.value.params
+        assert preview.value.params == {
+            "model": "m",
+            "count": 6,
+            "limit": 5,
+            "names": "E1S01",
+            "previous_storyboard": "E1S01",
+        }
 
     def test_changing_a_reference_changes_the_expected_basis(self, tmp_path):
         fixture = _Fixture(tmp_path)

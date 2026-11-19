@@ -28,6 +28,7 @@ from lib.backends.video_backends.dashscope import (
     DashScopeWan3VideoBackend,
 )
 from lib.custom_provider.endpoints import infer_endpoint
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http
 
@@ -117,7 +118,7 @@ def _patches(client: _RecordingClient, download: AsyncMock):
 
 def _ref(tmp_path: Path, name: str) -> Path:
     p = tmp_path / name
-    p.write_bytes(b"\x89PNG\r\nfake")
+    p.write_bytes(image_bytes())
     return p
 
 
@@ -328,7 +329,7 @@ class TestReferenceToVideo:
                     )
                 )
         assert ei.value.code == "video_reference_images_exceeded"
-        assert ei.value.params == {"model": "wan2.7-r2v", "limit": 5, "count": 6}
+        assert ei.value.params == {"names": "r5.png", "model": "wan2.7-r2v", "limit": 5, "count": 6}
         post.assert_not_awaited()
 
     def test_refs_on_model_without_reference_capability_rejected(self, tmp_path: Path):
@@ -350,7 +351,7 @@ class TestReferenceToVideo:
         client = _client(post=post, get=AsyncMock())
         p1, p2, p3 = _patches(client, AsyncMock())
         start = tmp_path / "start.png"
-        start.write_bytes(b"\x89PNG")
+        start.write_bytes(image_bytes())
         with p1, p2, p3:
             b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-t2v")
             with pytest.raises(VideoCapabilityError) as ei:
@@ -406,13 +407,13 @@ class TestReferenceToVideo:
         client = _client(post=post, get=get)
         ra, rb = _ref(tmp_path, "a.png"), _ref(tmp_path, "b.png")
 
-        def fake_uri(p: Path) -> str:
+        def fake_uri(p: Path) -> bytes:
             if p.name == "a.png":
                 raise OSError("io error")
-            return "data:image/png;base64,OK"
+            return image_bytes()
 
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.backends.video_backends.dashscope.image_to_data_uri", side_effect=fake_uri):
+        with p1, p2, p3, patch("pathlib.Path.read_bytes", autospec=True, side_effect=fake_uri):
             b = DashScopeReferenceVoiceVideoBackend(api_key="sk", model="wan2.7-r2v")
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
@@ -437,7 +438,7 @@ class TestReferenceToVideo:
             p1,
             p2,
             p3,
-            patch("lib.backends.video_backends.dashscope.image_to_data_uri", side_effect=OSError("denied")),
+            patch("pathlib.Path.read_bytes", autospec=True, side_effect=OSError("denied")),
         ):
             b = DashScopeReferenceVoiceVideoBackend(api_key="sk", model="wan2.7-r2v")
             with pytest.raises(VideoCapabilityError) as ei:
@@ -458,7 +459,7 @@ class TestFirstFrameAndTextOnly:
         client = _client(post=post, get=get)
         start = _ref(tmp_path, "start.png")
         p1, p2, p3 = _patches(client, AsyncMock())
-        with p1, p2, p3, patch("lib.backends.video_backends.dashscope.image_to_data_uri", side_effect=OSError("io")):
+        with p1, p2, p3, patch("pathlib.Path.read_bytes", autospec=True, side_effect=OSError("io")):
             b = DashScopeAlwaysOnVideoBackend(api_key="sk", model="wan2.7-i2v")
             with pytest.raises(VideoCapabilityError) as ei:
                 await b.generate(
@@ -845,7 +846,7 @@ class TestWan27ReferenceVoice:
         out = []
         for i in range(count):
             p = tmp_path / f"r{i}.png"
-            p.write_bytes(b"\x89PNG\r\n")
+            p.write_bytes(image_bytes())
             out.append(p)
         return out
 
@@ -1120,7 +1121,7 @@ class TestWan3:
     @staticmethod
     def _file(tmp_path, name: str, data: bytes = b"\x89PNG\r\n") -> Path:
         p = tmp_path / name
-        p.write_bytes(data)
+        p.write_bytes(image_bytes() if p.suffix == ".png" else data)
         return p
 
     def test_declares_capabilities(self):

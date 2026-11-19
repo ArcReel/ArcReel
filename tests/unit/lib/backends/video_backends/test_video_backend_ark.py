@@ -23,6 +23,7 @@ from lib.backends.video_backends.ark import (
     Seedance25VideoBackend,
 )
 from lib.backends.video_frame_slots import FIRST_FRAME_ADAPTIVE_RATIO, resolve_first_frame_aspect_ratio
+from tests.factories import image_bytes
 from tests.fakes import (
     blocking_file_read_gate,
     bounded_poll_clock,
@@ -111,7 +112,7 @@ class TestArkGenerate:
         """图生视频：有 start_image，必须带 role=first_frame。"""
         output = tmp_path / "out.mp4"
         frame = tmp_path / "scene_E1S01.png"
-        frame.write_bytes(b"fake-png")
+        frame.write_bytes(image_bytes())
 
         create_result = MagicMock()
         create_result.id = "cgt-i2v-test"
@@ -151,7 +152,7 @@ class TestArkGenerate:
         """首帧 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""
         output = tmp_path / "out.mp4"
         frame = tmp_path / "scene_E1S01.png"
-        frame.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        frame.write_bytes(image_bytes())
 
         create_result = MagicMock()
         create_result.id = "cgt-i2v-gate"
@@ -190,9 +191,9 @@ class TestArkGenerate:
         image_url 对象不带 position，位置由 role 表达。"""
         output = tmp_path / "out.mp4"
         first = tmp_path / "first.png"
-        first.write_bytes(b"fake-first")
+        first.write_bytes(image_bytes())
         last = tmp_path / "last.png"
-        last.write_bytes(b"fake-last")
+        last.write_bytes(image_bytes(1))
 
         create_result = MagicMock()
         create_result.id = "cgt-fl-test"
@@ -231,9 +232,9 @@ class TestArkGenerate:
         """参考图：每张 reference_images 必须带 role=reference_image（Ark 多图触发条件）。"""
         output = tmp_path / "out.mp4"
         ref1 = tmp_path / "ref1.jpg"
-        ref1.write_bytes(b"fake-ref-1")
+        ref1.write_bytes(image_bytes())
         ref2 = tmp_path / "ref2.jpg"
-        ref2.write_bytes(b"fake-ref-2")
+        ref2.write_bytes(image_bytes(1))
 
         create_result = MagicMock()
         create_result.id = "cgt-refs-test"
@@ -281,7 +282,7 @@ class TestArkGenerate:
     async def test_missing_reference_image_fails_loud(self, ark_backend, tmp_path):
         """参考图缺失时中止提交，理由同尾帧：少一张仍会出片，成片却与意图不符。"""
         present = tmp_path / "ref1.jpg"
-        present.write_bytes(b"fake-ref-1")
+        present.write_bytes(image_bytes())
         ark_backend._client.content_generation.tasks.create = MagicMock()
 
         request = VideoGenerationRequest(
@@ -794,7 +795,7 @@ class TestArkReferenceAudio:
         second_audio = tmp_path / "b.wav"
         second_audio.write_bytes(b"riff-second")
         ref = tmp_path / "r.png"
-        ref.write_bytes(b"fake-ref")
+        ref.write_bytes(image_bytes())
 
         ark_backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
 
@@ -845,7 +846,7 @@ class TestArkReferenceAudio:
     async def test_no_audio_entries_when_request_has_none(self, tmp_path):
         ark_backend = self._seedance_2_backend()
         ref = tmp_path / "r.png"
-        ref.write_bytes(b"fake-ref")
+        ref.write_bytes(image_bytes())
         ark_backend._client.content_generation.tasks.create = MagicMock(side_effect=RuntimeError("stop"))
 
         with pytest.raises(RuntimeError):
@@ -923,7 +924,7 @@ class TestArkProviderAssets:
         """素材引用占原图片的位置，不读本地内容；其余参考图照常内嵌，条目数量与顺序不变。"""
         backend = self._backend()
         scene = tmp_path / "scene.png"
-        scene.write_bytes(b"scene-bytes")
+        scene.write_bytes(image_bytes())
         create_result = MagicMock()
         create_result.id = "cgt-asset"
         backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)
@@ -977,7 +978,7 @@ class TestArkProviderAssets:
         paths = []
         for i in range(refs):
             path = tmp_path / f"ref{i}.png"
-            path.write_bytes(b"ref")
+            path.write_bytes(image_bytes())
             paths.append(path)
         backend._client.content_generation.tasks.create = MagicMock(side_effect=self._rejection(self._PRIVACY_CODE))
         request = VideoGenerationRequest(
@@ -997,7 +998,7 @@ class TestArkProviderAssets:
 
         backend = self._backend()
         ref = tmp_path / "ref.png"
-        ref.write_bytes(b"ref")
+        ref.write_bytes(image_bytes())
         create_result = MagicMock()
         create_result.id = "cgt-rejected"
         backend._client.content_generation.tasks.create = MagicMock(return_value=create_result)

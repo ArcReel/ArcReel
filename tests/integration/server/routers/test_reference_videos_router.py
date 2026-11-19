@@ -1426,6 +1426,24 @@ def test_generate_batch_aggregates_the_confirmation_by_tier_then_enqueues_on_con
 PREVIEW_ENDPOINT = f"{BATCH_ENDPOINT}/preview"
 
 
+def test_over_limit_reference_unit_is_excluded_from_quote_and_submission(reference_videos_client, monkeypatch):
+    first = _seed_unit(reference_videos_client)
+    second = _seed_second_unit(reference_videos_client)
+    refused_url = f"/api/v1/projects/demo/reference-videos/episodes/1/units/{first}"
+    assert reference_videos_client.patch(refused_url, json={"prompt": "@[酒馆] @[张三]"}).is_success
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9], quote_amount=0.8)
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(3, 6, 9), max_reference_images=1))
+    preview = reference_videos_client.post(PREVIEW_ENDPOINT, json={}).json()
+    assert preview["decision"] == "admitted"
+    refused = next(unit for unit in preview["units"] if unit["unit_id"] == first)
+    assert refused["problems"][0]["code"] == "video_reference_images_exceeded"
+    assert "张三" in refused["problems"][0]["message"]
+    assert preview["estimated_cost"]["USD"] == pytest.approx(0.8)
+    submitted = reference_videos_client.post(BATCH_ENDPOINT, json={})
+    assert submitted.status_code == 200
+    assert [call["resource_id"] for call in enqueued] == [second]
+
+
 def test_preview_batch_lists_the_targets_and_totals_their_quotes_without_creating_tasks(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2057,20 +2075,19 @@ def test_prompt_preview_renders_draft_with_projected_references_without_saving(
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["unavailable"] is None
-    assert "<酒馆>@图片1" in body["text"]
-    assert "@图片2" not in body["text"]
-    assert "<酒馆> 门口，<张三> 推开门。" in body["text"]
-    assert body["references"] == [{"type": "scene", "name": "酒馆", "path": "scenes/酒馆.png"}]
-    assert any("上限 1" in warning for warning in body["warnings"])
+    assert body["unavailable_code"] == "video_reference_images_exceeded"
+    assert body["text"] is None
+    assert "张三" in body["unavailable"]
     saved = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()
     assert saved["units"][0]["text"] == "镜头1：@张三 推门"
 
     reference_videos_client.patch(url, json={"prompt": draft})
-    precheck = reference_videos_client.get(f"{url}/duration-precheck").json()
-    assert precheck["hydrated_capability"] == "r2v"
-    assert precheck["problems"][0]["code"] == "reference_images_clamped"
-    assert precheck["problems"][0]["message"] in body["warnings"]
+    refused = reference_videos_client.get(f"{url}/duration-precheck")
+    assert refused.status_code == 400
+    problem = refused.json()["detail"]["problems"][0]
+    assert problem["code"] == body["unavailable_code"]
+    assert problem["blocking"]
+    assert problem["message"] == body["unavailable"]
 
 
 def test_prompt_preview_fails_closed_when_capabilities_cannot_resolve(

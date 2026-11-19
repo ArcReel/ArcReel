@@ -10,15 +10,13 @@ from typing import Any
 
 from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
-    IMAGE_MIME_TYPES,
     VideoAudioMode,
     VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
-from lib.backends.backend_runtime import download_video
-from lib.backends.data_uri import image_to_data_uri
+from lib.backends.backend_runtime import download_video, read_video_images
 from lib.backends.grok_shared import create_grok_client
 from lib.backends.providers import PROVIDER_GROK
 from lib.backends.video_backends.metering import video_usage
@@ -199,31 +197,14 @@ class GrokVideoBackend(EntryBoundCapabilities):
 
     def _encode_image_inputs(self, request: VideoGenerationRequest) -> dict[str, Any]:
         """首帧 / 尾帧 / 参考图 → SDK 的 data URI 参数（同步：读本地图片，调用方放线程里跑）。"""
+        images = read_video_images(request, self._model)
         kwargs: dict[str, Any] = {}
         if request.start_image:
-            image_path = Path(request.start_image)
-            # 首帧缺失不静默跳过：跳过后照常出片计费，成片却没用上首帧。
-            if not image_path.is_file():
-                raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=image_path.name)
-            kwargs["image_url"] = image_to_data_uri(image_path, IMAGE_MIME_TYPES)
-
+            kwargs["image_url"] = images[Path(request.start_image)].data_uri()
         if request.end_image:
-            # 能否带尾帧由 gate_video_request 按生效能力的 last_frame 前置判定（模型条目只给 1.5 记了尾帧）。
-            end_path = Path(request.end_image)
-            if not end_path.is_file():
-                # 尾帧缺失不静默跳过：跳过后照常出片计费，成片却落不到分镜要求的结尾画面。
-                raise VideoCapabilityError(
-                    "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
-                )
-            kwargs["last_frame_url"] = image_to_data_uri(end_path, IMAGE_MIME_TYPES)
-
+            kwargs["last_frame_url"] = images[Path(request.end_image)].data_uri()
         if request.reference_images:
-            missing = [p.name for p in request.reference_images if not p.is_file()]
-            if missing:
-                raise VideoCapabilityError(
-                    "video_reference_images_unreadable", model=self._model, names=", ".join(missing)
-                )
-            kwargs["reference_image_urls"] = [image_to_data_uri(p, IMAGE_MIME_TYPES) for p in request.reference_images]
+            kwargs["reference_image_urls"] = [images[Path(p)].data_uri() for p in request.reference_images]
         return kwargs
 
 

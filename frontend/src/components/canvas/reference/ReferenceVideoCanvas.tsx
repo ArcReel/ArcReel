@@ -49,7 +49,7 @@ import {
   type ReferenceBatchSkip,
   type ReferenceBatchSkipReason,
 } from "./ReferenceBatchPreviewDialog";
-import { referenceBatchOutcome } from "./batch-outcome";
+import { hasReferenceOverflow, referenceBatchOutcome } from "./batch-outcome";
 import { AdScriptButton, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
 import { BatchFillButton, useBatchGap } from "@/components/canvas/episode-page/BatchFillButton";
 import { EpisodeHeaderActions } from "@/components/canvas/episode-page/EpisodeHeaderActions";
@@ -609,7 +609,13 @@ export function ReferenceVideoCanvas({
     [projectName, episode, uploading.ref, restoring.ref, durationSaving.ref],
   );
 
-  const durationGate = useReferenceDurationGate({ projectName, episode });
+  const editUnitReferences = useCallback((unitId: string) => {
+    confirmLeave(() => {
+      select(unitId);
+      setStackTab("editor");
+    }, { saveLabel: t("common:save_and_switch") });
+  }, [confirmLeave, select, t]);
+  const durationGate = useReferenceDurationGate({ projectName, episode, onEditReferences: editUnitReferences });
   /** 整批准入判定的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
   const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
   /** 提交前确认框的输入：本轮要预览的单元与画布摘掉的跳过项。 */
@@ -823,9 +829,9 @@ export function ReferenceVideoCanvas({
         if (tier.request_duration_seconds == null) continue;
         for (const unitId of tier.unit_ids) durationByUnit.set(unitId, tier.request_duration_seconds);
       }
-      const targets = Array.from(
-        new Set([...admission.units.map((u) => u.unit_id), ...durationByUnit.keys()]),
-      ).filter((unitId) => batchSkipReason(unitId) === null);
+      const refused = new Set(admission.units.filter(hasReferenceOverflow).map((unit) => unit.unit_id));
+      const targets = Array.from(new Set([...admission.units.map((unit) => unit.unit_id), ...durationByUnit.keys()]))
+        .filter((unitId) => !refused.has(unitId) && batchSkipReason(unitId) === null);
       if (targets.length === 0) {
         setBatchPlan(null);
         // 弹窗此刻已关闭，不给反馈的话界面只是静静地什么也没发生。
@@ -1429,6 +1435,7 @@ export function ReferenceVideoCanvas({
           unitIds={batchPlan.unitIds}
           skipped={batchPlan.skipped}
           onConfirm={submitAdmitted}
+          onEditReferences={editUnitReferences}
           onClose={() => setBatchPlan(null)}
         />
       )}

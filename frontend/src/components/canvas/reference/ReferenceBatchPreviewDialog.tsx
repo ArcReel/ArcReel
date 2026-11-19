@@ -13,8 +13,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { BatchAdmissionSummary } from "@/components/workflow/BatchAdmissionSummary";
 import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
+import { hasReferenceOverflow } from "./batch-outcome";
 import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import type { ReferenceBatchPreview } from "@/types";
@@ -40,6 +42,7 @@ export function ReferenceBatchPreviewDialog({
   unitIds,
   skipped,
   onConfirm,
+  onEditReferences,
   onClose,
 }: {
   projectName: string;
@@ -48,6 +51,7 @@ export function ReferenceBatchPreviewDialog({
   /** 画布在提交前摘掉的单元；服务端跳过的已有成片单元由预览补上。 */
   skipped: ReferenceBatchSkip[];
   onConfirm: (preview: ReferenceBatchPreview) => Promise<void>;
+  onEditReferences: (unitId: string) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -69,7 +73,9 @@ export function ReferenceBatchPreviewDialog({
 
   const blocked = preview?.decision === "blocked";
   const confirming = preview?.decision === "confirmation_required";
-  const targets = preview?.units ?? [];
+  const units = preview?.units ?? [];
+  const overflow = units.filter(hasReferenceOverflow);
+  const targets = units.filter((unit) => !overflow.includes(unit));
 
   const skippedIds = new Set(skipped.map((item) => item.unit_id));
   const allSkipped: ReferenceBatchSkip[] = [
@@ -101,7 +107,7 @@ export function ReferenceBatchPreviewDialog({
   } else {
     body = (
       <div className="flex flex-col gap-3" data-testid="reference-batch-preview">
-        {targets.length === 0 ? (
+        {units.length === 0 ? (
           <p>{t("reference_batch_preview_nothing")}</p>
         ) : blocked ? (
           // 受阻时逐个列出全部单元的缺口与被连带扣下的单元，名单已在其中。
@@ -119,8 +125,20 @@ export function ReferenceBatchPreviewDialog({
               </div>
             </div>
             {/* 档位分组只含待确认的单元，名单要单列：无需确认的单元同样会提交。 */}
-            {confirming && <BatchAdmissionSummary admission={preview} />}
+            {(confirming || overflow.length > 0) && <BatchAdmissionSummary admission={preview} />}
           </>
+        )}
+        {overflow.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {overflow.map(({ unit_id }) => (
+              <Button key={unit_id} variant="outline" size="sm" disabled={submitting} onClick={() => {
+                onClose();
+                onEditReferences(unit_id);
+              }}>
+                {t("reference_edit_unit_references", { id: unit_id })}
+              </Button>
+            ))}
+          </div>
         )}
         {allSkipped.length > 0 && (
           <div>

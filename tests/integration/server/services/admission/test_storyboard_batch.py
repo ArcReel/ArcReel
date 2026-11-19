@@ -160,6 +160,27 @@ async def test_image_batch_targets_segments_without_a_usable_storyboard(
     assert dict(plan.lanes) == {"E1S03": "i2i", "E1S06": "t2i"}
 
 
+async def test_image_batch_counts_planned_previous_storyboard_and_submits_other_shots(
+    board_projects, board_queue, monkeypatch
+):
+    async def zero_limit(*_args):
+        return (0, "zero")
+
+    monkeypatch.setattr("server.services.admission.storyboard_batch.reference_image_limit", zero_limit)
+    _write_episode(board_projects, [_segment("E1S01"), _segment("E1S02"), _segment("E1S03", segment_break=True)])
+    _, plan = await load_storyboard_image_batch_plan(
+        board_projects, board_queue, project_name=PROJECT, episode_id=1, user_id=DEFAULT_USER_ID
+    )
+    assert plan.new_task_ids == ["E1S01", "E1S03"]
+    problem = next(item.problem for item in plan.preflight.items if item.unit_id == "E1S02")
+    assert problem.code == "image_reference_images_exceeded"
+    assert problem.params == {"model": "zero", "limit": 0, "count": 1, "names": "E1S01", "previous_storyboard": "E1S01"}
+    _, enqueued, _ = await submit_storyboard_image_batch(
+        plan, project_name=PROJECT, queue=board_queue, source="webui", user_id=DEFAULT_USER_ID
+    )
+    assert [task.resource_id for task in enqueued] == ["E1S01", "E1S03"]
+
+
 async def test_image_batch_reports_a_segment_already_generating_and_submits_the_rest(
     board_projects: ProjectManager, board_queue: GenerationQueue
 ) -> None:

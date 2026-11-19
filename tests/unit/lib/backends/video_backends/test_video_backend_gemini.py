@@ -19,6 +19,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.backends.gemini_shared import GEMINI_DEFAULT_VIDEO_MODEL, VERTEX_SCOPES
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids, captured_vertex_credentials
 from tests.http_capture import PathPrefixRewrite, capture_http
 from tests.unit.lib.backends.write_cancel_gate import GatedWritePath, WriteGate, cancel_during_write
@@ -243,7 +244,7 @@ class TestGeminiVideoBackendGenerate:
     async def test_generate_image_to_video(self, gemini_backend, tmp_path):
         output = tmp_path / "out.mp4"
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"fake-png-data")
+        frame.write_bytes(image_bytes())
 
         mock_op = _make_done_operation(video_uri=None)
         gemini_backend._client.aio.models.generate_videos = AsyncMock(return_value=mock_op)
@@ -425,36 +426,6 @@ class TestGeminiRetryBehavior:
 
 
 # ── _prepare_image_param 测试 ─────────────────────────────
-
-
-class TestPrepareImageParam:
-    def test_none_returns_none(self, gemini_backend):
-        assert gemini_backend._prepare_image_param(None) is None
-
-    def test_path_reads_file(self, gemini_backend, tmp_path):
-        img_file = tmp_path / "test.jpg"
-        img_file.write_bytes(b"\xff\xd8\xff\xe0")  # JPEG magic
-
-        result = gemini_backend._prepare_image_param(img_file)
-        # 文件原始字节与按 .jpg 后缀映射的 mime 交给 types.Image
-        assert result is gemini_backend._types.Image.return_value
-        gemini_backend._types.Image.assert_called_once_with(image_bytes=b"\xff\xd8\xff\xe0", mime_type="image/jpeg")
-
-    def test_pil_image(self, gemini_backend):
-        from io import BytesIO
-
-        from PIL import Image as PILImage
-
-        img = PILImage.new("RGB", (10, 10), color="red")
-        result = gemini_backend._prepare_image_param(img)
-        # PIL 图像编码为 PNG 字节，mime 为 image/png
-        assert result is gemini_backend._types.Image.return_value
-        image_kwargs = gemini_backend._types.Image.call_args.kwargs
-        assert image_kwargs["mime_type"] == "image/png"
-        assert PILImage.open(BytesIO(image_kwargs["image_bytes"])).format == "PNG"
-
-
-# ── _download_video 测试 ──────────────────────────────────
 
 
 class TestDownloadVideo:
@@ -873,3 +844,17 @@ class TestGeminiSubmittedBaseUrlReplay:
         assert all(url.startswith("https://relay-a.example.com/") for url in layer.seen)
         # 回放实例的同步与异步通道各关一次；SDK 不关外部传入的客户端
         assert layer.closed == 2
+
+
+async def test_unreadable_start_frame_prevents_generation(tmp_path, gemini_backend):
+    from arcreel_market_core.video_backend_contract import VideoCapabilityError
+    from tests.http_capture import capture_http
+
+    backend = gemini_backend
+    with capture_http() as router, pytest.raises(VideoCapabilityError) as caught:
+        await backend.generate(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", start_image=tmp_path / "missing.png")
+        )
+    assert caught.value.code == "video_start_image_unreadable"
+    assert caught.value.params["name"] == "missing.png"
+    assert not router.calls

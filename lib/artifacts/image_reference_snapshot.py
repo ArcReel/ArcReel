@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lib.artifacts.visual_artifact_provenance import VisualReference, visual_file_digest
+from lib.backends.image_errors import ImageCapabilityError
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,24 +27,6 @@ class FrozenImageReferences:
     #: Snapshot path to original source, for durable usage-record locators.
     source_paths: Mapping[str, Path] = field(default_factory=dict)
 
-    def sent(self, count: int) -> FrozenImageReferences:
-        """只把前 ``count`` 张交给供应商的视图；快照目录与本对象共享，清理任一即可。
-
-        依据与 claim 仍按完整冻结集登记，供应商按图像后端上限只收前几张：两者读同一批
-        不可变字节，编号也只指认这份视图里的图。
-        """
-
-        if count < 0 or count > len(self.visual_references):
-            raise ValueError("sent reference count must stay within the frozen references")
-        if count == len(self.visual_references):
-            return self
-        return FrozenImageReferences(
-            (self.reference_images or [])[:count] or None,
-            self.visual_references[:count],
-            self._directory,
-            self.source_paths,
-        )
-
     def cleanup(self) -> None:
         """Remove snapshots after the awaited provider submission completes."""
 
@@ -54,6 +37,8 @@ class FrozenImageReferences:
 def freeze_image_references(
     reference_images: Sequence[object] | None,
     visual_references: Sequence[VisualReference],
+    *,
+    model: str | None = None,
 ) -> FrozenImageReferences:
     """Copy aligned provider/provenance inputs into one private task directory."""
 
@@ -65,12 +50,20 @@ def freeze_image_references(
         return FrozenImageReferences(None, (), None)
 
     sources: list[tuple[object, VisualReference, Path, Path, str]] = []
-    for reference, visual in zip(references, visuals, strict=True):
+    missing: list[str] = []
+    for index, (reference, visual) in enumerate(zip(references, visuals, strict=True), 1):
         source = _reference_path(reference)
-        resolved = source.resolve(strict=True)
-        if resolved != visual.path.resolve(strict=True):
-            raise ValueError("provider image reference and visual evidence identify different files")
-        sources.append((reference, visual, source, resolved, visual_file_digest(source)))
+        try:
+            resolved = source.resolve(strict=True)
+            if resolved != visual.path.resolve(strict=True):
+                raise ValueError("provider image reference and visual evidence identify different files")
+            sources.append((reference, visual, source, resolved, visual_file_digest(source)))
+        except OSError:
+            if model is None:
+                raise
+            missing.append(source.name or f"#{index}")
+    if missing:
+        raise ImageCapabilityError("image_reference_images_unreadable", model=model, names=", ".join(missing))
 
     directory = Path(tempfile.mkdtemp(prefix="arcreel-image-references-"))
     frozen_provider: list[object] = []

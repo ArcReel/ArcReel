@@ -11,7 +11,6 @@ from openai import AsyncOpenAI
 from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.aspect_size import VIDEO_TIER_SHORT_EDGE, parse_aspect_ratio, resolution_to_short_edge
 from arcreel_market_core.video_backend_contract import (
-    IMAGE_MIME_TYPES,
     TERMINAL_PROVIDER_STATUSES,
     ProviderJobStatus,
     ResumeExpiredError,
@@ -26,8 +25,10 @@ from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     faststart_video_artifact,
     poll_with_retry,
+    read_video_images,
     with_artifact_retry,
 )
+from lib.backends.input_limits import excess_image_names
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
@@ -239,6 +240,11 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if input_count > _INPUT_REFERENCE_SLOTS:
             raise VideoCapabilityError(
                 "video_reference_images_exceeded",
+                names=excess_image_names(
+                    _INPUT_REFERENCE_SLOTS,
+                    input_count,
+                    ([request.start_image] if request.start_image else []) + (request.reference_images or []),
+                ),
                 provider=self.name,
                 model=self._model,
                 limit=_INPUT_REFERENCE_SLOTS,
@@ -373,24 +379,10 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         )
 
 
-def _encode_start_image(image_path: Path) -> tuple[str, bytes, str]:
-    mime = IMAGE_MIME_TYPES.get(image_path.suffix.lower(), "image/png")
-    return (image_path.name, image_path.read_bytes(), mime)
-
-
 def _encode_input_references(request: VideoGenerationRequest, model: str) -> list[tuple[str, bytes, str]]:
-    """缺失的首帧 / 参考图不静默跳过：跳过后照常出片计费，却没用上用户给的图。"""
-    ref_paths: list[Path] = []
-    if request.start_image:
-        start_path = Path(request.start_image)
-        if not start_path.is_file():
-            raise VideoCapabilityError("video_start_image_unreadable", model=model, name=start_path.name)
-        ref_paths.append(start_path)
-    missing = [p.name for p in request.reference_images or [] if not p.is_file()]
-    if missing:
-        raise VideoCapabilityError("video_reference_images_unreadable", model=model, names=", ".join(missing))
-    ref_paths.extend(request.reference_images or [])
-    return [_encode_start_image(p) for p in ref_paths]
+    images = read_video_images(request, model)
+    paths = ([request.start_image] if request.start_image else []) + list(request.reference_images or [])
+    return [images[Path(p)].multipart() for p in paths]
 
 
 def _is_openai_not_found(exc: BaseException) -> bool:

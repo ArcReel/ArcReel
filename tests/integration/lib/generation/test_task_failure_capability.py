@@ -205,7 +205,7 @@ def _scan_raised_codes() -> tuple[dict[str, str], list[tuple[str, str]]]:
 # 仅允许「同文件内由 ``error_code=`` 字面量喂入的 helper」这一种形态——helper 自身扫不出，
 # 但它的每个调用方都被上面的 kwarg 采集覆盖。值是该 scope 允许的动态构造点数量：豁免是
 # 定额而非空白支票，函数内再多一个动态构造点就得重新自证，不会被顺带放行。
-_ALLOWED_DYNAMIC_SCOPES = {"lib/backends/video_backends/agnes.py::_encode_image": 2}
+_ALLOWED_DYNAMIC_SCOPES: dict[str, int] = {}
 
 
 @pytest.mark.parametrize(

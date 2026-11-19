@@ -20,6 +20,7 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import PROVIDER_AGNES
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -36,7 +37,7 @@ def _b64_response(b64: str) -> httpx.Response:
 
 def _make_ref(tmp_path: Path, name: str) -> ReferenceImage:
     p = tmp_path / name
-    p.write_bytes(b"\x89PNG\r\nfake")
+    p.write_bytes(image_bytes())
     return ReferenceImage(path=str(p))
 
 

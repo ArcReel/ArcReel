@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import ClassVar
 
 from lib.backends.ark_shared import create_ark_client
+from lib.backends.backend_runtime import read_reference_images
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
     ImageRequestFacts,
-    image_to_base64_data_uri,
     per_image_usage,
     save_image_from_response_item,
 )
@@ -122,10 +121,11 @@ class ArkImageBackend:
 
         # I2I: 读取参考图并转为 base64 data URI
         if request.reference_images:
-            refs = request.reference_images
-            # 读整张图做 base64 编码是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
-            data_uris = await asyncio.gather(
-                *[asyncio.to_thread(image_to_base64_data_uri, Path(ref.path)) for ref in refs]
+            data_uris = await asyncio.to_thread(
+                lambda: [
+                    image.data_uri()
+                    for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+                ]
             )
             reference_count = len(data_uris)
             # 单张传字符串，多张传列表

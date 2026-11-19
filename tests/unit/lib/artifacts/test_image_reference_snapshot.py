@@ -32,31 +32,16 @@ def test_freeze_image_references_rejects_a_group_changed_between_copies(tmp_path
         image_reference_snapshot.freeze_image_references(references, visuals)
 
 
-def test_sent_view_keeps_the_leading_references_and_shares_the_snapshot_directory(tmp_path):
-    first = tmp_path / "first.png"
-    second = tmp_path / "second.png"
-    first.write_bytes(b"first")
-    second.write_bytes(b"second")
-    visuals = [
-        VisualReference(path=first, role="asset_sheet", logical_type="character", logical_id="Alice"),
-        VisualReference(path=second, role="asset_sheet", logical_type="character", logical_id="Bob"),
-    ]
-    frozen = image_reference_snapshot.freeze_image_references([first, second], visuals)
-    try:
-        sent = frozen.sent(1)
-        assert sent.reference_images == [frozen.reference_images[0]]
-        assert sent.visual_references == frozen.visual_references[:1]
-        assert sent.source_paths[str(sent.reference_images[0])] == first
-        assert frozen.sent(2) is frozen
-        with pytest.raises(ValueError, match="within the frozen references"):
-            frozen.sent(3)
-        assert Path(sent.reference_images[0]).exists()
-    finally:
-        frozen.cleanup()
-    assert not Path(sent.reference_images[0]).exists()
+def test_freeze_reports_every_missing_reference_before_submission(tmp_path):
+    from lib.backends.image_errors import ImageCapabilityError
+
+    paths = [tmp_path / "one.png", tmp_path / "two.png"]
+    visuals = [VisualReference(path=p, role="asset_sheet", logical_type="prop", logical_id=p.stem) for p in paths]
+    with pytest.raises(ImageCapabilityError) as error:
+        image_reference_snapshot.freeze_image_references(paths, visuals, model="m")
+    assert error.value.params == {"model": "m", "names": "one.png, two.png"}
 
 
-def test_sent_view_of_an_empty_snapshot_has_no_provider_references():
+def test_empty_snapshot_has_no_provider_references():
     frozen = image_reference_snapshot.freeze_image_references(None, ())
-    assert frozen.sent(0) is frozen
     assert frozen.reference_images is None

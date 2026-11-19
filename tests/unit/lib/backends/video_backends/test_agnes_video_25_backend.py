@@ -18,6 +18,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
 )
 from lib.backends.video_backends.agnes import Agnes25VideoBackend
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -138,8 +139,8 @@ class TestV25RequestBodies:
         assert result.generate_audio is True
 
     async def test_keyframe_body_uses_data_uri_frames(self, tmp_path: Path):
-        start_bytes = b"start"
-        end_bytes = b"end"
+        start_bytes = image_bytes()
+        end_bytes = image_bytes(1)
         start = _write_image(tmp_path / "start.png", start_bytes)
         end = _write_image(tmp_path / "end.png", end_bytes)
 
@@ -161,8 +162,8 @@ class TestV25RequestBodies:
         assert "extra_body" not in body
 
     async def test_reference_body_uses_data_uri_list(self, tmp_path: Path):
-        first = _write_image(tmp_path / "r1.png", b"r1")
-        second = _write_image(tmp_path / "r2.png", b"r2")
+        first = _write_image(tmp_path / "r1.png", image_bytes(1))
+        second = _write_image(tmp_path / "r2.png", image_bytes(2))
 
         with _agnes_api() as routes:
             routes.submit.mock(return_value=_queued())
@@ -173,7 +174,7 @@ class TestV25RequestBodies:
 
         body = request_json(only_request(routes.submit))
         _assert_v25_core_body(body, mode="reference", seconds="4", size="720P")
-        assert body["images"] == [_data_uri(b"r1"), _data_uri(b"r2")]
+        assert body["images"] == [_data_uri(image_bytes(1)), _data_uri(image_bytes(2))]
         assert "first_frame" not in body
         assert "last_frame" not in body
         assert "image" not in body

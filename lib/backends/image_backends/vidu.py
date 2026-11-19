@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import ClassVar
 
 import httpx
@@ -17,6 +16,7 @@ from lib.backends.backend_runtime import (
     is_provider_rejection,
     poll_with_retry,
     provider_reason_summary,
+    read_reference_images,
     redact_provider_text,
 )
 from lib.backends.http_status_errors import provider_rejected_error, redacted_status_error
@@ -36,7 +36,6 @@ from lib.backends.vidu_shared import (
     create_vidu_client,
     extract_vidu_url,
     fetch_vidu_task,
-    image_to_data_uri,
     is_vidu_done,
     safe_body_for_log,
     vidu_failure_reason,
@@ -111,7 +110,12 @@ class ViduImageBackend:
             "prompt": prompt,
         }
         if refs:
-            body["images"] = await asyncio.to_thread(lambda: [image_to_data_uri(Path(ref.path)) for ref in refs])
+            body["images"] = await asyncio.to_thread(
+                lambda: [
+                    image.data_uri()
+                    for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+                ]
+            )
 
         # aspect_ratio 白名单兜底
         if request.aspect_ratio:

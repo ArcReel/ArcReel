@@ -152,7 +152,7 @@ function StepDetails({ step, onViewUnit, onRegenerate, onConfirmDurations, busy 
       />
       <TaskChips tasks={step.tasks} />
       <ProblemList problems={problemViews(t, step.problems, step.id)} />
-      {admission && admission.decision !== "admitted" && (
+      {admission && (admission.decision !== "admitted" || admission.units.some((unit) => !unit.admitted)) && (
         <div className="flex flex-col gap-1.5">
           <BatchAdmissionSummary admission={admission} className="text-xs" />
           {admission.decision === "confirmation_required" && onConfirmDurations && (

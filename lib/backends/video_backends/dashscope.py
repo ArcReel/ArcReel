@@ -40,6 +40,7 @@ from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_resumable_video,
     poll_with_retry,
+    read_video_images,
     recording_poll,
     resume_expiry_gate,
     should_retry_poll,
@@ -53,7 +54,6 @@ from lib.backends.dashscope_shared import (
     extract_billing_duration,
     extract_task_id,
     extract_video_url,
-    image_to_data_uri,
     is_dashscope_expired,
     is_dashscope_terminal,
     resolve_dashscope_api_key,
@@ -61,6 +61,7 @@ from lib.backends.dashscope_shared import (
 )
 from lib.backends.data_uri import file_to_data_uri
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.backends.input_limits import excess_image_names
 from lib.backends.providers import PROVIDER_DASHSCOPE
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
@@ -77,19 +78,6 @@ from lib.infra.retry import (
 logger = logging.getLogger(__name__)
 
 
-def _read_image_or_none(path: Path) -> str | None:
-    """读成 data URI；缺失（目录/非常规文件，含空串解析出的 "."）或 IO 失败（权限/并发删除）返回 None。"""
-    if not path.is_file():
-        return None
-    try:
-        return image_to_data_uri(path)
-    except OSError as exc:
-        logger.warning("DashScope 图片读取失败: %s (%s)", path, exc)
-        return None
-
-
-# wan2.7 的 reference_voice 接受 wav / mp3（官方《万相2.7-参考生视频》reference_voice 章节），
-# URL 形态与 media.url 同为 http / oss / base64 data URI。
 _REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mpeg"}
 
 
@@ -573,25 +561,10 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         media: list[dict] = []
         if request.start_image and not caps.first_frame:
             raise VideoCapabilityError("video_first_frame_unsupported", provider=self.name, model=self._model)
-        if request.start_image:
-            p = Path(request.start_image)
-            # fail-loud：声明了首帧图却缺失（目录/非常规文件，含空串解析出的 "."）或读取失败即中止，
-            # 不静默忽略 —— 否则用户拿到一个没用上首帧的结果却不知情。
-            uri = _read_image_or_none(p)
-            if uri is None:
-                raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=p.name)
-            media.append({"type": "first_frame", "url": uri})
         if request.end_image and not caps.last_frame:
             raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
-        if request.end_image:
-            p = Path(request.end_image)
-            uri = _read_image_or_none(p)
-            # 与首帧同为 fail-loud：声明了尾帧却读不到就中止，不静默产出一个没用上尾帧的结果。
-            if uri is None:
-                raise VideoCapabilityError("video_end_image_unreadable", model=self._model, name=p.name)
-            media.append({"type": "last_frame", "url": uri})
+        provided = request.reference_images or []
         reference_items: list[dict] = []
-        provided = [r for r in (request.reference_images or []) if r]
         # 参考生视频端点必须有参考图：不随用户放宽参考图上限转移到其他端点，也不因用户把上限
         # 收窄为 0 而放行无参考图的请求。
         if not provided and self.endpoint.reference_required:
@@ -599,28 +572,20 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         image_limit = reference_image_limit(caps)
         if not image_limit.accepts_input and provided:
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
-        if image_limit.accepts_input:
-            # fail-loud：任一声明的参考图缺失/不可读（is_file 不过或 read_bytes 抛 OSError）→ 报错列出文件名
-            # 中止。不静默退化为无参考/子集生成（会产出错误结果且照常计费），让用户感知到有图未被使用。
-            data_uris: list[str] = []
-            unreadable: list[str] = []
-            for r in provided:
-                p = Path(r)
-                uri = _read_image_or_none(p)
-                if uri is None:
-                    unreadable.append(p.name)
-                else:
-                    data_uris.append(uri)
-            if unreadable:
-                raise VideoCapabilityError(
-                    "video_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
-                )
-            bound = image_limit.clamp_bound()
-            if bound is not None and len(data_uris) > bound:
-                raise VideoCapabilityError(
-                    "video_reference_images_exceeded", model=self._model, limit=bound, count=len(data_uris)
-                )
-            reference_items = [{"type": "reference_image", "url": uri} for uri in data_uris]
+        bound = image_limit.clamp_bound()
+        if bound is not None and len(provided) > bound:
+            raise VideoCapabilityError(
+                "video_reference_images_exceeded",
+                names=excess_image_names(bound, len(provided), provided),
+                model=self.model,
+                limit=bound,
+                count=len(provided),
+            )
+        images = read_video_images(request, self.model)
+        for role, path in (("first_frame", request.start_image), ("last_frame", request.end_image)):
+            if path is not None:
+                media.append({"type": role, "url": images[Path(path)].data_uri()})
+        reference_items = [{"type": "reference_image", "url": images[Path(p)].data_uri()} for p in provided]
         # 音频判定在参考素材循环之外：无参考素材可挂时也要走一遍，否则 wan2.7-i2v 这类无参考图
         # 能力的 model 收到音频会静默丢弃、照常扣费。用户把 reference_audio_mode 放宽成 direct 时
         # 音频照常发出、由上游裁定；未放宽的能力档带音频在下方 fail-loud。两种挂载形态：per_image 的挂在参考素材项上（wan2.7-r2v），其余走 media

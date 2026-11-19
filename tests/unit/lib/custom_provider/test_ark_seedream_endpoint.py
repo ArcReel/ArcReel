@@ -31,7 +31,7 @@ from lib.db.models.custom_provider import CustomProvider
 from lib.generation.task_failure import parse_failure, render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
 from lib.i18n import _ as translate_message
-from tests.factories import make_display_names
+from tests.factories import image_bytes, make_display_names
 from tests.http_capture import capture_http, only_request, request_json
 
 
@@ -55,13 +55,13 @@ def _refs(tmp_path: Path, count: int) -> list[ReferenceImage]:
     refs = []
     for i in range(count):
         path = tmp_path / f"ref-{i}.png"
-        path.write_bytes(f"img-{i}".encode())
+        path.write_bytes(image_bytes(i))
         refs.append(ReferenceImage(path=str(path)))
     return refs
 
 
 def _data_uri(i: int) -> str:
-    return "data:image/png;base64," + base64.b64encode(f"img-{i}".encode()).decode()
+    return "data:image/png;base64," + base64.b64encode(image_bytes(i)).decode()
 
 
 def _backend(path_overrides=None):

@@ -18,6 +18,7 @@ export type StoryboardBatchSkipReason =
 export interface StoryboardBatchSkip {
   unit_id: string;
   reason: StoryboardBatchSkipReason;
+  problem?: { code: string; message: string; params: Record<string, unknown> };
 }
 
 export interface StoryboardBatchPreview {

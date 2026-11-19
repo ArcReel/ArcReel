@@ -29,6 +29,7 @@ from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
     ConfigResolver,
+    ImageBucketCapabilityError,
     NoAvailableProviderError,
     caps_generation_mode,
     video_bucket_for_generation_mode,
@@ -220,6 +221,7 @@ from server.draft_workflow import (
     PositiveEpisode,
     PromoteDraftRequest,
 )
+from server.services.admission.image_references import project_image_lane
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
 from server.services.admission.video_batch_admission import generation_action_for
 from server.services.project.episode_id_records import recorded_episode_ids_on
@@ -2213,6 +2215,39 @@ async def get_workflow_plan(
     return ToolOutcome(value=plan)
 
 
+async def get_image_capabilities(
+    _request: ToolRequest[NoArguments],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[dict[str, Any]]:
+    try:
+        project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
+        path = await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
+    except FileNotFoundError as exc:
+        return ToolOutcome(problem=ToolProblem("project_not_found", str(exc)))
+    result: dict[str, Any] = {}
+    for bucket in ("t2i", "i2i"):
+        try:
+            lane = await project_image_lane(scope.project_name, project, path, bucket)
+        except ImageBucketCapabilityError as exc:
+            result[bucket] = {
+                "provider": exc.provider_id,
+                "model": exc.model_id,
+                "max_reference_images": 0,
+                "problem": {"code": exc.code},
+            }
+        except Exception as exc:
+            result[bucket] = {"problem": {"code": "capabilities_unresolved", "reason": str(exc)}}
+        else:
+            result[bucket] = {
+                "provider": lane.provider_model.provider_id,
+                "model": lane.backend_model,
+                "max_reference_images": lane.max_reference_images,
+            }
+    return ToolOutcome(value=result)
+
+
 async def get_video_capabilities(
     _request: ToolRequest[NoArguments],
     scope: ProjectScope,
@@ -3958,6 +3993,7 @@ __all__ = [
     "generate_script_plan",
     "get_episode_script",
     "get_generation_batch",
+    "get_image_capabilities",
     "get_project_content",
     "get_prompt_preview",
     "get_script_plan_content",

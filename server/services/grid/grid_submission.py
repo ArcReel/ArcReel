@@ -29,6 +29,7 @@ from typing import Any
 
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
+from lib.backends.image_errors import ImageCapabilityError
 from lib.generation.batch_admission import batch_admission_withheld_problem
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_result import (
@@ -55,6 +56,7 @@ from lib.script.grid.prompt_builder import build_grid_prompt, pending_grid_promp
 from lib.script.script_models import get_generated_assets, resolve_content_mode
 from lib.script.script_skeleton import SkeletonRouteMismatchError, ensure_route_skeleton
 from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
+from server.services.admission.image_references import check_grid_image_limit, limit_problem, reference_image_limit
 from server.services.admission.reference_admission import reference_admission_problems
 
 GRID_IN_FLIGHT_STATUSES = ("pending", "generating")
@@ -193,6 +195,9 @@ class GridChunkPlan:
     grid: GridGeneration | None
     """同一组分镜的最新宫格记录；``IN_FLIGHT`` / ``UNSPLIT`` 时即被沿用或等待切分的那条。"""
 
+    reference_count: int | None = None
+    max_reference_images: int | None = None
+
     @property
     def submits(self) -> bool:
         return self.action in (GridChunkAction.GENERATE, GridChunkAction.IN_FLIGHT)
@@ -234,7 +239,7 @@ class GridSubmissionPlan:
 
     @property
     def refused(self) -> bool:
-        return bool(self.blocked)
+        return any(item.problem.code != "image_reference_images_exceeded" for item in self.blocked)
 
     @property
     def submitting(self) -> tuple[GridChunkPlan, ...]:
@@ -288,6 +293,7 @@ async def plan_grid_submission(
     ensure_grid_submittable(project, script)
     # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；判定与费用估算、前端预览同源
     allow_large_grid = await large_grid_gate(project)
+    image_limit = await reference_image_limit(project_path.name, project, project_path)
 
     def episode_records() -> list[GridGeneration]:
         # 规划不落任何文件：宫格目录尚不存在时即没有记录，不经 GridManager 建目录
@@ -316,6 +322,7 @@ async def plan_grid_submission(
             script=script,
             script_file=script_file,
             episode=episode,
+            image_limit=image_limit,
             allow_large_grid=allow_large_grid,
             records=records,
             in_flight=in_flight,
@@ -425,12 +432,16 @@ class _Planner:
         script: dict[str, Any],
         script_file: str,
         episode: int,
+        image_limit: tuple[int | None, str],
         allow_large_grid: bool,
         records: list[GridGeneration],
         in_flight: list[GridGeneration],
         abandoned: frozenset[str],
         section: GridSubmissionSection,
     ) -> None:
+        self._project_path = project_path
+        self._script = script
+        self._image_limit = image_limit
         self._project = project
         self._script_file = script_file
         self._episode = episode
@@ -468,8 +479,9 @@ class _Planner:
             selection = GenerationSelectionMode.MISSING_ONLY
             self._plan_missing_only(groups)
         withheld: list[BlockedScene] = []
-        if self._blocked:
-            problem = batch_admission_withheld_problem(list(dict.fromkeys(b.scene_id for b in self._blocked)))
+        holding = [b.scene_id for b in self._blocked if b.problem.code != "image_reference_images_exceeded"]
+        if holding:
+            problem = batch_admission_withheld_problem(list(dict.fromkeys(holding)))
             withheld = [
                 self._blocked_scene(scene_id, problem)
                 for chunk in self._chunks
@@ -571,6 +583,8 @@ class _Planner:
         report_ids: tuple[str, ...],
         action: GridChunkAction,
         grid: GridGeneration | None = None,
+        *,
+        reference_count: int | None = None,
     ) -> None:
         scene_ids = tuple(self._id(item) for item in chunk)
         self._chunks.append(
@@ -581,6 +595,8 @@ class _Planner:
                 report_ids=report_ids,
                 layout=layout,
                 action=action,
+                reference_count=reference_count,
+                max_reference_images=self._image_limit[0],
                 grid=grid if grid is not None else self._latest.get(scene_ids),
             )
         )
@@ -644,7 +660,18 @@ class _Planner:
             )
             self._block_chunk(index, chunk, layout, report_ids, problem)
             return
-        self._append(index, chunk, layout, report_ids, GridChunkAction.GENERATE)
+        try:
+            count = check_grid_image_limit(
+                self._project,
+                self._script,
+                self._project_path,
+                [str(item[self._id_field]) for item in chunk],
+                self._image_limit,
+            )
+        except ImageCapabilityError as exc:
+            self._block_chunk(index, chunk, layout, report_ids, limit_problem(exc))
+            return
+        self._append(index, chunk, layout, report_ids, GridChunkAction.GENERATE, reference_count=count)
 
     def _composite_splittable(self, grid: GridGeneration) -> bool:
         """联合图能否切分落格；与切分同一口径：产物清单登记在案且可用，盘上有图不算。"""

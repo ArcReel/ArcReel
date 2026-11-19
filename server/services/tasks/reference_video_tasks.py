@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from arcreel_market_core.video_backend_contract import VideoAudioFacts
+from arcreel_market_core.video_backend_contract import VideoAudioFacts, VideoCapabilityError
 from lib.artifacts.artifact_activation import (
     assert_current_artifact_input_claims_usable,
     resolve_usable_episode_script_input,
@@ -24,6 +24,7 @@ from lib.artifacts.visual_artifact_provenance import (
     project_basis_style_description,
 )
 from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource, reference_image_sources
+from lib.backends.backend_runtime import read_video_image_slots
 from lib.backends.provider_assets import ProviderInputImageRejectedError
 from lib.config.resolver import VideoGenerationType
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
@@ -126,21 +127,6 @@ def _render_unit_prompt(
         settings,
         request_references=request_references,
     )
-
-
-def _reference_limit_warning(*, provider_id: str, model: str, count: int, max_refs: int) -> dict[str, Any]:
-    """参考图片超限 warning；通用路径与商品优先裁剪共用。
-
-    参数带注册表供应商 ID（族别名供应商与 backend 名不同），界面才能按 ``(供应商, 模型)`` 查到
-    显示名；只带模型时，两个供应商下同一上游模型 ID 名称不同就无从区分。
-    """
-    if max_refs == 1:
-        # 生效上限为 1 即端点只接受一张参考图；文案只由上限决定，与型号名无关。
-        return {"key": "ref_single_ref_only", "params": {"provider": provider_id, "model": model}}
-    return {
-        "key": "ref_too_many_images",
-        "params": {"count": count, "provider": provider_id, "model": model, "max_count": max_refs},
-    }
 
 
 def default_unit_duration(request_facts: VideoRequestFactsResult, project: dict) -> int:
@@ -361,7 +347,9 @@ async def execute_reference_video_task(
     #    registry provider_id。桶按本 unit 解析后的实际参考图分流（docs/adr/0054）：
     #    有参考图 → r2v；无参考图的视频单元降级 → i2v，不送入拒空参考的 r2v 桶模型。
     #    判据取解析结果而非声明，与 backend 的实际请求同源。
-    execution_generation_type = reference_video_bucket(with_references=bool(hydration.available))
+    execution_generation_type = reference_video_bucket(
+        with_references=bool(hydration.available or hydration.unreadable_files)
+    )
     execution_payload = without_reference_video_execution_identity(payload)
     request_options = ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True)
     ctx = await resolve_generation_context(
@@ -378,9 +366,9 @@ async def execute_reference_video_task(
     model_name = video.backend_model
 
     # 3. 能力只读 lane 以实际 backend 身份（provider_id + backend.model）求得的视频请求事实：
-    #    自定义模型禁用回退时也直接命中活跃 model 的能力，不会「按旧模型裁剪、按新模型生成」。
+    #    自定义模型禁用回退时也直接命中活跃 model 的能力，不会「按旧模型校验、按新模型生成」。
     #    求值失败由公共投影转成结构化 blocker，不制造无约束申请。引用展开、实际文件存在、商品
-    #    优先裁剪、时长取档与音频冲突都由同一 projector 给出。payload 未声明请求选项时按直接
+    #    数量校验、时长取档与音频冲突都由同一 projector 给出。payload 未声明请求选项时按直接
     #    入队兼容语义视为已确认；显式选项保存在 reference_request_options 中。
     lane_request_facts = video.request_facts
     if lane_request_facts is None:
@@ -425,40 +413,32 @@ async def execute_reference_video_task(
     resolution = request_facts.resolution
 
     def _current_visual_basis_digest() -> str:
-        return reference_video_visual_basis_digest(
-            project=project,
-            project_path=project_path,
-            unit=unit,
-            request_assets=constrained_entries,
-            request_facts=request_facts,
-        )
+        try:
+            return reference_video_visual_basis_digest(
+                project=project,
+                project_path=project_path,
+                unit=unit,
+                request_assets=constrained_entries,
+                request_facts=request_facts,
+            )
+        except OSError as exc:
+            # 读取依据摘要会先于调用通道遇到无读取权限的原图。只将源图片的读取错误归到参考图。
+            if not exc.filename or Path(exc.filename) not in constrained_refs:
+                raise
+            read_video_image_slots(None, None, constrained_refs, model_name)
+            raise VideoCapabilityError(
+                "video_reference_images_unreadable", model=model_name, names=Path(exc.filename).name
+            ) from exc
 
     visual_basis_digest = await asyncio.to_thread(_current_visual_basis_digest)
     effective_duration = projection.request_duration.seconds
     warnings: list[dict[str, Any]] = []
-    for problem in projection.problems:
-        params = problem.parameters()
-        if problem.code == "reference_images_clamped":
-            count = params.get("count")
-            max_count = params.get("max_count")
-            if not isinstance(count, int) or isinstance(count, bool):
-                continue
-            if not isinstance(max_count, int) or isinstance(max_count, bool):
-                continue
-            warnings.append(
-                _reference_limit_warning(
-                    provider_id=actual_provider_id,
-                    model=model_name,
-                    count=count,
-                    max_refs=max_count,
-                )
-            )
     duration_warning = projection.request_duration.warning(provider=actual_provider_id, model=model_name)
     if duration_warning is not None:
         warnings.append(duration_warning)
 
     # 4. 所有创作类型共用三段论渲染。解析条目同时携带请求路径与逻辑主体；商品的一条逻辑
-    #    引用可展开成多张图片，裁剪后直接按条目传给渲染，保证 `图片N` 的 1-based 索引与
+    #    引用可展开成多张图片，按完整装配序直接传给渲染，保证 `图片N` 的 1-based 索引与
     #    调用通道实际收到的 reference_images 一一对应。商品高保真尾注也只点名仍实际发图的商品。
     #    prompt 始终从执行期新读取的剧本重组（脚本可变 + 队列 dedup 不看 payload，
     #    用入队快照会丢失入队后对视频单元正文的编辑）；prompt 只在入队边界用于结构校验，

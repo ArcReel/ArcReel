@@ -168,6 +168,10 @@ _ACTION_LABELS = {
 
 def _chunk_line(chunk: GridChunkPlan) -> str:
     record = f"；记录 {_record_label(chunk.grid)}" if chunk.grid is not None else ""
+    if chunk.reference_count is not None:
+        record += f"；参考图 {chunk.reference_count} 张"
+        if chunk.max_reference_images is not None:
+            record += f"（上限 {chunk.max_reference_images}）"
     ids = chunk.scene_ids
     return f"    · {chunk.layout.grid_size} {ids[0]}..{ids[-1]}：{_ACTION_LABELS[chunk.action]}{record}"
 
@@ -185,6 +189,7 @@ def _render_plan(plan: GridSubmissionPlan) -> str:
         lines.extend(_chunk_line(chunk) for chunk in chunks)
     if plan.refused:
         lines.append("按当前状态提交会整批受阻、不建任何任务：")
+    if plan.blocked:
         lines.extend(f"  - {b.scene_id}：{b.problem.code} {b.problem.detail}" for b in plan.blocked)
     if plan.unsplit:
         lines.append(_SPLIT_CONSENT_HINT + "：" + "、".join(c.grid.id for c in plan.unsplit if c.grid is not None))
@@ -334,15 +339,15 @@ def _commit_submission(
             builder.skip_unit(scene_id, artifact_key=key, artifact_path=path, artifact_status=status)
         log.append(f"宫格 {grid.id}（{'、'.join(chunk.report_ids)}）联合图已就绪、未切分，本次不重生成")
 
+    for blocked in (*plan.blocked, *plan.withheld):
+        builder.block(
+            blocked.scene_id,
+            problem=blocked.problem,
+            artifact_key=blocked.artifact_key,
+            artifact_path=blocked.artifact_path,
+            artifact_status=blocked.artifact_status,
+        )
     if plan.refused:
-        for blocked in (*plan.blocked, *plan.withheld):
-            builder.block(
-                blocked.scene_id,
-                problem=blocked.problem,
-                artifact_key=blocked.artifact_key,
-                artifact_path=blocked.artifact_path,
-                artifact_status=blocked.artifact_status,
-            )
         for chunk in plan.chunks:
             if chunk.action is not GridChunkAction.IN_FLIGHT or chunk.grid is None:
                 continue
@@ -432,7 +437,7 @@ def _collect_results(
     for result in [*successes, *failures]:
         grid_id = grid_id_by_result[result.resource_id]
         report_ids = report_ids_by_grid[grid_id]
-        # 联合图一次生成，参考图裁剪之类的 warning 属于整张宫格：逐格照录
+        # 联合图一次生成，任务的 warning 属于整张宫格：逐格照录
         grid_warnings = generation_warnings_from_result(result.result)
         if result.status != "succeeded":
             _fail_scenes(

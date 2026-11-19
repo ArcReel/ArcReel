@@ -415,7 +415,7 @@ class FormalImagePlan:
     before_submit: Callable[[], Awaitable[None]] | None = None
     #: 随新版本一起写进版本记录的额外元数据（如图片编辑的 ``source``）。
     version_metadata: Mapping[str, Any] = field(default_factory=dict)
-    #: 写进任务 ``result.warnings`` 的非阻断提示（如参考图超限裁剪）；为空时结果不带该键。
+    #: 写进任务 ``result.warnings`` 的非阻断提示；为空时结果不带该键。
     warnings: tuple[dict[str, Any], ...] = ()
 
 
@@ -512,7 +512,7 @@ async def run_asset_sheet_image_task(
 ) -> dict[str, Any]:
     """Run the submit/activate pipeline shared by every asset-sheet image task.
 
-    ``frozen`` 是资产图冻结后的生成输入：提示词、实发参考图、登记依据与裁剪提示同出一处；
+    ``frozen`` 是资产图冻结后的生成输入：提示词、实发参考图、登记依据与提示同出一处；
     ``context`` 是按同一份参考图解析出的 image lane，实发张数按它的上限裁剪过。
     """
 
