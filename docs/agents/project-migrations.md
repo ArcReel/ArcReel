@@ -9,6 +9,12 @@
 3. **在旧形态样本上跑到用户口径。** 除迁移器本身的断言外，至少一条用例用 `WorkflowStateService.get_project_summary` / `get_status` 或演示读模型断言用户看到的结果（计数、状态、预览可用）。完成判据：`tests/integration/lib/project/project_migrations/` 下的用例覆盖了「≤ 上一版实际安装」到当前版本的整条链（`migrate_project_dir`），不只单步。
 4. **同步面向用户的迁移说明。** `website/docs/ops/deployment.md` 的「项目结构迁移」一节描述备份、报告与重试行为；行为变了就改它。
 
+## 媒体字段保真检查
+
+[媒体字段保真用例](../../tests/integration/server/services/project/test_legacy_media_preservation.py)对每个已登记的旧形态各跑一次完整原地迁移和带信封的 ZIP 导入。检查按资产、集、条目与参考图序号逐字段读取资产图、原图、参考音频及剧本条目的媒体文件。可读字段前后的字节必须相同，读不到文件的字段必须保持不可读。失败信息列出具体字段位置。
+
+新增旧形态时，在 [旧项目样本](../../tests/legacy_project_shapes.py)中编写或复用目录构造器，并把构造器和参数登记到 `LEGACY_PROJECT_SHAPES`。两条入口会自动纳入登记项。样本里的媒体内容应能区分各字段，涉及缺失引用时应包含能触发错误补位的文件布局。
+
 ## 已知旧形态
 
 | 形态 | 出现版本 | 现在的期望 | 处理 |
