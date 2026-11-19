@@ -1,7 +1,5 @@
 # 模型映射
 
-按模型 ID 前缀选择 Harness。`gpt-*` 用 Codex，`claude-*` 用 Claude Code，`gemini-*` 用 Antigravity CLI（`agy`）。启动 `agy` 时，将模型 ID 和 effort 拼成 `--model` 的值，例如 Neon 的 `high` 对应 `--model gemini-4-neon-high`。
-
 ## Category
 
 | Category | 模型 | Effort | Fallback |
