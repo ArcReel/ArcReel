@@ -1,6 +1,6 @@
 ---
 name: model-routing
-description: 委派任务时选模型。为 subagent 或 teammate 选 Category、模型与 effort，或为方案与实现选跨 Harness reviewer 时使用。
+description: 启动 subagent 或向其他 agent 分派任务前使用，用于选择执行任务的 Harness 和模型。
 ---
 
 # 模型路由
@@ -18,11 +18,11 @@ description: 委派任务时选模型。为 subagent 或 teammate 选 Category�
 | `deep-high` | 目标与验收标准明确的深度任务，但关键决策无法仅凭证据确定 |
 | `ultrabrain` | 目标明确的极难逻辑推理与复杂算法问题 |
 | `architect` | 系统级架构设计与技术权衡，只提供方案、不负责实现 |
-| `visual-engineering` | 视觉设计、UI/UX、前端、样式、动画和设计系统 |
+| `visual-engineering` | 视觉设计、UI/UX、样式、动画和设计系统，以及以实际渲染或交互效果为主要验收项的前端任务 |
 | `artistry` | 创造性、非常规的问题解决 |
 | `writing` | 文档、技术写作及其他文字内容 |
 
-`deep-high` 与 `ultrabrain` 路由到 GPT。GPT 倾向过度遵循，目标模糊时容易过度设计、过度防御、过度测试，所以这两档以目标明确为前提，`deep-low` 沿用同一前提；目标或边界尚需判断的复杂任务选 `unspecified-high`。
+`deep-low`、`deep-high` 和 `ultrabrain` 以目标与验收标准明确为前提。目标或边界尚需判断的复杂任务选 `unspecified-high`。
 
 ## Review
 
