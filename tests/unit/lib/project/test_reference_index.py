@@ -230,3 +230,47 @@ def test_corrupt_project_data_fails_instead_of_reporting_unreferenced(indexed_pr
 
     with pytest.raises(json.JSONDecodeError):
         ReferenceIndex.build(indexed_project_dir)
+
+
+def test_a_long_voice_style_does_not_break_the_index(tmp_path: Path) -> None:
+    # voice_style 是配音风格描述，不是路径；超过文件名长度上限（255 字节）时 stat 报 ENAMETOOLONG
+    voice = "A warm Chicago American female voice, low-middle register with a soft husky edge, " * 4
+    root = tmp_path / "demo"
+    _write(
+        root / "project.json",
+        {
+            "title": "demo",
+            "characters": {"Sophia": {"character_sheet": "characters/Sophia.png", "voice_style": voice}},
+            "episodes": [],
+        },
+    )
+    _write(root / "characters" / "Sophia.png", "png")
+
+    index = ReferenceIndex.build(root)
+
+    assert index.role_of("characters/Sophia.png") is FileRole.REFERENCED
+
+
+def test_other_io_errors_while_canonicalizing_still_fail_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 只放过名称过长；I/O 错误时不能把在用文件按项目记录的拼写入表、让它看起来未被引用
+    import errno
+
+    root = tmp_path / "demo"
+    _write(root / "project.json", {"title": "demo", "characters": {"A": {"character_sheet": "characters/A.png"}}})
+    _write(root / "characters" / "A.png", "png")
+
+    sheet = root / "characters" / "A.png"
+    original_is_symlink = Path.is_symlink
+
+    def _io_error_on_the_sheet(self: Path) -> bool:
+        # 只让 _canonical 解析这张资产图时出错：读 project.json 等其它路径照常
+        if self == sheet:
+            raise OSError(errno.EIO, "I/O error", str(self))
+        return original_is_symlink(self)
+
+    monkeypatch.setattr(Path, "is_symlink", _io_error_on_the_sheet)
+    with pytest.raises(OSError, match="I/O error") as raised:
+        ReferenceIndex.build(root)
+    assert raised.value.errno == errno.EIO

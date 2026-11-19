@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -274,6 +275,13 @@ class ReferenceIndex:
                 parts.append(actual.name)
                 directory = actual
         except (FileNotFoundError, NotADirectoryError):
+            return rel
+        except OSError as exc:
+            # 资产条目的字符串字段里也有配音风格这类长文本，不是路径：超过文件名长度上限时 stat 报
+            # ENAMETOOLONG，按原样记下。其它 I/O 错误照常抛出——吞掉的话在用文件会以项目记录的拼写入表，
+            # 按磁盘拼写查询时被判为未引用。
+            if exc.errno != errno.ENAMETOOLONG:
+                raise
             return rel
         return "/".join(parts)
 
