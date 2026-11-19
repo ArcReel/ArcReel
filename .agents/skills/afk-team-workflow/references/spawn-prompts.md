@@ -1,6 +1,6 @@
 # 委派 prompt 模板
 
-所有路径都传绝对路径。Herdr 委派另按 [herdr-teammate.md](herdr-teammate.md) 附加寻址上下文。
+所有路径都传绝对路径。
 
 ## Implementer
 

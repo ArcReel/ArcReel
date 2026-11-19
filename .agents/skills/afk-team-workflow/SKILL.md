@@ -31,7 +31,7 @@ disable-model-invocation: true
 
 ## 2. 执行 task graph
 
-组建团队并按 [spawn-prompts.md](references/spawn-prompts.md) 委派。`HERDR_ENV=1` 时先读 [herdr-teammate.md](references/herdr-teammate.md)；否则使用当前 harness 的原生团队能力。
+使用当前环境的原生团队能力，按 [spawn-prompts.md](references/spawn-prompts.md) 委派。
 
 各 stage 严格串行，前一个合并后下一个才从最新 `origin/main` 开始。每个 stage 依次经过集成、集成审查、PR 三个阶段，远端 stage branch 在每个阶段只有一个写者：
 
@@ -94,6 +94,6 @@ stage branch 的历史形状固定为：每个 issue 一个 commit，其后至�
 
 1. **部署冒烟**：全部 stage 合并后，取本批最后一个触发 `docker-edge` 构建的合并 commit 为目标，由新的 qa-verifier 以冒烟模式在部署实例上验收全批跨 stage 的主路径与各 stage 的「待部署验证」项，费用以授权预算为上限。冒烟失败项按 escalation.md「范围外的真缺陷」开 issue 并附证据摘要，不开启修复轮。本批没有合并触发镜像构建时跳过冒烟，待部署验证项转为无法验证。
 2. **收尾报告**：按上表发布一条消息，按已合并 stage 组织，列出 PR、QA 与冒烟的结论计数、留 open 的 issue、暂停或跳过项。其后是人工清单：各 `results.md` 中当前结论仍为无法验证的项各附原因（待部署验证项以冒烟结论为准），以及需要用户裁决的事项，后者按 escalation.md「怎么问」的格式合成。两者都为空时省略人工清单。
-3. 移除已认领 issue 的 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
+3. 移除已认领 issue 的 assignee，停止本批 agents，清理本批创建的 worktrees、本地 branches 和其他运行资源，最后 append `closed` 账本行。
 
 收尾汇报中给出 `batch-id`、收尾报告链接、账本、handoff 与证据目录路径，并保留这些批次记录。用户此后对这些事项的裁决仍以 `decision` 追加到本批账本。
