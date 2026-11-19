@@ -726,7 +726,7 @@ class ReferenceUnitRequestProjector:
                         blocking=True,
                         count=len(available),
                         limit=limit,
-                        names=", ".join(asset.reference.name for asset in available[limit:]),
+                        names=", ".join(dict.fromkeys(asset.reference.name for asset in available[limit:])),
                         provider=facts.provider_id,
                         model=facts.model_id,
                     )

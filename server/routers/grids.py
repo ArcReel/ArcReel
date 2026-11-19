@@ -190,7 +190,9 @@ async def generate_grid(
         }
         for item in plan.blocked
     ]
-    message = _submission_message(_t, submitted=len(grid_ids), unsplit=len(unsplit_grid_ids))
+    messages = [f"{item['scene_id']} · {item['message']}" for item in blocked]
+    if grid_ids or unsplit_grid_ids or not blocked:
+        messages.insert(0, _submission_message(_t, submitted=len(grid_ids), unsplit=len(unsplit_grid_ids)))
     return GenerateGridResponse(
         blocked=blocked,
         success=bool(grid_ids) or not blocked,
@@ -199,7 +201,7 @@ async def generate_grid(
         task_ids_by_grid=task_ids_by_grid,
         unsplit_grid_ids=unsplit_grid_ids,
         deduped=bool(task_ids) and all(deduped_flags),
-        message="\n".join([message, *(f"{item['scene_id']} · {item['message']}" for item in blocked)]),
+        message="\n".join(messages),
     )
 
 

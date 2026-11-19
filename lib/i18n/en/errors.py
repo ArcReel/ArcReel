@@ -682,7 +682,7 @@ MESSAGES = {
     "image_resolution_not_supported": "Model {model} does not support {resolution} resolution (only {supported}); choose a supported resolution",
     "image_aspect_ratio_not_supported": "Model {model} does not support aspect ratio {aspect_ratio} (only {supported}); choose a supported aspect ratio",
     "image_reference_images_exceeded": "Model {model} accepts {limit} reference images. This request has {count}. Excess images: {names}. Reduce assets or mentions, split the shot, or choose a model with a higher limit.",
-    "previous_storyboard_limit_hint": "Set a segment break before this shot to omit the previous storyboard {previous_storyboard}.",
+    "previous_storyboard_limit_hint": "Set this shot as a chapter break to stop referencing the previous storyboard {previous_storyboard}.",
     # Image Edit
     "image_edit_resource_type_invalid": "Resource type '{resource_type}' does not support image editing",
     "image_edit_instruction_required": "Edit instruction must not be empty",

@@ -851,6 +851,8 @@ async def test_unreadable_start_frame_prevents_generation(tmp_path, gemini_backe
     from tests.http_capture import capture_http
 
     backend = gemini_backend
+    submit = AsyncMock()
+    backend._client.aio.models.generate_videos = submit
     with capture_http() as router, pytest.raises(VideoCapabilityError) as caught:
         await backend.generate(
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", start_image=tmp_path / "missing.png")
@@ -858,3 +860,4 @@ async def test_unreadable_start_frame_prevents_generation(tmp_path, gemini_backe
     assert caught.value.code == "video_start_image_unreadable"
     assert caught.value.params["name"] == "missing.png"
     assert not router.calls
+    submit.assert_not_awaited()

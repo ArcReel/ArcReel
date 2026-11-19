@@ -302,7 +302,7 @@ describe("UsageRecordsSection detail", () => {
     {
       code: "image_reference_images_exceeded",
       params: { model: "m", limit: 1, count: 2, names: "E1S01", previous_storyboard: "E1S01" },
-      message: "模型 m 最多接受 1 张参考图，本次共 2 张。超出的参考图：E1S01。请减少出场资产或 @ 引用、拆分镜头，或换用上限更高的模型。 可在当前分镜前设置分段，移除上一分镜图 E1S01。",
+      message: "模型 m 最多接受 1 张参考图，本次共 2 张。超出的参考图：E1S01。请减少出场资产或 @ 引用、拆分镜头，或换用上限更高的模型。 将当前分镜设为章节切分点，即可不再参考上一分镜图 E1S01。",
     },
     {
       code: "video_duration_not_supported",

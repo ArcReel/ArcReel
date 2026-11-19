@@ -78,15 +78,17 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 ### 整批准入判定与档位确认
 
-参考生视频批次逐项剔除参考图超限的单元，报价单将它们列为 `blocked` 并附调整原因。剩余目标共同接受准入检查。
-`admitted` 时通过的目标入队，`blocked` 或 `confirmation_required` 时等待调整或确认。Web 与 Agent 使用相同规则。
+视频整批请求是**全有或全无**：准入 `admitted` 时整批入队，`blocked` 或 `confirmation_required` 时
+**一个任务都不入队**。Web 与 Agent 走同一套准入与同一套请求选择语义，没有 Agent 专属的宽松通道。
+唯一例外是参考生视频单元的参考图超限（`video_reference_images_exceeded`）：该单元单独列为 `blocked`
+并附调整原因，不连带其余目标；剩下的目标仍按全有或全无判定。
 
 参考生视频按视频单元的引用状态选择生效档位，把编排时长投影到模型支持的申请档位。申请档位不同于编排时长时
 预检返回 `reference_duration_confirmation_required`，逐档位向用户说明涉及的视频单元、编排秒数、申请秒数
-与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**报价单里 outcome 为 generate 的目标集合仍作为一批重发**：
+与变长/变短；确认后经 `confirmed_request_durations`（按 unit_id 记档位）让**原目标集合仍作为一批重发**（参考图超限的单元会再次被单独剔除）：
 
 ```text
-mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "selected", "ids": ["E1U1"]},
+mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "episode", "episode_id": 1},
                                "confirmed_request_durations": {"E1U1": 8}})
 ```
 
@@ -96,7 +98,7 @@ mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "
 
 被拒时逐视频单元报告 `unit_id`、`problem.code`、原因与 `problem.action`；通过的视频单元带
 `generation_batch_admission_withheld`，其 `blocked_unit_ids` 指出是被谁挡住的，如实说明这层因果。
-遇到 `generation_batch_admission_withheld`，先处理对应的阻断原因，再提交报价中可生成的目标。
+**不要把整批拆小去先跑通过的那一半**——那既绕开全有或全无，也会重复提交已经付过费的视频单元。
 能力无法解析时把工具错误作为 blocker，先修复模型能力声明。
 
 ### 结果怎么读、怎么说

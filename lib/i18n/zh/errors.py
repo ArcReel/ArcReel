@@ -621,7 +621,7 @@ MESSAGES = {
     "image_resolution_not_supported": "模型 {model} 不支持 {resolution} 分辨率（仅支持 {supported}）；请选择支持的分辨率",
     "image_aspect_ratio_not_supported": "模型 {model} 不支持 {aspect_ratio} 比例（仅支持 {supported}）；请选择支持的比例",
     "image_reference_images_exceeded": "模型 {model} 最多接受 {limit} 张参考图，本次共 {count} 张。超出的参考图：{names}。请减少出场资产或 @ 引用、拆分镜头，或换用上限更高的模型。",
-    "previous_storyboard_limit_hint": "可在当前分镜前设置分段，移除上一分镜图 {previous_storyboard}。",
+    "previous_storyboard_limit_hint": "将当前分镜设为章节切分点，即可不再参考上一分镜图 {previous_storyboard}。",
     # Image Edit
     "image_edit_resource_type_invalid": "资源类型「{resource_type}」不支持图片编辑",
     "image_edit_instruction_required": "编辑指令不能为空",

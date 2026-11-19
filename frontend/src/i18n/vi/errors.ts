@@ -39,7 +39,7 @@ export default {
   "image_capability_missing_t2i": "{{provider}}/{{model}} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
   "image_dashscope_4k_t2i_only": "Mô hình {{model}}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",
   "image_reference_images_exceeded": "Mô hình {{model}} nhận tối đa {{limit}} ảnh tham chiếu. Yêu cầu có {{count}} ảnh. Ảnh vượt giới hạn: {{names}}. Hãy giảm số tài sản hoặc lượt nhắc, chia cảnh hoặc chọn mô hình có giới hạn cao hơn.",
-  "previous_storyboard_limit_hint": "Để bỏ ảnh phân cảnh trước {{previous_storyboard}}, hãy bắt đầu phân đoạn mới ở cảnh này.",
+  "previous_storyboard_limit_hint": "Để bỏ ảnh phân cảnh trước {{previous_storyboard}}, hãy đặt cảnh này làm điểm ngắt chương.",
   "image_reference_images_unreadable": "Mô hình {{model}} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {{names}}; hãy kiểm tra đường dẫn ảnh tham chiếu",
   "image_resolution_not_supported": "Mô hình {{model}} không hỗ trợ độ phân giải {{resolution}} (chỉ hỗ trợ {{supported}}); hãy chọn một độ phân giải được hỗ trợ",
   "image_aspect_ratio_not_supported": "Mô hình {{model}} không hỗ trợ tỷ lệ khung hình {{aspect_ratio}} (chỉ hỗ trợ {{supported}}); hãy chọn một tỷ lệ được hỗ trợ",

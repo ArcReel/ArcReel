@@ -95,7 +95,8 @@ def require_reference_image_limit(
         model=model,
         count=len(references),
         limit=max_reference_images,
-        names=", ".join(names),
+        # 一个资产可能贡献多张图片，超出的参考按资产名列一次。
+        names=", ".join(dict.fromkeys(names)),
         **previous,
     )
 

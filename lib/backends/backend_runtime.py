@@ -15,8 +15,6 @@ import logging
 import re
 import subprocess
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
@@ -40,6 +38,7 @@ from lib.backends.http_status_errors import (
     redacted_status_error,
 )
 from lib.backends.image_errors import ImageCapabilityError
+from lib.backends.input_limits import reference_image_name
 from lib.infra.async_thread import run_noninterruptible_async
 from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable
 from lib.infra.logging_utils import redact_diagnostic_text, sanitize_diagnostic_payload
@@ -911,19 +910,6 @@ async def download_resumable_video(url: str, output_path: Path, *, label: str) -
         raise ArtifactDownloadError(detail=str(exc)) from exc
 
 
-_reference_sources: ContextVar[Mapping[Path, Path] | None] = ContextVar("reference_image_sources", default=None)
-
-
-@contextmanager
-def reference_image_sources(paths: Mapping[Path, Path]):
-    """将本次调用的冻结／压缩路径还原为作者认识的来源名，多个并发请求各自隔离。"""
-    token = _reference_sources.set(paths)
-    try:
-        yield
-    finally:
-        _reference_sources.reset(token)
-
-
 @dataclass(frozen=True)
 class ReferenceImageData:
     path: Path
@@ -1002,7 +988,7 @@ def _read_image_slots(
             FfmpegUnavailableError,
             subprocess.SubprocessError,
         ):
-            failed.setdefault(code, []).append((_reference_sources.get() or {}).get(path, path).name or f"#{index}")
+            failed.setdefault(code, []).append(reference_image_name(path) or f"#{index}")
     if failed:
         code = next(iter(failed))
         names = ", ".join(name for group in failed.values() for name in group)

@@ -88,8 +88,9 @@ interface ShotDetailProps {
   episode?: number;
   /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
   scriptFile?: string;
-  /** Total shot count for "1/N" indicator */
+  /** 上一分镜的当前分镜图路径；存在且未设章节切分点时，标出本分镜会参考它 */
   previousStoryboardPath?: string | null;
+  /** Total shot count for "1/N" indicator */
   selectedIndex: number;
   totalCount: number;
   onPrev: () => void;

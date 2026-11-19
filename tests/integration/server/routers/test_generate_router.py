@@ -13,7 +13,8 @@ from server.error_handlers import register_error_handlers
 from server.routers import generate
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_display_names
-from tests.fakes import use_generation_queue, use_project_manager
+from tests.fakes import use_generation_queue, use_image_admission_context, use_project_manager
+from tests.integration.server.services.tasks.generation_tasks_support import FakeGenerator, fake_resolve_ctx
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -239,6 +240,36 @@ class TestGenerateRouter:
             assert call["media_type"] == "image"
             assert call["resource_id"] == "E1S02"
             assert call["source"] == "webui"
+
+    @pytest.mark.parametrize(
+        ("route", "payload", "excess"),
+        [
+            ("storyboard/E1S01", {"script_file": "episode_1.json", "prompt": "雨夜"}, "Alice"),
+            ("product/保温杯", None, "保温杯"),
+            ("character/Alice/derivatives/winter", None, "Alice"),
+        ],
+    )
+    def test_single_image_generation_exposes_limit_diagnostic(self, tmp_path, monkeypatch, route, payload, excess):
+        fake_pm = _FakePM(_prepare_files(tmp_path))
+        fake_pm.project["characters"]["Alice"]["derivatives"] = {"winter": {"description": "Winter coat"}}
+        fake_pm.script["segments"][0]["characters_in_segment"] = ["Alice"]
+        use_image_admission_context(
+            monkeypatch,
+            fake_resolve_ctx(FakeGenerator(), image_max_reference_images=0),
+        )
+        fake_queue = _FakeQueue()
+        with _client(monkeypatch, fake_pm, fake_queue) as client:
+            result = client.post(f"/api/v1/projects/demo/generate/{route}", json=payload)
+
+        assert result.status_code == 400, result.text
+        assert result.json()["detail"] == i18n_message(
+            "image_reference_images_exceeded", model="GPT Image 2", count=1, limit=0, names=excess
+        )
+        assert result.json()["diagnostic"] == {
+            "code": "image_reference_images_exceeded",
+            "params": {"model": "gpt-image-2", "count": 1, "limit": 0, "names": excess},
+        }
+        assert fake_queue.calls == []
 
     def test_storyboard_refuses_a_pending_image_prompt_before_enqueue(self, tmp_path, monkeypatch):
         """正式剧本里该分镜的 image_prompt 尚未填写（None）：单条端点 409，不入队。"""

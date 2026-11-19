@@ -1189,6 +1189,11 @@ def use_generation_context(monkeypatch, resolve: Callable[..., Any]) -> None:
     monkeypatch.setattr("server.services.tasks.reference_video_tasks.resolve_generation_context", _resolve)
 
 
+def use_image_admission_context(monkeypatch, resolve: Callable[..., Any]) -> None:
+    """图片预览和入队预检解析图片 lane 时，用同一个 *resolve* 替身。"""
+    monkeypatch.setattr("server.services.admission.image_references.resolve_generation_context", resolve)
+
+
 def use_video_thumbnail_extractor(monkeypatch, extract: Callable[..., Any]) -> None:
     """视频任务与参考视频任务的缩略图抽帧都换成 *extract*，用例不调真实 ffmpeg。"""
     monkeypatch.setattr("server.services.tasks.generation_tasks.extract_video_thumbnail", extract)

@@ -2237,8 +2237,13 @@ async def get_image_capabilities(
                 "max_reference_images": 0,
                 "problem": {"code": exc.code},
             }
+        except NoAvailableProviderError as exc:
+            result[bucket] = {"problem": no_available_provider_problem(exc).model_dump()}
+        except ModelNotInCatalogError as exc:
+            result[bucket] = {"problem": model_not_in_catalog_problem(exc).model_dump()}
         except Exception as exc:
-            result[bucket] = {"problem": {"code": "capabilities_unresolved", "reason": str(exc)}}
+            # 其余解析失败只影响这一个桶，另一桶的能力照常返回。
+            result[bucket] = {"problem": {"code": "capabilities_unresolved", "detail": str(exc)}}
         else:
             result[bucket] = {
                 "provider": lane.provider_model.provider_id,

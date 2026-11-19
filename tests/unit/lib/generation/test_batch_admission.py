@@ -104,6 +104,47 @@ def test_a_real_blocker_outranks_pending_consent():
     assert admission.decision is BatchAdmissionDecision.BLOCKED
 
 
+_OVERFLOW = GenerationProblem(
+    code="video_reference_images_exceeded",
+    detail="参考图 5 张，上限 4 张",
+    action=GenerationAction.FIX_INPUT,
+)
+_UNUSABLE = GenerationProblem(
+    code=GenerationProblemCode.UNIT_INPUT_UNUSABLE,
+    detail="缺分镜图",
+    action=GenerationAction.GENERATE_DEPENDENCY,
+)
+
+
+def test_a_reference_overflow_withdraws_only_its_own_unit():
+    admission = _admission(UnitAdmissionTicket(unit_id="E1U1"), UnitAdmissionTicket("E1U2", problems=(_OVERFLOW,)))
+
+    assert admission.decision is BatchAdmissionDecision.ADMITTED
+    assert admission.holding_unit_ids == ()
+
+
+def test_a_withdrawn_unit_needs_no_consent_of_its_own():
+    """超限单元不会入队，它的档位确认不再要求用户拍板。"""
+
+    confirmation = _confirmation_ticket("E1U2", request=8)
+    withdrawn = UnitAdmissionTicket("E1U2", problems=(_OVERFLOW, *confirmation.problems))
+    admission = _admission(UnitAdmissionTicket(unit_id="E1U1"), withdrawn)
+
+    assert admission.decision is BatchAdmissionDecision.ADMITTED
+    assert admission.confirmation_tiers() == ()
+
+
+def test_an_overflowing_unit_with_another_gap_still_holds_the_batch():
+    """超限只剔除本单元；同一单元的其他缺口仍按全有或全无扣下整批。"""
+
+    admission = _admission(
+        UnitAdmissionTicket(unit_id="E1U1"), UnitAdmissionTicket("E1U2", problems=(_OVERFLOW, _UNUSABLE))
+    )
+
+    assert admission.decision is BatchAdmissionDecision.BLOCKED
+    assert admission.holding_unit_ids == ("E1U2",)
+
+
 def test_confirmation_tiers_group_by_request_duration_with_totals():
     admission = _admission(
         _confirmation_ticket("E1U1", request=8, amount=0.8),

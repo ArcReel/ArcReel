@@ -22,7 +22,7 @@ import tempfile
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -252,11 +252,13 @@ async def _read_assets(form: FormData) -> EndpointTestAssets:
     if sum(1 for _name, item in form.multi_items() if isinstance(item, UploadFile)) > MAX_ASSET_FILES:
         raise BadRequestError("endpoint_test_too_many_assets", limit=MAX_ASSET_FILES)
     by_source: dict[str, AssetData | Sequence[AssetData] | None] = {}
+    filenames: dict[str, list[str]] = {}
     for source, is_list in ASSET_SOURCES.items():
         uploads = [item for item in form.getlist(source) if isinstance(item, UploadFile)]
         loaded = [await _read_upload(upload) for upload in uploads]
         by_source[source] = loaded if is_list else (loaded[0] if loaded else None)
-    return EndpointTestAssets(by_source=by_source)
+        filenames[source] = [PureWindowsPath(upload.filename or "").name for upload in uploads]
+    return EndpointTestAssets(by_source=by_source, filenames=filenames)
 
 
 async def _read_upload(upload: UploadFile) -> AssetData:
@@ -456,11 +458,12 @@ async def start_trial_run(
     # 临时目录在线程里建好就登记进来：取消落在落素材那一程时返回值会丢，靠它回收。
     staged: list[Path] = []
     try:
-        persisted = await run_sync_transaction(_stage_assets, assets, staged)
+        persisted, sources = await run_sync_transaction(_stage_assets, assets, staged)
         run = await manager.start(
             target,
             parameters,
             assets=persisted,
+            asset_sources=sources,
             staging=staged[0],
             request_preview=preview_payload,
         )
@@ -669,10 +672,19 @@ def _locate_artifact(manager: TrialRunManager, run_id: str) -> tuple[Path, str] 
     return None if path is None else (path, artifact_media_type(path))
 
 
-def _stage_assets(assets: EndpointTestAssets, staged: list[Path]) -> dict[str, Path | list[Path] | None]:
+def _stage_assets(
+    assets: EndpointTestAssets, staged: list[Path]
+) -> tuple[dict[str, Path | list[Path] | None], dict[Path, Path]]:
     staging = Path(tempfile.mkdtemp(prefix="arcreel-trial-run-"))
     staged.append(staging)
-    return _persist_assets(assets, staging)
+    persisted = _persist_assets(assets, staging)
+    sources = {}
+    for source in ("start_image", "end_image", "reference_images"):
+        value = persisted[source]
+        paths = value if isinstance(value, list) else ([value] if value is not None else [])
+        for path, name in zip(paths, assets.filenames.get(source, ()), strict=False):
+            sources[path] = Path(name)
+    return persisted, sources
 
 
 def _remove_staging(staged: list[Path]) -> None:

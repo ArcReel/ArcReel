@@ -684,7 +684,7 @@ MESSAGES = {
     "image_resolution_not_supported": "Mô hình {model} không hỗ trợ độ phân giải {resolution} (chỉ hỗ trợ {supported}); hãy chọn một độ phân giải được hỗ trợ",
     "image_aspect_ratio_not_supported": "Mô hình {model} không hỗ trợ tỷ lệ khung hình {aspect_ratio} (chỉ hỗ trợ {supported}); hãy chọn một tỷ lệ được hỗ trợ",
     "image_reference_images_exceeded": "Mô hình {model} nhận tối đa {limit} ảnh tham chiếu. Yêu cầu có {count} ảnh. Ảnh vượt giới hạn: {names}. Hãy giảm số tài sản hoặc lượt nhắc, chia cảnh hoặc chọn mô hình có giới hạn cao hơn.",
-    "previous_storyboard_limit_hint": "Để bỏ ảnh phân cảnh trước {previous_storyboard}, hãy bắt đầu phân đoạn mới ở cảnh này.",
+    "previous_storyboard_limit_hint": "Để bỏ ảnh phân cảnh trước {previous_storyboard}, hãy đặt cảnh này làm điểm ngắt chương.",
     # Image Edit
     "image_edit_resource_type_invalid": "Loại tài nguyên '{resource_type}' không hỗ trợ chỉnh sửa ảnh",
     "image_edit_instruction_required": "Chỉ dẫn chỉnh sửa không được để trống",

@@ -74,8 +74,12 @@ export function ReferenceBatchPreviewDialog({
   const blocked = preview?.decision === "blocked";
   const confirming = preview?.decision === "confirmation_required";
   const units = preview?.units ?? [];
-  const overflow = units.filter(hasReferenceOverflow);
-  const targets = units.filter((unit) => !overflow.includes(unit));
+  const overflow: ReferenceBatchPreview["units"] = [];
+  const targets: ReferenceBatchPreview["units"] = [];
+  for (const unit of units) {
+    const bucket = hasReferenceOverflow(unit) ? overflow : targets;
+    bucket.push(unit);
+  }
 
   const skippedIds = new Set(skipped.map((item) => item.unit_id));
   const allSkipped: ReferenceBatchSkip[] = [

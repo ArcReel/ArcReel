@@ -39,7 +39,7 @@ export default {
   "image_capability_missing_t2i": "{{provider}}/{{model}} 不支持文生图；请配置一个支持文生图的默认模型",
   "image_dashscope_4k_t2i_only": "模型 {{model}} 的 4K 输出仅 wan2.7-image-pro 文生图支持；请改用 2K 或更低分辨率",
   "image_reference_images_exceeded": "模型 {{model}} 最多接受 {{limit}} 张参考图，本次共 {{count}} 张。超出的参考图：{{names}}。请减少出场资产或 @ 引用、拆分镜头，或换用上限更高的模型。",
-  "previous_storyboard_limit_hint": "可在当前分镜前设置分段，移除上一分镜图 {{previous_storyboard}}。",
+  "previous_storyboard_limit_hint": "将当前分镜设为章节切分点，即可不再参考上一分镜图 {{previous_storyboard}}。",
   "image_reference_images_unreadable": "模型 {{model}} 有参考图缺失或无法读取，已中止生成：{{names}}；请检查参考图路径",
   "image_resolution_not_supported": "模型 {{model}} 不支持 {{resolution}} 分辨率（仅支持 {{supported}}）；请选择支持的分辨率",
   "image_aspect_ratio_not_supported": "模型 {{model}} 不支持 {{aspect_ratio}} 比例（仅支持 {{supported}}）；请选择支持的比例",
