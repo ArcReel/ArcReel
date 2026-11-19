@@ -207,6 +207,9 @@ def _try_read_image(source: Path) -> bytes | None:
         raw = source.read_bytes()
         with Image.open(BytesIO(raw)) as img:
             img.load()
+            for index in range(1, getattr(img, "n_frames", 1)):
+                img.seek(index)
+                img.load()
         return raw
     except Exception:
         return None

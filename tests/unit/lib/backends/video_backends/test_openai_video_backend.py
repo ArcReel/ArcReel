@@ -14,6 +14,7 @@ from openai.types.video_create_error import VideoCreateError
 
 from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
 from lib.backends.providers import PROVIDER_OPENAI
+from tests.factories import image_bytes
 from tests.fakes import (
     blocking_file_read_gate,
     bounded_poll_clock,
@@ -86,7 +87,7 @@ class TestOpenAIVideoBackend:
         mock_client = AsyncMock()
         _stub_client_completed(mock_client)
         source = tmp_path / "input.bin"
-        source.write_bytes(b"x")
+        source.write_bytes(image_bytes())
         value = False if field == "generate_audio" else [source] if field == "reference_audio_files" else source
 
         with captured_openai_clients(mock_client):
@@ -107,7 +108,7 @@ class TestOpenAIVideoBackend:
         mock_client = AsyncMock()
         _stub_client_completed(mock_client)
         ref = tmp_path / "ref.png"
-        ref.write_bytes(b"\x89PNG\r\n\x1a\n")
+        ref.write_bytes(image_bytes())
 
         with bounded_poll_clock(), captured_openai_clients(mock_client):
             from lib.backends.video_backends.openai import OpenAIVideoBackend
@@ -143,9 +144,9 @@ class TestOpenAIVideoBackend:
         mock_client = AsyncMock()
         _stub_client_completed(mock_client)
         real = tmp_path / "real.png"
-        real.write_bytes(b"\x89PNG")
+        real.write_bytes(image_bytes())
         extra = tmp_path / "extra.png"
-        extra.write_bytes(b"\x89PNG")
+        extra.write_bytes(image_bytes())
         missing = tmp_path / "missing.png"
         inputs = {
             "missing_start": {"start_image": missing},
@@ -200,7 +201,7 @@ class TestOpenAIVideoBackend:
 
     async def test_image_to_video(self, tmp_path: Path):
         start_image = tmp_path / "start.png"
-        start_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        start_image.write_bytes(image_bytes())
 
         mock_client = AsyncMock()
         _stub_client_completed(mock_client, seconds="4")
@@ -232,7 +233,7 @@ class TestOpenAIVideoBackend:
     async def test_start_image_encoding_keeps_event_loop_running(self, tmp_path: Path, monkeypatch):
         """首帧读字节做 multipart 上传体，必须卸载到线程，否则事件循环被读堵住。"""
         start_image = tmp_path / "start.png"
-        start_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        start_image.write_bytes(image_bytes())
 
         mock_client = AsyncMock()
         _stub_client_completed(mock_client, seconds="4")

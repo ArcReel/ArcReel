@@ -1,10 +1,8 @@
-"""分镜图参考图按图像后端上限裁剪后再编号：实发张数与声明行一致，依据仍按完整装配集登记。"""
+"""分镜图按实际图像通道检查全部参考图，验证拒绝点、请求内容和产物依据。"""
 
 import base64
 import io
 import json
-import logging
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,10 +12,10 @@ from PIL import Image
 
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
-from lib.artifacts.visual_artifact_provenance import VisualReference, build_storyboard_image_visual_basis
 from lib.backends.image_backends.grok import GrokImageBackend
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
+from lib.backends.image_errors import ImageCapabilityError
 from server.services.tasks import generation_context, generation_tasks
 from tests.fakes import (
     bind_session_factory,
@@ -28,7 +26,6 @@ from tests.fakes import (
 )
 from tests.http_capture import capture_http
 from tests.integration.server.services.tasks.generation_tasks_support import (
-    _EIGHT_REFERENCE_CHARACTERS,
     FakeGenerator,
     _FakePM,
     fake_resolve_ctx,
@@ -39,56 +36,8 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
 
 ITEM_ID = "E1S02"
 STORYBOARD_PAYLOAD = {"script_file": "episode_1.json", "prompt": "queued prompt"}
-#: fake_resolve_ctx 默认 image lane 的 backend_model；裁剪 warning 报的是它，不是 registry 里的 provider 名。
+#: fake_resolve_ctx 默认 image lane 的 backend_model；超限错误报的是它，不是 registry 里的 provider 名。
 FAKE_BACKEND_MODEL = "gpt-image-2"
-CLAMPED_PROMPT = (
-    "Style: Anime\n"
-    "Visual style: cinematic\n"
-    "Reference_Images: 图1、图2、图3、图4、图5、图6为角色参考图；图7为场景参考图。\n"
-    "Scene: 图1握着玉佩立在图7门口\n"
-    "Composition:\n  shot_type: Medium Shot\n  lighting: 暖光\n  ambiance: 薄雾\n"
-    "Avoid: 水印、多余文字、Logo"
-)
-
-
-def _expected_basis(project_path: Path, pm: _FakePM):
-    """完整装配集对应的 basis：6 张角色 sheet + 场景 sheet + 道具 sheet，与目标态规划器按脚本条目重建的一致。"""
-    references = [
-        VisualReference(
-            path=project_path / "characters" / f"{name}.png",
-            role="asset_sheet",
-            logical_type="character",
-            logical_id=name,
-            kind="sheet",
-        )
-        for name in ["Alice", *_EIGHT_REFERENCE_CHARACTERS]
-    ]
-    references.append(
-        VisualReference(
-            path=project_path / "scenes" / "祠堂.png",
-            role="asset_sheet",
-            logical_type="scene",
-            logical_id="祠堂",
-            kind="sheet",
-        )
-    )
-    references.append(
-        VisualReference(
-            path=project_path / "props" / "玉佩.png",
-            role="asset_sheet",
-            logical_type="prop",
-            logical_id="玉佩",
-            kind="sheet",
-        )
-    )
-    return build_storyboard_image_visual_basis(
-        resource_id=ITEM_ID,
-        image_prompt=pm.script["segments"][1]["image_prompt"],
-        style="Anime",
-        style_description="cinematic",
-        aspect_ratio="9:16",
-        references=references,
-    )
 
 
 def _patch_execution(monkeypatch, pm: _FakePM, generator: FakeGenerator, *, limit: int | None) -> None:
@@ -102,33 +51,25 @@ async def _run_storyboard(generator: FakeGenerator) -> tuple[dict, dict]:
     return result, generator.image_calls[0]
 
 
-class TestStoryboardReferenceClamping:
-    async def test_over_limit_references_are_dropped_before_numbering(self, tmp_path, monkeypatch):
-        """Vidu 口径（上限 7）：只发 7 张，声明行止于图7，第 8 张的引用退回裸名。"""
+class TestStoryboardReferenceLimit:
+    async def test_over_limit_references_block_before_submission(self, tmp_path, monkeypatch):
+        """上限 7：报告第 8 张的逻辑名，并在供应商调用前拒绝。"""
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         generator = FakeGenerator(project_path)
         _patch_execution(monkeypatch, pm, generator, limit=7)
 
-        result, call = await _run_storyboard(generator)
+        with pytest.raises(ImageCapabilityError) as caught:
+            await _run_storyboard(generator)
+        assert caught.value.params == {"model": FAKE_BACKEND_MODEL, "limit": 7, "count": 8, "names": "玉佩"}
+        assert not generator.image_calls
 
-        assert len(call["reference_images"]) == 7
-        # 登记进清单的 basis 仍记完整的 8 张：上限是供应商属性，不进 basis，被去尾的道具仍是该产物的依据
-        entry = ProjectArtifactManifestAdapter(project_path).get_entry(ArtifactKey.episode_storyboard(1, ITEM_ID))
-        assert entry is not None
-        assert entry.basis_digest == _expected_basis(project_path, pm).digest
-        assert call["prompt"] == CLAMPED_PROMPT
-        # 丢弃了输入的参考图必须让用户与 Agent 感知：任务结果带与参考生视频路线同形的 warning
-        assert result["warnings"] == [
-            {"key": "ref_too_many_images", "params": {"count": 8, "model": FAKE_BACKEND_MODEL, "max_count": 7}}
-        ]
-
-    async def test_clamped_storyboard_is_current_against_the_target_state(self, tmp_path, monkeypatch):
-        """裁剪只影响实发与编号：登记后的分镜图按规划器重建的目标态比对仍是 current，不因裁剪被判 stale。"""
+    async def test_at_limit_storyboard_is_current_against_the_target_state(self, tmp_path, monkeypatch):
+        """上限刚好覆盖装配集时，规划器重建的依据与执行生成的产物一致。"""
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         generator = FakeGenerator(project_path)
-        _patch_execution(monkeypatch, pm, generator, limit=7)
+        _patch_execution(monkeypatch, pm, generator, limit=8)
 
         await _run_storyboard(generator)
 
@@ -168,12 +109,12 @@ class TestStoryboardReferenceClamping:
         assert len(call["reference_images"]) == 8
         assert "图8为道具参考图。" in call["prompt"]
 
-    async def test_a_dropped_reference_changing_before_submit_still_aborts(self, tmp_path, monkeypatch):
-        """被去尾的道具图仍是产物依据的输入：它的登记在提交前被删，复核照旧拦下，供应商未收到提交。"""
+    async def test_last_reference_changing_before_submit_still_aborts(self, tmp_path, monkeypatch):
+        """最后一张道具图是产物依据的输入：它的登记在提交前被删，复核照旧拦下，供应商未收到提交。"""
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         generator = FakeGenerator(project_path)
-        _patch_execution(monkeypatch, pm, generator, limit=7)
+        _patch_execution(monkeypatch, pm, generator, limit=8)
         hook_claim_recheck(
             monkeypatch,
             before=lambda: ProjectArtifactManifestAdapter(project_path).delete_entry(
@@ -186,12 +127,12 @@ class TestStoryboardReferenceClamping:
 
         assert generator.image_calls == []
 
-    async def test_a_kept_reference_changing_before_submit_still_aborts(self, tmp_path, monkeypatch):
+    async def test_a_scene_reference_changing_before_submit_still_aborts(self, tmp_path, monkeypatch):
         """仍随请求发出的场景图（图7）在提交前被删登记：复核照旧拦下，供应商未收到提交。"""
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         generator = FakeGenerator(project_path)
-        _patch_execution(monkeypatch, pm, generator, limit=7)
+        _patch_execution(monkeypatch, pm, generator, limit=8)
         hook_claim_recheck(
             monkeypatch,
             before=lambda: ProjectArtifactManifestAdapter(project_path).delete_entry(
@@ -231,10 +172,8 @@ class TestLimitComesFromTheResolvedBackend:
         yield
         generation_context.reset_backend_cache_for_tests()
 
-    async def test_vidu_receives_seven_images_and_a_prompt_numbered_to_match(
-        self, tmp_path, monkeypatch, vidu_lane, caplog
-    ):
-        """建任务请求以 400 短路（后端折成 ProviderRejectedError），只看真实发出的请求体。"""
+    async def test_vidu_limit_blocks_before_any_submission(self, tmp_path, monkeypatch, vidu_lane, caplog):
+        """检查真实通道声明驱动的拒绝和零次提交。"""
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         pm.project["image_provider_i2i"] = "vidu/viduq2"
@@ -245,19 +184,13 @@ class TestLimitComesFromTheResolvedBackend:
             route = router.post("https://api.vidu.com/ent/v2/reference2image").mock(
                 return_value=httpx.Response(400, json={"code": 1013, "message": "nope"})
             )
-            with caplog.at_level(logging.INFO), pytest.raises(httpx.HTTPStatusError):
+            with pytest.raises(ImageCapabilityError, match="image_reference_images_exceeded"):
                 await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
-
-        body = json.loads(route.calls.last.request.content)
-        assert len(body["images"]) == 7
-        assert body["prompt"] == CLAMPED_PROMPT
-        # 裁剪发生在编排层，Vidu 自己的兜底截断在正常路径下不再触发
-        assert "超过 model=viduq2 上限 7" in caplog.text
-        assert "Vidu 参考图数量" not in caplog.text
+            assert not route.called
 
 
-class TestGrokLaneClampsToFive:
-    """真实 Grok backend 声明上限 5：分镜图只发前 5 张，任务结果带裁剪提示。"""
+class TestGrokLaneLimit:
+    """真实 Grok 通道声明上限 5。"""
 
     @pytest.fixture
     async def grok_lane(self, db_factory, monkeypatch):
@@ -287,7 +220,7 @@ class TestGrokLaneClampsToFive:
         yield client
         generation_context.reset_backend_cache_for_tests()
 
-    async def test_grok_receives_five_images_and_the_result_warns(self, tmp_path, monkeypatch, grok_lane):
+    async def test_grok_limit_blocks_before_any_submission(self, tmp_path, monkeypatch, grok_lane):
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
         pm.project["image_provider_i2i"] = "grok/grok-imagine-image"
@@ -298,19 +231,14 @@ class TestGrokLaneClampsToFive:
 
         with capture_http() as router:
             router.get("https://grok.test/out.png").mock(return_value=httpx.Response(200, content=buffer.getvalue()))
-            result = await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
-
-        sent = grok_lane.image.sample.call_args.kwargs
-        assert len(sent["image_urls"]) == 5
-        assert "图1、图2、图3、图4、图5为角色参考图" in sent["prompt"]
-        assert "图6" not in sent["prompt"]
-        assert result["warnings"] == [
-            {"key": "ref_too_many_images", "params": {"count": 8, "model": "grok-imagine-image", "max_count": 5}}
-        ]
+            with pytest.raises(ImageCapabilityError) as caught:
+                await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
+            assert caught.value.params["limit"] == 5
+            grok_lane.image.sample.assert_not_awaited()
 
 
-class TestOpenRouterLaneClampsToTheCatalogLimit:
-    """真实 OpenRouter backend：上限按模型目录声明的 input_references 给出，编排层据此裁剪并编号。"""
+class TestOpenRouterCatalogLimit:
+    """真实 OpenRouter backend：上限按模型目录声明的 input_references 给出，编排层按该值拒绝超限请求。"""
 
     MODEL = "vendor/three-refs"
     BASE_URL = "https://openrouter.ai/api/v1"
@@ -338,7 +266,7 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
         yield
         generation_context.reset_backend_cache_for_tests()
 
-    async def test_three_reference_model_receives_three_images_numbered_to_match(
+    async def test_three_reference_model_rejects_overflow_before_submission(
         self, tmp_path, monkeypatch, openrouter_lane
     ):
         project_path = prepare_files(tmp_path)
@@ -363,14 +291,8 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
             route = router.post(f"{self.BASE_URL}/images").mock(
                 return_value=httpx.Response(200, json={"data": [{"b64_json": image_b64}]})
             )
-            result = await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
-
-        body = json.loads(route.calls.last.request.content)
-        assert len(body["input_references"]) == 3
-        assert "图1、图2、图3为角色参考图" in body["prompt"]
-        assert "图4" not in body["prompt"]
-        assert result["warnings"] == [
-            {"key": "ref_too_many_images", "params": {"count": 8, "model": self.MODEL, "max_count": 3}}
-        ]
-        # 通道解析与生成用同一个实例，目录只查一次：两步读到的上限一致，backend 不会因超限拒绝提交
-        assert models.call_count == 1
+            with pytest.raises(ImageCapabilityError) as caught:
+                await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
+            assert caught.value.params["limit"] == 3
+            assert not route.called
+            assert models.call_count == 1

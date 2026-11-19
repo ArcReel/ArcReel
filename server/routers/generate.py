@@ -22,6 +22,8 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.generation_input import project_input_observation, storyboard_image_input
+from lib.backends.image_errors import ImageCapabilityError
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError, video_bucket_for_generation_mode
 from lib.generation.generation_queue import get_generation_queue
@@ -40,6 +42,7 @@ from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, DerivativeSheetS
 from lib.project.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.project.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project.project_manager import get_project_manager, is_reference_video_project
+from lib.prompts.reference_image_numbering import require_reference_image_limit
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import get_generated_assets
 from lib.script.script_skeleton import resolve_script_kind
@@ -55,6 +58,7 @@ from lib.speech.speech_composition import SpeechMode, admit_script_unit
 from server.auth import CurrentUser
 from server.i18n import Translator
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
+from server.services.admission.image_references import check_asset_image_limit, reference_image_limit
 from server.services.admission.reference_admission import require_admitted_storyboard_references
 from server.services.tasks.derivative_sheet_tasks import build_derivative_sheet_instruction
 from server.services.tasks.generation_context import AudioLaneRequest, resolve_generation_context
@@ -142,7 +146,7 @@ async def generate_storyboard(
         pm_local = get_project_manager()
         project = pm_local.load_project(project_name)
         script = pm_local.load_script(project_name, req.script_file)
-        _resolve_request_artifact_episode(project, script, req.script_file)
+        episode = _resolve_request_artifact_episode(project, script, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
@@ -152,7 +156,22 @@ async def generate_storyboard(
             raise ConflictError("script_prompt_pending", segment_id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
 
-    await run_sync_transaction(_sync)
+        return project, script, episode, pm_local.get_project_path(project_name)
+
+    project, script, episode, path = await run_sync_transaction(_sync)
+    maximum, model = await reference_image_limit(project_name, project, path)
+    if maximum is not None:
+
+        def check_limit():
+            assembled = storyboard_image_input(
+                project, script, episode=episode, resource_id=segment_id, observation=project_input_observation(path)
+            )
+            require_reference_image_limit([ref.visual for ref in assembled.references], maximum, model=model)
+
+        try:
+            await asyncio.to_thread(check_limit)
+        except ImageCapabilityError as exc:
+            raise BadRequestError(exc.code, **exc.params) from exc
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）；
     # 校验失败抛 TaskSpecValidationError，由 app 级 handler 映射为 400
@@ -707,6 +726,17 @@ _ASSET_GENERATE_I18N: dict[str, dict[str, str]] = {
 }
 
 
+async def _check_asset_limit(
+    project_name: str, project: dict, asset_type: str, name: str, owner: str | None = None
+) -> None:
+    path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+    limit = await reference_image_limit(project_name, project, path)
+    try:
+        await asyncio.to_thread(check_asset_image_limit, project, path, asset_type, name, owner=owner, limit=limit)
+    except ImageCapabilityError as exc:
+        raise BadRequestError(exc.code, **exc.params) from exc
+
+
 async def _enqueue_asset_generation(
     *,
     asset_type: str,
@@ -722,7 +752,7 @@ async def _enqueue_asset_generation(
     spec = ASSET_SPECS[asset_type]
     keys = _ASSET_GENERATE_I18N[asset_type]
 
-    def _sync() -> str:
+    def _sync() -> tuple[dict, str]:
         project = get_project_manager().load_project(project_name)
         # 存量 key 可能是 NFD，按坐标系解析存在性并取真实落盘 key；
         # 非 dict / 显式 null 的畸形桶由 resolve_asset_key 按空桶处理
@@ -733,9 +763,11 @@ async def _enqueue_asset_generation(
         description = entry.get("description") if isinstance(entry, dict) else None
         if not isinstance(description, str) or not description.strip():
             raise BadRequestError("asset_description_required", name=resolved)
-        return resolved
+        return project, resolved
 
-    resource_key = await asyncio.to_thread(_sync)
+    project, resource_key = await asyncio.to_thread(_sync)
+    if asset_type in {"product", "character"}:
+        await _check_asset_limit(project_name, project, asset_type, resource_key)
 
     task_spec = TaskSpec.from_request(
         task_type=asset_type,
@@ -803,6 +835,7 @@ async def generate_character_derivative(
     except KeyError as exc:
         raise NotFoundError("character_not_found", name=char_name) from exc
 
+    await _check_asset_limit(project_name, project, "character", source.derivative_key, source.owner_key)
     provider_id = await _require_i2i_image_provider_configured(project)
 
     spec = TaskSpec.from_request(

@@ -209,7 +209,7 @@ class TestReferenceImageGating:
             _gate(CAPS_WITH_LAST_FRAME, reference_images=[Path(f"r{i}.png") for i in range(5)])
 
         assert exc.value.code == "video_reference_images_exceeded"
-        assert exc.value.params == {"provider": "acme", "model": "acme-v1", "limit": 4, "count": 5}
+        assert exc.value.params == {"names": "r4.png", "provider": "acme", "model": "acme-v1", "limit": 4, "count": 5}
 
     def test_reference_images_at_limit_pass(self):
         assert _gate(CAPS_WITH_LAST_FRAME, reference_images=[Path(f"r{i}.png") for i in range(4)]) is None

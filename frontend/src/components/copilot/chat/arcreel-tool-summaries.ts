@@ -19,6 +19,7 @@ export const ARCREEL_TOOL_SUMMARIES: Record<string, Summarize> = {
   upload_source: (i, f) => f.text(i.filename),
   edit_source_text: (i, f) => f.text(i.filename) || f.episode(i.episode_id),
   get_workflow_plan: (i, f) => f.episode(i.episode_id),
+  get_image_capabilities: () => "",
   get_video_capabilities: () => "",
   get_prompt_preview: (i, f) => f.item(i.item_id) || f.script(i.script),
   get_generation_batch: () => "",

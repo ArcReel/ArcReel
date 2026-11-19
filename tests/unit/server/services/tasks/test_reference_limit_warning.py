@@ -1,18 +1,13 @@
+"""Reference limits fail with actionable, backward-compatible messages in every locale."""
+
 import pytest
 
-from server.services.tasks.reference_video_tasks import _reference_limit_warning
+from lib.i18n import SUPPORTED_LOCALES, _
 
 
-@pytest.mark.parametrize("model", ["sora-2", "sora-2-pro", "acme-video-1", "Whatever"])
-def test_single_ref_limit_warning_is_independent_of_model_name(model):
-    warning = _reference_limit_warning(provider_id="openai", model=model, count=3, max_refs=1)
-    assert warning == {
-        "key": "ref_single_ref_only",
-        "params": {"provider": "openai", "model": model},
-    }
-
-
-def test_multi_ref_limit_uses_generic_warning():
-    warning = _reference_limit_warning(provider_id="p", model="sora-2", count=5, max_refs=3)
-    assert warning["key"] == "ref_too_many_images"
-    assert warning["params"]["max_count"] == 3
+@pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
+@pytest.mark.parametrize("code", ["image_reference_images_exceeded", "video_reference_images_exceeded"])
+def test_limit_explanation_supports_new_and_historical_task_params(locale, code):
+    params = {"model": "test-model", "limit": 1, "count": 2}
+    assert "Alice" in _(code, locale, **params, names="Alice")
+    assert "#2" in _(code, locale, **params)

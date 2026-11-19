@@ -34,6 +34,7 @@ from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_resumable_video,
+    read_video_images,
     recording_poll,
     resume_expiry_gate,
 )
@@ -41,7 +42,6 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.kling_backend_base import KlingBackendBase
 from lib.backends.kling_shared import (
     extract_kling_model_path_video_url,
-    image_to_base64,
     is_kling_model_path_terminal,
     kling_model_path_base_url,
     kling_model_path_failure_reason,
@@ -83,7 +83,7 @@ _CHANNEL_CAPABILITIES = VideoCapabilities(
 
 
 def _has_image(value: object) -> bool:
-    return isinstance(value, (str, Path)) and bool(str(value))
+    return value is not None
 
 
 def _route_for(request: VideoGenerationRequest) -> str:
@@ -200,7 +200,7 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         """返回 (提交路径, 请求体)；发不出的输入在付费前拒绝，不静默丢弃。"""
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
-        if request.reference_images and any(_has_image(p) for p in request.reference_images):
+        if request.reference_images:
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
         # 请求体没有音轨开关；直接调用也须在付费前拒绝无法下发的静音请求。
         if (
@@ -224,25 +224,17 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             settings["aspect_ratio"] = request.aspect_ratio
             return model_path, {"prompt": request.prompt, "settings": settings}
 
+        images = read_video_images(request, self.model)
         contents: list[dict] = []
         if request.prompt:
             contents.append({"type": "prompt", "text": request.prompt})
-        contents.append({"type": "first_frame", "url": self._encode_frame(Path(cast(Path, request.start_image)))})
+        contents.append({"type": "first_frame", "url": images[Path(cast(Path, request.start_image))].base64()})
         if _has_image(request.end_image):
             if not caps.last_frame:
                 raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
-            contents.append({"type": "last_frame", "url": self._encode_frame(Path(cast(Path, request.end_image)))})
+            contents.append({"type": "last_frame", "url": images[Path(cast(Path, request.end_image))].base64()})
         # 图生视频没有 aspect_ratio 字段，画面比例跟随首帧。
         return model_path, {"contents": contents, "settings": settings}
-
-    def _encode_frame(self, path: Path) -> str:
-        # 官方帧图字段接受 URL 或 base64；声明了帧图却不可读即中止，不静默退化成文生视频。
-        if not path.is_file():
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name)
-        try:
-            return image_to_base64(path)
-        except OSError as exc:
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name) from exc
 
     @staticmethod
     def _safe_log_view(path: str, payload: dict) -> dict:

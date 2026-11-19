@@ -105,6 +105,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "edit_source_text": {"filename": "novel.txt", "text": "第一章\n改写"},
     "get_workflow_plan": {"episode_id": 1},
     "get_video_capabilities": {},
+    "get_image_capabilities": {},
     "get_prompt_preview": {"script": "episode_1.json", "item_id": "E1S01"},
     "get_generation_batch": {"batch_id": "batch-absent"},
     "cancel_generation_batch": {"batch_id": "batch-absent"},
@@ -871,6 +872,7 @@ def reference_preview_project(seeded_projects):
     ("unit_id", "unavailable"),
     [
         ("E1U01", None),
+        ("E1U01", "video_reference_images_exceeded"),
         ("E1U01", "reference_capability_unavailable"),
         ("E1U04", None),
         ("E1U02", "reference_prompt_preview_missing"),
@@ -898,7 +900,11 @@ async def test_reference_prompt_preview_reaches_both_hosts(
     set_video_request_facts(
         VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "r2v"),))
         if unavailable == "reference_capability_unavailable"
-        else make_video_request_facts(route="reference_video", generation_type="r2v", max_reference_images=1)
+        else make_video_request_facts(
+            route="reference_video",
+            generation_type="r2v",
+            max_reference_images=1 if unavailable == "video_reference_images_exceeded" else 2,
+        )
     )
 
     def snapshot():
@@ -927,10 +933,9 @@ async def test_reference_prompt_preview_reaches_both_hosts(
             assert video["warnings"] == []
         else:
             assert "<甲>@图片1" in video["text"]
-            assert "@图片2" not in video["text"]
+            assert "@图片2" in video["text"]
             assert "你好。" in video["text"]
             assert "低沉" in video["text"]
-            assert video["warnings"][0]["key"] == "reference_images_clamped"
             if unit_id == "E1U04":
                 assert any(
                     warning["key"] == "reference_duration_confirmation_required" for warning in video["warnings"]

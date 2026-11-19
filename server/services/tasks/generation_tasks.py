@@ -89,7 +89,7 @@ from lib.project.project_manager import (
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 from lib.prompts.prompt_style import normalize_style_value
 from lib.prompts.prompt_utils import render_storyboard_video_prompt
-from lib.prompts.reference_image_numbering import clamp_reference_images
+from lib.prompts.reference_image_numbering import require_reference_image_limit
 from lib.script.reference_video.execution_checkpoint import (
     ProviderMediaInput,
     StagedProviderMedia,
@@ -492,7 +492,7 @@ async def execute_storyboard_task(
 
     inputs = await run_sync_transaction(_load)
     project, project_path = inputs.project, inputs.project_path
-    # 参考图先于提示词定型：backend 的参考图上限决定实际发出几张，编号只能按裁剪后的序列渲染，
+    # 参考图先于提示词定型：先检查实际通道的上限，编号覆盖完整装配集，
     # 故 image lane 在此解析一次并沿用到提交，避免重解析落到上限不同的 backend。
     context = await resolve_generation_context(
         project_name,
@@ -500,7 +500,10 @@ async def execute_storyboard_task(
         project=project,
         project_path=project_path,
         user_id=user_id,
-        image=ImageLaneRequest(generation_type="i2i" if inputs.generation_input.references else "t2i"),
+        image=ImageLaneRequest(
+            generation_type="i2i" if inputs.generation_input.references else "t2i",
+            references=tuple(ref.visual for ref in inputs.generation_input.references),
+        ),
     )
     ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
 
@@ -1496,7 +1499,10 @@ async def execute_asset_sheet_task(
         project=project,
         project_path=project_path,
         user_id=user_id,
-        image=ImageLaneRequest(generation_type="i2i" if generation_input.references else "t2i"),
+        image=ImageLaneRequest(
+            generation_type="i2i" if generation_input.references else "t2i",
+            references=tuple(ref.visual for ref in generation_input.references),
+        ),
     )
     ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
 
@@ -1709,17 +1715,20 @@ async def execute_grid_task(
         assembled = grid_input.references
         visual_references = [reference.visual for reference in assembled]
         currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
-        # 参考图先于提示词定型：backend 的上限决定实际发出几张，各格正文的「图N」只能按
-        # 裁剪后的序列渲染，故 image lane 在冻结之前解析一次并沿用到提交。
+        # 先按实际输入选择图像通道，在冻结与提示词编号前用同一通道校验上限。
         ctx = await resolve_generation_context(
             project_name,
             payload,
             project=project,
             project_path=project_path,
             user_id=user_id,
-            image=ImageLaneRequest(generation_type="i2i" if assembled else "t2i"),
+            image=ImageLaneRequest(
+                generation_type="i2i" if assembled else "t2i", references=tuple(ref.visual for ref in assembled)
+            ),
         )
         ensure_dispatch_provider(claimed_provider_id, ctx.image.provider_model.provider_id)
+
+        require_reference_image_limit(visual_references, ctx.image.max_reference_images, model=ctx.image.backend_model)
 
         def _freeze_references() -> FrozenImageReferences:
             # 快照在线程里一建好就登记：取消落在冻结那一程时返回值会丢，finally 按登记回收快照目录。
@@ -1727,6 +1736,7 @@ async def execute_grid_task(
             frozen_references = freeze_image_references(
                 [reference.visual.path for reference in assembled] or None,
                 visual_references,
+                model=ctx.image.backend_model,
             )
             return frozen_references
 
@@ -1746,13 +1756,7 @@ async def execute_grid_task(
                 frozen_references=frozen_references.visual_references,
             )
         )
-        # 依据与宫格记录按完整装配集登记，供应商只收裁剪后的前几张（与分镜路径同口径）；
-        # 裁剪 warning 随任务结果返回。
-        reference_clamp = clamp_reference_images(
-            visual_references, ctx.image.max_reference_images, model=ctx.image.backend_model
-        )
-        sent_references = frozen_references.sent(reference_clamp.kept)
-        reference_images = sent_references.reference_images
+        reference_images = frozen_references.reference_images
         # 宫格的时效判定重放这份记录，故由完整参考集投影，与依据里的参考图逐项对应。
         grid.reference_images = []
         for reference in assembled:
@@ -1784,7 +1788,7 @@ async def execute_grid_task(
             style_description=normalize_style_value(project.get("style_description")),
             aspect_ratio=member_aspect_ratio,
             grid_aspect_ratio=grid_aspect_ratio,
-            references=sent_references.visual_references,
+            references=frozen_references.visual_references,
         )
         grid_basis = build_grid_composite_visual_basis(
             group_id=grid.id,
@@ -1889,8 +1893,6 @@ async def execute_grid_task(
         "resource_type": "grids",
         "resource_id": resource_id,
     }
-    if (clamp_warning := reference_clamp.warning()) is not None:
-        grid_result["warnings"] = [clamp_warning]
     return grid_result
 
 

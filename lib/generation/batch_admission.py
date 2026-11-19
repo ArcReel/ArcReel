@@ -65,6 +65,10 @@ class UnitAdmissionTicket:
         return not self.problems
 
     @property
+    def reference_limit_exceeded(self) -> bool:
+        return any(problem.code == "video_reference_images_exceeded" for problem in self.problems)
+
+    @property
     def confirmation_only(self) -> bool:
         """True when the only thing standing in the way is the user's consent."""
 
@@ -116,7 +120,10 @@ class BatchAdmission:
 
     @property
     def decision(self) -> BatchAdmissionDecision:
-        refused = [ticket for ticket in self.tickets if not ticket.admitted]
+        candidates = [ticket for ticket in self.tickets if not ticket.reference_limit_exceeded]
+        if self.tickets and not candidates:
+            return BatchAdmissionDecision.BLOCKED
+        refused = [ticket for ticket in candidates if not ticket.admitted]
         if not refused:
             return BatchAdmissionDecision.ADMITTED
         if all(ticket.confirmation_only for ticket in refused):
@@ -139,7 +146,7 @@ class BatchAdmission:
     def holding_unit_ids(self) -> tuple[str, ...]:
         """The units whose own problems kept the whole batch from being created."""
 
-        return tuple(ticket.unit_id for ticket in self.refused_tickets)
+        return tuple(ticket.unit_id for ticket in self.refused_tickets if not ticket.reference_limit_exceeded)
 
     def withheld_problem_for(self, ticket: UnitAdmissionTicket) -> GenerationProblem | None:
         """The reason this ticket has none of its own, or ``None`` if it does.
@@ -194,6 +201,8 @@ class BatchAdmission:
         total: dict[str, float] = {}
         unpriced = 0
         for ticket in self.tickets:
+            if ticket.reference_limit_exceeded:
+                continue
             amount = _cost_amount(ticket.request_cost)
             currency = _cost_currency(ticket.request_cost)
             if amount is None or currency is None:
@@ -211,7 +220,7 @@ class BatchAdmission:
         *,
         states: Mapping[str, GenerationTargetState] | None = None,
     ) -> None:
-        """Report every target as blocked, because zero tasks were created.
+        """Report refused targets and, on an atomic refusal, targets withheld with them.
 
         A unit that passed on its own still gets a machine-readable reason —
         ``BATCH_ADMISSION_WITHHELD`` naming the units that held the batch back —
@@ -220,7 +229,12 @@ class BatchAdmission:
 
         if self.admitted:
             raise ValueError("record_refusal requires a refused admission")
-        for ticket in self.tickets:
+        self.record_blocked_units(builder, states=states)
+
+    def record_blocked_units(
+        self, builder: GenerationResultBuilder, *, states: Mapping[str, GenerationTargetState] | None = None
+    ) -> None:
+        for ticket in self.refused_tickets if self.admitted else self.tickets:
             withheld = self.withheld_problem_for(ticket)
             problem = ticket.problems[0] if ticket.problems else withheld
             if problem is None:

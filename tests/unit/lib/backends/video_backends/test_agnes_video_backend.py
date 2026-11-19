@@ -23,6 +23,7 @@ from arcreel_market_core.video_backend_contract import (
 from lib.backends.http_status_errors import AmbiguousSubmitError, ArtifactDownloadError
 from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backends.agnes import Agnes25VideoBackend, AgnesVideoBackend
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -285,7 +286,7 @@ class TestTextToVideo:
 class TestImageChannels:
     async def test_start_image_is_bare_base64_top_level_image(self, tmp_path: Path):
         """起始图为裸 base64（无 data: 前缀），未复用 data-URI helper。"""
-        img_bytes = b"\x89PNG\r\nfake-start"
+        img_bytes = image_bytes()
         img_path = _write_image(tmp_path / "start.png", img_bytes)
 
         with _agnes_api() as routes:
@@ -304,8 +305,8 @@ class TestImageChannels:
         assert "extra_body" not in body
 
     async def test_first_last_keyframes_extra_body(self, tmp_path: Path):
-        start = _write_image(tmp_path / "s.png", b"start-bytes")
-        end = _write_image(tmp_path / "e.png", b"end-bytes")
+        start = _write_image(tmp_path / "s.png", image_bytes(1))
+        end = _write_image(tmp_path / "e.png", image_bytes(2))
 
         with _agnes_api() as routes:
             routes.submit.mock(return_value=_queued("t-kf"))
@@ -320,14 +321,14 @@ class TestImageChannels:
         extra = body["extra_body"]
         assert extra["mode"] == "keyframes"
         assert extra["image"] == [
-            base64.b64encode(b"start-bytes").decode("ascii"),
-            base64.b64encode(b"end-bytes").decode("ascii"),
+            base64.b64encode(image_bytes(1)).decode("ascii"),
+            base64.b64encode(image_bytes(2)).decode("ascii"),
         ]
         assert all(not s.startswith("data:") for s in extra["image"])
 
     async def test_reference_images_extra_body(self, tmp_path: Path):
-        ref1 = _write_image(tmp_path / "r1.png", b"ref-1")
-        ref2 = _write_image(tmp_path / "r2.png", b"ref-2")
+        ref1 = _write_image(tmp_path / "r1.png", image_bytes(1))
+        ref2 = _write_image(tmp_path / "r2.png", image_bytes(2))
 
         with _agnes_api() as routes:
             routes.submit.mock(return_value=_queued("t-ref"))
@@ -342,8 +343,8 @@ class TestImageChannels:
         extra = body["extra_body"]
         assert "mode" not in extra  # 参考生视频不带 keyframes mode
         assert extra["image"] == [
-            base64.b64encode(b"ref-1").decode("ascii"),
-            base64.b64encode(b"ref-2").decode("ascii"),
+            base64.b64encode(image_bytes(1)).decode("ascii"),
+            base64.b64encode(image_bytes(2)).decode("ascii"),
         ]
 
     async def test_reference_images_exceeded_raises(self, tmp_path: Path):
@@ -380,7 +381,7 @@ class TestImageChannels:
 
     async def test_end_image_only_fails_loud(self, tmp_path: Path):
         """仅提供尾帧（无首帧）时 fail-loud——Agnes 无独立尾帧通道，不静默退化为文生视频。"""
-        end = _write_image(tmp_path / "e.png", b"end")
+        end = _write_image(tmp_path / "e.png", image_bytes(1))
 
         with _agnes_api() as routes:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
@@ -401,7 +402,7 @@ class TestImageChannels:
 
     async def test_missing_end_image_fails_loud_with_end_code(self, tmp_path: Path):
         """首尾帧模式下尾帧缺失：错误码指向尾帧而非首帧。"""
-        start = _write_image(tmp_path / "s.png", b"start-bytes")
+        start = _write_image(tmp_path / "s.png", image_bytes(1))
 
         with _agnes_api() as routes:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
@@ -411,19 +412,14 @@ class TestImageChannels:
             assert ei.value.code == "video_end_image_unreadable"
             assert routes.submit.call_count == 0
 
-    async def test_empty_path_objects_degrade_to_text_to_video(self, tmp_path: Path):
-        """空 Path（``Path("")`` 塌成 ``Path(".")``）应归一化为 None，回落文生视频而非误报无法读取。"""
+    async def test_empty_reference_is_identified_by_position(self, tmp_path):
         with _agnes_api() as routes:
-            routes.submit.mock(return_value=_queued("t-empty"))
-            routes.poll.mock(return_value=_json(_completed("t-empty")))
-
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
-            await backend.generate(_request(tmp_path, start_image=Path(""), reference_images=[Path("")]))
-
-            body = _sent_payload(routes)
-
-        assert "image" not in body
-        assert "extra_body" not in body
+            with pytest.raises(VideoCapabilityError) as caught:
+                await backend.generate(_request(tmp_path, reference_images=[Path("")]))
+            assert caught.value.code == "video_reference_images_unreadable"
+            assert caught.value.params["names"] == "#1"
+            assert not routes.submit.called
 
 
 class TestFailureAndTimeout:

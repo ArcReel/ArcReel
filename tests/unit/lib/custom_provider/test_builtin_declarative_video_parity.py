@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 import httpx
@@ -10,18 +11,19 @@ from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_m
 from lib.backends.video_frame_slots import gate_video_request
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY, infer_endpoint
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, request_json
 
-PNG_START = b"\x89PNG\r\n\x1a\nSTART"
-PNG_END = b"\x89PNG\r\n\x1a\nEND"
-PNG_REF1 = b"\x89PNG\r\n\x1a\nREF1"
-PNG_REF2 = b"\x89PNG\r\n\x1a\nREF2"
+PNG_START = image_bytes(1)
+PNG_END = image_bytes(2)
+PNG_REF1 = image_bytes(3)
+PNG_REF2 = image_bytes(4)
 WAV = b"RIFF\x00\x00\x00\x00WAVEA"
-START_URI = "data:image/png;base64,iVBORw0KGgpTVEFSVA=="
-END_URI = "data:image/png;base64,iVBORw0KGgpFTkQ="
-REF1_URI = "data:image/png;base64,iVBORw0KGgpSRUYx"
-REF2_URI = "data:image/png;base64,iVBORw0KGgpSRUYy"
+START_URI = "data:image/png;base64," + base64.b64encode(PNG_START).decode()
+END_URI = "data:image/png;base64," + base64.b64encode(PNG_END).decode()
+REF1_URI = "data:image/png;base64," + base64.b64encode(PNG_REF1).decode()
+REF2_URI = "data:image/png;base64," + base64.b64encode(PNG_REF2).decode()
 AUDIO_URI = "data:audio/x-wav;base64,UklGRgAAAABXQVZFQQ=="
 
 

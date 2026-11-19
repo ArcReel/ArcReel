@@ -37,7 +37,7 @@ from lib.custom_provider.endpoint_test import (
     provider_from_base_url,
 )
 from lib.db.models.api_call import ApiCall
-from tests.factories import custom_endpoint_definition, image_endpoint_definition
+from tests.factories import custom_endpoint_definition, image_bytes, image_endpoint_definition
 from tests.fakes import PNG_BYTES, bounded_poll_clock
 from tests.http_capture import capture_http
 
@@ -266,7 +266,7 @@ class TestImageDefinitionTrialRun:
         refs = []
         for index in range(4):
             ref = tmp_path / f"ref{index}.png"
-            ref.write_bytes(PNG_BYTES)
+            ref.write_bytes(image_bytes())
             refs.append(ref)
         target = TrialRunTarget(provider="dashscope", model=parameters.model, build_backend=build, media_type="image")
         with capture_http() as router, bounded_poll_clock():
@@ -402,7 +402,7 @@ class TestTrialRun:
     ):
         """生产路径在记账前跑能力闸；测试连接同一道闸——违约请求一个字节不外发、一分钱不记账。"""
         face = tmp_path / "face.png"
-        face.write_bytes(b"png")
+        face.write_bytes(image_bytes())
         with capture_http() as router, bounded_poll_clock():
             # 夹具定义只声明 first_frame，参考图路径不可用（max_reference_images=0）。
             started = await trial_runs.start(_target(), PARAMETERS, assets={"reference_images": [face]})
@@ -428,7 +428,7 @@ class TestTrialRun:
             "subject_reference": "{{ inputs.refs }}",
         }
         face = tmp_path / "face.png"
-        face.write_bytes(b"png")
+        face.write_bytes(image_bytes())
 
         with capture_http() as router, bounded_poll_clock():
             _mock_successful_run(router)
@@ -450,7 +450,7 @@ class TestTrialRun:
         )
         definition["submit"]["body"]["ratio"] = "{{ aspect_ratio }}"
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"png")
+        frame.write_bytes(image_bytes())
 
         with capture_http() as router, bounded_poll_clock():
             _mock_successful_run(router)
@@ -486,9 +486,9 @@ class TestTrialRun:
         """档位感知的端点按请求分辨率收窄能力：生产在收窄后的能力上拒绝的请求，测试连接同样拒绝。"""
         parameters = replace(PARAMETERS, resolution=resolution)
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"png")
+        frame.write_bytes(image_bytes())
         last = tmp_path / "last.png"
-        last.write_bytes(b"png")
+        last.write_bytes(image_bytes())
 
         with capture_http() as router, bounded_poll_clock():
             _mock_successful_run(router)
@@ -510,7 +510,7 @@ class TestTrialRun:
         """比例覆盖与能力闸读同一份收窄结果：只在该分辨率声明 adaptive 的端点也要下发 adaptive。"""
         parameters = replace(PARAMETERS, resolution="1080p")
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"png")
+        frame.write_bytes(image_bytes())
 
         with capture_http() as router, bounded_poll_clock():
             _mock_successful_run(router)
@@ -599,9 +599,9 @@ class TestBuiltinUserAddedOverrides:
 
     def _frames(self, tmp_path: Path) -> dict[str, Path]:
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"png")
+        frame.write_bytes(image_bytes())
         last = tmp_path / "last.png"
-        last.write_bytes(b"png")
+        last.write_bytes(image_bytes())
         return {"start_image": frame, "end_image": last}
 
     async def test_relaxed_override_passes_and_rides_the_request(

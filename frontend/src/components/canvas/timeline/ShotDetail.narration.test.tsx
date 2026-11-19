@@ -30,6 +30,21 @@ const legacyDialogueSegment = (dialogue: { speaker: string; line: string }[]) =>
   });
 
 describe("ShotDetail 旁白片段的台词", () => {
+  it("shows the previous storyboard when the request includes it and hides it at a segment break", async () => {
+    vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue({
+      item_id: "E1S02", content_mode: "narration",
+      storyboard_image: { text: "图1为上一分镜图", unavailable: null, is_text_form: true, warnings: [],
+        previous_storyboard: "E1S01", reference_count: 1, max_reference_images: 3 },
+      video: { text: "", unavailable: null, is_text_form: true, warnings: [] },
+    });
+    const segment = makeNarrationSegment({ segment_id: "E1S02" });
+    const props = { previousStoryboardPath: "storyboards/scene_E1S01.png" };
+    const view = render(detailElement(segment, props));
+    expect(await screen.findByText("参考上一分镜图 E1S01")).toBeInTheDocument();
+    view.rerender(detailElement({ ...segment, segment_break: true }, props));
+    expect(screen.queryByText("参考上一分镜图 E1S01")).not.toBeInTheDocument();
+  });
+
   it("没有存量台词时不出现台词编辑入口", () => {
     render(detailElement(legacyDialogueSegment([]), { onUpdatePrompt: vi.fn() }));
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import ClassVar
 
+from lib.backends.backend_runtime import read_reference_images
 from lib.backends.grok_shared import create_grok_client, grok_should_retry
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
@@ -15,7 +15,6 @@ from lib.backends.image_backends.base import (
     ImageGenerationResult,
     ImageRequestFacts,
     download_image_to_path,
-    image_to_base64_data_uri,
     per_image_usage,
 )
 from lib.backends.providers import PROVIDER_GROK
@@ -54,11 +53,6 @@ def _validate_aspect_ratio(aspect_ratio: str) -> str:
     if aspect_ratio not in _SUPPORTED_ASPECT_RATIOS:
         logger.warning("Grok 可能不支持 aspect_ratio=%s，将透传给 API", aspect_ratio)
     return aspect_ratio
-
-
-def _encode_existing_refs(ref_paths: list[str]) -> list[str]:
-    """跳过不存在的参考图，其余编码为 base64 data URI。"""
-    return [image_to_base64_data_uri(path) for ref in ref_paths if (path := Path(ref)).exists()]
 
 
 class GrokImageBackend:
@@ -121,13 +115,14 @@ class GrokImageBackend:
         # I2I：将所有参考图转为 base64 data URI 列表
         reference_count = 0
         if request.reference_images:
-            refs = request.reference_images
-            # 存在性检查与读图编码都是阻塞 I/O，整体卸载到线程，避免堵住事件循环
-            data_uris = await asyncio.to_thread(_encode_existing_refs, [ref.path for ref in refs])
-            if data_uris:
-                generate_kwargs["image_urls"] = data_uris
-                reference_count = len(data_uris)
-                logger.info("Grok I2I 模式: %d 张参考图", len(data_uris))
+            data_uris = await asyncio.to_thread(
+                lambda: [
+                    image.data_uri()
+                    for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+                ]
+            )
+            generate_kwargs["image_urls"] = data_uris
+            reference_count = len(data_uris)
 
         logger.info("Grok 图片生成开始: model=%s", self._model)
         logger.info("调用 %s 图片 SDK kwargs=%s", self.name, format_kwargs_for_log(generate_kwargs))

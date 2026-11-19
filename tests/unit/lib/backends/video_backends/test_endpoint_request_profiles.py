@@ -8,6 +8,7 @@ import pytest
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.kling import KLING_BACKENDS
 from lib.backends.video_backends.vidu import VIDU_BACKENDS
+from tests.factories import image_bytes
 from tests.http_capture import capture_http
 
 
@@ -35,7 +36,7 @@ from tests.http_capture import capture_http
 )
 async def test_vidu_endpoint_request_and_metering_ignore_name(endpoint, route, seconds, audio, sent_audio, tmp_path):
     image = tmp_path / "in.png"
-    image.write_bytes(b"image")
+    image.write_bytes(image_bytes())
     fields = {}
     if route == "reference2video":
         fields["reference_images"] = [image]

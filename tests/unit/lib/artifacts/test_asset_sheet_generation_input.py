@@ -30,6 +30,7 @@ from lib.artifacts.generation_input import (
     asset_sheet_input,
     derivative_sheet_input,
 )
+from lib.backends.image_errors import ImageCapabilityError
 
 _REGISTERED_BASIS = ArtifactBasis.build("test/registered", kind_version=1, inputs={}).digest
 _OWNER_SHEET = "characters/张三.png"
@@ -354,11 +355,10 @@ class TestFreeze:
         result = _Fixture(tmp_path).sheet("product", "保温杯")
         assert not result.gaps
 
-        with result.freeze(max_reference_images=1, model="m", bind_claims=_identity_binder) as frozen:
-            assert frozen.basis == result.expected_basis()
-            assert len(frozen.references.reference_images or []) == 1
-            assert [warning["key"] for warning in frozen.warnings] == ["ref_too_many_images"]
-            assert frozen.claims == ()
+        with pytest.raises(ImageCapabilityError) as exc:
+            result.freeze(max_reference_images=1, model="m", bind_claims=_identity_binder)
+        assert exc.value.code == "image_reference_images_exceeded"
+        assert exc.value.params["count"] == len(result.references)
 
     def test_derivative_claim_is_bound_to_frozen_bytes(self, tmp_path):
         result = _Fixture(tmp_path).derivative()
@@ -385,6 +385,17 @@ class TestFreeze:
     def test_preview_render_matches_the_frozen_prompt(self, tmp_path, limit):
         result = _Fixture(tmp_path).sheet("product", "保温杯")
         assert not result.gaps
+
+        if limit in (0, 1):
+            with pytest.raises(ImageCapabilityError) as preview:
+                result.render(max_reference_images=limit, model="m")
+            with (
+                pytest.raises(ImageCapabilityError) as execution,
+                result.freeze(max_reference_images=limit, model="m", bind_claims=_identity_binder),
+            ):
+                pytest.fail("an over-limit request reached execution")
+            assert preview.value.params == execution.value.params
+            return
 
         rendered = result.render(max_reference_images=limit, model="m")
         with result.freeze(max_reference_images=limit, model="m", bind_claims=_identity_binder) as frozen:

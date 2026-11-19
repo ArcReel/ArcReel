@@ -9,15 +9,21 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import logging
 import re
-from collections.abc import Awaitable, Callable, Mapping
+import subprocess
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 from urllib.parse import urlsplit
 
 import httpx
+from PIL import Image
 from sqlalchemy.exc import InterfaceError, OperationalError
 
 from lib.backends.artifact_download_guard import (
@@ -26,14 +32,16 @@ from lib.backends.artifact_download_guard import (
     buffered_error_response,
     stream_body_to_file,
 )
-from lib.backends.data_uri import file_to_data_uri
+from lib.backends.data_uri import file_to_data_uri, image_mime_from_bytes
 from lib.backends.http_status_errors import (
     AmbiguousSubmitError,
     ArtifactDownloadError,
     provider_rejected_error,
     redacted_status_error,
 )
+from lib.backends.image_errors import ImageCapabilityError
 from lib.infra.async_thread import run_noninterruptible_async
+from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable
 from lib.infra.logging_utils import redact_diagnostic_text, sanitize_diagnostic_payload
 from lib.infra.mp4_faststart import FASTSTART_SUFFIXES, ensure_faststart
 from lib.infra.retry import (
@@ -903,10 +911,156 @@ async def download_resumable_video(url: str, output_path: Path, *, label: str) -
         raise ArtifactDownloadError(detail=str(exc)) from exc
 
 
+_reference_sources: ContextVar[Mapping[Path, Path] | None] = ContextVar("reference_image_sources", default=None)
+
+
+@contextmanager
+def reference_image_sources(paths: Mapping[Path, Path]):
+    """将本次调用的冻结／压缩路径还原为作者认识的来源名，多个并发请求各自隔离。"""
+    token = _reference_sources.set(paths)
+    try:
+        yield
+    finally:
+        _reference_sources.reset(token)
+
+
+@dataclass(frozen=True)
+class ReferenceImageData:
+    path: Path
+    content: bytes
+    mime: str
+
+    def base64(self) -> str:
+        return base64.b64encode(self.content).decode("ascii")
+
+    def data_uri(self) -> str:
+        return f"data:{self.mime};base64,{self.base64()}"
+
+    def multipart(self) -> tuple[str, bytes, str]:
+        return self.path.name, self.content, self.mime
+
+
+def _read_reference_image(path: Path) -> ReferenceImageData:
+    if not path.is_file():
+        raise ValueError("expected an image file")
+    content = path.read_bytes()
+    mime = image_mime_from_bytes(content)
+    if mime in {"image/heic", "image/heif"}:
+        # Pillow 没有 HEIF 解码器；H3 接受此格式，使用项目自带的 ffmpeg 验证图像帧。
+        frame = subprocess.run(
+            [
+                ffmpeg_executable(),
+                "-v",
+                "error",
+                "-xerror",
+                "-i",
+                "pipe:0",
+                "-map",
+                "0:v:0",
+                "-f",
+                "framemd5",
+                "pipe:1",
+            ],
+            input=content,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+        if not any(line and not line.startswith(b"#") for line in frame.stdout.splitlines()):
+            raise ValueError("image contains no frame")
+    else:
+        try:
+            with Image.open(io.BytesIO(content)) as image:
+                image.load()
+                for frame_index in range(1, getattr(image, "n_frames", 1)):
+                    image.seek(frame_index)
+                    image.load()
+                mime = Image.MIME.get(image.format or "") or mime
+        except Exception as exc:
+            # Pillow 插件按格式抛出不同的解码异常；调用方统一按输入槽位报告。
+            raise ValueError("invalid reference image") from exc
+    return ReferenceImageData(path, content, mime or "application/octet-stream")
+
+
+def _read_image_slots(
+    slots: Iterable[tuple[str, str | Path, int]],
+    model: str,
+) -> list[ReferenceImageData]:
+    from arcreel_market_core.video_backend_contract import VideoCapabilityError
+
+    images: list[ReferenceImageData] = []
+    failed: dict[str, list[str]] = {}
+    for code, raw, index in slots:
+        path = Path(raw or "")
+        try:
+            images.append(_read_reference_image(path))
+        except (
+            OSError,
+            ValueError,
+            SyntaxError,
+            Image.DecompressionBombError,
+            FfmpegUnavailableError,
+            subprocess.SubprocessError,
+        ):
+            failed.setdefault(code, []).append((_reference_sources.get() or {}).get(path, path).name or f"#{index}")
+    if failed:
+        code = next(iter(failed))
+        names = ", ".join(name for group in failed.values() for name in group)
+        if code == "image_reference_images_unreadable":
+            raise ImageCapabilityError("image_reference_images_unreadable", model=model, names=names)
+        if code == "video_start_image_unreadable":
+            raise VideoCapabilityError("video_start_image_unreadable", model=model, name=names)
+        if code == "video_end_image_unreadable":
+            raise VideoCapabilityError("video_end_image_unreadable", model=model, name=names)
+        raise VideoCapabilityError("video_reference_images_unreadable", model=model, names=names)
+    return images
+
+
+def read_reference_images(paths: Iterable[str | Path], model: str) -> list[ReferenceImageData]:
+    """读取请求的全部图片，任一张缺失或解码失败就一次报告全部文件名。"""
+    return _read_image_slots(
+        (("image_reference_images_unreadable", path, index) for index, path in enumerate(paths, 1)),
+        model,
+    )
+
+
+def read_video_images(
+    request: VideoGenerationRequest,
+    model: str,
+    *,
+    remote_indices: frozenset[int] = frozenset(),
+) -> dict[Path, ReferenceImageData]:
+    """读取将以内联素材提交的首尾帧与参考图；远端素材 URI 的槽位不读本地路径。"""
+    return read_video_image_slots(
+        request.start_image, request.end_image, request.reference_images or [], model, remote_indices=remote_indices
+    )
+
+
+def read_video_image_slots(
+    start: Path | None,
+    end: Path | None,
+    references: Iterable[Path],
+    model: str,
+    *,
+    remote_indices: frozenset[int] = frozenset(),
+) -> dict[Path, ReferenceImageData]:
+    slots = []
+    if start is not None:
+        slots.append(("video_start_image_unreadable", start, 1))
+    if end is not None:
+        slots.append(("video_end_image_unreadable", end, 1))
+    slots.extend(
+        ("video_reference_images_unreadable", path, index)
+        for index, path in enumerate(references, 1)
+        if index not in remote_indices
+    )
+    return {image.path: image for image in _read_image_slots(slots, model)}
+
+
 def reference_audio_to_data_uri(path: Path, *, model: str, mime_types: Mapping[str, str]) -> str:
     """参考音频 → base64 data URI；格式不受支持或文件不可读一律抛错。
 
-    音频不能像参考图那样「缺失即跳过」：prompt 里的「音频N」按 content 数组中音频条目的
+    音频与参考图都必须按声明顺序完整发送：prompt 里的「音频N」按 content 数组中音频条目的
     出现顺序编号，跳过一段会让其后所有编号整体前移，把某个角色的音色安到另一个角色头上
     ——错得无声无息，且照常扣费。
 

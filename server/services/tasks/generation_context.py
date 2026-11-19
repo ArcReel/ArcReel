@@ -35,6 +35,7 @@ from lib.backends.image_capabilities import (
 from lib.backends.resume_guard import builtin_endpoint_guard
 from lib.config.resolver import (
     ConfigResolver,
+    ImageBucketCapabilityError,
     VideoGenerationType,
     project_image_quality,
     video_bucket_for_generation_mode,
@@ -52,6 +53,7 @@ from lib.generation.video_request_facts import (
     evaluate_video_request_facts,
 )
 from lib.project.project_manager import get_project_manager
+from lib.prompts.reference_image_numbering import ReferenceImageSlot, require_reference_image_limit
 
 if TYPE_CHECKING:
     from lib.config.resolver import ProviderModel
@@ -261,6 +263,7 @@ class ImageLaneRequest:
     """声明当前任务需要 image lane。``generation_type`` 决定 t2i / i2i 默认槽（``docs/adr/0001``）。"""
 
     generation_type: Literal["t2i", "i2i"] = "t2i"
+    references: tuple[ReferenceImageSlot, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -300,9 +303,7 @@ class ImageLaneResult:
     backend 报告的实际身份——自定义供应商目标 model 被禁用回退时 ``backend_model`` 可能与
     ``provider_model.model_id`` 不同。``resolution`` 为 None 表示调用时不传 SDK 参数
     （``docs/adr/0019``）。``max_reference_images`` 是参考图上限生效值（条目与通道两侧求值，见
-    ``lib.backends.image_capabilities.backend_reference_image_limit``）给出的裁剪上限，``None`` 表示不裁剪；
-    编排层据此在渲染「图N」编号前裁剪参考图序列。不接受参考图（上限为 0 或不支持图生图）时同样不裁剪，
-    参考图原样交给执行时的校验拒绝。``quality`` 是生效的画质（项目存值经
+    ``lib.backends.image_capabilities.backend_reference_image_limit``）给出的数量上限。未收录时为 ``None``，不接受时为 0，渲染编号前按完整参考序列校验。``quality`` 是生效的画质（项目存值经
     ``lib.backends.image_capabilities.effective_image_quality`` 按有效画质可选值求得），``None`` 表示调用通道沿用
     按分辨率档位推出 ``quality`` 的既有做法。
     """
@@ -468,7 +469,12 @@ async def resolve_generation_context(
 
     async with resolver.session() as r:
         if image is not None:
-            resolved = await r.resolve_image_backend(project, payload, generation_type=image.generation_type)
+            try:
+                resolved = await r.resolve_image_backend(project, payload, generation_type=image.generation_type)
+            except ImageBucketCapabilityError as exc:
+                if image.generation_type == "i2i":
+                    require_reference_image_limit(image.references, 0, model=exc.model_id)
+                raise
             image_backend = await _get_or_create_image_backend(
                 resolved.provider_id,
                 {},
@@ -556,7 +562,7 @@ async def resolve_generation_context(
             resolution=image_resolution,
             max_reference_images=(
                 await backend_reference_image_limit(image_backend, provider_id=image_provider_model.provider_id)
-            ).clamp_bound(),
+            ).to_json(),
             quality=image_quality,
         )
 

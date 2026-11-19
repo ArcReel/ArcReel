@@ -17,6 +17,7 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import PROVIDER_OPENAI
+from tests.factories import image_bytes
 from tests.fakes import captured_openai_clients
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -129,7 +130,7 @@ class TestOpenAIImageBackend:
         refs = []
         for index in range(20):
             ref_path = tmp_path / f"ref{index}.png"
-            ref_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            ref_path.write_bytes(image_bytes())
             refs.append(ReferenceImage(path=str(ref_path)))
 
         output_path = tmp_path / "output.png"
@@ -166,7 +167,7 @@ class TestOpenAIImageBackend:
         mock_client.images.edit = AsyncMock(return_value=_make_mock_image_response(b64_data))
 
         ref_path = tmp_path / "ref.png"
-        ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+        ref_path.write_bytes(image_bytes())
 
         with captured_openai_clients(mock_client):
             from lib.backends.image_backends.openai import OpenAIImageBackend
@@ -483,7 +484,7 @@ class TestOpenAIImageBackend:
         )
 
         ref_path = tmp_path / "ref.png"
-        ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+        ref_path.write_bytes(image_bytes())
 
         with captured_openai_clients(mock_client):
             from lib.backends.image_backends.openai import OpenAIImageBackend
@@ -530,7 +531,7 @@ class TestModeGating:
     @pytest.mark.asyncio
     async def test_generations_only_with_refs_raises(self, tmp_path):
         ref = tmp_path / "r.png"
-        ref.write_bytes(b"\x89PNG")
+        ref.write_bytes(image_bytes())
         with patch("lib.backends.image_backends.openai.create_openai_client"):
             from lib.backends.image_backends.openai import OpenAIImageBackend
 
@@ -570,9 +571,8 @@ class TestModeGating:
             )
             with pytest.raises(ImageCapabilityError) as excinfo:
                 await b.generate(req)
-            assert excinfo.value.code == "image_endpoint_mismatch_no_i2i"
-            assert excinfo.value.params.get("model") == "m"
-            assert excinfo.value.params.get("detail") == "all reference images failed to open"
+            assert excinfo.value.code == "image_reference_images_unreadable"
+            assert excinfo.value.params == {"model": "m", "names": "ref.png"}
 
 
 def _image_entry(

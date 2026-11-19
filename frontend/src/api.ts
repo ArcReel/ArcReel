@@ -4113,6 +4113,7 @@ class API {
   ): Promise<{
     success: boolean;
     grid_ids: string[];
+    blocked?: Array<{ scene_id: string; code: string; params: Record<string, unknown>; message: string }>;
     task_ids: string[];
     /** grid_id → task_id；只含本次真正入队的宫格。 */
     task_ids_by_grid: Record<string, string>;
@@ -4146,9 +4147,10 @@ class API {
    */
   static async getGridCapability(
     projectName: string,
-    options: { signal?: AbortSignal } = {}
+    options: { signal?: AbortSignal; episode?: number; scriptFile?: string } = {}
   ): Promise<GridCapability> {
-    return this.request(`/projects/${encodeURIComponent(projectName)}/grid-capability`, {
+    const query = options.episode && options.scriptFile ? `?${new URLSearchParams({ episode: String(options.episode), script_file: options.scriptFile })}` : "";
+    return this.request(`/projects/${encodeURIComponent(projectName)}/grid-capability${query}`, {
       signal: options.signal,
     });
   }

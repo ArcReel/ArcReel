@@ -3,12 +3,12 @@ import { useTranslation } from "react-i18next";
 import { API, ReferenceProjectionError, SpeechAdmissionError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
-import { advisoryProblems } from "@/components/canvas/reference/advisory-problems";
 import type { DurationConfirmItem } from "@/components/canvas/reference/ReferenceDurationConfirmDialog";
 
 interface Options {
   projectName: string;
   episode: number;
+  onEditReferences?: (unitId: string) => void;
 }
 
 /**
@@ -23,7 +23,7 @@ interface Options {
 type CanEnqueue = (unitId: string) => boolean;
 
 interface PendingConfirm {
-  /** 需要用户拍板的单元：取档偏离或带非阻断问题 */
+  /** 需要确认申请时长的单元 */
   items: DurationConfirmItem[];
   /** 通过确认的全部单元（含无需确认的），确认后按原顺序入队 */
   unitIds: string[];
@@ -32,17 +32,8 @@ interface PendingConfirm {
 type ConfirmedDurations = ReadonlyMap<string, number>;
 type Commit = (unitIds: string[], confirmedDurations: ConfirmedDurations) => Promise<void>;
 
-/**
- * 参考生视频入口的入队前确认闸门：预检取档，申请秒数与请求时长基准不一致、或预检报出
- * 非阻断问题（参考图取前 N 张）时先让用户确认，取消则一个都不入队。
- *
- * 非阻断问题与取档偏离同权触发确认：它同样改变成片内容，而任务落库后界面上没有任何
- * 展示面，入队前不说就永远不会被说出来。
- *
- * 批量入口聚合成一次确认（逐个弹窗会让用户为一次操作点 N 遍），单入口与批量入口共用
- * 同一条闸门——否则批量按钮会成为绕过确认的旁路。
- */
-export function useReferenceDurationGate({ projectName, episode }: Options) {
+/** 实际申请时长发生变化时请求确认。超出参考图上限时展示原因，并提供编辑入口。 */
+export function useReferenceDurationGate({ projectName, episode, onEditReferences }: Options) {
   const { t } = useTranslation("dashboard");
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   // 入队回调随 run 一起捕获：确认发生在 run 之后的任意时刻，不能从渲染期闭包重取
@@ -105,7 +96,15 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
       for (const result of results) {
         if (!result) continue;
         if ("error" in result) {
-          if (result.error instanceof SpeechAdmissionError || result.error instanceof ReferenceProjectionError) {
+          if (onEditReferences && result.error instanceof ReferenceProjectionError &&
+              result.error.projection.problems.some((problem) => problem.code === "video_reference_images_exceeded")) {
+            useAppStore.getState().pushToast(result.error.message, "error", {
+              action: {
+                label: t("reference_edit_unit_references", { id: result.unitId }),
+                onClick: () => onEditReferences(result.unitId),
+              },
+            });
+          } else if (result.error instanceof SpeechAdmissionError || result.error instanceof ReferenceProjectionError) {
             admissionMessages.add(result.error.message);
           } else {
             failed += 1;
@@ -132,7 +131,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
       if (available.length === 0) return;
 
       const needsConfirmation = available.filter(
-        (item) => item.precheck.needs_confirmation || advisoryProblems(item.precheck).length > 0,
+        (item) => item.precheck.needs_confirmation,
       );
       const passing = available.map((item) => item.unitId);
       if (needsConfirmation.length === 0) {
@@ -143,7 +142,7 @@ export function useReferenceDurationGate({ projectName, episode }: Options) {
       canEnqueueRef.current = canEnqueue;
       setPending({ items: needsConfirmation, unitIds: passing });
     },
-    [projectName, episode, t],
+    [projectName, episode, t, onEditReferences],
   );
 
   const confirm = useCallback(() => {

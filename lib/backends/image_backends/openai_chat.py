@@ -18,15 +18,13 @@ from typing import Any, ClassVar
 from openai.types.chat import ChatCompletion, ChatCompletionContentPartImageParam, ChatCompletionContentPartParam
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE
-from lib.backends.backend_runtime import with_artifact_retry
+from lib.backends.backend_runtime import read_reference_images, with_artifact_retry
 from lib.backends.image_backends.base import (
     ImageCapability,
-    ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
     ImageRequestFacts,
     download_image_to_path,
-    image_to_base64_data_uri,
     per_image_usage,
 )
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
@@ -167,20 +165,7 @@ class OpenAIChatImageBackend:
         )
 
     def _reference_parts(self, request: ImageGenerationRequest) -> list[ChatCompletionContentPartImageParam]:
-        parts: list[ChatCompletionContentPartImageParam] = []
-        for ref in request.reference_images:
-            ref_path = Path(ref.path)
-            try:
-                data_uri = image_to_base64_data_uri(ref_path)
-            except FileNotFoundError:
-                logger.warning("参考图不存在，跳过: %s", ref_path)
-                continue
-            parts.append({"type": "image_url", "image_url": {"url": data_uri}})
-        if request.reference_images and not parts:
-            # 用户提交的是图生图却没有一张可用素材：报错而不是悄悄降级成文生图
-            raise ImageCapabilityError(
-                "image_endpoint_mismatch_no_i2i",
-                model=self._model,
-                detail="all reference images failed to open",
-            )
-        return parts
+        return [
+            {"type": "image_url", "image_url": {"url": image.data_uri()}}
+            for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+        ]

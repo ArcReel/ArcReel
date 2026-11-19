@@ -30,6 +30,7 @@ from lib.backends.image_backends.base import (
 )
 from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.providers import PROVIDER_KLING
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, only_request
 
@@ -92,7 +93,7 @@ def _request(tmp_path: Path, **overrides) -> ImageGenerationRequest:
 
 def _ref(tmp_path: Path, name: str) -> ReferenceImage:
     p = tmp_path / name
-    p.write_bytes(b"\x89PNG\r\n" + name.encode())
+    p.write_bytes(image_bytes(sum(name.encode())))
     return ReferenceImage(path=str(p))
 
 

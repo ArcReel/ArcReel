@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from base64 import b64encode
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,6 +18,7 @@ from lib.backends.video_backends.vidu import (
     _coerce_duration,
 )
 from lib.catalog import query as catalog
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock
 
 
@@ -103,7 +105,7 @@ class TestEndpointSelection:
     def test_start_image_picks_img2video(self, tmp_path: Path, video_output_path: Path):
         backend = self._backend()
         start = tmp_path / "start.png"
-        start.write_bytes(b"x")
+        start.write_bytes(image_bytes())
         req = VideoGenerationRequest(prompt="x", output_path=video_output_path, start_image=start)
         assert backend._select_endpoint(req) == "/img2video"
 
@@ -111,7 +113,7 @@ class TestEndpointSelection:
         backend = self._backend()
         start, end = tmp_path / "s.png", tmp_path / "e.png"
         for p in (start, end):
-            p.write_bytes(b"x")
+            p.write_bytes(image_bytes())
         req = VideoGenerationRequest(prompt="x", output_path=video_output_path, start_image=start, end_image=end)
         assert backend._select_endpoint(req) == "/start-end2video"
 
@@ -119,7 +121,7 @@ class TestEndpointSelection:
         """有 refs 时即使带 start_image 也应走 reference2video（依实现：refs 先判）。"""
         backend = self._backend()
         ref = tmp_path / "ref.png"
-        ref.write_bytes(b"x")
+        ref.write_bytes(image_bytes())
         req = VideoGenerationRequest(prompt="x", output_path=video_output_path, reference_images=[ref])
         assert backend._select_endpoint(req) == "/reference2video"
 
@@ -163,8 +165,7 @@ class TestCoerceDuration:
 class TestBuildRequest:
     """_build_request 是核心串联函数：endpoint 选择 + duration/resolution/aspect_ratio/audio 字段拼装。"""
 
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri")
-    def test_text2video_body_minimal(self, mock_data_uri, video_output_path: Path):
+    def test_text2video_body_minimal(self, video_output_path: Path):
         backend = _profile("viduq3-turbo")(api_key="test-key", model="viduq3-turbo")
         req = VideoGenerationRequest(
             prompt="hello",
@@ -211,10 +212,9 @@ class TestBuildRequest:
 
         assert ViduVideoBackend.metered_usage("viduq1", request).dimensions["resolution"] == "720p"
 
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_img2video_passes_one_image_no_aspect_ratio(self, tmp_path: Path, video_output_path: Path):
         start = tmp_path / "s.png"
-        start.write_bytes(b"x")
+        start.write_bytes(image_bytes())
 
         backend = _profile("viduq3-turbo")(api_key="test-key", model="viduq3-turbo")
         req = VideoGenerationRequest(
@@ -227,15 +227,14 @@ class TestBuildRequest:
         endpoint, body = backend._build_request(req)
 
         assert endpoint == "/img2video"
-        assert body["images"] == ["data:image/png;base64,XX"]
+        assert body["images"] == ["data:image/png;base64," + b64encode(image_bytes()).decode()]
         # img2video 不接受 aspect_ratio
         assert "aspect_ratio" not in body
 
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_reference2video_with_q3_turbo(self, tmp_path: Path, video_output_path: Path):
         ref1, ref2 = tmp_path / "r1.png", tmp_path / "r2.png"
         for p in (ref1, ref2):
-            p.write_bytes(b"x")
+            p.write_bytes(image_bytes())
 
         backend = _profile("viduq3-turbo")(api_key="test-key", model="viduq3-turbo")
         req = VideoGenerationRequest(
@@ -269,7 +268,7 @@ class TestUnsendableInputsRejected:
     @staticmethod
     def _image(tmp_path: Path, name: str) -> Path:
         p = tmp_path / name
-        p.write_bytes(b"x")
+        p.write_bytes(image_bytes())
         return p
 
     @pytest.mark.parametrize("frame", ["start_image", "end_image"])
@@ -290,7 +289,7 @@ class TestUnsendableInputsRejected:
         with pytest.raises(VideoCapabilityError) as exc:
             _profile("viduq3-turbo")(api_key="test-key", model="viduq3-turbo")._build_request(req)
         assert exc.value.code == "video_reference_images_exceeded"
-        assert exc.value.params == {"model": "viduq3-turbo", "limit": 7, "count": 8}
+        assert exc.value.params == {"names": "r7.png", "model": "viduq3-turbo", "limit": 7, "count": 8}
 
     def test_end_frame_without_start_frame(self, tmp_path: Path, video_output_path: Path):
         req = VideoGenerationRequest(
@@ -342,15 +341,16 @@ class TestPromptLength:
             "count": 2001,
         }
 
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_reference2video_at_limit_passes_untruncated(self, video_output_path: Path):
         backend = _profile("viduq3-turbo")(api_key="k", model="viduq3-turbo")
         prompt = "字" * 2000
+        ref = video_output_path.with_suffix(".png")
+        ref.write_bytes(image_bytes())
         req = VideoGenerationRequest(
             prompt=prompt,
             output_path=video_output_path,
             duration_seconds=8,
-            reference_images=[Path("a.png")],
+            reference_images=[ref],
         )
         _endpoint, body = backend._build_request(req)
 
@@ -496,7 +496,7 @@ class TestQ4Endpoint:
     def _files(tmp_path: Path, suffix: str, count: int) -> list[Path]:
         paths = [tmp_path / f"f{i}{suffix}" for i in range(count)]
         for p in paths:
-            p.write_bytes(b"x")
+            p.write_bytes(image_bytes() if suffix == ".png" else b"audio")
         return paths
 
     def test_prefilled_for_viduq4_preview(self):
@@ -530,7 +530,6 @@ class TestQ4Endpoint:
         assert _coerce_duration(endpoint, "/img2video", requested) == sent
         assert _coerce_duration(endpoint, "/reference2video", requested) == sent
 
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_reference2video_accepts_15_images_and_long_prompt(self, tmp_path: Path, video_output_path: Path):
         req = VideoGenerationRequest(
             prompt="字" * 20000,
@@ -553,7 +552,7 @@ class TestQ4Endpoint:
         with pytest.raises(VideoCapabilityError) as exc:
             self._backend()._build_request(req)
         assert exc.value.code == "video_reference_images_exceeded"
-        assert exc.value.params == {"model": "viduq4-preview", "limit": 15, "count": 16}
+        assert exc.value.params == {"names": "f15.png", "model": "viduq4-preview", "limit": 15, "count": 16}
 
     def test_rejects_prompt_over_20000(self, tmp_path: Path, video_output_path: Path):
         req = VideoGenerationRequest(
@@ -564,7 +563,6 @@ class TestQ4Endpoint:
         assert exc.value.code == "video_prompt_too_long"
         assert exc.value.params["limit"] == 20000
 
-    @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_reference2video_sends_sounds_in_order(self, tmp_path: Path, video_output_path: Path):
         audio = [tmp_path / f"voice{i}.mp3" for i in range(3)]
         for i, p in enumerate(audio):
@@ -646,7 +644,7 @@ class TestQ3ReferenceOnlyModels:
     def _files(tmp_path: Path, suffix: str, count: int) -> list[Path]:
         paths = [tmp_path / f"f{i}{suffix}" for i in range(count)]
         for p in paths:
-            p.write_bytes(b"x")
+            p.write_bytes(image_bytes() if suffix == ".png" else b"audio")
         return paths
 
     @pytest.mark.parametrize(("model", "endpoint"), sorted(_Q3_REFERENCE_ONLY.items()))
@@ -688,7 +686,7 @@ class TestQ3ReferenceOnlyModels:
             "resolution": "1080p",
             "audio": False,
             "aspect_ratio": "9:16",
-            "images": ["data:image/png;base64,eA=="] * 7,
+            "images": ["data:image/png;base64," + b64encode(image_bytes()).decode()] * 7,
         }
 
     @pytest.mark.parametrize("model", ["viduq3-mix", "viduq3-ad"])
@@ -711,7 +709,7 @@ class TestQ3ReferenceOnlyModels:
             "duration": 15,
             "resolution": "720p",
             "aspect_ratio": "4:3",
-            "images": ["data:image/png;base64,eA=="] * 2,
+            "images": ["data:image/png;base64," + b64encode(image_bytes()).decode()] * 2,
         }
 
     def test_mix_rejects_muted_request_before_submit(self, tmp_path: Path, video_output_path: Path):
@@ -853,7 +851,7 @@ class TestQ3ReferenceOnlyModels:
         with pytest.raises(VideoCapabilityError) as exc:
             self._backend(model)._build_request(req)
         assert exc.value.code == "video_reference_images_exceeded"
-        assert exc.value.params == {"model": model, "limit": 7, "count": 8}
+        assert exc.value.params == {"names": "f7.png", "model": model, "limit": 7, "count": 8}
 
     @pytest.mark.parametrize("model", sorted(_Q3_REFERENCE_ONLY))
     def test_prompt_limit_is_20000(self, model: str, tmp_path: Path, video_output_path: Path):
@@ -883,7 +881,7 @@ class TestQ3ReferenceOnlyModels:
         assert body["duration"] == 16
         assert body["audio"] is True
         assert body["aspect_ratio"] == "21:9"
-        assert body["images"] == ["data:image/png;base64,eA=="]
+        assert body["images"] == ["data:image/png;base64," + b64encode(image_bytes()).decode()]
         assert backend.video_capabilities.max_prompt_chars == 2000
 
 
@@ -990,3 +988,17 @@ class TestQ3ReferenceOnlyModelsInCatalog:
         table = set(_profile(model).endpoint.durations["/reference2video"])
         assert set(info.supported_durations) <= table
         assert set(info.reference_image_durations or []) <= table
+
+
+async def test_unreadable_start_frame_prevents_generation(tmp_path):
+    from arcreel_market_core.video_backend_contract import VideoCapabilityError
+    from tests.http_capture import capture_http
+
+    backend = _profile("viduq3-pro")(api_key="test", model="viduq3-pro")
+    with capture_http() as router, pytest.raises(VideoCapabilityError) as caught:
+        await backend.generate(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", start_image=tmp_path / "missing.png")
+        )
+    assert caught.value.code == "video_start_image_unreadable"
+    assert caught.value.params["name"] == "missing.png"
+    assert not router.calls

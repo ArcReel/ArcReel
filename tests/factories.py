@@ -38,6 +38,15 @@ def make_display_names(
     return build_display_names(locale, custom_providers=providers or {}, custom_models=models or {})
 
 
+def image_bytes(shade: int = 0, *, fmt: str = "PNG") -> bytes:
+    """A decodable image; shades distinguish ordered references in requests."""
+    from PIL import Image
+
+    output = BytesIO()
+    Image.new("RGB", (2, 2), (shade % 256, 0, 0)).save(output, format=fmt)
+    return output.getvalue()
+
+
 def wav_bytes(duration_seconds: float, sample_rate: int = 8000, *, tone_hz: float | None = None) -> bytes:
     """纯 stdlib 生成 wav 字节（不依赖 ffmpeg）：默认静音；给出 ``tone_hz`` 时是该频率的正弦音，供需要听得见的用例使用。"""
     frames = int(duration_seconds * sample_rate)

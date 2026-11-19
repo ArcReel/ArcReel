@@ -38,13 +38,14 @@ from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_resumable_video,
+    read_video_images,
     recording_poll,
     resume_expiry_gate,
 )
+from lib.backends.input_limits import excess_image_names
 from lib.backends.kling_backend_base import KlingBackendBase
 from lib.backends.kling_shared import (
     extract_kling_video_url,
-    image_to_base64,
 )
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.transport_layer import TransportLayer
@@ -62,7 +63,7 @@ _IMAGE2VIDEO = "image2video"
 _MULTI_IMAGE2VIDEO = "multi-image2video"
 _RESUMABLE_SUBPATHS = frozenset({_TEXT2VIDEO, _IMAGE2VIDEO, _MULTI_IMAGE2VIDEO})
 
-# 多图主体（multi-image2video）子路径一次能承载的参考图张数（通道事实，编排层裁剪与生成时防御同读生效能力）。
+# 多图主体（multi-image2video）子路径一次能承载的参考图张数（通道事实，编排层与调用通道按同一上限拒绝超量输入）。
 # 各型号接受几张参考图记在模型条目上（官方 3.0 Omni / O1 在无参考视频时可达 7 张），与本值两侧取较小值
 # （docs/adr/0104）；本子路径的请求体沿用保守值 4，由调用端点固定声明。
 _R2V_MAX_REFERENCE_IMAGES = 4
@@ -122,20 +123,20 @@ _MODE_RESOLUTIONS = {"std": "720p", "pro": "1080p", "4k": "4k"}
 
 
 def _valid_frames(images: list[Path] | None) -> list[Path]:
-    """过滤出有效（非空）参考图路径；空 / None 归空列表。"""
+    """保留每个提供的槽位，由共享读取器报告无效路径。"""
     if not images:
         return []
-    return [Path(img) for img in images if str(img)]
+    return [Path(img or "") for img in images]
 
 
 def _has_start_image(request: VideoGenerationRequest) -> bool:
     start_image = request.start_image
-    return isinstance(start_image, (str, Path)) and bool(str(start_image))
+    return start_image is not None
 
 
 def _has_end_image(request: VideoGenerationRequest) -> bool:
     end_image = request.end_image
-    return isinstance(end_image, (str, Path)) and bool(str(end_image))
+    return end_image is not None
 
 
 def _subpath_for(request: VideoGenerationRequest) -> str:
@@ -391,6 +392,7 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             if bound is not None and len(reference_images) > bound:
                 raise VideoCapabilityError(
                     "video_reference_images_exceeded",
+                    names=excess_image_names(bound, len(reference_images), reference_images),
                     model=self._model,
                     count=len(reference_images),
                     limit=bound,
@@ -404,7 +406,8 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
                     "video_reference_route_audio_unsupported", provider=self.name, model=self._model
                 )
             # 多图主体：image_list 为 [{"image": <base64>}]（可灵原生 schema），无单首帧概念。
-            payload["image_list"] = [{"image": self._encode_frame(p)} for p in reference_images]
+            images = read_video_images(request, self.model)
+            payload["image_list"] = [{"image": images[Path(p)].base64()} for p in reference_images]
             return _MULTI_IMAGE2VIDEO, payload
 
         if subpath == _TEXT2VIDEO:
@@ -415,7 +418,8 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             if _has_end_image(request):
                 raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
         else:
-            payload["image"] = self._encode_frame(Path(cast(Path, request.start_image)))
+            images = read_video_images(request, self.model)
+            payload["image"] = images[Path(cast(Path, request.start_image))].base64()
             if _has_end_image(request):
                 if not caps.last_frame:
                     # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
@@ -426,7 +430,7 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
                             "video_last_frame_requires_pro", provider=self.name, model=self._model
                         )
                     raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
-                payload["image_tail"] = self._encode_frame(Path(cast(Path, request.end_image)))
+                payload["image_tail"] = images[Path(cast(Path, request.end_image))].base64()
 
         # 音频开关 sound（官方参数，取 "on"/"off"，各档默认 off）仅 text2video / image2video 子路径
         # 携带（multi-image2video 原生 schema 不含）；音轨恒无声（含用户收窄）时不发该字段，避免向不支持的
@@ -434,15 +438,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
         if caps.audio_track is not VideoAudioMode.ALWAYS_OFF:
             payload["sound"] = "on" if self._effective_audio(request, subpath=subpath) else "off"
         return subpath, payload
-
-    def _encode_frame(self, path: Path) -> str:
-        # fail-loud：声明了帧图却缺失/不可读即中止，不静默退化（会产出错误结果且照常计费）。
-        if not path.is_file():
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name)
-        try:
-            return image_to_base64(path)
-        except OSError as exc:
-            raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=path.name) from exc
 
     @staticmethod
     def _safe_log_view(subpath: str, payload: dict) -> dict:

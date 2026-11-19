@@ -12,7 +12,6 @@ v2.0 走 ``POST /v1/videos`` 后轮询 ``GET /v1/videos/{task_id}``，请求以 
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -37,6 +36,7 @@ from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_resumable_video,
     poll_with_retry,
+    read_video_images,
     recording_poll,
     resume_expiry_gate,
     should_retry_poll,
@@ -44,7 +44,7 @@ from lib.backends.backend_runtime import (
     submit_post,
 )
 from lib.backends.http_status_errors import raise_for_status_redacted
-from lib.backends.image_backends.base import image_to_base64_data_uri
+from lib.backends.input_limits import excess_image_names
 from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import EntryBoundCapabilities
@@ -169,20 +169,6 @@ def _resolve_size(resolution: str | None, aspect_ratio: str) -> tuple[int, int]:
     """
     short = resolution_to_short_edge(resolution, tier_map=VIDEO_TIER_SHORT_EDGE)
     return aspect_size(aspect_ratio, short, round_to=_VIDEO_ROUND_TO, max_long_edge=_MAX_LONG_EDGE)
-
-
-def _image_to_bare_base64(image_path: Path) -> str:
-    """本地图片 → **裸 base64** 字符串（无 ``data:`` 前缀）。
-
-    Agnes 视频端对整串做 base64 解码，带 ``data:`` 前缀会在生成期触发 padding 错误，故不复用
-    仓库通用 data-URI helper（图像端接受 data-URI，视频端不接受，二者不可混用）。
-    """
-    return base64.b64encode(image_path.read_bytes()).decode("ascii")
-
-
-def _image_to_data_uri(image_path: Path) -> str:
-    """本地图片 → ``data:image/...;base64,...``；2.5 契约的媒体输入统一使用该形态。"""
-    return image_to_base64_data_uri(image_path)
 
 
 @dataclass(frozen=True)
@@ -392,18 +378,21 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             if len(reference_images) > _MAX_REFERENCE_IMAGES:
                 raise VideoCapabilityError(
                     "video_reference_images_exceeded",
+                    names=excess_image_names(_MAX_REFERENCE_IMAGES, len(reference_images), reference_images),
                     model=self._model,
                     count=len(reference_images),
                     limit=_MAX_REFERENCE_IMAGES,
                 )
-            payload["extra_body"] = {"image": [self._encode_reference(p) for p in reference_images]}
+            images = read_video_images(request, self.model)
+            payload["extra_body"] = {"image": [images[Path(p)].base64() for p in reference_images]}
         elif start_image is not None and end_image is not None:
+            images = read_video_images(request, self.model)
             payload["extra_body"] = {
-                "image": [self._encode_start(start_image), self._encode_end(end_image)],
+                "image": [images[Path(start_image)].base64(), images[Path(end_image)].base64()],
                 "mode": _KEYFRAMES_MODE,
             }
         elif start_image is not None:
-            payload["image"] = self._encode_start(start_image)
+            payload["image"] = read_video_images(request, self.model)[start_image].base64()
 
         return payload
 
@@ -431,15 +420,16 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if end_image is not None and start_image is None:
             raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
 
+        images = read_video_images(request, self.model)
         if reference_images:
             # 张数上限是模型事实（flash 5、完整版 8，记在模型条目上），由 gate_video_request 按生效能力在付费前校验。
             payload["mode"] = _V25_REFERENCE_MODE
-            payload["images"] = [self._encode_reference(p, data_uri=True) for p in reference_images]
+            payload["images"] = [images[Path(p)].data_uri() for p in reference_images]
         elif start_image is not None:
             payload["mode"] = _V25_KEYFRAME_MODE
-            payload["first_frame"] = self._encode_start(start_image, data_uri=True)
+            payload["first_frame"] = images[Path(start_image)].data_uri()
             if end_image is not None:
-                payload["last_frame"] = self._encode_end(end_image, data_uri=True)
+                payload["last_frame"] = images[Path(end_image)].data_uri()
         else:
             payload["mode"] = _V25_TEXT_MODE
 
@@ -473,54 +463,12 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def _single_path(value: str | Path | None) -> Path | None:
-        """把请求里的图像字段归一化成 Path；空 / 空串 / 空 Path（``Path("")`` 会塌成 ``Path(".")``）→ None。"""
-        if value is None:
-            return None
-        text = str(value)
-        if not text or text == ".":
-            return None
-        return Path(text)
+        """将提供的路径交给共享读取器校验。"""
+        return Path(value) if value is not None else None
 
-    @classmethod
-    def _valid_paths(cls, values: list[Path] | None) -> list[Path]:
-        """归一化参考图列表：剔除空 / 空 Path（``[Path(v) for v if v]`` 对 Path 恒真，不起过滤作用）。"""
-        return [p for v in (values or []) if (p := cls._single_path(v)) is not None]
-
-    def _encode_start(self, path: Path, *, data_uri: bool = False) -> str:
-        """编码首帧；缺失或不可读 fail-loud（不静默退化为文生视频）。"""
-        return self._encode_image(
-            path,
-            error_code="video_start_image_unreadable",
-            name=path.name or str(path),
-            data_uri=data_uri,
-        )
-
-    def _encode_end(self, path: Path, *, data_uri: bool = False) -> str:
-        """编码尾帧；缺失或不可读 fail-loud（错误指向尾帧而非首帧）。"""
-        return self._encode_image(
-            path,
-            error_code="video_end_image_unreadable",
-            name=path.name or str(path),
-            data_uri=data_uri,
-        )
-
-    def _encode_reference(self, path: Path, *, data_uri: bool = False) -> str:
-        """编码参考图；缺失或不可读 fail-loud（不静默丢弃后照常计费）。"""
-        return self._encode_image(
-            path,
-            error_code="video_reference_images_unreadable",
-            names=path.name or str(path),
-            data_uri=data_uri,
-        )
-
-    def _encode_image(self, path: Path, *, error_code: str, data_uri: bool = False, **err_params: str) -> str:
-        """编码图像；缺失或不可读时按通道 error_code / 参数名 fail-loud。"""
-        if not path.is_file():
-            raise VideoCapabilityError(error_code, model=self._model, **err_params)
-        try:
-            return _image_to_data_uri(path) if data_uri else _image_to_bare_base64(path)
-        except OSError as exc:
-            raise VideoCapabilityError(error_code, model=self._model, **err_params) from exc
+    @staticmethod
+    def _valid_paths(values: list[Path] | None) -> list[Path]:
+        return [Path(value or "") for value in values or []]
 
     # ── HTTP submit / poll / download ───────────────────────────────────
 

@@ -456,11 +456,15 @@ export interface DraftRepairTaskResult {
  * `unavailable` 已是后端按请求语言渲染的成品文案，前端不再二次翻译。
  */
 export interface RenderedPromptPreview {
+  unavailable_code?: string;
+  reference_count?: number;
+  max_reference_images?: number | null;
+  previous_storyboard?: string | null;
   text: string | null;
   unavailable: string | null;
   /** 该条目的这一侧提示词当前是文本形态。 */
   is_text_form: boolean;
-  /** 渲染这份文本时产生的提示（如参考图超出后端上限被裁剪），已由后端按请求语言渲染成成品文案。 */
+  /** 渲染这份文本时产生的提示，已由后端按请求语言渲染成成品文案。 */
   warnings: string[];
 }
 

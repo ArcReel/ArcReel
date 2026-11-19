@@ -38,7 +38,13 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, notify_provider_response
+from lib.backends.backend_runtime import (
+    ProviderJobIdPersistenceMixin,
+    ReferenceImageData,
+    notify_provider_response,
+    read_video_images,
+)
+from lib.backends.input_limits import excess_image_names
 from lib.custom_provider.comfyui.capabilities import derive_video_capabilities
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution, PickedArtifact
@@ -99,10 +105,21 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         return binding_video_capabilities(self._definition)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        bindings = self._definition.get("bindings") or {}
+        if request.start_image is not None and not _targets(bindings.get("start_image")):
+            raise VideoCapabilityError("video_first_frame_unsupported", provider=self.name, model=self.model)
+        if request.end_image is not None and not _targets(bindings.get("end_image")):
+            raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self.model)
         count = len(request.reference_images or [])
         slots = derive_video_capabilities(self._definition).max_reference_images
         if count > slots:
-            raise VideoCapabilityError("video_reference_images_exceeded", model=self._model, limit=slots, count=count)
+            raise VideoCapabilityError(
+                "video_reference_images_exceeded",
+                names=excess_image_names(slots, count, request.reference_images or []),
+                model=self._model,
+                limit=slots,
+                count=count,
+            )
         # 预检使用本地引用占位，不上传：无效绑定、欠填或缺失画幅必须在所有外部写入前失败。
         if (
             request.reference_audio_files
@@ -235,14 +252,17 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         self, http: httpx.AsyncClient, request: VideoGenerationRequest, *, job_label: str
     ) -> MediaInputs:
         """上传绑定的首尾帧，以及已通过槽位容量校验的全部参考图。"""
-        bindings: Mapping[str, Any] = self._definition.get("bindings") or {}
-        start = await self._upload_one(http, request.start_image, bindings, "start_image", job_label=job_label)
-        end = await self._upload_one(http, request.end_image, bindings, "end_image", job_label=job_label)
+        images = await asyncio.to_thread(read_video_images, request, self.model)
+        start = await self._upload_one(http, request.start_image, "start_image", images, job_label=job_label)
+        end = await self._upload_one(http, request.end_image, "end_image", images, job_label=job_label)
         references: list[str] = []
         for index, path in enumerate(request.reference_images or []):
             references.append(
                 await self._client.upload_media(
-                    http, path, filename=upload_filename(job_label, "reference_images", path, index)
+                    http,
+                    path,
+                    image=images[Path(path)],
+                    filename=upload_filename(job_label, "reference_images", path, index),
                 )
             )
         audio = []
@@ -260,14 +280,16 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         self,
         http: httpx.AsyncClient,
         path: Path | None,
-        bindings: Mapping[str, Any],
         key: str,
+        images: Mapping[Path, ReferenceImageData],
         *,
         job_label: str,
     ) -> str | None:
-        if path is None or not _targets(bindings.get(key)):
+        if path is None:
             return None
-        return await self._client.upload_media(http, path, filename=upload_filename(job_label, key, path))
+        return await self._client.upload_media(
+            http, path, image=images[Path(path)], filename=upload_filename(job_label, key, path)
+        )
 
 
 def _targets(raw: object) -> list[Mapping[str, Any]]:

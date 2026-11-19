@@ -13,6 +13,7 @@ from arcreel_market_core.video_backend_contract import (
     ProviderJobStatus,
     ProviderResponseStage,
     ResumeExpiredError,
+    VideoCapabilityError,
     VideoGenerationRequest,
 )
 from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
@@ -26,7 +27,7 @@ from lib.custom_provider.declarative_backend import (
 )
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.generation.task_failure_encoding import encode_task_failure_message
-from tests.factories import custom_endpoint_definition
+from tests.factories import custom_endpoint_definition, image_bytes
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, request_json
 
@@ -849,7 +850,7 @@ class TestDeclarativeVideoBackend:
         with capture_http() as router:
             submit = router.post("https://relay.test/v1/video/create")
 
-            with pytest.raises(DeclarativeRuntimeError) as caught:
+            with pytest.raises(VideoCapabilityError) as caught:
                 await DeclarativeVideoBackend(
                     api_key="secret",
                     base_url="https://relay.test",
@@ -858,7 +859,7 @@ class TestDeclarativeVideoBackend:
                     provider="custom-1",
                 ).generate(_request(tmp_path, start_image=tmp_path / "vanished.png"))
 
-        assert caught.value.code == "declarative_template_render_failed"
+        assert caught.value.code == "video_start_image_unreadable"
         assert submit.call_count == 0
 
     async def test_template_failure_keeps_its_detail_locale_neutral(self, tmp_path: Path):
@@ -1203,7 +1204,7 @@ class TestDeclarativeVideoBackend:
         definition["inputs"] = {"first_frame": {"source": "start_image", "encoding": "base64"}}
         assert validate_definition(definition).valid
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"\x89PNG" + b"x" * 1024)
+        frame.write_bytes(image_bytes())
         encoded_prefix = base64.b64encode(frame.read_bytes()).decode("ascii")[:64]
 
         with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
@@ -1237,7 +1238,7 @@ class TestDeclarativeVideoBackend:
         definition["inputs"] = {"first_frame": {"source": "start_image", "encoding": "base64"}}
         assert validate_definition(definition).valid
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"\x89PNG tiny")
+        frame.write_bytes(image_bytes())
         encoded = base64.b64encode(frame.read_bytes()).decode("ascii")
 
         with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
@@ -1272,7 +1273,7 @@ class TestDeclarativeVideoBackend:
         definition["submit"]["body"]["image"] = "prefix:{{ inputs.first_frame }}"
         assert validate_definition(definition).valid
         frame = tmp_path / "frame.png"
-        frame.write_bytes(b"\x89PNG tiny")
+        frame.write_bytes(image_bytes())
         encoded = base64.b64encode(frame.read_bytes()).decode("ascii")
 
         with capture_http() as router, bounded_poll_clock(), caplog.at_level("INFO"):
@@ -1410,3 +1411,15 @@ async def test_output_audio_and_metering_follow_effective_capabilities(tmp_path,
     assert result.generate_audio is expected
     assert backend.metered_usage("m", request).dimensions["audio"] is expected
     assert backend.metered_usage("m", request, result).dimensions["audio"] is expected
+
+
+async def test_a_video_template_without_a_reference_input_cannot_drop_the_reference(tmp_path):
+    image = tmp_path / "ref.png"
+    image.write_bytes(image_bytes())
+    backend = DeclarativeVideoBackend(
+        api_key="test", base_url="https://relay.test", model="m", definition=_definition(), provider="custom-1"
+    )
+    with capture_http() as router, pytest.raises(VideoCapabilityError) as refusal:
+        await backend.generate(_request(tmp_path, reference_images=[image]))
+    assert refusal.value.code == "video_reference_images_unsupported"
+    assert not router.calls

@@ -7,6 +7,7 @@ from server.agent_toolset.declaration import READ_CHECK, Exempt, ToolDeclaration
 from server.tool_runtime import (
     NoArguments,
     PromptPreviewRequest,
+    get_image_capabilities,
     get_prompt_preview,
     get_video_capabilities,
     get_workflow_plan,
@@ -26,6 +27,15 @@ GET_WORKFLOW_PLAN = ToolDeclaration(
     migration=READ_CHECK,
     domain_key="workflow_plan",
     handler=get_workflow_plan,
+)
+
+GET_IMAGE_CAPABILITIES = ToolDeclaration(
+    name="get_image_capabilities",
+    description="查询项目文生图（t2i）和图生图（i2i）桶的模型与 max_reference_images 生效上限。null 表示未收录，0 表示不接受参考图。配置不可用时该桶返回 problem。",
+    request_model=NoArguments,
+    migration=Exempt("只读：模型能力查询，不读写产物。"),
+    domain_key="image_capabilities",
+    handler=get_image_capabilities,
 )
 
 GET_VIDEO_CAPABILITIES = ToolDeclaration(
@@ -56,9 +66,10 @@ GET_PROMPT_PREVIEW = ToolDeclaration(
     handler=get_prompt_preview,
 )
 
-ORIENTATION_TOOLS = (GET_WORKFLOW_PLAN, GET_VIDEO_CAPABILITIES, GET_PROMPT_PREVIEW)
+ORIENTATION_TOOLS = (GET_WORKFLOW_PLAN, GET_VIDEO_CAPABILITIES, GET_IMAGE_CAPABILITIES, GET_PROMPT_PREVIEW)
 
 __all__ = [
+    "GET_IMAGE_CAPABILITIES",
     "GET_PROMPT_PREVIEW",
     "GET_VIDEO_CAPABILITIES",
     "GET_WORKFLOW_PLAN",

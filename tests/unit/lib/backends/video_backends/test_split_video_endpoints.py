@@ -4,6 +4,7 @@ import pytest
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.agnes import Agnes25VideoBackend
+from tests.factories import image_bytes
 from tests.http_capture import capture_http, request_json
 
 
@@ -48,7 +49,7 @@ async def test_dashscope_endpoint_controls_request_and_metering(tmp_path, endpoi
     from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS
 
     image = tmp_path / "ref.png"
-    image.write_bytes(b"image")
+    image.write_bytes(image_bytes())
     sound = tmp_path / "voice.wav"
     sound.write_bytes(b"sound")
     backend = DASHSCOPE_VIDEO_BACKENDS[endpoint](api_key="key", model=model, base_url="https://dash.test")

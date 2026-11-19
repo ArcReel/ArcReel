@@ -13,7 +13,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_activation import (
-    ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
     resolve_artifact_episode,
 )
@@ -34,9 +33,9 @@ from server.media_tools.context import (
     generation_result_outcome,
     tool_error,
 )
+from server.services.admission.image_references import reference_image_limit
 from server.services.admission.storyboard_batch import (
     STORYBOARD_BATCH_OPERATION,
-    StoryboardImageBatchPlan,
     plan_storyboard_image_batch,
 )
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest, submit_media_generation
@@ -99,7 +98,7 @@ async def generate_storyboards(
         script_filename = request.value.script
         segment_ids = normalize_requested_ids(request.value.segment_ids, field="segment_ids")
 
-        def plan_batch() -> tuple[Path, ArtifactCurrencyResolver, StoryboardImageBatchPlan]:
+        def load_inputs():
             script = services.projects.load_script(scope.project_name, script_filename)
             project_dir = services.projects.get_project_path(scope.project_name)
 
@@ -128,18 +127,21 @@ async def generate_storyboards(
                 )
                 or 1
             )
-            plan = plan_storyboard_image_batch(
-                project=project_data,
-                script=script,
-                script_file=script_filename,
-                episode=episode,
-                resolver=resolver,
-                requested_ids=segment_ids,
-            )
-            return project_dir, resolver, plan
+            return project_dir, resolver, project_data, script, episode
 
-        # 读项目与剧本、建产物时效判定器、按文件内容判定时效都是同步文件读写与哈希
-        project_dir, resolver, plan = await run_sync_transaction(plan_batch)
+        project_dir, resolver, project_data, script, episode = await run_sync_transaction(load_inputs)
+        image_limit = await reference_image_limit(scope.project_name, project_data, project_dir)
+        plan = await asyncio.to_thread(
+            plan_storyboard_image_batch,
+            project=project_data,
+            script=script,
+            script_file=script_filename,
+            episode=episode,
+            resolver=resolver,
+            requested_ids=segment_ids,
+            project_path=project_dir,
+            image_limit=image_limit,
+        )
         by_id = plan.states
         specs = plan.task_specs(source=caller.source)
 

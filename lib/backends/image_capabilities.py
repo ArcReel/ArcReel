@@ -14,7 +14,7 @@ ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082）：模型行�
 
 参考图上限同样两侧求值（:func:`image_reference_limit`）：条目记录的上限与调用通道的上限取较小值；图生图不在
 生效能力里时为不支持；两侧都没有声明时为未收录，不裁剪、超出由上游拒绝。能力覆盖在两侧求值后整维替换上限，0 表示不接受参考图；
-图生图的路径仍须调用通道实现。任务类型桶的候选、执行时的校验、编排层的裁剪与设置页都读这一个结果。
+图生图的路径仍须调用通道实现。任务类型桶的候选、执行时的校验、编排层的准入与设置页都读这一个结果。
 ComfyUI 端点的上限只来自节点绑定的参考图槽位数，不读条目。
 
 画质同样两侧求值（:func:`image_quality_options`）：条目记模型接受哪些画质取值（``facts.qualities``），调用通道声明
@@ -25,6 +25,7 @@ ComfyUI 端点的上限只来自节点绑定的参考图槽位数，不读条目
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from arcreel_catalog_core import ImageFacts
@@ -36,7 +37,7 @@ from lib.backends.image_backends.registry import (
     channel_capabilities,
     channel_reference_limit,
 )
-from lib.backends.input_limits import InputLimit, effective_input_limit
+from lib.backends.input_limits import InputLimit, effective_input_limit, excess_image_names
 from lib.catalog import query as catalog
 from lib.custom_provider import is_custom_provider
 from lib.custom_provider.model_facts import image_model_facts, model_entry, model_fact_overrides
@@ -165,7 +166,7 @@ def image_reference_limit(
 
 
 async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: str) -> InputLimit[int]:
-    """一个已构造的图片后端的参考图上限生效值，供编排层裁剪与执行时的校验共用。
+    """一个已构造的图片后端的参考图上限生效值，供编排层与执行时校验共用。
 
     通道值取后端的 ``reference_image_limit()``（可能要向供应商查询，如 OpenRouter）。自定义供应商的包装后端带着
     工厂按模型行注入的生效能力与条目上限；其余后端按 ``provider_id`` 取条目。
@@ -193,12 +194,13 @@ async def backend_reference_image_limit(backend: ImageBackend, *, provider_id: s
     )
 
 
-async def gate_image_request(backend: ImageBackend, *, provider_id: str, reference_count: int) -> None:
+async def gate_image_request(
+    backend: ImageBackend, *, provider_id: str, reference_count: int, reference_paths: Iterable[str | Path] = ()
+) -> None:
     """提交前的图片能力校验，生产出图与测试连接共用；不满足时抛 :class:`ImageCapabilityError`。
 
     ``reference_count`` 是本次请求实际带的参考图张数：为 0 时要求文生图，否则要求图生图，且参考图上限
-    （:func:`backend_reference_image_limit`）接受输入、张数不超出正数上限。超限说明调用方没有按编排层同一个
-    生效值裁剪，在提交前拒绝，后端不截断。
+    （:func:`backend_reference_image_limit`）接受输入、张数不超出正数上限。编排与执行按同一生效上限判断，超限在提交前拒绝。
     """
     from lib.custom_provider.backends import CustomImageBackend
 
@@ -222,7 +224,11 @@ async def gate_image_request(backend: ImageBackend, *, provider_id: str, referen
     bound = reference_limit.clamp_bound() if reference_limit is not None else None
     if bound is not None and reference_count > bound:
         raise ImageCapabilityError(
-            "image_reference_images_exceeded", model=backend.model, limit=bound, count=reference_count
+            "image_reference_images_exceeded",
+            names=excess_image_names(bound, reference_count, reference_paths),
+            model=backend.model,
+            limit=bound,
+            count=reference_count,
         )
 
 

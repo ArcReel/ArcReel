@@ -26,7 +26,7 @@ from arcreel_market_core.aspect_size import (
     resolution_to_short_edge,
 )
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
+from lib.backends.backend_runtime import read_reference_images, should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
@@ -36,9 +36,9 @@ from lib.backends.image_backends.base import (
     ImageOutputMissingError,
     ImageRequestFacts,
     download_image_to_path,
-    image_to_base64_data_uri,
     per_image_usage,
 )
+from lib.backends.input_limits import excess_image_names
 from lib.backends.minimax_shared import (
     extract_image_base64,
     extract_image_url,
@@ -211,22 +211,12 @@ class MiniMaxImageBackend:
         if len(refs) > _SUBJECT_REF_LIMIT:
             raise ImageCapabilityError(
                 "image_reference_images_exceeded",
+                names=excess_image_names(_SUBJECT_REF_LIMIT, len(refs), (ref.path for ref in refs)),
                 model=self._model,
                 limit=self.CHANNEL_REFERENCE_LIMIT,
                 count=len(refs),
             )
-        ref = refs[0]
-        # 空路径无文件名可显示，用序号 #1 标识，避免中文占位漏进非中文报错模板。
-        path = Path(ref.path) if ref.path else None
-        if path is None or not path.is_file():
-            raise ImageCapabilityError(
-                "image_reference_images_unreadable", model=self._model, names=path.name if path else "#1"
-            )
-        try:
-            image_file = image_to_base64_data_uri(path)
-        except OSError as exc:
-            logger.warning("MiniMax 参考图读取失败: %s (%s)", path, exc)
-            raise ImageCapabilityError("image_reference_images_unreadable", model=self._model, names=path.name) from exc
+        image_file = read_reference_images([refs[0].path], self.model)[0].data_uri()
         return [{"type": "character", "image_file": image_file}]
 
     async def _persist_image(self, data: dict, output_path: Path) -> str | None:
@@ -463,7 +453,11 @@ class MiniMaxH3ImageBackend:
         if refs:
             if len(refs) > _H3_REFERENCE_LIMIT:
                 raise ImageCapabilityError(
-                    "image_reference_images_exceeded", model=self._model, limit=_H3_REFERENCE_LIMIT, count=len(refs)
+                    "image_reference_images_exceeded",
+                    names=excess_image_names(_H3_REFERENCE_LIMIT, len(refs), (ref.path for ref in refs)),
+                    model=self._model,
+                    limit=_H3_REFERENCE_LIMIT,
+                    count=len(refs),
                 )
             files = await asyncio.to_thread(self._read_reference_files, request)
             data = await self._submit_edit(fields, files)
@@ -506,26 +500,10 @@ class MiniMaxH3ImageBackend:
 
     def _read_reference_files(self, request: ImageGenerationRequest) -> list[tuple[str, tuple[str, bytes, str]]]:
         """按传入顺序读出参考图，组成 multipart 的 ``image[]`` 部分；缺失或读不出的参考图直接报错，不跳过。"""
-        files: list[tuple[str, tuple[str, bytes, str]]] = []
-        for index, ref in enumerate(request.reference_images, start=1):
-            # 空路径无文件名可显示，用序号标识，避免中文占位漏进非中文报错模板。
-            path = Path(ref.path) if ref.path else None
-            if path is None or not path.is_file():
-                raise ImageCapabilityError(
-                    "image_reference_images_unreadable",
-                    model=self._model,
-                    names=path.name if path and path.name else f"#{index}",
-                )
-            try:
-                content = path.read_bytes()
-            except OSError as exc:
-                logger.warning("MiniMax H3 参考图读取失败: %s (%s)", path, exc)
-                raise ImageCapabilityError(
-                    "image_reference_images_unreadable", model=self._model, names=path.name
-                ) from exc
-            mime = _H3_REFERENCE_MIME_TYPES.get(path.suffix.lower(), "application/octet-stream")
-            files.append(("image[]", (path.name, content, mime)))
-        return files
+        return [
+            ("image[]", image.multipart())
+            for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+        ]
 
     @with_retry_async(retry_if=_should_retry_h3_submit)
     async def _submit_generation(self, payload: dict) -> dict:

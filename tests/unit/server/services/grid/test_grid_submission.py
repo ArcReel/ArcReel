@@ -207,6 +207,29 @@ async def test_regenerating_one_chunk_removes_a_record_spanning_it_but_keeps_the
     assert untouched.id in remaining
 
 
+async def test_image_limit_refuses_only_the_affected_grid(project_path, section, monkeypatch):
+    async def limit(*_args):
+        return (1, "local")
+
+    monkeypatch.setattr("server.services.grid.grid_submission.reference_image_limit", limit)
+    characters = {name: {"description": name, "character_sheet": f"characters/{name}.png"} for name in ("Alice", "Bob")}
+    project = _project(characters=characters)
+    script = _script()
+    script["segments"][0]["characters_in_segment"] = list(characters)
+    _write_project(project_path, project, script)
+    (project_path / "characters").mkdir()
+    for name in characters:
+        Image.new("RGB", (3, 3)).save(project_path / "characters" / f"{name}.png")
+        assert register_current_resource_artifact(project_path, resource_type="characters", resource_id=name)
+    plan = await _plan(project_path, section, script=script, project=project)
+    assert not plan.refused
+    assert [item.scene_id for item in plan.blocked] == GROUP_1
+    assert all(
+        item.problem.params == {"count": 2, "limit": 1, "model": "local", "names": "Bob"} for item in plan.blocked
+    )
+    assert [task.payload["scene_ids"] for task in commit_grid_submission(plan, project_path)] == [GROUP_2]
+
+
 async def test_identical_in_flight_grid_is_reused_instead_of_created_again(
     project_path: Path, section: GridSubmissionSection
 ) -> None:

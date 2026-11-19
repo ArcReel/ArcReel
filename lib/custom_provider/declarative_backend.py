@@ -37,11 +37,11 @@ from arcreel_market_core.endpoint_definition import (
 )
 from arcreel_market_core.validation_messages import ValidationMessage
 from arcreel_market_core.video_backend_contract import (
-    IMAGE_MIME_TYPES,
     ProviderJobStatus,
     ProviderResponseStage,
     ResumeExpiredError,
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -51,6 +51,8 @@ from lib.backends.backend_runtime import (
     faststart_video_artifact,
     notify_provider_response_to,
     poll_with_retry,
+    read_reference_images,
+    read_video_image_slots,
     request_with_scoped_credentials,
     should_retry_poll,
     should_retry_submit,
@@ -60,6 +62,7 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import redacted_status_error
+from lib.backends.image_errors import ImageCapabilityError
 from lib.backends.video_backends.metering import video_usage
 from lib.billing.metering import Usage
 from lib.config.url_utils import strip_base_url_version
@@ -422,13 +425,46 @@ class DeclarativeJobEngine[StateT: JobState]:
         「必需图输入」端点的已付费任务判死在第一次轮询之前。
         """
         declarations = self._definition.get("inputs") or {}
+        if require_declared_inputs:
+            declared_sources = {declaration["source"] for declaration in declarations.values()}
+            if assets.get("reference_images") and "reference_images" not in declared_sources:
+                if definition_media_type(self._definition) == "image":
+                    raise ImageCapabilityError(
+                        "image_capability_missing_i2i", provider=self._provider, model=self._model
+                    )
+                raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
+            if assets.get("start_image") is not None and "start_image" not in declared_sources:
+                raise VideoCapabilityError("video_first_frame_unsupported", provider=self._provider, model=self._model)
+            if assets.get("end_image") is not None and "end_image" not in declared_sources:
+                raise VideoCapabilityError("video_last_frame_unsupported", provider=self._provider, model=self._model)
         try:
             # 素材读盘也在守卫内：文件在任务准备与执行之间被删掉时抛的是 OSError，落在守卫外
             # 就会绕过稳定错误码，让 worker 存下一段没有译文的裸文本。
-            loaded = {
-                name: self._assets(paths) if isinstance(paths, list) else self._asset(paths)
-                for name, paths in assets.items()
-            }
+            references = assets.get("reference_images")
+            paths = references if isinstance(references, list) else []
+            if definition_media_type(self._definition) == "image":
+                images = {image.path: image for image in read_reference_images(paths, self._model)}
+            else:
+                start = assets.get("start_image")
+                end = assets.get("end_image")
+                images = read_video_image_slots(
+                    Path(start) if isinstance(start, (str, Path)) else None,
+                    Path(end) if isinstance(end, (str, Path)) else None,
+                    paths,
+                    self._model,
+                )
+            loaded = {}
+            for name, value in assets.items():
+                if name == "reference_audio_files":
+                    loaded[name] = self._audio_assets(value if isinstance(value, list) else [])
+                elif isinstance(value, list):
+                    loaded[name] = [
+                        AssetData(images[Path(path)].mime, images[Path(path)].content) for path in value
+                    ] or None
+                elif value is not None:
+                    loaded[name] = AssetData(images[Path(value)].mime, images[Path(value)].content)
+                else:
+                    loaded[name] = None
             encoded = encode_inputs(declarations, loaded)
             # 声明为必需的素材缺席时就地失败：模板会把整串占位符的键直接删掉，请求照样发得出去，
             # 于是供应商收到一个残缺请求、照常建任务照常计费。
@@ -465,19 +501,11 @@ class DeclarativeJobEngine[StateT: JobState]:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=str(exc)) from exc
 
     @staticmethod
-    def _asset(path: Path | None) -> AssetData | None:
-        if path is None:
-            return None
-        mime = (
-            IMAGE_MIME_TYPES.get(path.suffix.lower())
-            or mimetypes.guess_type(path.name)[0]
-            or "application/octet-stream"
-        )
-        return AssetData(mime, path.read_bytes())
-
-    @classmethod
-    def _assets(cls, paths: list[Path] | None) -> list[AssetData] | None:
-        return [asset for path in paths or [] if (asset := cls._asset(path)) is not None] or None
+    def _audio_assets(paths: list[Path]) -> list[AssetData] | None:
+        return [
+            AssetData(mimetypes.guess_type(path.name)[0] or "application/octet-stream", path.read_bytes())
+            for path in paths
+        ] or None
 
     def _render(self, section: Mapping[str, Any], context: Mapping[str, object]):
         try:

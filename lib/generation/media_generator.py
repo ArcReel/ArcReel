@@ -605,6 +605,7 @@ class MediaGenerator:
         build_and_call: "Callable[[list[CompressedRef]], Awaitable[Any]]",
         before_submit: Callable[[], Awaitable[None]] | None = None,
         provider_resubmit_is_unsafe: Callable[[], bool] | None = None,
+        reference_sources: Mapping[str, Path] | None = None,
     ) -> Any:
         """对参考上传副本做主动压缩 + 预检降档 + 被动 413 兜底，再调用 backend。
 
@@ -612,6 +613,7 @@ class MediaGenerator:
         请求并返回 backend.generate 协程。无参考图时直接单次调用、不做降档（T2I/T2V 的 413 与
         参考图无关，不应被误转成 floor 错误）。
         """
+        from lib.backends.backend_runtime import reference_image_sources
         from lib.references.reference_compression import (
             LADDER_STEPS,
             ReferencePayloadFloorError,
@@ -628,7 +630,12 @@ class MediaGenerator:
                 submit_boundary_crossed = True
                 if before_submit is not None:
                     await before_submit()
-            return await build_and_call(compressed)
+            names = {
+                item.path: (reference_sources or {}).get(str(spec.source), spec.source)
+                for spec, item in zip(specs, compressed, strict=True)
+            }
+            with reference_image_sources(names):
+                return await build_and_call(compressed)
 
         if not specs:
             return await _call_once([])
@@ -691,7 +698,7 @@ class MediaGenerator:
             resource_type: 资源类型 (storyboards, characters, clues)
             resource_id: 资源 ID (E1S01, 姜月茴, 玉佩)
             reference_images: 参考图片列表
-            reference_sources: 冻结图片路径到来源路径的映射，仅用于使用记录
+            reference_sources: 冻结图片路径到来源路径的映射，用于使用记录与错误提示
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             image_size: 图片尺寸，默认不传（由 backend/SDK 决定）
             quality: 生效的画质（见 ``ImageGenerationRequest.quality``），默认不传，调用通道按分辨率档位推出
@@ -718,26 +725,24 @@ class MediaGenerator:
         if self._image_backend is None:
             raise RuntimeError("image_backend not configured")
 
-        # 先归一化 reference_images，PIL 等不支持的类型在此被丢弃，
-        # 因此 capability 判定要基于归一化后的结果，避免「传了无效引用图」被
-        # 误判为 I2I 后又落到 T2I 调用，造成 image_capability_missing_i2i 误报。
+        # 保留每个声明的槽位；空路径由共享读取器按 #序号报告。
         ref_images: list[ReferenceImage] = []
-        if reference_images:
-            for ref in reference_images:
-                if isinstance(ref, dict):
-                    ref_images.append(ReferenceImage(path=str(ref.get("image", ""))))
-                elif hasattr(ref, "__fspath__") or isinstance(ref, (str, Path)):
-                    ref_images.append(ReferenceImage(path=str(ref)))
-                # PIL Image 等不支持的类型忽略
+        for ref in reference_images or ():
+            source = ref.get("image") if isinstance(ref, dict) else ref
+            path = os.fspath(source) if isinstance(source, (str, os.PathLike)) else ""
+            ref_images.append(ReferenceImage(path=path))
 
         # Capability gating：调用通道实现了、且模型条目接受的才放行，与任务类型桶的候选同一个结果；参考图上限与
-        # 编排层裁剪读同一个生效值（lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，
+        # 编排层准入读同一个生效值（lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，
         # 这里按实际请求形态把关。
         from lib.backends.image_capabilities import gate_image_request
 
         # 成对不变量保证 backend 非 None 时 provider_id 亦非 None。
         await gate_image_request(
-            self._image_backend, provider_id=cast(str, self._image_provider_id), reference_count=len(ref_images)
+            self._image_backend,
+            provider_id=cast(str, self._image_provider_id),
+            reference_count=len(ref_images),
+            reference_paths=((reference_sources or {}).get(str(ref.path), ref.path) for ref in ref_images),
         )
 
         # 2. 记账括号：进入落 pending，成功以 call.success(result) 递交 backend 结果对象，
@@ -788,6 +793,7 @@ class MediaGenerator:
                     specs=specs,
                     provider_id=self._image_provider_id,
                     build_and_call=_call_image,
+                    reference_sources=reference_sources,
                     before_submit=before_submit,
                 )
                 call.success(result)
@@ -1001,7 +1007,7 @@ class MediaGenerator:
             formal_output: 将 provider 产物先写入同目录临时文件，成功后再与版本历史一起提交
             warnings: 调用方持有的 warning 收集器；backend 执行期产生的提示就地追加进去，
                 随后由调用方落进任务 ``result.warnings``
-            reference_sources: 暂存图片路径到来源路径的映射，仅用于使用记录
+            reference_sources: 暂存图片路径到来源路径的映射，用于使用记录与错误提示
             **version_metadata: 额外元数据
 
         Returns:
@@ -1228,6 +1234,7 @@ class MediaGenerator:
                     specs=specs,
                     provider_id=self._video_provider_id,
                     build_and_call=_call_video,
+                    reference_sources=reference_sources,
                     before_submit=_before_first_submit if before_submit is not None else None,
                     provider_resubmit_is_unsafe=lambda: provider_resubmit_unsafe,
                 )

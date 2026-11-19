@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from base64 import b64encode
 from collections.abc import Generator
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,6 +13,8 @@ import pytest
 import respx
 
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
+from lib.backends.image_errors import ImageCapabilityError
+from tests.factories import image_bytes
 from tests.fakes import blocking_file_read_gate
 from tests.http_capture import capture_http
 
@@ -148,7 +151,7 @@ class TestGenerateI2I:
     async def test_i2i_sends_image_urls(self, grok_backend, tmp_path):
         """I2I 将参考图转为 data URI 列表传给 image_urls。"""
         ref_image = tmp_path / "ref.png"
-        ref_image.write_bytes(b"\x89PNG\r\n\x1a\nfake_png_data")
+        ref_image.write_bytes(image_bytes())
 
         output = tmp_path / "output.png"
         mock_response = MagicMock()
@@ -176,9 +179,9 @@ class TestGenerateI2I:
     async def test_i2i_multiple_refs(self, grok_backend, tmp_path):
         """多张参考图全部通过 image_urls 传递。"""
         ref1 = tmp_path / "ref1.png"
-        ref1.write_bytes(b"\x89PNG\r\n\x1a\nfake1")
+        ref1.write_bytes(image_bytes())
         ref2 = tmp_path / "ref2.jpg"
-        ref2.write_bytes(b"\xff\xd8\xff\xe0fake2")
+        ref2.write_bytes(image_bytes(1, fmt="JPEG"))
 
         output = tmp_path / "output.png"
         mock_response = MagicMock()
@@ -207,7 +210,7 @@ class TestGenerateI2I:
         refs = []
         for index in range(7):
             ref_path = tmp_path / f"ref{index}.png"
-            ref_path.write_bytes(b"\x89PNG\r\n\x1a\n" + bytes([index]))
+            ref_path.write_bytes(image_bytes(index))
             refs.append(ReferenceImage(path=str(ref_path)))
         mock_response = MagicMock()
         mock_response.respect_moderation = True
@@ -235,7 +238,7 @@ class TestGenerateI2I:
     async def test_i2i_reference_encoding_keeps_event_loop_running(self, grok_backend, tmp_path, monkeypatch):
         """参考图 base64 编码要读整张图，必须卸载到线程，否则事件循环被读堵住。"""
         ref_image = tmp_path / "ref.png"
-        ref_image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        ref_image.write_bytes(image_bytes())
 
         output = tmp_path / "output.png"
         mock_response = MagicMock()
@@ -259,29 +262,20 @@ class TestGenerateI2I:
         call_kwargs = grok_backend._client.image.sample.call_args.kwargs
         assert call_kwargs["image_urls"][0].startswith("data:image/png;base64,")
 
-    async def test_i2i_skips_missing_ref(self, grok_backend, tmp_path):
-        """参考图不存在时退化为 T2I。"""
-        output = tmp_path / "output.png"
-        mock_response = MagicMock()
-        mock_response.respect_moderation = True
-        mock_response.url = "https://example.com/generated.png"
-        grok_backend._client.image.sample = AsyncMock(return_value=mock_response)
-
-        fake_image_bytes = b"\x89PNG\r\n\x1a\n"
-
-        with _image_download(mock_response.url, fake_image_bytes):
-            request = ImageGenerationRequest(
-                prompt="A cat",
-                output_path=output,
-                reference_images=[ReferenceImage(path="/nonexistent/ref.png")],
-            )
-            result = await grok_backend.generate(request)
-
-        assert result.usage is not None
-        assert result.usage.dimensions["quality"] == "low"
-        call_kwargs = grok_backend._client.image.sample.call_args.kwargs
-        assert "image_urls" not in call_kwargs
-        assert "image_url" not in call_kwargs
+    async def test_unreadable_references_abort_without_falling_back_to_text(self, grok_backend, tmp_path):
+        corrupt = tmp_path / "corrupt.png"
+        corrupt.write_bytes(b"not an image")
+        request = ImageGenerationRequest(
+            prompt="A cat",
+            output_path=tmp_path / "out.png",
+            reference_images=[ReferenceImage(path=str(corrupt)), ReferenceImage(path=str(tmp_path / "missing.png"))],
+        )
+        grok_backend._client.image.sample = AsyncMock()
+        with pytest.raises(ImageCapabilityError) as caught:
+            await grok_backend.generate(request)
+        assert caught.value.params["names"] == "corrupt.png, missing.png"
+        assert caught.value.code == "image_reference_images_unreadable"
+        grok_backend._client.image.sample.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +383,7 @@ async def test_default_quality_prices_the_actual_request(
 
     grok_backend._model = "grok-imagine-image-2.0"
     ref = tmp_path / "ref.png"
-    ref.write_bytes(b"\x89PNG\r\n\x1a\nref")
+    ref.write_bytes(image_bytes())
     request = ImageGenerationRequest(
         prompt="cat",
         output_path=tmp_path / "out.png",
@@ -419,7 +413,7 @@ async def test_default_quality_prices_the_actual_request(
         "resolution": size.lower(),
     }
     if reference_count:
-        expected_request["image_urls"] = ["data:image/png;base64,iVBORw0KGgpyZWY="]
+        expected_request["image_urls"] = ["data:image/png;base64," + b64encode(image_bytes()).decode()]
     grok_backend._client.image.sample.assert_awaited_once_with(**expected_request)
     for usage, estimating in [(estimate, True), (result.usage, False)]:
         assert usage is not None

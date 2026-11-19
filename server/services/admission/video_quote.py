@@ -91,7 +91,13 @@ class VideoQuoteSheet:
     def submittable(self) -> bool:
         """带上确认档位正式提交时整批能入队。"""
 
-        return all(unit.outcome is not VideoQuoteOutcome.BLOCKED for unit in self.units)
+        blocked = [unit for unit in self.units if unit.outcome is VideoQuoteOutcome.BLOCKED]
+        return not blocked or (
+            any(unit.outcome is VideoQuoteOutcome.GENERATE for unit in self.units)
+            and all(
+                any(problem.code == "video_reference_images_exceeded" for problem in unit.problems) for unit in blocked
+            )
+        )
 
     @property
     def confirmed_request_durations(self) -> dict[str, int]:

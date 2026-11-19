@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/grid-capability?episode=1&script_file=episode_1.json",
+  "status": 200,
+  "body": {
+    "reference_inputs": [],
+    "large_grid_allowed": false,
+    "max_cell_count": 9
+  }
+}

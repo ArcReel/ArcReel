@@ -14,8 +14,6 @@ from collections.abc import Buffer, Callable
 from pathlib import Path
 from typing import Any, BinaryIO, ClassVar
 
-from PIL import Image
-
 from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
@@ -31,6 +29,7 @@ from lib.backends.backend_runtime import (
     faststart_video_artifact,
     is_retryable_http_status,
     poll_with_retry,
+    read_video_images,
     should_retry_poll,
     with_artifact_retry,
 )
@@ -279,15 +278,19 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if self._backend_type == "vertex":
             config_params["generate_audio"] = request.generate_audio
 
+        loaded = await asyncio.to_thread(read_video_images, request, self._video_model)
+
+        def image_param(path: Path):
+            image = loaded[Path(path)]
+            return self._types.Image(image_bytes=image.content, mime_type=image.mime)
+
         # end_image → last_frame（帧插值）
         if request.end_image is not None:
-            config_params["last_frame"] = await asyncio.to_thread(self._prepare_image_param, request.end_image)
+            config_params["last_frame"] = image_param(request.end_image)
 
         # reference_images → reference_images（参考图列表，type=ASSET）
         if request.reference_images:
-            prepared_refs = await asyncio.gather(
-                *[asyncio.to_thread(self._prepare_image_param, img) for img in request.reference_images]
-            )
+            prepared_refs = [image_param(path) for path in request.reference_images]
             config_params["reference_images"] = [
                 self._types.VideoGenerationReferenceImage(
                     image=prepared,
@@ -299,10 +302,9 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         config = self._types.GenerateVideosConfig(**config_params)
 
         # 4. 准备 source（prompt + 可选起始帧）
-        image_param = (
-            await asyncio.to_thread(self._prepare_image_param, request.start_image) if request.start_image else None
+        source = self._types.GenerateVideosSource(
+            prompt=request.prompt, image=image_param(request.start_image) if request.start_image else None
         )
-        source = self._types.GenerateVideosSource(prompt=request.prompt, image=image_param)
 
         # 5. 调用 API
         logger.info(
@@ -384,31 +386,6 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     # ------------------------------------------------------------------
     # 内部辅助方法（从 GeminiClient 提取）
     # ------------------------------------------------------------------
-
-    def _prepare_image_param(self, image: str | Path | Image.Image | None):
-        """准备图片参数用于 API 调用 — 提取自 GeminiClient。"""
-        if image is None:
-            return None
-
-        mime_type_png = "image/png"
-
-        if isinstance(image, (str, Path)):
-            with open(image, "rb") as f:
-                image_bytes = f.read()
-            suffix = Path(image).suffix.lower()
-            mime_types = {
-                ".png": mime_type_png,
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".gif": "image/gif",
-                ".webp": "image/webp",
-            }
-            mime_type = mime_types.get(suffix, mime_type_png)
-            return self._types.Image(image_bytes=image_bytes, mime_type=mime_type)
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        image_bytes = buffer.getvalue()
-        return self._types.Image(image_bytes=image_bytes, mime_type=mime_type_png)
 
     async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
         """下载视频，重试走共用的产物下载预算。

@@ -6,14 +6,13 @@ import asyncio
 import logging
 import math
 from collections.abc import Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Literal
 
 import openai
 
 from arcreel_catalog_core import ImageFacts, ScaledOutputTokenBase
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
-from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES
+from lib.backends.backend_runtime import read_reference_images
 from lib.backends.image_backends.base import (
     BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
@@ -265,29 +264,10 @@ class OpenAIImageBackend:
         return await self._save_and_return(response, request, params)
 
     async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        refs = request.reference_images
-
-        def _read_refs() -> list[tuple[str, bytes, str]]:
-            """在线程里读出参考图：交给 SDK 的若是文件句柄，multipart 会在事件循环上读文件。"""
-            files = []
-            for ref in refs:
-                ref_path = Path(ref.path)
-                try:
-                    data = ref_path.read_bytes()
-                except FileNotFoundError:
-                    logger.warning("参考图不存在，跳过: %s", ref_path)
-                    continue
-                files.append((ref_path.name, data, IMAGE_MIME_TYPES.get(ref_path.suffix.lower(), "image/png")))
-            return files
-
-        image_files = await asyncio.to_thread(_read_refs)
-        if not image_files:
-            # 参考图全部打不开时报错，不降级为 T2I：请求要的是 I2I，没有有效素材属于错误
-            raise ImageCapabilityError(
-                "image_endpoint_mismatch_no_i2i",
-                model=self._model,
-                detail="all reference images failed to open",
-            )
+        images = await asyncio.to_thread(
+            read_reference_images, (ref.path for ref in request.reference_images), self.model
+        )
+        image_files = [image.multipart() for image in images]
         # I2I 与 T2I 对称下传 size/quality：images.edit 不带 size 时比例由上游默认决定，项目 aspect_ratio 不生效
         edit_kwargs: dict = {
             "model": self._model,

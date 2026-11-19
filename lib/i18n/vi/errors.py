@@ -683,7 +683,8 @@ MESSAGES = {
     "image_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
     "image_resolution_not_supported": "Mô hình {model} không hỗ trợ độ phân giải {resolution} (chỉ hỗ trợ {supported}); hãy chọn một độ phân giải được hỗ trợ",
     "image_aspect_ratio_not_supported": "Mô hình {model} không hỗ trợ tỷ lệ khung hình {aspect_ratio} (chỉ hỗ trợ {supported}); hãy chọn một tỷ lệ được hỗ trợ",
-    "image_reference_images_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} ảnh tham chiếu nhưng yêu cầu này có {count}; chưa gửi yêu cầu tạo; hãy tạo lại",
+    "image_reference_images_exceeded": "Mô hình {model} nhận tối đa {limit} ảnh tham chiếu. Yêu cầu có {count} ảnh. Ảnh vượt giới hạn: {names}. Hãy giảm số tài sản hoặc lượt nhắc, chia cảnh hoặc chọn mô hình có giới hạn cao hơn.",
+    "previous_storyboard_limit_hint": "Để bỏ ảnh phân cảnh trước {previous_storyboard}, hãy bắt đầu phân đoạn mới ở cảnh này.",
     # Image Edit
     "image_edit_resource_type_invalid": "Loại tài nguyên '{resource_type}' không hỗ trợ chỉnh sửa ảnh",
     "image_edit_instruction_required": "Chỉ dẫn chỉnh sửa không được để trống",
@@ -711,7 +712,7 @@ MESSAGES = {
     "video_reference_images_required": "Mô hình {model} cần ít nhất một ảnh tham chiếu; hãy cung cấp ảnh tham chiếu",
     "video_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
     "video_reference_images_unsupported": "Mô hình {model} không hỗ trợ ảnh tham chiếu đa chủ thể; hãy bỏ ảnh tham chiếu hoặc chuyển sang mô hình có hỗ trợ tạo video từ ảnh tham chiếu",
-    "video_reference_images_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} ảnh tham chiếu nhưng nhận được {count}; hãy giảm số lượng ảnh tham chiếu",
+    "video_reference_images_exceeded": "Mô hình {model} nhận tối đa {limit} ảnh tham chiếu. Yêu cầu có {count} ảnh. Ảnh vượt giới hạn: {names}. Hãy giảm số tài sản hoặc lượt nhắc, chia cảnh hoặc chọn mô hình có giới hạn cao hơn.",
     "video_reference_images_with_frames_unsupported": "Mô hình {model} không thể dùng ảnh/âm thanh tham chiếu cùng với khung hình đầu/cuối; hãy chọn một trong hai",
     "video_start_image_unreadable": "Ảnh khung hình đầu của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình đầu",
     "video_end_image_unreadable": "Ảnh khung hình cuối của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình cuối",

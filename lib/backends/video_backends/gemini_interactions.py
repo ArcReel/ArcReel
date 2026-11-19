@@ -29,6 +29,7 @@ from lib.backends.backend_runtime import (
     faststart_video_artifact,
     is_retryable_http_status,
     poll_with_retry,
+    read_video_images,
     should_retry_poll,
 )
 from lib.backends.providers import PROVIDER_GEMINI
@@ -166,7 +167,14 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
             task = "image_to_video"
         else:
             images, task = [], "text_to_video"
-        parts: list[dict[str, Any]] = list(await asyncio.gather(*[asyncio.to_thread(_image_part, i) for i in images]))
+
+        def image_parts():
+            loaded = read_video_images(request, self._video_model)
+            return [
+                {"type": "image", "data": loaded[Path(p)].base64(), "mime_type": loaded[Path(p)].mime} for p in images
+            ]
+
+        parts: list[dict[str, Any]] = await asyncio.to_thread(image_parts)
         # 反向提示词由调用方文本化注入 prompt，跨通道一致；文本放在图片之后。
         parts.append({"type": "text", "text": request.prompt})
 
@@ -269,15 +277,6 @@ class VertexInteractionsVideoBackend(GeminiInteractionsVideoBackend):
     """以 Vertex 服务账号经 Interactions API 调用 Gemini Omni；成片同样恒有声。"""
 
     default_backend_type = "vertex"
-
-
-def _image_part(path: Path) -> dict[str, Any]:
-    image_bytes = Path(path).read_bytes()
-    return {
-        "type": "image",
-        "data": base64.b64encode(image_bytes).decode("ascii"),
-        "mime_type": _IMAGE_MIME_TYPES.get(Path(path).suffix.lower(), "image/png"),
-    }
 
 
 def _failure_message(interaction: Any) -> str | None:

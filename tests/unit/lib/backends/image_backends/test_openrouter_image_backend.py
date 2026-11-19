@@ -29,6 +29,7 @@ from lib.backends.image_backends.base import (
 )
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.providers import PROVIDER_OPENROUTER
+from tests.factories import image_bytes
 from tests.http_capture import capture_http, only_request, request_json
 
 # 1x1 PNG 头部若干字节，够 save_image_from_response_item 写盘断言用
@@ -83,7 +84,7 @@ _GROK_LIKE = {
 
 def _make_ref(tmp_path: Path, name: str = "ref.png") -> ReferenceImage:
     p = tmp_path / name
-    p.write_bytes(b"\x89PNG\r\nfake-ref-bytes")
+    p.write_bytes(image_bytes())
     return ReferenceImage(path=str(p))
 
 
@@ -306,7 +307,7 @@ def test_i2i_sends_data_uri_references(tmp_path: Path):
     assert refs_payload[0]["type"] == "image_url"
     url = refs_payload[0]["image_url"]["url"]
     assert url.startswith("data:image/png;base64,")
-    assert base64.b64decode(url.split(",", 1)[1]) == b"\x89PNG\r\nfake-ref-bytes"
+    assert base64.b64decode(url.split(",", 1)[1]) == image_bytes()
 
 
 def test_missing_ref_files_raise_rather_than_silent_t2i(tmp_path: Path):
@@ -347,7 +348,12 @@ def test_refs_over_declared_max_rejected_without_submitting(tmp_path: Path):
         with pytest.raises(ImageCapabilityError) as ei:
             _run(_request(tmp_path, refs=refs), model="x-ai/grok-imagine-image-2.0")
     assert ei.value.code == "image_reference_images_exceeded"
-    assert ei.value.params == {"model": "x-ai/grok-imagine-image-2.0", "limit": 3, "count": 5}
+    assert ei.value.params == {
+        "model": "x-ai/grok-imagine-image-2.0",
+        "limit": 3,
+        "count": 5,
+        "names": "ref-3.png, ref-4.png",
+    }
     assert not route.called
 
 

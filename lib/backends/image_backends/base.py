@@ -180,7 +180,7 @@ class ImageBackend(Protocol):
 
         内置调用通道在类属性 ``CHANNEL_REFERENCE_LIMIT`` 上静态声明，这里返回同一个值；模型本身的上限记在条目上，
         不在调用通道里按型号名区分。生效值由两侧取较小值得出（``lib.backends.image_capabilities``），编排层据此在
-        渲染「图N」编号前裁剪参考图序列（见 ``lib.prompts.reference_image_numbering.clamp_reference_images``）。
+        渲染「图N」编号前校验完整参考图序列（见 ``lib.prompts.reference_image_numbering.require_reference_image_limit``）。
         异步：上限可能要向供应商的模型目录查询才知道（如 OpenRouter 按模型声明的 ``input_references``）。
         """
         ...

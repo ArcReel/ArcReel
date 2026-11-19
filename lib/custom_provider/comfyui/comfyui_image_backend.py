@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -29,13 +28,14 @@ import httpx
 from arcreel_market_core.comfyui.bindings import targets_of
 from arcreel_market_core.video_backend_contract import ProviderResponseStage
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import notify_provider_response_to
+from lib.backends.backend_runtime import notify_provider_response_to, read_reference_images
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
 )
+from lib.backends.input_limits import excess_image_names
 from lib.custom_provider.comfyui.capabilities import takes_reference_images
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution
@@ -115,7 +115,11 @@ class ComfyuiImageBackend:
         count = len(request.reference_images)
         if count > self._reference_slots:
             raise ImageCapabilityError(
-                "image_reference_images_exceeded", model=self._model, limit=self._reference_slots, count=count
+                "image_reference_images_exceeded",
+                names=excess_image_names(self._reference_slots, count, (ref.path for ref in request.reference_images)),
+                model=self._model,
+                limit=self._reference_slots,
+                count=count,
             )
         if self._definition["bindings"].get("aspect_ratio"):
             await asyncio.to_thread(
@@ -172,11 +176,14 @@ class ComfyuiImageBackend:
     ) -> MediaInputs:
         """把已通过槽位容量校验的参考图全部上传。"""
         references: list[str] = []
-        for index, reference in enumerate(request.reference_images):
-            path = Path(reference.path)
+        images = await asyncio.to_thread(
+            read_reference_images, [ref.path for ref in request.reference_images], self.model
+        )
+        for index, image in enumerate(images):
+            path = image.path
             references.append(
                 await self._client.upload_media(
-                    http, path, filename=upload_filename(job_label, "reference_images", path, index)
+                    http, path, image=image, filename=upload_filename(job_label, "reference_images", path, index)
                 )
             )
         return MediaInputs(reference_images=tuple(references))
@@ -185,7 +192,7 @@ class ComfyuiImageBackend:
 def binding_reference_limit(definition: Mapping[str, Any]) -> int | None:
     """这份 workflow 的参考图上限：参考图格子数就是它能收几张；没有格子时为 ``None``。
 
-    多出来的图在构造层没有落点，编排层先按这个数裁剪并提示，比静默丢掉几张用户挑过的参考图诚实。没有格子时
+    编排层和调用通道都按槽位数拒绝超量输入。没有格子时
     这份 workflow 不实现图生图（:func:`binding_image_capabilities`），上限的生效值为不支持，与数量无关。
     """
     slots = len(targets_of((definition.get("bindings") or {}).get("reference_images")))

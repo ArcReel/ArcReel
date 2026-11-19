@@ -12,6 +12,7 @@ import httpx
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http
 
@@ -61,7 +62,7 @@ async def test_openai_images_overriding_only_edit_skips_v1_and_keeps_generate_no
         _PROVIDER, "gpt-image-1", {"edit": "/img/{{ model }}/edit"}
     )
     ref = tmp_path / "ref.png"
-    ref.write_bytes(b"\x89PNG\r\nfake")
+    ref.write_bytes(image_bytes())
     image = httpx.Response(200, json={"created": 1, "data": [{"b64_json": base64.b64encode(b"png").decode()}]})
 
     with capture_http() as router:

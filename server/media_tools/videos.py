@@ -622,6 +622,9 @@ async def _generate_reference_units(
     if not admission.admitted:
         return BatchAdmissionRefused(admission)
     projections = admission.projections()
+    admission.record_blocked_units(builder, states=states)
+    admitted_ids = {ticket.unit_id for ticket in admission.tickets if ticket.admitted}
+    specs = [spec for spec in specs if spec.resource_id in admitted_ids]
 
     for spec in specs:
         unit_options = request_options_for_unit(request_options, spec.resource_id, confirmed_request_durations)

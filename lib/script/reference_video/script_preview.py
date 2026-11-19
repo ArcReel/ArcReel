@@ -20,7 +20,6 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
-from lib.backends.input_limits import InputLimit
 from lib.project.asset_types import BUCKET_KEY, asset_name_comparison_key, normalize_asset_bucket
 from lib.references.reference_catalog import build_reference_catalog, split_derivative_reference
 from lib.script.reference_video.text_parser import (
@@ -225,8 +224,6 @@ def build_script_preview(
     text: str,
     project: dict,
     settings: VoiceRenderSettings,
-    *,
-    max_reference_images: int | None = None,
 ) -> ScriptPreview:
     """把视频单元正文派生成 utterances + 降级可见性 warning。
 
@@ -236,17 +233,6 @@ def build_script_preview(
     执行时才降级，用户直到生成后才发现声音没生效。``settings.audio_ready`` 在预览侧留 None：
     预览不解析文件，按角色资产的 ``reference_audio`` 字段非空判定。
 
-    ``max_reference_images`` 须同步执行层的能力上限（``VideoLaneResult.max_reference_images``）：
-    执行期会把正文派生的参考图先按此上限裁剪、再渲染（保证 ``图片N`` 编号与实际发出的参考图
-    严格等长，见 ``render_unit_prompt`` docstring）。预览若按未裁剪的全量派生结果判定
-    ``character_image_names``，纯画外降级会在裁剪线之外才生效——超限角色的图被裁掉后，预览仍
-    显示音频已绑定，执行时才补发 warning。``None``（未收录或能力不可解析）与 ``0``（不接受参考图）都不裁，
-    与请求投影 ``clamp_reference_assets`` 的口径一致。
-
-    未登记的 ``@[名称]`` 只发 warning、不阻断：正文是作者写的，预览没有可保护的机器契约。
-    说话人位写了该角色没有的衍生时同判——那个 ``@[角色/衍生]`` 不进参考图派生（说话人位一律
-    不进），未登记的事实要另行报出来，否则编辑器对它完全沉默。本体本身未登记时不在此重复：
-    那条由 ``derive_voice_bindings`` 的未登记说话人 warning 报出。
     """
     references, missing = derive_references_from_text(text, project)
 
@@ -270,11 +256,7 @@ def build_script_preview(
     utterances, syntax_warnings = derive_utterances(text)
     warnings.extend(syntax_warnings)
 
-    # 音频只能对齐到 character 参考图。同时按能力上限裁剪后再判定，
-    # 与执行层「先裁参考图再渲染」的口径对齐：上限为 0 时执行层同样不裁。
-    bound = InputLimit.from_json(max_reference_images).clamp_bound()
-    clipped_references = references[:bound] if bound is not None else references
-    character_image_names = {ref.name for ref in clipped_references if ref.type == "character"}
+    character_image_names = {ref.name for ref in references if ref.type == "character"}
 
     bindings = derive_voice_bindings(
         utterances,

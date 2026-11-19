@@ -22,6 +22,7 @@ from lib.backends.image_backends.vidu import (
     ViduImageBackend,
 )
 from lib.backends.providers import PROVIDER_VIDU
+from tests.factories import image_bytes
 from tests.http_capture import capture_http
 
 
@@ -97,7 +98,7 @@ class TestCapabilityMismatchRaises:
 
         monkeypatch.setattr(mod, "create_vidu_client", _boom)
         ref_file = tmp_path / "ref.png"
-        ref_file.write_bytes(b"\x89PNG\r\n\x1a\n")
+        ref_file.write_bytes(image_bytes())
         backend = ViduImageBackend(api_key="test-key", model="viduq2")
         request = ImageGenerationRequest(
             prompt="hello",
@@ -115,7 +116,7 @@ class TestViduReferenceImageLimit:
         refs = []
         for index in range(9):
             ref_path = tmp_path / f"r{index}.png"
-            ref_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            ref_path.write_bytes(image_bytes())
             refs.append(ReferenceImage(path=str(ref_path)))
 
         with capture_http() as router:
@@ -204,3 +205,20 @@ class TestViduImageResolutionPassthrough:
 
         assert json.loads(route.calls.last.request.content)["resolution"] == resolution
         assert ei.value.provider_reason == "1013: resolution not supported"
+
+
+async def test_corrupt_and_missing_references_are_reported_before_submission(tmp_path):
+    from lib.backends.image_errors import ImageCapabilityError
+    from tests.http_capture import capture_http
+
+    backend = ViduImageBackend(api_key="test", model="viduq2")
+    corrupt = tmp_path / "broken.png"
+    corrupt.write_bytes(b"bad")
+    refs = [ReferenceImage(path=str(path)) for path in (corrupt, tmp_path / "gone.png")]
+    with capture_http() as router, pytest.raises(ImageCapabilityError) as caught:
+        await backend.generate(
+            ImageGenerationRequest(prompt="p", reference_images=refs, output_path=tmp_path / "out.png")
+        )
+    assert caught.value.code == "image_reference_images_unreadable"
+    assert caught.value.params["names"] == "broken.png, gone.png"
+    assert not router.calls

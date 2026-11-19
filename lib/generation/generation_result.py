@@ -241,8 +241,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "image_resolution_not_supported": GenerationAction.FIX_INPUT,
     "video_resolution_not_supported": GenerationAction.FIX_INPUT,
     "video_reference_resolution_unsupported": GenerationAction.FIX_INPUT,
-    # 提交前才发现参考图多于模型上限（两次读到的模型目录不一致）：重新生成会按最新上限重新裁剪编号。
-    "image_reference_images_exceeded": GenerationAction.RETRY,
+    "image_reference_images_exceeded": GenerationAction.FIX_INPUT,
     "video_reference_images_exceeded": GenerationAction.FIX_INPUT,
     "video_reference_audio_duration_exceeded": GenerationAction.FIX_INPUT,
     "video_reference_audio_exceeded": GenerationAction.FIX_INPUT,
@@ -387,8 +386,7 @@ class GenerationItemResult(BaseModel):
     provider_checkpoint: ProviderCheckpoint | None = None
     problem: GenerationProblem | None = None
     warnings: list[GenerationWarning] = Field(default_factory=list)
-    """Non-blocking notices from the worker (e.g. reference images clamped to the
-    backend limit). Orthogonal to ``state``: an item carries whatever the task
+    """Non-blocking notices recorded by the worker. Orthogonal to ``state``: an item carries whatever the task
     recorded whether it succeeded or failed afterwards, and they never change
     ``state`` themselves."""
 
@@ -1142,7 +1140,7 @@ def render_generation_result(
     live exclusively in the structured ``generation_result`` sibling field.
     Item warnings are rendered through ``translate`` (default locale) as their
     own indented lines under the item, whatever the item's state — a notice about
-    the request (e.g. clamped references) still explains a task that failed in
+    the request still explains a task that failed in
     post-processing.
     """
 

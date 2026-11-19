@@ -93,7 +93,7 @@ def render_unit_prompt(
 ) -> RenderedUnitPrompt:
     """把一个 unit 的书写文稿渲染成三段论 backend prompt。
 
-    ``references`` 是**实际随请求发出**的参考图列表（已按能力上限裁剪），其顺序即
+    ``references`` 是**实际随请求发出**的参考图列表，其顺序即
     ``图片N`` 编号——与 ``reference_images`` 严格等长同序，被裁掉的名字退化为原文不产生
     悬空绑定。参考图顺序由调用方从同一份正文派生（``@mention`` 首现、台词记号的 speaker 位
     不计入），本函数只消费不重算。

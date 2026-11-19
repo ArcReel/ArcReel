@@ -2,6 +2,7 @@
 
 import pytest
 
+from lib.backends.image_errors import ImageCapabilityError
 from lib.infra.api_errors import BadRequestError
 from server.services.tasks import generation_tasks
 from tests.fakes import use_generation_context, use_project_manager
@@ -95,7 +96,8 @@ class TestGenerationTasks:
         use_project_manager(monkeypatch, fake_pm)
         use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, image_max_reference_images=1))
 
-        result = await generation_tasks.execute_product_task("demo", "保温杯", {})
-
-        assert fake_generator.image_reference_bytes[0] == [b"jpg"]
-        assert [warning["key"] for warning in result["warnings"]] == ["ref_too_many_images"]
+        with pytest.raises(ImageCapabilityError) as exc:
+            await generation_tasks.execute_product_task("demo", "保温杯", {})
+        assert exc.value.code == "image_reference_images_exceeded"
+        assert exc.value.params["count"] == 2
+        assert not fake_generator.image_calls

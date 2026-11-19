@@ -249,7 +249,7 @@ VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 ReferenceRequestFactsLookup = Callable[[VideoGenerationType], Awaitable[VideoRequestFactsResult]]
 
 
-#: 参考图的供应商素材关联核对：按这次调用的素材库范围检查裁剪后将要发出的参考图（顺序即提示词里的图片编号），
+#: 参考图的供应商素材关联核对：按这次调用的素材库范围检查将要发出的全部参考图（顺序即提示词里的图片编号），
 #: 适用的关联尚未可用或入库失败时返回阻断问题，问题码与参数和执行期失败相同；没有问题时为 None。读侧实现见
 #: :mod:`lib.script.reference_video.provider_asset_links`，执行侧交出实际调用通道的那一份。
 ReferenceAssetLinkCheck = Callable[
@@ -282,6 +282,7 @@ def configured_reference_request_facts(project: dict, resolver: ConfigResolver) 
 class ReferenceAssetHydration:
     available: tuple[ResolvedReferenceAsset, ...]
     missing: tuple[ReferenceResource, ...]
+    unreadable_files: tuple[str, ...]
 
 
 def hydrate_reference_assets(
@@ -292,11 +293,34 @@ def hydrate_reference_assets(
     """把候选按声明范围过滤并给出实际可用图片与缺图逻辑引用。"""
 
     declared_keys = {(ref.type, asset_name_comparison_key(ref.name)) for ref in declared}
-    candidates = tuple(asset for asset in resolved_assets if _asset_key(asset) in declared_keys)
-    available = tuple(asset for asset in candidates if availability.is_available(asset))
+    candidates = [asset for asset in resolved_assets if _asset_key(asset) in declared_keys]
+    available: list[ResolvedReferenceAsset] = []
+    unavailable: list[ResolvedReferenceAsset] = []
+    try:
+        for asset in candidates:
+            (available if availability.is_available(asset) else unavailable).append(asset)
+    except (OSError, ValueError) as exc:
+        # 产物清单检查会先算素材摘要。如果失败的依赖正是本次输入，报出全部读不出的原图。
+        cause = exc if isinstance(exc, OSError) else exc.__cause__
+        paths = [asset.path for asset in candidates]
+        if not isinstance(cause, OSError) or not cause.filename or Path(cause.filename) not in paths:
+            raise
+        from arcreel_market_core.video_backend_contract import VideoCapabilityError
+        from lib.backends.backend_runtime import read_video_image_slots
+
+        names = Path(cause.filename).name
+        try:
+            read_video_image_slots(None, None, paths, "")
+        except VideoCapabilityError as failure:
+            names = failure.params["names"]
+        return ReferenceAssetHydration(available=(), missing=(), unreadable_files=(names,))
     available_keys = {_asset_key(asset) for asset in available}
     missing = tuple(ref for ref in declared if (ref.type, asset_name_comparison_key(ref.name)) not in available_keys)
-    return ReferenceAssetHydration(available=available, missing=missing)
+    return ReferenceAssetHydration(
+        available=tuple(available),
+        missing=missing,
+        unreadable_files=tuple(asset.path.name for asset in unavailable if _asset_key(asset) in available_keys),
+    )
 
 
 @dataclass(frozen=True)
@@ -317,6 +341,7 @@ class ReferenceUnitHydration:
     declared_generation_type: VideoGenerationType
     hydrated_generation_type: VideoGenerationType
     problems: tuple[ProjectionProblem, ...]
+    unreadable_files: tuple[str, ...] = ()
 
 
 def hydrate_unit_references(
@@ -365,7 +390,7 @@ def hydrate_unit_references(
             )
         )
 
-    hydrated_generation_type: VideoGenerationType = "r2v" if available else "i2v"
+    hydrated_generation_type: VideoGenerationType = "r2v" if available or hydration.unreadable_files else "i2v"
     if hydrated_generation_type != declared_generation_type:
         problems.append(
             _problem(
@@ -383,6 +408,7 @@ def hydrate_unit_references(
         declared_generation_type=declared_generation_type,
         hydrated_generation_type=hydrated_generation_type,
         problems=tuple(problems),
+        unreadable_files=hydration.unreadable_files,
     )
 
 
@@ -546,11 +572,7 @@ def _original_image_paths(entry: dict, spec: AssetSpec) -> list[object]:
 def clamp_reference_assets(
     assets: Sequence[ResolvedReferenceAsset], max_references: int | None
 ) -> tuple[ResolvedReferenceAsset, ...]:
-    """超过上限时按正文的提及顺序保留前若干张——没有类型优先级。
-
-    ``max_references`` 是参考图上限的生效值（``lib.backends.video_capabilities``）：``None`` 为未收录，不裁剪；
-    ``0`` 为不接受参考图，同样不裁剪，原样交给执行时的校验拒绝，而不是裁成 0 张后静默改走无参考图的请求。
-    """
+    """按历史成片记录的上限重建其产物依据；新提交始终使用完整参考集。"""
 
     bound = InputLimit.from_json(max_references).clamp_bound()
     if bound is None or len(assets) <= bound:
@@ -559,10 +581,11 @@ def clamp_reference_assets(
 
 
 _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] = {
+    "video_reference_images_unreadable": ("repair_reference_assets", (("text",),)),
     "reference_asset_missing": ("repair_reference_assets", (("text",),)),
     UNREGISTERED_REFERENCE_CODE: ("repair_reference_assets", (("text",),)),
     "reference_capability_changed": ("repair_reference_assets", (("text",),)),
-    "reference_images_clamped": ("review_reference_selection", (("text",),)),
+    "video_reference_images_exceeded": ("review_reference_selection", (("text",),)),
     "provider_asset_link_processing": ("review_reference_selection", (("text",),)),
     "provider_asset_link_failed": ("review_reference_selection", (("text",),)),
     "video_audio_switch_not_supported": (
@@ -665,6 +688,15 @@ class ReferenceUnitRequestProjector:
         else:
             facts = evaluated
 
+        if hydration.unreadable_files:
+            problems.append(
+                _problem(
+                    "video_reference_images_unreadable",
+                    blocking=True,
+                    model=facts.model_id if facts else "?",
+                    names=", ".join(hydration.unreadable_files),
+                )
+            )
         request_assets = available
         if facts is not None:
             if (
@@ -686,14 +718,15 @@ class ReferenceUnitRequestProjector:
                         model=facts.model_id,
                     )
                 )
-            request_assets = clamp_reference_assets(available, facts.max_reference_images)
-            if len(request_assets) < len(available):
+            limit = facts.max_reference_images
+            if limit is not None and len(available) > limit:
                 problems.append(
                     _problem(
-                        "reference_images_clamped",
-                        blocking=False,
+                        "video_reference_images_exceeded",
+                        blocking=True,
                         count=len(available),
-                        max_count=facts.max_reference_images,
+                        limit=limit,
+                        names=", ".join(asset.reference.name for asset in available[limit:]),
                         provider=facts.provider_id,
                         model=facts.model_id,
                     )

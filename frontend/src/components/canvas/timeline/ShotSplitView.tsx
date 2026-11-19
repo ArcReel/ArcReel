@@ -240,6 +240,7 @@ export function ShotSplitView({
         projectName={projectName}
         episode={episode}
         scriptFile={scriptFile}
+        previousStoryboardPath={segments[safeIndex - 1]?.generated_assets?.storyboard_image}
         selectedIndex={safeIndex}
         totalCount={segments.length}
         onPrev={selectPrev}

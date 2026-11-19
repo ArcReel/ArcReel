@@ -38,6 +38,7 @@ from lib.backends.image_backends.minimax import MiniMaxH3ImageBackend
 from lib.backends.providers import PROVIDER_MINIMAX
 from lib.billing.metering import Priced, Unpriced, UnpricedReason, price_usage
 from lib.catalog import query as catalog
+from tests.factories import image_bytes
 from tests.http_capture import (
     capture_http,
     only_request,
@@ -80,7 +81,7 @@ def _refs(tmp_path: Path, count: int, suffix: str = ".png") -> list[ReferenceIma
     refs = []
     for index in range(count):
         path = tmp_path / f"ref-{index}{suffix}"
-        path.write_bytes(f"img-{index}".encode())
+        path.write_bytes(image_bytes(index))
         refs.append(ReferenceImage(path=str(path)))
     return refs
 
@@ -185,7 +186,7 @@ class TestReferenceEdit:
     async def test_posts_multipart_to_edits_with_references_in_order(self, tmp_path: Path, model: str):
         refs = _refs(tmp_path, 3)
         jpeg = tmp_path / "late.jpg"
-        jpeg.write_bytes(b"jpeg-bytes")
+        jpeg.write_bytes(image_bytes(fmt="JPEG"))
         refs.append(ReferenceImage(path=str(jpeg)))
         output = tmp_path / "o.png"
         with _routes(_image_response(usage=_USAGE)) as (generations, edits, download):
@@ -208,10 +209,10 @@ class TestReferenceEdit:
             "area": "2K",
         }
         assert request_form_files(request) == [
-            ("image[]", "ref-0.png", "image/png", b"img-0"),
-            ("image[]", "ref-1.png", "image/png", b"img-1"),
-            ("image[]", "ref-2.png", "image/png", b"img-2"),
-            ("image[]", "late.jpg", "image/jpeg", b"jpeg-bytes"),
+            ("image[]", "ref-0.png", "image/png", image_bytes(0)),
+            ("image[]", "ref-1.png", "image/png", image_bytes(1)),
+            ("image[]", "ref-2.png", "image/png", image_bytes(2)),
+            ("image[]", "late.jpg", "image/jpeg", image_bytes(fmt="JPEG")),
         ]
         assert download.call_count == 1
         assert output.read_bytes() == _DOWNLOADED_BYTES
@@ -233,7 +234,7 @@ class TestReferenceEdit:
             )
 
         assert exc.value.code == "image_reference_images_exceeded"
-        assert exc.value.params == {"model": "MiniMax-H3-Image", "limit": 16, "count": 17}
+        assert exc.value.params == {"names": "ref-16.png", "model": "MiniMax-H3-Image", "limit": 16, "count": 17}
         assert not generations.called
         assert not edits.called
 

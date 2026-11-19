@@ -234,7 +234,9 @@ async def execute_character_derivative_task(
         project=project,
         project_path=project_path,
         user_id=user_id,
-        image=ImageLaneRequest(generation_type="i2i"),
+        image=ImageLaneRequest(
+            generation_type="i2i", references=tuple(ref.visual for ref in inputs.generation_input.references)
+        ),
     )
     ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
     currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)

@@ -31,7 +31,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import custom_endpoints
 from server.routers.endpoint_tests import get_config_resolver, get_trial_run_manager
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition, image_bytes
 from tests.fakes import MP4_BYTES, PNG_BYTES, bounded_poll_clock
 from tests.http_capture import capture_http
 
@@ -277,6 +277,23 @@ class TestPreviewRequest:
 
 
 class TestComfyuiPreviewAudio:
+    def test_image_workflow_refuses_an_uploaded_reference_without_a_slot(self, client: TestClient):
+        response = client.post(
+            "/api/v1/custom-endpoints/preview-request",
+            data={
+                "payload": json.dumps(
+                    {
+                        "definition": _comfyui_image_definition(),
+                        "parameters": PARAMETERS,
+                        "credentials": COMFYUI_CREDENTIALS,
+                    }
+                )
+            },
+            files={"reference_images": ("ref.png", b"x", "image/png")},
+        )
+        assert response.status_code == 400, response.text
+        assert "#1" in response.text
+
     def test_audio_the_workflow_cannot_take_is_a_400(self, client: TestClient):
         resp = client.post(
             "/api/v1/custom-endpoints/preview-request",
@@ -1400,7 +1417,7 @@ class TestComfyuiEndpoints:
                         }
                     )
                 },
-                files={"reference_images": ("ref.png", PNG_BYTES, "image/png")},
+                files={"reference_images": ("ref.png", image_bytes(), "image/png")},
             )
             assert created.status_code == 201, created.text
             run_id = created.json()["id"]

@@ -41,7 +41,7 @@ from arcreel_market_core.aspect_size import (
     resolution_to_short_edge,
 )
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
+from lib.backends.backend_runtime import read_reference_images, should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -50,9 +50,9 @@ from lib.backends.image_backends.base import (
     ImageOutputFormatError,
     ImageOutputMissingError,
     download_image_to_path,
-    image_to_base64_data_uri,
     per_image_usage,
 )
+from lib.backends.input_limits import excess_image_names
 from lib.backends.openai_shared import OPENAI_IMAGE_QUALITY_MAP as _QUALITY_MAP
 from lib.backends.providers import PROVIDER_OPENROUTER
 from lib.backends.transport_layer import TransportLayer
@@ -335,9 +335,8 @@ class OpenRouterImageBackend:
     def _fit_references(self, refs: list, supported: dict | None) -> list:
         """按目录声明核对参考图：模型不收参考图、必须带参考图或张数超出上限时报错，不截断。
 
-        编排层已按 :meth:`reference_image_limit` 裁剪参考图并在提示词里编号「图N」。这里仍超限，说明两次
-        读到的目录不一致（如编排时目录查询失败按 16 张编号，提交前又查到更小的上限）；此时截断会让提示词
-        指认没有发出的图、照常计费，所以不提交，交给重新生成按最新上限重新裁剪编号。
+        编排层按 :meth:`reference_image_limit` 校验后渲染「图N」编号。目录变化或直接调用通道时，
+        提交前仍须按当前模型上限校验完整输入。
         """
         if supported is not None:
             if refs and _declared_reference_max(supported) == 0:
@@ -353,7 +352,11 @@ class OpenRouterImageBackend:
         limit = _effective_reference_limit(supported)
         if len(refs) > limit:
             raise ImageCapabilityError(
-                "image_reference_images_exceeded", model=self._model, limit=limit, count=len(refs)
+                "image_reference_images_exceeded",
+                names=excess_image_names(limit, len(refs), (ref.path for ref in refs)),
+                model=self._model,
+                limit=limit,
+                count=len(refs),
             )
         return refs
 
@@ -403,24 +406,10 @@ class OpenRouterImageBackend:
         prompt 按数组序位用「图N」指认参考图，跳过缺失的图会让后续参考图前移、序位错指，
         生成照常计费。因此收集全部读不出的参考图后统一报 image_reference_images_unreadable。
         """
-        encoded: list[dict] = []
-        unreadable: list[str] = []
-        # names 进多语言错误模板：空路径无文件名时用序号 #N 标识第几张，避免占位漏进非中文报错。
-        for idx, ref in enumerate(refs, start=1):
-            path = Path(ref.path) if ref.path else None
-            if path is None or not path.is_file():
-                unreadable.append(path.name if (path and path.name) else f"#{idx}")
-                continue
-            try:
-                encoded.append({"type": "image_url", "image_url": {"url": image_to_base64_data_uri(path)}})
-            except OSError as exc:
-                logger.warning("OpenRouter 参考图读取失败: %s (%s)", path, exc)
-                unreadable.append(path.name or f"#{idx}")
-        if unreadable:
-            raise ImageCapabilityError(
-                "image_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
-            )
-        return encoded
+        return [
+            {"type": "image_url", "image_url": {"url": image.data_uri()}}
+            for image in read_reference_images((ref.path for ref in refs), self.model)
+        ]
 
     @with_retry_async(retry_if=should_retry_submit)
     async def _submit(self, payload: dict) -> Any:

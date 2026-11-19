@@ -461,8 +461,10 @@ class TrialRunManager:
             # 测试连接跑的是生产那条路，闸也一致。免闸的目标见 ``TrialRunTarget.gate_capabilities``。
             if target.gate_capabilities:
                 if video_caps is None:
+                    refs = assets.get("reference_images")
+                    paths = refs if isinstance(refs, list) else []
                     await gate_image_request(
-                        backend, provider_id=target.provider, reference_count=_reference_image_count(assets)
+                        backend, provider_id=target.provider, reference_count=len(paths), reference_paths=paths
                     )
                 else:
                     await _gate_trial_video_request(video_caps, target, parameters, assets)
@@ -822,11 +824,6 @@ def provider_from_base_url(base_url: str) -> str:
 
 def _definition_host(definition: Mapping[str, Any]) -> str:
     return urlsplit(str(definition.get("submit", {}).get("url", ""))).hostname or ""
-
-
-def _reference_image_count(assets: Mapping[str, Path | list[Path] | None]) -> int:
-    reference_images = assets.get("reference_images")
-    return len(reference_images) if isinstance(reference_images, list) else 0
 
 
 def _single(value: Path | list[Path] | None) -> Path | None:

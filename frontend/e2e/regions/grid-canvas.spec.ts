@@ -127,7 +127,6 @@ const API: ApiOverrides = {
       scripts: { "episode_1.json": { ...recordedScript, segments } },
     },
   },
-  "GET /api/v1/projects/demo/grid-capability": { status: 200, body: { large_grid_allowed: false, max_cell_count: 9 } },
   "GET /api/v1/projects/demo/grids": { status: 200, body: GRIDS },
   ...Object.fromEntries(GRIDS.map((g) => [`GET /api/v1/projects/demo/grids/${g.id}`, { status: 200, body: g }])),
 };

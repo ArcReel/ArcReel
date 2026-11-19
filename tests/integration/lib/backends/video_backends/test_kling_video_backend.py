@@ -32,6 +32,7 @@ from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.video_backends.kling import KLING_BACKENDS, KlingVideoBackend
 from lib.backends.video_backends.registry import effective_generate_audio_for_model
+from tests.factories import image_bytes
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request
 
@@ -299,7 +300,7 @@ class TestAudioGating:
     def test_no_audio_model_omits_sound_field(self, tmp_path):
         # 无音频能力的档：不携带 sound，避免向不支持的端点发未知参数
         img = tmp_path / "start.png"
-        img.write_bytes(b"\x89PNG\r\n")
+        img.write_bytes(image_bytes())
         for backend in (_jwt_backend(), _jwt_backend("kling-video-o1")):
             _, payload = backend._build_payload(_request(tmp_path, start_image=img, generate_audio=True))
             assert "sound" not in payload
@@ -311,7 +312,7 @@ class TestMultiImageSubpath:
         paths: list[Path] = []
         for i in range(n):
             p = tmp_path / f"ref{i}.png"
-            p.write_bytes(b"\x89PNG\r\n" + bytes([i]))
+            p.write_bytes(image_bytes(i))
             paths.append(p)
         return paths
 
@@ -363,7 +364,7 @@ class TestMultiImageSubpath:
         """多图主体请求体没有首尾帧字段，带帧的请求拒绝而不是只发参考图。"""
         refs = self._refs(tmp_path, 1)
         image = tmp_path / "frame.png"
-        image.write_bytes(b"\x89PNG\r\n")
+        image.write_bytes(image_bytes())
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-video-o1")._build_payload(_request(tmp_path, reference_images=refs, **{frame: image}))
         assert exc.value.code == "video_reference_images_with_frames_unsupported"
@@ -377,7 +378,7 @@ class TestMultiImageSubpath:
             _jwt_backend("kling-v3-omni")._build_payload(
                 _request(tmp_path, reference_images=[tmp_path / "missing.png"])
             )
-        assert exc.value.code == "video_start_image_unreadable"
+        assert exc.value.code == "video_reference_images_unreadable"
 
 
 class TestCapabilityValidation:
@@ -388,7 +389,7 @@ class TestCapabilityValidation:
         paths: list[Path] = []
         for i in range(n):
             p = tmp_path / f"ref{i}.png"
-            p.write_bytes(b"\x89PNG\r\n" + bytes([i]))
+            p.write_bytes(image_bytes(i))
             paths.append(p)
         return paths
 
@@ -456,8 +457,8 @@ class TestUserRelaxedCapabilities:
     def test_relaxed_last_frame_sent_at_std_tier_on_pro_only_model(self, tmp_path):
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(
             _request(
                 tmp_path,
@@ -584,7 +585,7 @@ class TestPayloadBuilding:
 
     def test_image2video_embeds_base64_frame(self, tmp_path):
         img = tmp_path / "first.png"
-        img.write_bytes(b"\x89PNG\r\n")
+        img.write_bytes(image_bytes())
         subpath, payload = _jwt_backend()._build_payload(_request(tmp_path, start_image=img))
         assert subpath == "image2video"
         assert isinstance(payload["image"], str)
@@ -597,8 +598,8 @@ class TestPayloadBuilding:
         # kling-v2-5-turbo 首尾帧仅 pro 档生效，须显式带 service_tier="pro" 才会放行 image_tail。
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         _, payload = _jwt_backend()._build_payload(
             _request(tmp_path, start_image=first, end_image=last, service_tier="pro")
         )
@@ -610,8 +611,8 @@ class TestPayloadBuilding:
         # image_tail 虽会被官方接口受理，尾帧约束却不生效，须 fail loud 而非静默发出无效请求。
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=last))
         assert exc.value.code == "video_last_frame_requires_pro"
@@ -620,8 +621,8 @@ class TestPayloadBuilding:
         # kling-v3 首尾帧未标"仅 pro"（官方能力表未附此限制），std 档应正常放行。
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         _, payload = _jwt_backend("kling-v3")._build_payload(_request(tmp_path, start_image=first, end_image=last))
         assert "image" in payload
         assert "image_tail" in payload
@@ -629,16 +630,15 @@ class TestPayloadBuilding:
     def test_image2video_empty_end_frame_is_omitted(self, tmp_path):
         # 空串 end_image 等价于"无尾帧"，按 truthy 判定跳过，不应误当路径去编码而崩溃。
         first = tmp_path / "first.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        subpath, payload = _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=""))
-        assert subpath == "image2video"
-        assert "image" in payload
-        assert "image_tail" not in payload
+        first.write_bytes(image_bytes())
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend()._build_payload(_request(tmp_path, start_image=first, end_image=""))
+        assert exc.value.code == "video_end_image_unreadable"
 
     def test_end_frame_without_start_frame_rejected(self, tmp_path):
         """单独的尾帧发不进文生视频请求体，拒绝而不是丢掉尾帧。"""
         last = tmp_path / "last.png"
-        last.write_bytes(b"\x89PNG\r\n2")
+        last.write_bytes(image_bytes(1))
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-v3")._build_payload(_request(tmp_path, end_image=last))
         assert exc.value.code == "video_end_image_requires_start_image"
@@ -646,8 +646,8 @@ class TestPayloadBuilding:
     def test_end_frame_on_model_without_last_frame_rejected(self, tmp_path):
         first = tmp_path / "first.png"
         last = tmp_path / "last.png"
-        first.write_bytes(b"\x89PNG\r\n1")
-        last.write_bytes(b"\x89PNG\r\n2")
+        first.write_bytes(image_bytes())
+        last.write_bytes(image_bytes(1))
         with pytest.raises(VideoCapabilityError) as exc:
             # 对应不上条目的型号尾帧按保守回落不开（通道本身实现了尾帧）
             _jwt_backend("kling-unlisted-model")._build_payload(
@@ -678,7 +678,7 @@ class TestPayloadBuilding:
 class TestSafeLogView:
     def test_no_base64_or_prompt_leaks(self, tmp_path):
         img = tmp_path / "f.png"
-        img.write_bytes(b"\x89PNG\r\n")
+        img.write_bytes(image_bytes())
         b = _jwt_backend()
         subpath, payload = b._build_payload(_request(tmp_path, start_image=img))
         view = b._safe_log_view(subpath, payload)
@@ -760,7 +760,7 @@ class TestGenerateHappyPath:
 
     async def test_persists_image2video_subpath_in_job_id(self, tmp_path):
         img = tmp_path / "first.png"
-        img.write_bytes(b"\x89PNG\r\n")
+        img.write_bytes(image_bytes())
         with _kling_api() as routes, captured_provider_job_ids() as persisted:
             routes.submit.mock(return_value=_resp(_submit("task-i")))
             routes.poll.mock(return_value=_resp(_query("succeed", url=_DOWNLOAD_URL)))
@@ -1012,7 +1012,7 @@ class TestAudioGatingResult:
         # multi-image2video 子路径不携带 sound（原生 schema 无此字段），成片必然无声：
         # result.generate_audio 必须同步为 False，否则按有声价出账却拿到无声片
         ref = tmp_path / "ref0.png"
-        ref.write_bytes(b"\x89PNG\r\n")
+        ref.write_bytes(image_bytes())
         with self._succeeding("task-b3") as routes:
             result = await _jwt_backend("kling-v3-omni").generate(
                 _request(tmp_path, reference_images=[ref], resolution="1080p", generate_audio=True)

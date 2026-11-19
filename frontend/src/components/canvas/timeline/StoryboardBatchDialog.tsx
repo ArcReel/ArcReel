@@ -110,7 +110,7 @@ export function StoryboardBatchDialog({
               {preview.skipped.map((item) => (
                 <li key={item.unit_id} className="flex flex-wrap items-center gap-x-1.5">
                   <EpisodeItemRef itemId={item.unit_id} />
-                  <span>{t(`storyboard_batch_skip.${item.reason}`)}</span>
+                  <span>{item.problem?.message ?? t(`storyboard_batch_skip.${item.reason}`)}</span>
                 </li>
               ))}
             </ul>

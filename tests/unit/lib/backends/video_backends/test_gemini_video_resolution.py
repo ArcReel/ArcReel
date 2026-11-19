@@ -6,6 +6,7 @@ import pytest
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.gemini import GeminiVideoBackend
+from tests.factories import image_bytes
 
 
 def _make_backend(model="veo-3.1-lite-generate-preview", backend_type="aistudio"):
@@ -77,7 +78,7 @@ async def test_duration_passthrough_str(tmp_path, seconds):
 
 def _frame(tmp_path, name="frame.png"):
     p = tmp_path / name
-    p.write_bytes(b"fake-png-data")
+    p.write_bytes(image_bytes())
     return p
 
 

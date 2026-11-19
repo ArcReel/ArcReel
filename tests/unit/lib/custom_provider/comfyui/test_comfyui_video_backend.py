@@ -35,7 +35,7 @@ from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.factory import create_custom_backend
 from lib.generation.task_failure import render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
-from tests.factories import comfyui_endpoint_definition, make_display_names, make_translator
+from tests.factories import comfyui_endpoint_definition, image_bytes, make_display_names, make_translator
 from tests.fakes import MP4_BYTES, bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -168,9 +168,9 @@ class TestGenerate:
         """端到端一条：素材回填 → 提交 → 轮询 → 产物落到 output_path，溯源随结果回来。"""
         definition = _with_image_bindings()
         start = tmp_path / "first.png"
-        start.write_bytes(b"png-bytes")
+        start.write_bytes(image_bytes())
         reference = tmp_path / "ref.jpg"
-        reference.write_bytes(b"jpg-bytes")
+        reference.write_bytes(image_bytes(fmt="JPEG"))
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids() as persisted:
             upload = router.post(f"{BASE_URL}/upload/image").mock(
@@ -292,7 +292,7 @@ class TestGenerate:
         definition["auth"] = {"headers": {"Authorization": "Bearer {{api_key}}"}}
         assert validate_definition(definition).valid
         start = tmp_path / "first.png"
-        start.write_bytes(b"png")
+        start.write_bytes(image_bytes())
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             upload = router.post(f"{BASE_URL}/upload/image").mock(
@@ -338,7 +338,7 @@ class TestGenerate:
         definition["auth"] = {"headers": {"X-API-Key": "{{api_key}}"}}
         assert validate_definition(definition).valid
         start = tmp_path / "first.png"
-        start.write_bytes(b"png")
+        start.write_bytes(image_bytes())
         elsewhere = "https://elsewhere.test"
         redirect = httpx.Response(307, headers={"location": f"{elsewhere}/moved"})
 
@@ -450,7 +450,7 @@ class TestFailures:
     async def test_an_upload_failure_stops_before_any_submit(self, tmp_path: Path):
         definition = _with_image_bindings()
         start = tmp_path / "first.png"
-        start.write_bytes(b"png")
+        start.write_bytes(image_bytes())
 
         with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids():
             router.post(f"{BASE_URL}/upload/image").mock(return_value=httpx.Response(507, text="disk full"))
@@ -1212,3 +1212,12 @@ class TestStoppingTheRemote:
                 await _backend().generate(_request(tmp_path))
 
         assert drop.call_count == 1
+
+
+async def test_unbound_frame_is_rejected_before_upload_or_submit(tmp_path):
+    frame = tmp_path / "frame.png"
+    frame.write_bytes(image_bytes())
+    with capture_http() as router, pytest.raises(VideoCapabilityError) as error:
+        await _backend().generate(_request(tmp_path, start_image=frame))
+    assert error.value.code == "video_first_frame_unsupported"
+    assert not router.calls

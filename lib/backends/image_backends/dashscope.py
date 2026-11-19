@@ -9,17 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import ClassVar
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import should_retry_submit, submit_post
+from lib.backends.backend_runtime import read_reference_images, should_retry_submit, submit_post
 from lib.backends.dashscope_shared import (
     dashscope_headers,
     dashscope_native_base_url,
     extract_image_url,
-    image_to_data_uri,
     resolve_dashscope_api_key,
     safe_body_for_log,
 )
@@ -218,24 +216,10 @@ class DashScopeImageBackend:
             # fail-loud：任一声明的参考图缺失（含目录/空串解析出的 "."）或读取失败（权限/并发删除
             # → OSError）即中止生成并报错列出文件名，让用户感知到有图未被使用，而非静默丢弃、用子集
             # 生成出错误结果还照常计费。
-            data_uris: list[str] = []
-            unreadable: list[str] = []
-            # names 进多语言错误模板（en/vi 也渲染），分隔符与占位用 locale 中性形式：
-            # 空路径无文件名可显示，用序号 #N 标识第几张参考图，避免中文占位漏进非中文报错。
-            for idx, ref in enumerate(request.reference_images, start=1):
-                path = Path(ref.path) if ref.path else None
-                if path is None or not path.is_file():
-                    unreadable.append(path.name if path else f"#{idx}")
-                    continue
-                try:
-                    data_uris.append(image_to_data_uri(path))
-                except OSError as exc:
-                    logger.warning("DashScope 参考图读取失败: %s (%s)", path, exc)
-                    unreadable.append(path.name)
-            if unreadable:
-                raise ImageCapabilityError(
-                    "image_reference_images_unreadable", model=self._model, names=", ".join(unreadable)
-                )
+            data_uris = [
+                image.data_uri()
+                for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
+            ]
             content.extend({"image": uri} for uri in data_uris)
         content.append({"text": request.prompt})
         return content

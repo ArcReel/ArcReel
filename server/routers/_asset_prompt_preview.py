@@ -70,6 +70,7 @@ def register_asset_prompt_preview_routes(
             )
         return {
             "text": result.text,
+            "unavailable_code": result.unavailable,
             "unavailable": (
                 (
                     translate("asset_prompt_preview_missing")

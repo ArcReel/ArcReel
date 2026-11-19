@@ -17,7 +17,6 @@ from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
     VideoCapabilities,
-    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -26,6 +25,7 @@ from lib.backends.backend_runtime import (
     ProviderJobIdPersistenceMixin,
     download_video,
     poll_with_retry,
+    read_video_images,
     reference_audio_to_data_uri,
     should_retry_download,
 )
@@ -451,59 +451,22 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
     def _build_image_content(self, request: VideoGenerationRequest) -> list[dict[str, Any]]:
         """首帧 / 尾帧 / 参考图 → image_url 条目（同步：读本地图片，调用方放线程里跑）。"""
-        from lib.backends.image_backends.base import image_to_base64_data_uri
-
-        content: list[dict[str, Any]] = []
-        if request.start_image:
+        asset_uris = _reference_asset_uris(request)
+        if any(asset_uris) and REFERENCE_IMAGE_ROLE not in self.provider_asset_roles:
+            raise ValueError(f"model {self._model} does not accept provider asset references")
+        remote = frozenset(i for i, uri in enumerate(asset_uris, 1) if uri is not None)
+        images = read_video_images(request, self._model, remote_indices=remote)
+        content = []
+        for role, path in (("first_frame", request.start_image), ("last_frame", request.end_image)):
+            if path is not None:
+                content.append({"type": "image_url", "image_url": {"url": images[Path(path)].data_uri()}, "role": role})
+        for path, uri in zip(request.reference_images or [], asset_uris, strict=True):
             content.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": image_to_base64_data_uri(request.start_image)},
-                    "role": "first_frame",
-                }
-            )
-
-        if request.end_image:
-            end_path = Path(request.end_image)
-            if not end_path.is_file():
-                # 尾帧缺失不静默跳过：跳过后任务照常提交并计费，用户拿到一段没有尾帧、
-                # 与分镜衔接不上的视频却无从知道原因。
-                raise VideoCapabilityError(
-                    "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
-                )
-            content.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": image_to_base64_data_uri(request.end_image)},
-                    "role": "last_frame",
-                }
-            )
-
-        if request.reference_images:
-            asset_uris = _reference_asset_uris(request)
-            if any(asset_uris) and REFERENCE_IMAGE_ROLE not in self.provider_asset_roles:
-                raise ValueError(f"model {self._model} does not accept provider asset references")
-            # 以素材引用发出的参考图不读本地内容，只核对其余参考图。
-            missing = [
-                p
-                for r, uri in zip(request.reference_images, asset_uris, strict=True)
-                if uri is None and not (p := Path(r)).is_file()
-            ]
-            if missing:
-                # 与尾帧同理：少一张参考图仍会出片并计费，成片里的角色/场景却已跑偏。
-                raise VideoCapabilityError(
-                    "video_reference_images_unreadable",
-                    model=self._model,
-                    names=", ".join(p.name or str(p) for p in missing),
-                )
-            # 素材引用就地替换同一位置的图片内容，不增删、不重排：提示词里的「图片N」仍指向第 N 个参考图条目。
-            content.extend(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": uri if uri is not None else image_to_base64_data_uri(Path(ref_path))},
+                    "image_url": {"url": uri or images[Path(path)].data_uri()},
                     "role": "reference_image",
                 }
-                for ref_path, uri in zip(request.reference_images, asset_uris, strict=True)
             )
         return content
 
