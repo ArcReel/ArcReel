@@ -15,10 +15,13 @@ function write(root, relativePath, contents) {
 }
 
 function status(root) {
-  const output = execFileSync(process.execPath, [scriptPath, "status", "--root", root, "--json"], {
+  const result = spawnSync(process.execPath, [scriptPath, "status", "--root", root, "--json"], {
     encoding: "utf8",
   });
-  return JSON.parse(output);
+  assert.equal(result.stderr, "");
+  const problems = JSON.parse(result.stdout);
+  assert.equal(result.status, problems.length === 0 ? 0 : 1);
+  return problems;
 }
 
 function record(root) {
@@ -88,11 +91,7 @@ test("status reports translations whose sources were deleted", () => {
 
 test("status reports unregistered document translations but ignores locale assets", () => {
   const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
-  write(
-    root,
-    "website/i18n/vi/docusaurus-plugin-content-docs/current/guide/unregistered.md",
-    "# Unregistered\n",
-  );
+  write(root, "website/i18n/vi/docusaurus-plugin-content-docs/current/guide/unregistered.md", "# Unregistered\n");
   write(root, "website/i18n/en/docusaurus-plugin-content-docs/current.json", '{"title":"Docs"}\n');
   write(root, "website/i18n/en/docusaurus-theme-classic/navbar.json", '{"title":"Docs"}\n');
   write(root, "website/i18n/en/code.json", '{"theme.ErrorPageContent.title":"Error"}\n');
@@ -129,18 +128,31 @@ test("status reports a translated source whose recorded content changed", () => 
   record(root);
   write(root, "README.md", "# ArcReel video creation\n");
 
-  assert.deepEqual(status(root), [
-    { source: "README.md", target: "README.en.md", state: "stale" },
-  ]);
+  assert.deepEqual(status(root), [{ source: "README.md", target: "README.en.md", state: "stale" }]);
 });
 
-test("status reports CONTRIBUTING.md stale when only its synced copy changed", () => {
+test("status reports CONTRIBUTING.md stale when only its generated content changed", () => {
   const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
   write(root, "CONTRIBUTING.md", "# 贡献\n");
-  write(root, "website/docs/dev/contributing.md", "---\nid: contributing\n---\n\n# 贡献 {#contributing}\n");
-  write(root, "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md", "---\nid: contributing\n---\n\n# Contributing {#contributing}\n");
+  const generator = "website/scripts/sync-contributing.mjs";
+  const writeCopy =
+    'import { writeFileSync, mkdirSync } from "node:fs";\nmkdirSync("website/docs/dev", { recursive: true });\n';
+  write(
+    root,
+    generator,
+    `${writeCopy}writeFileSync("website/docs/dev/contributing.md", "---\\nid: contributing\\n---\\n\\n# 贡献 {#contributing}\\n");\n`,
+  );
+  write(
+    root,
+    "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md",
+    "---\nid: contributing\n---\n\n# Contributing {#contributing}\n",
+  );
   record(root);
-  write(root, "website/docs/dev/contributing.md", "---\nid: contributing\n---\n\n# 贡献 {#contribute}\n");
+  write(
+    root,
+    generator,
+    `${writeCopy}writeFileSync("website/docs/dev/contributing.md", "---\\nid: contributing\\n---\\n\\n# 贡献 {#contributing}\\n\\n更新内容\\n");\n`,
+  );
 
   assert.deepEqual(status(root), [
     {
@@ -196,7 +208,11 @@ test("record refuses to hide an unregistered document translation", () => {
 
 test("status reports a translation whose untranslated frontmatter drifted from the source", () => {
   const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
-  write(root, "website/docs/guide/start.md", "---\nid: start\ntitle: 入门\nupdate_docs: full\n---\n\n# 入门 {#start}\n");
+  write(
+    root,
+    "website/docs/guide/start.md",
+    "---\nid: start\ntitle: 入门\nsidebar_position: 2\n---\n\n# 入门 {#start}\n",
+  );
   write(
     root,
     "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
@@ -222,12 +238,12 @@ test("status accepts a translation that differs only in translated frontmatter v
   write(
     root,
     "website/docs/guide/start.md",
-    "---\nid: start\ntitle: 入门\ndescription: >-\n  中文描述\nupdate_docs: full\n---\n\n# 入门 {#start}\n",
+    "---\nid: start\ntitle: 入门\ndescription: >-\n  中文描述\nsidebar_position: 2\n---\n\n# 入门 {#start}\n",
   );
   write(
     root,
     "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
-    "---\nid: start\ntitle: Getting Started\ndescription: >-\n  English description\nupdate_docs: full\n---\n\n# Getting Started {#start}\n",
+    "---\nid: start\ntitle: Getting Started\ndescription: >-\n  English description\nsidebar_position: 2\n---\n\n# Getting Started {#start}\n",
   );
   record(root);
 
@@ -254,7 +270,7 @@ test("record refuses to hide frontmatter drift", () => {
 
 test("record refuses to hide drift in a quoted frontmatter key", () => {
   const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
-  write(root, "website/docs/guide/start.md", '---\ntitle: 入门\n"update_docs": full\n---\n\n# 入门\n');
+  write(root, "website/docs/guide/start.md", '---\ntitle: 入门\n"slug": /start\n---\n\n# 入门\n');
   write(
     root,
     "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md",
@@ -282,7 +298,9 @@ test("record with a source refreshes only that entry and keeps the others as rec
   write(root, "website/docs/guide/a.md", "# 甲 changed\n");
   write(root, "website/docs/guide/b.md", "# 乙 changed\n");
 
-  execFileSync(process.execPath, [scriptPath, "record", "website/docs/guide/a.md", "--root", root], { encoding: "utf8" });
+  execFileSync(process.execPath, [scriptPath, "record", "website/docs/guide/a.md", "--root", root], {
+    encoding: "utf8",
+  });
 
   const after = JSON.parse(readFileSync(lockPath, "utf8"));
   assert.notEqual(after["website/docs/guide/a.md"], before["website/docs/guide/a.md"]);
@@ -302,7 +320,9 @@ test("record with a source drops entries whose source and target were both delet
   rmSync(join(root, target("c")));
   write(root, "website/docs/guide/a.md", "# 甲 changed\n");
 
-  execFileSync(process.execPath, [scriptPath, "record", "website/docs/guide/a.md", "--root", root], { encoding: "utf8" });
+  execFileSync(process.execPath, [scriptPath, "record", "website/docs/guide/a.md", "--root", root], {
+    encoding: "utf8",
+  });
 
   const after = JSON.parse(readFileSync(join(root, "website/i18n/translation.lock.json"), "utf8"));
   assert.deepEqual(Object.keys(after), ["website/docs/guide/a.md"]);
@@ -341,6 +361,42 @@ test("status generates the missing synced CONTRIBUTING.md copy with the reposito
     },
   ]);
   assert.equal(existsSync(join(root, "website/docs/dev/contributing.md")), true);
+});
+
+test("status detects changes to CONTRIBUTING.md even if a generated copy already exists", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "CONTRIBUTING.md", "# 贡献\n");
+  write(
+    root,
+    "website/scripts/sync-contributing.mjs",
+    'import { copyFileSync, mkdirSync } from "node:fs";\nmkdirSync("website/docs/dev", { recursive: true });\ncopyFileSync("CONTRIBUTING.md", "website/docs/dev/contributing.md");\n',
+  );
+  const target = "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md";
+  write(root, target, "# Contributing\n");
+  record(root);
+  write(root, "CONTRIBUTING.md", "# 贡献\n\n新增约定\n");
+
+  assert.deepEqual(status(root), [{ source: "CONTRIBUTING.md", target, state: "stale" }]);
+});
+
+test("record refuses to hide a different set of section anchors", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  const source = "website/docs/guide/start.md";
+  const target = "website/i18n/en/docusaurus-plugin-content-docs/current/guide/start.md";
+  write(root, source, "# 入门 {#start}\n\n## 安装 {#install}\n");
+  write(root, target, "# Getting started {#start}\n\n## Installation {#setup}\n");
+
+  const result = spawnSync(process.execPath, [scriptPath, "record", source, "--root", root], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /section anchors differ from the source/);
+  assert.deepEqual(status(root), [
+    { source, target, state: "anchors" },
+    { source, target, state: "stale" },
+  ]);
+
+  write(root, target, "# Getting started {#start}\n\n## Installation {#install}\n");
+  record(root);
+  assert.deepEqual(status(root), []);
 });
 
 test("status explains how to generate the synced copy when no sync script exists", () => {

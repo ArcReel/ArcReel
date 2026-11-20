@@ -2,7 +2,6 @@
 id: deployment
 title: Deployment and Operations
 sidebar_position: 1
-update_docs: fact-check
 ---
 
 # Deployment and Operations {#deployment}
@@ -158,11 +157,9 @@ curl http://localhost:1241/health
 
 ### 2.3 Database Migrations {#database-migrations}
 
-ArcReel runs Alembic migrations at application startup to upgrade the database schema to the current version.
+ArcReel runs Alembic at startup to upgrade the database schema. You can also run `alembic upgrade head` before starting the app. The migration records the previous database version first so ArcReel can [preserve the models in use](#project-schema-migrations). If the write fails, repair database access and retry. If it fails on SQLite just after creating the global settings table for the first time, a retry can proceed with the previous version treated as unknown. Check and reselect models in Global Settings → Default Models. Run the migration against the live database. The offline `alembic upgrade --sql` mode is unsupported.
 
-At startup, ArcReel also converts historical call output paths to project-relative paths when it can identify the project root, so usage detail thumbnails can survive a data directory move. Ambiguous old paths remain unchanged and are logged. Queued legacy text tasks use the current data directory; any old directory in their payload is ignored.
-
-You must still create a backup before upgrading. Automatic migration handles schema upgrades; it does not replace a rollback-capable data backup.
+[Back up the database and data root](#backup-and-restore) before upgrading.
 
 ## 3. Environment Variables {#environment-variables}
 
@@ -343,78 +340,21 @@ After confirming that the Vertex credentials work in Settings, delete `deploy/lo
 
 ### 5.5 Project Schema Migrations {#project-schema-migrations}
 
-In addition to database migrations, application startup upgrades each project in the `projects/` directory under the data root. Only directories whose names contain letters, digits, or hyphens and that contain a `project.json` file count as projects for migration and stale backup cleanup. When upgrading to a version that introduces artifact-state records, ArcReel fully validates the project and its formal scripts, writes the complete artifact records atomically, and updates the schema version in `project.json` only after those steps succeed.
+ArcReel upgrades project data automatically at startup. [Back up the data root and database](#backup-and-restore) before upgrading, and leave space for the migration. A large project may need a full directory copy, and the first startup can take longer.
 
-Before committing a migration, ArcReel creates adjacent backups with a `.bak.v<source-version>-<timestamp>` suffix for:
+**Review migration results**
 
-- `project.json`;
-- Formal script files registered in `project.json`;
-- An existing `.arcreel_artifacts.json`;
-- `versions/versions.json`, for migrations that rewrite version records.
-- The rewritten `edit_timelines/episode_*/*.json` files, for migrations that rewrite edit timelines.
+- The project message about items adjusted during the upgrade opens a read-only migration report. “Adjusted” lists structural changes and kept copies. “Could not import” lists files preserved in place but left unregistered. Archive imports with these adjustments prompt for confirmation before completing. Cancel to discard that import.
+- After upgrading from an older release, check the global and project default models. ArcReel preserves the previously used models when it can reconstruct the choices. Select a model in Settings if the old choice could not be recovered. When importing an old project ZIP, ArcReel uses the recommendations at import time to fill in old selections. Check the project settings after import.
+- Project-level migration backups sit beside the modified files and end in `.bak.v<starting-version>-<timestamp>`. Copies kept to resolve conflicts end in `.kept.v<starting-version>-<timestamp>`. Project-level backups cover the files involved in the migration. Use the full pre-upgrade backup to restore the entire instance.
 
-Project migration is safe to retry. If a previous startup was interrupted while creating backups or committing changes, the next startup validates the project again and ensures that at least one backup exactly matches the pre-migration content before continuing. Identical backups are kept only once, so repeated failures do not pile up copies. These automatically generated project-level backups exist only for migration recovery; they do not replace deployment-level backups of the database and the entire data root.
+**Recover from a project migration failure**
 
-After a migration completes, ArcReel writes `.migration_report.json` to the project directory. It holds two groups: "Changed" lists what the migration changed (choices made while normalizing legacy shapes, placeholder definitions added, structure repaired), and "Not carried over" lists files that were left in place but not registered (unreadable files, and legacy narration audio with no recorded synthesis settings). Generation gaps, units that need replanning, and artifacts left unregistered because their basis cannot be computed (for example a script plan whose source text is not UTF-8) are not in the report. The report is informational only and never blocks any operation. When it is not empty, the project page header shows a one-time notice, "This upgrade changed N items", that opens the read-only report; once dismissed it does not come back. The production status API returns the `migration_report` field only while the report is non-empty and not yet dismissed.
+1. Keep the project directory, backups, and saved copies. Check the startup log for disk space, permissions, or damaged files. Leave the schema version as recorded.
+2. Resolve the problem and restart the service. ArcReel retries the migration.
+3. If the project directory disappears after a power loss or forced container stop, stop the service. Look next to the project directory for a directory starting with `.<project-name>.v6-rollback-`. If there are several, select the newest by modification time. Rename it to the original project name and start the service. Keep the hidden directories and avoid creating a project with that name until recovery is complete.
 
-Archive import runs the same migration chain, and whatever version exported the archive, files the import could not read are added to the same report. When the report is not empty, a "Confirm before importing" dialog shows that report before the project appears in the project list. "Cancel" leaves no project data behind; "Confirm import" completes the import, and the project page does not show the same report again. When the report is empty, the import goes through directly; re-importing a healthy project exported by the current version leaves the report empty. If the migration chain fails during import, the import fails with the specific reason and no data from the archive is kept.
-
-Migration rejects a whole project only for these data problems: `project.json` or a script cannot be read (it is not valid JSON, or it lacks content that determines its shape, such as the content type); the version records `versions/versions.json` or the artifact manifest `.arcreel_artifacts.json` cannot be read; the item structure of a script is broken (for example, a legacy ad shot index or a reference video unit list contains an entry that is not an object); or the archive itself is unsafe. A migration that cannot finish (out of disk space, a write failure) still blocks; the project stays in its pre-upgrade state, and you can retry after fixing the cause. All other data problems are handled item by item, and existing content is not discarded:
-
-- Legacy shapes written by the normal workflow of earlier versions are normalized automatically: when the same episode is listed more than once, only one entry is kept; when different episodes are bound to the same script, the script stays with the episode it records and the others switch to their own script paths; when a script does not record its episode, or records one that differs from its binding, the episode list wins; when an episode's script binding is not `scripts/episode_N.json`, the script is moved to that canonical path and rebound, and references in version records and grid records are rewritten with it; when script plan drafts exist under both the old and the new file name, the new name wins; within one asset type, entries whose names match after trimming surrounding whitespace and Unicode normalization, ignoring case, are reduced to the first one: derivatives of a removed entry move to the kept one (a derivative whose name differs from an existing one only in case merges into it), and references in scripts and script plans that use the removed name's casing are rewritten to the kept name; script items with a missing or duplicate ID get a new ID (duplicates from the second one on), and media files under the original ID stay with the item that keeps it; when two episodes have an item with the same ID, the media stays with the episode the ID prefix names (or, if it names neither, the one listed first), and the item in the other episode gets a new ID; duplicate shot or unit numbers in legacy ad shot indexes are renumbered the same way.
-- A reference-to-video unit that does not fit the current unit format (for example a unit with empty text, which older versions allowed) is kept as is and marked as needing replanning. The interface treats it like any other unit that needs replanning, and it is not listed in the report.
-- When an asset sheet, reference image, reference audio, or merchandise photo points to a file under another existing asset (including derivative images), the migration copies it under this asset and rewrites the reference, leaving the original file with the original asset. Copying uses extra disk space; if the destination under this asset already holds different content, the existing file is first moved to a kept copy. Copying does not change an asset sheet's production status: one that was up to date before the rewrite stays up to date, and one that was already outdated still needs regenerating. The copy destination, the reference, and the asset sheet registration are committed in one transaction and restored if it fails. A source path that contains a symbolic link is not copied; if the destination directory is a symbolic link, the migration fails, and you need to restore it to a real directory inside the project before retrying; if the destination file is a symbolic link, only the link itself is replaced and the file it points to is left unchanged. The locations of copies and kept copies are listed under "Changed".
-- When normalization has to choose, the other copy is kept next to the original file with a `.kept.v<from-version>-<timestamp>` suffix. Kept copies are never cleaned up automatically, and the "Changed" entry in the report shows where each one is.
-- When a single grid record, script plan draft, or media file cannot be read, the file stays where it is, is not registered, and is listed under "Not carried over"; the rest of the project migrates normally. When a script in an imported archive references an undefined character, scene, or prop, the import adds an empty definition for it and lists it under "Changed".
-
-Videos generated before the artifact-record mechanism existed (whose legacy version records have no typed provenance fields) get their provenance backfilled by the migration from the project state at that time, so they display and preview normally after the upgrade. Videos whose provenance cannot be backfilled are not registered, show as missing, and are not listed in the migration report.
-
-After video generation is decoupled from narration duration, videos requested at a longer duration tier to fit narration remain current if they were current before the upgrade. Preview and version restore use the same freshness basis. The migration preserves video files, the actual paid duration, and request records; it only rewrites the freshness basis. Videos already out of date remain out of date, and skipped artifacts from earlier migration reports remain listed.
-
-When upgrading to schema 18, the migration backfills content fingerprints for existing videos and narration audio: it reads both the formal file and the snapshot of the currently selected version, and records the fingerprint only when the two match, so later checks of whether these artifacts are up to date skip reading file contents as long as each file's size and modification time are unchanged. Projects with many or large videos take longer in this step, so the migration on first startup runs correspondingly longer. Artifacts whose formal file does not match its snapshot (for example, a video replaced outside ArcReel) or cannot be read are not backfilled and display the same as before the upgrade.
-
-When upgrading to schema 19, storyboard images, grid images, and the storyboard images split from grids no longer use the names of the assets they reference to decide whether they are up to date: the image model receives "Image N" labels rather than asset names, so renaming an asset no longer makes them show as outdated. The migration rewrites the records of these artifacts that were up to date before the upgrade, together with their version records, so they remain up to date afterward; artifacts that were already outdated stay outdated. A storyboard or grid image that references assets, moved to the project trash before the upgrade and restored after it, shows as outdated after restoring; regenerate it if needed. Reference-to-video clips and asset sheets include asset names in their generation input, so renaming an asset still marks them as outdated.
-
-For drama projects whose `project.json` has no aspect ratio field (projects created by very early versions, or imported ones), storyboard freshness is judged against the drama default ratio of 16:9, matching what generation actually uses. Storyboards in such projects that were previously recorded against 9:16 show as out of date after the upgrade; regenerate them as needed.
-
-For uploaded storyboards and videos, the upgrade adds or rewrites artifact records using the uploaded bytes when the selected version is still a manual upload and the file exactly matches its upload snapshot. They show as current even with an empty prompt or missing referenced asset sheets. Later prompt, asset, or style edits do not make them stale, and missing-only batches preserve them. Artifacts whose selected version is generated or whose file differs from the upload snapshot are not backfilled as uploads.
-
-For generated storyboards, if a referenced asset was deleted or renamed, or a referenced character, scene, or prop has no registrable sheet (it was never generated, its file is missing, or its description is empty), the storyboard is still registered and shows as current after the upgrade; the missing reference is recorded in its artifact record. Regenerating that storyboard is refused until the gap is filled. Product sheets are optional: a product with no declared sheet can use only its originals, or text alone if no originals are declared either. An unavailable declared product sheet or an unreadable declared product original is handled the same way. Once you restore the asset registration or sheet, re-upload missing originals, or clear their invalid fields, the storyboard shows as stale; regenerate it as needed.
-
-Asset sheets and derivative sheets follow the same rule: if a character or product declares an original image that cannot be read, or the asset description is empty, the sheet is still registered and shows as current after the upgrade; a derivative whose base sheet has such a gap is registered as well. Regenerating is refused until you re-upload the original or clear the invalid original field and fill in the description; after that, the sheet shows as stale. A character or product whose original image is lost cannot generate an asset sheet either, and is handled the same way.
-
-Upgrades before this release listed those storyboards and asset sheets, and videos whose storyboard prompt was pending, whose storyboard was unavailable, or whose unit mixed narration with dialogue, as missing in the migration report. Upgrading to this release registers them, shows them as current, and removes them from the report's skipped list; existing artifact records are left byte-for-byte unchanged. When a registration makes the previous storyboard available, the storyboard right after it shows as stale; regenerate it as needed. A unit that mixes narration with dialogue still needs replanning, and regenerating its video is refused.
-
-When upgrading to the version in which confirming content immediately produces the formal script, the migration takes over each episode according to its state:
-
-- Episodes whose script plan was confirmed but that have no formal script yet get a formal script produced from the confirmed plan, with every shot marked as awaiting prompt writing. Episodes that cannot be converted get no formal script; confirm the script plan again to fix them.
-- Episodes that already have a formal script keep their content. Shots with an empty visual prompt are marked as awaiting writing, and missing visual adaptation descriptions for drama shots and missing source text for reference-to-video units are filled in from the script plan.
-- Episodes that already have a formal script but never recorded a content confirmation use the current script plan as the confirmed baseline. Rerunning the script plan afterwards only returns that episode to awaiting confirmation; the existing formal script can still be used for production.
-- Episode script bindings are unified to exactly `scripts/episode_N.json`. Other bindings written by earlier versions (for example `scripts/custom.json`, or literally different forms such as `episode_N.json`, `./scripts/episode_N.json`, or `scripts\episode_N.json`) and duplicate entries for the same episode number are normalized by the rules above and no longer make the project fail to migrate.
-
-When upgrading to the version that moves transitions out of the script, the transition settings on script shots and video units are removed; values such as fade or dissolve are not kept, and exported Jianying drafts carry no transitions for now. Presentation descriptions already generated under `presentations/` drop their transition as well, and presentations and subtitles that were up to date before the upgrade stay up to date afterwards. Presentation descriptions can be regenerated by previewing, so this step does not back them up.
-
-The same upgrade makes narration delivery a project setting: projects that already have registered TTS narration audio become "TTS narration", and the TTS model, voice and speed used for the most recent narration audio are written into the project settings; all other projects become "post-production voiceover". From then on a project no longer follows the global TTS defaults; change them in the project settings when needed.
-
-The same upgrade separates the internal episode number from broadcast order: the interface, notifications and exported Jianying drafts refer to an episode by its position in the list and its title, and no longer show episode numbers. The migration records the highest episode number the project has used, covering existing episodes as well as old numbers that remain in drafts, source backups, media files, version histories, grid records, task records and call records after a reset or replan, including file paths referenced by generation inputs; new episodes are numbered after it, so they never collide with those leftovers. The order of existing episodes does not change. The "next episode outline" that script plans reference now comes from the episode immediately after it in the list; script plans that were current before the upgrade stay current, and ones already stale stay stale.
-
-The same upgrade makes the project register episode source text and whole-source files explicitly:
-
-- Each episode records where its source text comes from: cut from the whole source, its own source text, or no source text. An `episode_N.txt` under `source/` with no matching episode in the list becomes an episode with its own source text, appended to the end of the list.
-- The whole-source file list is recorded once in the old file-name order, so the episodes already cut and the start of the next planning batch do not change; files uploaded afterwards are appended to the end of the list.
-- Each whole-source file that episodes were cut from gets a normalized text snapshot under `source/snapshots/`.
-- After the upgrade, a file placed directly in `source/` without being registered through an upload is not source text: it takes no part in episode planning and does not change any episode's source text. The **Episodes** view lists these files under "N files not in use yet", where each one can be added to the whole source, used as an episode's source text, or deleted.
-
-The same upgrade moves the source type of drama projects (novel or screenplay) from the project settings onto each piece of source text: the migration gives every whole-source file and every episode with its own source text the project's previous type, and other content modes drop the setting. Afterwards, change the type of a whole-source file on its file bar in the **Episodes** view, and the type of an episode with its own source text while editing that text on the episode page. Script plans of drama storyboard projects stay current after the upgrade. Reference-video script plans did not distinguish source types before and were always planned as a novel, so in screenplay projects they show as outdated after the upgrade; formal scripts are not affected.
-
-One class of migration first copies the whole project next to its directory, rewrites the copy, and then swaps the directories. What that means for disk space and recovery:
-
-- Free space is checked before the migration starts. If it cannot hold the copy, that project fails with a "disk space is insufficient" error and its directory is left untouched; free up space and restart to continue.
-- If the process is killed during the swap (power loss, `kill -9`, an OOM-killed container), the project directory can be missing, the project disappears from the list, and hidden directories starting with `.<project-name>.v6-` are left alongside it. ArcReel does not recover from this automatically. These hidden directories hold project data: do not delete them by hand, and do not rush to recreate a project with the same name.
-- To recover by hand, stop the service, rename the directory starting with `.<project-name>.v6-rollback-` to `<project-name>` (if there are several, take the most recently modified one), and start the service again. That directory is the original project from before the migration, and the migration runs again on startup.
-- While the project directory is in place, those hidden directories are cleaned up automatically under the same retention window as the backups above; they are never cleaned up while the project directory is missing.
-
-If a project migration fails, preserve the files and inspect the startup logs. Do not manually change the schema version or delete backup files or kept copies. Repair the damaged project files or permissions, then restart the service.
+See the [project data migration reference](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/project-migrations.md) for version-specific behavior.
 
 ### 5.6 Pin a Version {#pin-version}
 
@@ -432,17 +372,15 @@ Explicitly changing the version when upgrading reduces the risk of unintentional
 
 After the whole site is moved to a different absolute path, the application relocates the storage of existing Agent sessions to match the current project directories at startup, so conversations can continue with their context. Sessions of deleted projects follow the new name the project is restored under. With `ARCREEL_SDK_SESSION_STORE=off`, sessions are stored only in the SDK's local directory, so keep that directory when migrating (`claude_data/` for Docker, or `CLAUDE_CONFIG_DIR` or the default `~/.claude` for native deployments). When the same session has records in several source locations, or the destination already has a record, they are not merged automatically; a failed move logs a warning, and the service still starts.
 
-After object storage is enabled under **Save new images to**, the content of remote images lives only in your TOS bucket; backups of the data root and the database contain only their records and a local cache that can be cleaned up. When restoring a backup, the connection must still point to the original bucket, and the objects in the bucket must be kept as well. ArcReel deletes image objects that are no longer used, so objects of projects or versions deleted after the backup may already be gone from the bucket, and those images cannot be read after restoring an older backup. If you need to restore to an earlier point in time, back up the objects under `arcreel-materials/` while writes are stopped (or enable versioning on the bucket), and put them back into the original bucket under the same keys when restoring; see [Save New Images to Object Storage](../guide/providers.md#remote-image-storage).
+After object storage is enabled under **Save new images to**, the content of remote images lives only in your TOS bucket; backups of the data root and the database contain only their records and a local cache that can be cleaned up. When restoring a backup, the connection must still point to the original bucket, and the objects in the bucket must be kept as well. ArcReel deletes image objects that are no longer used, so objects of projects or versions deleted after the backup may already be gone from the bucket, and those images cannot be read after restoring an older backup. If you need to restore to an earlier point in time, back up the objects under `arcreel-materials/` while writes are stopped (or enable versioning on the bucket), and put them back into the original bucket under the same keys when restoring; see [Save New Images to Object Storage](../guide/asset-storage.md#remote-image-storage).
 
 ### 6.1 Back Up a SQLite Deployment {#backup-sqlite}
 
 The data root already contains projects, the default SQLite database, logs, and Vertex credentials, so a file-system backup only needs to archive the data root plus `.env` and `claude_data/`.
 
-First identify the actual data root on the host, then stop writes. Default Compose uses `deploy/projects/`. If you changed the container path with `ARCREEL_DATA_DIR` and a custom mount, set `data_dir` to the corresponding absolute host path:
+Run the commands from the active Compose directory. The initial deployment uses `deploy/` and its `projects/` subdirectory by default. Find the actual data root on the host, then stop writes. For a custom mount with `ARCREEL_DATA_DIR`, set `data_dir` to the corresponding absolute host path:
 
 ```bash
-cd deploy
-
 data_dir="$(cd projects && pwd)"
 # Custom data directory example: data_dir="/srv/arcreel/projects"
 
@@ -474,18 +412,15 @@ docker compose start arcreel
 
 To restore:
 
-1. Stop ArcReel;
-2. Back up the current directory so you can roll back if files are overwritten;
-3. Restore `.env` and `claude_data/` from the configuration archive, then extract the paired data archive completely into an empty `data_dir`;
-4. Start the service and check `/health`;
-5. Open several projects and verify their images, videos, and version history.
+1. Stop ArcReel and keep the original deployment directory for rollback.
+2. Use the Compose configuration from the backup point in a new deployment directory. Extract `.env` and `claude_data/` from the configuration archive. Extract the paired data archive into the empty data directory mounted by that configuration.
+3. Run `docker compose up -d --wait arcreel` from the restore directory. Check `/health` and open several projects to verify their images, videos, and version history.
 
 ### 6.2 Back Up a PostgreSQL Deployment {#backup-postgresql}
 
-Stop the ArcReel application first, but leave PostgreSQL running, so no new writes occur while you back up the database and project files:
+Run these commands from the active production Compose directory. The initial deployment uses `deploy/production/` by default. Stop ArcReel and leave PostgreSQL running so the database and project files represent the same point in time.
 
 ```bash
-cd "$(git rev-parse --show-toplevel)/deploy/production"
 umask 077
 mkdir -p backups
 chmod 700 backups
@@ -511,39 +446,52 @@ If `tar` reports `Permission denied`, the mounted directory contains files creat
 
 ### 6.3 Restore PostgreSQL {#restore-postgresql}
 
-Before restoring, stop ArcReel but leave PostgreSQL running:
+Use the [file archive and SQL dump with the same timestamp](#backup-postgresql). Start in the active production Compose directory and restore into a new sibling directory. Keep the original database and files for rollback. The steps use the default relative mount paths. For custom mounts, adjust the backed-up configuration to use new host paths for the projects, Agent data, and PostgreSQL. If you use image object storage, prepare [the objects from the same backup point](#backup-and-restore). The restored connection needs access to the matching images in the original bucket.
+
+Extract the archive to an empty directory and check the restored configuration, credentials, and files. Replace the timestamp below and run all steps in the same shell.
 
 ```bash
-cd "$(git rev-parse --show-toplevel)/deploy/production"
-docker compose stop arcreel
+set -euo pipefail
 
+active_dir="$(pwd -P)"
 backup_stamp=YYYYMMDD-HHMMSS
-tar -xzf "backups/arcreel-files-${backup_stamp}.tar.gz"
+archive="${active_dir}/backups/arcreel-files-${backup_stamp}.tar.gz"
+db_dump="${active_dir}/backups/arcreel-db-${backup_stamp}.sql"
+test -s "${archive}" && test -s "${db_dump}" || exit 1
+
+restore_dir="$(mktemp -d "$(dirname "${active_dir}")/arcreel-restored-XXXXXX")"
+tar -xzf "${archive}" -C "${restore_dir}"
+test -f "${restore_dir}/.env"
+test -f "${restore_dir}/docker-compose.yml"
+test -d "${restore_dir}/projects"
+test -d "${restore_dir}/claude_data"
+test ! -e "${restore_dir}/pgdata" && test ! -L "${restore_dir}/pgdata" || exit 1
+(cd "${restore_dir}" && docker compose config --quiet)
 ```
 
-The file archive restores `.env`, `docker-compose.yml`, the data root `projects/`, and `claude_data/`. The following procedure also deletes the existing data in the target `arcreel` database. First verify that the database and file backups with the same `backup_stamp` are complete, and rehearse the restoration procedure in an isolated environment.
-
-Recreate an empty database before importing to avoid conflicts with existing schemas or data:
+Confirm that the backed-up Compose configuration points to mounts in the new directory. Stop the original stack and start PostgreSQL from the restore directory.
 
 ```bash
-docker compose exec -T postgres \
-  dropdb -U arcreel --maintenance-db=postgres --if-exists --force arcreel
-
-docker compose exec -T postgres \
-  createdb -U arcreel --maintenance-db=postgres -O arcreel arcreel
-
-cat "backups/arcreel-db-${backup_stamp}.sql" | \
-  docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel
+docker compose down
+cd "${restore_dir}"
+docker compose up -d postgres
+docker compose ps postgres
 ```
 
-After the database import succeeds, restart the application:
+Wait for PostgreSQL to become healthy and confirm that the target is the empty database created for this restore. Import the SQL. If the import reports an error, keep the restored files and investigate before starting ArcReel.
 
 ```bash
-docker compose start arcreel
+docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel < "${db_dump}"
+```
+
+Once the database and object storage are ready, create the ArcReel container from the restored configuration. Sign in and check projects, images, videos, version history, and important sessions.
+
+```bash
+docker compose up -d --wait arcreel
 curl -f http://localhost:1241/health
 ```
 
-> The restoration strategy depends on whether you are overwriting an existing database, restoring across versions, and whether the service was still accepting writes when the backup was created. Production environments should regularly perform real restoration drills, not merely verify that backup files exist.
+After verification, run future Compose and backup commands from the restore directory. To roll back, run `docker compose down` there, then run `docker compose up -d` in the original directory.
 
 ## 7. Reverse Proxy and HTTPS {#reverse-proxy-and-https}
 
@@ -729,7 +677,7 @@ du -sh projects/*
 find projects/projects -type f -size +500M
 ```
 
-Do not directly delete files referenced by current projects. Prefer archiving projects, removing unused projects, and retaining only the necessary space for version history.
+Do not directly delete files referenced by current projects. To reduce disk usage, archive projects, remove unused projects, and keep only the versions you need.
 
 ## 11. Go-Live Checklist {#go-live-checklist}
 

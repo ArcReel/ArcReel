@@ -2,7 +2,6 @@
 id: workflows
 title: Workflows and Modes
 sidebar_position: 2
-update_docs: full
 ---
 
 # Workflows and Modes {#workflows}
@@ -11,17 +10,20 @@ ArcReel supports multiple content sources and video generation methods. This pag
 
 ## 1. Two Dimensions to Choose Separately {#two-dimensions}
 
-When creating a project, distinguish between:
+Choose a **content mode** and a **generation route** when creating the project. The content mode determines the script structure. The route determines whether video starts from storyboard images or other references. Both choices are fixed after creation. Grids are an image-generation option within Storyboard to Video.
 
-1. **Content Mode**: determines how the script is organized;
-2. **Generation mode**: determines whether video production is organized around storyboard images or reference images such as asset images. Storyboard to video can optionally generate images as multi-grid storyboards.
+Projects based on source text also need a [content source](#content-sources). A Drama project can mark each source as a novel or screenplay.
 
-They can be combined. For example:
+### Mode Selection Table {#mode-selection-table}
 
-- Drama + Storyboard to video;
-- Drama + Reference to video;
-- Narration/Commentary + Storyboard to video;
-- Ad / Short Video + Reference to video.
+| Goal | Content Mode | Generation Route |
+|---|---|---|
+| Novel recap or narration-led video | Narration/Commentary | Start with Storyboard to Video to check each frame |
+| Continuous plot, character dialogue, or a complete screenplay | Drama | Choose Storyboard to Video to control the starting frame, or Reference to Video to send character and other asset sheets directly |
+| Product demo or short video with a target duration | Ad / Short Video | Choose based on which images the model accepts and test product fidelity with real source images |
+| Design several shots in the same sequence together | Narration/Commentary or Drama | Storyboard to Video with grids enabled |
+
+Before creating the project, check the model's supported inputs in [Model Settings](./providers.md#model-settings).
 
 ## 2. Content Sources {#content-sources}
 
@@ -286,22 +288,11 @@ Instead of using an ordinary storyboard as the sole input, the workflow directly
 - Projects where identity consistency is the priority;
 - Projects that want fewer intermediate storyboard steps.
 
-## 5. Mode Selection Table {#mode-selection-table}
 
-| Requirement | Recommended Content Mode | Recommended Generation Mode |
-|---|---|---|
-| Novel recaps and narration-led content | Narration/Commentary | Storyboard to video |
-| Continuous narratives and character dialogue | Drama | Storyboard to video (with multi-grid storyboards) or Reference to video |
-| A complete existing screenplay | Drama | Storyboard to video |
-| Merchandise structure must remain stable | Ad / Short Video | Prefer Reference to video |
-| Strong cross-shot consistency requirements | Narration/Commentary or Drama | Storyboard to video (with multi-grid storyboards) |
-| First ArcReel trial | Any | Storyboard to video |
-| Limited provider support | Any | Storyboard to video |
-| An established library of high-quality character assets | Drama | Reference to video |
 
-## 6. Standard Production Stages {#production-stages}
+## 5. Standard Production Stages {#production-stages}
 
-Regardless of the selected mode, retain the following stages.
+Use these stages to plan review and production. In Narration or Drama, confirm the script plan before generating visuals. An Ad / Short Video project generates the formal script directly. Review that script and its product references before generation.
 
 ### Stage 1: Project Goals {#stage-project-goal}
 
@@ -421,9 +412,9 @@ Check:
 - Final resolution;
 - Whether the Jianying export can be opened.
 
-## 7. Review Gates {#review-gates}
+## 6. Review Gates {#review-gates}
 
-ArcReel's advantage is not “skipping review,” but placing review where the cost of rework is lower.
+Reviewing the work earlier keeps the cost of revisions lower.
 
 | Review Point | What to Do When It Fails | What Not to Do |
 |---|---|---|
@@ -434,7 +425,7 @@ ArcReel's advantage is not “skipping review,” but placing review where the c
 | Narration audition | Correct the voice, pace, and text | Generate every audio track at once |
 | Final video preview | Adjust the order, duration, and transitions | Publish an unchecked version immediately |
 
-## 8. Consistency Practices {#consistency-practices}
+## 7. Consistency Practices {#consistency-practices}
 
 ### Characters {#consistency-characters}
 
@@ -457,7 +448,7 @@ ArcReel's advantage is not “skipping review,” but placing review where the c
 - Do not let the model invent important text, Logo details, or structures;
 - When details drift, redo the affected shot first instead of concealing the problem with later shots.
 
-## 9. Cost-Control Practices {#cost-control-practices}
+## 8. Cost-Control Practices {#cost-control-practices}
 
 - Start with low-cost samples, then move to high-quality batch production;
 - Use high-quality models for character design and key cover images;
@@ -468,7 +459,7 @@ ArcReel's advantage is not “skipping review,” but placing review where the c
 - Do not submit an entire episode while the model configuration is uncertain;
 - Save reusable character and scene assets.
 
-## 10. Definition of Done {#definition-of-done}
+## 9. Definition of Done {#definition-of-done}
 
 An episode or short video is complete only when it meets at least the following conditions:
 

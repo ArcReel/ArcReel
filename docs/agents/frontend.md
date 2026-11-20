@@ -1,6 +1,6 @@
-# 前端原语与测试打桩
+# 前端实施约定
 
-安装或第一次使用 `components/ui/` 的原语、给原语组件写测试、给出站调用打桩时读本文。原语用法的审查规则在 `docs/standards/frontend.md`。
+改动原语、Agent 面板或前端 API 替身时读相应小节。前端结构与数据边界见[架构说明](../../website/docs/dev/architecture.md#frontend-layer)，审查规则见[前端规范](../standards/frontend.md)。
 
 ## 安装原语
 
@@ -8,16 +8,16 @@
 
 ## Base UI 与 Radix 的差异
 
-shadcn 文档和社区示例大多基于 Radix，本仓库的原语底层是 Base UI（`components.json` 的 `style` 为 `base-nova`）。以下差异类型检查发现不了：
+shadcn 文档与社区示例大多基于 Radix，而本仓库的原语底层采用 Base UI（`components.json` 中的 `style` 为 `base-nova`）。以下差异无法通过类型检查发现：
 
-- `modal` 模式的 Popover，Popup 内必须有 Close。
-- Portal 会多渲染一层 `<div>`，依赖 DOM 层级的选择器和样式要随之调整。
+- `modal` 模式的 Popover，Popup 内部必须包含 Close。
+- Portal 会额外渲染一层 `<div>`，依赖 DOM 层级的选择器和样式需相应调整。
 - Combobox、Select 的弹层在点击后异步打开，测试中用 `findByRole("listbox")` 或 `findByRole("option")` 等待。Combobox 的搜索框在弹层内，触发按钮带 `role="combobox"`。
 - Checkbox、Radio 渲染为带角色的 `span`，禁用态是 `aria-disabled="true"`，`toBeDisabled()` 不成立。
 - Collapsible 收起时卸载面板内容：先点开触发按钮再查询面板里的元素，展开状态看触发按钮的 `aria-expanded`。
 - Slider 的滑块在 jsdom 中按角色查不到，需要角色测试的单值滑杆保留原生 `<input type="range">`。
 
-上面没有列出的组件，第一次使用时先在浏览器里实测键盘、焦点和关闭行为。
+上述未列出的组件，首次使用时请先在浏览器中实测键盘操作、焦点流转和关闭行为。
 
 ## 原语样式
 
@@ -28,3 +28,11 @@ shadcn 文档和社区示例大多基于 Radix，本仓库的原语底层是 Bas
 ## 测试打桩
 
 新增出站调用经 `API` class，测试才能在这一层打桩：`vi.spyOn(API, method)`。`api.ts` 本体的测试用手写 fetch / Response stub。单元测试与页面级套件（回放录制替身，见 `docs/standards/testing.md`）都不引入 msw。SSE 用 `src/test/fakeSseStream.ts` 的 `FakeSseStream`，由 `API.openProjectEventStream` / `API.openAssistantEntriesStream` 的 spy 返回；`openSseStream` 与 `api.ts` 的流式封装用 `src/test/fakeSseFetch.ts`。
+
+## Agent 面板
+
+- 消息区由 [MessageScroller](../../frontend/src/components/ui/message-scroller.tsx) 处理贴底跟随、上翻停止和跳到最新。发送消息或提交回答后用 `MessageFlowHandle.scrollToEnd()` 跟随回复。保持视口 `overflow-anchor: none`，以正常布局测量消息高度。为消息项启用 `content-visibility: auto` 会让异步 Markdown 的高度变化被误判成用户上翻。
+- 合并与过滤消息只在 [buildDisplayItems](../../frontend/src/components/copilot/chat/display-items.ts) 处理，并覆盖单元测试。压缩摘要和子智能体推断终态按[条目子类型](../../frontend/src/utils/entry-projection.ts)投影。
+- 工序统一用 [WorkRow](../../frontend/src/components/copilot/chat/WorkRow.tsx)。新增 ArcReel MCP 工具时登记 `tool_name_<id>` 和[摘要格式](../../frontend/src/components/copilot/chat/arcreel-tool-summaries.ts)，摘要只展示有意义的对象信息。
+- 失败卡片只为查看期间新到达的失败设置 `role="alert"`，用 store 的 `historySeq` 判定历史边界。
+- [问卷](../../frontend/src/components/copilot/AgentQuestionnaire.tsx)占用输入框的位置，输入框隐藏并保持挂载，只有题目区滚动。会话历史打开时占用消息区。

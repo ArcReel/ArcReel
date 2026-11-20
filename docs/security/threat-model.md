@@ -1,121 +1,77 @@
 # ArcReel Security Threat Model
 
-**Last security review:** 2026-08-06
+The [security policy](../../SECURITY.md) defines supported deployments, versions, and private reporting. ArcReel is a self-hosted administrative application for one trusted operator. Authentication separates that operator from unauthenticated callers. Mutually untrusted users require a different authorization model.
 
-**Assessment baseline:** ArcReel commit `6fb9bb1ee9dc19cd45712b47220b3d2a3f1d8b98`
+This document records trust boundaries, existing controls, and how to assess a change. The historical security assessment ran on 2026-08-06 at commit `6fb9bb1ee9dc19cd45712b47220b3d2a3f1d8b98`. Control descriptions follow the implementation. Verified gaps and remediation details belong in private GitHub Security Advisories.
 
-## 1. Purpose and interpretation
-
-This document describes ArcReel's current security model, trust boundaries, attacker capabilities, existing controls, and severity rules. It is intentionally written as an **as-is model** rather than a target architecture or a patch history.
-
-Current vulnerabilities, control gaps, validation tasks, and remediation acceptance criteria are maintained privately through GitHub Security Advisories. Keeping the stable public threat model separate from the changing private finding register reduces duplicate conclusions and avoids disclosing unresolved vulnerabilities before coordinated remediation.
-
-ArcReel is currently a **single-operator administrative application**, not a multi-tenant SaaS platform. Authentication separates the trusted operator from unauthenticated callers. It does not provide meaningful role-based access control, tenant isolation, or least-privilege API scopes:
-
-- `CurrentUserInfo.role` is always `admin`.
-- A login JWT normally authorizes the complete administrative application surface, including API-key management. A configured login username beginning with `apikey:` is currently misclassified as an API key and denied by API-key management routes.
-- An `arc-` API key is a broad automation credential. It authorizes most business and configuration APIs but cannot create, list, or revoke API keys.
-- Repositories generally operate on the default user.
-- A stolen login JWT is therefore treated as complete administrator compromise. A stolen API key or download JWT is a high-impact compromise of the broad surface that credential can access.
-
-## 2. System overview
-
-ArcReel is a self-hosted AI video production workspace with the following principal components:
-
-- A FastAPI backend that exposes authenticated APIs, public/static routes, self-authenticating download routes, and serves the React SPA.
-- A React frontend that stores its bearer token in browser `localStorage` and sends it in `Authorization: Bearer ...` headers for normal API calls.
-- Project files stored beneath `app_data_dir()` and managed through project, asset, upload, archive, versioning, and generation services.
-- A SQLAlchemy database, commonly SQLite, that stores configuration, provider credentials, API-key hashes, task state, usage records, and other application data.
-- Third-party AI provider integrations using configured credentials and base URLs.
-- Generation workers that submit provider jobs, poll status, download generated artifacts, persist state, and recover interrupted work.
-- Native media processing through the ffmpeg binary bundled with the `imageio-ffmpeg` Python package; ffprobe is not used.
-- A Claude SDK-based project assistant with sandbox policy, permission callbacks, project-bound file rules, network restrictions, and in-process MCP tools.
-- Docker deployment with bind-mounted project data, logs, environment configuration, Vertex credentials, and Claude session data.
-
-## 3. Deployment profiles and severity modifiers
+## Deployment profiles and severity modifiers
 
 Security severity depends materially on service reachability and deployment context.
 
-### 3.1 Local-only profile
+### Local-only profile
 
 The service is bound to loopback or otherwise reachable only by the operator. Remote network likelihood is reduced, but malicious imports, prompt injection, compromised providers, browser same-origin attacks, parser denial of service, and local token theft remain relevant.
 
-### 3.2 Private remote profile
+### Private remote profile
 
 The service is reachable over a LAN, VPN, private tunnel, or authenticated reverse proxy. Authentication, TLS, proxy logs, internal-network SSRF, shared workstations, and accidental exposure become material.
 
-### 3.3 Internet-exposed profile
+### Internet-exposed profile
 
 The service is reachable from the public Internet. This profile is not currently supported. Network-reachable findings are assessed at full severity. Authentication-disabled operation, anonymous project disclosure, active-content delivery, brute-force pressure, and misconfigured reverse proxies become high-priority concerns.
 
-### 3.4 Shared or multi-user profile
+### Shared or multi-user profile
 
 This profile is not currently supported. If mutually untrusted people use the same ArcReel instance, cross-user project access, default-user repositories, shared administrative API keys, project enumeration, and the absence of RBAC become high or critical concerns. Such use requires a new authorization model and a revised threat model.
 
-## 4. Sensitive assets
+## Sensitive assets
 
-### 4.1 Credentials and authentication material
+### Credentials and authentication material
 
 - Provider API keys, access keys, secret keys, custom-provider secrets, and Vertex JSON credential files.
 - Anthropic and Claude agent credentials, SDK session data, and any secrets injected into agent execution.
 - JWT bearer tokens, `arc-` API keys, download tokens, authentication passwords, and token-signing secrets.
-- Database credentials, reverse-proxy credentials, and deployment secrets.
+- Database, object-storage, and reverse-proxy credentials, signed object URLs, and deployment secrets.
 
-### 4.2 Project and user content
+### Project and user content
 
 - Source manuscripts, scripts, prompts, project metadata, drafts, episode plans, and model-generated text.
 - Character, scene, prop, product, reference-image, and reference-audio definitions.
 - Generated images, videos, audio, thumbnails, project archives, and version history.
-- Agent transcripts, MCP arguments, tool results, and task outputs.
+- Agent transcripts, MCP arguments, tool results, task outputs, and image content stored in an object bucket.
 
-### 4.3 Persistent system data
+### Persistent system data
 
 - `arcreel.db`, external SQL databases, WAL/SHM files, backups, snapshots, and migrations.
 - Provider configuration, custom endpoints, task records, usage records, API-key hashes, and system settings.
 - Server logs, reverse-proxy logs, exception traces, and diagnostic artifacts.
 
-### 4.4 Availability and financial assets
+### Availability and financial assets
 
 - CPU, memory, disk space, file descriptors, worker concurrency, native subprocess capacity, and network bandwidth.
 - Provider quotas, rate limits, account balances, paid generation budgets, and externally running provider jobs.
 
-### 4.5 Runtime and host assets
+### Runtime and host assets
 
 - The application process and container filesystem.
 - Bind-mounted project, log, environment, Vertex, and Claude data.
 - Host and private-network services reachable after an application, native-parser, sandbox, or container-boundary compromise.
 
-## 5. Security objectives and invariants
+## Threat actors and capabilities
 
-ArcReel should preserve the following properties.
-
-1. **Administrative authorization:** Only an authenticated administrator may read private project data or mutate projects, credentials, providers, tasks, generation state, API keys, agent configuration, and system settings, except for explicitly documented public or self-authenticating routes.
-2. **Narrow public delivery:** Browser-native media delivery must expose only the intended media resource, not arbitrary files within the project root.
-3. **No same-origin active content from untrusted files:** Public or same-origin project-file delivery must not execute attacker-controlled HTML, SVG, XML, JavaScript, or equivalent active content in the ArcReel origin.
-4. **Path confinement:** Untrusted names, paths, archive members, references, and tool arguments must remain within their approved project or application roots.
-5. **Agent isolation:** The assistant must not read sensitive files, cross project boundaries, write outside the active project, bypass protected-file workflows, execute unrestricted host commands, or silently fall back to unsandboxed execution.
-6. **MCP confinement:** In-process MCP tools must remain closure-bound to the active project and validate every identifier, path, field, and state transition because they run outside the OS sandbox.
-7. **Controlled outbound access:** Provider-controlled and operator-configured destinations must not silently provide access to loopback, cloud metadata, private networks, or other sensitive services unless the operator has explicitly enabled and accepted that behavior.
-8. **Bounded untrusted processing:** Archives, uploads, provider responses, model output, and media parsing must have explicit limits for bytes, entries, memory, disk, CPU, concurrency, and execution time.
-9. **Secret minimization:** Secrets must not be returned unmasked, written to public project files, inherited by unnecessary subprocesses, exposed to the agent, or included in routine logs.
-10. **Bearer-token impact:** A stolen login JWT is treated as complete administrator compromise. A download JWT carries a `purpose` claim and is rejected by the general session authentication path; it grants only the export of its bound project during its five-minute validity. A stolen API key is treated as a high-impact compromise of most business and configuration APIs, excluding API-key management.
-11. **Authentication-disabled isolation:** `AUTH_ENABLED=false` is safe only when network reachability is independently constrained to a trusted local environment.
-
-## 6. Threat actors and capabilities
-
-### 6.1 Anonymous network attacker
+### Anonymous network attacker
 
 An unauthenticated caller can reach public endpoints, submit login attempts, inspect bootstrap and health behavior, request public files, and exercise any route accidentally omitted from centralized authentication. On an Internet-exposed instance, these actions can be automated continuously.
 
-### 6.2 Attacker with a stolen JWT or API key
+### Attacker with a stolen JWT or API key
 
-A stolen login JWT normally provides complete administrator access, including API-key management. A stolen `arc-` API key authorizes most project, provider, generation, task, agent, and system APIs, but the API-key management router explicitly requires a subject that does not begin with `apikey:`. Provider and Agent credential responses return only masked secrets; the same API key can still change provider and Agent credential configuration, including the base URLs that stored credentials are sent to. API keys otherwise have no scopes or RBAC boundaries that materially reduce their impact.
+A stolen login JWT or API key provides broad administrative access. Credential responses mask stored values, but both credential classes can change provider and Agent configuration. See [Authentication and authorization](#authentication-and-authorization) for the API-key management exception and [Secret handling](#secret-handling) for secret storage.
 
-### 6.3 Malicious content author or project supplier
+### Malicious content author or project supplier
 
 A malicious party may supply manuscripts, prompts, source documents, media, project ZIP archives, project JSON, scripts, filenames, resource identifiers, and links intended to trigger resource exhaustion, stored active content, parser defects, path confusion, misleading state, or prompt injection.
 
-### 6.4 Prompt-injection adversary
+### Prompt-injection adversary
 
 Any content interpreted by the LLM may contain instructions designed to override operator intent. Sources include manuscripts, imported project data, model/provider responses, tool results, and generated text.
 
@@ -128,19 +84,19 @@ Prompt injection does not need to escape the sandbox to cause harm. It may abuse
 - Disclose data that the current tool is legitimately permitted to read.
 - Induce the operator to open an attacker-controlled resource or approve an unsafe action.
 
-### 6.5 Malicious or compromised provider
+### Malicious or compromised provider
 
 A configured AI provider, custom endpoint, or upstream service may return malicious text, malformed responses, internal URLs, oversized artifacts, slow streams, invalid media, or parser-targeting content. Providers are trusted recipients of submitted prompts and media, but their responses remain untrusted input to ArcReel.
 
-### 6.6 Operator or administrator
+### Operator or administrator
 
 The operator controls environment variables, exposure, TLS, reverse proxies, provider definitions, credentials, base URLs, database selection, and Docker settings. Operator-selected endpoints are intentional administrative input, not anonymous attacker input. Findings must state whether exploitation requires an administrator, a stolen administrator token, or a compromised provider.
 
-### 6.7 Supply-chain attacker
+### Supply-chain attacker
 
 A compromised Python package, Node package, container image, SDK, ffmpeg build, package registry, CI workflow, or base image may affect build or runtime integrity. This is production relevant but distinct from the normal remote-attacker model.
 
-## 7. Trust boundaries and principal data flows
+## Trust boundaries and principal data flows
 
 | Boundary | Untrusted or sensitive data crossing it | Primary controls | Consequence of control failure |
 |---|---|---|---|
@@ -149,30 +105,18 @@ A compromised Python package, Node package, container image, SDK, ffmpeg build, 
 | FastAPI → database | Secrets, hashes, configuration, task and usage state | ORM parameterization, API masking, DB permissions | Credential and state disclosure, persistence tampering |
 | FastAPI → project filesystem | Names, paths, archives, generated files, agent writes | Name normalization, `safe_join`, project locks, atomic writes, schema validation | Traversal, cross-project access, overwrite, persistent malicious content |
 | FastAPI → external providers | Credentials, prompts, media, base URLs, job IDs | Authentication, provider registry, configured endpoints, path-specific HTTP timeouts | SSRF, secret forwarding, malformed responses, unexpected cost |
-| Provider → ArcReel download/parser pipeline | URLs, response headers, media bytes | Shared artifact download entry (`lib/backends/artifact_download_guard.py`): per-request and per-redirect scheme and destination checks, per-media-type total byte limits, capped error-body reads, `.part` staging with atomic rename for streamed video and image downloads; path-specific HTTP timeouts, downstream format checks; Vertex Gemini URI downloads currently lack an explicit deadline | SSRF, memory/disk exhaustion, parser compromise |
-| Application → SDK built-in file tools | LLM-selected `Read`, `Write`, `Edit`, `Glob`, and `Grep` paths | Main-process `PreToolUse` hooks backed by `AgentAccessPolicy` | Sensitive-file access, cross-project access, protected-file modification |
+| Provider → ArcReel download/parser pipeline | URLs, response headers, media bytes | Shared guarded HTTP client where used, path-specific download budgets and limits, staged writes, downstream format checks | SSRF, memory/disk exhaustion, parser compromise |
+| ArcReel → object storage → provider | Object-storage credentials, image bytes, scoped signed object URLs | Connection-bound object references, content digest checks on retrieval, provider access scoped to the signed object URL | Private image disclosure, lost or corrupted image data, misuse of storage credentials |
+| Application → SDK built-in file tools | LLM-selected `Read`, `Write`, `Edit`, `Glob`, and `Grep` paths | `PreToolUse` hooks backed by `AgentAccessPolicy` | Sensitive-file access, cross-project access, protected-file modification |
 | Application → sandboxed Bash | Commands, paths, environment, and network destinations | Kernel sandbox profile, `AgentAccessPolicy`, command policy, environment scrubbing | Sensitive-file access, cross-project access, command execution, network abuse |
 | Application → in-process MCP tools | LLM-selected structured arguments | Closure-bound project context, strict validation, protected workflows | Sandbox bypass through main-process capability |
 | Application → bundled ffmpeg | Uploaded or provider-supplied media | Extension checks, argument-list subprocess invocation, `file`-only protocol whitelist on media probes, subprocess deadlines, selected lifecycle cleanup | Native-parser exploitation, CPU/I/O starvation, stuck workers |
 | Container → host/private network | Bind mounts, capabilities, network identity | Mount scope, host permissions, Agent sandbox, application access policy | Expanded blast radius after process or sandbox compromise |
 | Reverse proxy/logging layer | Tokens, paths, query strings, forwarded headers | TLS, header policy, redaction, access-log configuration | Credential leakage, scheme confusion, unexpected exposure |
 
-## 8. Current design assumptions and constraints
+## Controls by trust boundary
 
-- ArcReel is operated by one trusted administrator.
-- Authentication is enabled by default. Authentication-disabled operation is intended only for a trusted local environment.
-- Remote deployments are expected to use TLS through a reverse proxy, VPN, or secure tunnel.
-- Host permissions and database access controls protect application data, logs, credential files, and backups.
-- The operator accepts that configured AI providers receive submitted prompts and media.
-- Custom-provider endpoints are an intentional administrative capability with SSRF implications.
-- Browser authentication uses explicit bearer tokens rather than authentication cookies. Traditional CSRF is therefore lower priority than XSS, token theft, URL leakage, and active same-origin content.
-- Tokens stored in `localStorage` are readable by any JavaScript executing in the ArcReel origin.
-- Docker is not assumed to provide a strong independent second sandbox under the current runtime configuration.
-- Provider responses, model Markdown, project files, archive members, downloaded media, and LLM-selected tool arguments remain untrusted regardless of source.
-
-## 9. Current security controls
-
-### 9.1 Authentication and authorization
+### Authentication and authorization
 
 `server/auth.py` currently provides:
 
@@ -195,9 +139,17 @@ There is no account-level RBAC, scoped API key, MFA, JWT revocation list, centra
 
 The absence of a `CurrentUser` parameter in a route function does not establish that the route is unauthenticated. The built-in `providers.router` is currently protected by the centralized registration dependency.
 
-Public routes include authentication bootstrap/login, project/global media delivery, `/health`, and `/agent-installation-guide.md`. Project and global file delivery serves only media: a request must resolve inside the root, fall under an allowlisted media directory (or the project-root style reference image), and carry an image, video, or audio extension; anything else returns the same 404 as a missing file (ADR 0071). Self-authenticating routes are limited to the project export routes that verify a short-lived download token; event streams are ordinary protected routes consumed by the frontend through `fetch` with an `Authorization` header (ADR 0071).
+Public routes include authentication bootstrap/login, project/global media delivery, `/health`, and `/agent-installation-guide.md`. Public media requests must resolve inside the allowed root. Files within that root return the same 404 whether absent or outside the media allowlist. Project files also need an allowed directory or the project-root style reference image. The media response carries `X-Content-Type-Options: nosniff`. See [ADR 0071](../adr/0071-browser-native-request-credential-carrier.md). Self-authenticating routes are limited to the project export routes that verify a short-lived download token; event streams are ordinary protected routes consumed by the frontend through `fetch` with an `Authorization` header as documented in the same ADR.
 
-### 9.2 Secret handling
+### Remote MCP transport
+
+The remote MCP endpoint is mounted at `/mcp` and enforces an `arc-` API key on every request through `ArcApiKeyVerifier`. `AUTH_ENABLED=false` does not grant it anonymous access, and login JWTs and download tokens are rejected.
+
+The MCP SDK's DNS-rebinding protection is disabled (`TransportSecuritySettings(enable_dns_rebinding_protection=False)`), so ArcReel validates neither the `Host` nor the `Origin` header inside the MCP mount. A rebound request reaches the endpoint but carries no credential, because the API key is never held in a browser cookie or session, and receives 401. Host ownership is delegated to the reverse proxy and deployment topology. Cross-origin protection for browser MCP clients rests entirely on the application-level CORS allowlist described under [Browser, origins, and logging](#browser-origins-and-logging). Disabling the flag does not affect the SDK's `Content-Type` validation for POST requests.
+
+The endpoint is not an OAuth resource server: it publishes no RFC 9728 protected-resource metadata, and its 401 response is a plain `Bearer` challenge without `resource_metadata`, so discovery-based clients are never sent into an OAuth flow that has no authorization server behind it. The `issuer_url` required by the SDK's `AuthSettings` is a placeholder that is never published.
+
+### Secret handling
 
 - API responses mask stored secrets. No route returns a stored provider or Agent `api_key` in plaintext. Creating an Agent credential from a custom provider (`from_custom_provider_id` on `POST /api/v1/agent/credentials`) copies that provider's key server-side; the key never passes through the client. The new credential uses the base URL given in the request, or the provider's base URL when none is given.
 - The server fails fast when provider secrets are present in the parent process environment, reducing automatic inheritance by sandboxed child processes.
@@ -208,9 +160,9 @@ Public routes include authentication bootstrap/login, project/global media deliv
   holding the token can do with the stored credentials through the API.
 - Vertex credential files are written with restrictive permissions where supported.
 
-Built-in provider, custom-provider, and Agent credentials are nevertheless stored in plaintext database columns. API masking does not protect a copied database, backup, snapshot, or compromised database account.
+The database holds built-in provider, custom-provider, Agent, and object-storage credentials. Access to the database or its backups must be treated as access to stored credentials. API masking protects only response payloads.
 
-### 9.3 Path and project controls
+### Project files, uploads, and archives
 
 - Project names and asset names are normalized and validated.
 - `safe_join` and `try_safe_join` provide root-containment checks.
@@ -218,11 +170,9 @@ Built-in provider, custom-provider, and Agent credentials are nevertheless store
 - Project schemas and imported data are validated and migrated.
 - Media and source upload routes enforce supported extensions. Project imports and Vertex credential uploads validate content without requiring a matching original filename extension. Dedicated storyboard, shot-video, end-frame, and character reference-audio flows also enforce byte limits; general asset-image upload flows currently read the complete request without an explicit byte ceiling.
 
-Path containment prevents escape from a root. It does not authorize anonymous access to every file inside that root; the public file routes add a directory and extension allowlist on top of containment, evaluated against the resolved path.
+Public file routes apply media allowlists after path resolution, including when they retrieve a missing local working file from object storage. Remote content references and working files are defined in [ADR 0116](../adr/0116-remote-content-versions-saved-by-formal-commit-with-object-references.md).
 
-### 9.4 Project archive controls
-
-Project ZIP import currently rejects:
+Project ZIP import rejects these archive members:
 
 - Absolute paths.
 - Drive-letter absolute paths.
@@ -230,9 +180,9 @@ Project ZIP import currently rejects:
 - Symbolic-link entries.
 - Encrypted entries.
 
-Extraction occurs in a temporary staging directory. Imported project data is repaired, migrated, and validated before installation. Overwrite installation includes rollback behavior.
+Extraction occurs in a temporary staging directory. Imported project data is repaired, migrated, and validated before installation. Overwrite installation includes rollback behavior. Archives carry content rather than live object-storage locations or credentials. See [ADR 0119](../adr/0119-archives-carry-content-not-storage-locators.md).
 
-### 9.5 Agent controls
+### Agent controls
 
 On supported Linux and macOS deployments, ArcReel verifies sandbox tooling at startup rather than silently running without it. `AgentAccessPolicy` centralizes rules that are projected into both application-level SDK hooks and the kernel sandbox:
 
@@ -243,73 +193,15 @@ On supported Linux and macOS deployments, ArcReel verifies sandbox tooling at st
 - Sandbox filesystem deny rules.
 - Unrestricted sandbox outbound network for provider documentation and custom-endpoint adaptation: the domain
   allowlist is the single wildcard `*`, and `allowLocalBinding` additionally opens host loopback.
-- Secret-like environment scrubbing. This is not a boundary against an Agent that holds `ARCREEL_API_TOKEN`; see
-  section 9.2.
+- Secret-like environment scrubbing. This is not a boundary against an Agent that holds `ARCREEL_API_TOKEN`; see [Secret handling](#secret-handling).
 - Windows command-whitelist fallback behavior.
 - Prevention of unsandboxed command fallback.
 
-SDK built-in `Read`, `Write`, `Edit`, `Glob`, and `Grep` tools execute in the main process and are constrained by `PreToolUse` hooks, not by the kernel sandbox. Bash and its descendants are constrained by the kernel sandbox on supported platforms. In-process MCP tools also run outside the OS sandbox and require independent project binding and argument validation.
+SDK built-in `Read`, `Write`, `Edit`, `Glob`, and `Grep` tools execute outside the Bash subprocess tree and are constrained by `PreToolUse` hooks, not by the kernel sandbox. Bash and its descendants are constrained by the kernel sandbox on supported platforms. In-process MCP tools also run outside the OS sandbox and require independent project binding and argument validation.
 
-The embedded Agent receives a 15-minute administrator session JWT, outbound access to any domain, and — through
-`allowLocalBinding` — reachability of the host's loopback interface. Prompt injection in fetched provider
-documentation can therefore exfiltrate that token to an arbitrary host, exercise any authenticated ArcReel API
-during its lifetime (including provider and Agent credential configuration, see section 9.2), and reach loopback services that are
-not ArcReel at all: a database, another application's development server, or any private service bound to
-`127.0.0.1` on the same machine. Filesystem confinement remains in force and covers none of these paths.
+When authentication is enabled, the embedded Agent receives a 15-minute administrator session JWT. Its network policy permits outbound requests to arbitrary domains and access to host loopback services. Filesystem confinement does not contain prompt injection through these channels. Signing-key rotation invalidates an outstanding JWT and all web sessions. The privileges, lifetime, and accepted exposure are defined in [ADR 0069](../adr/0069-embedded-agent-http-api-access.md).
 
-The JWT is stateless and cannot be revoked before it expires. Rotating `AUTH_TOKEN_SECRET` is the only way to
-invalidate an outstanding token, and it invalidates every web session at the same time. The 15-minute lifetime
-shortens the window without reducing the token's privileges. The accepted boundary and rationale are recorded in
-ADR 0069.
-
-### 9.6 Frontend and browser controls
-
-- React escaping reduces ordinary DOM injection risk.
-- Selected URL helpers restrict login return paths and image protocols.
-- The frontend attaches explicit bearer headers to normal API calls.
-- The bearer token is stored in `localStorage`.
-- Model-controlled Markdown is rendered through `streamdown` and requires behavior-specific validation for raw HTML and dangerous URLs.
-
-### 9.7 CORS and logging
-
-When `CORS_ORIGINS` is absent, empty, or contains `*`, ArcReel uses wildcard origins with credentials disabled. This does not independently bypass bearer authentication because an attacker-controlled origin does not know the token. The allowlist is parsed once in `server/cors_config.py` and applied by a single application-level `CORSMiddleware` that also wraps the `/mcp` mount; there is no MCP-specific origin list.
-
-Application request logging records URL paths rather than complete query strings. Reverse proxies, ingress controllers, monitoring systems, and diagnostic middleware may still record query parameters.
-
-### 9.8 Remote MCP transport
-
-The remote MCP endpoint is mounted at `/mcp` and enforces an `arc-` API key on every request through `ArcApiKeyVerifier`. `AUTH_ENABLED=false` does not grant it anonymous access, and login JWTs and download tokens are rejected.
-
-The MCP SDK's DNS-rebinding protection is disabled (`TransportSecuritySettings(enable_dns_rebinding_protection=False)`), so ArcReel validates neither the `Host` nor the `Origin` header inside the MCP mount. A rebound request reaches the endpoint but carries no credential, because the API key is never held in a browser cookie or session, and receives 401. Host ownership is delegated to the reverse proxy and deployment topology. Cross-origin protection for browser MCP clients rests entirely on the application-level CORS allowlist described in 9.7. Disabling the flag does not affect the SDK's `Content-Type` validation for POST requests.
-
-The endpoint is not an OAuth resource server: it publishes no RFC 9728 protected-resource metadata, and its 401 response is a plain `Bearer` challenge without `resource_metadata`, so discovery-based clients are never sent into an OAuth flow that has no authorization server behind it. The `issuer_url` required by the SDK's `AuthSettings` is a placeholder that is never published.
-
-## 10. Attack surfaces and abuse cases
-
-### 10.1 Authentication and bearer tokens
-
-- Automated login attempts may be sent without built-in rate limiting.
-- A stolen login JWT normally provides full administrative access; a stolen API key provides broad access except to API-key management. A login username beginning with `apikey:` collides with the current subject-prefix check and is also denied by API-key management routes. A stolen API key cannot read stored provider API keys back in plaintext, but it can reconfigure providers and Agent credentials that use them.
-- A leaked download token can be replayed against the export routes of its bound project during its five-minute validity; other protected routes reject it.
-- Seven-day JWT lifetime increases the useful period of a stolen token.
-- Event-stream routes accept only the `Authorization` header; a session JWT or API key in a query parameter is rejected with 401 (ADR 0071). The frontend consumes them through `fetch` rather than `EventSource`.
-- `AUTH_ENABLED=false` causes authentication dependencies to return an anonymous administrator identity. The state is surfaced but not blocked: startup logs a WARNING. No second confirmation is required and port binding is unchanged.
-
-### 10.2 Public and self-authenticating routes
-
-Browser-native `<img>`, `<video>`, and download navigation create pressure to bypass normal authorization headers. Every public or self-authenticating route must therefore be reviewed as a separate authorization boundary, including:
-
-- Allowed resource classes.
-- Project and resource binding.
-- Path containment.
-- Token purpose and expiry.
-- MIME inference and inline rendering.
-- Cache behavior.
-- Query-string logging.
-
-The project and global file routes currently restrict responses to allowlisted image, video, and audio extensions, so active formats such as HTML, SVG, XML, and JavaScript are not served, and every file response carries `X-Content-Type-Options: nosniff`. The allowlists live in `server/routers/files.py`; widening them is a change to this boundary.
-
-### 10.3 Provider configuration and outbound requests
+### Provider configuration and outbound requests
 
 Authenticated administrators can configure supported provider URLs and custom endpoints. Providers can return media URLs and untrusted responses. Reviews must distinguish:
 
@@ -320,44 +212,25 @@ Authenticated administrators can configure supported provider URLs and custom en
 
 Outbound requests must be assessed for private-address reachability, cloud metadata access, scheme handling, redirects, response limits, timeouts, and credential forwarding.
 
-Current state for provider-returned artifact URLs: built-in video, image, and audio backends and the declarative and ComfyUI custom-provider runtimes download artifacts through `lib/backends/artifact_download_guard.py`.
+[The guarded artifact HTTP client](../../lib/backends/artifact_download_guard.py) checks schemes and metadata destinations at each hop, limits success and error bodies, and allows private-network connections needed by self-hosted providers. A pre-request DNS check does not pin the eventual connection. The shared client also covers submit, poll, and discovery paths where the endpoint or provider calls it directly. SDK calls and some dedicated probes use separate clients, so a review must verify which checks apply to the actual transport. Gemini video downloads, for example, have a separate wall-clock deadline and I/O timeouts in [the Gemini backend](../../lib/backends/video_backends/gemini.py).
 
-- Every request, including each redirect hop, is checked before it is sent. Only `http` and `https` are accepted. Hostnames are resolved with the event loop's asynchronous `getaddrinfo` under a 10-second deadline, and destinations in `169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, `100.100.100.200`, or `192.0.0.192` (including IPv4-mapped IPv6 forms) are refused; the last two are single cloud metadata addresses, and the rest of their ranges stays allowed. When local resolution fails or times out, the request is left to the transport.
-- Loopback and RFC 1918 private addresses are intentionally allowed because self-hosted providers such as ComfyUI or Ollama legitimately run there. The check resolves once before connecting and does not pin the connected address.
-- Response bodies are limited per media type (video 2 GiB, image and audio 256 MiB). An oversized declared `Content-Length` is refused early, the actual byte count is authoritative, and aborted video and image downloads leave no `.part` file. Audio artifacts are read into memory under the audio limit and then written directly, without `.part` staging. Error-response bodies are read up to 64 KiB.
-- The declarative and ComfyUI runtimes share one guarded client for submit, poll, and download. The ComfyUI runtime's best-effort remote stop, sent after a local cancellation or timeout, opens its own short-timeout guarded client; a refused stop is logged and leaves the local outcome unchanged. Built-in backends that call the provider's HTTP API directly — DashScope image, video, and audio; Kling and Vidu image and video; Agnes image and video; and MiniMax image — submit and poll through the same guarded client, and a refused destination fails the call without retry before any request leaves. The destination check therefore also applies to administrator-configured base URLs on these paths, whether the URL is set on a built-in provider or on a custom provider that mounts a built-in endpoint.
-- The custom-provider base-URL probes that speak HTTP directly — the ComfyUI connectivity check and Anthropic-protocol model discovery — use the same guarded client, so an administrator-configured base URL is checked before the probe leaves. A refused destination is reported through the normal probe failure path, as a truncated and redacted message.
-- Calls issued by vendor SDKs are not routed through this entry, because the SDK rather than an ArcReel client sends them: generation requests, including submit and poll, in the OpenAI-compatible backends (including the DashScope, MiniMax, and Agnes text backends) and the Ark, Gemini, and Grok backends; OpenAI-compatible video content and Gemini file downloads; and the OpenAI- and Google-SDK connectivity and discovery probes. The built-in Kling and Vidu connectivity checks are not SDK-mediated but also bypass this entry: each sends one synchronous request to the configured base URL without the destination check. OpenAI-compatible speech synthesis reads success bodies through the audio limit, but its error bodies are read by the SDK without this cap.
-- Requests carrying rendered `auth` credentials follow redirects hop by hop through `request_with_scoped_credentials` rather than through the client's automatic redirect handling, which strips only `Authorization` across origins. Leaving the origin of the originally requested URL drops the credential headers, the credential query parameters, and the request body, so a `Location` pointing at another host cannot replay the submitted payload; 307 and 308 keep the method but send no body across origins. Same-origin hops keep the credentials and re-attach credentials carried in the query string; their method and body follow the usual rewrite rules, so 301 and 302 on a POST and 303 on anything but HEAD continue as a bodiless GET, and only 307 and 308 keep both.
+Credential-bearing redirects use the scoped request helper where configured. Crossing origins drops rendered credentials and the request body. Media limits and temporary-file cleanup depend on the download entry point. See [the backend runtime](../../lib/backends/backend_runtime.py) and the backend in use.
 
-### 10.4 Imports, uploads, and project data
+### Browser, origins, and logging
 
-Malicious archives and uploads may target:
+- React escaping reduces ordinary DOM injection risk.
+- Selected URL helpers restrict login return paths and image protocols.
+- The frontend attaches explicit bearer headers to normal API calls.
+- The bearer token is stored in `localStorage`.
+- Model-controlled Markdown passes through `streamdown`. Validate raw HTML, dangerous URLs, and same-origin responses at each rendering entry point. Browser security headers provide a secondary defense. JavaScript executing in the ArcReel origin can access the bearer token in `localStorage`.
 
-- Path traversal and symlink handling.
-- File-count, path-depth, compression-ratio, JSON-size, memory, and disk exhaustion.
-- Parser bugs in image, audio, video, document, or archive libraries.
-- Project-schema confusion and unsafe repair behavior.
-- Persistent prompt injection or active content.
+When `CORS_ORIGINS` is absent, empty, or contains `*`, ArcReel uses wildcard origins with credentials disabled. This does not independently bypass bearer authentication because an attacker-controlled origin does not know the token. The allowlist is parsed once in `server/cors_config.py` and applied by a single application-level `CORSMiddleware` that also wraps the `/mcp` mount; there is no MCP-specific origin list.
 
-Extension and declared-size checks do not establish that a file is safe for native parsing.
+Application request logging records URL paths rather than complete query strings. Reverse proxies, ingress controllers, monitoring systems, and diagnostic middleware may still record query parameters.
 
-### 10.5 Agent runtime and prompt injection
+### Media processing and workers
 
-Prompt injection may attempt to:
-
-- Read credentials, logs, other projects, or host files.
-- Modify protected project structures through alternate tools.
-- Create executable or active content.
-- Run commands or scripts outside the intended tool workflow.
-- Use allowed MCP tools to mutate state or incur generation cost.
-- Exploit differences between sandboxed SDK tools and unsandboxed in-process MCP tools.
-
-A sandbox escape, permission-policy bypass, cross-project access, or in-process MCP validation defect is high impact. Authorized capability abuse remains relevant even when isolation controls operate as designed.
-
-### 10.6 Media processing and workers
-
-User-uploaded and provider-supplied media crosses into the bundled ffmpeg and worker execution. Relevant threats include:
+User-uploaded and provider-supplied media crosses into the bundled ffmpeg and worker execution. ArcReel invokes ffmpeg through an argument list and applies subprocess deadlines. Media probes limit ffmpeg to the `file` protocol. Extension and declared-size checks alone do not establish parser safety. Relevant threats include:
 
 - Native parser vulnerabilities.
 - Long-running or stuck subprocesses.
@@ -366,13 +239,7 @@ User-uploaded and provider-supplied media crosses into the bundled ffmpeg and wo
 - Cancellation and cleanup failure.
 - Provider jobs continuing to run and incur cost after local failure.
 
-### 10.7 Frontend rendering and same-origin content
-
-React escaping does not protect code paths that deliberately render Markdown, URLs, media, or arbitrary same-origin files. Any sanitizer bypass or active-content response may execute with access to `localStorage` and authenticated APIs.
-
-CSP and browser security headers are defense in depth. They do not replace resource authorization, MIME restrictions, or output sanitization.
-
-### 10.8 Deployment and container boundary
+### Deployment and container boundary
 
 The current Docker deployment:
 
@@ -380,15 +247,15 @@ The current Docker deployment:
 - Publishes port 1241.
 - Disables Docker's default seccomp and AppArmor profiles for the application container.
 - Adds `NET_ADMIN` for nested sandbox networking.
-- Mounts environment configuration, projects, logs, Vertex keys, and Claude data.
+- Mounts the environment file, the data root, and Claude data. Logs and Vertex keys are part of the data root. See the [default](../../deploy/docker-compose.yml) and [PostgreSQL](../../deploy/production/docker-compose.yml) deployment definitions.
 
 These settings support nested bubblewrap operation but reduce Docker's strength as an independent containment layer. The Claude/bubblewrap sandbox and application policy are therefore primary controls.
 
-## 11. Severity calibration
+## Severity calibration
 
 Severity combines impact, exploitability, authentication requirements, user interaction, and deployment reachability.
 
-### 11.1 Critical
+### Critical
 
 Use Critical for conditions such as:
 
@@ -398,7 +265,7 @@ Use Critical for conditions such as:
 - Reliable same-origin script execution that steals administrator credentials without meaningful user interaction.
 - Unauthenticated SSRF to cloud metadata or sensitive internal services, especially where runtime identity or stored credentials are involved.
 
-### 11.2 High
+### High
 
 Use High for conditions such as:
 
@@ -410,7 +277,7 @@ Use High for conditions such as:
 - Provider-controlled responses capable of exhausting the application process or host.
 - Severe archive or parser exhaustion in a shared or untrusted-upload deployment.
 
-### 11.3 Medium
+### Medium
 
 Use Medium for conditions such as:
 
@@ -421,7 +288,7 @@ Use Medium for conditions such as:
 - Missing CSP or browser hardening that increases the impact of another flaw.
 - Deployment weaknesses that require a material operator mistake but do not independently bypass bearer authentication.
 
-### 11.4 Low
+### Low
 
 Use Low for conditions such as:
 
@@ -432,35 +299,17 @@ Use Low for conditions such as:
 - Generic CSRF claims that require cookie authentication when the application uses explicit bearer tokens.
 - Multi-tenant authorization concerns in a strictly single-operator deployment, unless mutually untrusted users are actually present.
 
-## 12. Out of scope, accepted trust, and non-findings
+## Reviewing a change
 
-- ArcReel does not currently claim adversarial multi-user or tenant isolation. This limitation must be revisited if the product adds users, teams, sharing, or roles.
-- Configured AI providers are trusted recipients of submitted prompts and media. Malicious responses, URLs, and artifacts remain in scope.
-- Operator-configured custom endpoints are intentional administrative functionality. They must not be described as anonymously attacker-controlled without an authentication bypass or stolen-token path.
-- Built-in provider routes are centrally authenticated. The absence of `CurrentUser` in individual route signatures is not evidence of missing authentication.
-- SQL injection requires a concrete unsafe query-construction path; generic SQLAlchemy usage is not a finding.
-- Traditional CSRF is lower priority while state-changing APIs require explicit bearer tokens rather than browser cookies.
-- Path traversal and authorization are separate questions. A safely contained path may still be disclosed to an unauthorized caller.
-- Authentication-disabled mode is accepted only for independently isolated local use.
+1. Identify the attacker, the asset, and the deployment assumptions. Distinguish anonymous calls, stolen credentials, untrusted files, prompt injection, provider responses, and trusted operator selections.
+2. Trace the relevant trust boundary from source to consumer. Check authentication, normalization, validation, storage, response or execution, and any required user interaction.
+3. Resolve route authorization from the registered application. For file delivery, also verify the exact allowed resource, resolved path, MIME handling, cache policy, and token binding.
+4. On outbound paths, check destination and redirect handling, credential forwarding, deadlines, and actual body limits in the client that performs the request.
+5. For archives, uploads, and media, review path containment and resource use separately. Consider member count, expanded size, path depth, parser time, concurrency, and failure cleanup.
+6. For Agent capabilities, verify the SDK hook, kernel sandbox, and in-process MCP tool paths as applicable. Allowed tool use can still alter or disclose data and incur costs.
+7. Label evidence as `Confirmed`, `Conditional`, `Needs validation`, or `Architectural risk`. Report the root cause with its consequences. Use the private advisory process for verified gaps and compare against existing advisories before reporting.
 
-## 13. Security review rules
-
-1. **Resolve actual route protection.** Inspect endpoint dependencies, router dependencies, centralized `include_router` dependencies, and endpoint-internal token verification before reporting missing authentication.
-2. **Label evidence quality.** Use `Confirmed`, `Conditional`, `Needs validation`, or `Architectural risk`. Do not present an unverified library behavior as a confirmed vulnerability.
-3. **Name the attacker and prerequisite.** Distinguish anonymous callers, stolen-token attackers, malicious imports, prompt injection, malicious providers, and trusted administrators.
-4. **Apply deployment modifiers.** State whether severity assumes loopback-only, private remote, Internet exposure, cloud metadata reachability, or unsupported multi-user use.
-5. **Trace the complete data flow.** Include authentication, normalization, validation, storage, redirects, MIME handling, user interaction, and downstream consumers.
-6. **Do not equate containment with authorization.** `safe_join` may prevent `../` while still allowing unauthorized access to a sensitive file inside the root.
-7. **Treat active formats as browser code.** Review MIME inference, `Content-Disposition`, `nosniff`, CSP, HTML/SVG/XML handling, and browser-readable token storage.
-8. **Review the full outbound-fetch surface.** Include schemes, DNS resolution, IPv4/IPv6 special ranges, loopback, link-local, metadata addresses, redirects, allowlists, timeouts, `Content-Length`, actual byte ceilings, and streaming behavior.
-9. **Review resource limits independently of traversal.** Archive entry count, compressed size, total expanded size, compression ratio, JSON size, path depth, subprocess deadline, concurrency, and cleanup are distinct controls.
-10. **Review all three agent boundaries.** Inspect the main-process `PreToolUse` hooks for SDK file tools, the kernel sandbox and command policy for Bash descendants, and the independent project binding and validation of in-process MCP tools.
-11. **Consider authorized capability abuse.** Prompt injection can be security-relevant without RCE when allowed tools can alter project state, incur cost, create active content, or mislead the operator.
-12. **Avoid duplicate or inflated findings.** Prefer the most specific root cause and describe its consequences rather than reporting architectural context as multiple vulnerabilities.
-13. **Require concrete bypasses for generic checklist claims.** CORS, CSRF, SQL injection, and masking reports require an actual exploit path in ArcReel.
-14. **Use the private finding register.** Do not re-report an unchanged known gap as a new issue unless reachability, impact, or bypass conditions have materially changed.
-
-## 14. Reassessment triggers
+## Reassessment triggers
 
 Rebuild or materially revise this threat model when ArcReel:
 
@@ -471,10 +320,6 @@ Rebuild or materially revise this threat model when ArcReel:
 - Changes agent tools, sandbox settings, network policy, MCP capabilities, protected-write rules, or Windows fallback behavior.
 - Adds a provider protocol, custom endpoint type, upload path, webhook, URL-fetching feature, or provider-returned artifact type.
 - Changes archive structure, import/export behavior, accepted source formats, or media parsers.
-- Moves credentials to a different store, adds encryption, changes database deployment, or introduces backup automation.
+- Moves credentials to a different store, adds encryption, changes database deployment, introduces backup automation, or changes how object-storage credentials, references, or signed URLs are issued and used.
 - Changes Docker users, capabilities, security profiles, bind mounts, or server/agent process separation.
 - Makes Internet exposure a first-class supported deployment mode.
-
-## 15. Private risk register
-
-Confirmed gaps, conditional attack chains, architectural risk amplifiers, validation tasks, priorities, and remediation acceptance criteria are maintained privately through GitHub Security Advisories. Public disclosure follows the coordinated process in the repository [security policy](../../SECURITY.md).

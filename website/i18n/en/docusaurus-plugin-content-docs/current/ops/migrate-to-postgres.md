@@ -2,7 +2,6 @@
 id: migrate-to-postgres
 title: Migrate from SQLite to PostgreSQL
 sidebar_position: 2
-update_docs: fact-check
 ---
 
 # Migrate from SQLite to PostgreSQL {#migrate-to-postgres}
@@ -15,6 +14,7 @@ Before migrating, distinguish the three types of data involved:
 |---|---|---|
 | `deploy/projects/arcreel.db` | SQLite database used by the default deployment | Import into PostgreSQL with pgloader |
 | Other files under `deploy/projects/` | Project metadata, media assets, logs, Vertex credentials, and so on | Copy to `deploy/production/projects/` |
+| `deploy/claude_data/` (if present) | Local Agent sessions and configuration | Copy to `deploy/production/claude_data/` |
 | `deploy/production/pgdata/` | PostgreSQL cluster data | Initialize with PostgreSQL; never place project or SQLite files here |
 
 The commands below consistently use the shell variable `source_projects` for the source data root on the host. The default deployment sets it to the absolute path of `deploy/projects/`. If you changed the container data directory with `ARCREEL_DATA_DIR` and a custom mount, set `source_projects` in step 1 to the corresponding absolute host path. The container and host paths may differ, so this guide does not derive that value directly from `.env`. Keep this variable in the same shell throughout the migration.
@@ -24,7 +24,7 @@ The commands below consistently use the shell variable `source_projects` for the
 - Docker and Docker Compose are installed
 - The `sqlite3` command-line tool is installed; run `sqlite3 --version` to confirm
 - ArcReel currently uses the default SQLite deployment, with the database at `deploy/projects/arcreel.db`. If the file there still has the old name `.arcreel.db`, the new version has not been started yet; complete the upgrade first as described in [Data Root Layout Migration](./deployment.md#data-root-layout-migration)
-- `deploy/production/pgdata/` and `deploy/production/projects/` do not contain production data that must be preserved
+- `deploy/production/pgdata/`, `deploy/production/projects/`, and `deploy/production/claude_data/` are absent or empty.
 
 ## Migration Steps {#migration-steps}
 
@@ -55,11 +55,12 @@ backup_stamp="$(date +%Y%m%d-%H%M%S)"
 umask 077
 mkdir -p deploy/backups
 chmod 700 deploy/backups
+sqlite_snapshot="$(cd deploy/backups && pwd)/arcreel-sqlite-${backup_stamp}.db"
 
 sqlite3 "${source_projects}/arcreel.db" \
-  ".backup 'deploy/backups/arcreel-sqlite-${backup_stamp}.db'"
+  ".backup '${sqlite_snapshot}'"
 
-check_result="$(sqlite3 "deploy/backups/arcreel-sqlite-${backup_stamp}.db" \
+check_result="$(sqlite3 "${sqlite_snapshot}" \
   "PRAGMA quick_check;")"
 
 if [ "${check_result}" != "ok" ]; then
@@ -99,12 +100,12 @@ AUTH_TOKEN_SECRET=set a long-lived random secret
 POSTGRES_PASSWORD=set a database password containing only letters and numbers
 ```
 
-Production Compose assembles `DATABASE_URL` automatically. The migration command also embeds the password in pgloader's PostgreSQL URI, so use `openssl rand -hex 16` to generate a URL-safe password. If special characters are required, follow the [deployment guide](./deployment.md#postgresql-start) to store the raw password separately from the percent-encoded URI password. Never use the encoded value itself as `POSTGRES_PASSWORD`. The pgloader command below prefers `POSTGRES_PASSWORD_URLENCODED` when it is present.
+Production Compose assembles `DATABASE_URL` automatically. The migration command also embeds the password in pgloader's PostgreSQL URI. A recommended way to generate a URL-safe password is `openssl rand -hex 16`. If special characters are required, follow the [deployment guide](./deployment.md#postgresql-start) to store the raw password separately from the percent-encoded URI password. Never use the encoded value itself as `POSTGRES_PASSWORD`. The pgloader command below prefers `POSTGRES_PASSWORD_URLENCODED` when it is present.
 
 Run the directory guard. It produces no output when the target directories are absent or empty. If it finds any entry, including a hidden file, it prints an error and stops the current shell:
 
 ```bash
-for target_dir in deploy/production/projects deploy/production/pgdata; do
+for target_dir in deploy/production/projects deploy/production/pgdata deploy/production/claude_data; do
   if [ -e "${target_dir}" ] && [ ! -d "${target_dir}" ]; then
     echo "Error: ${target_dir} exists and is not a directory; stopping migration" >&2
     exit 1
@@ -131,6 +132,12 @@ tar -C "${source_projects}" -cf - . | \
 rm -f deploy/production/projects/arcreel.db \
   deploy/production/projects/arcreel.db-wal \
   deploy/production/projects/arcreel.db-shm
+
+if [ -d deploy/claude_data ]; then
+  mkdir -p deploy/production/claude_data
+  tar -C deploy/claude_data -cf - . | \
+    tar -C deploy/production/claude_data -xf -
+fi
 ```
 
 Strict mode stops immediately if directory creation or either side of the pipeline fails, preventing the migration from using an incomplete asset copy.
@@ -140,29 +147,18 @@ Strict mode stops immediately if directory creation or either side of the pipeli
 Start only the database service first:
 
 ```bash
-docker compose -f deploy/production/docker-compose.yml up -d postgres
+docker compose --env-file deploy/production/.env -f deploy/production/docker-compose.yml up -d postgres
 ```
 
 Wait for the health check to pass:
 
 ```bash
-docker compose -f deploy/production/docker-compose.yml ps
+docker compose --env-file deploy/production/.env -f deploy/production/docker-compose.yml ps
 ```
 
 ### 5. Migrate the data {#migrate-data}
 
-Use pgloader inside the ArcReel container to migrate the original SQLite database directly to PostgreSQL:
-
-```bash
-docker compose -f deploy/production/docker-compose.yml run --rm \
-  -v "${source_projects}:/migration-source:ro" \
-  arcreel bash -c '
-    apt-get update &&
-    apt-get install -y --no-install-recommends pgloader &&
-    pgloader sqlite:///migration-source/arcreel.db \
-             "postgresql://arcreel:${POSTGRES_PASSWORD_URLENCODED:-$POSTGRES_PASSWORD}@postgres:5432/arcreel"
-  '
-```
+Use pgloader in the ArcReel container to load the SQLite snapshot validated in step 2 into PostgreSQL.
 
 :::danger
 
@@ -170,12 +166,23 @@ docker compose -f deploy/production/docker-compose.yml run --rm \
 
 :::
 
+```bash
+docker compose --env-file deploy/production/.env -f deploy/production/docker-compose.yml run --rm \
+  -v "${sqlite_snapshot}:/migration-source.db:ro" \
+  arcreel bash -c '
+    apt-get update &&
+    apt-get install -y --no-install-recommends pgloader &&
+    pgloader sqlite:///migration-source.db \
+             "postgresql://arcreel:${POSTGRES_PASSWORD_URLENCODED:-$POSTGRES_PASSWORD}@postgres:5432/arcreel"
+  '
+```
+
 pgloader handles common type and syntax differences between SQLite and PostgreSQL and resets the sequences for imported tables.
 
 ### 6. Verify the data {#verify-data}
 
 ```bash
-docker compose -f deploy/production/docker-compose.yml \
+docker compose --env-file deploy/production/.env -f deploy/production/docker-compose.yml \
   exec postgres psql -U arcreel -d arcreel -c "
   SELECT 'tasks' AS tbl, COUNT(*) FROM tasks
   UNION ALL
@@ -187,10 +194,10 @@ docker compose -f deploy/production/docker-compose.yml \
 "
 ```
 
-Compare the record counts in SQLite:
+Compare the row count for each table shown above with its count in the snapshot used for the migration. If counts differ or pgloader reports errors, investigate before starting ArcReel.
 
 ```bash
-sqlite3 "${source_projects}/arcreel.db" "
+sqlite3 "${sqlite_snapshot}" "
   SELECT 'tasks', COUNT(*) FROM tasks
   UNION ALL
   SELECT 'api_calls', COUNT(*) FROM api_calls
@@ -204,8 +211,8 @@ sqlite3 "${source_projects}/arcreel.db" "
 ### 7. Start all services {#start-all-services}
 
 ```bash
-docker compose -f deploy/production/docker-compose.yml up -d
-docker compose -f deploy/production/docker-compose.yml ps
+docker compose --env-file deploy/production/.env -f deploy/production/docker-compose.yml up -d
+docker compose --env-file deploy/production/.env -f deploy/production/docker-compose.yml ps
 curl -f http://localhost:1241/health
 ```
 
@@ -221,7 +228,7 @@ The migration procedure above does not modify the source data directory referenc
 
    ```bash
    cd "$(git rev-parse --show-toplevel)"
-   docker compose -f deploy/production/docker-compose.yml down
+   docker compose --env-file deploy/production/.env -f deploy/production/docker-compose.yml down
    ```
 
 2. Confirm that `${source_projects}/arcreel.db` and `deploy/.env` still exist. If the source directory was changed or damaged, first select the two backup files from step 2 that have the same timestamp, then run:
@@ -249,7 +256,7 @@ The migration procedure above does not modify the source data directory referenc
    curl -f http://localhost:1241/health
    ```
 
-4. Sign in and inspect several projects, images, videos, and task records. Run the SQLite query from step 6 again to verify record counts.
+4. Sign in and inspect several projects, images, videos, and task records. Run the count query from step 6 against the restored `${source_projects}/arcreel.db`.
 
 5. Keep `deploy/production/pgdata/`, `deploy/production/projects/`, and the migration backups until rollback verification is complete. Do not delete them. `POSTGRES_PASSWORD` is stored in the separate `deploy/production/.env` and does not need to be removed from `deploy/.env`.
 

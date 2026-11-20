@@ -13,7 +13,7 @@
 <p align="center">
   <strong>开源、自托管的 AI 视频生产工作台</strong>
   <br>
-  将小说、成品剧本或商品素材转化为角色一致、过程可控、成本可追踪、可继续编辑的短视频。
+  将小说、成品剧本或商品素材转化为角色一致、过程可控、成本可追踪且可继续编辑的短视频。
 </p>
 
 <p align="center">
@@ -115,31 +115,19 @@
 
 ## ArcReel 是什么
 
-ArcReel 是面向 AI 漫剧与小说改编、旁白/解说短视频、广告与带货短片的开源自托管工作台。它把内容分析、资产管理、分镜、媒体生成、费用追踪和导出组织成一条可审核、可中断恢复的生产流水线。
+ArcReel 支持旁白/解说、剧情演绎和广告/短片。创作者可以让 Agent 编排制作，也可以在工作台审核、修改或重新生成各阶段的内容。
 
-- **统一生产链路**：小说、成品剧本或商品素材都能逐步转化为角色、场景、道具、分镜、视频片段和最终成片。
-- **视觉一致、人工可控**：跨分镜复用资产图等参考图，关键阶段可确认，单个素材可重做，历史版本可回滚。
-- **模型与成本可管理**：统一配置文本、图像、视频和 TTS 能力，并在生成前后查看费用与实际用量。
-- **交付可继续编辑**：既可直接合成视频，也可导出剪映草稿继续调整字幕、配音、节奏和转场。导出面向中国大陆版剪映，与 CapCut 的兼容性尚未验证。
+- 跨镜头复用角色、场景和道具的参考素材，保留生成历史以便对比与回滚。
+- 按项目配置文本、图像、视频和配音能力，查看生成前的费用预估与调用后的实际用量。
+- 合成可播放的视频，或导出草稿交给中国大陆版剪映继续编辑。CapCut 兼容性尚未验证。
 
 ## 从输入到成片
 
-```mermaid
-flowchart LR
-    A["小说 / 成品剧本 / 商品素材"] --> B["内容分析与项目规划"]
-    B --> C["角色 / 场景 / 道具资产"]
-    C --> D["分集与结构化剧本"]
-    D --> E["分镜图 / 多宫格分镜"]
-    E --> F["视频片段 / 旁白音轨"]
-    F --> G["成片合成"]
-    F --> H["剪映草稿导出"]
-```
-
-每个阶段都可以由 Agent（智能体）编排，也可以由用户在工作台中审核、调整或重新生成。详细模式选择见 [创作流程与模式](https://docs.arc-reel.com/guide/workflows)。
+旁白/解说和剧情演绎项目先确认脚本规划。广告/短片项目直接生成正式脚本。分镜图生视频用分镜图作起始画面。参考生视频用视频单元和参考素材生成镜头。视频和音频剪辑后，可以输出成片或剪映草稿。创作类型、生成模式和内容确认见[创作流程与模式](https://docs.arc-reel.com/guide/workflows)。
 
 ## 快速开始
 
-准备好 Docker 和 Docker Compose，然后运行：
+准备好 Docker 和 Docker Compose 后，执行以下命令：
 
 ```bash
 git clone https://github.com/ArcReel/ArcReel.git
@@ -149,28 +137,19 @@ cp .env.example .env
 docker compose up -d
 ```
 
-访问 <http://localhost:1241>。默认用户名为 `admin`；`AUTH_PASSWORD` 留空时，首次启动会自动生成密码并回写到 `deploy/.env`。
+打开浏览器访问 <http://localhost:1241>，使用默认用户名 `admin` 登录。如果 `AUTH_PASSWORD` 留空，首次启动时会自动生成随机密码并写回 `deploy/.env`。
 
-> 默认 Compose 会将 `1241` 端口发布到宿主机所有网络接口。请勿将服务直接暴露到公网；远程访问前请配置认证，并使用 HTTPS、VPN 或安全隧道，详见 [反向代理与 HTTPS](https://docs.arc-reel.com/ops/deployment#reverse-proxy-and-https)。
+> 默认的 Compose 配置会将 `1241` 端口发布到宿主机的所有网络接口。如需远程访问，请先配置认证，并通过 HTTPS 反向代理、VPN 或安全隧道接入。详见[反向代理与 HTTPS](https://docs.arc-reel.com/ops/deployment#reverse-proxy-and-https)。
 
-登录后进入 **设置** 页面，配置 ArcReel Agent 以及文本、图像、视频等生成能力，再创建项目开始制作。
+登录后进入 **设置** 页面，配置 ArcReel Agent 以及文本、图像、视频等生成能力，随后即可创建项目开始制作。
 
 完整的首次使用流程见 [完整入门教程](https://docs.arc-reel.com/guide/getting-started)；生产部署、升级、备份和反向代理见 [部署与运维](https://docs.arc-reel.com/ops/deployment)。
 
 ## 文档
 
-| 页面 | 内容 |
-|---|---|
-| [文档首页](https://docs.arc-reel.com/) | 按使用者、运维者和开发者进入文档 |
-| [完整入门教程](https://docs.arc-reel.com/guide/getting-started) | 从首次部署到生成第一条视频 |
-| [创作流程与模式](https://docs.arc-reel.com/guide/workflows) | 小说、剧本与创作构想，三种创作类型及两种生成模式 |
-| [供应商与模型配置](https://docs.arc-reel.com/guide/providers) | Agent、文本、图像、视频、TTS 供应商的选择和配置 |
-| [剪映草稿导出](https://docs.arc-reel.com/guide/jianying-export) | 将 ArcReel 生成结果交给剪映继续编辑 |
-| [常见问题](https://docs.arc-reel.com/guide/faq) | 部署、费用、模型、数据和许可证问题 |
-| [部署与运维](https://docs.arc-reel.com/ops/deployment) | SQLite、PostgreSQL、升级、备份和反向代理 |
-| [从 SQLite 迁移到 PostgreSQL](https://docs.arc-reel.com/ops/migrate-to-postgres) | 数据迁移、验证与回滚流程 |
-| [架构说明](https://docs.arc-reel.com/dev/architecture) | Agent Runtime、任务队列、供应商抽象和数据层 |
-| [贡献指南](https://docs.arc-reel.com/dev/contributing) | 本地开发、测试、代码规范和 PR 流程 |
+- [入门教程](https://docs.arc-reel.com/guide/getting-started)和[文档首页](https://docs.arc-reel.com/)提供创作说明和主题索引。
+- [部署与运维](https://docs.arc-reel.com/ops/deployment)说明部署、升级与备份。
+- [贡献指南](CONTRIBUTING.md)和[架构说明](https://docs.arc-reel.com/dev/architecture)面向开发者。
 
 ## 交流群
 
@@ -180,17 +159,13 @@ docker compose up -d
   <img src="docs/assets/feishu-qr.png" alt="ArcReel 飞书交流群二维码" width="280">
 </p>
 
-遇到可以复现的 Bug 或明确的功能需求，也可以直接提交 [GitHub Issue](https://github.com/ArcReel/ArcReel/issues)。
+遇到可复现的 Bug 或明确的功能需求，也可以直接提交 [GitHub Issue](https://github.com/ArcReel/ArcReel/issues)。
 
 ## 贡献
 
 欢迎贡献代码、文档、测试、供应商适配和问题复现。
 
-开始开发前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。本地克隆后建议立即安装项目的 pre-commit 钩子：
-
-```bash
-uv run pre-commit install
-```
+本地开发环境、测试方法与提交流程请见[贡献指南](CONTRIBUTING.md)。
 
 ## Star History
 

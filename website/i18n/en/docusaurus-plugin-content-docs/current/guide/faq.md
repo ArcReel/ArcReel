@@ -1,8 +1,7 @@
 ---
 id: faq
 title: Frequently Asked Questions
-sidebar_position: 8
-update_docs: fact-check
+sidebar_position: 9
 ---
 
 # Frequently Asked Questions {#faq}
@@ -21,37 +20,11 @@ This page covers the most common installation, configuration, production, and tr
 
 ### What is the recommended installation method? Can ArcReel run directly on Windows? {#how-to-install}
 
-Docker is the preferred option for most users. The recommended environments are Linux, macOS, WSL2, or Docker Desktop:
-
-```bash
-git clone https://github.com/ArcReel/ArcReel.git
-cd ArcReel/deploy
-cp .env.example .env
-docker compose up -d
-```
-
-After startup, open `http://localhost:1241`. If ArcReel is deployed on another host, replace `localhost` with that host's address.
-
-Native Windows can run basic workflows such as project creation, but the Agent sandbox degrades. WSL2 or Docker Desktop is still recommended for production deployment. Running locally on Linux or macOS requires a working system sandbox tool; see the [additional deployment notes](../ops/deployment.md).
+For a first installation, follow the [Docker steps in Getting Started](./getting-started.md#deploy-arcreel). On Windows, use WSL2 or Docker Desktop. The Agent sandbox has [limitations on native Windows](../ops/deployment.md#container-permissions-and-sandbox).
 
 ### What should I do if ArcReel does not open after Docker starts, or the container keeps restarting? {#docker-wont-start}
 
-Run these commands in the `deploy/` or `deploy/production/` directory you actually use:
-
-```bash
-docker compose ps
-docker compose logs arcreel
-```
-
-Check the following in order:
-
-1. Confirm that Docker is running normally and that the ArcReel container passes its health check.
-2. Confirm that port `1241` is not already in use by another program.
-3. Confirm that `.env` exists and is readable by the container. Production deployments must also set `POSTGRES_PASSWORD`.
-4. Check whether the logs contain `SANDBOX_UNAVAILABLE`, `SANDBOX_BWRAP_BROKEN`, or more specific remediation guidance.
-5. Check whether provider API keys were mistakenly placed in `.env`. Provider credentials must be saved in the Web Settings page, or the service will refuse to start.
-
-Do not switch the container to privileged mode just to bypass a sandbox error. First follow the startup logs to fix the host's user namespace, AppArmor, or sandbox dependencies.
+From the active Compose directory, check `docker compose ps` and `docker compose logs arcreel`, then follow [Service Fails to Start](../ops/deployment.md#service-wont-start). For `SANDBOX_UNAVAILABLE` or `SANDBOX_BWRAP_BROKEN`, see [Container Permissions and the Agent Sandbox](../ops/deployment.md#container-permissions-and-sandbox).
 
 ### What are the default login credentials? What should I do if I forget the password? {#default-login}
 
@@ -67,53 +40,21 @@ For a source deployment, restart the ArcReel service. Do not disable authenticat
 
 ### Why didn't my `.env` changes take effect? {#env-changes-not-applied}
 
-A Docker deployment reads `.env` when the container is created. After that, `docker compose restart`, automatic restarts after a crash, and host reboots all keep the environment variables captured at that time. After editing `.env`, run the following in the Compose directory you actually use:
-
-```bash
-docker compose up -d
-```
-
-Do not use `docker compose restart` to apply changes. If startup finds that a process environment variable differs from the mounted `.env`, the log shows one WARNING that lists only the variable names, never their values.
-
-If `AUTH_PASSWORD` is empty, ArcReel generates it only once on first startup and reuses the value in `.env` after restarts. If `AUTH_TOKEN_SECRET` is empty, the signing secret is saved to `runtime/auth-token-secret` in the data directory (`projects/` under the Compose directory for Docker deployments), so signed-in sessions stay valid after restarts; once you set it in `.env`, the value you set takes precedence.
+After changing `.env` in the Compose directory, run `docker compose up -d` to recreate the affected containers. A restart reuses the environment from container creation. See [Environment Variables](../ops/deployment.md#environment-variables).
 
 ### How do I update Docker? Will an update delete my projects? {#docker-update}
 
-Create a backup first, then run these commands in the appropriate Compose directory:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-ArcReel automatically runs database and project-structure migrations at startup. A normal update does not intentionally delete mounted data directories, but you should still back up the data root and the database before updating. ArcReel does not support downgrades; going back to an older version requires restoring the backup taken before the update. When upgrading from a version that predates the data root layout change, see [Data Root Layout Migration](../ops/deployment.md#data-root-layout-migration) for the Compose volume changes. Do not substitute cleanup commands that delete data volumes for a normal update.
-
-The About section of the Settings page can check for a new version and open its release page, but it does not upgrade the server from the Web UI.
+Back up first, then follow [Upgrades](../ops/deployment.md#upgrade) to pull the image and start the service. ArcReel migrates the database and project data at startup. To return to the earlier version, restore the pre-upgrade backup. About in Settings can check for updates and open the release page.
 
 ### Where are projects and configuration stored? How do I back them up or migrate them? {#where-is-data}
 
-The main data for a default Docker deployment is stored in its Compose directory:
-
-- `projects/`: the data root, containing projects, assets, the default SQLite database, logs, and Vertex credential files; see [Persistent Directories](../ops/deployment.md#sqlite-volumes) for its layout
-- `.env`: login and deployment configuration
-- `claude_data/`: Agent session data
-
-A production PostgreSQL deployment also requires a PostgreSQL database backup. A full-instance backup must cover the data root and the database. Use `pg_dump` / `pg_restore` for PostgreSQL. Copy SQLite only after stopping the service, or use SQLite's online backup mechanism.
-
-A project ZIP from the Web UI is suitable for migrating an individual project, but it does not include global provider configuration, account configuration, task records, cost records, or Agent sessions. It is not a substitute for a full-instance backup.
+The default Docker data root is `projects/` under the Compose directory. The same directory contains `.env` and `claude_data/`. If you use PostgreSQL, also back up the database. If you store images in object storage, keep the objects in the bucket. See [Persistent Directories](../ops/deployment.md#sqlite-volumes) and [Backup and Restore](../ops/deployment.md#backup-and-restore).
 
 ## Initial configuration and the Agent {#setup-and-assistant}
 
 ### Which credentials do I need to configure before starting production? {#required-credentials}
 
-The ArcReel Agent and content generation use two independent sets of configuration:
-
-- The **Agent provider** handles conversations, source-text analysis, and production orchestration. It requires a working, active Agent credential.
-- **Generation providers** handle text, image, video, and speech generation. You must configure providers and models for the modalities your project actually uses.
-
-Configuring only an Agent credential does not automatically provide image- or video-generation capabilities. Configuring only generation providers does not let the in-project Agent start. Project-level generation model settings override global defaults, so troubleshooting should confirm which provider and model the project actually selected.
-
-Preset generation providers and Agent providers can each store multiple credentials, but ArcReel uses only the one currently marked active at runtime and does not rotate them automatically. Testing a credential does not activate it. Each custom provider currently stores one API Key.
+Project chat uses an [Agent provider](./providers.md#assistant-providers). Text, image, video, and narration generation use their own [generation model settings](./providers.md#media-and-text-providers). If generation fails, first check which model Project Settings actually selects.
 
 ### How do I make the Agent start or resume production? {#start-or-resume-assistant}
 
@@ -159,13 +100,13 @@ When the Agent dispatches a subagent, it can ask for the subagent to run in an i
 
 ### Which providers and models does ArcReel support? {#supported-providers}
 
-The preset providers, model list, and capability markers currently shown in Settings define the supported scope. Support for a provider does not mean that all of its models, account regions, and input forms are available. Image, video, text, speech, reference-image, end-frame, duration, and resolution capabilities are evaluated for each specific model.
+The built-in providers, model list, and capability markers currently shown in Settings define the supported scope. Support for a provider does not mean that all of its models, account regions, and input forms are available. Image, video, text, speech, reference-image, end-frame, duration, and resolution capabilities are evaluated for each specific model.
 
 Do not infer capabilities from the model name alone. After adding or changing a model, reconfirm its media type, call endpoint, and account permissions.
 
 ### How should I enter the Base URL? {#base-url-format}
 
-Prefer a preset provider so ArcReel can use its built-in address. For a custom provider, enter the protocol root URL specified in the provider's API documentation. Do not enter a console webpage address or blindly append the same `/v1` or `/v1/messages` suffix to every URL.
+Prefer a built-in provider so ArcReel can use its built-in address. For a custom provider, enter the protocol root URL specified in the provider's API documentation. Do not enter a console webpage address or blindly append the same `/v1` or `/v1/messages` suffix to every URL.
 
 If the response is `404 page not found`, usually you should verify:
 
@@ -175,9 +116,7 @@ If the response is `404 page not found`, usually you should verify:
 
 ### How do I connect a custom provider? {#custom-provider-setup}
 
-Add a custom provider in Settings, enter its Base URL, API Key, and model-discovery protocol, then fetch the model list. If discovery fails, you can add models manually, but you must still verify each model's media type and call endpoint before enabling it and selecting it as a global or project model.
-
-The model-discovery protocol is used only to list models and perform basic connectivity checks. Actual runtime calls use the call endpoint configured for each model. A third-party service that can return a model list does not necessarily implement the complete protocol for images, videos, reference images, asynchronous polling, or structured output. ArcReel does not guarantee that every service claiming compatibility with a protocol will work.
+Follow [Custom Providers](./providers.md#custom-providers) to add the base URL, credential, and model. After fetching the model list, check the media type and call endpoint for the model you will use to generate.
 
 ### What should I do if model discovery fails or I see `model_not_found`? {#model-list-failure}
 
@@ -214,26 +153,9 @@ A read timeout after a generation request is submitted can leave an uncertain st
 
 ### How should I choose the project mode, and between storyboard and reference-to-video? Can I change them after creation? {#choose-mode-and-route}
 
-You must choose two separate dimensions when creating a project:
+Choose the content mode and generation route when creating the project. Both are fixed after creation. Use Storyboard to Video to review each starting image, or Reference to Video to send asset sheets and other references directly to the video model. Check whether the selected model accepts your inputs. Enable grids in a supported Storyboard to Video project if needed. See the [mode selection table](./workflows.md#mode-selection-table).
 
-- **Content Mode**: Narration/Commentary, Drama, or Ad / Short Video. This determines the screenplay structure and production workflow.
-- **Generation mode**: Storyboard or Reference-to-video. This determines whether videos use storyboard images or reference images such as asset images.
-
-Content mode and generation mode cannot be changed after creation. Multi-grid storyboards are not a third generation mode; they are an image-generation method within Storyboard mode. Ad / Short Video projects do not support multi-grid storyboards. Before creating the full project, use a short sample to confirm that the generation mode fits your needs.
-
-- **Storyboard mode**: screenplay → character/scene/prop asset images → storyboard images → video. Each shot must have a corresponding storyboard image before video generation.
-- **Multi-grid storyboards**: still part of Storyboard mode, as an image-generation method within it. ArcReel first generates one or more grid images, splits them into starting storyboard images for each shot, and then generates video from those storyboard images.
-- **Reference-to-video mode**: skips storyboard images and directly uses the character, scene, and prop asset images referenced by the screenplay as video references.
-
-Reference-to-video does not mean that asset images are unnecessary. If a referenced asset in a Narration/Commentary or Drama project has no asset image, the related videos will fail. In an Ad / Short Video project, a task may continue without product reference images, but product fidelity cannot be guaranteed.
-
-If the video provider receives only text and no storyboard or reference image, verify the project's generation mode, actual model, and custom model's call endpoint:
-
-1. Storyboard mode sends the shot's storyboard image as the video's starting image.
-2. Reference-to-video mode collects the asset images referenced by the screenplay.
-3. The selected video model and call endpoint must explicitly support the corresponding image-to-video or reference-to-video capability.
-
-If a custom model is registered only with a text-to-video endpoint, or if its declared capabilities do not match the upstream API, ArcReel cannot send reference images to the service using the correct protocol.
+If the provider did not receive the expected images, check the storyboard's starting image or the asset sheets referenced by the video unit, then check the [model's effective capabilities](./providers.md#model-settings).
 
 ### Which source-file formats are supported? {#supported-source-formats}
 
@@ -243,15 +165,13 @@ A scanned PDF with no extractable text cannot be used directly and must go throu
 
 ### Why can't I move to the next stage, or why did the Agent stop? {#stage-blocked}
 
-Usually a prerequisite review or asset is incomplete:
+Start with Production Status in the episode and any failed tasks. Follow the workspace messages to clear prerequisites:
 
-1. For Narration/Commentary and Drama projects, confirm that the script plan result has been reviewed. Editing it after confirmation requires another confirmation. Ad / Short Video projects do not have this step.
-2. Check whether characters, scenes, and props have definitions but no generated asset images.
-3. In Storyboard mode, check whether the target shot has a storyboard image.
-4. In Reference-to-video mode, verify that referenced assets in Narration/Commentary and Drama projects have complete asset images. For Ad / Short Video projects, at least confirm that the original product images were uploaded. Missing reference images may not block the task, but they reduce product fidelity.
-5. Expand the task panel and check for tasks that are still queued, running, or failed.
+1. In Narration or Drama, confirm the script plan first. Edit an existing formal script on the timeline. To replace it with a new plan, confirm that plan again.
+2. Check the assets referenced in the script and their required asset sheets. Storyboard to Video also needs a usable storyboard image.
+3. Wait for queued or running tasks. If a task failed, open its details and fix the input or configuration it identifies.
 
-The status bar in the header shows only how many episodes are completed and the project's next step; open the episode count to see the next step for each episode. For what exactly is missing, check the assets in the sidebar, "Production status" on the episode page, and task errors.
+See [Production Stages](./workflows.md#production-stages) for what to review at each step.
 
 ### What should I do when a task is queued, running, failed, canceled, or interrupted by a service restart? {#task-states}
 
@@ -308,7 +228,7 @@ The project cost panel displays image, video, text, and audio calls, along with 
 
 Estimates are based on the current model's declared prices and the project structure; they are not the provider's final bill. When a model maps to no known model in the model catalog, a provider returns no usage, or the model catalog has no applicable unit price, the call is recorded as "Unpriced" and left out of the totals. Review different currencies separately instead of adding them together. The provider bill is the source of truth for the final amount.
 
-Validate the model, prompts, and reference-image results with a few shots before batch generation. Review each stage before proceeding to prevent an asset error from causing widespread rework. After a generation timeout, check the provider console for an existing task before retrying repeatedly.
+Validate the model, prompts, and reference-image results with a few shots before batch generation. Review each stage before proceeding to prevent an asset error from causing widespread rework. After a generation timeout, check the provider console for an existing task and avoid repeated retries.
 
 There is no fixed “price per minute” that applies to every project. Evaluate costs using the project estimate, actual call details, and provider bill.
 
@@ -320,7 +240,7 @@ Deleting a whole project moves it to **Deleted projects** on the project list pa
 
 ### What is the difference between a project ZIP and a full-instance backup? {#project-zip-vs-full-backup}
 
-A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, Agent sessions, or Agent memory. Available provider asset links of the images go along with the project ZIP; see [Project ZIPs and Provider Asset Links](./providers.md#asset-library-in-project-zip) for how they are used after import.
+A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, Agent sessions, or Agent memory. Available provider asset links of the images go along with the project ZIP; see [Project ZIPs and Provider Asset Links](./asset-storage.md#asset-library-in-project-zip) for how they are used after import.
 
 The project trash is not included in a project ZIP, while a full data-root backup keeps its deletion records. For how to use the project trash, see [File View and Project Trash](./files-and-trash.md).
 
@@ -332,11 +252,7 @@ For disaster recovery, use the full-instance backup approach described above and
 
 ### Why is my Jianying draft missing or missing clips? {#jianying-draft-issues}
 
-When downloading, select the 5.x or 6+ format that matches your local Jianying version, extract the ZIP directly into the Jianying drafts directory, and restart Jianying.
-
-A Jianying draft is generated from the selected edit timeline and contains only the clips on that edit timeline. If a video unit on the edit timeline has no usable video yet, the **Render** button is disabled; resolve it from the issue list in the edit view first.
-
-Narration/Commentary currently exports the original novel text as subtitles, Ad / Short Video exports spoken promotional copy as subtitles, and Drama exports dialogue and voice-over subtitles. The narration track appears only in the version with narration: TTS narration projects export the version with narration by default, and other projects export the version without narration. See the [Jianying draft export guide](./jianying-export.md) for the complete steps.
+Check the selected edit timeline and Jianying version. After extraction, the timeline's folder should sit directly in your Jianying draft directory. If the draft is still missing or exporting is blocked, see [Jianying export troubleshooting](./jianying-export.md#troubleshooting).
 
 ### Is there a mobile app? Which platforms are supported? {#mobile-app-support}
 
@@ -377,11 +293,4 @@ Do not disclose API keys, Tokens, passwords, the complete `.env`, or an unreview
 
 ## Best practices for quality and cost {#quality-and-cost-best-practices}
 
-Questions such as “Which model is best?”, “How can I achieve 100% character consistency?”, and “How can I make videos perfectly seamless?” have no fixed answer that applies to every project. Use a small, verifiable workflow:
-
-1. Test the target model's visual style, reference-image behavior, duration, and moderation limits with a few shots.
-2. Finalize character, scene, and prop asset images before generating storyboards in batches.
-3. Keep location, time, clothing, and character descriptions consistent across adjacent shots.
-4. Reference only the assets that the current shot actually needs so that too many reference images do not dilute the constraints.
-5. Use a model that supports end frames for important transitions, or handle them in post-production.
-6. Plan the budget using the project estimate, then verify it against actual call details and the provider bill.
+Validate assets, model behavior, and costs on a few shots before you scale up. See [Consistency Practices](./workflows.md#consistency-practices) and [Cost Control](./workflows.md#cost-control-practices).

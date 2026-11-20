@@ -5,17 +5,19 @@ paths:
 
 # 前端
 
+改动原语、Agent 面板或 API 替身时，另见[前端实施约定](../agents/frontend.md)。
+
 ## 资源占用与入队
 
 ### 随资源占用禁用的控件，在打开时和提交时校验占用态，并同步禁用兄弟控件
 
-编辑、重生成、上传、入库、版本恢复这类随资源占用而禁用的控件，新增或改动时完成三项检查：
+新增或改动编辑、重生成、上传、入库、版本恢复这类随资源占用而禁用的控件时，必须完成三项检查：
 
 1. 弹窗或面板打开时校验当前占用态。
 2. 提交时用 `frontend/src/stores/tasks-store.ts` 的 `isResourceBusy(kind, projectName, resourceId)` 复核最新占用态。打开之后占用态可能已经变化，只在打开时校验会留下竞态窗口。
 3. 同一资源卡片上的兄弟控件同步绑定占用态。
 
-占用态不只来自队列任务：卡片自身发出的在途写请求（保存中、上传中、改名中）由组件本地 state 承载，`isResourceBusy` 读不到它们，本地 state 同样参与这三项检查。
+占用态并不只来自队列任务：卡片自身发出的在途写请求（如保存中、上传中、改名中）由组件本地 state 承载，`isResourceBusy` 无法感知它们，因此本地 state 同样必须参与这三项检查。
 
 确认框打开后占用发生变化时，一键破坏性确认（删除、合并、改名的确认按钮）实时禁用；输入表单保持可编辑，由提交时的复核说明原因。
 
@@ -26,7 +28,7 @@ paths:
 引导高亮点靠元素上的 `data-onboarding` 属性定位：锚点名登记在 `frontend/src/onboarding/anchors.ts`，步骤大纲在 `steps.ts`，文案在 `frontend/src/i18n/*/onboarding.ts`。锚点名由 typecheck 校验，`anchors.test.tsx` 只校验已登记锚点在挂载场景下存在。下面三项没有任何编译期或测试约束，出错时引导只在运行期降级为居中气泡，或把用户指向界面上不存在的名称：
 
 - **属性仍在，且元素仍无条件渲染。** 挂载点落进条件分支（空态才渲染、数据就绪才渲染、某个 tab 激活才渲染），该步在常见路径上就找不到锚点：引导不中止，等待 `ANCHOR_WAIT_MS` 后降级为居中气泡，只在 console 留一条 warn。需要迁移时，移到同一屏内无条件挂载的容器上，并同步 `anchors.ts` 中该条目的说明。
-- **步骤文案描述的仍是这个元素。** 元素承载的功能、字段或按钮可用条件变了，对应步骤正文各语言一并修改。
+- **步骤文案描述的仍是这个元素。** 当元素承载的功能、字段或按钮可用条件发生变化时，需同步修改对应步骤的各语言正文。
 - **文案里的入口名与界面标签一致。** 步骤提到的侧栏项、tab、按钮一律用用户在界面上看到的标签；标签改名时同步各语言文案。
 
 删除带锚点的元素时整条链一起清理：`anchors.ts` 的条目、`steps.ts` 的步骤、各语言文案 key、`steps.test.ts` 与 `anchors.test.tsx` 的断言。
@@ -47,7 +49,7 @@ paths:
 
 - JSON、代码与请求体编辑区：端点的 JSON 视图、请求体模板、导入时粘贴的定义、测试时粘贴的响应、Agent 记忆的 Markdown 原文。
 - 模型 ID。
-- 令牌：API Key、密钥这类凭据输入框。
+- 令牌：API Key、密钥等凭据输入框。
 - 请求路径与模板：端点的请求、查询、取件地址模板，请求头名称与内容，变量名，取值路径，状态值。
 
 保持比例字体的输入框：
@@ -64,7 +66,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 `frontend/src/` 下除测试以外的源码都受 `@shadcn/lint` 样式规则、滚动与响应式守卫和类名守卫约束（定义在 `frontend/eslint.config.js`）。每条放宽都让一类写法在登记范围内重新合法，在 diff 里却只是配置中的一行，审查容易放过。因此在 PR 描述中逐条列出，由审查判断理由是否成立：
 
 - 新增的组件变体，`@shadcn/lint` 的 `allow` 或 `contracts` 条目。
-- 登记进 `VIEWPORT_BREAKPOINT_ALLOWLIST` 的文件。只放行外壳切换标准档与紧凑档、弹层宽度这类确需按视口判断的场景；外壳内组件的可用宽度随侧栏与分栏变化，一律用容器查询。
+- 登记进 `VIEWPORT_BREAKPOINT_ALLOWLIST` 的文件。仅放行外壳切换标准档与紧凑档、弹层宽度这类确需按视口判断的场景；外壳内部组件的可用宽度会随侧栏与分栏变化，一律使用容器查询。
 - 新增或扩大 `restrictSyntax(...)` 豁免的配置块。
 
 配置块的组合方式（flat config 对 `no-restricted-syntax` 整体替换选项）见配置文件头注释，由 `src/lint-class-guards.test.ts` 校验。
@@ -80,9 +82,9 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 
 ### 颜色只用 `index.css` 的语义 token，深浅用透明度修饰表达
 
-原始色值和内联颜色由 `@shadcn/lint` 的 `no-raw-colors`、`no-inline-styles` 拦截。以下几点 lint 判断不了，由审查核对：
+原始色值和内联颜色会由 `@shadcn/lint` 的 `no-raw-colors`、`no-inline-styles` 规则拦截。以下几点 lint 无法自动判断，需由代码审查核对：
 
-- 浅底、描边、选中态写成基色加透明度修饰（`bg-primary/15`、`border-border/50`），不为某种深浅新增变体 token：变体 token 会让同一语义出现多个近似色，旧色板的变体色已按这一原则删除。CSS 中需要透明度时写 `color-mix(in oklab, var(--primary) 15%, transparent)`。
+- 浅底、描边、选中态用语义色和透明度修饰，例如 `bg-primary/15`、`border-border/50`。CSS 中用 `color-mix(in oklab, var(--primary) 15%, transparent)`，以同一个语义 token 表达不同深浅。
 - 表单控件的描边用 `border-input`，不加透明度修饰：`--input` 在浅色与深色下对页面底、卡片和弹层都不低于 3:1（WCAG 1.4.11），半透明会让对比度随底色漂移。填充可以用 `bg-input/12` 这类透明度，不要把控件填充调到让占位符低于 4.5:1。卡片、分隔线等装饰性描边仍用 `border`。
 - 语义不混用：危险操作用 `destructive`，琥珀色 `warn` 只表示警告与过期。
 - 文字只分 `foreground`、`subtle-foreground`、`muted-foreground` 三档。`muted-foreground` 上不再叠加透明度或 `opacity`：它在页面底色上的对比度浅色与深色下都只略高于 5:1，再降就低于 WCAG AA 要求的 4.5:1。
@@ -95,8 +97,8 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 弹层由原语限高。`DialogHeader`、`DialogFooter` 固定在两端，`DialogBody`（Sheet、AlertDialog 中为 `SheetBody`、`AlertDialogBody`）是唯一的滚动区。错误信息、影响说明、长列表这类长度不定的内容如果放在 Header 或 Footer 里，矮窗口或较长译文会把它们连同主操作一起裁掉，而且滚动不到，因此一律放进 Body。
 
 - 宽度用 `size` 选择，调用处不写 `max-w-*`。多步向导用 `size="wizard"`，各步骤共用一个 `DialogBody`，进入新步骤时把它的 `scrollTop` 置 0。
-- 每个弹层都有 Title；没有可见标题时给 Title 加 `sr-only`，否则读屏无法播报弹层名称。
-- Body 里没有可聚焦元素、内容又可能超高时，给 Body 加 `tabIndex={0}`、`role="region"` 与 `aria-label`，否则键盘无法滚动。
+- 每个弹层都必须有 Title；若没有可见标题，则给 Title 添加 `sr-only`，否则读屏无法播报弹层名称。
+- 当 Body 中没有可聚焦元素且内容可能超高时，需为 Body 添加 `tabIndex={0}`、`role="region"` 与 `aria-label`，否则键盘用户无法滚动。
 - Footer 已有「关闭」按钮时，Content 传 `showCloseButton={false}`，避免出现两个关闭入口。
 
 ### 不可逆操作先确认：弹层用 AlertDialog，列表行内原地确认；可撤销操作直接执行并在提示里提供「撤销」
@@ -130,7 +132,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 - **表格**：用 `table-fixed` 和 `<colgroup>` 给状态、时间、操作这类短列固定宽度，并加 `whitespace-nowrap`；主文字列的单元格用 `TruncatedText`。
 - **单行文字**（名称、路径、模型 ID）：用 `components/shared/TruncatedText`，父级写 `min-w-0`。不用 `title` 属性代替，键盘用户看不到它。放在按钮等可聚焦元素里时传 `focusable={false}`，全文由外层的可访问名称提供。带编号的名称把编号作为不截断的前缀单独渲染。
 
-确需横向滚动的区域写 `overflow-x-auto` 声明，探针按这个类名识别；未声明的横向滚动报为缺陷。
+确需横向滚动的区域必须显式声明 `overflow-x-auto`，探针据此识别；未声明而出现的横向滚动将直接报为缺陷。
 
 ## 编辑单元与保存
 
@@ -169,7 +171,7 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 - API 层方法接受 `options?: { signal?: AbortSignal }` 并原样传给 `fetch`。网络 await 点被 abort 后自动 reject。
 - 非网络 await 点之后、执行副作用（写 store、建 SSE 连接等）之前复核 `signal.aborted`，覆盖「abort 发生在响应已 resolve 之后」的窗口。
-- 接管方轮换 controller：新一轮加载先 `abort()` 上一个 controller，再新建。
+- 接管方负责轮换 controller：新一轮加载先 `abort()` 上一个 controller，再新建。
 - 收尾（如 loading 复位）由接管方负责。被 abort 方在 `finally` 中先检查 `signal.aborted`，已作废就不动共享状态，否则会打断接管方正在进行的加载。
 
 放行条件：所有 await 都在同一个函数内、不需要把取消传给被调函数时（如 `frontend/src/router.tsx` 的配置状态轮询），`cancelled` 标志可以保留。用户触发、不属于数据加载的一次性动作（如导出），离开页面后允许继续完成，不在本条范围内。

@@ -1,9 +1,12 @@
-# Endpoint 官方文档索引
+# 调用端点官方文档索引
 
-文件名与 `lib.custom_provider.endpoints.ENDPOINT_REGISTRY` 的 endpoint id 一致。Endpoint 是协议端口，不是 provider 身份。
+调用端点用于描述请求、响应与结果获取约定。可按端点 ID 查找协议说明，或通过[供应商索引](../providers/README.md)查找账号、凭证、计费入口及专用端点。
+
+## 对自定义供应商开放的随版端点
+
+文件名对应 [`ENDPOINT_REGISTRY`](../../../lib/custom_provider/endpoints.py) 的规范 ID。
 
 - [anthropic-messages](anthropic-messages.md)
-- [ark-agent-plan-tts](ark-agent-plan-tts.md)
 - [ark-seedance-1](ark-seedance-1.md)
 - [ark-seedance-2](ark-seedance-2.md)
 - [ark-seedance-2-5](ark-seedance-2-5.md)
@@ -24,7 +27,6 @@
 - [gemini-tts](gemini-tts.md)
 - [gemini-video](gemini-video.md)
 - [gemini-interactions-video](gemini-interactions-video.md)
-- [grok-tts](grok-tts.md)
 - [kling-image](kling-image.md)
 - [kling-image-single](kling-image-single.md)
 - [kling-video-audio](kling-video-audio.md)
@@ -67,3 +69,10 @@
 - [vidu-video-q3-turbo](vidu-video-q3-turbo.md)
 - [vidu-video-q4](vidu-video-q4.md)
 - [xai-video](xai-video.md)
+
+## 仅内置供应商可用的端点
+
+以下协议设有独立索引，其余专用端点请查阅对应的供应商页。完整命名见 [`PROVIDER_ONLY_ENDPOINTS`](../../../lib/backends/backend_assembly/specs.py)。
+
+- [ark-agent-plan-tts](ark-agent-plan-tts.md)
+- [grok-tts](grok-tts.md)

@@ -4,14 +4,14 @@ status: accepted
 
 # Agent 费用按请求由 token 与模型目录自算，不采用 SDK 回报的费用
 
-内嵌 Agent 的费用与生成费用同一口径：按模型目录的价目表与倍率，从 token 用量算出参考费用。SDK 回报的 `total_cost_usd` 与各模型的 `costUSD` 是 CLI 按内置的 Claude 价格表在本地估算的，遇到非 Claude 模型会套用 Claude 的价格；在常驻的 `ClaudeSDKClient` 下它们还是会话累计值。ArcReel 的 Agent 多经第三方网关调用非 Claude 模型，这个数字既对不上模型，也对不上轮次。
+内嵌 Agent 的费用与生成费用同一口径：按模型目录的价目表与倍率，从 token 用量算出参考费用。SDK 回报的 `total_cost_usd` 与各模型的 `costUSD` 是 CLI 按内置的 Claude 价格表在本地估算的，遇到非 Claude 模型会套用 Claude 的价格；在常驻的 `ClaudeSDKClient` 下它们还是会话累计值。ArcReel 的 Agent 多经第三方网关调用非 Claude 模型，这个数字既对不上实际模型，也对不上单轮消耗。
 
 ## 规则
 
 - 按请求计价：每个 API 请求的用量取自 `AssistantMessage.usage`（按 `message_id` 去重，含子智能体），各自落上下文档，缓存写按 5 分钟与 1 小时两档分别计价。流中看不到的调用（如压缩）由本轮 `model_usage` 的差分减去流内合计得出，差额按一次请求计价。
 - 按轮记账：每轮每个模型写一条供应商调用记录，费用是该模型本轮各请求的费用之和。这是供应商调用按请求记账的例外，计价仍按请求；本轮没有用量的模型不写。缓存读与两档缓存写单列记录，总输入的口径不变。
 - usage 一律按 Anthropic 口径解读（`input_tokens` 不含缓存），不逐网关修正。口径不同的网关带来的偏差，在参考费用的定位下接受。
-- Agent 调用的渠道价差只用 Agent 凭证倍率表达，只此一级，默认 1，属于用户偏好；不按预设判断是否订阅制。倍率与条目绑定取会话启动时注入的那个 Agent 凭证，不取记账时的活动凭证（见 `docs/adr/0017`）。
+- Agent 调用的渠道价差只用 Agent 凭证倍率表达，只此一级，默认 1，属于用户偏好；不按预设判断是否订阅制。倍率与条目绑定取会话启动时注入的那个 Agent 凭证，不取记账时的活动凭证（见 [ADR 0027](0027-provider-secrets-banned-from-process-env.md)）。
 - 模型名对应不到模型条目时记为未定价（见 `docs/adr/0100`）。SDK 回报的费用不存储，也不作为对照值。
 
 ## Considered Options

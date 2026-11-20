@@ -1,17 +1,14 @@
 # 新增与升级依赖
 
-1. **用包管理器写入。** 后端 `uv add <包>`（dev 依赖加 `--group dev`），前端与文档站在各自目录 `pnpm add <包>`。版本号与 lockfile 由包管理器写入，不在 `pyproject.toml` / `package.json` 中手写。
-2. **归入 Dependabot 分组。** 在 `.github/dependabot.yml` 对应生态的 `groups` 里把新包加进语义最接近的分组。`all-other` 只收未归类的包，不能当作新包的分组；`uv run python scripts/audit_conventions.py --check` 会列出只命中 `all-other` 的直接依赖。
-3. **跑依赖卫生检查。** `uv run deptry lib server alembic scripts tests`；改了子包时另在该子包目录（`packages/arcreel-market-core/`、`packages/arcreel-catalog-core/`）跑 `uv run deptry src tests`。直接 import 的第三方包必须声明（`DEP003`），声明了却没有 import 的包要删除或登记为运行时插件（`DEP002`）。
+1. 由包管理器写入版本与锁文件。后端用 `uv add <包>`，开发依赖加 `--group dev`。前端和文档站在各自目录用 `pnpm add <包>`。
+2. 在 [Dependabot 配置](../../.github/dependabot.yml)中，将新增的直接依赖归入对应生态的主题分组。运行 `uv run python scripts/audit_conventions.py --check` 会检出仅落入 `all-other` 的直接依赖。
+3. 主仓运行 `uv run deptry lib server alembic scripts tests`，涉及市场或目录子包时在子包目录另跑 `uv run deptry src tests`。直接 import 的第三方包需要声明，间接加载的运行时插件按 deptry 约定登记。
 
 ## 已知版本约束
 
-- **前端 TypeScript 受 `typescript-eslint` 的 peer 范围限制。** 升级 TypeScript 前先核对锁定版本的 `typescript-eslint` peer 范围，必要时同步升级。
-- **文档站 TypeScript 上限是 6.x。** 原因与解锁条件写在 `.github/dependabot.yml` 的 website 段注释里。
-- **后端 `anthropic` SDK 锁在 0.x。** 1.x 的 HTTP 层改用 `httpx2`：测试用的 respx（`tests/http_capture.py`）只拦截 `httpx`，调用端点在 HTTP transport 层改写请求路径的做法也基于 `httpx`，两者都接不上 1.x。解锁条件：respx 支持 `httpx2`，且仓库内 Python 调用端点共用的 HTTP 客户端与 transport 迁到 `httpx2`（`openai` 等 SDK 同步迁移）。
+- **TypeScript** 同时受 `typescript-eslint` peer 范围及文档站继承的类型配置约束。升级时核对锁定版本和 [Dependabot 的 website 段](../../.github/dependabot.yml)。
+- **后端 `anthropic` SDK 锁定在 0.x。** 其 1.x 版本的 HTTP 层改用了 `httpx2`，而测试用的 respx（`tests/http_capture.py`）仅能拦截 `httpx`，调用端点在 HTTP transport 层改写请求路径的实现也基于 `httpx`，两者均无法适配 1.x。解锁条件：respx 支持 `httpx2`，且仓库内 Python 调用端点共用的 HTTP 客户端与 transport 整体迁至 `httpx2`（`openai` 等 SDK 同步迁移）。
 - **`pyproject.toml` 与 `frontend/package.json` 的 `version` 字段由 release-please 维护**，视为只读。
-- **shadcn 原语随依赖升级。** Dependabot 只升级 npm 包，不会重新生成 `frontend/src/components/ui/*.tsx`。`@base-ui/react` 与 `shadcn` 的 minor、patch 升级归入 `shadcn-stack` 分组；major 升级单独开 PR，在同一个 PR 中对已安装组件逐个运行 `pnpm exec shadcn add <组件> --diff`，手动合并上游改动，保留带注释说明的本地改动。遇到原语缺陷时，先用 `add --diff` 确认上游是否已经修复。
-
+- **shadcn 原语需随依赖同步升级。** 单纯升级依赖包不会重新生成 `frontend/src/components/ui/*.tsx`。大版本（major）升级应单独开 PR，并在同一 PR 中对已安装组件运行 `pnpm exec shadcn add <组件> --diff`，手动合并上游改动，同时保留有意的本地修改。遇到原语缺陷时，也先用 `add --diff` 排查上游是否已修复。
 - **`playwright-core` 由 override 跟随 `@playwright/test` 的版本。** `frontend/package.json` 的 `"playwright-core": "$@playwright/test"` 让 `@axe-core/playwright` 的 peer 与 `react-doctor` 等间接依赖都解析到同一份 `playwright-core`。去掉它后，间接依赖可能拉入更新的 `playwright-core`，e2e 中会出现两套 `Page` 类型，`pnpm typecheck` 报 `TS2739`。升级 `@playwright/test` 时 override 自动跟随，无需改动。
-
 - **供应商图标只使用 `@lobehub/icons/es/*/components/{Color,Mono}` 的独立 SVG 入口。** `frontend/package.json` 的定向 override 排除该包的 `@lobehub/ui` peer；这些入口只依赖 React，不使用其 UI 组件，避免自动引入另一套 UI 与动效依赖。若改用 Avatar、组合入口或其他依赖 `@lobehub/ui` 的组件，先复核此约束。

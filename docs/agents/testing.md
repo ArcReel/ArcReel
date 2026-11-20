@@ -1,44 +1,34 @@
 # 运行测试
 
-改代码或测试后，开发循环先跑与改动相关的最小测试集；push 前再跑 `AGENTS.md` 中受影响域的完整闸门。
+改动时先跑相关测试。push 前按 [AGENTS.md](../../AGENTS.md)运行受影响域的完整闸门。选中 0 条用例时，把范围扩大到对应目录或完整套件。
 
 ## 选择相关测试
 
-选择结果为 0 个测试时，扩大到对应目录或完整测试集；0 个测试不算验证通过。
+| 改动 | 开发循环 |
+| --- | --- |
+| 后端测试 | 将改动的测试文件传给 `uv run python -m pytest`。 |
+| 后端源码 | `uv run python -m pytest --testmon`。首次建库或改动面大时追加 `-n 4 --dist loadfile`。 |
+| 后端共享面 | 改项目配置、依赖锁、根 conftest、含行为的包初始化、Alembic、profile、DB、i18n 或共享测试设施，跑完整后端测试。影响范围不明时同样跑全量。 |
+| 前端测试或源码 | 在 `frontend/` 用 Vitest 跑变更的测试文件，或用 `pnpm exec vitest related --run <源文件>` 选关联用例。分支级检查用 `pnpm exec vitest run --changed <base>`。改 TypeScript 源码另跑完整 typecheck。 |
+| 前端共享面 | 改包清单、锁文件、Vitest 配置、测试 setup、i18n 或 branding，在 `frontend/` 跑 `pnpm check`。 |
+| 市场或目录子包 | 在各自 `packages/` 的包目录跑 `uv run python -m pytest`，再按主仓调用方补跑相关测试。消息键变化另跑主仓 `tests/unit/lib/i18n/`。 |
 
-- **后端测试文件变更**：直接运行这些文件。
-- **后端源码变更**：`uv run python -m pytest --testmon`。pytest-testmon 按 `.testmondata` 里记录的覆盖关系只跑受改动影响的用例；没有数据文件时它跑完整测试并建库，之后才是增量。首次建库或改动面大时加 `-n 4 --dist loadfile`，小选集并行反而更慢。另起进程执行的代码不进覆盖关系（如 `tests/integration/test_imports.py` 这类在子进程里 import 的用例），改动它们触达的模块时按路径补跑。给它传目录可以进一步缩小范围；带 `::` 的用例选择器、`-k`、`-m` 会让它退回不筛选，这几种只用于人工定位。
-- **需要后端完整测试的改动**：`pyproject.toml`、`uv.lock`、根 `tests/conftest.py`、含行为的包初始化，或涉及 Alembic、profile、DB、i18n、共享测试设施；无法判断影响范围时也运行完整测试。
-- **前端测试文件变更**：直接把文件传给 Vitest。
-- **前端源码变更**：在 `frontend/` 运行 `pnpm exec vitest related --run <源文件>`；分支级检查用 `pnpm exec vitest run --changed <base>`。TypeScript 源码变更同时运行完整 typecheck。
-- **前端页面级套件（`frontend/e2e/`）变更、改动布局或滚动相关的组件、改变调用的接口集合或流连接（含 SSE）的建立时机**：在 `frontend/` 运行 `pnpm e2e <spec 文件>...`，只跑改动涉及的 spec：新增或修改的 spec，以及渲染了所改组件的区域对应的 spec；全量与截图比对由 CI 的 `frontend-e2e` 跑。页面级套件只回放录制替身与场景 `api` 覆盖，未录制的请求直接失败；本机渲染与 CI 不一致时以容器内结果为准，运行方式见 `CONTRIBUTING.md`「前端页面级测试」。改动后端接口的响应形状或 `tests/fixtures/catalog.json` 时，同时运行 `pnpm e2e:record` 重录接口替身；改动录制脚本或 `scripts/e2e_record_backend.py` 时运行 `pnpm e2e:record:check`。
-- **需要前端完整测试（`pnpm check`）的改动**：`package.json`、`pnpm-lock.yaml`、`vitest.config.*`、测试 setup、i18n 或 branding。
-- **子包 `packages/arcreel-market-core/` 源码变更**：运行子包全部测试（`cd packages/arcreel-market-core && uv run python -m pytest`，子包自带 pytest 配置，与主仓分开收集），并按主仓的导入方选择相关测试；子包的消息键增删时同时运行 `tests/unit/lib/i18n/`。
-- **子包 `packages/arcreel-catalog-core/` 源码变更**：运行子包全部测试（`cd packages/arcreel-catalog-core && uv run python -m pytest`），并按主仓的导入方选择相关测试。
+testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执行的代码；改动这类入口时需按路径手动补跑对应测试。需要缩小范围时可以传入目录。`::`、`-k`、`-m` 用于人工定位，传入后会关闭 testmon 的用例筛选。
 
-## 在 worktree 里运行
+修改页面套件、布局、滚动、请求集合或 SSE 建连时，在 `frontend/` 下跑 `pnpm e2e <相关 spec 文件>...`。若本机与 CI 结果不一致，按[贡献指南](../../CONTRIBUTING.md)中的官方镜像方式复现。后端接口形状或 `tests/fixtures/catalog.json` 变更后，执行 `pnpm e2e:record`；录制脚本或录制后端变更后，执行 `pnpm e2e:record:check`。录制与断言边界见[测试规范](../standards/testing.md)。
 
-worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文档站在各自目录 `pnpm install --frozen-lockfile`。把主检出的 `.testmondata` 复制进 worktree 可以跳过 testmon 的首次建库；文件里记录的是按代码指纹索引的覆盖关系，与当前代码不一致的部分会被当作改动重跑。标了 `local_port` 的用例在禁止绑定本地端口的沙箱里会被跳过并注明原因，完整测试需要在允许绑定端口的环境里运行一次。根 conftest 为测试进程设置 `PYTHON_DOTENV_DISABLED=1`，不读取任何 `.env`，worktree 根不必为挡住主检出的 `.env` 再放一份空文件；验证 `.env` 读取规则的用例自行 `delenv`。
+## Worktree 与测试数据
 
-## 模型目录的测试数据
+- 新 worktree 在后端执行 `uv sync`，在前端、文档站各自执行 `pnpm install --frozen-lockfile`。可从主检出复制 `.testmondata`，代码指纹有变化的用例会重跑。
+- 根 [conftest](../../tests/conftest.py)设置 `PYTHON_DOTENV_DISABLED=1`，测试环境无需空 `.env`。涉及 `local_port` 的用例需在允许绑定本地端口的环境运行。
+- 模型目录测试使用 [catalog fixture](../../tests/fixtures/catalog.json)，按 fixture 日期判定关停等生命周期。用 [catalog_support](../../tests/catalog_support.py) 构造用例数据或切换日期。验证出厂快照本身用 [test_factory_snapshot](../../tests/unit/lib/catalog/test_factory_snapshot.py)。发布数据格式由目录构建侧校验，发版刷新快照不应使普通用例失败。
 
-根 conftest 让目录查询读测试目录数据 `tests/fixtures/catalog.json`，不读出厂快照 `lib/catalog/snapshot/`。出厂快照由发版 PR 刷新成目录数据仓库的最新数据，那边改数据时不跑本仓的测试，用例断言出厂快照里的模型或取值，就会在发版 PR 上失败。用例需要的目录数据变化，用 `tests/catalog_support.py` 的 `install_catalog`、`catalog_of` 与 `with_*` 在用例内构造，或修改测试目录数据。只有 `tests/unit/lib/catalog/test_factory_snapshot.py` 换回出厂快照，核对它本身的格式与可加载性。生命周期判定的「今天」同时固定为测试目录数据的数据集日期，其中登记的关停日期不会随真实日期到来而改变用例结果；需要跨过关停日期的用例自己调用 `set_catalog_today`。发布数据必须满足的约束写进 `arcreel_catalog_core` 的构建侧校验，由目录数据仓库在合入与发布时检查。
+## 事件循环阻塞
 
-## 事件循环阻塞护栏
+[阻塞守卫](../../tests/blocking_guard/__init__.py)记录 lib/server 异步调用链上的阻塞，报错列出最近业务函数和调用栈。即使阻塞发生在替身里，也按生产线程契约处理。能用内存替身的就用内存，确需落盘的替身把 I/O 放进 `asyncio.to_thread`。
 
-根 conftest 加载 `tests/blocking_guard`：同步与异步用例全程记录 lib/server 代码在事件循环线程上的阻塞调用（含同步 `TestClient` 背后的应用线程），用例结束时豁免清单外的违规让该用例失败，失败信息给出条目和调用栈。调用栈由内向外列出 lib/server/tests 帧，前面按真实调用顺序附上阻塞点到第一个仓库帧之间最内层的几条非仓库帧（标准库与第三方包，路径取包内相对形式，超出的注明省略条数），用来分辨业务代码 `await` 处被调起的非仓库代码里是谁在阻塞。条目是离阻塞点最近的 lib/server async 函数（`<文件>::<限定名>`），阻塞发生在 `tests/` 下的替身里也一样：换成生产依赖后，同一位置同样会阻塞事件循环。替身误报时，按生产实现的线程契约修替身：能用内存实现的就改成内存实现；替身的职责本身就要落盘的（后端写产物、模拟并发写方、调用会写正式文件的生产回调），把这段 I/O 放进 `asyncio.to_thread`。外层没有 lib/server async 函数的阻塞（测试函数直接调用同步 lib 代码）不计。
-
-- `tests/blocking_guard/exemptions.toml` 是永久豁免，只收应用启动与关停路径上的一次性阻塞，每条写明理由。除此之外没有豁免途径，新增的阻塞调用一律修掉。完整运行时，本次未触发的豁免条目会让会话失败：启动与关停路径改了，就同步删掉对应条目。每条豁免都必须由 `tests/unit` 下的用例触发：CI 的 unit job 按路径只跑 `tests/unit`，带 `--blocking-guard-expect-all-exemptions` 后同样做这项检查，未触发的条目报为过期；integration job 不带。
+[豁免清单](../../tests/blocking_guard/exemptions.toml)只收应用启动或关停时的一次性阻塞，每项附理由并由一条 `tests/unit` 用例触发。完整测试或 CI unit job 会检查未触发的豁免。对应路径删改时同步移除失效条目。
 
 ## CI 挂起诊断
 
-后端测试 job 设了 `ARCREEL_TEST_HANG_DUMP_DIR`，根 conftest 加载的 `tests/hang_watchdog.py` 让 xdist 的 controller 与每个 worker 记下开始执行的用例，进程 180 秒无进展时转储全部线程的调用栈，会话收尾与进程退出阶段同样覆盖。测试步骤超时短于 job 超时，步骤失败或被取消后，「Hang and crash diagnostics」步骤输出每个进程最后的进展、线程栈与内核的 OOM 记录。进展末尾是 `sessionfinish`、`unconfigure` 的进程已跑完会话，末尾停在某条 `run` 用例的进程就卡在或死在那条用例上。排查挂起或 `node down: Not properly terminated` 先看这一步：宕掉的 worker 最后一条用例就是崩溃时在跑的用例，controller 的进展记有它的退出码或终止信号，按死法再找调用栈：
-
-| 死法 | 调用栈在哪里 |
-| --- | --- |
-| 调用 `os._exit` | 该 worker 的 `.stacks`，抬头是 `调用 os._exit(<退出码>)` |
-| 被 SIGTERM、SIGHUP、SIGINT 终止或打断 | 该进程同名的 `.SIGTERM` 等文件 |
-| 段错误等致命信号 | 测试步骤 stderr 里的 `Fatal Python error`；没有这行说明 faulthandler 的处理函数没能运行，例如非主线程栈溢出 |
-| 被 SIGKILL | 没有栈，看内核日志里有没有 OOM |
-
-CI 与本地闸门的 xdist 命令带 `--max-worker-restart=0`：worker 崩溃后不补新 worker，直接失败。pytest-xdist 3.8.0 补 worker 时会把已跑完的文件重新排队，会话卡在 99%（上游 pytest-dev/pytest-xdist#1378，修复提交 25282ab）。依赖升到包含该提交的版本后，可以去掉这个参数。本地复现时设同一个环境变量即可得到同样的文件。
+先读后端 CI 的「Hang and crash diagnostics」。从 controller 的 `.progress` 定位退出码或信号，再用 worker 的最后一条进展定位用例、收尾或关停阶段。`.stacks` 有挂起和 `os._exit` 的转储，单独的信号文件记录部分终止场景，段错误还需查测试 stderr。worker 无栈退出时核对内核 OOM 记录。需要在本地复现时设置 `ARCREEL_TEST_HANG_DUMP_DIR`，输出格式见 [hang_watchdog](../../tests/hang_watchdog.py)。

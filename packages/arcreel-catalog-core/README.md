@@ -3,7 +3,7 @@
 ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出厂快照与官方同步数据、目录数据仓库的 CI
 共用这一份实现，同一份数据在两处得到同样的判定。本包只依赖标准库，不依赖 ArcReel 应用的任何部分。
 
-术语见主仓 `GLOSSARY.md`「供应商与模型」「计费」两节，决策见 `docs/adr/0099`、`0100`、`0103`–`0105`。
+相关术语见[领域术语表](../../GLOSSARY.md)，目录数据的职责与发布边界见 [ADR 0099](../../docs/adr/0099-model-catalog-shared-entries-per-model.md) 和 [ADR 0103](../../docs/adr/0103-catalog-data-repo-built-from-third-party-sources.md)。
 
 ## 文件
 
@@ -14,7 +14,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 | `manifest.json` | 清单文件：`dataset_version`（数据集版本）与 `sha256`（数据文件的 SHA-256，小写十六进制） |
 | `catalog.json` | 数据文件：`dataset_version`、`entries`（模型条目）与 `builtin_providers`（内置供应商清单） |
 
-数据集版本是 UTC 时间戳，格式 `YYYY-MM-DDTHH:MM:SSZ`，字符串顺序即新旧顺序。格式不设 schema 版本号。
+数据集版本采用 UTC 时间戳，格式为 `YYYY-MM-DDTHH:MM:SSZ`，字符串排序即新旧顺序。数据格式不单独设 schema 版本号。
 
 ### 模型条目
 
@@ -48,12 +48,11 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 - `facts` 是模型事实，按媒体类型取不同字段：
   - `text`：`image_input`、`structured_output`、`max_output_tokens`；
   - `image`：`text_to_image`、`image_to_image`、`resolutions`（可选分辨率档位），以及可选的 `max_reference_images`、`output_token_bases`、`output_token_scaled_bases`、`qualities`；
-  - `video`：`durations`（可选时长，必填）、`resolutions`、`duration_constraints`
-    （`by_resolution` 按分辨率收窄可选时长，`with_reference_images` 是使用参考图时允许的时长），以及可选的 `max_reference_images`、`text_to_video`、`first_frame`、`last_frame`、`reference_audio`、`max_reference_audio_count`、`max_reference_audio_total_seconds`；
+  - `video`：`durations`（可选时长，必填）、`resolutions`、`duration_constraints`（`by_resolution` 按分辨率收窄，`with_reference_images` 在使用参考图时收窄，`with_end_frame` 在带尾帧时收窄，同时触发多项约束时取交集），以及可选的 `max_reference_images`、`text_to_video`、`first_frame`、`last_frame`、`reference_audio`、`max_reference_audio_count`、`max_reference_audio_total_seconds`；
   - `audio`：无。
-- `price` 是价目表，没有价格时省略。
+- `price` 是价目表，无价格数据时省略。
 
-图片和视频中标为「可选的」模型事实字段缺失表示未收录，写出时仍省略，不另设「未知」取值：
+图片和视频中标为「可选的」模型事实字段，缺失即表示未收录，写出时保持省略，不另设「未知」取值：
 
 - `max_reference_images` 是非负整数，`0` 表示参考图数量上限为零，不表示无限制。图片是否接受图生图由 `image_to_image` 表达；视频首帧、尾帧是独立输入槽位。
 - 视频的 `text_to_video`、`first_frame`、`last_frame`、`reference_audio` 是可选布尔值，分别表示是否接受文生视频、首帧、尾帧、参考音频。显式 `false` 与缺失不同。
@@ -112,18 +111,16 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 }
 ```
 
-- 每个供应商模型给出 API 模型名、引用的条目（「模型厂商/官方模型名」）、供应商模型倍率（默认 1）与
-  可选的最低应用版本。只有引用两栖模型时才需要 `media_type` 指明条目。
-- `endpoint` 是供应商模型挂接的内置调用端点，发布数据必填。它必须在端点清单里，媒体类型与所引用的条目相同，且是该供应商在这一媒体类型下的可选端点。实例侧仍兼容缺失字段，缺失时取供应商默认端点。
-- 同一供应商下，供应商模型以 API 模型名与所引用条目的媒体类型区分。
-- `defaults` 按媒体类型给出默认模型的 API 模型名，必须在该供应商这一媒体类型的清单中，且条目既未下线，也没有关停日期。
+- 每个供应商模型声明 API 模型名、引用的条目（「模型厂商/官方模型名」）、供应商模型倍率（默认为 1）以及可选的最低应用版本。仅在引用两栖模型时才需要用 `media_type` 明确条目类型。
+- `endpoint` 是供应商模型挂接的内置调用端点，发布数据中为必填项。它必须位于端点清单中，媒体类型与所引用条目一致，且属于该供应商在这一媒体类型下的可选端点。实例侧仍兼容缺失该字段的情况，缺失时回退为供应商默认端点。
+- 同一供应商下，供应商模型由 API 模型名和所引用条目的媒体类型共同区分。
+- `defaults` 按媒体类型给出推荐模型的 API 模型名，必须存在于该供应商这一媒体类型的清单中，且对应条目既未下线、也未设置关停日期。新版应用仅在明确入口将推荐写入用户设置，兼容边界见 [ADR 0099](../../docs/adr/0099-model-catalog-shared-entries-per-model.md)。
 
 ### 端点清单
 
-端点清单定义在 `arcreel_catalog_core.endpoints`，是代码里调用端点的一份副本，主仓用测试保证二者一致：
+端点清单定义在 `arcreel_catalog_core.endpoints`，是主仓代码中调用端点定义的副本，由主仓测试保证二者一致：
 
-- `BUILTIN_ENDPOINTS`：内置供应商可挂接的每个内置调用端点的媒体类型与可选的起始版本 `since`。清单首次发布时已有的
-  端点都是基线端点，不带起始版本。
+- `BUILTIN_ENDPOINTS`：内置供应商可挂接的各个内置调用端点的媒体类型及可选起始版本 `since`。清单首次发布时已有的端点均为基线端点，不带起始版本。
 - `BUILTIN_PROVIDER_ENDPOINTS`：每个内置供应商按媒体类型列出的可选端点与默认端点。
 - `ENDPOINT_DECLARATIONS_SINCE`：实例开始读取端点声明的应用版本。
 
@@ -153,7 +150,7 @@ python -m arcreel_catalog_core check <目录>           # 校验目录下的 man
 python -m arcreel_catalog_core write-manifest <目录>  # 按 catalog.json 写出 manifest.json
 ```
 
-退出码非零即不通过，问题逐行输出为 `位置: [code] 说明`。
+退出码非零即表示不通过，问题逐行输出为 `位置: [code] 说明`。
 
 ```python
 from arcreel_catalog_core import check_catalog_files, load_catalog
@@ -164,7 +161,7 @@ data = load_catalog(manifest_bytes, catalog_bytes)  # 实例侧
 
 ## 开发
 
-本包是 ArcReel 仓库 uv workspace 的成员，测试在本目录的 `tests/` 下，与应用测试分开运行：
+本包是 ArcReel 仓库 uv workspace 的成员，测试位于本目录的 `tests/` 下，与应用测试分开运行：
 
 ```bash
 cd packages/arcreel-catalog-core && uv run python -m pytest
