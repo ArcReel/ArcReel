@@ -10,16 +10,20 @@ disable-model-invocation: true
 
 ## 1. 开工检查
 
-1. fetch `origin`，用 `gh pr list --state open --limit 1000 --json number,headRefName` 列出全部 open PR（默认只返回 30 条），找出 head 分支以 `lessons-sweep/` 开头的 PR。
-2. 存在这样的 PR 时接手它，本次巡检只处理它；新窗口留给下一次巡检，这样窗口首尾相接，同一时间只有一份教训库改动。接手路径上的 `gh pr` 命令都显式传入它的 PR 号，改动在其 head 分支的工作树中进行。先读 PR 上的阻塞评论，并用 `gh pr view <PR 号> --json isDraft,autoMergeRequest,mergeStateStatus,statusCheckRollup` 查看状态：
+1. 运行 `git fetch origin`。
+2. 运行 `git rev-parse --is-shallow-repository`。结果为 `true` 时，运行 `git fetch --unshallow origin`，确认浅克隆检查返回 `false` 后再继续。
+3. 用 `gh pr list --state open --limit 1000 --json number,headRefName` 列出全部 open PR（默认只返回 30 条），找出 head 分支以 `lessons-sweep/` 开头的 PR。
+4. 存在这样的 PR 时接手它，本次巡检只处理它；新窗口留给下一次巡检，这样窗口首尾相接，同一时间只有一份教训库改动。接手路径上的 `gh pr` 命令都显式传入它的 PR 号，改动在其 head 分支的工作树中进行。先读 PR 上的阻塞评论，并用 `gh pr view <PR 号> --json isDraft,autoMergeRequest,mergeStateStatus,statusCheckRollup` 查看状态：
    - 已开启 auto-merge、没有冲突、required checks 没有失败的：确认后结束。
    - 阻塞原因与上一次接手时相同：对应的 `needs-triage` issue 仍 open 时补一条评论后结束，没有就开一个；issue 已关闭的，按其中的裁决处理后转下一项。
    - 其余：rebase 到最新 `origin/main`，按第 6 步第 2 项跑闸门，用 `--force-with-lease` push，更新 PR 正文；PR 为 draft 时用 `gh pr ready` 转为 ready，再执行第 6 步第 4 项。
-3. 读 `docs/LESSONS.md` 顶部的 `<!-- reviewed-through: <SHA> <日期> -->`。窗口是 `<SHA>..origin/main`，记下此刻 `origin/main` 的 SHA 作为窗口终点，从窗口终点创建 `lessons-sweep/<YYYY-MM-DD>` 分支与工作树。后续改动都在这里进行。
+5. 读 `docs/LESSONS.md` 顶部的 `<!-- reviewed-through: <SHA> <日期> -->`。窗口是 `<SHA>..origin/main`，记下此刻 `origin/main` 的 SHA 作为窗口终点，从窗口终点创建 `lessons-sweep/<YYYY-MM-DD>` 分支与工作树。后续改动都在这里进行。
 
 ## 2. 收集候选
 
 窗口内每个合并 PR 都要过一遍。普通 PR squash 合并，AFK stage PR rebase 合并，所以按提交反查 PR：对 `git log <SHA>..<窗口终点> --first-parent` 的每个提交调用 `gh api repos/{owner}/{repo}/commits/<sha>/pulls`，去重得到 PR 列表。候选评论在 PR 的 issue comments，审查意见在 reviews 与 review comments；squash 合并的 PR，修复提交只在该 PR 的 commits 列表里。
+
+GitHub compare API 的 `total_commits` 包含合入分支的提交，与 `--first-parent` 的计数口径不同。窗口收集和 `git log -S` 反查都依赖完整的本地历史。比对 `total_commits` 无法判断 `git log -S` 是否因浅边界漏掉更早的引入提交。
 
 - PR 上首行为 `<!-- lesson-candidate -->` 的评论。
 - 被采纳并修复的审查意见，以及 PR 内的 fix 提交。
