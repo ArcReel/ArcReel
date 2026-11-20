@@ -104,9 +104,9 @@ describe("PromptTemplatesSection", () => {
     expect(screen.getByText("description", { selector: "dt" })).toBeInTheDocument();
     expect(screen.getByText("外观描述")).toBeInTheDocument();
     expect(screen.getByTitle("外观描述")).toHaveTextContent("description");
-    expect(screen.getByRole("heading", { name: "模版正文" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "模板正文" })).toBeInTheDocument();
     // 正文会横向滚动：代码块自身可聚焦，键盘才能滚动
-    const source = screen.getByRole("region", { name: "模版正文" });
+    const source = screen.getByRole("region", { name: "模板正文" });
     source.focus();
     expect(source).toHaveFocus();
     expect(screen.queryByText("引用的片段")).not.toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("PromptTemplatesSection", () => {
     expect(screen.getByText("asset/sheet/title/character")).toBeVisible();
     expect(screen.queryByText("输出结构")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "返回模版列表" }));
+    await user.click(screen.getByRole("button", { name: "返回模板列表" }));
     expect(await screen.findByRole("region", { name: "资产图" })).toBeInTheDocument();
   });
 
@@ -150,7 +150,7 @@ describe("PromptTemplatesSection", () => {
     renderSection();
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("加载提示词模版失败");
+    expect(alert).toHaveTextContent("加载提示词模板失败");
     expect(alert).toHaveTextContent("网络中断");
 
     await user.click(within(alert).getByRole("button", { name: "重试" }));
@@ -160,14 +160,14 @@ describe("PromptTemplatesSection", () => {
 
   it("shows an error state when the detail fails to load", async () => {
     const user = userEvent.setup();
-    vi.spyOn(API, "getPromptTemplate").mockRejectedValue(new Error("模版不存在"));
+    vi.spyOn(API, "getPromptTemplate").mockRejectedValue(new Error("模板不存在"));
     renderSection();
 
     await user.click(await screen.findByRole("button", { name: /资产图标/ }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("加载模版详情失败");
-    expect(alert).toHaveTextContent("模版不存在");
+    expect(alert).toHaveTextContent("加载模板详情失败");
+    expect(alert).toHaveTextContent("模板不存在");
   });
 
   it("opens a partial from its expanded reference and returns to a referencing template through the URL", async () => {
@@ -188,7 +188,7 @@ describe("PromptTemplatesSection", () => {
     await user.click(screen.getByRole("button", { name: '{{ partial("shared/avoid") }}' }));
     expect(screen.getByText("Avoid: 水印")).toBeVisible();
     expect(screen.getAllByText("锁定")).toHaveLength(2);
-    expect(screen.getByText("2 份模版引用")).toBeVisible();
+    expect(screen.getByText("2 份模板引用")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "shared/avoid" }));
     expect(params().get("partial")).toBe("shared/avoid");
@@ -200,7 +200,7 @@ describe("PromptTemplatesSection", () => {
     expect(partialSource).toHaveTextContent("Avoid: 水印");
     partialSource.focus();
     expect(partialSource).toHaveFocus();
-    const usages = screen.getByRole("heading", { name: "引用它的模版" }).closest("section")!;
+    const usages = screen.getByRole("heading", { name: "引用它的模板" }).closest("section")!;
     expect(await within(usages).findByRole("button", { name: /资产图标/ })).toBeInTheDocument();
 
     await user.click(within(usages).getByRole("button", { name: /资产图标/ }));
@@ -236,7 +236,7 @@ describe("PromptTemplatesSection", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "shared/avoid" })).toBeInTheDocument();
     expect(screen.queryByText("锁定")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "返回模版详情" }));
+    await user.click(screen.getByRole("button", { name: "返回模板详情" }));
     expect(params().has("partial")).toBe(false);
     expect(params().get("template")).toBe("asset/sheet");
     expect(await screen.findByRole("heading", { level: 2, name: "资产图" })).toBeInTheDocument();
@@ -249,6 +249,6 @@ describe("PromptTemplatesSection", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("加载片段详情失败");
     expect(alert).toHaveTextContent("片段不存在");
-    expect(screen.getByRole("button", { name: "返回模版列表" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "返回模板列表" })).toBeInTheDocument();
   });
 });

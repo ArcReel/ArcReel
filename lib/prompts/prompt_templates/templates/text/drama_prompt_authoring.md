@@ -70,7 +70,7 @@ protected: false
 
 # 创作目标
 
-输出可直接驱动 AI 图像 / 视频生成的、视觉一致、节奏紧凑的视觉层。忠于已定稿的分镜内容与戏剧张力。
+输出可直接驱动 AI 图像 / 视频生成、视觉一致且节奏紧凑的视觉层，忠于已定稿的分镜内容与戏剧张力。
 {% if instructions %}
 
 {{ partial("shared/additional_instructions") }}

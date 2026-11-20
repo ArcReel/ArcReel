@@ -6,10 +6,7 @@ user-invocable: false
 
 # generate-script
 
-调用项目配置的文本生成模型（Gemini / Ark / OpenAI / 自定义供应商，由 project.json 决定），
-为正式脚本中待编写的条目补出视觉层。剧本里的 `image_prompt` / `video_prompt`
-是后续图像 / 视频生成的"种子"，**Prompt 质量基本决定了画面质量**——所以本 skill 是
-ArcReel 整条 pipeline 中最值得重点优化的一环。
+使用 `generate_episode_script` 为正式脚本补充视觉层。广告/短片尚无正式脚本时，同一工具生成整集。
 
 ## 前置条件
 
@@ -69,8 +66,6 @@ mcp__arcreel__generate_episode_script({"episode_id": N, "regenerate": true, "ins
 - 整份生成的产出违约（引用了未登记也未列进 `new_assets` 的名字、处理决定解析不出、结构不合）时任务失败，
   问题码 `ad_script_rejected`，正式脚本、资产与草稿都不变。把失败原因转述给用户，按原因补一句附加指令再生成。
 
-**重要：生成剧本必须调用上述 MCP 工具。此 skill 不提供任何 Python/Shell 脚本，不得用 BASH 调 `python .../scripts/*.py`。**
-
 ## 生成流程
 
 MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
@@ -101,8 +96,8 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 
 条目数与全集总时长不落盘：它们逐读剧本即得，由项目摘要读时计算，落一份只会与正文漂移。
 
-## `--dry-run` 输出
+## `dry_run` 输出
 
 打印将发送给文本模型的完整 prompt 文本，不调用 API、不写文件。用于检查 prompt 质量和长度。
 
-> 两种生成模式（storyboard / reference_video）在 narration / drama 下的数据路径、脚本规划子智能体、schema 选择详见 `.claude/references/generation-modes.md`；ad 的路径见 `CLAUDE.ad.md`。
+> 需要核对各模式的剧本结构时，读取 `.claude/references/generation-modes.md`。

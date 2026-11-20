@@ -55,7 +55,7 @@ CLI_STDOUT_MAX_BUFFER_BYTES = 32 * 1024 * 1024
 class AgentEnv(dict[str, str]):
     """注入 ``ClaudeAgentOptions.env`` 的环境变量，并带着注入凭证的计价依据快照。
 
-    记账按会话连接时注入的凭证及其当时的倍率与档位绑定计价（docs/adr/0017、docs/adr/0102），快照随 env 一起交给
+    记账按会话连接时注入的凭证及其当时的倍率与档位绑定计价（docs/adr/0027、docs/adr/0102），快照随 env 一起交给
     会话层；没有生效凭证、env 回退到系统设置时为默认值。
     """
 

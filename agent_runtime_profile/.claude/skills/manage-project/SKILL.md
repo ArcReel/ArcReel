@@ -79,18 +79,16 @@ description）时不落盘并返回 `is_error: true`。
 
 ## 查视频模型能力
 
-通过 MCP 工具查询（项目名由 session 绑定，无需传参）：
+查询当前项目的视频能力，无需传参数。
 
 ```text
 mcp__arcreel__get_video_capabilities({})
 ```
 
-生成模式由项目唯一决定，无集级覆盖，能力查询全项目同一口径，不接受 / 不需要 `episode_id` 参数。
-
-**返回**：JSON 文本，含 `provider_id` / `model` / `supported_durations[]` / `max_duration` / `max_reference_images` / `max_reference_audio_count` / `requested_generate_audio` / `voice_consistency` / `source` / `default_duration` / `episode_target_duration` / `content_mode` / `generation_mode`；narration / drama 的参考生视频项目另含 `reference_unit_durations`（`with_references` / `without_references` 两套生效档位，按视频单元有无 `@` 引用分别适用；`units` 按 `unit_id` 给出每个已有正式视频单元由服务端按可用参考图判定的桶 `hydrated_capability`、该桶生效档位 `allowed_durations`、事实失败 `problem`，以及声明引用与可用参考图分裂时的 `problems` / `unavailable_references`——已有单元的桶与档位以它为准）；**ad 项目不返回该字段**——ad 的机器字段 `unit` 是从 `shots[]` 派生的轻量索引，分镜时长不受档位枚举管辖（规则见 `video-workflow/SKILL.ad.md`），不要等待该字段、也不要照档位重排 ad 分镜时长。
+- **分镜图生视频**：`supported_durations` 是模型公布的全部档位。选档、固定时长和尾帧限制见 `.claude/references/generation-modes.md` 的「视频规格」。
+- **旁白/解说和剧情演绎的参考生视频**：规划新单元时按是否有参考图选择 `reference_unit_durations.with_references` 或 `.without_references`。已有单元以 `units[unit_id].allowed_durations` 为准，`problems` / `unavailable_references` 说明引用与执行时可用图片不符。无图档位为 null 时按同对象的 `problem` 修复，不借用带图档位。端点固定时长时，空档位合法，查看对应 `*_endpoint_fixed` 与原因。
+- **广告/短片的参考生视频**：使用剧本模型允许的正整数编排时长，由生成预检投影为申请档位。该模式不返回 `reference_unit_durations`。
 
 `max_reference_audio_count` 为当前视频模型的参考音频段数上限（null 为未收录，0 为不接受参考音频）。`voice_consistency` 为 `native`、`requested_generate_audio` 为 true 且上限大于 0 时，参考生视频规划中的每个视频单元按角色本体去重后的说话人数不得超过该值；超出时拆分镜头。其余情况不加此约束。
 
-**用途**：所有 generation_mode（storyboard / reference_video）的脚本规划子智能体在执行时自查，用于决定单分镜 / 视频单元时长。**决策优先级**（高到低）：硬约束（storyboard 分镜时长必须取自 `supported_durations`；narration / drama 的 reference_video 视频单元时长必须取自该视频单元引用状态对应的 `reference_unit_durations` 档位；ad 的分镜时长按 `SKILL.ad.md` 的自由整数规则）> `episode_target_duration` / `default_duration` 偏好（前者是本集各单元时长合计的软目标，据它决定拆多少个；后者非 null 时作单个单元的默认值）> 内容需要（reference_video 按该视频单元内容实际需要的长度取档；narration / drama 长句、复杂画面可取更长值）。装不下时重拆视频单元，不违约时长。
-
-**错误**：项目未找到或模型能力无法解析时返回 `is_error: true`，文本中包含原因。
+先满足模式的硬约束，再按 `episode_target_duration`（单集软目标）与 `default_duration`（单个分镜的默认偏好）安排节奏。内容装不下时重新拆分。项目未找到或能力无法解析时，按工具返回的结构化问题处理。

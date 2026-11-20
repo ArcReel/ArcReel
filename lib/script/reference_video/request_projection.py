@@ -484,8 +484,8 @@ def unit_reference_declarations(
     """视频单元正文 → 该单元生成所用的逻辑参考图引用，按首次提及顺序。
 
     正文是唯一真相：引用不落盘，读侧一律经本函数派生，商品与其它资产走同一条规则、
-    没有类型优先级（见 ADR 0064）。未登记的名字不产生引用——它只在渲染与预览侧发一条
-    非阻断 warning，不挡住这次生成。
+    没有类型优先级（见 ADR 0064）。未登记的名字不产生引用。编辑侧可保留这样的正文，
+    生成准入通过 :func:`unit_reference_admission` 将未登记名称作为阻断项（见 ADR 0073）。
     """
 
     references, _missing = derive_references_from_text(_unit_text(unit), project, catalog=catalog)

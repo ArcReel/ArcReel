@@ -64,7 +64,7 @@ protected: false
 </shots>
 
 <episode_constraints>
-本片为单视频（恒第 {{ episode }} 集）。只为标注「【待编写】」的分镜各产出一条视觉层，`shot_id` 必须逐字等于该分镜的 shot_id，不增不减不改；不要输出口播 / 时长 / 资产等非视觉字段。
+本片为单视频（恒为第 {{ episode }} 集）。仅须为标注「【待编写】」的分镜各产出一条视觉层，`shot_id` 必须与原分镜的 shot_id 逐字一致，不增不减不改；不要输出口播、时长、资产等非视觉字段。
 </episode_constraints>
 
 # 字段写作指引
@@ -76,7 +76,7 @@ protected: false
 - **video_prompt.action**：{{ partial("shared/action_writing_guide") }}
 - **video_prompt.camera_motion**：按画面内容自行选择。
 - **video_prompt.ambiance_audio**：{{ partial("shared/ambiance_audio_writing_guide") }}
-- **video_prompt.dialogue**：仅当分镜内有出镜人物开口说话时填写（口播旁白已在脚本里，不要重复进 dialogue）；speaker 必须是该分镜的出场角色。
+- **video_prompt.dialogue**：仅当分镜内有出镜人物开口说话时填写（口播旁白已在脚本中，切勿重复填入 dialogue）；speaker 必须是该分镜的出场角色。
 
 # 创作目标
 

@@ -1048,7 +1048,7 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
 
 
 async def test_normalize_drama_script_injects_episode_outline(fake_ctx: ToolHarness, video_request_facts) -> None:
-    """分集大纲（故事节点 / 钩子）随 script_plan 注入 normalize prompt（见 ADR 0041）。"""
+    """分集大纲（故事节点 / 钩子）随 script_plan 注入 normalize prompt（见 ADR 0080）。"""
 
     project_path = fake_ctx.project_path
     src = project_path / "source"

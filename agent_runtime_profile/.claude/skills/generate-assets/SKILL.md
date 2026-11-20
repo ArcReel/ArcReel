@@ -9,7 +9,7 @@ description: >-
 为项目的角色、场景、道具、商品创建资产图，保证整个视频中视觉元素的一致性。
 图像供应商由项目设置选择（不锁定具体 backend）。
 
-> Prompt 编写原则详见 `.claude/references/generation-modes.md` 的"Prompt 语言"章节。
+> 提示词写法见 `.claude/references/generation-modes.md` 的「提示词」一节。
 
 ## 共同约定
 

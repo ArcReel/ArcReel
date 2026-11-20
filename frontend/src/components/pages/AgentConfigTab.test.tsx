@@ -336,7 +336,7 @@ describe("AgentConfigTab", () => {
       "href",
       "/app/settings?section=external-agent",
     );
-    expect(screen.getByRole("link", { name: "提示词模版" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "提示词模板" })).toHaveAttribute(
       "href",
       "/app/settings?section=prompt-templates&template=text%2Fagent_language_rule",
     );

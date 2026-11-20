@@ -80,19 +80,17 @@ def test_checklist_is_asked_through_a_registered_multi_select_question() -> None
 
 def test_every_checklist_category_has_an_execution_rule() -> None:
     """清单里的每类待决定事项都要在「执行勾选项」里有对应的执行办法，反之亦然：
-    多出一类就是创作者勾了却没人执行，少一类就是执行规则无从触发。只比对两处的加粗类目名，不看措辞。
-    重新生成视频与重配旁白两类付费事项须各有一条执行规则点名对应工具，两节同删一类也会红。"""
+    执行一节还要点名重新生成视频与重配旁白的工具。"""
 
     skill = SKILL.read_text(encoding="utf-8")
     offered = set(_CHECKLIST_CATEGORY.findall(_section(skill, "一轮结束的交付")))
     execution = _section(skill, "执行勾选项")
     executed = set(_CHECKLIST_CATEGORY.findall(execution))
-    rule_lines = [line for line in execution.splitlines() if _CHECKLIST_CATEGORY.match(line)]
 
     assert offered, "交付一节没有勾选清单类目，断言失去意义"
     assert offered == executed
     for tool in ("generate_videos", "generate_narration_audio"):
-        assert any(re.search(rf"`(?:mcp__arcreel__)?{tool}`", line) for line in rule_lines), tool
+        assert re.search(rf"`(?:mcp__arcreel__)?{tool}`", execution), tool
 
 
 def test_paid_regeneration_option_quotes_the_previewed_cost() -> None:

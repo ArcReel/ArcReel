@@ -12,7 +12,7 @@
 
 结果仍是一份 :class:`VideoCapabilities`，参考图与参考音频段数上限按 :meth:`InputLimit.to_json` 的形状存
 （``None`` 未收录、``0`` 不接受、其余为上限），读取时经 :func:`reference_image_limit` 与
-:func:`reference_audio_count_limit` 还原为 :class:`InputLimit`。任务类型桶的候选、执行时的校验、编排层的裁剪与
+:func:`reference_audio_count_limit` 还原为 :class:`InputLimit`。任务类型桶的候选、执行时的校验、编排层的数量检查与
 设置页都读这一个结果。
 
 能力覆盖整维替换生效值，在两侧求值之后生效（内置供应商下用户添加的模型见

@@ -78,7 +78,7 @@ defineRegionScenarios("全局设置 · ArcReel Agent", [
       await field.fill("8");
       const main = page.getByRole("main");
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
-      await expect(main.getByRole("link", { name: "提示词模版" })).toBeInViewport();
+      await expect(main.getByRole("link", { name: "提示词模板" })).toBeInViewport();
       await expect(page.getByRole("button", { name: "保存", exact: true })).toBeInViewport({ ratio: 1 });
       await expect(page.getByRole("button", { name: "保存", exact: true })).toBeEnabled();
     },

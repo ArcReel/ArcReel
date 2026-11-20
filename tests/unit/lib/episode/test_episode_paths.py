@@ -71,7 +71,7 @@ def test_ad_has_no_structured_script_plan_across_web_and_gate(tmp_path):
 
 
 def test_gate_only_json_and_web_also_md():
-    """gate 只认结构化 .json；web 读取兼认旧版 .md（既有语义差异，见 ADR 0041）。"""
+    """gate 只认结构化 .json；web 读取兼认旧版 .md。"""
     # gate 的登记表不含任何 .md
     assert all(name.endswith(".json") for name in episode_paths.SCRIPT_PLAN_FILENAMES.values())
     # web 读取候选含旧 .md

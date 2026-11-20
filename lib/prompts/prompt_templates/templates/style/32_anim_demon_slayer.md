@@ -11,4 +11,4 @@ applies_to: {}
 slots: {}
 protected: false
 ---
-参考《鬼灭之刃》画风、参考Ufotable飞碟社画风，粗描边
+参考《鬼灭之刃》与 Ufotable（飞碟社）画风，粗描边

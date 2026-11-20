@@ -368,7 +368,7 @@ class TestPromptLength:
 class TestRegistryBackendConsistency:
     """目录里 vidu 视频条目的模型事实与 backend 执行期表须无分歧（两侧同一份官方文档核实）。
 
-    时长表是 docs/adr/0018 允许的端点级例外，两侧只要求子集。
+    时长表是 docs/adr/0104 允许的端点级例外，两侧只要求子集。
     """
 
     def _vidu2_model_info(self) -> catalog.CatalogModel:
@@ -396,7 +396,7 @@ class TestRegistryBackendConsistency:
     def test_durations_within_endpoint_rules(self, name: str):
         """目录时长须落在端点级时长表内，否则 _coerce_duration 会把用户选的时长静默改成最近值。
 
-        端点级校正是 docs/adr/0018 允许的例外，两侧只要求子集，不要求相等。
+        端点级校正是 docs/adr/0104 允许的例外，两侧只要求子集，不要求相等。
         """
         model_info = catalog.get_model("vidu", name, media_type="video")
         if model_info is None:

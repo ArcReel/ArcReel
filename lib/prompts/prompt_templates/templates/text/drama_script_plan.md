@@ -109,7 +109,7 @@ protected: false
   - 候选 characters：[{{ character_names | join(", ") or "（暂无）" }}]
   - 候选 scenes：[{{ scene_names | join(", ") or "（暂无）" }}]
   - 候选 props：[{{ prop_names | join(", ") or "（暂无）" }}]
-  - 候选里没有的资产写原文称呼，并列进 `new_assets`（见下文）；泛指群演（如「老人甲」「村民若干」）不进 characters_in_scene。
+  - 候选列表中没有的资产沿用原文称呼，并列入 `new_assets`（见下文）；泛指群演（如「老人甲」「村民若干」）不计入 characters_in_scene。
 - **scene_description**：{{ variant("text/drama_script_plan/scene_rule", source_kind) }}
 
 ## 逐字内容（内容真相源，定稿后原样保留、不再改写）

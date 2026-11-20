@@ -66,9 +66,11 @@ description: 在剪辑时间线上剪辑一集，并按要求出成片或导出�
 
 付费或改脚本的动作，一轮只确认一次：创作者在勾选清单里选中的，直接执行，不再追问。
 
-- **重新生成**：要修改提示词的单元先用 `mcp__arcreel__patch_episode_script` 改好提示词。然后用一次 `generate_videos` 提交全部选中项：`target` 取 `selected` 列出选中的单元，`force: true`，`confirmed_request_durations` 原样带上预检结果里的同名字段，档位就不会再被要求确认。被要求重新确认时，说明档位或费用有了变化，把新的报价告诉创作者，由 TA 决定是否继续。
-
-  完成后验收：记下各单元重新生成前的 current 版本号，派 `review-footage` 比较新旧两个版本。挑好的作为 current（旧版本更好时用 `select_video_version` 改回），按报告重设入出点，用 `edit_timeline` 写进剪辑时间线，再按「一轮结束的交付」告诉创作者结果。新版本仍有问题时只在交付里报告，不自动进行第二次重新生成。
+- **重新生成**
+  1. 提交前，记下每个选中单元的当前版本号。时间线上已有的单元，从 `read_timeline` 的 `video_version` 读取。其余单元用 `inspect_video_units` 查当前版本。需要改提示词的单元先用 `mcp__arcreel__patch_episode_script` 改好。
+  2. 用一次 `generate_videos` 提交全部选中项。`target` 取 `selected`，列出选中的单元，带上 `force: true` 和预检返回的 `confirmed_request_durations`。如果工具要求重新确认，告诉创作者档位或费用的变化和新报价，由创作者决定是否继续。
+  3. 生成结束后，只把 `succeeded` 的单元交给 `review-footage` 做验收，逐个附上生成前的版本号。旧版本缺失或未知时，在相应单元旁注明。其余单元在交付时说明原因。
+  4. 根据审片报告选版本。旧版本更好时，用 `select_video_version` 切回，再重读时间线。按报告重设入出点，用 `edit_timeline` 写进剪辑时间线，再按「一轮结束的交付」告诉创作者结果。新版本仍有问题时，在交付里说明，由创作者决定是否再生成。
 - **改写画外音**：用 `mcp__arcreel__patch_episode_script` 改写选中的画外音，再用 `mcp__arcreel__generate_narration_audio` 以 `segment_ids` 点名这些视频单元，重新生成旁白配音。
 
 ## 旁白放不下时
