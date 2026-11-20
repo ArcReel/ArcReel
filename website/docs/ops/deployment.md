@@ -420,7 +420,7 @@ docker compose start arcreel
 
 ### 6.2 PostgreSQL 部署备份 {#backup-postgresql}
 
-下面的数据库命令仅适用于 ArcReel 连接到同一套 Compose 的 `postgres` 服务。连接其他 PostgreSQL 时，按[外部 PostgreSQL 的备份与恢复](#external-postgresql-backup-restore)操作。
+下面的数据库命令仅适用于 ArcReel 连接到同一套 Compose 的 `postgres` 服务。连接其他 PostgreSQL 时，按[外部 PostgreSQL 的备份与恢复](#external-postgresql-backup-restore)操作。示例的数据库名和用户均为 `arcreel`，密码取 PostgreSQL 容器的 `POSTGRES_PASSWORD`。若修改了库名或用户，请按实际连接调整备份和恢复命令的 `-d`、`-U` 与认证配置。
 
 在当前生产 Compose 目录执行。首次部署默认位于 `deploy/production/`。先停止 ArcReel 应用，同时保持 PostgreSQL 运行，以确保数据库和项目文件处于同一备份时间点。归档 Compose 配置中实际挂载的数据根。若使用自定义挂载，先将 `data_dir` 改成对应的宿主机绝对路径。
 
@@ -482,16 +482,17 @@ test -d "${restore_dir}/claude_data"
 test ! -e "${restore_dir}/pgdata" && test ! -L "${restore_dir}/pgdata" || exit 1
 ```
 
-在恢复目录用 `docker compose config` 确认挂载指向新位置，且 ArcReel 的 `DATABASE_URL` 指向这套恢复部署的 `postgres` 服务。确认后停掉原 Compose，在恢复目录启动 PostgreSQL。
+在恢复目录用 `docker compose config` 确认挂载指向新位置，且 ArcReel 的 `DATABASE_URL` 指向这套恢复部署的 `postgres` 服务。确认后回到原部署目录停掉原 Compose，再进入恢复目录启动 PostgreSQL。
 
 ```bash
+cd "${active_dir}"
 docker compose down
 cd "${restore_dir}"
 docker compose up -d postgres
 docker compose ps postgres
 ```
 
-确认 PostgreSQL 健康检查通过且目标为此次新建的空数据库后，再导入 SQL。若导入报错，请保留现场并中止操作，排查后再启动 ArcReel。
+确认 PostgreSQL 健康检查通过后再导入 SQL。目标必须是此次新建的空数据库。使用自定义库名或用户时，先在恢复实例创建所需的空数据库与角色。若导入报错，请保留现场并中止操作，排查后再启动 ArcReel。
 
 ```bash
 docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel < "${db_dump}"
@@ -510,7 +511,9 @@ curl -f http://localhost:1241/health
 
 1. 停止 ArcReel 写入。根据生效的 `DATABASE_URL` 确认源库，用托管服务的备份工具或 [`pg_dump`](https://www.postgresql.org/docs/18/app-pgdump.html) 备份该库。按上文归档相同时间点的配置和数据根，无需执行 Compose 内的 `pg_dump`。文件和数据库备份完成后再恢复原服务。
 2. 恢复时将配置与数据根解包到新位置，并将恢复配置中的宿主机挂载改到新路径。使用托管服务的恢复工具，或按 [PostgreSQL 的恢复说明](https://www.postgresql.org/docs/18/backup-dump.html#BACKUP-DUMP-RESTORE)将 SQL 导入独立的空数据库。保留原库用于回滚。
-3. 更新恢复部署中的 `DATABASE_URL`，用 `docker compose config` 确认它指向恢复后的库。核对挂载与对象存储后再启动 ArcReel，并检查 `/health` 和项目内容。
+3. 更新恢复部署中的 `DATABASE_URL`，用 `docker compose config` 确认它指向恢复后的库。核对挂载与对象存储。如果新旧部署使用同一宿主机端口，先在原部署目录执行 `docker compose stop arcreel`。再在恢复目录启动 ArcReel，检查 `/health` 和项目内容。
+
+如需回滚，先在恢复目录执行 `docker compose stop arcreel`，再在原部署目录执行 `docker compose up -d arcreel`。
 
 ## 7. 反向代理与 HTTPS {#reverse-proxy-and-https}
 

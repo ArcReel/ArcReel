@@ -420,7 +420,7 @@ To restore:
 
 ### 6.2 Back Up a PostgreSQL Deployment {#backup-postgresql}
 
-These database commands apply only when ArcReel connects to the `postgres` service in the same Compose project. For any other PostgreSQL deployment, see [Back Up and Restore External PostgreSQL](#external-postgresql-backup-restore).
+These database commands apply only when ArcReel connects to the `postgres` service in the same Compose project. For any other PostgreSQL deployment, see [Back Up and Restore External PostgreSQL](#external-postgresql-backup-restore). The examples use `arcreel` as both the database name and user, and read the password from `POSTGRES_PASSWORD` in the PostgreSQL container. If you changed the database name or user, adjust `-d`, `-U`, and authentication in the backup and restore commands to match.
 
 Run these commands from the active production Compose directory. The initial deployment uses `deploy/production/` by default. Stop ArcReel and leave PostgreSQL running so the database and project files represent the same point in time. Archive the data root actually mounted by Compose. For a custom mount, set `data_dir` to the absolute host path.
 
@@ -482,16 +482,17 @@ test -d "${restore_dir}/claude_data"
 test ! -e "${restore_dir}/pgdata" && test ! -L "${restore_dir}/pgdata" || exit 1
 ```
 
-Run `docker compose config` in the restore directory. Confirm that the mounts use the new paths and ArcReel’s `DATABASE_URL` points to the `postgres` service in the restored Compose project. Then stop the original stack and start PostgreSQL from the restore directory.
+Run `docker compose config` in the restore directory. Confirm that the mounts use the new paths and ArcReel’s `DATABASE_URL` points to the `postgres` service in the restored Compose project. Then return to the original deployment directory to stop its stack. Switch to the restore directory to start PostgreSQL.
 
 ```bash
+cd "${active_dir}"
 docker compose down
 cd "${restore_dir}"
 docker compose up -d postgres
 docker compose ps postgres
 ```
 
-Wait for PostgreSQL to become healthy and confirm that the target is the empty database created for this restore. Import the SQL. If the import reports an error, keep the restored files and investigate before starting ArcReel.
+Check that PostgreSQL is healthy and that the target is a new, empty database. If you use a custom database name or user, create the empty database and the required roles in the restore instance before importing the SQL. If the import fails, keep the restore instance for investigation and resolve the error before starting ArcReel.
 
 ```bash
 docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel < "${db_dump}"
@@ -510,7 +511,9 @@ After verification, run future Compose and backup commands from the restore dire
 
 1. Stop ArcReel writes. Identify the source database from the effective `DATABASE_URL` and back it up with your hosting provider’s tools or [`pg_dump`](https://www.postgresql.org/docs/18/app-pgdump.html). Archive the configuration and data root at the same point in time using the steps above. Skip the `pg_dump` command that runs inside Compose. Resume the original service after all backups finish.
 2. Extract the configuration and data root into the new location, then update the host mounts in the restored configuration to use the new paths. Use your hosting provider’s restore tools, or [restore the SQL dump](https://www.postgresql.org/docs/18/backup-dump.html#BACKUP-DUMP-RESTORE) into a separate, empty database. Keep the original database for rollback.
-3. Update the restored deployment’s `DATABASE_URL` and verify with `docker compose config` that it points to the restored database. Check the mounts and object storage before starting ArcReel, then check `/health` and verify your project contents.
+3. Update the restored deployment’s `DATABASE_URL` and verify with `docker compose config` that it points to the restored database. Check the mounts and object storage. If both deployments use the same host port, run `docker compose stop arcreel` in the original deployment directory first. Then start ArcReel from the restore directory, check `/health`, and verify your project contents.
+
+To roll back, run `docker compose stop arcreel` in the restore directory. Then run `docker compose up -d arcreel` in the original deployment directory.
 
 ## 7. Reverse Proxy and HTTPS {#reverse-proxy-and-https}
 
