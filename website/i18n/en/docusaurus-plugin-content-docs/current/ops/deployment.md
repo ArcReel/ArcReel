@@ -374,9 +374,11 @@ After the whole site is moved to a different absolute path, the application relo
 
 After object storage is enabled under **Save new images to**, the content of remote images lives only in your TOS bucket; backups of the data root and the database contain only their records and a local cache that can be cleaned up. When restoring a backup, the connection must still point to the original bucket, and the objects in the bucket must be kept as well. ArcReel deletes image objects that are no longer used, so objects of projects or versions deleted after the backup may already be gone from the bucket, and those images cannot be read after restoring an older backup. If you need to restore to an earlier point in time, back up the objects under `arcreel-materials/` while writes are stopped (or enable versioning on the bucket), and put them back into the original bucket under the same keys when restoring; see [Save New Images to Object Storage](../guide/asset-storage.md#remote-image-storage).
 
+Before backing up, use `docker compose config` to confirm which database and data root ArcReel actually uses. The `tar` examples use the default `docker-compose.yml`. Include every Compose file in use in the configuration archive, including automatically loaded override files and files selected by `COMPOSE_FILE` or `-f`. Preserve relative paths. After extracting the archive into the restore directory, update any `COMPOSE_FILE` or `-f` paths that point to the original directory. Load the restored files in their original order. See [Merge Compose files](https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/).
+
 ### 6.1 Back Up a SQLite Deployment {#backup-sqlite}
 
-The data root already contains projects, the default SQLite database, logs, and Vertex credentials. Back up the entire data root along with the active Compose file, `.env`, and `claude_data/`. Include any additional Compose files you use.
+The data root already contains projects, the default SQLite database, logs, and Vertex credentials. Back up the entire data root along with the active Compose file, `.env`, and `claude_data/`.
 
 Run the commands from the active Compose directory. The initial deployment uses `deploy/` and its `projects/` subdirectory by default. Find the actual data root on the host, then stop writes. For a custom mount with `ARCREEL_DATA_DIR`, set `data_dir` to the corresponding absolute host path:
 
@@ -418,6 +420,8 @@ To restore:
 
 ### 6.2 Back Up a PostgreSQL Deployment {#backup-postgresql}
 
+These database commands apply only when ArcReel connects to the `postgres` service in the same Compose project. For any other PostgreSQL deployment, see [Back Up and Restore External PostgreSQL](#external-postgresql-backup-restore).
+
 Run these commands from the active production Compose directory. The initial deployment uses `deploy/production/` by default. Stop ArcReel and leave PostgreSQL running so the database and project files represent the same point in time. Archive the data root actually mounted by Compose. For a custom mount, set `data_dir` to the absolute host path.
 
 ```bash
@@ -450,6 +454,8 @@ If `tar` reports `Permission denied`, the mounted directory contains files creat
 
 ### 6.3 Restore PostgreSQL {#restore-postgresql}
 
+This section restores the `postgres` service managed by the same Compose project. For an external database, see [Back Up and Restore External PostgreSQL](#external-postgresql-backup-restore).
+
 Use the [archives and SQL dump with the same timestamp](#backup-postgresql). Start in the active production Compose directory and restore into a new sibling directory. Keep the original database and files for rollback. The steps use the default relative mount paths. For custom mounts, adjust the restored configuration to mount the extracted `projects/` and `claude_data/` in the new deployment directory, and point PostgreSQL to a new `pgdata/` path that does not yet exist in that directory. If you use image object storage, prepare [the objects from the same backup point](#backup-and-restore). The restored connection needs access to the matching images in the original bucket.
 
 Extract the archives into an empty directory and check the restored configuration and credentials. If the file archive already contains `projects/`, use that data root. Replace the timestamp below and run all steps in the same shell.
@@ -474,10 +480,9 @@ if [ ! -d "${restore_dir}/projects" ]; then
 fi
 test -d "${restore_dir}/claude_data"
 test ! -e "${restore_dir}/pgdata" && test ! -L "${restore_dir}/pgdata" || exit 1
-(cd "${restore_dir}" && docker compose config --quiet)
 ```
 
-Confirm that the backed-up Compose configuration points to mounts in the new directory. Stop the original stack and start PostgreSQL from the restore directory.
+Run `docker compose config` in the restore directory. Confirm that the mounts use the new paths and ArcReel’s `DATABASE_URL` points to the `postgres` service in the restored Compose project. Then stop the original stack and start PostgreSQL from the restore directory.
 
 ```bash
 docker compose down
@@ -500,6 +505,12 @@ curl -f http://localhost:1241/health
 ```
 
 After verification, run future Compose and backup commands from the restore directory. To roll back, run `docker compose down` there, then run `docker compose up -d` in the original directory.
+
+### 6.4 Back Up and Restore External PostgreSQL {#external-postgresql-backup-restore}
+
+1. Stop ArcReel writes. Identify the source database from the effective `DATABASE_URL` and back it up with your hosting provider’s tools or [`pg_dump`](https://www.postgresql.org/docs/18/app-pgdump.html). Archive the configuration and data root at the same point in time using the steps above. Skip the `pg_dump` command that runs inside Compose. Resume the original service after all backups finish.
+2. Extract the configuration and data root into the new location, then update the host mounts in the restored configuration to use the new paths. Use your hosting provider’s restore tools, or [restore the SQL dump](https://www.postgresql.org/docs/18/backup-dump.html#BACKUP-DUMP-RESTORE) into a separate, empty database. Keep the original database for rollback.
+3. Update the restored deployment’s `DATABASE_URL` and verify with `docker compose config` that it points to the restored database. Check the mounts and object storage before starting ArcReel, then check `/health` and verify your project contents.
 
 ## 7. Reverse Proxy and HTTPS {#reverse-proxy-and-https}
 

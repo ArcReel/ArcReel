@@ -374,9 +374,11 @@ image: arcreel/arcreel:X.Y.Z
 
 在「新增图片保存位置」中启用对象存储后，远端图片的实际内容仅保存在你的 TOS 存储桶中，数据根与数据库备份只包含其记录及可清理的本地缓存。恢复备份时，连接配置仍须指向原来的存储桶，桶内对象也需一并保留。由于 ArcReel 会清理不再使用的图片对象，备份后被删除的项目或版本，其对应对象可能已从桶中移除，恢复较早备份后这些图片将无法读取。如需支持恢复到较早时间点，请在停止写入期间一并备份桶内 `arcreel-materials/` 下的对象（或为存储桶开启版本控制），恢复时再放回原桶与原对象键，详见[新增图片保存到对象存储](../guide/asset-storage.md#remote-image-storage)。
 
+备份前用 `docker compose config` 核对生效的配置，确认 ArcReel 实际连接的数据库和挂载的数据根。下文的 `tar` 示例使用默认的 `docker-compose.yml`。如果有自动加载的 override 文件，或通过 `COMPOSE_FILE`、`-f` 选用了其他文件，将实际使用的所有 Compose 文件加入配置归档，保留相对路径。恢复到新目录后，更新指向原目录的 `COMPOSE_FILE` 或 `-f` 路径，按原顺序加载解包后的文件。参见 [Docker Compose 多文件配置](https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/)。
+
 ### 6.1 SQLite 部署备份 {#backup-sqlite}
 
-数据根已经包含项目、默认 SQLite 数据库、日志和 Vertex 凭据，备份整个数据根，并归档当前的 Compose 文件、`.env` 和 `claude_data/`。使用额外 Compose 文件时一并归档。
+数据根已经包含项目、默认 SQLite 数据库、日志和 Vertex 凭据，备份整个数据根，并归档当前的 Compose 文件、`.env` 和 `claude_data/`。
 
 在当前 Compose 目录执行。首次部署默认位于 `deploy/`，使用同目录下的 `projects/`。先确认宿主机上的实际数据根目录，再停止写入。如果使用了 `ARCREEL_DATA_DIR` 与自定义挂载，请将 `data_dir` 设为该挂载对应的宿主机绝对路径：
 
@@ -418,6 +420,8 @@ docker compose start arcreel
 
 ### 6.2 PostgreSQL 部署备份 {#backup-postgresql}
 
+下面的数据库命令仅适用于 ArcReel 连接到同一套 Compose 的 `postgres` 服务。连接其他 PostgreSQL 时，按[外部 PostgreSQL 的备份与恢复](#external-postgresql-backup-restore)操作。
+
 在当前生产 Compose 目录执行。首次部署默认位于 `deploy/production/`。先停止 ArcReel 应用，同时保持 PostgreSQL 运行，以确保数据库和项目文件处于同一备份时间点。归档 Compose 配置中实际挂载的数据根。若使用自定义挂载，先将 `data_dir` 改成对应的宿主机绝对路径。
 
 ```bash
@@ -450,6 +454,8 @@ SQL、配置和数据根归档使用同一时间标签，须配套保存和恢�
 
 ### 6.3 PostgreSQL 恢复 {#restore-postgresql}
 
+本节恢复同一套 Compose 管理的 `postgres` 服务。外部数据库见[外部 PostgreSQL 的备份与恢复](#external-postgresql-backup-restore)。
+
 请使用[同一时间戳的归档和 SQL 备份](#backup-postgresql)。在当前生产 Compose 目录下执行，恢复至全新的相邻目录，以便保留原目录中的数据库与文件用于回滚。以下步骤适用于默认的相对挂载路径；若使用自定义挂载，请先修改备份配置，让数据根和 Agent 数据挂载到新部署目录中解包后的 `projects/` 和 `claude_data/`，并将 PostgreSQL 挂载到新部署目录下尚未创建的 `pgdata/`。若启用了图片对象存储，请提前准备好[同一备份时点的对象](#backup-and-restore)，确保恢复后的连接能正常读取原存储桶中的对应图片。
 
 先将归档解压到空目录，核对恢复配置和凭证。文件归档已经包含 `projects/` 时，直接使用其中的数据根。替换命令中的时间戳，并在同一 shell 中完成本节各步。
@@ -474,10 +480,9 @@ if [ ! -d "${restore_dir}/projects" ]; then
 fi
 test -d "${restore_dir}/claude_data"
 test ! -e "${restore_dir}/pgdata" && test ! -L "${restore_dir}/pgdata" || exit 1
-(cd "${restore_dir}" && docker compose config --quiet)
 ```
 
-确认备份配置指向新目录下的挂载后，停掉原 Compose，在恢复目录启动 PostgreSQL。
+在恢复目录用 `docker compose config` 确认挂载指向新位置，且 ArcReel 的 `DATABASE_URL` 指向这套恢复部署的 `postgres` 服务。确认后停掉原 Compose，在恢复目录启动 PostgreSQL。
 
 ```bash
 docker compose down
@@ -500,6 +505,12 @@ curl -f http://localhost:1241/health
 ```
 
 验证通过后，后续请在恢复目录执行 Compose 和备份命令。如需回滚，先在恢复目录执行 `docker compose down`，再回到原目录执行 `docker compose up -d`。
+
+### 6.4 外部 PostgreSQL 的备份与恢复 {#external-postgresql-backup-restore}
+
+1. 停止 ArcReel 写入。根据生效的 `DATABASE_URL` 确认源库，用托管服务的备份工具或 [`pg_dump`](https://www.postgresql.org/docs/18/app-pgdump.html) 备份该库。按上文归档相同时间点的配置和数据根，无需执行 Compose 内的 `pg_dump`。文件和数据库备份完成后再恢复原服务。
+2. 恢复时将配置与数据根解包到新位置，并将恢复配置中的宿主机挂载改到新路径。使用托管服务的恢复工具，或按 [PostgreSQL 的恢复说明](https://www.postgresql.org/docs/18/backup-dump.html#BACKUP-DUMP-RESTORE)将 SQL 导入独立的空数据库。保留原库用于回滚。
+3. 更新恢复部署中的 `DATABASE_URL`，用 `docker compose config` 确认它指向恢复后的库。核对挂载与对象存储后再启动 ArcReel，并检查 `/health` 和项目内容。
 
 ## 7. 反向代理与 HTTPS {#reverse-proxy-and-https}
 
