@@ -1885,6 +1885,9 @@ def _write_legacy_storyboard_frame_project(root: Path) -> Path:
     script_path = project_dir / "scripts/episode_1.json"
     script = _load_json_object(script_path)
     first = script["segments"][0]
+    first["generated_assets"]["storyboard_image"] = "scene_E1S1.png"
+    first["generated_assets"]["video_uri"] = "empty.mp4"
+    (project_dir / "videos/empty.mp4").write_bytes(b"")
     first["end_frame_image"] = "end_frames/scene_E1S1.png"
     first["generated_assets"]["storyboard_last_image"] = "storyboards/last_E1S1.png"
     for reference in (first["end_frame_image"], first["generated_assets"]["storyboard_last_image"]):
@@ -1910,9 +1913,47 @@ def _write_legacy_reference_thumbnail_project(root: Path) -> Path:
     return project_dir
 
 
+def _write_modified_storyboard(root: Path, *, modify: Callable[[Path], object]) -> Path:
+    project_dir = write_legacy_storyboard_project(root)
+    modify(project_dir)
+    return project_dir
+
+
+def _write_shared_asset_project(root: Path, *, modify: Callable[[Path], object]) -> Path:
+    project_dir = write_legacy_style_project(root)
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    project["products"]["咖啡"] = {"description": "咖啡"}
+    project["props"]["伞"] = {"description": "油纸伞", "prop_sheet": "props/伞.png"}
+    prop = project_dir / "props/伞.png"
+    prop.parent.mkdir()
+    prop.write_bytes(b"umbrella")
+    _write_json(project_path, project)
+    advance_project_schema(project_dir, to_version=18)
+    modify(project_dir)
+    return project_dir
+
+
 # 每种旧项目样本在这里登记一次，原地迁移与带信封的归档导入共用。
 LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
     "storyboard": write_legacy_storyboard_project,
+    "shared-product-originals": partial(_write_shared_asset_project, modify=share_reference_files),
+    "borrowed-sheet": partial(_write_shared_asset_project, modify=share_asset_sheets),
+    "borrowed-derivative": partial(_write_shared_asset_project, modify=share_derivative_sheet),
+    "repointed-registered-sheet": partial(_write_shared_asset_project, modify=repoint_registered_asset_sheet),
+    "shared-item-id": partial(
+        _write_modified_storyboard, modify=partial(reuse_item_id_across_episodes, item_id="E1S01")
+    ),
+    "crossed-script-bindings": partial(
+        _write_modified_storyboard,
+        modify=partial(
+            cross_bind_episode_scripts, filenames={1: "episode_2.json", 2: "episode_1.json"}, ledger_order=[2, 1]
+        ),
+    ),
+    "missing-character-original": write_legacy_unregistrable_asset_sheet_project,
+    "missing-original-occupied-target": partial(
+        _write_modified_storyboard, modify=share_a_sheet_with_a_missing_reference_and_occupied_target
+    ),
     "storyboard-frames": _write_legacy_storyboard_frame_project,
     "retired-flash-lite-aistudio": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-aistudio"),
     "retired-flash-lite-vertex": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-vertex"),
