@@ -65,6 +65,8 @@ Providers' specific models, parameters, regional availability, and pricing chang
 
 The built-in OpenAI provider offers text and image capabilities. OpenAI-compatible video and TTS are connected through a Custom Provider's call endpoints.
 
+Volcengine Ark Agent Plan uses the subscription quota first. By default, ArcReel does not estimate the cost of these calls. If you enable overage postpaid billing for a supported model in the Ark console, Ark bills calls beyond the plan quota separately. Check your Ark bill for the actual charges. See Ark's [overage postpaid billing guide](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh).
+
 ## 3. Configuration Layers {#configuration-layers}
 
 ArcReel supports:
@@ -727,8 +729,9 @@ Image generation through a declarative endpoint or a ComfyUI endpoint does not r
 
 Each provider can have a multiplier that applies to the cost of all its calls, to reflect top-up discounts or relay price differences.
 Models of custom providers, and models you added yourself under a built-in provider, can also have their own multiplier, so the final cost = official price × provider multiplier × model multiplier. For example, if a relay charges 80% of the official price across the board, set the provider multiplier to 0.8; if one model there costs 1.5× the official price, set that model's multiplier to 1.875 (0.8 × 1.875 = 1.5).
-The multiplier defaults to 1; Volcengine Ark Agent Plan is billed by subscription and ComfyUI providers run on your own hardware, so their multipliers default to 0 and no cost is computed. Changing a multiplier only affects later calls;
-costs already recorded are not recalculated.
+The multiplier defaults to 1. Volcengine Ark Agent Plan and locally hosted ComfyUI providers default to a multiplier of 0, so ArcReel does not estimate the cost of their calls. If you enable overage postpaid billing for a supported model in the Ark console, Ark bills calls beyond the plan quota separately. Check your Ark bill for the actual charges. See Ark's [overage postpaid billing guide](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh).
+
+Changing a multiplier only affects later calls. Costs already recorded are not recalculated.
 
 Agent session costs are computed from the same model catalog; the cost reported by the Claude Agent SDK is not used:
 
