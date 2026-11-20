@@ -378,7 +378,7 @@ Before backing up, use `docker compose config` to confirm which database and dat
 
 ### 6.1 Back Up a SQLite Deployment {#backup-sqlite}
 
-The data root already contains projects, the default SQLite database, logs, and Vertex credentials. Back up the entire data root along with the active Compose file, `.env`, and `claude_data/`.
+Back up the entire data root, including projects, the default SQLite database, logs, and Vertex credentials. Also archive the active Compose files, `.env`, and `claude_data/`.
 
 Run the commands from the active Compose directory. The initial deployment uses `deploy/` and its `projects/` subdirectory by default. Find the actual data root on the host, then stop writes. For a custom mount with `ARCREEL_DATA_DIR`, set `data_dir` to the corresponding absolute host path:
 
@@ -415,7 +415,7 @@ docker compose start arcreel
 To restore:
 
 1. Stop ArcReel and keep the original deployment directory for rollback.
-2. Extract the configuration archive into a new deployment directory. If it references custom host paths from the original deployment, change them to new paths. Confirm that the data root maps to a new, empty directory, then extract the paired data archive there.
+2. Extract the configuration archive into a new deployment directory. If any custom mounts still point to the original deployment's directories, update them to the new paths. Confirm that the data root mount points to a new, empty directory, then extract the full data archive into that empty directory.
 3. Run `docker compose up -d --wait arcreel` from the restore directory. Check `/health` and open several projects to verify their images, videos, and version history.
 
 ### 6.2 Back Up a PostgreSQL Deployment {#backup-postgresql}
@@ -482,7 +482,7 @@ test -d "${restore_dir}/claude_data"
 test ! -e "${restore_dir}/pgdata" && test ! -L "${restore_dir}/pgdata" || exit 1
 ```
 
-Run `docker compose config` in the restore directory. Confirm that the mounts use the new paths and ArcReel’s `DATABASE_URL` points to the `postgres` service in the restored Compose project. Then return to the original deployment directory to stop its stack. Switch to the restore directory to start PostgreSQL.
+Run `docker compose config` in the restore directory. Confirm that the mounts use the new paths and that ArcReel’s `DATABASE_URL` points to the new deployment’s `postgres` service. Return to the original deployment directory and stop its stack. Then switch back to the restore directory and start only PostgreSQL.
 
 ```bash
 cd "${active_dir}"
@@ -492,7 +492,7 @@ docker compose up -d postgres
 docker compose ps postgres
 ```
 
-Check that PostgreSQL is healthy and that the target is a new, empty database. If you use a custom database name or user, create the empty database and the required roles in the restore instance before importing the SQL. The import runs in one transaction. If it fails, resolve the error and retry the import. Start ArcReel only after the import succeeds.
+Once PostgreSQL is healthy, import the SQL into the new, empty database. If you use a custom database name or user, create the empty database and the required roles in the restore instance first. The import runs in one transaction and rolls back automatically if it fails. Resolve the error before retrying, and start ArcReel only after the import succeeds.
 
 ```bash
 docker compose exec -T postgres psql -X --single-transaction -v ON_ERROR_STOP=1 -U arcreel -d arcreel -f - < "${db_dump}"

@@ -378,7 +378,7 @@ image: arcreel/arcreel:X.Y.Z
 
 ### 6.1 SQLite 部署备份 {#backup-sqlite}
 
-数据根已经包含项目、默认 SQLite 数据库、日志和 Vertex 凭据，备份整个数据根，并归档当前的 Compose 文件、`.env` 和 `claude_data/`。
+备份整个数据根，其中包括项目、默认 SQLite 数据库、日志和 Vertex 凭据。当前使用的 Compose 文件、`.env` 和 `claude_data/` 也要一并归档。
 
 在当前 Compose 目录执行。首次部署默认位于 `deploy/`，使用同目录下的 `projects/`。先确认宿主机上的实际数据根目录，再停止写入。如果使用了 `ARCREEL_DATA_DIR` 与自定义挂载，请将 `data_dir` 设为该挂载对应的宿主机绝对路径：
 
@@ -415,7 +415,7 @@ docker compose start arcreel
 恢复时：
 
 1. 停止 ArcReel，保留原部署目录供回滚。
-2. 将配置归档解压到新部署目录。若配置引用原部署的自定义宿主机路径，改为新路径。确认数据根挂载到新的空目录后，再完整解压配套的数据归档。
+2. 把配置归档解压到新部署目录。如果 Compose 配置里的自定义挂载还指向原部署的目录，先改到新位置。确认数据根挂载指向新的空目录后，把整份数据归档解压到这个空目录。
 3. 在恢复目录执行 `docker compose up -d --wait arcreel`，检查 `/health`，打开项目验证图片、视频和版本历史。
 
 ### 6.2 PostgreSQL 部署备份 {#backup-postgresql}
@@ -482,7 +482,7 @@ test -d "${restore_dir}/claude_data"
 test ! -e "${restore_dir}/pgdata" && test ! -L "${restore_dir}/pgdata" || exit 1
 ```
 
-在恢复目录用 `docker compose config` 确认挂载指向新位置，且 ArcReel 的 `DATABASE_URL` 指向这套恢复部署的 `postgres` 服务。确认后回到原部署目录停掉原 Compose，再进入恢复目录启动 PostgreSQL。
+在恢复目录运行 `docker compose config`，确认挂载都指向新位置，ArcReel 的 `DATABASE_URL` 也指向新部署的 `postgres` 服务。然后回到原部署目录停止原服务，再回到恢复目录，只启动 PostgreSQL。
 
 ```bash
 cd "${active_dir}"
@@ -492,7 +492,7 @@ docker compose up -d postgres
 docker compose ps postgres
 ```
 
-确认 PostgreSQL 健康检查通过后再导入 SQL。目标必须是此次新建的空数据库。使用自定义库名或用户时，先在恢复实例创建所需的空数据库与角色。导入在一个事务中完成。若中途报错，先排除问题并重试导入。确认导入成功后再启动 ArcReel。
+等 PostgreSQL 健康检查通过后，把 SQL 导入这次新建的空数据库。如果使用自定义库名或用户，先在恢复实例中创建相应的空数据库和角色。导入在一个事务中完成，失败时会自动回滚。排除问题后可以重试，导入成功后再启动 ArcReel。
 
 ```bash
 docker compose exec -T postgres psql -X --single-transaction -v ON_ERROR_STOP=1 -U arcreel -d arcreel -f - < "${db_dump}"

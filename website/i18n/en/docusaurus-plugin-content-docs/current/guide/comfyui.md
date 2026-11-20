@@ -112,7 +112,7 @@ An empty video duration tier list has three distinct causes, and the UI names th
 
 Outside those three, when frame count and frame rate are both usable and write back unchanged, ArcReel derives the workflow's native duration as `seconds = round((literal frames − 1) ÷ fps)` and offers it as the default tier; "writes back unchanged" means the inverse conversion `frames = round(seconds × fps) + 1`, aligned to the step, still equals the literal frame count. You can add or remove tiers in model settings; the edited tiers are saved only when they differ from the native duration, and clearing them returns to the native duration.
 
-When the tier list is empty, script planning still uses reference tiers to estimate content length. Whether submission uses the planned duration to rewrite the frame count depends on the frame-count binding and frame-rate conditions above.
+When no duration tier is available, script planning still uses reference tiers to estimate content length. When you generate a video, ArcReel uses the three cases above to decide whether to rewrite the frame count based on the planned duration.
 
 ### 4.3 Three Seed Policies {#seed-policies}
 
