@@ -314,7 +314,7 @@ curl -f http://localhost:1241/health
 
 新版 Compose 仅挂载一个数据卷 `./projects`（外加 `.env` 和 `claude_data/`），不再挂载 `./logs` 与 `./vertex_keys`。旧卷中的文件只有在启动时仍处于挂载状态才会被并入数据根，其中 Vertex 凭据仅在布局迁移那一次搬入，写入完成标记后不再处理。因此，Docker 部署从旧版本升级需要分两步进行（以下以 `deploy/` 为例，生产部署请替换为 `deploy/production/`）：
 
-1. **先沿用原 Compose 升级（零配置）。** 不改动 Compose 文件，按[默认部署升级](#upgrade-sqlite-deployment)或[生产部署升级](#upgrade-postgresql-deployment)执行 `docker compose pull` 与 `docker compose up -d`。此时两个旧卷仍处于挂载状态，首次启动会将其中的文件并入数据根。请在启动日志中确认出现「数据根布局迁移完成」，并核实原有日志和凭据文件已出现在 `deploy/projects/logs/` 与 `deploy/projects/vertex_keys/` 下（凭据文件名可能已更名为 `vertex_cred_<凭据编号>.json`）。
+1. **保留旧卷挂载，先启动新版。** 如果固定了镜像标签，先将 ArcReel 的镜像标签改为目标版本。保留原 Compose 的卷挂载，按[默认部署升级](#upgrade-sqlite-deployment)或[生产部署升级](#upgrade-postgresql-deployment)执行 `docker compose pull` 与 `docker compose up -d`。此时两个旧卷仍处于挂载状态，首次启动会将其中的文件并入数据根。请在启动日志中确认出现「数据根布局迁移完成」，并核实原有日志和凭据文件已出现在 `deploy/projects/logs/` 与 `deploy/projects/vertex_keys/` 下（凭据文件名可能已更名为 `vertex_cred_<凭据编号>.json`）。
 2. **再切换至单卷 Compose。** 删除 Compose 中的 `./logs` 与 `./vertex_keys` 两行挂载配置（或直接换用新版 Compose 文件），再执行 `docker compose up -d`。完成后即可删除 `deploy/logs/` 和 `deploy/vertex_keys/`；若其中仍有残留文件（例如数据根中已存在同名文件，或旧卷以只读方式挂载），删除前请先确认不再需要。
 
 如果已经换用新版 Compose 但尚未启动新版本，请在首次启动前临时把这两行挂载加回去，再按上述两个阶段操作。
@@ -376,7 +376,7 @@ image: arcreel/arcreel:X.Y.Z
 
 ### 6.1 SQLite 部署备份 {#backup-sqlite}
 
-数据根已经包含项目、默认 SQLite 数据库、日志和 Vertex 凭据，文件系统备份只需归档数据根，外加 `.env` 与 `claude_data/`。
+数据根已经包含项目、默认 SQLite 数据库、日志和 Vertex 凭据，备份整个数据根，并归档当前的 Compose 文件、`.env` 和 `claude_data/`。使用额外 Compose 文件时一并归档。
 
 在当前 Compose 目录执行。首次部署默认位于 `deploy/`，使用同目录下的 `projects/`。先确认宿主机上的实际数据根目录，再停止写入。如果使用了 `ARCREEL_DATA_DIR` 与自定义挂载，请将 `data_dir` 设为该挂载对应的宿主机绝对路径：
 
@@ -396,7 +396,7 @@ mkdir -p backups
 chmod 700 backups
 
 tar -czf "backups/arcreel-config-${backup_stamp}.tar.gz" \
-  .env claude_data
+  docker-compose.yml .env claude_data
 
 tar -czf "backups/arcreel-projects-${backup_stamp}.tar.gz" \
   -C "${data_dir}" .
@@ -413,7 +413,7 @@ docker compose start arcreel
 恢复时：
 
 1. 停止 ArcReel，保留原部署目录供回滚。
-2. 在新的部署目录使用备份时的 Compose 配置，解压配置归档中的 `.env` 与 `claude_data/`，并将配套数据归档完整解压到该配置挂载的空数据目录。
+2. 将配置归档解压到新部署目录，再将配套数据归档完整解压到 Compose 配置挂载的空数据目录。
 3. 在恢复目录执行 `docker compose up -d --wait arcreel`，检查 `/health`，打开项目验证图片、视频和版本历史。
 
 ### 6.2 PostgreSQL 部署备份 {#backup-postgresql}

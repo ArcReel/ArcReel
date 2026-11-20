@@ -177,10 +177,10 @@ Version numbers and the changelog are maintained automatically by [release-pleas
 | `feat`      | minor   | ✨ 新功能 |
 | `fix`       | patch   | 🐛 Bug 修复 |
 | `feat!` / any type + `!` / footer containing `BREAKING CHANGE:` | **major** (minor when version <1.0.0) | ⚠️ BREAKING CHANGES (at the top of the changelog) |
-| `perf` / `refactor` / `docs` / `revert` | No increment | Shown (⚡ / ♻️ / 📚 / ↩️) |
+| `perf` / `refactor` / `docs` / `revert` | patch | Shown (⚡ / ♻️ / 📚 / ↩️) |
 | `chore` / `ci` / `build` / `test` / `style` | No increment | Hidden |
 
-> By default, only `feat` and `fix` (as well as breaking changes) trigger a version bump in release-please. Configuring `perf`/`refactor`/`docs`/`revert` with `hidden: false` affects only their presentation in the changelog; it does not make them trigger a patch bump. If an iteration contains only these commit types, no Release PR is produced until the next `fix`/`feat` commit arrives.
+> These commit types appear in the changelog. They can open a patch Release PR on their own.
 
 The `version` fields in `pyproject.toml` and `frontend/package.json` are maintained automatically by release-please (see the `# managed by release-please` comment in `pyproject.toml`) and are **read-only for developers**. `uv.lock` is likewise synchronized automatically by `uv lock` in the release-please workflow on the Release PR branch. The factory model-catalog snapshot (`lib/catalog/snapshot/`) is refreshed on the Release PR branch the same way: the workflow fetches the latest data from the catalog data repository and commits it once it passes the validator; if the fetch fails or validation fails, the snapshot is left unchanged and the workflow shows a notice. The actual version state is defined by the git tag and `.release-please-manifest.json`.
 

@@ -23,11 +23,11 @@ disable-model-invocation: true
 | 账本 scope | `--scope-spec <N>` | `--scope-issues <N,...>` |
 
 1. 运行 `scripts/batch-poll.sh --repo-root <repo-root>`，范围参数按上表。随后逐个通读 issue 正文与评论，得到真实的验收边界、canonical dependency graph、triage 与认领状态。`--ready` 只做机械筛选，调研、评估等不产出代码的 issue 由你剔除。
-2. 确定 frontier：只有 `OPEN` issue 可进入 stage 与 PR `Closes` 清单；其中带 `ready-for-agent`、无他人认领且 blockers 已完成的进入 frontier。issue 没有 triage 标签时按语义裁决；`ready-for-human` issue 及其被阻塞的下游留在 frontier 之外。
+2. 确定 frontier：只有 `OPEN` issue 可进入 stage 与 PR `Closes` 清单；其中带 `ready-for-agent`、无他人认领且 blockers 已完成的进入 frontier。issue 没有 triage 标签时按语义裁决；`ready-for-human` issue 及其被阻塞的下游留在 frontier 之外。 `--ready` 没有候选时，在会话中说明原因并结束。
 3. 将本批范围与 `.afk/` 中未 `closed` 账本的 scope、用户告知的并行批次对照。范围相同时暂停并让用户选择接管或重开，两者均先读 [recovery.md](references/recovery.md)；部分重叠时列入第 5 步的展示。
 4. 按上表将依赖图划成交付 stage。各角色启动前按 [model-routing](../model-routing/SKILL.md) 选模型与 effort，记录 Category 或路由与一句理由：stage-reviewer 走 Review 路由，qa-verifier 选 `deep-low`，两者都使用未参与本 stage 任何实现的干净上下文。
 5. 向用户展示 stage、依赖、模型理由、跳过项及下游影响；`--ready` 批次另列入选与剔除两份清单，由用户确认或删减。同时请求两项授权：全部 stage PR 的 rebase merge，以及部署冒烟中真实生成的费用预算。
-6. 使用 `scripts/ledger.sh --new` 创建薄账本，记录 scope、计划裁决与授权信息；该脚本会生成并输出本批次的 `batch-id`。账本仅记录 Git / GitHub 无法重新推导的事实。
+6. `--ready` 批次经用户删减后没有入选 issue，在会话中说明原因并结束。其余情况使用 `scripts/ledger.sh --new` 创建薄账本，记录 scope、计划裁决与授权信息；该脚本会生成并输出本批次的 `batch-id`。账本仅记录 Git / GitHub 无法重新推导的事实。
 
 ## 2. 执行 task graph
 

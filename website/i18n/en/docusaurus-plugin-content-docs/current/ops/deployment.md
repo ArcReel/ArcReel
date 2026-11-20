@@ -314,7 +314,7 @@ Two more items are not governed by the completion marker and are checked on ever
 
 The new Compose files mount a single data volume, `./projects`, plus `.env` and `claude_data/`; they no longer mount `./logs` or `./vertex_keys`. Files in the old volumes are merged into the data root only while those volumes are still mounted at startup, and Vertex credentials are moved only once, during the layout migration; after the completion marker is written they are no longer processed. A Docker deployment therefore upgrades from an older version in two phases (the examples use `deploy/`; for the production deployment use `deploy/production/`):
 
-1. **Upgrade with your existing Compose file (no configuration changes).** Leave the Compose file as it is and run `docker compose pull` and `docker compose up -d` as described in [Upgrade the Default Deployment](#upgrade-sqlite-deployment) or [Upgrade the Production Deployment](#upgrade-postgresql-deployment). Both old volumes are still mounted, so the first startup merges their files into the data root. Confirm that the startup log contains the data root layout migration completion message (「数据根布局迁移完成」), and that the original log and credential files now appear under `deploy/projects/logs/` and `deploy/projects/vertex_keys/` (credential files may have been renamed to `vertex_cred_<credential-id>.json`).
+1. **Start the new version with the old volume mounts in place.** If you pinned the ArcReel image tag, change it to the target version first. Keep the existing volume mounts and run `docker compose pull` and `docker compose up -d` as described in [Upgrade the Default Deployment](#upgrade-sqlite-deployment) or [Upgrade the Production Deployment](#upgrade-postgresql-deployment). Both old volumes are still mounted, so the first startup merges their files into the data root. Confirm that the startup log contains the data root layout migration completion message (「数据根布局迁移完成」), and that the original log and credential files now appear under `deploy/projects/logs/` and `deploy/projects/vertex_keys/` (credential files may have been renamed to `vertex_cred_<credential-id>.json`).
 2. **Then switch to the single-volume Compose file.** Remove the `./logs` and `./vertex_keys` volume lines from the Compose file (or switch to the new Compose file), then run `docker compose up -d` again. You can then delete `deploy/logs/` and `deploy/vertex_keys/`; if files remain in them (for example because a file with the same name already existed in the data root, or because the old volume was mounted read-only), first confirm that you no longer need them.
 
 If you already switched to the new Compose file but have not started the new version yet, temporarily add the two volume lines back before the first startup, then follow the two phases above.
@@ -376,7 +376,7 @@ After object storage is enabled under **Save new images to**, the content of rem
 
 ### 6.1 Back Up a SQLite Deployment {#backup-sqlite}
 
-The data root already contains projects, the default SQLite database, logs, and Vertex credentials, so a file-system backup only needs to archive the data root plus `.env` and `claude_data/`.
+The data root already contains projects, the default SQLite database, logs, and Vertex credentials. Back up the entire data root along with the active Compose file, `.env`, and `claude_data/`. Include any additional Compose files you use.
 
 Run the commands from the active Compose directory. The initial deployment uses `deploy/` and its `projects/` subdirectory by default. Find the actual data root on the host, then stop writes. For a custom mount with `ARCREEL_DATA_DIR`, set `data_dir` to the corresponding absolute host path:
 
@@ -396,7 +396,7 @@ mkdir -p backups
 chmod 700 backups
 
 tar -czf "backups/arcreel-config-${backup_stamp}.tar.gz" \
-  .env claude_data
+  docker-compose.yml .env claude_data
 
 tar -czf "backups/arcreel-projects-${backup_stamp}.tar.gz" \
   -C "${data_dir}" .
@@ -413,7 +413,7 @@ docker compose start arcreel
 To restore:
 
 1. Stop ArcReel and keep the original deployment directory for rollback.
-2. Use the Compose configuration from the backup point in a new deployment directory. Extract `.env` and `claude_data/` from the configuration archive. Extract the paired data archive into the empty data directory mounted by that configuration.
+2. Extract the configuration archive into a new deployment directory. Extract the paired data archive into the empty data directory mounted by that Compose configuration.
 3. Run `docker compose up -d --wait arcreel` from the restore directory. Check `/health` and open several projects to verify their images, videos, and version history.
 
 ### 6.2 Back Up a PostgreSQL Deployment {#backup-postgresql}

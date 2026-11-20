@@ -9,7 +9,7 @@ Spec 和 ticket 统一使用本仓库的 GitHub Issues 管理，并通过 `gh` C
 | Spec | 标题以 `Spec: ` 开头，只打 `Spec` 标签 | 记录整体目标、范围与验收标准，执行时认领其拆出的 ticket |
 | ticket | 从 Spec 拆出的 ticket 在标题末尾加 `[Spec #<父编号>]` | 正文的 `## Parent` 引用父 Spec，同时设为 GitHub 原生 sub-issue |
 
-- 创建子议题用 `gh issue create --parent <父编号>`，为已有议题补父子关系用 `gh issue edit <父编号> --add-sub-issue <子编号>`。
+- 使用 gh 2.94 或更新版本。创建子议题用 `gh issue create --parent <父编号>`，为已有议题补父子关系用 `gh issue edit <父编号> --add-sub-issue <子编号>`。
 - 登记阻塞关系使用 `gh issue edit <待办编号> --add-blocked-by <阻塞编号>`。父子关系表达归属，阻塞关系决定实施顺序。
 - 发布多条议题后逐条读回标题和正文，核对它们与已确认的拆分一一对应。多行正文经 `--body-file` 提交。
 - 可认领项为未分配且带 `ready-for-agent` 的开放议题。用 `gh issue list --state open --label ready-for-agent --search "no:assignee"` 查找，开工前用 `gh issue edit <编号> --add-assignee @me` 认领。保留原分流标签。

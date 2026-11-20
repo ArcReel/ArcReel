@@ -40,7 +40,7 @@ uv sync --group mutation
 ### 2.2 跑一轮
 
 1. 执行 `git fetch` 后从 `origin/main` 切出新分支，并确认工作树已包含上一批合入的 PR。如果基线从过期的本地 `main` 切出，上一批改造解决的 mutant 会在本批「复活」，白白浪费一轮复核。
-2. 在 `[tool.mutmut]` 的 `only_mutate` 中填入本批模块。留空会变异 `source_paths` 全域，一轮耗时数小时。
+2. 在 `[tool.mutmut]` 的 `only_mutate` 中填入本批模块。留空会变异 `source_paths` 全域，一轮耗时数小时。更换模块后，先将需要的基线另存，再按[同批复跑与更换模块的规则](#5-改造后的三层验收)清理旧的 `mutants/`（含 stats）。
 3. 运行：
 
    ```bash

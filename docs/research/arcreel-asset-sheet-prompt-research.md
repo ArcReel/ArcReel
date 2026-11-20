@@ -15,7 +15,7 @@
 
 | 供应商 | 官方是否推荐「一张图排多个面板/视图」 | 官方给出的一致性路径 | 面板数量/一致性的官方说明 | character sheet 用例 |
 | --- | --- | --- | --- | --- |
-| Google Gemini（Nano Banana 系列） | **部分推荐（仅限叙事分格）**：官方 prompting guide 第 6 节 Sequential art (comic panel / storyboard) 给出「Make a 3 panel comic in a [style]」模板；**同主体多视图明确走相反路径**：第 7 节 Character consistency: 360 view 要求逐角度迭代生成，而非单图排版 | **迭代生成 + 多参考图通道**：360 视角靠「iteratively prompting for different angles」并将已生成图回灌为参考；多参考图配额为 Gemini 3 Pro 6 张物体图 + 5 张角色图 + 3 张风格图，3.1 Flash 10 张物体图 + 4 张角色图，3.1 Flash Lite 14 张物体图、无角色通道，合计上限 14 张 | 明确限制：「The model might not create the exact number of images you ask for」；2.5 Flash Image 建议输入图不超过 3 张，3 Pro Image 不超过 14 张 | 未找到「character sheet」字样；官方对等用例是 360 view，做法为逐角度分图 |
+| Google Gemini（Nano Banana 系列） | **部分推荐（仅限叙事分格）**：官方 prompting guide 第 6 节 Sequential art (comic panel / storyboard) 给出「Make a 3 panel comic in a [style]」模板；**同主体多视图**：第 7 节 Character consistency: 360 view 示例按角度迭代生成 | **迭代生成 + 多参考图通道**：360 视角靠「iteratively prompting for different angles」并将已生成图回灌为参考；多参考图配额为 Gemini 3 Pro 6 张物体图 + 5 张角色图 + 3 张风格图，3.1 Flash 10 张物体图 + 4 张角色图，3.1 Flash Lite 14 张物体图、无角色通道，合计上限 14 张 | 明确限制：「The model might not create the exact number of images you ask for」；2.5 Flash Image 建议输入图不超过 3 张，3 Pro Image 不超过 14 张 | 未找到「character sheet」字样；官方对等用例是 360 view，做法为逐角度分图 |
 | OpenAI gpt-image | **推荐**（仅限叙事分格）：cookbook 设有 Story-to-Comic Strip 小节，示例即为「4 equal-sized panels」单图四格 | 单图内逐格描述 + 多图输入按 index 引用 | 「one per panel」，未给出数量上限或一致性保证 | 未找到（全文无 character sheet / multi-view / turnaround 字样） |
 | Black Forest Labs FLUX.2 | **明确相反**：官方多格章节要求逐格分别生成 | 「Generate each panel separately while keeping character descriptions consistent」；一致性靠在每格 prompt 中重复角色描述 | 「Repeat these details in every panel prompt」 | 未找到（多参考图用途列为 character consistency across variations） |
 | 字节 Seedream 4.0/4.5（火山方舟 / BytePlus ModelArk） | **明确相反**：官方将多视图/成套需求归入「多图输出」 | 「Multi-image output」——用「a series」「a set」或指定张数触发成组生成，官方点名 storyboarding、comic creation、IP product design、emoji pack | 技术报告：「image sequences that remain both character-consistent and stylistically aligned」 | 未找到「单图 character sheet」表述；成套设计场景走多图输出 |
@@ -217,7 +217,7 @@ Google 官方在 Character consistency: 360 view 小节中包含一句直接相�
 
 对 A-Pose / T-Pose 检索：本轮 7 家官方文档零命中，即梦无相关内容；subject-driven generation 主线论文（DreamBooth / Textual Inversion / IP-Adapter / InstantID / PuLID / PhotoMaker / Subject-Diffusion / IDAdapter）中，**未找到把「参考图取中性姿态」作为变量做消融的工作**。A-pose 作为规范中间表示确实出现在 3D 角色重建方向（StdGEN 系工作），但那条链路是「单图 → 规范化 → 3D 重建」，与本议题的「参考图 → i2i 条件」不是同一条链路，本次也未取到可引的 verbatim 原文，故不入结论。
 
-一条反向的相关事实：InstantID 明确使用「five facial keypoints (two for the eyes, one for the nose, and two for the mouth)」作为**弱空间条件**，其设计初衷正是让参考图的姿态**不被**传递到输出，从而让用户能够「generate customized images with various poses or styles」。这表明在该架构下，参考图姿态本身并非下游姿态的决定因素。
+[InstantID](https://arxiv.org/html/2401.07519) 用五个面部关键点作为弱空间条件，减弱姿态约束，并展示了不同姿势和风格的输出。关键点仍参与生成。
 来源：https://arxiv.org/abs/2401.07519 （v1 2024-01-15，v2 2024-02-02）
 
 **D4 背景：本块证据最充分的一项，方向明确——参考图背景是污染源。**
@@ -350,7 +350,7 @@ Google 官方（Aspect ratios and image size 小节原文）：「By default, th
 | D4 | 「45° 视角体现立体感」有官方或论文依据 | 未找到（本轮 7 家官方零命中，论文侧无对照实验）；归类为社区口传无背书 |
 | D5 | 参考图取 A-Pose / T-Pose 等中性姿态更利于下游重新摆姿 | 未找到（供应商与 T2I 主线论文均无该变量的消融） |
 | D6 | 官方给出的姿态控制路径是**另给一张姿态参考图**，而非从身份参考图继承 | 官方明确（Google：「For complex poses, include a reference image of the selected pose.」） |
-| D7 | 参考图姿态在弱空间条件架构下不被传递到输出（五关键点设计） | 论文支持（arXiv:2401.07519，InstantID） |
+| D7 | InstantID 用五个面部关键点减弱空间约束，仍将关键点作为生成条件 | 论文支持（arXiv:2401.07519，InstantID） |
 | D8 | 主流 subject-driven 方法在编码前**去除参考图背景**（分割/掩码/噪声填充），去掉该控制则全指标退化 | 论文支持（arXiv:2307.11410 Subject-Diffusion、arXiv:2312.04461 PhotoMaker、arXiv:2404.16022 PuLID） |
 | D9 | 供应商官方对参考图背景（纯色 vs 带环境）的要求 | 未找到（本轮逐页核对 7 家；即梦沿用第一轮结论） |
 | D10 | 参考图张数 3–5 张为主流设定，1→5 张消融最优约 4 张 | 论文支持（arXiv:2208.12242 DreamBooth 及其补充材料；arXiv:2208.01618 同为 3–5 张） |

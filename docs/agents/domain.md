@@ -42,7 +42,7 @@ node website/scripts/translation-lock.mjs record <已核对的源文路径>
 pnpm --dir website check
 ```
 
-`status` 列出异常及对应译文。逐对核对内容后，`record` 更新已确认的源文指纹。编辑站点文案时，用 `pnpm --dir website write-translations --locale en` 生成键，补齐[英文文案](../../website/i18n/en/)，运行 `node website/scripts/ui-messages.mjs` 检查。修改页面结构、链接或导航时，另跑 `pnpm --dir website build` 验证双语构建。
+`status` 列出异常及对应译文。逐对核对内容后，`record` 更新已确认的源文指纹。同时删除源文和译文时，从 `website/i18n/translation.lock.json` 删除对应源文的条目。编辑站点文案时，用 `pnpm --dir website write-translations --locale en` 生成键，补齐[英文文案](../../website/i18n/en/)，运行 `node website/scripts/ui-messages.mjs` 检查。修改页面结构、链接或导航时，另跑 `pnpm --dir website build` 验证双语构建。
 
 ## 盘点与清理
 

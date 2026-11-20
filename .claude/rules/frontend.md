@@ -9,4 +9,4 @@ paths:
 
 改页面外壳、工作区布局、深链、数据刷新、编辑单元、离开拦截或设置页配置问题前，读[前端架构](../../website/docs/dev/architecture.md#frontend-layer)的对应小节。
 
-改原语或 API 替身前，读[前端实施约定](../../docs/agents/frontend.md)。
+安装或使用新原语、给原语写测试、给出站调用打桩或改 API 替身前，读[前端实施约定](../../docs/agents/frontend.md)。

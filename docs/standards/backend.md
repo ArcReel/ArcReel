@@ -38,7 +38,7 @@ paths:
 
 [ADR 0006](../adr/0006-cancel-only-queued-tasks.md)规定已发出的供应商调用继续完成。自供应商返回或产物提交起，到执行器返回前，线程调用用 `lib/infra/async_thread.py` 的 `run_noninterruptible_sync`。它等线程结束再交回结果，防止清理与线程落盘并发，或完成回调与失败补偿同时执行。
 
-由于该函数会吞掉取消信号，调用点必须放在 `asyncio.timeout` 块与 `asyncio.wait_for` 之外，否则超时控制将失效。
+该函数会吞掉取消信号，调用点应在 `asyncio.timeout` 与 `asyncio.wait_for` 之外。下载末尾的原子改名可留在预算内，见下文。
 
 图片、视频、音频后端落盘时按以下方式分工：
 

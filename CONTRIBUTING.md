@@ -170,10 +170,10 @@ chore: 构建/工具变更
 | `feat`      | minor   | ✨ 新功能 |
 | `fix`       | patch   | 🐛 Bug 修复 |
 | `feat!` / 任意 type + `!` / footer 含 `BREAKING CHANGE:` | **major**（版本 <1.0.0 时为 minor） | ⚠️ BREAKING CHANGES（changelog 置顶） |
-| `perf` / `refactor` / `docs` / `revert` | 不步进 | 显示（⚡ / ♻️ / 📚 / ↩️） |
+| `perf` / `refactor` / `docs` / `revert` | patch | 显示（⚡ / ♻️ / 📚 / ↩️） |
 | `chore` / `ci` / `build` / `test` / `style` | 不步进 | 隐藏 |
 
-> release-please 默认只有 `feat`、`fix` 以及破坏性变更会触发版本 bump。将 `perf`/`refactor`/`docs`/`revert` 配置为 `hidden: false` 仅影响它们在 changelog 中的展示，不会触发 patch bump。如果一轮迭代中只有这几类 commit，系统不会生成 Release PR，直到下一个 `fix` 或 `feat` commit 合入。
+> 这些类型在本仓库的 changelog 中可见，仅有这类提交时也能生成 patch Release PR。
 
 `pyproject.toml` 和 `frontend/package.json` 中的 `version` 字段由 release-please 自动维护（见 `pyproject.toml` 中的 `# managed by release-please` 注释），**开发者应将其视为只读**。`uv.lock` 同样由 release-please workflow 在 Release PR 分支上自动运行 `uv lock` 同步。出厂模型目录快照（`lib/catalog/snapshot/`）也会在 Release PR 分支上自动更新：workflow 会拉取目录数据仓库的最新数据，通过校验后自动提交；若拉取失败或校验未通过，快照保持不变，同时 workflow 会给出提示。实际版本状态以 git tag 和 `.release-please-manifest.json` 为准。
 
