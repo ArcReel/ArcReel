@@ -32,7 +32,7 @@ function dropFooterCopyright(root) {
   return true;
 }
 
-function untranslatedMessages(root) {
+export function untranslatedMessages(root) {
   return jsonFiles(resolve(root, UI_ROOT))
     .sort()
     .flatMap((path) =>
@@ -42,14 +42,16 @@ function untranslatedMessages(root) {
     );
 }
 
-const rootIndex = process.argv.indexOf("--root");
-const root = rootIndex === -1 ? process.cwd() : resolve(process.argv[rootIndex + 1]);
+if (import.meta.main) {
+  const rootIndex = process.argv.indexOf("--root");
+  const root = rootIndex === -1 ? resolve(import.meta.dirname, "../..") : resolve(process.argv[rootIndex + 1]);
 
-if (dropFooterCopyright(root)) console.log(`Removed the generated copyright key from ${FOOTER_PATH}.`);
-const untranslated = untranslatedMessages(root);
-if (untranslated.length === 0) {
-  console.log("UI messages are translated.");
-} else {
-  for (const line of untranslated) console.log(line);
-  process.exitCode = 1;
+  if (dropFooterCopyright(root)) console.log(`Removed the generated copyright key from ${FOOTER_PATH}.`);
+  const untranslated = untranslatedMessages(root);
+  if (untranslated.length === 0) {
+    console.log("UI messages are translated.");
+  } else {
+    for (const line of untranslated) console.log(line);
+    process.exitCode = 1;
+  }
 }

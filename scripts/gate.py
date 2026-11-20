@@ -104,8 +104,8 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
     "catalog-core": ("packages/arcreel-catalog-core/*",),
     "workflows": (".github/*", ".pre-commit-config.yaml"),
     "frontend": ("frontend/*",),
-    # website-checks 同时跑翻译 lockfile 的缺译与滞后报告，CONTRIBUTING 与两个 README 在其特例映射内
-    "website": ("website/*", "CONTRIBUTING.md", "README.md", "README.en.md", ".claude/skills/translate-docs/*"),
+    # CONTRIBUTING 与两个 README 同样受文档站翻译检查约束。
+    "website": ("website/*", "CONTRIBUTING.md", "README.md", "README.en.md"),
     # 替身漂移的来源是录制后端读到的输入，后端的任何改动都可能带进来；另加录制脚本自身。
     "e2e-record": (
         *BACKEND_TRIGGERS,

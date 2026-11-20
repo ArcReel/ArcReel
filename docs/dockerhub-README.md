@@ -21,28 +21,10 @@ Images are published for `linux/amd64` and `linux/arm64`, with SBOM and provenan
 
 ## Quick start
 
-Compose is the supported way to run ArcReel — the application needs a database, a data volume, and specific kernel capabilities for its sandbox:
+Run ArcReel with the Compose files in the [ArcReel repository](https://github.com/ArcReel/ArcReel/tree/main/deploy). They configure the data volumes and the kernel capabilities required by the Agent sandbox.
 
-```bash
-git clone https://github.com/ArcReel/ArcReel.git
-cd ArcReel/deploy
-
-cp .env.example .env
-docker compose up -d
-```
-
-Open <http://localhost:1241>. The default username is `admin`. If `AUTH_PASSWORD` is empty, ArcReel generates a password on first startup and writes it back to `deploy/.env`.
-
-> Default Compose publishes port `1241` on all host interfaces. Do not expose ArcReel directly to the public Internet; before enabling remote access, configure authentication and use HTTPS, a VPN, or a secure tunnel.
-
-For the complete first-run walkthrough see [Getting Started](https://docs.arc-reel.com/en/guide/getting-started); for production deployment, upgrades, backups, and reverse proxies see [Deployment and Operations](https://docs.arc-reel.com/en/ops/deployment).
-
-## What you get
-
-- **One production workflow**: turn novels, finished screenplays, or product assets into characters, scenes, props, storyboards, video clips, and final videos step by step.
-- **Visual continuity with human control**: reuse reference assets across shots, review key stages, regenerate individual assets, and roll back to earlier versions.
-- **Manageable models and costs**: configure text, image, video, and TTS capabilities in one place, then review estimated costs and actual usage.
-- **Editable delivery**: render final videos directly or export Jianying drafts to refine subtitles, voice-over, pacing, and transitions.
+- [Getting Started](https://docs.arc-reel.com/en/guide/getting-started) covers installation, initial authentication, and the first video.
+- [Deployment and Operations](https://docs.arc-reel.com/en/ops/deployment) covers remote access, databases, upgrades, and backups.
 
 ## Support
 

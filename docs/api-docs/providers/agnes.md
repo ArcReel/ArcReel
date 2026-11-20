@@ -9,4 +9,4 @@ Agnes OpenAI-compatible 文本、图片与视频媒体 provider。
 - 简介来源（`lib/i18n/<locale>/providers.py` 的 `provider_desc_agnes`，只写平台是什么，不列模型与能力）：[Agnes AI](https://agnes-ai.com)、[Agnes AI API overview](https://agnes-ai.com/en/docs/overview)
 - 代码：`lib/config/registry.py::PROVIDER_REGISTRY["agnes"]`、`lib/backends/text_backends/agnes.py::AgnesTextBackend`、`lib/backends/image_backends/agnes.py::AgnesImageBackend`、`lib/backends/video_backends/agnes.py::AgnesVideoBackend`、`lib/backends/agnes_shared.py::agnes_base_url`
 
-视频调用端点分为 `agnes-video-2`（`AgnesVideoBackend`）与 `agnes-video-2-5`（`Agnes25VideoBackend`）。提交体、轮询方式、音轨和参考图槽位由端点决定；2.5 的分辨率限制读取条目的 `resolutions`，缺失时只受端点支持的档位约束。
+视频调用端点分为 `agnes-video-2`（`AgnesVideoBackend`）与 `agnes-video-2-5`（`Agnes25VideoBackend`）。请求体结构、轮询方式、音轨与参考图槽位均由端点决定；2.5 版本的分辨率限制读取自模型条目的 `resolutions`，缺失时仅受端点支持的档位约束。

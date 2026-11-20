@@ -1,8 +1,7 @@
 ---
 id: files-and-trash
 title: File View and Project Trash
-sidebar_position: 7
-update_docs: fact-check
+sidebar_position: 8
 ---
 
 # File View and Project Trash {#files-and-trash}
@@ -44,13 +43,10 @@ While a generated result is being saved or rolled back, that resource's past ver
 
 ### General restore rules {#restore-rules}
 
-- A restore only adds. The restored object comes back as new content: it does not overwrite existing content and does not merge with it. If its original name or number is taken, it comes back under a new name or number. The few cases where it cannot be put back are covered later in this section.
-- If the original name or number is free, it is reused. If it is already taken, the object comes back under a new name or number. Storyboards and video units are the exception: they always come back under a new number. The notification after the restore states the new name or number.
-- Restored artifacts are checked for freshness as usual: if their inputs changed after the deletion, they show as stale and need regenerating.
-- Content you just restored can be deleted again and goes back to the project trash.
-- If the same deletion record is restored several times at once, only one restore takes effect, and the later requests report that the record no longer exists.
-- If there is no free place to put the object back, nothing is restored this time and the deletion record is kept. Free up the place and try again, or download the files in the record.
-- Deletion records created before an ArcReel upgrade can still be restored after the upgrade.
+- A restore adds content. ArcReel uses the original name or number when available and assigns a new one when it is taken. Storyboards and video units always get a new number. The restore notice identifies any change.
+- ArcReel checks restored artifacts for freshness. If their inputs changed, they can show as stale. You can delete restored content again.
+- When ArcReel cannot put an object back, it keeps the deletion record. Follow the notice to restore the parent object or free the destination, or download the files from the record. See the object-specific behavior below.
+- A full restore removes the deletion record from the project trash. If ArcReel [restores only files](#degraded), it keeps the deletion record so you can download the remaining structure files. Deletion records from earlier versions can also be restored.
 
 ### Files and past versions {#files-and-versions}
 

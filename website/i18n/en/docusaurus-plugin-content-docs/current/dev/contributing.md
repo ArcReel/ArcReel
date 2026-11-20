@@ -13,7 +13,7 @@ Contributions whose main purpose is to promote a commercial service (for example
 
 Issues labeled `ready-for-agent` already have implementation notes and are implemented by the maintainers' coding Agent. An external PR will not get them done sooner; it only adds another round of review, so such PRs will be closed.
 
-Before developing a new feature or making a large-scale change, open an issue to discuss the direction first.
+Before developing a new feature or making a large-scale change, consider opening an issue to discuss the proposal. This helps avoid spending time on a change that may be closed because it takes a different direction.
 
 Before a PR can be merged, its author must sign the CLA. CLA Assistant posts the signing link as a PR comment.
 
@@ -25,7 +25,7 @@ ArcReel assumes that contributors develop with a coding Agent. `AGENTS.md` at th
 # Prerequisites: Python 3.12+, Node.js 24.12.0+, uv, pnpm (ffmpeg ships with the Python dependency imageio-ffmpeg)
 # The documentation site website/ pins its Node version in website/.node-version
 # Operating system: Linux / macOS / Windows WSL2; native Windows can run project creation and basic workflows,
-# but the Agent sandbox on Windows degrades to a command-prefix allowlist (see docs/adr/0025); WSL2/Docker is recommended for production
+# but the Agent sandbox on Windows degrades to a command-prefix allowlist (see docs/adr/0026); WSL2/Docker is recommended for production
 
 # Install dependencies
 uv sync
@@ -53,28 +53,17 @@ cd frontend && pnpm dev
 
 ### Documentation Site {#docs-site}
 
-`website/` is a separate package root with its own lockfile and is not grouped into a workspace with frontend:
+The documentation site in `website/` has its own `pnpm` lockfile. See `website/.node-version` for the Node.js version.
 
 ```bash
-cd website && pnpm install
-
-pnpm start        # Development preview
-pnpm build        # Dual-locale build; a broken link or anchor fails the build
-pnpm typecheck
-pnpm lint         # ESLint
-pnpm format       # Writes prettier formatting; format:check only verifies without modifying
-pnpm check        # sync-contributing + typecheck + lint + format:check + check-consistency; excludes build and scripts/*.test.mjs
-
-# Site search only works against build output, not in the dev server
-pnpm build && pnpm serve
-
-# Sync the repo-root CONTRIBUTING.md into the development-section page (start / build already run this automatically, so a manual run is rarely needed)
-pnpm sync-contributing
-
-# CI consistency check: page inventory / orphan translations / published headings missing an explicit anchor / UI JSON key completeness — exits non-zero if any check fails;
-# it depends on the output of sync-contributing, so run sync-contributing first
-pnpm check-consistency
+cd website
+pnpm install --frozen-lockfile
+pnpm start                 # Local preview
+pnpm check                 # Type, format, translation sync, and site consistency checks
+pnpm build                 # Build both locales and check links and anchors
 ```
+
+Site search is available in the built site. Run `pnpm serve` after building to preview it.
 
 ## Testing {#testing}
 
@@ -82,7 +71,7 @@ For the development loop and the full gate before pushing, see "工具链与校�
 
 ### Frontend Page-Level Tests {#frontend-page-tests}
 
-`frontend/e2e/` is a page-level Playwright suite. It opens each page region at five viewports from 1024×600 to 2560×1440 and checks that the document itself does not scroll, that no content is clipped without being reachable by scrolling, and that vertical scroll areas (including popup bodies) are not stretched into horizontal scrolling; it also uses axe to check accessibility against WCAG 2.2 AA. The CI `frontend-e2e` job runs in the official Playwright image. Locally, render in the same image using run-server remote mode so results match CI:
+`frontend/e2e/` is a page-level Playwright suite. It opens each page region at five viewports from 1024×600 to 2560×1440 and checks that the document itself does not scroll, that clipped content remains reachable by scrolling, and that vertical scroll areas, including modal bodies, do not gain horizontal overflow. It also uses axe to check accessibility against WCAG 2.2 AA. The `frontend-e2e` CI job runs in the official Playwright image. Pull requests run the three viewports with screenshot baselines (`E2E_VIEWPORTS=screenshot`), and daily CI runs all five. Use the same image locally to match CI rendering.
 
 ```bash
 cd frontend
@@ -96,7 +85,7 @@ When running several copies of the suite on the same machine in parallel, use en
 
 - **Adding scenarios**: register them under `frontend/e2e/regions/` with `defineRegionScenarios`, stating the route to open, the readiness condition, and the states to probe. Scenarios focus on states that change the available height, such as expanding a panel or opening a popup.
 - **Exemptions**: exempt decorative clipping layers with `data-overflow-ok="原因"`; the attribute value must state the reason. Regions that genuinely need horizontal scrolling (timeline tracks, code blocks, tag strips) use `overflow-x-auto`, which the probe recognizes by class name, so no extra exemption is needed.
-- **API data stand-ins**: `frontend/e2e/fixtures/recorded/` is recorded against the real backend by `pnpm e2e:record`. The script requires `uv`, starts the backend in a temporary data directory, and creates a demo project. A PR that changes an API's shape for the backend re-records at the same time, so the shape change shows up as a diff of the stand-in files. Stress variants such as long text or many entries are written in the scenario's `api` field.
+- **Recorded API responses**: `pnpm e2e:record` starts the real backend with `uv` in a temporary data directory and records fixtures in `frontend/e2e/fixtures/recorded/`. It uses the catalog test fixture, a fixed date and version, and a demo project. It skips online catalog sync and `.env` loading. Rerun the recording when changing the API response shape or catalog fixture. `pnpm e2e:record:check` compares two runs with different system clocks, factory snapshots, and version numbers. CI runs this check in `e2e-record-drift` and the local gate runs it in `e2e-record`. Use a scenario's `api` field for stress variants such as long text or large lists.
 - **Page screenshots**: after a scenario registers `screenshot`, comparison happens only when it runs with `E2E_SCREENSHOTS=1`, and screenshots are taken only at three viewports: 1024×600, 1440×900, and 2560×1440. The CI `frontend-e2e` job sets this variable, and the job fails when a screenshot differs or its baseline is missing. Baselines can only be generated and compared in the container: run with `pnpm e2e:server` and `pnpm e2e:remote`, regenerate new or intentionally changed screenshots by adding `--update-snapshots=changed`, and commit them after checking each one. Fonts rendered on the local machine differ from the container, so do not use it to generate baselines.
 
 ## Code Quality {#code-quality}
@@ -109,35 +98,20 @@ For the steps to add or upgrade a dependency, see [`docs/agents/dependencies.md`
 
 ## Documentation Maintenance {#docs-maintenance}
 
-The only published location for user documentation is [docs.arc-reel.com](https://docs.arc-reel.com/en/); source files live in `website/docs/` (see "Documentation Site" above for local builds and previews). Chinese is the sole authoring source; English translations are generated by AI, and humans review only the Chinese source. Internal documentation (ADRs, `GLOSSARY.md`, `AGENTS.md`, the security threat model, provider API documentation indexes, and so on) is not published on the site and remains under the repository's `docs/` directory. `SECURITY.md` also remains in the repository root because the GitHub Security tab depends on it.
-
-This file is the source of truth for the contributing guide. During builds, it is copied to the site's development section (`website/scripts/sync-contributing.mjs`); the Chinese copy is not committed.
+The [documentation site](https://docs.arc-reel.com/en/) publishes the Chinese source from `website/docs/` and the English translations from `website/i18n/en/`. Local previews and builds copy the root `CONTRIBUTING.md` into the site. Update both locales in the same pull request when changing a published page, the README, this guide, or site UI copy. Follow the documentation maintenance instructions in [AGENTS.md](https://github.com/ArcReel/ArcReel/blob/main/AGENTS.md) to review and verify translations.
 
 ### Page Responsibilities {#page-responsibilities}
 
-Published pages also declare their documentation-refresh coverage tier via the `update_docs` frontmatter key; the criteria live in `.agents/skills/update-docs/SKILL.md`.
-
-| Page | Should contain | Should not contain |
-|---|---|---|
-| `README.md` | Product positioning, core value, and the shortest path to getting started | A complete model list, every environment variable, or internal implementation details |
-| `website/docs/index.mdx` | Documentation-site positioning, primary entry points, and a navigation overview | Complete instructions for specific features |
-| `website/docs/guide/getting-started.md` | The complete path from deployment to the first final video | Production-grade reverse proxy and backup strategies |
-| `website/docs/guide/workflows.md` | Content modes, generation modes, content review checkpoints, and selection guidance | Provider credentials and operations commands |
-| `website/docs/guide/providers.md` | Provider types, capability coverage, selection principles, and configuration hierarchy | Price promises likely to become outdated |
-| `website/docs/guide/comfyui.md` | Importing ComfyUI workflows, node binding, conversion semantics for size/duration/seed, testing, and runtime limits | Deploying ComfyUI itself or installing custom nodes |
-| `website/docs/guide/market.md` | Managing market sources, confirming installation of market entries, updating, and uninstalling | Contribution workflow and steps for hosting a market source (the official market source repository docs are authoritative) |
-| `website/docs/guide/jianying-export.md` | Locating the Jianying draft directory, exporting, and further editing steps | The video generation process itself |
-| `website/docs/guide/files-and-trash.md` | File view roles and actions, deletion and restore rules per object type, project trash retention and cleanup, deleted projects, and what the Agent can delete and restore | Deployment-level backup and directory layout (covered by the deployment page) |
-| `website/docs/guide/faq.md` | Frequently asked questions and short answers | Long tutorials |
-| `website/docs/ops/deployment.md` | Deployment, upgrades, backup, recovery, monitoring, and security | Product marketing copy |
-| `website/docs/ops/migrate-to-postgres.md` | SQLite-to-PostgreSQL migration, verification, and rollback steps | Day-to-day PostgreSQL deployment and operations guidance |
-| `website/docs/dev/architecture.md` | Stable architectural boundaries, data flows, and extension points | Temporary implementation plans and incomplete designs |
-| `SECURITY.md` | Supported versions, supported deployment boundaries, private vulnerability reporting, and coordinated disclosure policy | Details of unfixed vulnerabilities and dynamic risk registers |
-| `docs/security/threat-model.md` | Security assets, trust boundaries, attack surfaces, existing controls, and reassessment triggers | Directly exploitable unfixed vulnerabilities and patch history |
+- **README** explains what ArcReel is for, shows publishable examples, and gives the shortest path to getting started.
+- **User guides** explain how creators use ArcReel. The getting-started guide covers the first run, and topic guides cover full workflows and their limits.
+- **Operations docs** cover deployment, upgrades, backup and recovery, and database migration.
+- **Developer docs** help contributors set up a development environment, understand the architecture, and find extension points. Repository standards, the glossary, and ADRs provide engineering constraints and decision context.
 
 ### Writing Conventions {#writing-conventions}
 
-For writing standards for published pages and the README, see [`docs/standards/docs.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/docs.md). For which documents a feature change must update, see "功能变更与对应文档在同一个 PR 里" (Feature changes and their documentation land in the same PR) in [`docs/standards/general.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/general.md). Write every heading on a published page as `## 标题 {#english-id}`; the Chinese and English locales share the same anchor.
+Update the relevant documentation in the same pull request as the feature change. See the [user documentation standards](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/docs.md) and [general coding standards](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/general.md). Write Markdown headings in published pages as `## Heading {#english-id}` with the same anchor in both locales.
+
+Before publishing screenshots, videos, or examples, remove credentials, internal addresses, personal information, and private project content. Confirm that any novels, brands, music, and other materials are cleared for publication. Show real ArcReel output and identify the currency and example whenever you list costs.
 
 ## Workflow {#workflow}
 
@@ -170,7 +144,7 @@ The time from creation to merge must be ≤ 3 days. If a branch runs longer, spl
 
 Squash each PR into one commit when merging back into `main`, with a commit message that follows the conventional commits specification (see the next section). Choose "Squash and merge" on GitHub.
 
-Stage PRs created by `afk-team-workflow` are the exception: they use "Rebase and merge" to preserve each issue's conventional commit; non-issue commits produced by cleanup and the review loop are squashed into one conventional integration-fix commit before merging.
+Stage PRs created by `afk-team-workflow` are the exception: they use "Rebase and merge" to preserve each issue's conventional commit; fixes from integration review, acceptance testing, and the review loop go into a single conventional integration-fix commit after the issue commits. Push it with `--force-with-lease`.
 
 ## Commit Conventions {#commit-convention}
 
@@ -203,10 +177,9 @@ Version numbers and the changelog are maintained automatically by [release-pleas
 | `feat`      | minor   | ✨ 新功能 |
 | `fix`       | patch   | 🐛 Bug 修复 |
 | `feat!` / any type + `!` / footer containing `BREAKING CHANGE:` | **major** (minor when version <1.0.0) | ⚠️ BREAKING CHANGES (at the top of the changelog) |
-| `perf` / `refactor` / `docs` / `revert` | No increment | Shown (⚡ / ♻️ / 📚 / ↩️) |
 | `chore` / `ci` / `build` / `test` / `style` | No increment | Hidden |
 
-> By default, only `feat` and `fix` (as well as breaking changes) trigger a version bump in release-please. Configuring `perf`/`refactor`/`docs`/`revert` with `hidden: false` affects only their presentation in the changelog; it does not make them trigger a patch bump. If an iteration contains only these commit types, no Release PR is produced until the next `fix`/`feat` commit arrives.
+`perf`, `refactor`, `docs`, and `revert` also appear in the changelog.
 
 The `version` fields in `pyproject.toml` and `frontend/package.json` are maintained automatically by release-please (see the `# managed by release-please` comment in `pyproject.toml`) and are **read-only for developers**. `uv.lock` is likewise synchronized automatically by `uv lock` in the release-please workflow on the Release PR branch. The factory model-catalog snapshot (`lib/catalog/snapshot/`) is refreshed on the Release PR branch the same way: the workflow fetches the latest data from the catalog data repository and commits it once it passes the validator; if the fetch fails or validation fails, the snapshot is left unchanged and the workflow shows a notice. The actual version state is defined by the git tag and `.release-please-manifest.json`.
 

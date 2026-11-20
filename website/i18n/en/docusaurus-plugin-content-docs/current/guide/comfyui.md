@@ -2,7 +2,6 @@
 id: comfyui
 title: Connect a ComfyUI Workflow
 sidebar_position: 4
-update_docs: fact-check
 ---
 
 # Connect a ComfyUI Workflow {#comfyui}
@@ -24,11 +23,11 @@ ArcReel talks to ComfyUI over HTTP and nothing else. Assets are uploaded through
 
 ### 1.1 Create a comfyui Provider {#create-provider}
 
-In Settings → Providers, add a provider, choose the `comfyui` protocol, and enter the Base URL. ComfyUI itself is normally unauthenticated, so the API Key may be left blank; fill it in only when a reverse proxy requires it. This protocol has no model-discovery step: one workflow is one model, and you attach a call endpoint to each model row yourself (see section 2).
+Under Settings → Providers, add a custom provider, choose the `comfyui` protocol, and enter a base URL reachable from the ArcReel server. Leave the API key blank if ComfyUI requires no authentication. If a reverse proxy handles authentication, follow its configuration.
 
-On save, the connectivity check sends the API Key as a **bare Bearer token to `/system_stats`** — with no credentials at all when the key is blank — and the reported ComfyUI version is echoed back on the settings page.
+The connectivity check requests `/system_stats`, with `Authorization: Bearer` when an API key is set. A proxy requiring a custom header or query parameter can block that check. Use the endpoint's [Request Preview and Connection Test](#test) to verify the authentication in the endpoint definition.
 
-If your reverse proxy authenticates with a **custom header** rather than `Authorization: Bearer`, the proxy rejects this probe and it **reports the instance as unreachable**: the probe does not use the custom headers declared in an endpoint definition's `auth` section. Its verdict carries no information in that case, so rely on the endpoint's Request Preview and Connection Test instead — those paths do inject the API Key into headers or query parameters according to the `auth` section.
+ComfyUI providers have no model discovery. After importing a workflow, add a model under the provider and choose that endpoint.
 
 ## 2. Export and Import the Workflow {#import}
 
@@ -43,9 +42,9 @@ Import steps:
 2. Give the endpoint a descriptive name and confirm whether its media type is image or video.
 3. Review the detected node bindings (see section 3).
 4. Confirm the positive prompt and output node. Both require a target, and two semantic bindings cannot occupy the same field.
-5. Save the endpoint, then go to Providers and select it for a model row of your ComfyUI provider.
+5. Save the endpoint, then go to Providers and select it for your ComfyUI provider model.
 
-One model row represents one workflow. Fixed values such as checkpoints, LoRAs, and samplers remain in the workflow rather than the model row. To change them, edit the workflow in ComfyUI, export it again, and update the endpoint with Re-import. Re-import attempts to rematch existing bindings by node identity; manually review every item marked for confirmation.
+Each provider model selects one workflow. The workflow holds fixed values such as checkpoints, LoRAs, and samplers. To change them, edit the workflow in ComfyUI, export it again, and update the endpoint with Re-import. Re-import attempts to rematch existing bindings by node identity; manually review every item marked for confirmation.
 
 ## 3. Node Bindings {#bindings}
 
@@ -111,9 +110,9 @@ An empty video duration tier list has three distinct causes, and the UI names th
 - **`frames` is bound, but there is no frame-rate source** — neither a read-only `fps` binding nor a frame rate typed into the frames entry — so seconds cannot be converted. This does not mean the workflow has a fixed duration; it is a **fixable definition**. Add an `fps` binding, or type a frame rate on the frames entry: ArcReel needs one of them before it can work out any duration tiers (and even then the definition may land in the next case).
 - **`frames` is bound and a frame rate is readable, but no whole-second tier writes back to this workflow unchanged.** For example, 81 frames at 24fps rounds to 3 seconds, but converting 3 seconds back yields 73 frames; a frame-count input fed by a link, or holding a placeholder such as `1`, has no readable clip length and yields no tier either. A tier labeled "native" that alters the graph when selected is worse than no tier at all, so none is offered. Only the first shape — every frame-count input holding its own clip length — also leaves the frame count alone on submission; the other two have no clip length to preserve, so the frame count is still written from the duration the planning layer borrows.
 
-Outside those three, when frame count and frame rate are both usable and write back unchanged, ArcReel derives the workflow's native duration as `seconds = round((literal frames − 1) ÷ fps)` and offers it as the default tier; "writes back unchanged" means the inverse conversion `frames = round(seconds × fps) + 1`, aligned to the step, still equals the literal frame count. You can add or remove tiers on the model row; the edited tiers are saved only when they differ from the native duration, and clearing them returns to the native duration.
+Outside those three, when frame count and frame rate are both usable and write back unchanged, ArcReel derives the workflow's native duration as `seconds = round((literal frames − 1) ÷ fps)` and offers it as the default tier; "writes back unchanged" means the inverse conversion `frames = round(seconds × fps) + 1`, aligned to the step, still equals the literal frame count. You can add or remove tiers in model settings; the edited tiers are saved only when they differ from the native duration, and clearing them returns to the native duration.
 
-An empty tier list is not a generic "no durations configured for this model" error. Script planning still borrows a set of reference tiers for content length so it is not blocked, but the workflow always determines the actual output duration.
+When no duration tier is available, script planning still uses reference tiers to estimate content length. When you generate a video, ArcReel uses the three cases above to decide whether to rewrite the frame count based on the planned duration.
 
 ### 4.3 Three Seed Policies {#seed-policies}
 
@@ -136,9 +135,7 @@ If a branch to be removed reaches the output chain, the request fails with `comf
 
 ## 5. Prompts {#prompt}
 
-Prompts are sent verbatim. ArcReel neither translates nor rewrites them, so **pick a model that reads the language you write in**. A Chinese prompt only works with a model that understands Chinese; otherwise the model is generating from text it cannot read. On the video side, Wan officially recommends Chinese prompts; for images, Qwen-Image and Kolors are bilingual. Most other models are trained predominantly on English, and composition or motion instructions written in Chinese are often ignored — rewriting the prompt in English helps more than retuning parameters.
-
-`Avoid:` lines in the prompt body are never sent as part of the body. When a negative-prompt node is bound, those exclusions are appended to that node's existing literal value; **without that binding they are simply discarded** — absent from the body and absent from the workflow. If your workflow has a dedicated negative-prompt node, bind it.
+ArcReel sends the prompt body as written. Use a language and prompt style supported by the model. ArcReel handles `Avoid:` lines separately. With a negative-prompt binding, the exclusions are appended to the node's existing text. Without the binding, ArcReel sends only the prompt body.
 
 ## 6. Preview and Connection Test {#test}
 
@@ -181,8 +178,6 @@ If a task reports multiple outputs but keeps only one, that is the current chann
 
 ## 9. Cost and Execution Time {#cost}
 
-ComfyUI runs on your own hardware, and ArcReel has no way to know what a generation was worth. A ComfyUI provider's multiplier defaults to 0, so it **records every call at zero cost** by default; connection tests are recorded the same way. Execution time is recorded as usual, so these calls appear on the usage page with full durations and counts — only the amount column is zero.
+The ComfyUI provider multiplier defaults to 0, so generation and connection tests record a reference cost of 0. Usage Records still show the number of calls and execution time.
 
-If you rent compute and want to charge calls at a known model's official price, change the provider's multiplier to a non-zero value and make the model row's name map to that model in the model catalog (the same name as the known model, ignoring case). Calls that map to no known model are recorded as "Unpriced". ArcReel offers no way to enter a unit price for ComfyUI models, and never estimates the cost of your own GPUs.
-
-A zero cost does not mean free: it costs electricity, GPU occupancy, and queue time. Avoid repeated tests while another important job is using the same GPU.
+To track an estimated cost, set a nonzero provider multiplier and review the catalog entry and price in [Model Settings](./providers.md#model-settings). A call without a matching unit price shows as Unpriced. Account for electricity, GPU time, and queueing separately when running ComfyUI yourself.

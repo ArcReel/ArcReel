@@ -2,7 +2,6 @@
 id: providers
 title: Provider and Model Configuration
 sidebar_position: 3
-update_docs: fact-check
 ---
 
 # Provider and Model Configuration {#providers}
@@ -13,82 +12,25 @@ ArcReel treats the Agent, text generation, image generation, video generation, a
 
 ### 1.1 Agent Providers {#assistant-providers}
 
-The Agent is responsible for:
-
-- Understanding user intent;
-- Analyzing novels and screenplays;
-- Identifying characters, scenes, and props while planning each episode's script;
-- Planning episodes;
-- Normalizing screenplays;
-- Orchestrating subsequent generation tasks.
-
-ArcReel's Agent Runtime is based on the Claude Agent SDK and supports Anthropic's official service as well as compatible configurations supported by the project.
-
-The Agent provider does not necessarily handle the actual image and video generation.
+Under Settings → ArcReel Agent, add and activate an Agent provider credential for project chat, content analysis, script planning, and task orchestration. The Agent uses the Claude Agent SDK and can connect to Anthropic or a compatible gateway.
 
 ### 1.2 Media and Text Providers {#media-and-text-providers}
 
-These providers are responsible for:
+Under Settings → Providers, configure credentials for text, images, video, and text-to-speech (TTS). Then choose the model for each use under Default Models. Generation models use their own provider settings, independently of the Agent provider.
 
-- Structured text generation;
-- Image generation and editing;
-- Video generation;
-- TTS.
+## 2. Find Available Providers and Models {#capability-matrix}
 
-A complete project can use a combination of providers, for example:
+Open a built-in provider under Settings → Providers to find its text, image, video, or audio models. The list shows the models available to this ArcReel version, with price summaries and availability badges. To connect a private gateway, local model server, or a protocol absent from the built-in provider, see [Custom Providers](#custom-providers).
 
-- Agent: a high-quality reasoning model;
-- Text structuring: a faster text model;
-- Character design: a high-quality image model;
-- Batch storyboards: a low-cost image model;
-- Sample videos: a fast video model;
-- Final key shots: a high-quality video model;
-- Voice-over: a dedicated TTS provider.
-
-## 2. Preset Provider Capability Matrix {#capability-matrix}
-
-Providers' specific models, parameters, regional availability, and pricing change continually. The following table only shows the capabilities covered by ArcReel; the actual available options are shown on the Settings page.
-
-| Provider | Text | Image | Video | TTS | Typical Uses |
-|---|:---:|:---:|:---:|:---:|---|
-| Gemini | ✅ | ✅ | ✅ | ✅ | Multimodal text, reference images, video generation, and TTS |
-| Volcengine Ark | ✅ | ✅ | ✅ | — | Text, image, and video generation in mainland China network environments |
-| Volcengine Ark Agent Plan | ✅ | ✅ | ✅ | ✅ | Text, image, video, and TTS within the subscription plan |
-| Grok | ✅ | ✅ | ✅ | — | Text, image, and video generation |
-| OpenAI | ✅ | ✅ | — | — | Text and image generation |
-| Vidu | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
-| DashScope | ✅ | ✅ | ✅ | ✅ | Text, image, video, and voice-over TTS |
-| MiniMax | ✅ | ✅ | ✅ | ✅ | Text, image, video generation, and TTS |
-| Kling | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
-| Agnes | ✅ | ✅ | ✅ | — | Text, image, and video generation |
-| Custom Providers | Interface-dependent | Interface-dependent | Interface-dependent | Interface-dependent | Private gateways, local models, or third-party compatible services |
-
-The built-in OpenAI provider offers text and image capabilities. OpenAI-compatible video and TTS are connected through a Custom Provider's call endpoints.
-
-Volcengine Ark Agent Plan uses the subscription quota first. By default, ArcReel does not estimate the cost of these calls. If you enable overage postpaid billing for a supported model in the Ark console, Ark bills calls beyond the plan quota separately. Check your Ark bill for the actual charges. See Ark's [overage postpaid billing guide](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh).
+Ark Agent Plan uses the subscription allowance first. ArcReel does not estimate call costs by default. If you enable over-quota postpaid billing for a supported model in the Ark console, Ark bills calls beyond that allowance separately. Check your Ark bill and the [over-quota postpaid billing documentation](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh).
 
 ## 3. Configuration Layers {#configuration-layers}
 
-ArcReel supports:
+ArcReel selects generation models by use. The project setting takes precedence, followed by the choice under Settings → Default Models. When no default is configured, a compatible custom provider model marked as default can be used as a fallback. If no model is available, configure a provider and fill in the missing settings.
 
-1. **Global default providers**;
-2. **Project-level provider overrides**;
-3. **Multiple API Keys for a Preset Provider** (each Custom Provider configuration uses one API Key);
-4. **Different providers for different media types**.
+The Recommended badge identifies a built-in provider's suggested model. When you configure the first credential for a built-in provider, ArcReel fills any unset global defaults with its recommended models. Existing global defaults change when you update them. Default Models can prompt you to switch or keep your choice when a recommendation changes.
 
-The priority is generally:
-
-```text
-Project-level configuration > Global default configuration
-```
-
-Project-level overrides are suitable when:
-
-- A project needs a specific visual style;
-- A client requires a specific provider;
-- Project budgets vary significantly;
-- You need to compare results from two providers;
-- Only some services are accessible in a particular region.
+ArcReel preserves the models in use before an upgrade when it can reconstruct the choices. If an old choice cannot be recovered, select a model again. See [Project Schema Migrations](../ops/deployment.md#project-schema-migrations).
 
 ### 3.1 Enabling and Disabling Models {#enable-models}
 
@@ -119,70 +61,28 @@ the lowest to the highest tier. Actual costs are further multiplied by the provi
 
 ### 3.2 Model Settings {#model-settings}
 
-Click a row in the model list to open that model's settings on the right; this works the same for Preset and custom providers. The upper
-part, "Provider settings", applies only to the current provider. The lower part, "Model info", is the model's record in the model catalog
-and is shared by every provider that uses the model. Both parts share the save bar at the bottom and are saved together, and closing with
-unsaved changes asks first.
+Select a model in the provider details to open Provider settings and Model info. Both sections use the same save bar.
 
-- Officially listed built-in models can only be enabled or disabled; their other settings are maintained officially;
-- Models of custom providers, and models you added yourself under a built-in provider, also have:
-  - "Model ID": the model name sent to the provider with each call. After changing it, settings and projects that selected this model need to select it again;
-  - "Multiplier": this model's multiplier. When the provider multiplier is not 1, the final multiplier of the two is shown;
-  - "Parameters this provider supports": change these when what the provider actually supports differs from the model info, for example
-    when a relay only offers some durations or resolutions, or does not support the last frame. Each item shows its original value;
-    "Change" replaces the whole item and "Restore" goes back to the original value. Models that map to no known model can be changed too;
-    their original values are what ArcReel infers from the model name. For video models, "Durations by resolution" follows "Durations",
-    and removing a resolution also removes its duration restriction;
-  - "Remove from 'provider name'": removal asks for confirmation first. When settings or projects use the model, the dialog lists them,
-    and after removal you need to select another model for them;
-- Models of custom providers also have "Set as default", "Call endpoint", "Request URL", and a default resolution. Changing the endpoint
-  resets modified request URLs to their defaults and clears the changes under "Parameters this provider supports"; save first, then adjust
-  them for the new endpoint.
+| What you need to change | Where to change it |
+|---|---|
+| A gateway only allows certain durations, reference images, or resolutions | Change Parameters this provider supports. Each change replaces the full item. You can restore the original value. |
+| The catalog lists an incorrect capability or price | Edit Model info. The change applies to every provider using the entry. |
+| A gateway renamed a model and ArcReel found no matching entry | Choose Link to another model under Model info. You can enter model information if there is no matching entry. |
+| Change the protocol, request path, or price multiplier | Edit the call endpoint, request URL, or multiplier under Provider settings. Editable fields depend on the provider and endpoint. |
 
-In "Model info" you can change the display name, capabilities, durations, durations by resolution, resolutions, and the maximum output
-length; the model maker, official model name, type, and aliases are read-only. A line at the top says who maintains the information:
+**Check the effective capabilities**
 
-- Maintained officially: it is updated with official data. Before you save a change, a note above the save bar says that after saving,
-  this model uses your information and no longer follows official updates;
-- Modified by you: official updates do not overwrite your changes, and the row is marked "Modified" in the model list. Each changed field
-  shows the official value below it, and "Use" takes that one value back. "Restore official data", after confirmation, discards all your
-  changes and returns to official data. It takes effect immediately without the save bar and cannot be undone;
-- No official information, filled in by you: the model catalog had no information for this model, and it does not follow official
-  updates. If the official data later adds the same model, "Use official data" appears here: after confirmation, the information you
-  entered is replaced by the official data. It takes effect immediately and cannot be undone.
+The interface shows the parameters in effect. This usually means the range supported by both the catalog and the call endpoint, with the smaller limit for any count. Unlisted means ArcReel has no data for that limit. An image model with a reference image limit of zero cannot be used for image-to-image. For ComfyUI, [workflow node bindings](./comfyui.md#bindings) determine the capabilities.
 
-When a relay renames a model so it no longer matches the model catalog by name, models you added yourself and models of custom providers
-can be linked to a catalog model by hand. "Link to another model" at the top right of the lower half opens the model catalog picker
-(it lists models of the same type by default); after you choose one, capabilities, price, and call-channel capabilities all come from
-that model. A linked model is no longer matched by name; click "Unlink" to go back. For a model that is not in the catalog, click
-"Fill in manually" to enter the model maker, model name, display name, type, and capabilities; the durations of a video model are
-prefilled from the model name. The price is optional, and calls are recorded as unpriced without it. If the catalog already has a model
-with the same name, you cannot fill it in; select that model instead. All of this only changes the draft, takes effect with the save bar
-at the bottom, and leaves nothing behind if you cancel.
+You can enable or disable officially listed provider models. Official data maintains their provider parameters. For a custom provider model or a model you added to a built-in provider, you can change the endpoint and supported parameters. Switching endpoints clears parameter and request path changes for the old endpoint. Save and then check the new endpoint. When you change a custom provider model ID, ArcReel updates saved global and project references. Check the existing selections after changing the ID of a manually added model under a built-in provider.
 
-The "Pricing" part of "Model info" is edited as one card per billing item, and you can use it to add prices the catalog does not have:
+**Maintain shared model information**
 
-- Choose the currency first (US dollar or Chinese yuan). A price table uses the currency of the model maker's main site, with no
-  exchange-rate conversion;
-- "Add billing item" lists only the items available for this type of model, such as "Input", "Cache hit", and "Output" for text, or
-  "Video duration" for video. An item without conditions has one price line. After "Price by condition" adds a condition such as
-  resolution, audio, or service tier (Standard, Flex, Fast), each tier gets a "condition → price" line; click a condition tag to change
-  its value, and "Add tier" adds a line. A condition cannot be removed once added: to change conditions, delete the whole card and add
-  the item again;
-- When a request gives no value for a condition, the line below the card, "When a request gives no condition, use", supplies it. A
-  condition without a value cannot be priced, so the call is recorded as unpriced;
-- Items such as reference images can have a free allowance: only the part of a request beyond it is charged;
-- Without a price, call costs are recorded as unpriced. When the entry has been modified, the official pricing is shown below the
-  prices and "Use the official pricing" takes it back; it is not shown when the currency differs from the official one.
+You can edit the display name, capabilities, durations, resolutions, maximum output length, and prices. Set prices by billing item, currency, and condition. A missing price or condition can show as Unpriced in usage records.
 
-When other providers use the same model, "Model info" lists them: changes and restoring official data apply to them as well. If only one
-provider differs from the model info (for example, a relay offers only some durations), change "Parameters this provider supports"
-instead of the model info.
+When you save changes to official data, the catalog entry uses your values and official sync does not overwrite them. Use official values one at a time or choose Restore official data for the whole entry. If official data later includes a model you added by hand, choose Use official data to switch. Both actions immediately replace your changes. Check the affected providers before confirming.
 
-The name, base URL, key, concurrency limits, and provider multiplier of a custom provider are still saved together in the provider details,
-and saving them does not change the models in the model list.
-
-In the details of a usage record, click the model name to open that model's settings; when the provider has been deleted or is an Agent credential, only the model name is shown.
+A manual link takes precedence over a match by model name. Choose Unlink to return to automatic matching. Links and manually entered information apply when you save.
 
 ### 3.3 Adding and Fetching Models {#add-models}
 
@@ -216,135 +116,13 @@ requires adding a key first. A model ID returned by the provider counts as "Reco
 officially listed model. A provider listing a model does not mean your account or region can call it; likewise, officially listed models
 that are not returned stay in the list as usual.
 
-## 4. Six Dimensions for Choosing a Provider {#six-selection-dimensions}
+## 4. Choose a Model and Validate a Sample {#six-selection-dimensions}
 
-Do not consider only the result of a single generation.
+1. Check the inputs your workflow needs under Parameters This Provider Supports. Storyboard to Video needs a start frame, and Reference to Video needs reference images.
+2. Try the same short shot with your candidate models. Review character or product appearance, motion, audio, and delivery resolution before replacing the project's default model.
+3. Compare usage and reference costs for generation and rework in [Usage Records](#cost-tracking). Check subscriptions, overage charges, account availability, and terms with the provider.
 
-### 4.1 Quality {#dimension-quality}
-
-Consider:
-
-- Character identity preservation;
-- Merchandise structure preservation;
-- Image composition;
-- Naturalness of motion;
-- Prompt adherence;
-- Long-take stability;
-- Output resolution.
-
-### 4.2 Controllability {#dimension-controllability}
-
-Check whether the provider supports:
-
-- Multiple reference images;
-- Start and end frames;
-- Negative prompts;
-- Fixed seeds;
-- Video extension;
-- Reference-to-video generation;
-- Native audio;
-- Structured output.
-
-### 4.3 Reliability {#dimension-reliability}
-
-Consider:
-
-- API success rate;
-- Queue time;
-- Rate-limiting behavior;
-- Timeouts;
-- Task queries;
-- Idempotency;
-- Whether failed requests can be retried safely.
-
-### 4.4 Cost {#dimension-cost}
-
-Compare providers against the same complete shot objective, not just their unit prices.
-
-Total cost may include:
-
-- Text Tokens;
-- Character, scene, and prop images;
-- Storyboard images;
-- Video seconds;
-- Retries after failures;
-- TTS;
-- Rework caused by quality issues.
-
-### 4.5 Speed {#dimension-speed}
-
-Distinguish between:
-
-- API response time;
-- Queue time;
-- Actual generation time;
-- Fluctuations during peak periods;
-- Concurrency capacity for batch tasks.
-
-### 4.6 Compliance and Regional Availability {#dimension-compliance-and-region}
-
-Confirm:
-
-- The region in which the account is registered;
-- Whether the API is available in the deployment region;
-- Content policies;
-- Data processing requirements;
-- Commercial use terms;
-- Requirements for labeling generated content.
-
-## 5. Recommended Tiered Strategies {#tiered-strategies}
-
-### 5.1 Budget Validation {#strategy-budget}
-
-Use for:
-
-- Trial runs for new projects;
-- Prompt validation;
-- Confirming the number of storyboards;
-- Testing the direction of shot motion.
-
-Strategy:
-
-- Use a small amount of content;
-- Use a fast text model;
-- Use a low-cost storyboard model;
-- Use a fast video tier;
-- Strictly limit batch sizes.
-
-### 5.2 Balanced Production {#strategy-balanced}
-
-Use for:
-
-- Routine batch content;
-- Validated characters and visual styles;
-- Workloads that require stable throughput.
-
-Strategy:
-
-- Use high-quality models for key assets;
-- Use balanced models for ordinary storyboards;
-- Tier video models by shot importance;
-- Reserve budget for retries after failures.
-
-### 5.3 Premium Delivery {#strategy-premium}
-
-Use for:
-
-- Key plot moments;
-- Cover shots;
-- Merchandise close-ups;
-- Branded deliverables;
-- Final videos that need higher resolution.
-
-Strategy:
-
-- Use high-quality reference assets;
-- Review shots more rigorously;
-- Create a low-cost preview first;
-- Use expensive models only for approved shots;
-- Retain manual post-production.
-
-## 6. Image Provider Configuration {#image-providers}
+## 5. Image Provider Configuration {#image-providers}
 
 Image capabilities are mainly used for:
 
@@ -371,7 +149,7 @@ Recommendations:
 - Ordinary storyboards do not all need to use the most expensive model;
 - Lock in the characters and visual style before generating in batches.
 
-## 7. Video Provider Configuration {#video-providers}
+## 6. Video Provider Configuration {#video-providers}
 
 Video capabilities may include:
 
@@ -397,7 +175,7 @@ Before choosing a provider, confirm:
 
 Do not assume that every video model supports the same parameters. ArcReel provides a unified higher-level workflow, but provider-specific capabilities still differ.
 
-## 8. Text Provider Configuration {#text-providers}
+## 7. Text Provider Configuration {#text-providers}
 
 Text capabilities are used for:
 
@@ -419,7 +197,7 @@ Consider:
 
 High-reasoning models are not necessarily suitable for every task. Complex content analysis and routine structured transformations can use different models.
 
-## 9. TTS Configuration {#tts-providers}
+## 8. TTS Configuration {#tts-providers}
 
 ArcReel's voice-over capability can use DashScope Qwen TTS and qwen-audio TTS, MiniMax Speech, Gemini TTS (AI Studio, Vertex), Volcengine Ark Agent Plan TTS, or a compatible TTS interface.
 
@@ -441,60 +219,30 @@ After configuration, first validate:
 
 Before generating in batches, audition a segment of text that contains representative proper nouns.
 
-## 10. Custom Providers {#custom-providers}
+## 9. Custom Providers {#custom-providers}
 
-ArcReel can connect to OpenAI-compatible or Google-compatible services. Typical uses include:
+Under Settings → Providers, add a custom provider and enter its base URL, credential, and model discovery protocol. Fetch models or add them by hand, then check the media type, model ID, and call endpoint in [Model Settings](#model-settings). The discovery protocol lists models and checks connectivity. Each model's call endpoint handles generation.
 
-- Self-hosted API gateways;
-- Centralized enterprise secret management;
-- Private model services;
-- Services built around a local Ollama or vLLM deployment;
-- Third-party compatible platforms.
+Choose a call endpoint that the provider supports. If a private gateway implements only part of the protocol, use [Request Preview and Connection Test](#custom-endpoint-tests) to check the inputs you need, such as reference images, start or end frames, and reference audio. Connection Test generates real output and may incur a charge.
 
-A typical configuration includes:
+**Choose or adapt an endpoint**
 
-- Name;
-- Base URL;
-- API Key;
-- Model name;
-- Media type;
-- Optional provider-specific parameters.
+- **OpenRouter Images**. Select OpenRouter Images for OpenRouter image models. This endpoint supports both text-to-image and image-to-image.
+- **Ark**. Choose Seedream (1K) or Seedream (2K) by generation. For Seedance, choose the endpoint for 1.x, 2.0, or 2.5. Confirm the endpoint if the model ID omits the generation, for example with an Ark inference endpoint ID.
+- **Gemini Video**. Gemini Omni uses the Interactions API and has a separate endpoint from Veo. For compatible Interactions API services, select Gemini Video (Omni) and override the submission and polling paths as needed. Vertex AI endpoints are reserved for built-in providers.
+- **Kling Video**. Choose the endpoint for the model's API version. The new API uses Kling Video (New API, Always With Audio) and requires an API key.
+- **ComfyUI**. Import an API-format workflow and select its endpoint for the provider model. See [Connect a ComfyUI Workflow](./comfyui.md). Node bindings determine which inputs are supported.
+- **Other APIs**. Look in the [Market](./market.md) for an endpoint first. If the provider uses JSON requests and responses, you can start from an example template to create a declarative image or video definition under Call Endpoints.
 
-The model discovery protocol only determines which type of model-listing interface ArcReel uses. How each model is actually called is determined by its bound call endpoint. ArcReel can infer the media type and call endpoint from the model name, but compatibility with a protocol does not mean that every capability and parameter is available. You can adjust them in the [model settings](#model-settings) after adding models, and you should validate each of the following:
+**Capabilities and request URLs**
 
-1. Text connectivity;
-2. Structured output;
-3. Image generation;
-4. Video task creation;
-5. Video task queries;
-6. TTS;
-7. Error codes and rate-limiting behavior.
+Check the effective capabilities under Parameters Supported by This Provider. To describe a limit for just one provider, edit its supported parameters. If ArcReel cannot find a matching catalog entry, [bind the model or enter model information](#model-settings).
 
-Model names are mapped to known models in the model catalog, ignoring case, ignoring any namespace before the last `/`, and treating dots as hyphens. For a mapped model, selectable durations, resolutions, maximum output length, and price all come from the model catalog; an unmapped model still works, its video durations are inferred from the model name, and its cost is recorded as "Unpriced".
+If a gateway uses the official protocol with different paths, edit those requests under Model Settings → Request URL. The edited path is appended directly to the base URL. Use only placeholders already available in that request, such as `{{ model }}` or `{{ task_id }}`. A query string replaces the original query parameters, so include any required parameters you need to keep.
 
-A mapped model also follows the catalog's [retiring and discontinued](#enable-models) states, with the same flags in the list. A discontinued model no longer appears among any model candidates and no longer serves as the custom provider's default model; calls from places that still select it fail with an error that gives the shutdown date and the officially recommended successor, instead of switching to the provider's default model, even if you disabled it.
+Connection Test and generation use the edited paths. Fetch Models and Connectivity Check keep using the provider's base URL. Switching endpoints resets path changes. If a video request's path changes after submission, resuming after a restart can fail. ArcReel does not submit it a second time.
 
-Each video call endpoint decides first/last frame, reference image, and reference audio support from the model name. When the name maps to a known model in the model catalog, the endpoint uses that model's official name and aliases. A video model the endpoint does not recognize supports only text-to-video and first-frame generation; last frame, reference images, and reference audio are unavailable. For image models, text-to-image and image-to-image are available only where both the model catalog entry and the call endpoint support them; a model that maps to no known model follows the call endpoint alone.
-
-To use image models through OpenRouter, change the call endpoint to "OpenRouter Images API" in [model settings](#model-settings). OpenRouter does not provide OpenAI's `/images/edits` endpoint, so models attached to "OpenAI Images API" cannot do image-to-image. With "OpenRouter Images API", both text-to-image and image-to-image go through `/images`, and the aspect ratio, resolution, and reference image limit follow the parameters OpenRouter declares for that model. When there are more reference images than the model allows, generation is rejected before submission, and the error lists the limit, the actual count, and the excess reference images. If any reference image cannot be read, generation also fails right away. In neither case does generation continue with fewer reference images.
-
-To use Volcengine Ark Seedream through a custom provider, use the "Volcengine Ark (Seedream)" call endpoint. Models whose names contain `seedream` are inferred to this endpoint by default. Both text-to-image and generation with reference images reuse the preset Volcengine Ark provider's reference image handling, size calculation, and usage metering. See the official [Image Generation API documentation](https://www.volcengine.com/docs/82379/1666946) for each model's limits. Seedream models saved with "OpenAI Images API" keep their selected endpoint. If the provider does not support the current reference image interface, the failed generation prompts you to change the endpoint. Select "Volcengine Ark (Seedream)" in [model settings](#model-settings) and try again.
-
-If someone has already adapted the call endpoint you need, you can install it directly from the [Market](./market.md) instead of writing the definition yourself.
-
-When a provider submits jobs as JSON and then polls JSON results by task ID, you can click "New endpoint" in the "Endpoints" section and write a declarative definition yourself.
-
-Declarative definitions work for both video and image providers: a definition with `"media_type": "image"` is an image definition, and a definition without it is a video definition. After you attach an image definition to an image model of a custom provider, it can generate storyboard images and asset images. An image definition that declares image-to-image can also edit images.
-
-When creating an endpoint, you can pick the video or image "submit + poll" template under "Example template" as a starting point. Choosing a template replaces the current draft.
-
-For a self-hosted ComfyUI instance, you can import an API-format workflow and map prompts, assets, dimensions, duration, and output to its nodes. See [Connect a ComfyUI Workflow](./comfyui.md) for the complete setup and operational constraints.
-
-When a relay keeps an official protocol but changes the path (an added prefix, a different version segment, or a renamed path), you can change the "Request URL" in the [model settings](#model-settings). Each request the endpoint sends gets its own row; the base URL part is greyed out, and you click the path to edit it. Press Enter or click elsewhere to save, or press Esc to cancel. A changed path is appended to the base URL exactly as the provider entered it, without adding `/v1` or stripping a version segment. To drop only what was added or stripped automatically, open the path and press Enter without changing it. The path can only use placeholders the request already has, such as `{{ model }}` and `{{ task_id }}`. If the path includes a `?` query string, it replaces the original query string entirely; add any original parameters you need to keep (such as `alt=media` in the Gemini download URL) to the changed path.
-
-Connection tests and real generation use the changed URLs; model discovery and connectivity checks still use the base URL. Changing the endpoint resets modified request URLs to their defaults. If you change a request URL after a video task is submitted, resuming that task after a service restart fails instead of submitting it again. Endpoints without a "Request URL" row in the model settings do not support this.
-
-### 10.1 Three Endpoint Test Modes {#custom-endpoint-tests}
+### 9.1 Three Endpoint Test Modes {#custom-endpoint-tests}
 
 The call endpoint detail page in Settings offers three test modes, ordered from lowest to highest risk:
 
@@ -514,7 +262,7 @@ ledger. A successful video artifact plays directly in the result card, and a suc
 displayed there. The call number links to the spend ledger.
 The server retains terminal results and artifacts for 24 hours; they are unavailable after that period.
 
-### 10.2 Adapt a Custom Call Endpoint with an Agent {#custom-endpoint-agent}
+### 9.2 Adapt a Custom Call Endpoint with an Agent {#custom-endpoint-agent}
 
 When a video or image provider submits jobs as JSON and then polls JSON results by task ID, you can delegate the
 adaptation to an external Agent such as Claude Code. Signature-based authentication, multipart requests sent to
@@ -543,7 +291,7 @@ requires your explicit approval.
 Pass required assets with `--start-image`, `--end-image`, repeatable `--reference-images`, and repeatable
 `--reference-audio-files`. These CLI options use the same multipart fields as the Settings page.
 
-## 11. Multiple API Keys {#multiple-api-keys}
+## 10. Multiple API Keys {#multiple-api-keys}
 
 You can configure multiple API Keys for the same provider and select the currently active Key.
 
@@ -565,198 +313,29 @@ Recommended key rotation procedure:
 5. Delete or deactivate the old Key;
 6. Update the secret-management records.
 
-## 12. Object Storage and Provider Asset Libraries {#object-storage-and-asset-library}
+## 11. Object Storage and Provider Asset Libraries {#object-storage-and-asset-library}
 
-Volcengine Ark and BytePlus provider asset libraries hold reviewed assets that generation requests reference as `asset://`. The **Asset library & storage** section of the global settings manages the settings related to object storage and the asset library. All of them are optional; local projects keep working without them.
+Under Settings → Asset Library & Storage, you can link images reviewed by the provider or save new images to your TOS bucket. See [Asset Libraries and Object Storage](./asset-storage.md).
 
-- **Object storage**: your own TOS bucket, configured with region, Endpoint, bucket name, and Access Key. Saving the connection alone does not change where images are stored, and new images are still saved locally by default. To save new images to this bucket, also choose **Object storage** under **Save new images to**; see [Save New Images to Object Storage](#remote-image-storage). Enter a TOS Endpoint (such as `tos-cn-beijing.volces.com`); S3-compatible Endpoints that start with `tos-s3-` are not supported. After saving, use **Test connection** to confirm that the credentials can reach the bucket.
-- **Asset library accounts**: the Access Key for the asset library control plane. It is stored separately from the inference API Key and needs asset library permissions. When adding an account, choose a site (Volcano Engine (China) or BytePlus (international)) and enter a project; the default project is `default`. The provider isolates assets by project, so the inference key must belong to the same project. Control-plane requests go only to the official address of the selected site, never to the inference key's Base URL. A provider asset belongs only to the cloud account that created it, so links and ingestion jobs record the cloud account that the account's Access Key ID belonged to at the time. After you replace the account's Access Key ID with a different one, existing links stay with the original cloud account and are no longer used for generation, and unfinished ingestion jobs are not continued with the new Access Key; upload or select the image again under this account. Changing only the Secret Access Key does not affect existing links.
-- **Inference key bindings**: for each Volcengine Ark key or custom provider, choose the asset library account it may use. After you change the inference key's secret or Base URL, or the account's site, project, or Access Key ID, the binding shows **Needs confirmation**, and that account's assets are not used until you confirm again. A binding only records that you confirmed the inference key and the account belong together; the provider still checks permissions on every call.
+- <span id="upload-to-asset-library"></span>[Upload Images to an Asset Library](./asset-storage.md#upload-to-asset-library)
+- <span id="select-from-asset-library"></span>[Select an Existing Image from an Asset Library](./asset-storage.md#select-from-asset-library)
+- <span id="asset-library-across-projects"></span>[Save to the Global Asset Library and Apply to Other Projects](./asset-storage.md#asset-library-across-projects)
+- <span id="asset-library-in-project-zip"></span>[Project ZIPs and Provider Asset Links](./asset-storage.md#asset-library-in-project-zip)
+- <span id="generate-with-asset-library"></span>[Use the Asset Library During Generation](./asset-storage.md#generate-with-asset-library)
+- <span id="asset-library-in-agent"></span>[Use the Asset Library in a Conversation](./asset-storage.md#asset-library-in-agent)
+- <span id="remote-image-storage"></span>[Save New Images to Object Storage](./asset-storage.md#remote-image-storage)
 
-Access Keys are entered only on the settings page and are shown with only their first and last few characters when read back.
+## 12. Cost Tracking {#cost-tracking}
 
-### Upload Images to an Asset Library {#upload-to-asset-library}
+Open Usage Records to inspect the outcome, usage, and reference cost of calls by project, provider, model, or media type. Failed calls can still incur charges. ArcReel reports currencies separately. Check the provider bill for final charges.
 
-Choose **Upload to provider asset library** from the more-actions menu on a project asset card or on a derivative in the character details to upload the currently selected version of the image to each asset library account. Object storage must be configured first: ArcReel writes a copy of the image to your bucket, gives the provider a download URL that is valid for 24 hours, and then submits the asset. ArcReel therefore does not need a public address.
+ArcReel obtains unit prices from the Model Catalog and applies available usage and request details, such as tokens, cache usage, character or image counts, attached reference images, resolution, quality, audio, and video duration. A call shows Unpriced if usage or a matching unit price is missing. For images generated through declarative or ComfyUI endpoints, the catalog's default tier can differ from the output resolution.
 
-- The provider reviews uploads asynchronously. The status moves through **Waiting to upload**, **Submitting**, and **Provider processing**, and ends as **Available** or **Failed**. Closing the window does not stop the upload, and only **Available** links are used for generation. On failure, the provider's error code and reason are shown.
-- A link belongs to a specific version of the image. If you select another version during the upload, the result still belongs to the version that was submitted. The newly selected version must be uploaded separately; switching back to the old version uses its link again.
-- If the result of the submission is unknown (for example, the network dropped), the status shows **Result unconfirmed**. ArcReel looks up the uploaded asset in the asset library from the submission record and does not create it again. If nothing turns up for a long time, unlink and upload again.
-- **Unlink** only removes the link inside ArcReel. It deletes neither the ArcReel image nor the asset in the provider's library. Rename or delete provider assets in the provider console. You can upload again after unlinking.
-- On the first upload, ArcReel creates an asset group named `ArcReel` in the account's project. The provider requires signing an authorization in its console before an asset group can be created; until then, uploads fail with the provider's error code.
+- **Generation costs** apply the provider multiplier to the catalog price. A model on a custom provider or one you added to a built-in provider can also have a model multiplier. The two multipliers are multiplied together. If the model has no catalog match, [bind a model or enter model information](#model-settings).
+- **Multiplier changes** apply at settlement for generation calls. Costs already recorded are kept. The usual default is 1. Ark Agent Plan and ComfyUI default to 0, so ArcReel does not estimate their costs by default. Ark may separately bill over-quota calls. See [Ark Agent Plan](#capability-matrix).
+- **Agent costs** use actual token usage, including subagent calls, and appear as one record per model per turn. A session uses the active Agent provider, multiplier, and model binding at its start or resume. For an unpriced tier, select an entry from the Model Catalog in the Agent provider details. Clearing the binding restores matching by the actual model name.
 
-Relay copies in the bucket all live under the `arcreel-relay/` prefix and are cleaned up automatically by ArcReel. Once an upload has a result, its copy is kept for at least 1 hour after it was written and then deleted; if there is never a result, the copy is kept until 1 hour after the download URL expires. Failed deletions are retried automatically, and cleanup never touches other objects in the bucket. After you change the bucket or Endpoint of the object storage connection, relay copies left in the old bucket are no longer deleted automatically; remove them in the TOS console.
-
-When an image is already [saved to object storage](#remote-image-storage), no relay copy is written; the download URL is signed for that image in the bucket directly. If you delete the image in ArcReel and purge it while the upload is still in progress, the image in the bucket is kept for the same period so the provider can still fetch it, and is deleted only after that period if nothing else uses it.
-
-### Select an Existing Image from an Asset Library {#select-from-asset-library}
-
-Choose **Select from provider asset library** from the more-actions menu on a project asset card or on a derivative in the character details to view the name, type, and availability of the assets in each account, and select an image that is already in the library to use as this asset image or derivative image. Selecting does not require object storage.
-
-- Only image assets whose status is **Available** can be selected. ArcReel queries the asset from the provider, retrieves the original image from the access URL the provider returns, and saves it as a new version in the same way as an uploaded image: the new version appears in the version history, can be previewed and edited, and you can switch back to earlier versions.
-- The new version is automatically linked to the selected asset with an **Available** link that records the asset library account's site, region, and project. Earlier versions do not inherit this link.
-- If the original image cannot be retrieved, nothing is imported, for example when the asset was deleted on the provider side, the access URL has expired, or the network dropped. The original image must be PNG, JPEG, or WebP and no larger than 30 MB. When an import fails, the image keeps its previous version and no link is created; try again later or select another asset.
-- Imports never compress or scale the original image, so the saved version matches the provider asset: asset images keep the original image bytes; derivative images are always saved as PNG, so a PNG original is saved as is and a JPEG or WebP original is converted to PNG with its original pixels.
-
-### Save to the Global Asset Library and Apply to Other Projects {#asset-library-across-projects}
-
-When you save a project asset to the global asset library, or apply an asset from the global asset library to another project, the **Available** links of the current version of its asset image and derivative images go along with the images. They still belong to the original asset library account, site, region, and project.
-
-- What goes along is a copy of each link, held independently by each project or by the global asset library: unlinking or replacing the image in one place does not affect the other copies.
-- Generation still decides whether a link applies by the inference credential actually used for the call. If that credential is bound to a different account, the copied link does not apply and the image content is sent as usual.
-- Only **Available** links are copied. Tasks that are still uploading or that failed are not copied; upload again in the target project if needed.
-- After you delete the source project or asset, the global asset library and the projects it was applied to keep working, and the assets in the provider asset library are not deleted.
-
-### Project ZIPs and Provider Asset Links {#asset-library-in-project-zip}
-
-When you export a project ZIP, the **Available** links of the image versions in the package go along with the images. They still belong to the original asset library account, site, region, and project. After you import the ZIP into another ArcReel instance, if the asset library account bound to the inference credential belongs to the same cloud account as the original account, generation uses these assets directly, without uploading again.
-
-- An imported link is used only when the account bound to the inference credential belongs to the same cloud account as the original account and has the same site, region, and project. Otherwise the link is kept but not used, and the image content is sent as usual. Whether an asset can be used is ultimately decided by the provider for each account.
-- Only **Available** links are included. Tasks that are still uploading, waiting for confirmation, or that failed are not included; upload again in the target project after import.
-- A "current version only" ZIP includes links only for the versions that ship in the package. Images whose version records do not ship in the package (such as generated asset images) carry no links.
-- The ZIP contains no asset library Access Keys, signed URLs, or object storage details. If an image in the package has been modified, its link is not imported, and the image is imported as usual.
-
-### Use the Asset Library During Generation {#generate-with-asset-library}
-
-Before a reference-to-video request is submitted, ArcReel determines the inference credential the video channel actually uses for this call, finds the asset library account that credential is bound to with a confirmed binding, and then checks, image by image, whether the currently selected version of each reference image has a link in that account. Links created by uploading and by importing follow the same rules.
-
-- **The link is available**: the reference image is sent as an `asset://` asset reference, and the other reference images are sent as image content as usual. The number and order of reference images and the image numbering in the prompt stay the same.
-- **No applicable link**: the image content is sent as usual. This applies when the inference credential has no binding or its binding needs to be confirmed again, when the current version has never been uploaded or imported, and when the model does not accept asset references.
-- **The link is not yet available or ingestion failed**: when the link is in the **Waiting to upload**, **Submitting**, **Provider processing**, **Result unconfirmed**, or **Failed** state, ArcReel does not fall back to sending the image content and does not submit a request to the provider. The pre-submission check, the batch generation preview, and the cost estimate already report this problem and give no estimate for that unit. During execution, ArcReel checks again against the images actually sent; if the state changes after submission, generation fails during execution. The message names the image by its number: you can generate once ingestion is available; when ingestion failed, the message includes the provider's error code. You can also unlink and send the plain image instead.
-
-Only reference images for the Seedance 2.0 and 2.5 model series on Volcano Engine Ark and BytePlus use asset references. Whether a model belongs to these series depends on the model it maps to in the model catalog, not on the model ID itself: this also applies to custom provider models that use the **Volcengine Ark (Seedance)** call endpoint and either match Seedance 2.0 or 2.5 by name or are linked to one with **Link to another model** in the model information. A model that does not map to the model catalog sends image content as usual, even if its ID contains the word Seedance. First frames, last frames, storyboard images, and image generation still send image content. After switching the inference credential, ArcReel decides again based on the new credential's binding, and links in the previous account no longer apply.
-
-When the provider rejects a request because an input image failed moderation (error codes that start with `InputImageSensitiveContentDetected`, for example `InputImageSensitiveContentDetected.PrivacyInformation`), ArcReel does not upload automatically, does not retry generation, and does not switch providers. The error shows the provider's error code and suggests uploading the related asset image to the provider asset library and generating again once ingestion is available. The error names the image only when the request contains a single reference image and no first or last frame; when the provider error does not identify the image, ArcReel does not guess. When the rejected image was already sent as an asset reference, the error instead suggests checking that asset in the provider console.
-
-### Use the Asset Library in a Conversation {#asset-library-in-agent}
-
-The ArcReel Agent and external Agents connected through remote MCP can perform the same asset library operations, using the same links as the asset cards:
-
-- check the links and ingestion status of an image's current version, and the available asset library accounts;
-- browse the existing assets in an asset library account, and save the image you choose as a new version of the asset image;
-- upload a specific image to the asset library when you explicitly ask for it;
-- unlink after you agree; neither the ArcReel image nor the provider asset is deleted.
-
-The Agent uploads only when you explicitly ask. After a provider rejects a generation during moderation, the Agent relays the reason and explains that you can upload; you decide, and it does not upload or generate again automatically. After an upload, the Agent receives the ingestion job right away and does not wait for provider review; you can ask the Agent to check the status later. Asset library accounts, object storage, and inference credential bindings are still configured in the **Asset library & storage** section. The Agent cannot see their keys, and it cannot rename or delete assets in the provider asset library.
-
-### Save New Images to Object Storage {#remote-image-storage}
-
-By default, the object storage connection is only used to relay images when adding them to an asset library. To keep new images in the bucket and leave only a cache that can be cleaned up on this machine, choose **Object storage** under **Save new images to** in the **Asset library & storage** section. This is a global setting for the instance. It defaults to **Local**, and there is no per-project or per-image option.
-
-**Minimum setup**
-
-1. Configure the object storage connection and use **Test connection** to confirm that the credentials can reach the bucket.
-2. Under **Save new images to**, choose **Object storage**. The choice takes effect as soon as it is selected. It cannot be chosen while no connection is configured.
-
-The connection's Access Key needs permission to upload, read (including reading object metadata), and delete objects in this bucket. **Test connection** only checks that the bucket can be accessed, not these object permissions. The delete permission is used to clean up relay copies and to remove image objects that are no longer used.
-
-**What the setting affects**
-
-- The setting applies only to image versions saved from now on: generated and inpainted images, grid images and the storyboard images split from them, manually uploaded asset images, storyboard images, derivatives and grid images, images selected from an asset library, imported project ZIPs, and images saved to the global asset library or applied to a project.
-- Existing images and earlier versions are not moved and are still read from where they are. Switching back to an earlier version or restoring from the trash keeps that version's original location and does not count as saving a new image.
-- Switching back to **Local** affects only images saved afterwards; images already in the bucket are still read as usual. A project can contain local and remote images at the same time.
-- The following images have no version history and are always saved locally: storyboard end frames, character and product original images, and the project's style reference image. Video and audio are also always saved locally.
-
-**Relay copies and image objects**
-
-The bucket holds two kinds of objects, which are managed separately:
-
-| Prefix | Content | Cleanup |
-| --- | --- | --- |
-| `arcreel-relay/` | Relay copies for asset library uploads | Deleted in the background once the upload has a result or the download URL has expired; see [Upload Images to an Asset Library](#upload-to-asset-library) |
-| `arcreel-materials/` | Images saved to object storage, named by content, so identical images are stored once | Kept as long as version history, the trash, a deleted project, the global asset library, another project, or an upload in progress still uses them; deleted by ArcReel once nothing uses them (for example, after permanently deleting from the trash) |
-
-Do not delete or overwrite objects under `arcreel-materials/` in the TOS console; otherwise the corresponding images can no longer be previewed, generated from, or exported. Relay cleanup never touches these objects.
-
-**Local cache**
-
-Each remote image has a local cache copy that preview, generation, and image processing use directly. The cache is only a copy: after it is cleaned up, the image is fetched from object storage again when needed and its content is verified. Opening the workspace or viewing status does not trigger downloads.
-
-- ArcReel cleans up cache files that have been idle for more than 24 hours once an hour in the background.
-- To free space immediately, call `POST /api/v1/object-storage/work-cache/cleanup`. The request body can include `min_idle_seconds` to clean up only cache files idle for longer than that many seconds; the default is `0`. The response returns the number of files removed (`removed`), the bytes freed (`freed_bytes`), and the number of files kept because they are in use (`kept_in_use`).
-- Cleanup only deletes cache files that are confirmed to be saved in object storage and match the remote content. Local images, files in use, and objects in the bucket are not affected.
-
-**Backup and migration**
-
-- The content of remote images lives only in the bucket, so a backup of the ArcReel data directory does not include it. Keep the bucket as well once you enable remote storage. ArcReel deletes image objects that are no longer used; to be able to restore an older backup, also back up the objects under `arcreel-materials/` in the bucket, or enable versioning on the bucket. See [Backup and Restore](../ops/deployment.md#backup-and-restore).
-- To move to another ArcReel instance, export a project ZIP. Before exporting, ArcReel fetches remote images whose cache has been cleaned up, so the ZIP contains the actual image content and no bucket name or access keys. The other instance saves these images again according to its own **Save new images to** setting.
-
-**Changing or deleting the connection**
-
-- While the bucket still holds image objects that ArcReel is using or saving, the bucket, Endpoint, and region cannot be changed and the connection cannot be deleted; only the Access Key can be updated. This way existing images are always read from their original bucket and are never pointed at another bucket. Image objects left behind by failed saves and no longer used anywhere do not prevent changing or deleting the connection.
-- While **Save new images to** is **Object storage**, the connection cannot be deleted; switch it back to **Local** first.
-- If the connection is changed while an image is being saved, that save fails and the previous image is kept; retry to save it to the new bucket.
-- While a project is being deleted or replaced by an import, images saved to that project fail; the project's existing images are not affected.
-- While the bucket still holds relay copies that have not been cleaned up, or image objects waiting to be deleted (left behind by failed saves, or no longer used), the dialogs for editing and deleting the connection show how many of each. After you change the bucket or Endpoint, or delete the connection, those objects are no longer deleted automatically; remove them in the TOS console.
-
-**Troubleshooting**
-
-- **"The image could not be saved to object storage"**: the new version does not appear, and earlier versions, artifacts, and files are unchanged. Use **Test connection** to check the connection, check the Access Key's upload permission and the network, and try again. You can also switch back to **Local** and keep working. If this message appears while importing a project ZIP, the import did not write any project; check the connection and import again.
-- **The region, Endpoint, or bucket is wrong and images keep failing to save**: first switch **Save new images to** back to **Local**, then edit the connection to correct it, or delete the connection and configure it again. Images that failed to save are not used anywhere and do not block the change. After the correction, the image objects waiting to be deleted that the dialog reports are no longer deleted automatically: if the Endpoint was unreachable, they were never written to the bucket and need no action; any that were written to the original bucket must be cleaned up in the TOS console. Do not bulk-delete objects by the `arcreel-materials/` prefix: if the bucket is the same before and after the correction, it contains images that are in use.
-- **"The image could not be retrieved from object storage" during preview, generation, or export**: the image's object in the bucket is missing, has been overwritten, or is temporarily unreachable. Check the network and read permission. If the object was deleted or overwritten, restore from the trash or another version, or generate or upload the image again.
-- **The image is saved in the original bucket, but the current connection was deleted or points to another bucket**: the connection's bucket or Endpoint no longer matches the settings used when the image was saved. Change the connection back to the original bucket and Endpoint to read it again.
-- **New images are set to be saved to object storage, but no connection is configured**: configure the connection, or switch **Save new images to** back to **Local**.
-- **Saving images is slow**: images are uploaded to object storage while the version is saved, and the new version appears only after the upload is confirmed. During the upload, other image saves in the same project wait in line; this is more noticeable with large images or slow networks. When importing a project ZIP, images are uploaded one by one within the import request.
-
-## 13. Cost Tracking {#cost-tracking}
-
-ArcReel can record costs by provider and media type, but keep in mind:
-
-- Different providers use different billing units;
-- Different currencies should not be combined into a single unexplained total;
-- Providers may change their pricing;
-- Some failed tasks may still incur charges;
-- The provider's final invoice is authoritative.
-
-Costs of text, voiceover, image, and video calls on built-in providers are computed from each model's official prices:
-
-- Cache hits and cache writes are charged at their own prices, not as regular input;
-- For models priced by input length, the tier is chosen by the total input of the single request (including cache), and the whole request uses that tier's prices;
-- Voiceover models that officially count each Chinese character as 2 characters are counted the same way;
-- Image resolution and quality are reported from the actual request or the upstream defaults, using the same rules for estimates and settlement; when the request carries no resolution, the provider's default tier applies;
-- Grok Imagine Image 2.0 does not send an explicit quality setting. Following the [current upstream defaults](https://docs.x.ai/developers/model-capabilities/images/generation#quality), text-to-image reports `low` and image editing reports `medium`;
-- For image models that officially charge for reference images (for example, beyond a number of free images), reference images are counted per image;
-- Videos are priced by the seconds actually generated and by the resolution, audio, and duration tier sent to the provider; Vidu reference-to-video uses its own prices;
-- Ark Seedance is billed by video tokens: settlement uses the token count the provider reports, and pre-submit estimates convert with the official formula (width × height × frame rate × seconds / 1024). When the aspect ratio is left to the provider (adaptive), the token count is unknown and the estimate is recorded as "Unpriced";
-- A call with no applicable price is recorded as "Unpriced" instead of being estimated with another model's or another tier's price.
-
-Models on a custom provider have no prices of their own. When a model name maps to a known model in the model catalog, its calls are charged at that model's official price, with the same rules as built-in providers;
-when it maps to nothing, its calls are recorded as "Unpriced". The model list on the settings page shows the known model each model maps to, or "Unpriced".
-
-For custom providers using OpenAI Chat for image generation, metering uses the resolution tier actually sent. Custom pixel dimensions are not reported as resolution tiers.
-
-Image generation through a declarative endpoint or a ComfyUI endpoint does not report resolution or quality tiers. Costs use the default tier of the model catalog entry, which may differ from the resolution actually sent. ComfyUI providers have a multiplier of 0 by default, so no cost is computed.
-
-Each provider can have a multiplier that applies to the cost of all its calls, to reflect top-up discounts or relay price differences.
-Models of custom providers, and models you added yourself under a built-in provider, can also have their own multiplier, so the final cost = official price × provider multiplier × model multiplier. For example, if a relay charges 80% of the official price across the board, set the provider multiplier to 0.8; if one model there costs 1.5× the official price, set that model's multiplier to 1.875 (0.8 × 1.875 = 1.5).
-The multiplier defaults to 1. Volcengine Ark Agent Plan and ComfyUI providers default to a multiplier of 0, so ArcReel does not estimate the cost of their calls. If you enable overage postpaid billing for a supported model in the Ark console, Ark bills calls beyond the plan quota separately. Check your Ark bill for the actual charges. See Ark's [overage postpaid billing guide](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh).
-
-Provider calls use the multiplier in effect at settlement, including changes made while a call is in progress. Previously recorded costs are not recalculated.
-
-Agent session costs are computed from the same model catalog; the cost reported by the Claude Agent SDK is not used:
-
-- Each model request is priced by its own token usage and total input, and subagent requests are included.
-- Each model used in a conversation turn gets one record, named after the model that was actually called.
-- When a model name does not match any known model in the catalog, its tokens are still recorded and the cost is marked "Unpriced".
-- Calls that do not appear in the message stream, such as context compaction, are filled in from the cumulative usage the SDK reports. The first turn after a session is resumed has no baseline to compare against, so such calls are not counted in that turn.
-
-Each Agent provider can have a multiplier, applied to the cost of every Agent call made through that provider. It defaults to 1. Gateways billed by subscription can set the multiplier to 0 so that no cost is computed. A session is billed with the Agent provider that was active when the session started (or was resumed), using that provider's multiplier and manually selected models (described below) as they were at that moment. Switching the active provider, changing the multiplier, or changing a selected model mid-session does not affect sessions already in progress; sessions started (or resumed) afterwards use the new settings. Recorded costs are not recalculated.
-
-The Agent provider list in Settings shows the model actually called by the main model and by each of the four tiers (Haiku, Sonnet, Opus, and subagent), along with whether each tier is priced and which model in the catalog it matches. Tiers that match no model show "Unpriced", and their calls are recorded as unpriced. Tiers left empty in the official Anthropic preset are resolved by Claude Code, and their cost is computed from the model actually called.
-
-For an unpriced tier, choose "Select model" to pick a model from the catalog by hand; the tier's calls are then priced as the selected model, and "Unbind" returns it to automatic matching by model name. The selection is stored only on that Agent provider: it does not change the catalog entry or its official updates. If the selected model later disappears from the catalog, the tier falls back to matching by model name and shows "Selected model discontinued"; you can still unbind it.
-
-Use ArcReel's cost tracking for:
-
-- Project budgets;
-- Comparing shot costs;
-- Model selection;
-- Detecting abnormal calls;
-- Analyzing differences between estimates and actual usage.
-
-It is not a substitute for the provider's official invoice.
-
-## 14. Troubleshooting {#troubleshooting}
+## 13. Troubleshooting {#troubleshooting}
 
 ### Connection Test Fails {#connection-test-failed}
 
@@ -801,13 +380,3 @@ Check:
 - Whether native audio was generated;
 - Whether the pricing table needs to be updated;
 - Whether the provider changed its billing model.
-
-## 15. Documentation Update Principles {#doc-update-principles}
-
-Provider models change frequently, so:
-
-- The README maintains only the capability matrix;
-- This document maintains configuration principles;
-- The Settings page is authoritative for the specific model list;
-- Provider pages are authoritative for official pricing;
-- When ArcReel adds or removes a provider, update the matrix, Settings-page help text, and tests together.

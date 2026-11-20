@@ -4,12 +4,8 @@ status: accepted
 
 # 素材存储与供应商素材关联独立建模
 
-#2249 的供应商素材库接入与对象存储接入分别改变素材的供应商侧身份和内容保存位置，因此将素材身份、素材存储与供应商素材关联独立建模，关联归属于具体内容版本。创作流程引用素材身份，存储负责保存内容，供应商关联表达该版本在特定资源范围内的身份与使用条件。不采用 `local / s3 / volcano` 互斥类型：同一素材可以存于对象存储并关联多个供应商素材，混成一个类型轴会使存储迁移、供应商切换与内容替换相互牵制。
+创作流程引用素材，存储层负责保存实际内容，供应商素材关联则将某个内容版本映射到特定供应商范围内的素材。若把 `local / s3 / volcano` 混为互斥类型，会把存储迁移、供应商切换与内容替换强耦合在一起，也无法表达「同一内容版本存放在对象存储中，同时挂接多个供应商关联」的场景。
 
-## 后果
+仅迁移存储不改变内容身份或产物时效。改选 B 不会让它继承 A 的关联，A 的关联仍然属于 A。解除本地关联也不删除供应商资源。ArcReel 需要保存可取得的真实内容，以便预览、编辑、归档和改用其他供应商。仅有供应商素材 ID 不能充当可用内容。版本事实见 [ADR 0109](0109-content-version-identity-on-version-records.md)，供应商素材导入见 [ADR 0112](0112-import-provider-asset-saves-content-before-link.md)。
 
-仅改变存储位置不改变内容身份或产物时效。不同内容版本的关联彼此独立：改选图片 B 不让 B 继承 A 的关联，也不让 A 的关联失效；解除 ArcReel 内的关联与删除供应商素材分离，避免影响其他使用者。
-
-统一素材需要可取得的实际内容，以支持预览、编辑、归档及其他供应商使用；仅有供应商 ID 的资源不能直接充当 ArcReel 素材。这增加了内容获取与保存的责任，但避免供应商素材成为无法参与正常创作流程的例外。
-
-交付范围、凭证绑定、入库状态、存储选择、失败补偿和验收要求由 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559) 及其子任务维护。源码证据与增量评估见[上传链路研究](../research/create-asset-local-upload-research.md)和[对象存储范围研究](../research/material-object-storage-scope.md)。
+[Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559) 记录交付范围和验收。[上传链路研究](../research/create-asset-local-upload-research.md)和[对象存储范围研究](../research/material-object-storage-scope.md)提供当时的证据。

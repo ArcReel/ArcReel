@@ -5,7 +5,7 @@ description: 启动 subagent 或向其他 agent 分派任务前使用，用于�
 
 # 模型路由
 
-委派前按任务性质选一个 Category，再到 [models.md](models.md) 查它对应的 Harness、模型与 effort。首选不可用时改用同行的 fallback，并在汇报中注明降级。
+委派任务前先按任务性质选择一个 Category，再到 [models.md](models.md) 查询模型与 effort，再按模型所属系列选择 Harness：GPT 用 Codex，Claude 用 Claude Code，Gemini 用 Antigravity CLI。若首选不可用，则改用同行的 fallback，并在汇报中注明降级情况。
 
 ## Category
 
