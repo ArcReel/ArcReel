@@ -492,10 +492,10 @@ docker compose up -d postgres
 docker compose ps postgres
 ```
 
-确认 PostgreSQL 健康检查通过后再导入 SQL。目标必须是此次新建的空数据库。使用自定义库名或用户时，先在恢复实例创建所需的空数据库与角色。若导入报错，请保留现场并中止操作，排查后再启动 ArcReel。
+确认 PostgreSQL 健康检查通过后再导入 SQL。目标必须是此次新建的空数据库。使用自定义库名或用户时，先在恢复实例创建所需的空数据库与角色。导入在一个事务中完成。若中途报错，先排除问题并重试导入。确认导入成功后再启动 ArcReel。
 
 ```bash
-docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel < "${db_dump}"
+docker compose exec -T postgres psql -X --single-transaction -v ON_ERROR_STOP=1 -U arcreel -d arcreel -f - < "${db_dump}"
 ```
 
 确认数据库和对象存储都已就绪后，按恢复的配置创建 ArcReel 容器。登录抽查项目、图片、视频、版本历史与关键会话。

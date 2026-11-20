@@ -492,10 +492,10 @@ docker compose up -d postgres
 docker compose ps postgres
 ```
 
-Check that PostgreSQL is healthy and that the target is a new, empty database. If you use a custom database name or user, create the empty database and the required roles in the restore instance before importing the SQL. If the import fails, keep the restore instance for investigation and resolve the error before starting ArcReel.
+Check that PostgreSQL is healthy and that the target is a new, empty database. If you use a custom database name or user, create the empty database and the required roles in the restore instance before importing the SQL. The import runs in one transaction. If it fails, resolve the error and retry the import. Start ArcReel only after the import succeeds.
 
 ```bash
-docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U arcreel -d arcreel < "${db_dump}"
+docker compose exec -T postgres psql -X --single-transaction -v ON_ERROR_STOP=1 -U arcreel -d arcreel -f - < "${db_dump}"
 ```
 
 Once the database and object storage are ready, create the ArcReel container from the restored configuration. Sign in and check projects, images, videos, version history, and important sessions.
