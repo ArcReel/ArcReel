@@ -17,7 +17,7 @@ disable-model-invocation: true
    - 已开启 auto-merge、没有冲突、required checks 没有失败的：确认后结束。
    - 阻塞原因与上一次接手时相同：对应的 `needs-triage` issue 仍 open 时补一条评论后结束，没有就开一个；issue 已关闭的，按其中的裁决处理后转下一项。
    - 其余：rebase 到最新 `origin/main`，按第 6 步第 2 项跑闸门，用 `--force-with-lease` push，更新 PR 正文；PR 为 draft 时用 `gh pr ready` 转为 ready，再执行第 6 步第 4 项。
-5. 读 `docs/LESSONS.md` 顶部的 `<!-- reviewed-through: <SHA> <日期> -->`。窗口是 `<SHA>..origin/main`，记下此刻 `origin/main` 的 SHA 作为窗口终点，从窗口终点创建 `lessons-sweep/<YYYY-MM-DD>` 分支与工作树。后续改动都在这里进行。
+5. 用 `git rev-parse origin/main` 记下窗口终点的 SHA。用 `git show <窗口终点>:docs/LESSONS.md` 读取该提交顶部的 `<!-- reviewed-through: <SHA> <日期> -->`，以标记中的 SHA 为窗口起点。窗口是 `<SHA>..<窗口终点>`。从同一窗口终点创建 `lessons-sweep/<YYYY-MM-DD>` 分支与工作树，后续改动都在这里进行。
 
 ## 2. 收集候选
 
