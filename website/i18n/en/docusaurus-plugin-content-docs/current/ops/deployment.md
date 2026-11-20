@@ -413,14 +413,16 @@ docker compose start arcreel
 To restore:
 
 1. Stop ArcReel and keep the original deployment directory for rollback.
-2. Extract the configuration archive into a new deployment directory. Extract the paired data archive into the empty data directory mounted by that Compose configuration.
+2. Extract the configuration archive into a new deployment directory. If it references custom host paths from the original deployment, change them to new paths. Confirm that the data root maps to a new, empty directory, then extract the paired data archive there.
 3. Run `docker compose up -d --wait arcreel` from the restore directory. Check `/health` and open several projects to verify their images, videos, and version history.
 
 ### 6.2 Back Up a PostgreSQL Deployment {#backup-postgresql}
 
-Run these commands from the active production Compose directory. The initial deployment uses `deploy/production/` by default. Stop ArcReel and leave PostgreSQL running so the database and project files represent the same point in time.
+Run these commands from the active production Compose directory. The initial deployment uses `deploy/production/` by default. Stop ArcReel and leave PostgreSQL running so the database and project files represent the same point in time. Archive the data root actually mounted by Compose. For a custom mount, set `data_dir` to the absolute host path.
 
 ```bash
+data_dir="$(pwd -P)/projects"
+# Custom data directory example: data_dir="/srv/arcreel/projects"
 umask 077
 mkdir -p backups
 chmod 700 backups
@@ -433,12 +435,14 @@ docker compose exec -T postgres sh -c \
   > "backups/arcreel-db-${backup_stamp}.sql"
 
 tar -czf "backups/arcreel-files-${backup_stamp}.tar.gz" \
-  .env docker-compose.yml projects claude_data
+  .env docker-compose.yml claude_data
+tar -czf "backups/arcreel-projects-${backup_stamp}.tar.gz" \
+  -C "${data_dir}" .
 
 docker compose start arcreel
 ```
 
-The database and file backups use the same timestamp and must be stored and restored together. The `projects/` directory in the file backup is the data root and already includes logs and Vertex credentials. The file backup includes the active `docker-compose.yml`, so any `DATABASE_URL` customization required by a special-character password is restored together with `.env`. `umask 077` and backup directory mode `0700` ensure that the host-created SQL file and file archive are readable and writable only by the current user.
+Keep and restore the SQL dump, configuration archive, and data root archive with the same timestamp. The data root includes logs and Vertex credentials. The archived `docker-compose.yml` and `.env` preserve any custom `DATABASE_URL`. `umask 077` and backup directory mode `0700` ensure that the host-created SQL file and file archive are readable and writable only by the current user.
 
 `pg_dump` reads `PGPASSWORD` through libpq. The command above sets it only for that `pg_dump` process inside the PostgreSQL container, allowing `docker compose exec -T` to run non-interactively without expanding the password into the host command line. For long-running host-side backup automation, use a PostgreSQL password file with `0600` permissions instead. Never put the password in a script or backup filename.
 
@@ -446,9 +450,9 @@ If `tar` reports `Permission denied`, the mounted directory contains files creat
 
 ### 6.3 Restore PostgreSQL {#restore-postgresql}
 
-Use the [file archive and SQL dump with the same timestamp](#backup-postgresql). Start in the active production Compose directory and restore into a new sibling directory. Keep the original database and files for rollback. The steps use the default relative mount paths. For custom mounts, adjust the backed-up configuration to use new host paths for the projects, Agent data, and PostgreSQL. If you use image object storage, prepare [the objects from the same backup point](#backup-and-restore). The restored connection needs access to the matching images in the original bucket.
+Use the [archives and SQL dump with the same timestamp](#backup-postgresql). Start in the active production Compose directory and restore into a new sibling directory. Keep the original database and files for rollback. The steps use the default relative mount paths. For custom mounts, adjust the restored configuration to mount the extracted `projects/` and `claude_data/` in the new deployment directory, and point PostgreSQL to a new `pgdata/` path that does not yet exist in that directory. If you use image object storage, prepare [the objects from the same backup point](#backup-and-restore). The restored connection needs access to the matching images in the original bucket.
 
-Extract the archive to an empty directory and check the restored configuration, credentials, and files. Replace the timestamp below and run all steps in the same shell.
+Extract the archives into an empty directory and check the restored configuration and credentials. If the file archive already contains `projects/`, use that data root. Replace the timestamp below and run all steps in the same shell.
 
 ```bash
 set -euo pipefail
@@ -456,6 +460,7 @@ set -euo pipefail
 active_dir="$(pwd -P)"
 backup_stamp=YYYYMMDD-HHMMSS
 archive="${active_dir}/backups/arcreel-files-${backup_stamp}.tar.gz"
+projects_archive="${active_dir}/backups/arcreel-projects-${backup_stamp}.tar.gz"
 db_dump="${active_dir}/backups/arcreel-db-${backup_stamp}.sql"
 test -s "${archive}" && test -s "${db_dump}" || exit 1
 
@@ -463,7 +468,10 @@ restore_dir="$(mktemp -d "$(dirname "${active_dir}")/arcreel-restored-XXXXXX")"
 tar -xzf "${archive}" -C "${restore_dir}"
 test -f "${restore_dir}/.env"
 test -f "${restore_dir}/docker-compose.yml"
-test -d "${restore_dir}/projects"
+if [ ! -d "${restore_dir}/projects" ]; then
+  mkdir "${restore_dir}/projects"
+  tar -xzf "${projects_archive}" -C "${restore_dir}/projects"
+fi
 test -d "${restore_dir}/claude_data"
 test ! -e "${restore_dir}/pgdata" && test ! -L "${restore_dir}/pgdata" || exit 1
 (cd "${restore_dir}" && docker compose config --quiet)

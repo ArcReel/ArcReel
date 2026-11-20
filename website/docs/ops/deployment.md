@@ -413,14 +413,16 @@ docker compose start arcreel
 恢复时：
 
 1. 停止 ArcReel，保留原部署目录供回滚。
-2. 将配置归档解压到新部署目录，再将配套数据归档完整解压到 Compose 配置挂载的空数据目录。
+2. 将配置归档解压到新部署目录。若配置引用原部署的自定义宿主机路径，改为新路径。确认数据根挂载到新的空目录后，再完整解压配套的数据归档。
 3. 在恢复目录执行 `docker compose up -d --wait arcreel`，检查 `/health`，打开项目验证图片、视频和版本历史。
 
 ### 6.2 PostgreSQL 部署备份 {#backup-postgresql}
 
-在当前生产 Compose 目录执行。首次部署默认位于 `deploy/production/`。先停止 ArcReel 应用，同时保持 PostgreSQL 运行，以确保数据库和项目文件处于同一备份时间点。
+在当前生产 Compose 目录执行。首次部署默认位于 `deploy/production/`。先停止 ArcReel 应用，同时保持 PostgreSQL 运行，以确保数据库和项目文件处于同一备份时间点。归档 Compose 配置中实际挂载的数据根。若使用自定义挂载，先将 `data_dir` 改成对应的宿主机绝对路径。
 
 ```bash
+data_dir="$(pwd -P)/projects"
+# 自定义数据目录示例：data_dir="/srv/arcreel/projects"
 umask 077
 mkdir -p backups
 chmod 700 backups
@@ -433,12 +435,14 @@ docker compose exec -T postgres sh -c \
   > "backups/arcreel-db-${backup_stamp}.sql"
 
 tar -czf "backups/arcreel-files-${backup_stamp}.tar.gz" \
-  .env docker-compose.yml projects claude_data
+  .env docker-compose.yml claude_data
+tar -czf "backups/arcreel-projects-${backup_stamp}.tar.gz" \
+  -C "${data_dir}" .
 
 docker compose start arcreel
 ```
 
-数据库备份和文件备份使用同一时间标签，必须配套保存和恢复。文件备份中的 `projects/` 是数据根，已包含日志与 Vertex 凭据。文件备份包含当前 `docker-compose.yml`，因此特殊字符密码所需的 `DATABASE_URL` 定制也会随 `.env` 一起恢复。`umask 077` 与备份目录模式 `0700` 会让宿主机重定向生成的 SQL 文件和文件归档仅对当前用户可读写。
+SQL、配置和数据根归档使用同一时间标签，须配套保存和恢复。数据根归档已包含日志与 Vertex 凭据。配置归档中的 `docker-compose.yml` 和 `.env` 会保留自定义的 `DATABASE_URL`。`umask 077` 与备份目录模式 `0700` 会让宿主机重定向生成的 SQL 文件和文件归档仅对当前用户可读写。
 
 `pg_dump` 会使用 libpq 的 `PGPASSWORD`。上述命令只在 PostgreSQL 容器内的该次 `pg_dump` 进程中设置它，因此 `docker compose exec -T` 可以非交互执行，也不会把密码展开到宿主机命令行。长期的宿主机备份自动化应改用权限为 `0600` 的 PostgreSQL password file，不要把密码写进脚本或备份文件名。
 
@@ -446,9 +450,9 @@ docker compose start arcreel
 
 ### 6.3 PostgreSQL 恢复 {#restore-postgresql}
 
-请使用[同一时间戳的文件归档与 SQL 备份](#backup-postgresql)。在当前生产 Compose 目录下执行，恢复至全新的相邻目录，以便保留原目录中的数据库与文件用于回滚。以下步骤适用于默认的相对挂载路径；若使用自定义挂载，请先修改备份配置，使项目、Agent 数据与 PostgreSQL 均指向新的宿主机路径。若启用了图片对象存储，请提前准备好[同一备份时点的对象](#backup-and-restore)，确保恢复后的连接能正常读取原存储桶中的对应图片。
+请使用[同一时间戳的归档和 SQL 备份](#backup-postgresql)。在当前生产 Compose 目录下执行，恢复至全新的相邻目录，以便保留原目录中的数据库与文件用于回滚。以下步骤适用于默认的相对挂载路径；若使用自定义挂载，请先修改备份配置，让数据根和 Agent 数据挂载到新部署目录中解包后的 `projects/` 和 `claude_data/`，并将 PostgreSQL 挂载到新部署目录下尚未创建的 `pgdata/`。若启用了图片对象存储，请提前准备好[同一备份时点的对象](#backup-and-restore)，确保恢复后的连接能正常读取原存储桶中的对应图片。
 
-先将文件归档解压到空目录，核对恢复配置、凭证与文件归档。替换命令中的时间戳，并在同一 shell 中完成本节各步。
+先将归档解压到空目录，核对恢复配置和凭证。文件归档已经包含 `projects/` 时，直接使用其中的数据根。替换命令中的时间戳，并在同一 shell 中完成本节各步。
 
 ```bash
 set -euo pipefail
@@ -456,6 +460,7 @@ set -euo pipefail
 active_dir="$(pwd -P)"
 backup_stamp=YYYYMMDD-HHMMSS
 archive="${active_dir}/backups/arcreel-files-${backup_stamp}.tar.gz"
+projects_archive="${active_dir}/backups/arcreel-projects-${backup_stamp}.tar.gz"
 db_dump="${active_dir}/backups/arcreel-db-${backup_stamp}.sql"
 test -s "${archive}" && test -s "${db_dump}" || exit 1
 
@@ -463,7 +468,10 @@ restore_dir="$(mktemp -d "$(dirname "${active_dir}")/arcreel-restored-XXXXXX")"
 tar -xzf "${archive}" -C "${restore_dir}"
 test -f "${restore_dir}/.env"
 test -f "${restore_dir}/docker-compose.yml"
-test -d "${restore_dir}/projects"
+if [ ! -d "${restore_dir}/projects" ]; then
+  mkdir "${restore_dir}/projects"
+  tar -xzf "${projects_archive}" -C "${restore_dir}/projects"
+fi
 test -d "${restore_dir}/claude_data"
 test ! -e "${restore_dir}/pgdata" && test ! -L "${restore_dir}/pgdata" || exit 1
 (cd "${restore_dir}" && docker compose config --quiet)
