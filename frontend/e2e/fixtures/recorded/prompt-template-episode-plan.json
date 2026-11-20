@@ -42,7 +42,7 @@
       "protected": false,
       "output_schema": "lib.episode.episode_planner:DramaPlanDraft"
     },
-    "source": "{{ variant(\"text/episode_plan/intro\", source_kind) }}\n\n# 项目信息\n- 创作类型：{{ variant(\"text/episode_plan/content_mode_label\", content_mode) }}\n{% if synopsis %}\n- 故事概述：{{ synopsis }}\n{% endif %}\n{% if genre %}\n- 题材：{{ genre }}\n{% endif %}\n{% if target_volume %}\n- 每集目标体量：约 {{ target_volume.units }} {{ unit_noun }}（{% if target_volume.seconds %}按单集目标时长 {{ target_volume.seconds }} 秒、口播语速约 {{ target_volume.units_per_second }} {{ unit_noun }}/秒粗略折算，{% endif %}允许为剧情完整性上下浮动）\n{% else %}\n- 每集目标体量：未设置，请按短视频节奏自行把握（以剧情弧完整优先）\n{% endif %}\n{% if max_episodes %}\n- 本批最多规划 {{ max_episodes }} 集\n{% endif %}\n{% if context_entries %}\n\n# 已规划的前情（已定上下文，不可改动，续着它往下规划）\n{{ partial(\"text/episode_plan/lists/context_entries\") }}\n{% endif %}\n{% if instructions %}\n\n{{ partial(\"shared/additional_instructions\") }}\n{% endif %}\n{% if progress %}\n\n# 全局进度\n- 已规划 {{ progress.planned_count }} 集\n- 未规划余量约 {{ progress.remaining_units }} {{ unit_noun }}（含本窗口，含后续源文件）\n- 本窗口为其中前 {{ progress.window_units }} {{ unit_noun }}\n- 若附加指令含总集数、按章节对齐等全局约束，请结合以上进度与余量换算本批的切分节奏与集数。\n{% endif %}\n\n# 切分规则\n- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：这一刀为什么切在这、给观众留了什么悬念）、\n  end_anchor（本集结尾处的原文片段，10~30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；\n  本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。\n{{ variant(\"text/episode_plan/author_division_rule\", source_kind) }}\n{{ variant(\"text/episode_plan/outline_rule\", content_mode) }}\n- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。\n{% if window_is_final and followed_by_episode %}\n- 这段原文之后紧接着已经规划好的下一集：请规划到这段原文的结尾，最后一集的 end_anchor 取这段原文结尾处的片段，不要留尾巴。\n{% elif window_is_final %}\n- 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。\n{% else %}\n- 这段原文只是全文的一个窗口：窗口尾部剧情弧不完整的内容不要硬凑成集，留给下一批规划即可。\n{% endif %}\n- 如果这段原文里找不到任何一个剧情弧完整的切分点，返回空的 episodes 列表，不要硬切。\n- 只输出符合 schema 的 JSON，不要输出其他内容。\n{% if failure %}\n\n# 上一轮输出未通过校验，请针对性修正后重新输出\n{{ partial(\"text/episode_plan/lists/failure\") }}\n{% endif %}\n\n{{ variant(\"text/episode_plan/source_heading\", source_kind) }}\n---\n{{ window }}\n---\n",
+    "source": "{{ variant(\"text/episode_plan/intro\", source_kind) }}\n\n# 项目信息\n- 创作类型：{{ variant(\"text/episode_plan/content_mode_label\", content_mode) }}\n{% if synopsis %}\n- 故事概述：{{ synopsis }}\n{% endif %}\n{% if genre %}\n- 题材：{{ genre }}\n{% endif %}\n{% if target_volume %}\n- 每集目标体量：约 {{ target_volume.units }} {{ unit_noun }}（{% if target_volume.seconds %}按单集目标时长 {{ target_volume.seconds }} 秒、口播语速约 {{ target_volume.units_per_second }} {{ unit_noun }}/秒粗略折算，{% endif %}允许为剧情完整性上下浮动）\n{% else %}\n- 每集目标体量：未设置，请按短视频节奏自行把握（以剧情弧完整优先）\n{% endif %}\n{% if max_episodes %}\n- 本批最多规划 {{ max_episodes }} 集\n{% endif %}\n{% if context_entries %}\n\n# 已规划的前情（已定上下文，不可改动，续着它往下规划）\n{{ partial(\"text/episode_plan/lists/context_entries\") }}\n{% endif %}\n{% if instructions %}\n\n{{ partial(\"shared/additional_instructions\") }}\n{% endif %}\n{% if progress %}\n\n# 全局进度\n- 已规划 {{ progress.planned_count }} 集\n- 未规划余量约 {{ progress.remaining_units }} {{ unit_noun }}（含本窗口，含后续源文件）\n- 本窗口为其中前 {{ progress.window_units }} {{ unit_noun }}\n- 若附加指令含总集数、按章节对齐等全局约束，请结合以上进度与余量换算本批的切分节奏与集数。\n{% endif %}\n\n# 切分规则\n- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：为何在此处切分、给观众留下了什么悬念）、\n  end_anchor（本集结尾处的原文片段，10～30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；\n  本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。\n{{ variant(\"text/episode_plan/author_division_rule\", source_kind) }}\n{{ variant(\"text/episode_plan/outline_rule\", content_mode) }}\n- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。\n{% if window_is_final and followed_by_episode %}\n- 这段原文之后紧接着已经规划好的下一集：请规划到这段原文的结尾，最后一集的 end_anchor 取这段原文结尾处的片段，不要留尾巴。\n{% elif window_is_final %}\n- 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。\n{% else %}\n- 这段原文只是全文的一个窗口：窗口尾部剧情弧不完整的内容不要硬凑成集，留给下一批规划即可。\n{% endif %}\n- 如果本段原文中找不到任何剧情弧完整的切分点，请返回空的 episodes 列表，切勿强行切分。\n- 只输出符合 schema 的 JSON，不要输出其他内容。\n{% if failure %}\n\n# 上一轮输出未通过校验，请针对性修正后重新输出\n{{ partial(\"text/episode_plan/lists/failure\") }}\n{% endif %}\n\n{{ variant(\"text/episode_plan/source_heading\", source_kind) }}\n---\n{{ window }}\n---\n",
     "partials": [
       {
         "name": "text/episode_plan/intro/novel",
@@ -54,7 +54,7 @@
       },
       {
         "name": "text/episode_plan/intro/screenplay",
-        "source": "你是短视频分集规划师。下面是作者已写好的成品剧本片段，请尊重作者自带的分集，提取而非重切。",
+        "source": "你是短视频分集规划师。下面是作者已写好的成品剧本片段，请保留作者原有的分集结构，直接提取而非重新切分。",
         "protected": false,
         "referenced_by": [
           "text/episode_plan"
@@ -113,7 +113,7 @@
       },
       {
         "name": "text/episode_plan/author_division_rule/screenplay",
-        "source": "- 剧本自带分集时照用作者的分集：一集 = 从本集开头到下一集开头之前的全部文字，作者写在两个集开头之间的文字都归属前一集，end_anchor 取这段文字末尾的原文片段；title / hook 也取自剧本（作者写明的集标题、集尾钩子）。剧本未分集时按完整剧情弧切分，每一集都是一个完整的故事段落。",
+        "source": "- 剧本自带分集时照用作者的分集：一集 = 从本集开头到下一集开头之前的全部文字，作者写在两集开头之间的文字都归属前一集，end_anchor 取这段文字末尾的原文片段；title / hook 也取自剧本（作者写明的集标题、集尾钩子）。剧本未分集时按完整剧情弧切分，每一集都是一个完整的故事段落。",
         "protected": false,
         "referenced_by": [
           "text/episode_plan"

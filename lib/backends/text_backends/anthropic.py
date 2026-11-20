@@ -52,7 +52,7 @@ ANTHROPIC_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
 class AnthropicTextBackend:
     """Anthropic Messages 文本生成后端，只服务自定义供应商的 ``anthropic-messages`` 端点。
 
-    凭证只取自定义供应商自己的 api_key 与 base_url，与 Agent 的 Anthropic 凭证隔离（ADR 0017）。
+    凭证只取自定义供应商自己的 api_key 与 base_url，与 Agent 的 Anthropic 凭证隔离（ADR 0027）。
     """
 
     def __init__(

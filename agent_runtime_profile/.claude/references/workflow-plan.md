@@ -3,9 +3,7 @@
 `mcp__arcreel__get_workflow_plan` 是编排的**唯一权威入口**。它返回一份只读计划：内容现状、
 各 AI 操作此刻能否执行（准入）、有序步骤、活动任务、视频整批准入判定，以及建议的下一步。
 
-**不要在 profile 里另建一张按创作类型或生成模式展开的步骤表。** 六种模式组合（narration /
-drama / ad × storyboard / reference_video）之间哪些步骤适用、顺序如何、当前停在哪一步，全部由
-计划的 `steps[]` 表达；Agent 只负责执行计划交回的受控动作。
+从 `steps[]` 读取当前模式下适用的步骤、顺序和进度。按 `next_action` 与操作准入执行。
 
 ## 查询
 
@@ -31,8 +29,7 @@ mcp__arcreel__get_workflow_plan({
 - **用户点名一个操作**（如「生成第 2 集的脚本规划」「编写提示词」）：查计划后看
   `plan.status.operations[操作]`。`state == "admitted"` 就执行，即使 `next_action` 指向别处；
   `refused` 时把 `reason` 转述给用户（缺什么、怎样补上），不执行；`not_applicable` 时说明本项目
-  没有这个操作。`operations` 只陈述列出的操作；生成类操作的准入维持各入口自身判定
-  （ADR 0073），被拒时转述入口返回的理由。
+  没有这个操作。`operations` 只陈述列出的操作；生成类操作的准入维持各入口自身判定，被拒时转述入口返回的理由。
   工具入口用同一份判定：被拒时返回 `operation_not_admitted`，`params.reason` 与计划里的理由码相同。
 - **用户说「继续 / 下一步」**：执行 `next_action`。`next_alternatives` 非空表示此处是**分岔**
   （如没有集原文时「手写脚本」与「补集原文后 AI 规划」并列）：把 `next_action` 与各备选讲给用户，
@@ -56,7 +53,7 @@ mcp__arcreel__get_workflow_plan({
 | `next_action` | 建议的下一步。用户说「继续」时按它路由，不要自己从 `steps[]` 里挑一个更靠前的动作抢跑 |
 | `next_alternatives[]` | 分岔处与 `next_action` 并列的备选；非空时由用户选 |
 
-`blockers` 非空时：向用户展示 blockers，**停止一切变更**。`next_action.type == "none"` 且 `steps` 中
+`blockers` 非空时，说明阻断原因并暂停制作。只有计划指定的数据升级恢复可以继续，见下节。`next_action.type == "none"` 且 `steps` 中
 `edit` 为 `completed` 表示工作流已走完：查询范围内的每一集都至少有一条剪辑时间线。其余
 `next_action.type == "none"` 而 `blockers` 为空的情况，把 `status.issues` 与 `status.content` 讲给用户
 （如该集脚本读不出、集规划 stale 待重建、剪辑时间线读不出），用户点名的、准入成立的操作照常可以执行。
@@ -70,8 +67,7 @@ mcp__arcreel__get_workflow_plan({
   `params.details[]` 逐条给出 `episode`（集 ID）/ `file` / `violation` —— 哪一集、哪个文件、违了什么约；
 - `next_action.type == "retry_project_migration"`，`args.details` 同上。
 
-所有生成工具与正式写入工具在这个状态下一律返回同一条问题、不做任何事，也不计费。项目本身
-仍可读：`Read` 脚本、看画布上已有的图和视频照常。
+项目仍可读取。生成与未列入下方修复范围的正式写入会返回升级问题，不写入或计费。
 
 处理顺序：
 
@@ -163,7 +159,9 @@ stale 配音仅在用户要求重合成时重新生成。
 
 视频整批请求是**全有或全无**：`steps[].admission.decision` 为 `admitted` 时整批入队；为
 `blocked` 或 `confirmation_required` 时**一个任务都不入队**。Web 与 Agent 走同一套准入和同一套
-请求选择语义（视频点名须另传 `force: true` 才强制重做 / 不传即只补缺 / 空数组非法），不存在 Agent 专属的宽松通道。
+请求选择语义，详见 [生成结果](generation-results.md)。
+
+参考生视频参考图超限是例外：`video_reference_images_exceeded` 对应的单元单独记为 `blocked`，不入队，其余目标仍按整批准入判定。
 
 `decision != "admitted"` 时：
 
@@ -183,13 +181,4 @@ stale 配音仅在用户要求重合成时重新生成。
 不要互相翻译——读法与逐轴含义见
 [generation-results.md](generation-results.md)。
 
-## stale 与历史
-
-- **stale 产物照常可预览、可导出、可参与成片**，服务端会复用它，不会自动重生。
-- 是否重做由**用户明确决定**。Agent 不得自动删除、覆盖或重生任何已付费产物，也不得因为
-  「看起来旧」就点名重做——视频必须同时点名并传 `force: true` 才强制重做且必然产生费用。
-- 产物状态读不出来（`blocked`）的单元报为独立缺口，绝不当作缺失去重新生成：那会把一次损坏
-  变成一次重复计费。
-- 恢复中断的任务由服务端接回原请求，不重新提交已在供应商侧落定的请求。
-
-逐 ID 结果结构、选择语义与问题码清单见 [generation-results.md](generation-results.md)。
+过期产物、历史版本和中断任务的处理见 [生成结果](generation-results.md)。

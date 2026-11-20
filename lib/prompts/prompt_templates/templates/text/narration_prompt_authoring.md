@@ -72,7 +72,7 @@ segments 表每个分镜已定稿（segment_id、逐字原文、时长、出场�
 
 # 创作目标
 
-输出可直接驱动 AI 生成的、视觉一致、节奏紧凑的分镜视觉层。忠于原文叙事、保留情绪张力。
+输出可直接驱动 AI 生成、视觉一致且节奏紧凑的分镜视觉层，忠于原文叙事并保留情绪张力。
 {% if instructions %}
 
 {{ partial("shared/additional_instructions") }}

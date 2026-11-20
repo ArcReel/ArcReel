@@ -158,7 +158,7 @@ def render_reference_units_for_prompt_authoring(units: list[dict]) -> str:
     """把 script_plan units 渲染为 prompt_authoring prompt 的输入文本。
 
     机械渲染、无 LLM 参与：按 script_plan 的落盘顺序逐 unit 输出序号 + 时长 + 正文。
-    prompt_authoring 以此为唯一基底做视觉扩写（见 ADR 0041）；``unit_id`` 不进渲染——它由序号机械
+    prompt_authoring 以此为唯一基底做视觉扩写（见 ADR 0080）；``unit_id`` 不进渲染——它由序号机械
     派生，prompt_authoring 不写 id 就没有 id 漂移可校验。
     """
     blocks: list[str] = []

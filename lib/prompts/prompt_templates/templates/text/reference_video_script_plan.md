@@ -42,7 +42,7 @@ protected: false
 
 {{ variant("text/reference_video_script_plan/task", source_kind) }}
 每个 video_unit 对应**一次视频生成调用**，正文是一段连续的画面描述，一次生成完整覆盖它。
-本阶段定的是**结构与内容契约**：unit 边界、时长（时长即计费单位）、台词落位、核心资产指认——用户会逐 unit 审阅确认这份契约。
+本阶段定的是**结构与内容契约**：unit 边界、时长、台词落位、核心资产指认——用户会逐 unit 审阅确认这份契约。
 视觉编排（景别 / 构图 / 运镜扩写）由后续 prompt_authoring 以你的拆分为基底生成，本阶段不写。
 
 **输出语言**：所有字符串值必须使用 {{ target_language }}；JSON 键名保持英文。

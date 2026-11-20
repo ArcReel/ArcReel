@@ -283,8 +283,7 @@ def check_sandbox_available(
             )
         return True
     logger.warning(
-        "SANDBOX_UNSUPPORTED on %s — server 启动 sandbox=disabled，Bash 工具回退到代码白名单"
-        "（python .claude/skills/.../scripts/*.py / ffmpeg / ffprobe）。"
+        "SANDBOX_UNSUPPORTED on %s — server 启动 sandbox=disabled，Bash 工具按 Agent 访问策略校验。"
         "生产部署推荐 macOS / Linux / Docker；Windows 用户建议使用 WSL2。",
         system,
     )

@@ -65,8 +65,8 @@ protected: false
 {% endif %}
 
 # 切分规则
-- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：这一刀为什么切在这、给观众留了什么悬念）、
-  end_anchor（本集结尾处的原文片段，10~30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；
+- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：为何在此处切分、给观众留下了什么悬念）、
+  end_anchor（本集结尾处的原文片段，10～30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；
   本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。
 {{ variant("text/episode_plan/author_division_rule", source_kind) }}
 {{ variant("text/episode_plan/outline_rule", content_mode) }}
@@ -78,7 +78,7 @@ protected: false
 {% else %}
 - 这段原文只是全文的一个窗口：窗口尾部剧情弧不完整的内容不要硬凑成集，留给下一批规划即可。
 {% endif %}
-- 如果这段原文里找不到任何一个剧情弧完整的切分点，返回空的 episodes 列表，不要硬切。
+- 如果本段原文中找不到任何剧情弧完整的切分点，请返回空的 episodes 列表，切勿强行切分。
 - 只输出符合 schema 的 JSON，不要输出其他内容。
 {% if failure %}
 

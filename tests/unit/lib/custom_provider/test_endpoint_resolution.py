@@ -310,7 +310,7 @@ class TestKindDispatch:
         assert (spec.size_fixed, spec.duration_fixed, spec.native_resolution) == (False, False, None)
 
     def test_only_a_comfyui_spec_lets_its_duration_tier_be_empty(self):
-        """ADR 0018 的空集 fail loud 对其余端点不变，判据挂在 spec 上供能力解析层直读。"""
+        """ADR 0086 的空集 fail loud 对其余端点不变，判据挂在 spec 上供能力解析层直读。"""
         row = SimpleNamespace(id=7, definition=comfyui_endpoint_definition())
 
         assert endpoint_spec_from_row(cast("CustomEndpoint", row)).duration_tier_optional is True

@@ -54,7 +54,7 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 一次调用完成入队并返回 durable batch；按返回的 `poll_after_seconds` 调用 `get_generation_batch`，直到 `done: true` 后再处理结果：
 
-- 把点名视为强制重做，覆盖已有成片。
+- 点名并传 `force: true` 才会重新生成已有成片。历史版本保留。
 - 已有在途任务时不自动 force 重做；等待并读取其 batch 结果，避免对刚完成的目标再次付费提交。
 - 只生成剧本中点名的自包含视频单元；未命中的 ID 记为 `blocked`，带 `generation_unit_not_found`。
 - 调用中断后查询 durable batch；只把未成功的 ID 用 `selected`、`force: false` 重发，已完成项归 `skipped`。
@@ -101,16 +101,9 @@ mcp__arcreel__generate_videos({"script": "episode_1.json", "target": {"scope": "
 **不要把整批拆小去先跑通过的那一半**——那既绕开全有或全无，也会重复提交已经付过费的视频单元。
 能力无法解析时把工具错误作为 blocker，先修复模型能力声明。
 
-### 结果怎么读、怎么说
+### 结果与历史版本
 
-`task_state`（队列任务）、`provider_checkpoint`（供应商是否已提交）、`artifact_status`（产物
-current / stale / missing / blocked）与 workflow 步骤状态互相独立，**分开陈述**：「任务成功」不等于
-「当前产物有效」。`provider_checkpoint.submitted` 为真表示供应商侧很可能已计费；任务
-`interrupted` 表示没有供应商裁决，一律按 `problem.action` 决定；该情形通常交回
-`wait_for_task`（任务可能仍在跑并正常落地），不要自行改成 `retry`。
-
-stale 产物照常可预览、可导出、可参与成片，服务端会复用、不会自动重生；是否重做由用户明确决定。
-不自动删除、覆盖或重生任何已付费产物与历史版本。
+读取 `.claude/references/generation-results.md`，按逐 ID 结果与四条状态轴报告。stale 产物仍可用，付费重做由用户明确决定。
 
 ## 工作流程
 

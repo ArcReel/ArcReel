@@ -4,7 +4,7 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 页面外壳与全局设置导航：三档容器（全出血、限宽、铺满）、外壳保存栏与侧栏；
-// 「默认模型」「关于」「提示词模版」「素材库与存储」分区与配置问题的就地提示。
+// 「默认模型」「关于」「提示词模板」「素材库与存储」分区与配置问题的就地提示。
 // 其他分区的内容由各自的区域重做，这里不截它们的整块内容。供应商分区的场景在 providers.spec.ts。
 
 const RECORDED = loadRecordedResponses();
@@ -364,11 +364,11 @@ defineRegionScenarios("全局设置", [
     },
   },
   {
-    name: "提示词模版列表展开画风组后滚动到底",
+    name: "提示词模板列表展开画风组后滚动到底",
     path: PROMPT_TEMPLATES,
     ready: async (page) => {
       await settingsReady(page);
-      await page.getByRole("heading", { name: "提示词模版", level: 2 }).waitFor();
+      await page.getByRole("heading", { name: "提示词模板", level: 2 }).waitFor();
     },
     act: async (page) => {
       const main = page.getByRole("main");
@@ -379,11 +379,11 @@ defineRegionScenarios("全局设置", [
     },
   },
   {
-    name: "提示词模版列表按创作类型筛选",
+    name: "提示词模板列表按创作类型筛选",
     path: PROMPT_TEMPLATES,
     ready: async (page) => {
       await settingsReady(page);
-      await page.getByRole("heading", { name: "提示词模版", level: 2 }).waitFor();
+      await page.getByRole("heading", { name: "提示词模板", level: 2 }).waitFor();
     },
     act: async (page) => {
       const contentMode = page.getByRole("group", { name: "创作类型" });
@@ -393,7 +393,7 @@ defineRegionScenarios("全局设置", [
     screenshot: { name: "settings-prompt-templates", target: (page) => page.getByRole("main") },
   },
   {
-    name: "提示词模版详情：展开片段与输出结构后滚动到底",
+    name: "提示词模板详情：展开片段与输出结构后滚动到底",
     path: `${PROMPT_TEMPLATES}&template=text/episode_plan`,
     ready: async (page) => {
       await settingsReady(page);
@@ -409,7 +409,7 @@ defineRegionScenarios("全局设置", [
     screenshot: { name: "settings-prompt-template-detail", target: (page) => page.getByRole("main") },
   },
   {
-    name: "提示词模版详情：打开片段的取值下拉",
+    name: "提示词模板详情：打开片段的取值下拉",
     path: `${PROMPT_TEMPLATES}&template=text/episode_plan`,
     ready: async (page) => {
       await settingsReady(page);
@@ -423,7 +423,7 @@ defineRegionScenarios("全局设置", [
     },
   },
   {
-    name: "提示词片段详情列出引用它的模版",
+    name: "提示词片段详情列出引用它的模板",
     path: `${PROMPT_TEMPLATES}&partial=shared/additional_instructions`,
     ready: async (page) => {
       await settingsReady(page);
@@ -432,7 +432,7 @@ defineRegionScenarios("全局设置", [
     act: async (page) => {
       const main = page.getByRole("main");
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
-      const usages = main.locator("section").filter({ has: page.getByRole("heading", { name: "引用它的模版" }) });
+      const usages = main.locator("section").filter({ has: page.getByRole("heading", { name: "引用它的模板" }) });
       await expect(usages.getByRole("listitem").last()).toBeInViewport();
     },
   },

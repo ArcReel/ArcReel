@@ -136,7 +136,7 @@ describe("SystemConfigPage", () => {
       ["生成", ["供应商", "默认模型", "调用端点", "素材库与存储"]],
       ["Agent", ["ArcReel Agent", "Agent 记忆", "外部 Agent 接入", "访问令牌"]],
       [null, ["市场", "使用记录"]],
-      ["系统", ["通用", "提示词模版", "关于"]],
+      ["系统", ["通用", "提示词模板", "关于"]],
     ]);
     expect(within(nav).getByRole("link", { name: "供应商" })).toHaveAttribute("aria-current", "page");
   });
@@ -228,7 +228,7 @@ describe("SystemConfigPage", () => {
       .map((link) => link.textContent);
     expect(flagged).toEqual(["供应商"]);
 
-    for (const section of ["默认模型", "使用记录", "提示词模版"]) {
+    for (const section of ["默认模型", "使用记录", "提示词模板"]) {
       await user.click(within(nav).getByRole("link", { name: section }));
       await waitFor(() => expect(within(nav).getByRole("link", { name: section })).toHaveAttribute("aria-current", "page"));
       expect(screen.queryByRole("note", { name: "配置不完整" })).not.toBeInTheDocument();

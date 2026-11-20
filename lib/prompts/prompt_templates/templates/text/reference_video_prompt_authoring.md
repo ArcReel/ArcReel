@@ -65,7 +65,7 @@ protected: false
 
 {{ partial("shared/writing_syntax") }}
 
-# 提示词编写写作指引
+# 提示词编写指引
 
 正文将直接驱动该 unit 的视频生成，按「景别 → 构图 → 运镜 → 画面内容」四要素依次组织，写足画面信息、宁详勿略：
 

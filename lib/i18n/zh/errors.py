@@ -28,7 +28,7 @@ MESSAGES = {
     "project_migration_failed": "项目 '{name}' 的数据升级未完成，暂时无法生成内容。原因：{reason}。请在 Agent 对话中修复后重试升级",
     "project_not_found": "项目 '{name}' 不存在或未初始化",
     "resource_not_found": "请求的资源不存在",
-    "prompt_template_not_found": "提示词模版 '{id}' 不存在",
+    "prompt_template_not_found": "提示词模板 '{id}' 不存在",
     "prompt_partial_not_found": "提示词片段 '{id}' 不存在",
     "overview_ai_response_invalid": "AI 返回内容无法解析为项目概述，请重试或更换模型/供应商",
     "overview_generation_failed": "概述生成失败，请稍后重试或更换模型/供应商",
@@ -451,7 +451,7 @@ MESSAGES = {
     "path_override_invalid_path": "模型 {model_id} 的请求地址 {path} 不合法：路径须以 / 开头，不含空白和 #，花括号只能用于占位符",
     "path_override_placeholder_not_allowed": "模型 {model_id} 的请求地址 {path} 用了这条请求没有的占位符，可用的只有 {allowed}",
     # Projects
-    "unknown_style_template": "未知的风格模版：{template_id}",
+    "unknown_style_template": "未知的风格模板：{template_id}",
     "ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",
     "ad_no_default_duration": "广告/短片项目不支持默认时长，分镜时长按目标总时长规划",
     "ad_no_episode_target_duration": "广告/短片项目不支持单集目标时长，整集体量按目标总时长规划",

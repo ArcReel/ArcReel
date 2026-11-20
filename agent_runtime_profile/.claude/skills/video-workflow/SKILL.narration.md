@@ -45,20 +45,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 `mcp__arcreel__get_workflow_plan({})` 取回权威计划（用户指定某一集时，按其说的播出位置或标题在项目 `episodes[]` 里找到那一集，传它的集 ID `{"episode_id": X}`），
 再按 `next_action.type` 路由到下面同名的小节。
 
-计划的字段含义、完整受控动作表、旁白交付、整批准入判定、四条状态轴与 stale / 历史纪律，见
-[.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按创作类型
-或生成模式展开的步骤表**：哪些步骤适用、建议的下一步、哪些操作此刻能执行，一律读 `plan.steps[]`、
-`plan.next_action` 与 `plan.status.operations`，它们是阶段判断的唯一真相源。`plan.status` 内嵌完整状态快照
-（`project` / `target` / `content` / `operations` / `blockers` / `issues` / `gates` / `artifacts`），不需要再单独查一次状态。
-
-调用后把 `plan.status.target.episode`（目标集的集 ID，下文路径与参数中的 N 即它）作为目标集，把 `next_action.args` 与 `requested_ids` 原样带入
-对应动作。Read / Glob 只用于执行已选定动作所需的内容，不用于另建状态机；不得根据空资产 bucket、
-文件名、旧文件存在性或对话记忆覆盖服务端结论。
-
-下文各节以 `next_action.type` 为标题；没有单列小节的动作（如 `resolve_draft`、`start_blank_script`、
-`add_script_items`）按 workflow-plan 参考的受控动作表执行。`none` 时有 `blockers` 就展示并停止变更；
-`steps` 中 `edit` 为 `completed` 表示工作流已走完；其余情况把 `status.issues` 与 `status.content` 讲给用户。
-用户点名操作与说「继续」的区别见「灵活入口」。
+查看 [工作流计划](../../references/workflow-plan.md) 的受控动作表，执行与 `next_action.type` 同名的分支。目标集以 `plan.status.target.episode` 为准。按照工具 schema 从 `next_action.args` 取参数，只在点名时传 ID 列表。阻断、分岔、未单列的动作与 `none` 一律按计划参考处理。
 
 > 批量旁白配音不由 `next_action` 驱动，何时触发见「批量旁白配音」节。
 
@@ -78,6 +65,8 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 ---
 
 ## `plan_episodes` / `reset_episode_planning`：分集规划
+
+附加指令只在本批生效。用户反复提出的要求写入项目记忆，下次通过 `plan_episodes.instructions` 再带上。每集体量经 `patch_project` 写入项目设置。先在 `.claude/references/project-operations.md` 核对源文与分集账本的规则。
 
 **恢复触发**：`next_action.type` 为 `"reset_episode_planning"` 时，先按 `next_action.args` 调
 `mcp__arcreel__reset_episode_planning`。工具若返回已消费集确认要求，展示影响范围并取得用户明确确认，
@@ -255,31 +244,26 @@ TTS 配音项目（`plan.status.artifacts.audio.missing_ids` 非空）先按「�
 项目设置里改为 TTS 配音。它不由计划的 `next_action` 驱动，也不拦住视频生成；
 `plan.status.artifacts.audio` 在 TTS 项目报告缺失或 stale，后期配音项目为 `not_applicable`。
 
-旁白配音以各段 `novel_text` 原文逐段合成语音，只依赖剧本、独立于分镜图/视频：
-用户要求时可在 `generate_script` 产出剧本后随时执行。
-
-`generation_mode == "reference_video"` **只跳过分镜图**：参考生视频没有按段批量 TTS 的
-入口（无 `segments[]`），旁白配音按视频单元逐个生成。
+旁白配音只依赖剧本。分镜图生视频合成 `novel_text`，参考生视频合成视频单元的无归属旁白。两条路径使用同一批量工具，点名时传当前剧本结构的条目 ID。
 
 **dispatch `generate-assets` 子智能体**：
 
 ```text
-dispatch `generate-assets` 子智能体：
   任务类型：narration_audio
   项目名称：{project_name}
   工具调用：
     全集补齐：
       mcp__arcreel__generate_narration_audio({"script": target.script_filename})
-    用户点名重合成的段（换音色/语速后）：
+    用户点名重合成的条目（换音色/语速后）：
       mcp__arcreel__generate_narration_audio({"script": target.script_filename,
-                                              "segment_ids": [点名的段 ID]})
-  验证方式：重新读取 target.script，检查各段 generated_assets.narration_audio 字段
+                                              "segment_ids": [点名的条目 ID]})
+  验证方式：重新读取 target.script，检查各条目的 generated_assets.narration_audio 字段
 ```
 
 **重合成必须带 `segment_ids`。** 省略该参数是「只补缺失」，而 stale 音频算可复用、会被
 跳过——不带 ID 重合成等于什么都没做。
 
-中断后重新 dispatch 全集补齐的那条调用即可断点续传——已有音频的段自动跳过，只补缺失段。
+中断后按 `generate-narration-audio` skill 查原批次，再补缺。
 
 ---
 

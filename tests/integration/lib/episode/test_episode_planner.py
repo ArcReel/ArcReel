@@ -65,7 +65,9 @@ def _expected_planning_prompt(
     """完整锁住目标体量三种来源之外的既有 planning prompt。"""
     screenplay = source_kind == "screenplay"
     if screenplay:
-        lines = ["你是短视频分集规划师。下面是作者已写好的成品剧本片段，请尊重作者自带的分集，提取而非重切。"]
+        lines = [
+            "你是短视频分集规划师。下面是作者已写好的成品剧本片段，请保留作者原有的分集结构，直接提取而非重新切分。"
+        ]
     else:
         lines = [
             "你是短视频分集规划师。请把下面的小说原文片段切分为若干集，每一集都必须是一个完整的剧情弧，",
@@ -80,14 +82,14 @@ def _expected_planning_prompt(
         f"- 本批最多规划 {64 if content_mode == 'drama' else 160} 集",
         "",
         "# 切分规则",
-        "- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：这一刀为什么切在这、给观众留了什么悬念）、",
-        "  end_anchor（本集结尾处的原文片段，10~30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；",
+        "- 每一集给出 title（吸引人的短标题）、hook（集尾钩子说明：为何在此处切分、给观众留下了什么悬念）、",
+        "  end_anchor（本集结尾处的原文片段，10～30 个字符，必须从下方原文中逐字摘抄、含标点，且在整段原文中唯一出现；",
         "  本集内容 = 上一集结尾之后到该片段末尾为止的全部原文）。",
     ]
     if screenplay:
         lines.append(
             "- 剧本自带分集时照用作者的分集：一集 = 从本集开头到下一集开头之前的全部文字，"
-            "作者写在两个集开头之间的文字都归属前一集，end_anchor 取这段文字末尾的原文片段；"
+            "作者写在两集开头之间的文字都归属前一集，end_anchor 取这段文字末尾的原文片段；"
             "title / hook 也取自剧本（作者写明的集标题、集尾钩子）。"
             "剧本未分集时按完整剧情弧切分，每一集都是一个完整的故事段落。"
         )
@@ -100,7 +102,7 @@ def _expected_planning_prompt(
     lines += [
         "- 各集按顺序排列，end_anchor 位置必须严格递增（范围连续、不重叠、不留空洞）。",
         "- 这段原文已包含全文结尾：请规划到结尾，最后一集的 end_anchor 取全文结尾处的片段，不要留尾巴。",
-        "- 如果这段原文里找不到任何一个剧情弧完整的切分点，返回空的 episodes 列表，不要硬切。",
+        "- 如果本段原文中找不到任何剧情弧完整的切分点，请返回空的 episodes 列表，切勿强行切分。",
         "- 只输出符合 schema 的 JSON，不要输出其他内容。",
         "",
         "# 剧本原文片段" if screenplay else "# 小说原文片段",
@@ -1111,14 +1113,14 @@ class TestPlan:
         nov_prompt = nov_fake.requests[0].prompt
 
         # screenplay：尊重作者分集、一集止于下一集开头之前（整段 prompt 只定义一次）、无则按剧情弧切
-        assert "尊重作者" in scr_prompt
+        assert "保留作者原有的分集结构" in scr_prompt
         assert scr_prompt.count("下一集开头") == 1
         assert "固定标记" not in scr_prompt
         assert "正则" not in scr_prompt
         assert "剧情弧" in scr_prompt
         assert "剧本原文片段" in scr_prompt
         # novel：仍是「切分为若干集」的创作口径，不含 screenplay 专属指令（回归）
-        assert "尊重作者" not in nov_prompt
+        assert "保留作者原有的分集结构" not in nov_prompt
         assert "下一集开头" not in nov_prompt
         assert "小说原文片段" in nov_prompt
 

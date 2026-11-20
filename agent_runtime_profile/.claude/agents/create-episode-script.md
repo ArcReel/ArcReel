@@ -35,7 +35,7 @@ skills:
 
 > 参考生视频同样走两段式：script_plan 已定稿的是内容契约（视频单元边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做提示词编写——视频单元数、视频单元时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
 >
-> drama 走两段式（见 ADR 0041）：script_plan 已定稿内容（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt），输入是正式脚本里已定稿的内容字段、不重新识别口播。
+> 剧情演绎分两阶段：script_plan 已定稿内容（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt），输入是正式脚本里已定稿的内容字段、不重新识别口播。
 
 ### Step 2: 调用工具生成 JSON 剧本
 

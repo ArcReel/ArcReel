@@ -142,7 +142,7 @@ export default {
   quality_unavailable_notice: "已保存的画质 {{value}} 不在当前模型的可选值中。生成时仍按该值请求，可能被供应商拒绝，也无法预估费用。",
   quality_reset_auto: "恢复自动",
   duration_not_driven_notice: "时长由端点固定：每段成片多长由 workflow 决定。",
-  tab_custom_desc: "上传一张风格参考图，AI 会分析它的画风。上传后不再使用风格模版。",
+  tab_custom_desc: "上传一张风格参考图，AI 会分析它的画风。上传后不再使用风格模板。",
   upload_reference: "上传风格参考图",
   supported_formats: "PNG / JPG / WEBP",
   template_default_badge: "默认",
