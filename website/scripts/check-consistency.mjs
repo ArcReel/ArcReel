@@ -1,7 +1,5 @@
 #!/usr/bin/env node
-// CI 一致性闸门：update-docs 页面库存 / 孤儿译文 / 上站文档标题显式锚点 / UI JSON key 齐全性。
-// 任一命中即非零退出；缺译/滞后清单不在本脚本范围（translation-lock.mjs status 已覆盖，
-// 由 workflow 单独一步写入 step summary，不阻断构建）。
+// 校验中英文文档的配对与更新状态、标题锚点，以及英文站点界面文案。
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -9,7 +7,8 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { scanMarkdownLines, walkMarkdownFiles } from "./markdown-scan.mjs";
-import { checkUpdateDocsInventory } from "./update-docs-inventory.mjs";
+import { translationStatus } from "./translation-lock.mjs";
+import { untranslatedMessages } from "./ui-messages.mjs";
 
 const websiteDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(websiteDir, "..");
@@ -18,27 +17,19 @@ function toPosix(path) {
   return path.split(sep).join("/");
 }
 
-// ---- 1. update-docs 页面库存与 CONTRIBUTING 各页职责清单 ----
-
-function checkDocInventory() {
-  return checkUpdateDocsInventory(repoRoot).problems;
+function checkDocTranslations() {
+  const labels = {
+    missing: "缺少译文",
+    stale: "源文变更后尚未确认译文",
+    orphan: "译文或锁条目缺少有效源文件",
+    frontmatter: "译文的非翻译元数据与源文不一致",
+    anchors: "译文的章节锚点与源文不一致",
+  };
+  return translationStatus(repoRoot).map(
+    ({ source, target, state }) => `${labels[state]}：${[source, target].filter(Boolean).join(" ⇄ ")}`,
+  );
 }
 
-// ---- 2. 孤儿译文：委托给翻译 skill 的唯一真相源（.claude/skills/translate-docs/），不重复实现。 ----
-
-function checkOrphanTranslations() {
-  const lockScript = resolve(repoRoot, ".claude/skills/translate-docs/scripts/translation-lock.mjs");
-  const output = execFileSync(process.execPath, [lockScript, "status", "--root", repoRoot, "--json"], {
-    encoding: "utf8",
-  });
-  const orphans = JSON.parse(output).filter((item) => item.state === "orphan");
-  // 孤儿有两种来源：lockfile 里源已删的登记项，以及反向扫描发现的未登记译文文件。
-  // 后者的 source 是按目标路径反推的、未必存在的源，所以措辞不断言「已不存在」。
-  return orphans.map((item) => `孤儿译文：${item.target}（源 ${item.source} 未登记或已不存在）`);
-}
-
-// ---- 3. 上站文档标题缺显式锚点 ----
-//
 // 全部标题须带 `{#id}`（各 locale 共用锚点作为链接目标）。译文与源同结构、受同一套规则约束：
 // 只扫源的话，译文漏写 `{#id}` 只有在恰好有链接指向该锚点时才会被 build 期 onBrokenAnchors 拦下。
 //
@@ -47,8 +38,6 @@ function checkOrphanTranslations() {
 // 审查者显式决定豁免还是改回 Markdown 标题；已登记文件若不再含 JSX 标题也会 fail（登记项过期，
 // 须及时摘除）。登记路径相对文档根，源与各 locale 译文里的同名副本一并豁免。
 const JSX_HEADING_EXEMPT_DOCS = new Set(["index.mdx"]);
-
-const ANCHOR_SUFFIX = /\{#([a-z0-9-]+)\}$/;
 
 const TRANSLATION_DOCS_SUFFIX = "docusaurus-plugin-content-docs/current";
 
@@ -77,18 +66,16 @@ function checkAnchors() {
       docPaths.add(docPath);
       const seenAnchors = new Set();
 
-      for (const { index, line, hashes, text, hasJsxHeading } of scanMarkdownLines(
+      for (const { index, line, hashes, anchor, hasJsxHeading } of scanMarkdownLines(
         readFileSync(resolve(websiteDir, file), "utf8"),
       )) {
         if (hasJsxHeading) jsxHeadingDocs.add(docPath);
         if (hashes === null) continue;
 
-        const anchorMatch = ANCHOR_SUFFIX.exec(text);
-        if (!anchorMatch) {
+        if (anchor === null) {
           problems.push(`${file}:${index + 1} 标题缺少显式锚点 {#id}：${line.trim()}`);
           continue;
         }
-        const anchor = anchorMatch[1];
         if (seenAnchors.has(anchor)) {
           problems.push(`${file} 锚点 id「${anchor}」在同页内重复`);
         }
@@ -124,8 +111,6 @@ function checkAnchors() {
   return problems;
 }
 
-// ---- 4. UI JSON key 齐全性（比照 write-translations 输出比对） ----
-//
 // footer.json 的 `copyright` 键会把 write-translations 运行那一刻的年份写死进英文译文，
 // 而站点配置按当前年份动态求值版权文案——两者逐年错开。故意不提交该键，让其在渲染期
 // 回退到源语言的动态求值，不计入完整性校验。
@@ -180,12 +165,17 @@ function checkUiJsonKeys() {
   return problems;
 }
 
-const problems = [...checkDocInventory(), ...checkOrphanTranslations(), ...checkAnchors(), ...checkUiJsonKeys()];
+const problems = [
+  ...checkDocTranslations(),
+  ...checkAnchors(),
+  ...checkUiJsonKeys(),
+  ...untranslatedMessages(repoRoot).map((entry) => `英文站点界面消息含中文：${entry}`),
+];
 
 if (problems.length > 0) {
   console.error("一致性检查未通过：");
   for (const problem of problems) console.error(`  - ${problem}`);
   process.exitCode = 1;
 } else {
-  console.log("一致性检查通过：文档库存一致、无孤儿译文、标题锚点齐全且唯一、UI JSON key 齐全。");
+  console.log("一致性检查通过：文档译文已同步，标题锚点齐全且唯一，英文站点界面文案齐全。");
 }

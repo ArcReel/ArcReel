@@ -15,7 +15,7 @@ const CUSTOM_PREFIX = "custom-";
 // Provider fetchers
 //
 // 供应商配置可变（用户在设置页改模型 supported_durations / 启用状态等），前端不持久缓存它：
-// 每次消费都直拉后端，避免长生命周期副本与后端单一真相源漂移（ADR 0035，ADR 0018/0013 的前端推论）。
+// 每次消费都直拉后端，避免长生命周期副本与后端单一真相源漂移（ADR 0035，能力来源见 ADR 0104）。
 // ---------------------------------------------------------------------------
 
 /** Fetch the built-in provider list (including models) fresh on every call. */

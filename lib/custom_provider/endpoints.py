@@ -200,7 +200,7 @@ class EndpointSpec:
         """该端点的 ``supported_durations`` 允不允许是空集。
 
         ComfyUI 端点的时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：``frames`` 未绑定或读不到
-        帧率来源时，这份 workflow 出它自己那一档，档位空集是如实的声明而非缺失。其余端点照 ADR 0018
+        帧率来源时，这份 workflow 出它自己那一档，档位空集是如实的声明而非缺失。其余端点照 ADR 0086
         办——空集即配置缺陷，解析期 fail loud 把用户引回配置页。
 
         判据挂在 spec 上而不是留给各消费方比 ``kind``：能力解析在 ``lib.config`` 层，那一层按分层

@@ -86,7 +86,7 @@ protected: false
 {% endif %}
 
 <episode_constraints>
-本片为单视频（恒第 {{ episode }} 集）。所有 shot_id 必须严格使用 `E{{ episode }}S{两位序号}` 格式（如 E{{ episode }}S01、E{{ episode }}S02），按播放顺序连续编号，不得使用其他集号前缀。
+本片为单视频（恒为第 {{ episode }} 集）。所有 shot_id 必须严格使用 `E{{ episode }}S{两位序号}` 格式（如 E{{ episode }}S01、E{{ episode }}S02），按播放顺序连续编号，不得使用其他集号前缀。
 </episode_constraints>
 
 # 字段写作指引
@@ -127,16 +127,16 @@ protected: false
 - **video_prompt.action**：{{ partial("shared/action_writing_guide") }}
 - **video_prompt.camera_motion**：按画面内容自行选择。
 - **video_prompt.ambiance_audio**：{{ partial("shared/ambiance_audio_writing_guide") }}
-- **video_prompt.dialogue**：仅当分镜内有出镜人物开口说话时填写（口播旁白写在 voiceover_text，不要重复进 dialogue）；speaker 必须出现在 characters_in_shot。
+- **video_prompt.dialogue**：仅当分镜内有出镜人物开口说话时填写（口播旁白写在 voiceover_text，切勿重复填入 dialogue）；speaker 必须出现在 characters_in_shot。
 
 {{ partial("shared/ad_new_assets_rule") }}
 
 # 创作目标
 
 {% if products %}
-输出可直接驱动 AI 生成的、商品忠实、节奏紧凑的带货分镜脚本。卖点表达贴合 <products> 的 selling_points，不夸大、不虚构功效。
+输出可直接驱动 AI 生成、忠实还原商品且节奏紧凑的带货分镜脚本。卖点表达贴合 <products> 的 selling_points，不夸大、不虚构功效。
 {% else %}
-输出可直接驱动 AI 生成的、视觉一致、节奏紧凑的短片脚本。忠于创作 brief、保留情绪张力。
+输出可直接驱动 AI 生成、视觉一致且节奏紧凑的短片脚本，忠于创作 brief 并保留情绪张力。
 {% endif %}
 {% if instructions %}
 

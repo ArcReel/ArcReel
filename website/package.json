@@ -15,7 +15,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm sync-contributing && pnpm typecheck && pnpm lint && pnpm format:check && pnpm check-consistency",
+    "check": "pnpm typecheck && pnpm lint && pnpm format:check && node --test scripts/*.test.mjs && pnpm check-consistency",
     "write-translations": "docusaurus write-translations"
   },
   "browserslist": {

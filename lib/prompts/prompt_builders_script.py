@@ -77,7 +77,7 @@ def outline_slot(outline: object) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# 两段式分层文案（见 ADR 0041）：script_plan（normalize）= 内容、prompt_authoring（drama）= 视觉。
+# 两段式分层文案（见 ADR 0080）：script_plan（normalize）= 内容、prompt_authoring（drama）= 视觉。
 #
 # 内容抽取前移到 script_plan：分镜边界、出场资产、逐字口播 utterances、原文锚 source_text、
 # 视觉改编描述 scene_description 一次定稿，并按 source_kind 切「改编 / 提取」口径。
@@ -257,7 +257,7 @@ def build_drama_prompt(
 ) -> str:
     """构建剧情演绎 prompt_authoring（视觉层）prompt。
 
-    内容抽取前移到 script_plan（见 ADR 0041）：分镜边界、出场资产、逐字口播 utterances、原文锚
+    内容抽取前移到 script_plan（见 ADR 0080）：分镜边界、出场资产、逐字口播 utterances、原文锚
     source_text、视觉改编描述均已在 script_plan 定稿，``scenes_content`` 是其渲染输入
     （``render_drama_content_for_prompt_authoring``）。prompt_authoring 仅产出视觉层（image_prompt / video_prompt），
     LLM 输出按 scene_id 与 script_plan 内容对齐、由后端合并；不再按 source_kind 分支、不再识别口播、

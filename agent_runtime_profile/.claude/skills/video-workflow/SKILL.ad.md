@@ -6,86 +6,56 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 
 # 广告/短片工作流
 
-本项目为**广告/短片**（ad）：单视频、恒单集（剧本即 `scripts/episode_1.json`）、按 `target_duration` 规划镜头。**没有分集概念**——不要做分集规划、拆分或小说源文件处理。
+广告/短片只有一集，剧本是 `scripts/episode_1.json`。按 `target_duration` 规划镜头，跳过源文导入和分集规划。
 
-## 工作流步骤
+## 读取计划
 
-先调用 `mcp__arcreel__get_workflow_plan({})` 取回权威计划。把 `steps[]`、`blockers`、`status.operations`
-与 `next_action` 当作阶段判断的唯一真相源（`plan.status` 内嵌 `project` / `target` / `content` / `issues` /
-`gates` / `artifacts` 快照）；Read 只补充创作输入与商品 soft gate 信息。每次动作完成后刷新计划。
-`blockers` 非空时展示并停止变更；`next_action.type == "none"` 且 `steps` 中 `edit` 为 `completed` 表示工作流
-已走完；其余 `none` 而没有 blockers 的情况，把 `status.issues` 讲给用户。
+调用 `mcp__arcreel__get_workflow_plan({})`，按 `next_action.type` 执行。用户点名操作时，先查 `status.operations`。说明结果并刷新计划，由用户决定是否继续下一动作。阻断、分岔、未单列的动作与 `none` 见 [工作流计划](../../references/workflow-plan.md)。
 
-用户说「继续」时按 `next_action` 推进，`next_alternatives` 非空时列出选项由用户选；用户点名一个操作时，
-`status.operations` 里它为 `admitted`（或未列出）就执行，为 `refused` 时把 `reason` 转述给用户
-（如 `ad_brief_and_products_missing`：创作灵感与商品都没填）。
+## `collect_project_input` / `draft_selling_points`：创作输入
 
-计划的字段含义、完整受控动作表、旁白交付、整批准入判定、四条状态轴与 stale / 历史纪律，见
-[.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按生成模式
-展开的步骤表**：哪些步骤适用由 `plan.steps[].required` 表达。
+- 带货项目缺商品或原图时，引导用户在 Web 端添加商品和上传原图。用户可在项目概览填写「创作灵感」，也可由 Agent 按对话通过 `mcp__arcreel__patch_project` 写入 `brief`、商品描述和品牌。
+- 通用短片只需把主题、情绪、画面风格和节奏写进 `brief`。无需询问商品，也不套用带货段落。角色、场景、道具照常可用。
+- `status.content.products_without_selling_points` 非空时可提出起草卖点。按创作诉求、商品描述与原图起草，用户确认后写回。没有卖点也可生成剧本。
 
-按 `next_action.type` 直接进入对应步骤：
+## `generate_script`：生成广告剧本
 
-- `next_action.type == "collect_project_input"` → 步骤 2
-- `next_action.type == "generate_script"` → 步骤 5
-- `next_action.type == "start_blank_script"` / `"add_script_items"` → 引导用户在 Web 端手写或补条目（见 workflow-plan 参考）
-- `next_action.type == "generate_asset_sheets"` → 步骤 4
-- `next_action.type == "repair_video_units"` → 步骤 7 的视频单元修复
-- `next_action.type == "generate_storyboards"` → 步骤 7 的 storyboard 单图路径
-- `next_action.type == "generate_grid"` → 步骤 7 的 storyboard 宫格路径
-- `next_action.type == "generate_videos"` → 步骤 7 的视频生成
-- `next_action.type == "create_edit_timeline"` → 步骤 8
+有 `brief` 或商品后，调用 `mcp__arcreel__generate_episode_script({"episode_id": target.episode})`。结果直接成为正式脚本，分镜图生视频为 `shots[]`，参考生视频为 `video_units[]`。回执列出新增登记的引用资产。向用户展示分镜或视频单元与口播内容。总时长偏离 `target_duration` 时提示。
 
-调用工具或 dispatch 子智能体时带入 `target.episode`、`next_action.args` 与 `requested_ids`，不二次检查 `generation_mode` 或 `grid_storyboard` 来改选阶段。步骤内的商品原图与 sheet 过目规则是执行动作前的 soft gate。
+用户要求整份重做时按 `generate-script` 的丢失清单确认流程执行。只改部分正文或顺序时用 `patch_episode_script`。
 
-1. **确认项目状态**：按计划确认 `content_mode=ad` 与项目级 `generation_mode`；Read `project.json` 补充 `title`、`target_duration`、`brief` 与 `products`。生成模式创建后不可更改。
-2. **创作输入**：带货项目未登记商品或缺原图时，引导用户在 WebUI 上传；原图是保真锚点。用 `mcp__arcreel__patch_project` 写商品描述、品牌与 `brief`。通用短片不索要商品。
-3. **起草卖点**：卖点不挡脚本生成。`status.content.products_without_selling_points` 非空时可向用户提议起草；用户同意或主动要求时，根据 brief、描述与原图起草，与用户确认后用 `patch_project` 写回。
-4. **一键生成剧本**：`brief` 与商品至少一项后，调用 `mcp__arcreel__generate_episode_script({"episode_id": target.episode})`。广告不走 script_plan，结果直接成为正式脚本；分镜图生视频直接产出 `shots[]`，参考生视频直接产出自包含 `video_units[]`。剧本引用的新角色、场景、道具随之登记为待生成资产，回执列出它们。总时长偏离 `target_duration` 时提醒用户，不阻塞保存。用户要整份重做时传 `regenerate: true`，丢失清单的确认与违约失败的处理见 generate-script skill。
-5. **资产图**：调用 `mcp__arcreel__generate_assets({"episode_id": <next_action.args.episode_id>})`：服务端生成本集引用、仍缺资产图的全部资产（含商品、衍生与剧本生成时新登记的资产），与 Web 集层同一份名单。生成完成后按 [generate-assets](../generate-assets/SKILL.md) 的「审核检查点：审图」派发 `review-images` 审图，把审图报告交给用户确认。
-6. **sheet 过目（软门禁）**：商品有 `product_sheet` 时，请用户在首次分镜或参考生视频生成前确认它与真品一致；只有原图时直接继续。
-7. **编排与生成**：
+## `generate_asset_sheets`：生成本集资产图
 
-   - `repair_video_units`：调用 `mcp__arcreel__get_episode_script({"script": target.script_filename})` 读取正文与 revision，只处理 `requested_ids` 对应的视频单元；再用一次 `mcp__arcreel__patch_episode_script({"script": target.script_filename, "base_revision": revision, "operations": [{"op": "update", "id": unit_id, "fields": {"text": "...", "duration_seconds": ...}}]})` 写回全部视频单元的完整规划（每个视频单元一条有序 update）；由工具重算 `needs_replan`，不要直接编辑标记。每个视频单元保持单一发声归属，商品/角色/场景/道具都用 `@[名称]`。修复后立即用 `generate_videos` 的 `selected` scope 与 `force: true` 点名重做这些视频单元，再刷新状态。
-   - `next_action.type == "generate_storyboards"` → 调
-     `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
-   - `next_action.type == "generate_grid"` → 调
-     `mcp__arcreel__generate_grid({"script": target.script_filename})`（不传 `scene_ids`：缺失即生成，不重做联合图已就绪、未切分的宫格）
-   - 分镜图写入后（宫格在切分落格之后），按 [generate-storyboard](../generate-storyboard/SKILL.md) 的「审核检查点：审图」派发 `review-images` 审图，把审图报告交给用户确认
-   - `next_action.type == "confirm_request_duration"` → 按 `admission.confirmation.tiers[]` 逐档位展示
-     涉及的视频单元与费用，确认后经 `confirmed_request_durations` 带回下一次 `mcp__arcreel__get_workflow_plan`
-   - `next_action.type == "generate_videos"` → 先看 `plan.steps[].admission.decision`：只有 `admitted`
-     才入队，`blocked` / `confirmation_required` 时**一个任务都不入队**，逐视频单元报告 `unit_id`、
-     `problems[].code`、原因与 `problems[].action`（被 `blocked_unit_ids` 连累的视频单元带
-     `generation_batch_admission_withheld`，如实说明不是它自身有问题）；修掉被拒视频单元后整批重来，
-     不拆批先跑通过的那一半。入队时若 `requested_ids` 非空则调
-     `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "selected", "ids": requested_ids}, "force": true})`；
-     `requested_ids` 为空时才调 `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode_id": target.episode}})`。
-     返回后按逐 ID 分账陈述结果（`succeeded` / `failed` / `blocked` / `skipped`），并把 workflow 步骤
-     状态、队列任务、供应商 checkpoint、产物时效四轴分开说——「任务成功」不等于「当前产物有效」；
-     stale 产物照常可用，是否重做由用户决定，不自动删除或重生已付费产物
-   - 带货项目走分镜图生视频时，先审核商品分镜保真度，再产生视频费用；通用短片没有商品分镜，不设这道审核。
-   - 参考生视频按自包含视频单元生成，跳过分镜；参考图在执行期按正文 `@[名称]` 的首次提及顺序解析，商品与角色、场景、道具同规则。用户不满意时按 `unit_id` 点名重做。
+调用 `mcp__arcreel__generate_assets({"episode_id": next_action.args.episode_id})`，由服务端选出本集引用且缺图的商品、角色、衍生、场景与道具。生成后按 [生成资产图](../generate-assets/SKILL.md) 的「审核检查点：审图」派发 `review-images`，将结果交给用户确认。
 
-8. **剪辑**：TTS 配音项目（`plan.status.artifacts.audio.missing_ids` 非空）先按 `generate-narration-audio` skill
-   调 `mcp__arcreel__generate_narration_audio({"script": target.script_filename})` 补齐缺失的旁白配音，不带
-   `segment_ids`；项目选择 TTS 即已授权。剪辑时间线一建好这一步就完成，之后工作流不会再回到这里补配音。
-   再调 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})`
-   按脚本机械新建一条剪辑时间线，至少有一条剪辑时间线，这一步即完成。之后按 `edit-video` skill
-   在它上面剪辑，只在用户要求时出成片或导出剪映草稿。声音归属与字幕时序由服务端 presentation 结果决定——
-   **不要自行估算字幕时间轴，也不要替用户判断 TTS 是否必需**。stale 产物照常可用，出片不清空也不
-   覆盖旧付费媒体。
+## `generate_storyboards`：生成分镜图
 
-## 通用短片（无商品）
+先执行下节的商品保真检查，再调用 `mcp__arcreel__generate_storyboards`。计划点名分镜时把 `requested_ids` 作为 `segment_ids`，补缺时省略。写入后按 [生成分镜图](../generate-storyboard/SKILL.md) 的「审核检查点：审图」派发 `review-images`，将结果交给用户确认。带货项目确认商品分镜保真后再提交视频生成。
 
-`products` 为空即通用短片。跳过商品上传、卖点与 product sheet；把 `brief` 补充到足以表达主题、情绪、画面风格与节奏。角色、场景、道具资产照常可用。
+## 商品保真
 
-## 镜头时长约束
+- 开始生成分镜图前，或参考生视频模式下首次生成视频前，若商品有 `product_sheet`，请用户在商品资产页确认它与原图一致。不一致时按用户要求重做参考图。只有原图时直接继续。
+- 分镜图生视频按 `products_in_shot` 注入商品参考图，有资产图时同时带资产图和原图。提示词用 `@[商品名]` 指认，无需重述商品外观。后续视频使用分镜图，不重复注入商品参考；氛围分镜仅用项目风格。
+- 参考生视频用资产图，按正文 `@[名称]` 首次出现的顺序排列。商品没有资产图时用原图。角色、场景、道具缺图时，先补资产图。
+- 原图含清晰真人面孔时提示用户可能触发供应商审核。规划画面时可用商品特写、手部、背影或剪影。遇到审核拒绝时报告原因，由用户选择是否调整构图、在设置页换用支持该场景的供应商或更换素材。若人脸来自自动注入的参考图，修改构图无法移除参考图中的人脸，引导用户裁剪或更换原图。
 
-分镜图生视频的分镜时长取视频模型 `supported_durations` 成员，可用 `mcp__arcreel__get_video_capabilities` 查询。参考生视频的视频单元使用剧本模型允许的正整数编排时长，生成预检再投影到供应商档位。发现非法值时先用 `patch_episode_script` 修正。
+## `repair_video_units`：修正视频单元
 
-## 边界
+用 `mcp__arcreel__get_episode_script({"script": target.script_filename})` 读取正文与 revision。对 `requested_ids` 对应单元编写有序的 `update`，再用 `mcp__arcreel__patch_episode_script` 一次提交。每个单元只容纳角色发声、无归属旁白或无人声中的一种。工具根据正文和编排时长重算 `needs_replan`。向用户确认重做意愿后点名重新生成。
 
-- storyboard 广告以 `shots[]` 为唯一真相源；reference 广告以自包含 `video_units[]` 为唯一真相源。
-- 参考生视频的视频单元自持引用语法正文、编排时长、生成资产与规划状态；编辑这些字段后刷新计划。
-- 视频单元改序与字段修复使用 `patch_episode_script`，视频生成使用 `generate-video` skill。
+分镜图生视频用 `mcp__arcreel__get_video_capabilities` 读取生效分镜时长。参考生视频使用剧本模型允许的正整数编排时长，申请档位由预检决定。具体字段见 `.claude/references/generation-modes.md`。
+
+## `confirm_request_duration` / `generate_videos`：视频生成
+
+按 [工作流计划](../../references/workflow-plan.md) 核对整批准入。需要确认的申请时长按 `admission.confirmation.tiers[]` 说明涉及的单元、时长与费用。把用户确认的 `confirmed_request_durations` 带回下一次查询及原目标集合的生成请求。
+
+准入为 `admitted` 且用户已授权时，按计划提交：
+
+- 点名重做：`mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "selected", "ids": requested_ids}, "force": true})`。
+- 整集补缺：`mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode_id": target.episode}})`。
+
+按 [生成结果](../../references/generation-results.md) 报告 `succeeded`、`failed`、`blocked` 和 `skipped`，分别说明步骤、任务、供应商提交与产物时效。
+
+## `create_edit_timeline`：剪辑
+
+TTS 项目在首轮自动剪辑前，按 `generate-narration-audio` 补齐缺失旁白。调用 `mcp__arcreel__create_timeline({"from": "script", "episode": target.episode, "name": "完整版"})` 新建首条剪辑时间线，随后按 `edit-video` 剪辑，按用户要求出成片或导出剪映草稿。以服务端返回的声音归属和字幕时序为准。

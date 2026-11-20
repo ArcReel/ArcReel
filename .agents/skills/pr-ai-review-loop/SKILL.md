@@ -23,7 +23,7 @@ description: PR AI review 收敛。用户或 team-lead 要求启动或继续审�
 
 ## 推进循环
 
-首次进入读 [reviewers.md](references/reviewers.md)。下列命令从本 skill 目录执行，`<repo-root>` 始终指向目标 PR checkout；参数、字段和返回原因的定义以脚本头注释为准。
+首次进入时先读 [reviewers.md](references/reviewers.md)。以下命令均在本 skill 目录下执行，`<repo-root>` 始终指向目标 PR 的 checkout 目录；参数、字段及返回原因的定义以脚本头部注释为准。
 
 ```bash
 bash scripts/poll.sh --repo-root <repo-root> <PR_NUMBER>
@@ -40,11 +40,11 @@ bash scripts/round.sh --repo-root <repo-root> <PR_NUMBER> mark --implemented <n>
 
 **处置一批。** 索引带 `triage_hint` 时回到「工程判断」。合并各家本轮发现、CI 失败和新安全告警，先完成整批定性，再修复，运行相关测试与闸门。每次 push 都让 CI 和各家审查重跑，所以同一 HEAD 上的事项攒成一批：先到的先定性、先修，等该 HEAD 的 required checks 结束、各家本轮审查到齐后一次 push。CI 根因已在 main 修复时，同步主线并重新验证。每条发现按 reviewers.md「处置写回」在案；同根因的多条发现可以引用同一处置结论。
 
-**记轮。** 每处置一批用 `round.sh ... mark` 记一轮，包括全部以回复结案、没有 push 的批次。`--pushback` 计入以回复结案的发现。CI 修复、同步主线和触发命令本身不计轮。
+**记轮。** 每处置完一批即用 `round.sh ... mark` 记为一轮，包括全部通过回复结案、未产生 push 的批次。`--pushback` 计入以回复结案的发现数。单纯的 CI 修复、同步主线以及发送触发命令本身不计入轮数。
 
 ## 完成条件
 
-宣布收敛前，确认当前 HEAD 同时满足：
+宣布收敛前，须确认当前 HEAD 同时满足以下三项条件：
 
 - **覆盖有效**：每家参审 reviewer 的审查已完成，覆盖当前变更；允许沿用的情形见 reviewers.md「身份与触发」。故障停用单独报告，不能记作通过。
 - **发现已处置**：本循环的每条实质发现，包括历史 inline、review body 和 summary，都已定性；缺陷已修复，其余已在案回复，不存在未裁决的重要风险。在案即可，无需等待 bot 同意或撤回。

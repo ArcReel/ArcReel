@@ -61,7 +61,7 @@ _REFERENCE_AUDIO_MIME_TYPES = {".mp3": "video/mp3"}
 
 @dataclass(frozen=True)
 class ViduEndpoint:
-    """固定的音轨字段、各执行子路径的时长契约（ADR 0018）与输入上限。
+    """固定的音轨字段、各执行子路径的时长契约（ADR 0104）与输入上限。
 
     ``audio`` 表示请求体带音轨开关 ``audio``；不带开关时，``native_audio`` 表示成片固定有声（音画同出），否则无声。
     ``max_prompt_chars`` 是文生、图生、首尾帧的提示词上限，``max_reference_prompt_chars`` 是参考生视频的；

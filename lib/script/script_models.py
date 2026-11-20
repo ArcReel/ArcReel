@@ -151,7 +151,7 @@ class VideoPrompt(_VideoPromptCore):
     视觉层改用不产台词的 ``NarrationVideoPrompt``。
 
     drama 的有序发声由 ``DramaScene.utterances`` 承载，video_prompt 使用无-dialogue 的
-    ``DramaVideoPrompt``（见 ADR 0040）。
+    ``DramaVideoPrompt``（见 ADR 0089）。
     """
 
     dialogue: Annotated[list[Dialogue], BeforeValidator(_none_to_empty_list)] = Field(
@@ -455,7 +455,7 @@ class Utterance(BaseModel):
     - ``voiceover``：无说话人的旁白解说，``speaker`` 必为 ``None``，不作视频提示词（留给字幕 / TTS）。
 
     取显式 ``kind`` 而非「speaker 有无隐式判别」：与 ``ReferenceResource.type`` 既有判别式风格一致、
-    LLM 结构化输出更稳（见 ADR 0040）。
+    LLM 结构化输出更稳（见 ADR 0089）。
     """
 
     model_config = _STRICT_CONFIG
@@ -565,7 +565,7 @@ class DramaScene(BaseModel):
     image_prompt: ImagePrompt | PromptText | PendingPrompt = Field(default=None, description="分镜图生成提示词")
     # drama 的 video_prompt 只承载画面动作、运镜与环境音，口播由下方 utterances 承载。
     video_prompt: DramaVideoPrompt | PromptText | PendingPrompt = Field(default=None, description="视频生成提示词")
-    # utterances 统一承载分镜级角色台词与画外音；条目顺序即幕内发声顺序（见 ADR 0040）。
+    # utterances 统一承载分镜级角色台词与画外音；条目顺序即幕内发声顺序（见 ADR 0089）。
     utterances: list[Utterance] = Field(
         default_factory=list,
         description="分镜级有序发声序列：角色台词（dialogue）与画外音（voiceover）按时序排列",
@@ -606,7 +606,7 @@ class DramaEpisodeScript(BaseModel):
     scenes: list[DramaScene] = Field(description="分镜列表")
 
 
-# ============ 剧情演绎两段式：script_plan 内容 / prompt_authoring 视觉（见 ADR 0041） ============
+# ============ 剧情演绎两段式：script_plan 内容 / prompt_authoring 视觉（见 ADR 0080） ============
 #
 # 内容抽取前移到 script_plan：分镜边界、characters/scenes/props、utterances（逐字口播）、source_text
 # （逐字原文锚）、scene_description（视觉改编自由文本）一次定稿。prompt_authoring 只生成视觉层
@@ -935,7 +935,7 @@ def resolve_content_mode(script: dict[str, Any], project: dict[str, Any]) -> str
 
 # ============ 参考生视频 script_plan 结构化中间态 ============
 #
-# 两段式职责切分（与 narration / drama 同机制，见 ADR 0041）：script_plan（video_unit 拆分）产出
+# 两段式职责切分（与 narration / drama 同机制，见 ADR 0080）：script_plan（video_unit 拆分）产出
 # 内容层（unit 边界 + 正文与时长），prompt_authoring（generate-script）以此为唯一基底生成
 # ReferenceVideoScript 的视觉编排（景别 / 构图 / 运镜扩写）。
 

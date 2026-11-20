@@ -14,13 +14,13 @@ disable-model-invocation: true
 
 Release PR 的分支是 `release-please--branches--main--components--arcreel`。闸门：release-please 针对 `origin/main` 最新提交的运行已完成，且全部检查通过。release-please 只在 Changelog 有变化时重建 Release 分支，所以 head 可以落后于不进 Changelog 的提交。闸门不过时修复提交到 `main`，release-please 会随 `main` 的推送重建 Release 分支。
 
-完成判据：`gh release view v<版本>` 返回已发布的 Release。tag 触发的 Docker Release 放到后台，随即进入亮点草案。
+完成判据：`gh release view v<版本>` 返回已发布的 Release。tag 触发的 Docker Release 在后台运行即可，无需等待，随即进入「亮点草案」。
 
 ## 亮点草案
 
 版本亮点是 Changelog 明细之上的**导读**，写给**创作者**（`PRODUCT.md`「Users」）：他们据此判断这一版值不值得升级、升级后先试什么。
 
-1. 运行本 skill 目录下的 `scripts/release_notes.py themes [版本]`，得到按 Spec 归并的 Changelog 条目和最近一版亮点。
+1. 运行本 skill 目录下的 `scripts/release_notes.py themes [版本]`，获取按 Spec 归并的 Changelog 条目以及最近一版的亮点作为参考。
 2. 按 `docs/standards/copy.md`「通用」一节与 `tech-doc-style-chinese` 起草，把握下面四点：
    - **主题来自 Spec**：先读每个 Spec 的 Problem Statement 与 Solution，再定主题，写创作者原来的问题和现在能做的事。无 Spec 归属的条目按同一标准取舍。Changelog 条目用来核对事实。
    - **导读要取舍**：只留创作者会为之升级或主动去试的主题，篇幅与分量相称。最近一版亮点是篇幅与语气的参照。

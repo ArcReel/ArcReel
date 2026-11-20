@@ -109,7 +109,7 @@ describe("PromptTemplateList", () => {
     render(<PromptTemplateList onSelect={onSelect} />);
 
     const styleGroup = await screen.findByRole("region", { name: "画风" });
-    expect(within(styleGroup).getByText("2 个模版")).toBeInTheDocument();
+    expect(within(styleGroup).getByText("2 个模板")).toBeInTheDocument();
     expect(within(styleGroup).queryByText("吉卜力")).not.toBeInTheDocument();
 
     await user.click(within(styleGroup).getByRole("button", { name: "画风" }));

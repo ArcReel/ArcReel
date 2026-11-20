@@ -45,20 +45,7 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 `mcp__arcreel__get_workflow_plan({})` 取回权威计划（用户指定某一集时，按其说的播出位置或标题在项目 `episodes[]` 里找到那一集，传它的集 ID `{"episode_id": X}`），
 再按 `next_action.type` 路由到下面同名的小节。
 
-计划的字段含义、完整受控动作表、旁白交付、整批准入判定、四条状态轴与 stale / 历史纪律，见
-[.claude/references/workflow-plan.md](../../references/workflow-plan.md)。**本 skill 不重复一张按创作类型
-或生成模式展开的步骤表**：哪些步骤适用、建议的下一步、哪些操作此刻能执行，一律读 `plan.steps[]`、
-`plan.next_action` 与 `plan.status.operations`，它们是阶段判断的唯一真相源。`plan.status` 内嵌完整状态快照
-（`project` / `target` / `content` / `operations` / `blockers` / `issues` / `gates` / `artifacts`），不需要再单独查一次状态。
-
-调用后把 `plan.status.target.episode`（目标集的集 ID，下文路径与参数中的 N 即它）作为目标集，把 `next_action.args` 与 `requested_ids` 原样带入
-对应动作。Read / Glob 只用于执行已选定动作所需的内容，不用于另建状态机；不得根据空资产 bucket、
-文件名、旧文件存在性或对话记忆覆盖服务端结论。
-
-下文各节以 `next_action.type` 为标题；没有单列小节的动作（如 `resolve_draft`、`start_blank_script`、
-`add_script_items`）按 workflow-plan 参考的受控动作表执行。`none` 时有 `blockers` 就展示并停止变更；
-`steps` 中 `edit` 为 `completed` 表示工作流已走完；其余情况把 `status.issues` 与 `status.content` 讲给用户。
-用户点名操作与说「继续」的区别见「灵活入口」。
+查看 [工作流计划](../../references/workflow-plan.md) 的受控动作表，执行与 `next_action.type` 同名的分支。目标集以 `plan.status.target.episode` 为准。按照工具 schema 从 `next_action.args` 取参数，只在点名时传 ID 列表。阻断、分岔、未单列的动作与 `none` 一律按计划参考处理。
 
 ---
 
@@ -76,6 +63,8 @@ description: 将小说转换为短视频的端到端工作流编排器。当用�
 ---
 
 ## `plan_episodes` / `reset_episode_planning`：分集规划
+
+附加指令只在本批生效。用户反复提出的要求写入项目记忆，下次通过 `plan_episodes.instructions` 再带上。每集体量经 `patch_project` 写入项目设置。先在 `.claude/references/project-operations.md` 核对源文与分集账本的规则。
 
 **恢复触发**：`next_action.type` 为 `"reset_episode_planning"` 时，先按 `next_action.args` 调
 `mcp__arcreel__reset_episode_planning`。工具若返回已消费集确认要求，展示影响范围并取得用户明确确认，

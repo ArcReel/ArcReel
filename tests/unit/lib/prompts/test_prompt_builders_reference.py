@@ -376,10 +376,10 @@ def test_split_prompt_screenplay_branch_extracts_instead_of_adapting():
     novel = _split_prompt(source_kind="novel")
 
     assert "<screenplay>" in screenplay
-    assert "沿用剧本自带的场次" in screenplay
+    assert "沿用剧本原有的场次划分" in screenplay
     assert "群演" in screenplay
     assert "<novel>" in novel
-    assert "沿用剧本自带的场次" not in novel
+    assert "沿用剧本原有的场次划分" not in novel
     assert _split_prompt(source_kind="screen_play") == novel == _split_prompt()
 
 

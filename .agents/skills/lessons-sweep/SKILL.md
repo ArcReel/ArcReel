@@ -15,7 +15,7 @@ disable-model-invocation: true
 3. 用 `gh pr list --state open --limit 1000 --json number,headRefName` 列出全部 open PR（默认只返回 30 条），找出 head 分支以 `lessons-sweep/` 开头的 PR。
 4. 存在这样的 PR 时接手它，本次巡检只处理它；新窗口留给下一次巡检，这样窗口首尾相接，同一时间只有一份教训库改动。接手路径上的 `gh pr` 命令都显式传入它的 PR 号，改动在其 head 分支的工作树中进行。先读 PR 上的阻塞评论，并用 `gh pr view <PR 号> --json isDraft,autoMergeRequest,mergeStateStatus,statusCheckRollup` 查看状态：
    - 已开启 auto-merge、没有冲突、required checks 没有失败的：确认后结束。
-   - 阻塞原因与上一次接手时相同：对应的 `needs-triage` issue 仍 open 时补一条评论后结束，没有就开一个；issue 已关闭的，按其中的裁决处理后转下一项。
+   - 若阻塞原因与上一次接手时相同：当对应的 `needs-triage` issue 仍处于 open 状态时补一条评论后结束，若尚未建 issue 则新开一个；若该 issue 已关闭，则按其中的裁决处理后转入下一项。
    - 其余：rebase 到最新 `origin/main`，按第 6 步第 2 项跑闸门，用 `--force-with-lease` push，更新 PR 正文；PR 为 draft 时用 `gh pr ready` 转为 ready，再执行第 6 步第 4 项。
 5. 用 `git rev-parse origin/main` 记下窗口终点的 SHA。用 `git show <窗口终点>:docs/LESSONS.md` 读取该提交顶部的 `<!-- reviewed-through: <SHA> <日期> -->`，以标记中的 SHA 为窗口起点。窗口是 `<SHA>..<窗口终点>`。从同一窗口终点创建 `lessons-sweep/<YYYY-MM-DD>` 分支与工作树，后续改动都在这里进行。
 
@@ -36,7 +36,7 @@ GitHub compare API 的 `total_commits` 包含合入分支的提交，与 `--firs
 
 逐条核验候选：现象、根因与没拦住的原因由你对照代码、diff 与 CI 日志查证，评论里的结论只作线索。不成立的候选，以及不符合 lessons.md「收尾自查」判据的候选，一律丢弃。
 
-成立的候选按「模式」比对现有条目：同类就追加一条出现记录，否则新建条目，按 lessons.md「分组」归组。计数单位见 lessons.md。
+核验成立的候选按「模式」与现有条目比对：属于同类则追加一条出现记录，否则新建条目，并按 lessons.md「分组」归类。计数单位详见 lessons.md。
 
 ## 4. 清理与退出
 
@@ -57,7 +57,7 @@ GitHub compare API 的 `total_commits` 包含合入分支的提交，与 `--firs
 
 第 3–5 步没有产生任何改动时，PR 只推进 reviewed-through 标记，下一次巡检就不必重扫同一窗口。依次执行：
 
-1. 把 reviewed-through 标记更新为窗口终点的 SHA 与日期，提交本次全部改动。
+1. 将 `reviewed-through` 标记更新为窗口终点的 SHA 与日期，提交本次全部改动。
 2. 运行 `uv run python scripts/gate.py --changed` 直到通过。
 3. 创建 PR，标题为 `chore(lessons): <YYYY-MM-DD> 教训巡检`。正文列出：新增教训、计数变化、清理掉的教训、晋升及去向、退出的规则、agent 自行裁决的事项（各附一行理由）、窗口内 agent 新开的 issue 数（带 `ready-for-agent` 或 `needs-triage` 标签，两类分开计数）。
 4. PR 只推进标记时，直接用 `gh pr merge --auto --squash` 开启 auto-merge。其余情况使用 Skill 工具调用 `pr-ai-review-loop`，由你担任委派方：需要用户的事项开 `needs-triage` issue，从本 PR 撤下相关改动（条目留在教训库，注明 issue 号），其余改动照常收敛；follow-up 按 escalation.md 分流。收敛后用 `gh pr merge --auto --squash` 开启 auto-merge。
@@ -69,4 +69,4 @@ GitHub compare API 的 `total_commits` 包含合入分支的提交，与 `--firs
 - reviewed-through 标记缺失、无法解析，或 SHA 不是 `origin/main` 的祖先；`gh` 认证或 API 访问失败；候选收集不完整；其他在第 6 步第 1 项提交前无法完成的步骤：丢弃分支与工作树，不 push、不建 PR。标记保持不动，下一次巡检从同一窗口重跑。
 - 闸门持续失败，或 `pr-ai-review-loop` 硬停时仍有未决事项：push 分支，PR 尚未创建的创建 draft PR。不开启 auto-merge，在 PR 上评论阻塞原因，下一次巡检在第 1 步接手。
 
-标记只随巡检 PR 合并而推进，未完成的窗口留给后续巡检。
+`reviewed-through` 标记仅随巡检 PR 合并而推进，未完成的窗口留给后续巡检处理。

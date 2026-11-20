@@ -215,7 +215,7 @@ class SseChannel:
         """把订阅队列变为异步迭代器：逐条产出广播项，空闲时产出 :data:`IDLE`。
 
         本生成器刻意不带 ``finally`` 清理——退订由消费方的 async CM ``__aexit__``
-        确定性执行（见 docs/adr/0005），裸生成器的 finally 只在 GC 时跑，正是
+        确定性执行（见 docs/adr/0046），裸生成器的 finally 只在 GC 时跑，正是
         该设计要避免的泄漏路径。
         """
         while True:

@@ -1,8 +1,7 @@
 ---
 id: market
 title: Market
-sidebar_position: 5
-update_docs: fact-check
+sidebar_position: 6
 ---
 
 # Market {#market}
@@ -66,20 +65,9 @@ You can also enter the "Market" section by clicking "Get from market" in the "En
 
 ### 3.1 Browse Entries {#browse-entries}
 
-The entry grid lists entries from all enabled sources in market source order, without grouping by source. Each card shows the icon, name, `author, vversion`, and description. Below the description is a row of badges: media type ("Image" or "Video"), installation status, and any version requirement. At the bottom of the card, the market source is on the left (entries from the official market source also show install counts and ratings next to it), and the primary button is on the right:
+In Browse, find entries by name, author, description, media type, or market source, or filter to installed entries. Open a card to review the endpoint definition, version, and source. Install or Update opens the confirmation dialog. Use Open Endpoint for an installed entry that is up to date.
 
-- "Install" when the entry is not installed, which opens the installation confirmation dialog;
-- "Update" when an update is available, which opens the same dialog in update mode;
-- "Open endpoint" when the installed version is current, which goes straight to the endpoint in the "Endpoints" section.
-
-Clicking anywhere else on the card opens the installation confirmation dialog.
-
-- **Search**: filter by name, author, and description.
-- **Filter by media type**: choose one of "All", "Image", and "Video". The default is "All".
-- **Filter by source**: shown when two or more market sources are enabled. One filter per market source, multi-select, all selected by default.
-- **Installed only**: show only installed entries.
-
-When an entry requires a newer app version, the card is labeled "Requires ArcReel ≥ x.y.z" and its "Install" or "Update" button is disabled. You can still open the card to view its details. Upgrade ArcReel before installing it.
+If the card requires a newer ArcReel version, you can still view the details. Upgrade ArcReel before installing or updating the endpoint.
 
 ### 3.2 Confirm Installation {#confirm-install}
 

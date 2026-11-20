@@ -327,14 +327,14 @@ class ProjectEventService:
         When the subscriber's queue fills, :class:`DropSubscriber` removes it and
         the iterator ends; the client reconnects and the fresh snapshot realigns
         it. Subscription and unsubscribe live behind this seam; cleanup is
-        carried by ``__aexit__`` (see ADR-0005). Consume as
+        carried by ``__aexit__`` (see ADR-0046). Consume as
         ``async with stream_events(...) as stream: async for item in stream``.
         """
         sse, queue, snapshot = await self._subscribe(project_name)
 
         async def _iter() -> AsyncIterator[tuple[str, Any] | dict[str, Any]]:
             # NOTE: intentionally NO ``finally: _unsubscribe`` here — cleanup is owned
-            # by the enclosing context manager's __aexit__ (ADR-0005). Do not add one.
+            # by the enclosing context manager's __aexit__ (ADR-0046). Do not add one.
             yield ("snapshot", snapshot)
             async for item in sse.iterate(queue, idle_timeout=idle_timeout):
                 yield {"type": "_idle"} if item is IDLE else item

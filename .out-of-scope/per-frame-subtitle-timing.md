@@ -1,13 +1,10 @@
-# 在 ArcReel 内逐条调整字幕时间
+# 字幕精确对齐在剪映中完成
 
-ArcReel 不提供逐条设定字幕起止时刻的功能，包括让 Agent 按自然语言把某条字幕放到指定帧。
+ArcReel 按阅读单位比例生成字幕草稿，不提供逐帧设定单条字幕起止时刻的功能。剪辑时间线只保存剪辑决策，导出的剪映草稿则会将字幕放入独立文本轨，创作者可在剪映中逐条调整时间。
 
-## Why this is out of scope
-
-字幕是按字数比例排出的机械草稿，不宣称逐句对齐（ADR 0089）；剪辑时间线不保存字幕，断句与精确对齐交给剪映精修（ADR 0090）。剪映草稿中的字幕是独立文本轨，可以逐条拖动修改。
-
-重开条件：剪辑时间线改为承载字幕的新决策取代 ADR 0090。
+- 字幕生成规则见 [ADR 0089](../docs/adr/0089-single-speech-owner-per-video-unit-narration-delivery-per-project.md)。
+- 剪辑时间线的边界见 [ADR 0090](../docs/adr/0090-edit-timeline-named-follows-current-not-artifact.md)。如果时间线以后承载字幕，可以重评此项。
 
 ## Prior requests
 
-- #3334 — 字幕烧入时间自定义，可以放到指定帧显示
+- #3334 — 将烧入字幕放到指定帧

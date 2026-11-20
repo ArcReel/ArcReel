@@ -10,7 +10,7 @@
 | Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | PR opened；后续 push 不保证 | `@codex review`，每个 HEAD 至多一次 |
 | CodeQL | — | `github-advanced-security[bot]` | 每次 push 后分析 | 无 |
 
-同一 HEAD 的同种触发只发一次，命令单独置于评论开头；用 `own_trigger_comments` 与 `last_push_at` 核对。各家的触发时机见下文各节。纯指标 bot（如 Codecov）不参与此循环。
+同一 HEAD 的同种触发命令只发送一次，且命令须单独置于评论开头；发送前用 `own_trigger_comments` 与 `last_push_at` 核对。各家的具体触发时机见下文各节。纯指标类 bot（如 Codecov）不参与本循环。
 
 每次 push 后按各家的完成信号核对当前 HEAD，追加 commit 与改写历史后的 force push 同样处理。仅回复、不改 HEAD 时，已确认的覆盖仍有效。
 
@@ -65,4 +65,4 @@ CodeQL 不读 inline 回复，修复后由分析更新告警；尚未修复的�
 
 ## 现场查询
 
-优先使用 query.sh。确需直接查快照时，先用已知非空查询验证字段路径。`gh` 偶尔截断输出却仍返回 0；写回 PR 正文等远端内容前，确认读到的是完整原文。
+优先使用 `query.sh`。确需直接查询快照时，先用已知非空查询验证字段路径。`gh` 偶尔会截断输出但仍返回 0；在写回 PR 正文等远端内容前，务必确认读到的是完整原文。

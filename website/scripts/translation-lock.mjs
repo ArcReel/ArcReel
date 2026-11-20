@@ -5,10 +5,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
-// 与页面库存、锚点扫描共用同一个遍历器，三道 CI 闸门对「哪些文件算文档」给同一答案。
-// 该模块零 npm 依赖，本脚本仍可用 node 直接运行；代价是耦合仓库文件布局——本脚本
-// 本就硬编码 website/i18n 等仓库路径，不追求脱库复用。
-import { walkMarkdownFiles } from "../../../../website/scripts/markdown-scan.mjs";
+import { scanMarkdownLines, walkMarkdownFiles } from "./markdown-scan.mjs";
 
 const I18N_ROOT = "website/i18n";
 const DOCS_TRANSLATION_SUBDIRECTORY = "docusaurus-plugin-content-docs/current";
@@ -36,19 +33,17 @@ function fingerprintSource(source) {
   return source;
 }
 
-// The synced copy is gitignored build output, so a fresh worktree lacks it. Generate it with the
-// repository's own sync script rather than failing on a bare ENOENT from the fingerprint read.
-function ensureSyncedContributing(root) {
-  const copy = resolve(root, fingerprintSource("CONTRIBUTING.md"));
+// Reuse the site's generator on every check. A copy left by a previous build can be stale.
+function syncContributing(root) {
   const translated = existsSync(resolve(root, targetForSource("CONTRIBUTING.md")));
-  if (existsSync(copy) || !translated || !existsSync(resolve(root, "CONTRIBUTING.md"))) return;
+  if (!translated || !existsSync(resolve(root, "CONTRIBUTING.md"))) return;
   const result = spawnSync(process.execPath, [resolve(root, "website/scripts/sync-contributing.mjs")], {
     cwd: root,
     encoding: "utf8",
   });
   if (result.status !== 0) {
     throw new Error(
-      `Missing synced copy ${fingerprintSource("CONTRIBUTING.md")}; generate it with \`pnpm sync-contributing\` in website/.\n${result.stderr ?? ""}`,
+      `Could not generate ${fingerprintSource("CONTRIBUTING.md")} with \`pnpm sync-contributing\` in website/.\n${result.stderr ?? ""}`,
     );
   }
 }
@@ -88,22 +83,26 @@ function sourceForTranslationTarget(target) {
 function unregisteredTranslationOrphans(root, lock, currentTargets) {
   const registeredTargets = new Set([
     ...currentTargets,
-    ...Object.keys(lock).map(targetForSource).filter((target) => target !== null),
+    ...Object.keys(lock)
+      .map(targetForSource)
+      .filter((target) => target !== null),
   ]);
   return documentTranslationTargets(root)
     .filter((target) => !registeredTargets.has(target))
     .map((target) => ({ source: sourceForTranslationTarget(target), target, state: "orphan" }));
 }
 
-// Only these frontmatter values carry prose; every other key (id, slug, sidebar_position,
-// update_docs, ...) drives tooling and must match the source byte for byte.
+// Only these frontmatter values carry prose. All other entries must match the source.
 const TRANSLATED_FRONT_MATTER_KEYS = new Set(["title", "description", "sidebar_label"]);
 
 // Returns the untranslated frontmatter entries as "key: value" lines, with indented continuation
 // lines folded into their key, or [] when the document has no frontmatter. Every unindented line
 // opens an entry, so a key this parser cannot name still takes part in the comparison.
 function untranslatedFrontMatter(path) {
-  const lines = readFileSync(path, "utf8").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
+  const lines = readFileSync(path, "utf8")
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
   if (lines[0]?.trim() !== "---") return [];
   const entries = [];
   for (const line of lines.slice(1)) {
@@ -127,6 +126,21 @@ function frontMatterDrift(root, mappings) {
   });
 }
 
+function sectionAnchors(path) {
+  return [...scanMarkdownLines(readFileSync(path, "utf8"))].flatMap(({ hashes, anchor }) =>
+    anchor === null ? [] : [`${hashes} ${anchor}`],
+  );
+}
+
+function sectionAnchorDrift(root, mappings) {
+  return mappings.filter(([source, target]) => {
+    // GitHub README anchors come from each language's heading text.
+    if (source === "README.md" || !existsSync(resolve(root, target))) return false;
+    const expected = sectionAnchors(resolve(root, fingerprintSource(source)));
+    return JSON.stringify(expected) !== JSON.stringify(sectionAnchors(resolve(root, target)));
+  });
+}
+
 function digest(path) {
   const normalized = readFileSync(path, "utf8").replace(/\r\n?/g, "\n");
   return createHash("sha256").update(normalized, "utf8").digest("hex");
@@ -138,8 +152,8 @@ function readLock(root) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function translationStatus(root) {
-  ensureSyncedContributing(root);
+export function translationStatus(root) {
+  syncContributing(root);
   const lock = readLock(root);
   const mappings = sourceTargets(root);
   const currentSources = new Set(mappings.map(([source]) => source));
@@ -152,11 +166,22 @@ function translationStatus(root) {
   const orphans = Object.keys(lock)
     .filter((source) => !currentSources.has(source))
     .map((source) => ({ source, target: targetForSource(source), state: "orphan" }));
-  const drifted = frontMatterDrift(root, mappings).map(([source, target]) => ({ source, target, state: "frontmatter" }));
-  return [...dirty, ...drifted, ...orphans, ...unregisteredTranslationOrphans(root, lock, currentTargets)].sort(
+  const drifted = frontMatterDrift(root, mappings).map(([source, target]) => ({
+    source,
+    target,
+    state: "frontmatter",
+  }));
+  const anchors = sectionAnchorDrift(root, mappings).map(([source, target]) => ({ source, target, state: "anchors" }));
+  return [
+    ...dirty,
+    ...drifted,
+    ...anchors,
+    ...orphans,
+    ...unregisteredTranslationOrphans(root, lock, currentTargets),
+  ].sort(
     (left, right) =>
       left.source.localeCompare(right.source) ||
-      left.target.localeCompare(right.target) ||
+      (left.target ?? "").localeCompare(right.target ?? "") ||
       left.state.localeCompare(right.state),
   );
 }
@@ -166,7 +191,7 @@ function translationStatus(root) {
 // Entries whose source is gone are dropped either way: the orphan check above has already refused
 // any whose target still exists, so a page-deletion PR need not fall back to a full record.
 function recordTranslations(root, sources = []) {
-  ensureSyncedContributing(root);
+  syncContributing(root);
   const allMappings = sourceTargets(root);
   const unknown = sources.filter((source) => !allMappings.some(([candidate]) => candidate === source));
   if (unknown.length > 0) {
@@ -181,6 +206,12 @@ function recordTranslations(root, sources = []) {
   if (drifted.length > 0) {
     throw new Error(
       `Refusing to record translations whose untranslated frontmatter differs from the source:\n${drifted.map(([, target]) => target).join("\n")}`,
+    );
+  }
+  const mismatchedAnchors = sectionAnchorDrift(root, mappings);
+  if (mismatchedAnchors.length > 0) {
+    throw new Error(
+      `Refusing to record translations whose section anchors differ from the source:\n${mismatchedAnchors.map(([, target]) => target).join("\n")}`,
     );
   }
   const currentSources = new Set(allMappings.map(([source]) => source));
@@ -221,23 +252,18 @@ function parseArguments(argv) {
   const rest = argv.slice(1).filter((_, index) => index + 1 !== rootIndex && index + 1 !== rootIndex + 1);
   return {
     command,
-    root: rootIndex === -1 ? process.cwd() : resolve(argv[rootIndex + 1]),
+    root: rootIndex === -1 ? resolve(import.meta.dirname, "../..") : resolve(argv[rootIndex + 1]),
     json: argv.includes("--json"),
     sources: rest.filter((argument) => !argument.startsWith("--")),
   };
 }
 
-const { command, root, json, sources } = parseArguments(process.argv.slice(2));
-
-if (command !== "status" && command !== "record") {
-  console.error("Usage: translation-lock.mjs status [--root PATH] [--json]\n       translation-lock.mjs record [SOURCE...] [--root PATH]");
-  process.exitCode = 2;
-} else {
+if (import.meta.main) {
   try {
-    if (command === "record") {
-      console.log(`Recorded ${recordTranslations(root, sources)} source hashes.`);
-    } else {
+    const { command, root, json, sources } = parseArguments(process.argv.slice(2));
+    if (command === "status") {
       const status = translationStatus(root);
+      if (status.length > 0) process.exitCode = 1;
       if (json) {
         process.stdout.write(`${JSON.stringify(status, null, 2)}\n`);
       } else if (status.length === 0) {
@@ -245,6 +271,13 @@ if (command !== "status" && command !== "record") {
       } else {
         for (const item of status) console.log(`${item.state}\t${item.source}\t${item.target}`);
       }
+    } else if (command === "record") {
+      console.log(`Recorded ${recordTranslations(root, sources)} source hashes.`);
+    } else {
+      console.error(
+        "Usage: translation-lock.mjs status [--root PATH] [--json]\n       translation-lock.mjs record [SOURCE...] [--root PATH]",
+      );
+      process.exitCode = 2;
     }
   } catch (error) {
     console.error(error.message);

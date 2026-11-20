@@ -114,7 +114,7 @@ def project_request_duration(
     ``duration_endpoint_fixed`` 为真时档位集是空的合法状态（时长这一维由端点固定，见
     ``docs/adr/0082``）：不收窄、不要求确认，规划秒数原样透传，端点会按 workflow 自己那档出片。
 
-    不带 ``duration_endpoint_fixed`` 的空集是档位声明缺失（``docs/adr/0018``），仍按
+    不带 ``duration_endpoint_fixed`` 的空集是档位声明缺失（``docs/adr/0086``），仍按
     ``supported_durations_missing`` 阻断。
     """
 

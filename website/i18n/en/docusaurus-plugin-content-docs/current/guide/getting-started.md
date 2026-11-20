@@ -2,7 +2,6 @@
 id: getting-started
 title: Complete Getting Started Guide
 sidebar_position: 1
-update_docs: full
 ---
 
 # Complete Getting Started Guide {#getting-started}
@@ -11,23 +10,11 @@ This guide walks you through deploying ArcReel from scratch and creating your fi
 
 ## What You Will Build {#what-you-will-build}
 
-By the end of this guide, you will be able to:
-
-1. Start ArcReel with Docker;
-2. Sign in to the workspace and configure model providers;
-3. Create a project from a novel, finished screenplay, or ad/short video;
-4. Generate characters, scenes, props, storyboards, and video clips;
-5. Monitor task status and costs;
-6. Edit an episode, then render the final cut or export a Jianying draft for further post-production.
+You’ll create a short project, make a short video, and render the final cut or export a Jianying draft from the editing view. If ArcReel is already running, you can go straight to [Initial Setup](#first-time-setup).
 
 ## Estimated Time and Cost {#time-and-cost}
 
-- Initial deployment and configuration usually take about 10–20 minutes.
-- Video generation time depends on the number of shots, provider queues, and the selected model.
-- Text, image, video, and TTS calls may incur third-party API charges.
-- ArcReel can estimate costs before generation and record actual usage afterward.
-
-For your first project, use a small amount of content and 2–4 shots to validate the workflow. Do not submit a complete long-form project right away.
+For your first run, use a short chapter or script excerpt to try generating a few shots. Generation time depends on the model and provider queue. Text, image, video, and narration calls can incur charges. Review the estimate before submission and check [Usage Records](#tasks-and-cost) afterwards.
 
 ## 1. Prepare Your Environment {#prepare-environment}
 
@@ -62,31 +49,7 @@ You can use Anthropic's official service or a compatible service supported by Ar
 
 #### Media and Text Generation Credentials {#media-and-text-credentials}
 
-These credentials are used to call text, image, video, and TTS models.
-
-ArcReel currently includes presets for these providers:
-
-- Gemini
-- Volcengine Ark
-- Grok
-- OpenAI
-- Vidu
-- DashScope
-- MiniMax
-- Kling
-- Agnes
-- Custom OpenAI-compatible or Google-compatible providers
-
-Providers support different media types. A complete workflow usually requires at least:
-
-- A working text generation capability;
-- A working image generation capability;
-- A working video generation capability;
-- Optional TTS capability.
-
-For detailed recommendations, see [Provider and Model Configuration](./providers.md).
-
-> API keys are sensitive. Do not commit real keys to Git or expose them in issues, log screenshots, or public chat records.
+Prepare text, image, and video generation for the project, plus narration audio if you need it. You can choose models from different providers. See [Provider and Model Configuration](./providers.md#capability-matrix) for where to check available models in Settings.
 
 ## 2. Deploy ArcReel {#deploy-arcreel}
 
@@ -144,33 +107,7 @@ http://localhost:1241
 
 ### 2.3 Use the PostgreSQL Production Deployment {#deploy-with-postgresql}
 
-PostgreSQL is recommended for long-running, concurrent, or production services. It improves concurrency, backups, and operations, but does not provide user isolation. Do not let mutually untrusted users share the same ArcReel instance.
-
-Run these commands from the root of the ArcReel repository:
-
-```bash
-cd deploy/production
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```dotenv
-AUTH_USERNAME=admin
-AUTH_PASSWORD=set a strong password
-AUTH_TOKEN_SECRET=set a long-lived random secret
-POSTGRES_PASSWORD=alphanumeric-only database password
-```
-
-Start the service:
-
-```bash
-docker compose up -d
-docker compose ps
-curl http://localhost:1241/health
-```
-
-For complete production deployment, upgrade, backup, and reverse proxy instructions, see [Deployment and Operations](../ops/deployment.md).
+For a long-running or production instance, we recommend PostgreSQL. Follow the [production deployment instructions](../ops/deployment.md#postgresql-deployment), then return here for initial setup. Share the ArcReel instance only with users you trust.
 
 ## 3. Complete the Initial Setup {#first-time-setup}
 
@@ -180,36 +117,15 @@ Then open **Settings**.
 
 ### 3.1 Configure the Agent {#configure-assistant}
 
-Enter:
-
-- An API key or credential;
-- A Base URL;
-- The primary model;
-- Models for different tasks as needed.
-
-After saving, send a simple message to verify the connection before starting any large batch of tasks.
+Under Settings → ArcReel Agent, add a credential and activate it. Enter the API key, base URL, and model for the provider.
 
 ### 3.2 Configure Media Providers {#configure-media-providers}
 
-Configure at least one image provider and one video provider.
-
-For your first project, consider this approach:
-
-- Choose a more reliable image model for character designs;
-- Choose an image model with a good balance of speed and cost for batch storyboards;
-- Start with a fast or low-cost video tier to validate the visuals;
-- After confirming the characters, composition, and direction of motion, switch to a higher-quality model.
+Add the generation credentials under Settings → Providers, then choose text, image, and video models under Default Models. Before creating the project, check that the video model supports your [generation route](./workflows.md#video-production-routes). Generation settings and Agent credentials are saved separately. See [Configuration Layers](./providers.md#configuration-layers) for global and project precedence.
 
 ### 3.3 Configure Concurrency and Cost {#configure-concurrency-and-cost}
 
-Adjust these settings based on your provider quotas:
-
-- RPM limits;
-- Image concurrency;
-- Video concurrency;
-- Audio concurrency.
-
-Settings that are too high may trigger provider rate limits, while settings that are too low will extend batch processing time. Start conservatively and increase them gradually after confirming that the workflow is stable.
+Run a small batch first so you can check the provider quota, turnaround time, and reference costs before scaling up. If you hit rate limits, check instance concurrency and account limits in [Provider Troubleshooting](./providers.md#frequent-rate-limits).
 
 ## 4. Create Your First Project {#create-first-project}
 
@@ -219,153 +135,55 @@ On the project list page, click **New Project**.
 
 #### Novel {#source-novel}
 
-Best for projects that need to plan episodes, identify assets, and adapt a script from original source material.
-
-For your first upload, use:
-
-- One complete but short chapter;
-- Or a 1,000–3,000-character excerpt from the story.
+Upload a short chapter as whole-source text, then plan the episodes to produce. You can also use a self-contained excerpt as the source text for one episode.
 
 #### Finished Screenplay {#source-screenplay}
 
-Best when you already have dialogue, voice-over, and scene structure that you want to preserve as closely as possible.
-
-ArcReel builds characters and shots from the author's supplied content. It should not rewrite a finished screenplay as if it were an ordinary novel.
+Use Drama mode and upload the script with its characters, scenes, and dialogue. Set the source type to Screenplay, then check dialogue and voice-over against the original during content confirmation.
 
 #### Ad or Short Video {#source-ad}
 
-Best for merchandise showcases, shoppable videos, and short-form content with a defined target duration.
-
-Prepare:
-
-- Clear merchandise photos from multiple angles;
-- Key selling points;
-- The target audience;
-- The desired duration and visual style.
+In an Ad / Short Video project, enter the creative direction and target duration in the project overview. If the video features a product, add it and upload its source images.
 
 ### 4.2 Choose a Content Mode {#choose-content-mode}
 
-- **Narration/Commentary**: Organizes segments around the reading pace, with voice-over and visuals at the center.
-- **Drama**: Organizes shots around scenes, characters, and dialogue.
-- **Ad / Short Video**: Organizes content around the target duration, selling points, and merchandise visuals.
-
-For a detailed comparison, see [Workflows and Modes](./workflows.md).
+The content mode determines how the script is structured. The generation route determines whether to generate storyboard images first or generate clips directly from references. Both choices are fixed after creation. See the [mode selection table](./workflows.md#mode-selection-table).
 
 ## 5. Run the Workflow with the Agent {#run-workflow-with-assistant}
 
-Open the Agent panel on the right side of the project workbench.
+Open the Agent panel on the right side of the project workbench. Send a short message and check that the Agent responds.
 
 Work through the process in stages instead of asking it to "generate the entire final video" at once.
 
 ### 5.1 Content Analysis {#content-analysis}
 
-Ask the Agent to analyze:
-
-- Main characters;
-- Important scenes;
-- Key props;
-- Story conflicts;
-- Suitable episode boundaries.
-
-Review the results for:
-
-- Duplicate or missing characters;
-- Background extras incorrectly created as recurring characters;
-- Key items that must remain consistent across shots;
-- Complete episode boundaries that do not interrupt a key action.
+Tell the Agent the aspect ratio, audience, and target duration. In Narration or Drama projects, confirm the source text and production scope in Episodes. An ad or short video can start from the creative direction and products in the overview.
 
 ### 5.2 Episodes and Script {#episodes-and-script}
 
-After confirming the content analysis, generate the script for the episode or short video you are producing.
-
-Review it for:
-
-- A complete objective or emotional change in each episode;
-- Dialogue and voice-over that remain faithful to the source;
-- A shot count that fits the budget;
-- A clear subject and action in every shot;
-- Too many events packed into a single shot.
+Open the episode you want to produce. In Narration and Drama projects, run Script Planning, then check shot durations, dialogue, and newly identified assets in Content Review. Choose Confirm & continue to create the formal script. Ads and short videos generate a formal script directly. Check the result in the workspace. See [Content Structure](./workflows.md#stage-content-structure) for review criteria.
 
 ### 5.3 Character, Scene, and Prop Assets {#character-scene-prop-assets}
 
-Generate the main character designs first, followed by reference images for key scenes and props.
-
-Review them for:
-
-- Accurate age, hairstyle, clothing, body type, and demeanor;
-- Characters that are easy to distinguish from one another;
-- Backgrounds or text in reference images that you do not want copied downstream;
-- Accurate structure for merchandise, logos, and key props.
-
-Do not batch-generate every storyboard before confirming the character assets, or any later rework will multiply.
+In Assets, find the characters, scenes, and props referenced by the script. Generate and review the primary asset sheets. You can also upload an existing picture as an asset sheet. Continue once key character looks and product details are ready.
 
 ### 5.4 Storyboard Images {#storyboard-images}
 
-Generate a few storyboards to validate:
-
-- Composition;
-- Character positions;
-- Shot type;
-- Lighting and style;
-- Character and prop consistency;
-- Safe areas for portrait video.
-
-After confirming the direction, generate them in batches.
+For Storyboard to Video, write visual prompts for a few shots and produce their storyboard images. Check the composition and assets before generating more. For Reference to Video, go to [Video Clips](#video-clips).
 
 ### 5.5 Video Clips {#video-clips}
 
-Choose a video generation mode based on the project:
-
-- Storyboard to video (narration/commentary and drama projects can enable multi-grid storyboards);
-- Reference to video.
-
-When storyboard to video has multi-grid storyboards enabled, it first generates several shots together on one or more multi-grid storyboards, then splits each grid into individual storyboard images. It is suitable for scenes that need stronger consistency across multiple shots.
-
-Review the results for:
-
-- Obvious character deformation;
-- Actions that match the shot description;
-- Continuous direction of motion across adjacent shots;
-- An ending that connects cleanly to the next shot;
-- Model-generated audio that conflicts with the post-production plan.
+Generate a clip for one storyboard or video unit first. Storyboard to Video uses the selected storyboard image as the starting frame. Reference to Video uses images and other references from the script. Review motion, duration, and audio before submitting the remaining clips. See [Generation Routes](./workflows.md#video-production-routes) for grids and reference selection.
 
 ### 5.6 Narration and TTS {#narration-and-tts}
 
-Narration projects can generate voice-over one segment at a time:
-
-1. Select a TTS provider in Settings;
-2. Set the voice and speaking rate;
-3. Audition a short sample;
-4. Generate in batches after confirming it;
-5. Check proper nouns, character names, and pauses.
+In a Narration project, select TTS narration in Project Settings and choose the model, voice, and speed. Preview or generate a short sample to check pronunciation before generating the rest. Choose Post-production voiceover if you plan to add narration after export. See the [voice-over FAQ](./faq.md#voice-over-support).
 
 ## 6. Monitor Tasks and Costs {#tasks-and-cost}
 
-Generation tasks enter an asynchronous queue.
+Open Usage Records from the workspace header to see calls in progress, outcomes, usage, and reference costs. The project overview estimates costs from the current script. The provider bill gives the final charges.
 
-Monitor these states in the task panel:
-
-- Queued;
-- Running;
-- Completed;
-- Failed;
-- Cancelled.
-
-When a task fails, check the reason before repeatedly retrying it. Common causes include:
-
-- An invalid API key;
-- Insufficient quota;
-- Provider rate limits;
-- Parameters that the current model does not support;
-- Network timeouts;
-- An unsupported number or format of reference images.
-
-On the Usage page, review:
-
-- Estimated costs;
-- Actual costs;
-- Text, image, video, and audio usage;
-- Statistics by provider and currency.
+If generation fails, expand the error and task details. When a finished video cannot be retrieved, use Retry Download if the task panel offers it. See [task states and recovery](./faq.md#task-states) for other failures.
 
 ## 7. Edit and Render {#compose-and-export}
 

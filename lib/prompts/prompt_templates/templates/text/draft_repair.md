@@ -24,7 +24,7 @@ protected: false
 
 {{ document }}
 
-完整草稿（只供参照上下文）：
+完整草稿（仅供上下文参照）：
 
 ```json
 {{ draft_json }}
@@ -38,10 +38,10 @@ protected: false
 
 # 修改要求
 
-违约消息原本写给能调用工具的 Agent。消息里提到的工具调用（如 `patch_draft`）在这里都不适用，只按消息指出的内容问题修改 JSON。
+违约消息原本面向可调用工具的 Agent，其中提及的工具调用（如 `patch_draft`）在此均不适用，仅需按消息指出的内容问题直接修改 JSON。
 
 {% if targets %}
-违约只落在下列条目上。只修改这些条目，逐条消除它们的违约；不涉及违约的字段保持原值，条目 ID 不变。
+违约仅涉及下列条目。请只修改这些条目，逐条消除违约；未涉及违约的字段保持原值，条目 ID 不变。
 
 {{ partial("text/draft_repair/lists/targets") }}
 

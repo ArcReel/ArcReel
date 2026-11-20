@@ -328,7 +328,7 @@ class ManagedSession:
     # 用量记账的 prompt：本轮 result 之前被接纳的消息并入同一轮，依次追加；result 之后被接纳的消息开新一轮。
     last_user_prompt: str = ""
     turn_usage_recorded: bool = True
-    # 会话连接时注入环境变量的 Agent 凭证及其当时的倍率与档位绑定：本连接的轮次按它计价（docs/adr/0017、0102）。
+    # 会话连接时注入环境变量的 Agent 凭证及其当时的倍率与档位绑定：本连接的轮次按它计价（docs/adr/0027、0102）。
     # 回退到系统设置时为默认值（无凭证、倍率 1、没有绑定）。
     agent_pricing: AgentPricing = field(default_factory=AgentPricing)
     # 本连接的用量计量：流内请求与 model_usage 的差分基线（docs/adr/0102）。
@@ -2416,7 +2416,7 @@ class SessionManager:
         sentinel is internal to :class:`SseChannel`).
 
         Subscription, queue draining and unsubscribe all live behind this seam;
-        cleanup is carried deterministically by ``__aexit__`` (see ADR-0005).
+        cleanup is carried deterministically by ``__aexit__`` (see ADR-0046).
         Consume as ``async with stream_messages(...) as stream: async for event
         in stream``.
         """
@@ -2424,7 +2424,7 @@ class SessionManager:
 
         async def _iter() -> AsyncIterator[SessionStreamEvent]:
             # NOTE: intentionally NO ``finally: _unsubscribe`` here. Cleanup is owned
-            # by the enclosing context manager's __aexit__ (ADR-0005): a bare async
+            # by the enclosing context manager's __aexit__ (ADR-0046): a bare async
             # generator's finally only runs at GC on break/disconnect, which is the
             # exact leak this design avoids. Do not add a finally to this inner gen.
             yield SubscriptionReady()

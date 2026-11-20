@@ -305,7 +305,7 @@ class SlotTable:
     不写 DB、不解析 provider、不决定孤儿策略、不碰状态机守卫。
 
     ``capacity`` 的 ``0`` 只有一个含义——该 lane 不受支持，是内部哨兵值。用户契约面的
-    并发上限是「≥1 的整数或留空」，``0`` 不可由用户输入抵达（见 ``docs/adr/0043``）。
+    并发上限是「≥1 的整数或留空」，``0`` 不可由用户输入抵达（见 ``docs/adr/0042``）。
 
     **空 bucket 不残留（by design）**：``release`` / ``drain_finished`` 移除最后一个
     占用时一并删掉该 ``(provider,media)`` bucket，保证 ``occupied_providers`` 永不

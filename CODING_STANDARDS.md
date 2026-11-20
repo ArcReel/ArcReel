@@ -4,16 +4,16 @@ ArcReel 的代码规范：审查 diff 时需要判断、工具替代不了的项
 
 ## 使用方式
 
-1. 列出 diff 中已改动的文件路径，对照下表，读路径命中的每一份规范；没有命中的不读。
-2. 每份规范里，三级标题就是规则本身，正文给出原因、违反的代价与放行条件。报告违规时引用「文件 + 规则标题」。
-3. lint、类型检查、`scripts/audit_tests.py` 与 `scripts/audit_conventions.py` 已强制的内容不写进规范，审查时也不重复报告。
+1. 列出审查范围内的改动路径，对照下表读取命中的规范。审查未提交改动时，将指定基线的 merge base 与工作区比较，并核对范围内尚未跟踪的文件。
+2. 每份规范中，三级标题即规则本身，正文给出原因、违规代价与放行条件。报告违规时引用「文件 + 规则标题」。
+3. lint、类型检查、`scripts/audit_tests.py` 与 `scripts/audit_conventions.py` 已强制校验的内容不写入规范，审查时也不重复报告。
 
 <!-- standards-index:start -->
 | 规范 | 适用路径 |
 |---|---|
 | [`docs/standards/backend.md`](docs/standards/backend.md) | `lib/**`, `server/**`, `scripts/**`, `alembic/**`, `packages/**` |
-| [`docs/standards/copy.md`](docs/standards/copy.md) | `frontend/src/i18n/zh/**`, `lib/i18n/zh/**`, `website/docs/**`, `README.md`, `CONTRIBUTING.md`, `docs/**`, `**/CLAUDE.md` |
-| [`docs/standards/docs.md`](docs/standards/docs.md) | `website/docs/**`, `README.md`, `README.en.md`, `CONTRIBUTING.md` |
+| [`docs/standards/copy.md`](docs/standards/copy.md) | `frontend/src/i18n/zh/**`, `lib/i18n/zh/**`, `website/docs/**`, `README.md`, `CONTRIBUTING.md`, `docs/**`, `AGENTS.md`, `GLOSSARY.md`, `**/CLAUDE.md`, `.claude/rules/**`, `.agents/skills/**/*.md`, `agent_runtime_profile/**/*.md` |
+| [`docs/standards/docs.md`](docs/standards/docs.md) | `website/docs/**`, `website/i18n/*/docusaurus-plugin-content-docs/current/**`, `README.md`, `README.en.md`, `CONTRIBUTING.md` |
 | [`docs/standards/frontend.md`](docs/standards/frontend.md) | `frontend/src/**` |
 | [`docs/standards/general.md`](docs/standards/general.md) | `**` |
 | [`docs/standards/providers.md`](docs/standards/providers.md) | `lib/backends/**`, `lib/custom_provider/**`, `lib/config/**`, `lib/billing/**`, `lib/agent/agent_provider_catalog.py`, `lib/prompts/prompt_builders*.py`, `agent_runtime_profile/**`, `docs/api-docs/**` |

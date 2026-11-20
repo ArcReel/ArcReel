@@ -1641,7 +1641,7 @@ class ConfigResolver:
             has_audio = caps.audio_track_for_route(generation_type).has_audio_track
             # ComfyUI 端点的时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：``frames`` 未绑定
             # 或读不到帧率来源时，该模型行的档位就是空集，提交时不下发时长、让 workflow 出它自己
-            # 那一档。这是该协议的合法状态，不适用下面那条「空集即 fail loud」——ADR 0018 守的是
+            # 那一档。这是该协议的合法状态，不适用下面那条「空集即 fail loud」——ADR 0086 守的是
             # 「型号声明缺失」，而这里是「这一维在该端点上不存在」。其余协议照旧 fail loud。
             durations_optional = endpoint_spec.duration_tier_optional
             if endpoint_spec.endpoint_durations is not None:
