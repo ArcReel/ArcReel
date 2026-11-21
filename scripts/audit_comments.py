@@ -33,12 +33,7 @@ def in_scope(path: str, vendor_skills: frozenset[str]) -> bool:
 
 
 def comment_key(comment: Comment) -> str:
-    if not comment.directive:
-        return comment.raw.strip()
-    metadata = ("@enqueue", "@public")
-    if comment.path.startswith(".github/") and comment.text.startswith("zizmor:"):
-        return ""
-    return comment.prose if comment.path.startswith(".github/") or any(tag in comment.text for tag in metadata) else ""
+    return comment.prose if comment.directive else comment.raw.strip()
 
 
 def comment_additions(path: str, before: str, after: str) -> list[Comment]:

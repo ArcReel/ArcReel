@@ -172,10 +172,18 @@ def test_allows_help_in_distributed_config_files(comment_repo: Path) -> None:
     assert diagnostic_paths == ["deploy/internal.yml"]
 
 
-def test_knip_public_with_required_reason_passes_both_checks(comment_repo: Path) -> None:
-    file = comment_repo / "frontend/src/plugin.ts"
+@pytest.mark.parametrize(
+    ("path", "source"),
+    [
+        ("frontend/src/plugin.ts", "/** @public Imported dynamically by plugins */\nexport const plugin = 1;\n"),
+        (".github/helper.py", "from api import run  # noqa: F401 -- Imported by external callers\n"),
+    ],
+    ids=["knip-public", "github-python-suppression"],
+)
+def test_required_tool_reasons_pass_both_checks(comment_repo: Path, path: str, source: str) -> None:
+    file = comment_repo / path
     file.parent.mkdir(parents=True)
-    file.write_text("/** @public Imported dynamically by plugins */\nexport const plugin = 1;\n", encoding="utf-8")
+    file.write_text(source, encoding="utf-8")
     violations: list[Violation] = []
 
     check_suppression_reasons(comment_repo, violations)

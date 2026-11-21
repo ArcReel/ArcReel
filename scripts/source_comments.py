@@ -72,15 +72,13 @@ _PYTHON_DIRECTIVE = re.compile(
 _JS_DIRECTIVE = re.compile(
     r"^(?:(?:eslint-(?:disable(?:-next-line|-line)?|enable|env)|"
     r"prettier-ignore(?:-start|-end)?|(?:istanbul|c8|v8) ignore|"
-    r"@(?:license|preserve|ts-nocheck|ts-check)|"
+    r"@(?:license|preserve|ts-nocheck|ts-check|ts-expect-error|ts-ignore)|"
     r"@vite-ignore|[@#]__PURE__|[@#]__NO_SIDE_EFFECTS__)\b)"
 )
-_JS_REASON = re.compile(r"^@ts-(?:expect-error|ignore)\b")
 _JSDOC_MARKER = re.compile(r"(?m)^[ \t]*@(?:enqueue|public)\b")
 _KNIP_PUBLIC_REASON = re.compile(r"(?m)^[ \t]*@public\b[^\r\n]*")
 _SHELL_DIRECTIVE = re.compile(r"^shellcheck\s+(?:disable|enable|source|source-path|shell)\s*=")
 _YAML_DIRECTIVE = re.compile(r"^zizmor:\s*ignore(?:\[[^\]\n]*\])?(?=$|[\s:])")
-_TOOL_REASON = re.compile(r"\s+(?:--|#)\s+")
 _JS_LANGUAGES = {"javascript", "typescript", "tsx"}
 
 
@@ -94,7 +92,6 @@ class Comment:
     end_line: int
     end_col: int
     raw: str
-    text: str
     directive: bool
     prose: str
 
@@ -139,7 +136,7 @@ def extract_comments(path: str | Path, source: str) -> list[Comment]:
         line_start = line_starts[start_line - 1]
         before = data[line_start : span.start].decode("utf-8")
         directive, prose = _comment_prose(raw, comment_text, before, start_line, span.language, path)
-        comments.append(Comment(path, start_line, start_col, end_line, end_col, raw, comment_text, directive, prose))
+        comments.append(Comment(path, start_line, start_col, end_line, end_col, raw, directive, prose))
     return comments
 
 
@@ -193,24 +190,16 @@ def _comment_prose(raw: str, body: str, before: str, line: int, language: Langua
         if raw.startswith("///") and body.startswith("<reference "):
             return True, ""
         if raw.startswith("/**") and _JSDOC_MARKER.search(body):
-            return True, _remove_marker(_KNIP_PUBLIC_REASON.sub("", body), _JSDOC_MARKER)
-        if _JS_REASON.match(body):
-            return True, _remove_marker(body, _JS_REASON)
-    if language == "yaml" and _is_github_path(path) and _YAML_DIRECTIVE.match(body):
-        return True, _remove_marker(body, _YAML_DIRECTIVE)
+            prose = _JSDOC_MARKER.sub("", _KNIP_PUBLIC_REASON.sub("", body)).strip()
+            return True, re.sub(r"(?m)^\s*(?:--|#|:)\s*", "", prose)
     if (
         (language == "python" and _PYTHON_DIRECTIVE.match(body))
         or (language in _JS_LANGUAGES and _JS_DIRECTIVE.match(body))
         or (language == "bash" and _SHELL_DIRECTIVE.match(body))
+        or (language == "yaml" and _is_github_path(path) and _YAML_DIRECTIVE.match(body))
     ):
-        parts = _TOOL_REASON.split(body, maxsplit=1)
-        return True, parts[1].strip() if len(parts) == 2 else ""
+        return True, ""
     return False, body
-
-
-def _remove_marker(body: str, pattern: re.Pattern[str]) -> str:
-    prose = pattern.sub("", body).strip()
-    return re.sub(r"(?m)^\s*(?:--|#|:)\s*", "", prose)
 
 
 def _is_github_path(path: str) -> bool:

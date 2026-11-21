@@ -170,8 +170,8 @@ def test_embedded_multiline_comment_has_physical_positions_with_unicode_and_crlf
                 (True, ""),
                 (True, ""),
                 (True, ""),
-                (True, "API consumers import run from here"),
-                (True, "Dependency omits this type"),
+                (True, ""),
+                (True, ""),
                 (False, "! ordinary prose"),
             ],
         ),
@@ -184,9 +184,9 @@ def test_embedded_multiline_comment_has_physical_positions_with_unicode_and_crlf
             "const data = /* @__PURE__ */ createData();\n",
             [
                 (True, ""),
-                (True, "This is the CLI output"),
                 (True, ""),
-                (True, "External SDK omits this option"),
+                (True, ""),
+                (True, ""),
                 (True, ""),
             ],
         ),
@@ -197,7 +197,7 @@ def test_embedded_multiline_comment_has_physical_positions_with_unicode_and_crlf
             "  - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v6\n"
             "  - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v6 -- Checkout for tests\n"
             "jobs: {} # zizmor: ignore[excessive-permissions] -- Required by deploy\n",
-            [(True, ""), (True, "Checkout for tests"), (True, "Required by deploy")],
+            [(True, ""), (True, "Checkout for tests"), (True, "")],
         ),
     ],
     ids=["python", "typescript", "dockerfile", "workflow"],
@@ -261,6 +261,23 @@ def test_public_marker_does_not_exempt_other_lines_of_its_doc_comment() -> None:
     source = f"{doc}\nexport const plugin = 1;\n"
 
     assert [comment.raw for comment in comment_additions("frontend/src/plugin.ts", "", source)] == [doc]
+
+
+def test_workflow_allows_tool_reasons_and_pinned_versions_but_audits_extra_prose() -> None:
+    source = (
+        "steps:\n"
+        "  - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v6\n"
+        "  - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v6 -- Checkout for tests\n"
+        "  - uses: actions/github-script@v7\n"
+        "    with:\n"
+        "      script: |\n"
+        "        // eslint-disable-next-line no-console -- Print the workflow result\n"
+        "        console.log('result');\n"
+    )
+
+    additions = comment_additions(".github/workflows/example.yml", "", source)
+
+    assert [comment.raw for comment in additions] == ["# v6 -- Checkout for tests"]
 
 
 @pytest.mark.parametrize(
