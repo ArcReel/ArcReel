@@ -174,13 +174,17 @@ def segment_id_for(call_type: CallType, resource_type: str, resource_id: str) ->
 
 
 def _project_relative_path(
-    project_path: Path, value: object, reference_sources: Mapping[str, Path] | None = None
+    project_path: Path,
+    value: object,
+    reference_sources: Mapping[str, Path] | None = None,
+    *,
+    external_name_only: bool = False,
 ) -> str | None:
     """把调用记录里的一个文件路径（输入素材或产物）归一为项目内相对路径（POSIX 分隔符）。
 
     读侧要拿它在项目里定位文件，且数据根挪位后记录仍须有效，故一律相对项目根；
-    冻结副本先按 reference_sources 还原来源；其他项目外路径保留原样。非路径值（PIL Image 等）返回 None，
-    由调用点决定是否记这一项。
+    冻结副本先按 reference_sources 还原来源。项目外路径默认保留原样，external_name_only 为 True 时只保留文件名。
+    非路径值（PIL Image 等）返回 None。
     """
     if not isinstance(value, (str, Path)):
         return None
@@ -189,7 +193,7 @@ def _project_relative_path(
         # 两边都取绝对路径再求相对：项目根或素材路径任一为相对路径（本地调试、CLI）时同样能归一。
         return path.absolute().relative_to(project_path.absolute()).as_posix()
     except ValueError:
-        return path.as_posix()
+        return path.name if external_name_only else path.as_posix()
 
 
 def _ledger_inputs(**sections: object) -> dict[str, Any] | None:
@@ -1005,7 +1009,7 @@ class MediaGenerator:
             formal_output: 将 provider 产物先写入同目录临时文件，成功后再与版本历史一起提交
             warnings: 调用方持有的 warning 收集器；backend 执行期产生的提示就地追加进去，
                 随后由调用方落进任务 ``result.warnings``
-            reference_sources: 暂存图片路径到来源路径的映射，用于使用记录与错误提示
+            reference_sources: 暂存素材路径到来源路径的映射，用于使用记录与错误提示
             **version_metadata: 额外元数据
 
         Returns:
@@ -1157,7 +1161,12 @@ class MediaGenerator:
                     reference_audio=[
                         rel
                         for audio in (reference_audio_files or [])
-                        if (rel := _project_relative_path(self.project_path, audio)) is not None
+                        if (
+                            rel := _project_relative_path(
+                                self.project_path, audio, reference_sources, external_name_only=True
+                            )
+                        )
+                        is not None
                     ],
                     parameters=_ledger_inputs(service_tier=version_metadata.get("service_tier")),
                 ),
