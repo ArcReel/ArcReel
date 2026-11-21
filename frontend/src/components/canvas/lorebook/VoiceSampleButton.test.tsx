@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VoiceSampleButton } from "./VoiceSampleButton";
@@ -232,9 +232,9 @@ describe("VoiceSampleButton", () => {
     // enqueue 请求 resolve：taskId 落定为 task-1，但 tasks-store 里还没有这一行——
     // 空窗期间「取消」仍须保持禁用，否则用户可以关闭弹窗、丢失一个仍在合成且已计费
     // 任务的追踪入口。
-    resolveEnqueue!({ taskIds: ["task-1"], deduped: false });
-    await Promise.resolve();
-    await Promise.resolve();
+    await act(async () => {
+      resolveEnqueue!({ taskIds: ["task-1"], deduped: false });
+    });
     expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
 
     useTasksStore.setState({
@@ -399,8 +399,9 @@ describe("VoiceSampleButton", () => {
     // 大量新任务把这一行挤出 tasks-store 的最新 200 条快照——最后一次观察到的状态仍是
     // running，很可能服务端仍在跑，须继续按占用处理；放行会丢失一个仍在计费任务的追踪，
     // 或让随后的新提交被 dedupe 误合并进这个客户端已经看不到的任务。
-    useTasksStore.setState({ tasks: [] });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await act(async () => {
+      useTasksStore.setState({ tasks: [] });
+    });
     expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
   });
 
@@ -447,8 +448,9 @@ describe("VoiceSampleButton", () => {
 
     // 成功后被挤出快照：已到终态，缓存的最后一次观察结果仍然有效，不应变回锁死态，
     // Confirm 依旧可点（复用已校验过的产物，不因快照裁剪而丢失）。
-    useTasksStore.setState({ tasks: [] });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await act(async () => {
+      useTasksStore.setState({ tasks: [] });
+    });
     expect(screen.getByRole("button", { name: "确认并保存" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
   });
