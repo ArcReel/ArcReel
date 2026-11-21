@@ -34,30 +34,19 @@ ArcReel preserves the models in use before an upgrade when it can reconstruct th
 
 ### 3.1 Enabling and Disabling Models {#enable-models}
 
-The detail page of a Preset Provider lists all of its models grouped into text, image, video, and audio. Each row shows the model name,
-model ID, and a price summary; models that are retiring, discontinued, or whose calls will be recorded as "Unpriced", are flagged,
-and the retiring flag shows the shutdown date. From its shutdown date (a UTC date) on, a model counts as discontinued: it stays in the list,
-but it no longer appears among any model candidates, even if you enabled it by hand, and it no longer serves as the provider's default model;
-calls from places that still select it fail with an error that gives the shutdown date and the officially recommended successor.
-Video tasks already submitted to the vendor before the shutdown date are not affected: when the service restarts and resumes them, their results are retrieved as usual. Tasks submitted after the shutdown date still fail, including tasks queued before it that only reach submission afterwards.
-Use "All / Enabled" to switch what is shown.
+The detail page of a built-in provider lists all of its models grouped into text, image, video, and audio. Each row shows the model name, model ID, and a price summary; models that are retiring, discontinued, or whose calls will be recorded as "Unpriced", are flagged, and the retiring flag shows the shutdown date. Use "All / Enabled" to switch what is shown. From its shutdown date (a UTC date) on, a model counts as discontinued: it stays in the list, but it no longer appears among any model candidates, even if you enabled it by hand, and it no longer serves as the provider's recommended model; calls from places that still select it fail with an error that gives the shutdown date and the officially recommended successor. Video tasks already submitted to the provider before the shutdown date are not affected: when the service restarts and resumes them, their results are retrieved as usual. Tasks submitted after the shutdown date still fail, including tasks queued before it that only reach submission afterwards.
 
-Models that need a newer version of ArcReel are listed here too, at the end of their group, labelled "Requires ArcReel ≥ version". The current version cannot call them: the toggle is unavailable and the model settings cannot be opened, and they do not appear among any model candidates or serve as the provider's default model. After you upgrade to the required version, they can be enabled like any other model.
+Models that need a newer version of ArcReel are listed here too, at the end of their group, labelled "Requires ArcReel ≥ version". The current version cannot call them: the toggle is unavailable and the model settings cannot be opened, and they do not appear among any model candidates or serve as the provider's recommended model. After you upgrade to the required version, they can be enabled like any other model.
 
-In global and project settings, when a default model, a per-purpose model, or the narration model is set to a retiring or discontinued model,
-a notice below the dropdown gives the shutdown date and the officially recommended successor.
-When the successor is on the same provider and can be used in that place, the notice has a "Switch to …" button: it changes only that one selection,
-which takes effect once you save. When the successor is on another provider, disabled, or not usable in that place, only its name is shown.
-ArcReel never switches models for you.
-A notice also appears when the selected model is no longer in the provider's model list: if ArcReel has received its discontinuation details, the notice says it is discontinued and names the officially recommended successor (if any); otherwise it says the model is no longer available and needs to be reselected.
+In global and project settings, when a default model, a per-purpose model, or the narration model is set to a retiring or discontinued model, a notice below the dropdown gives the shutdown date and the officially recommended successor. When the successor is on the same provider and can be used in that place, the notice has a "Switch to …" button: it changes only that one selection, which takes effect once you save. When the successor is on another provider, disabled, or not usable in that place, only its name is shown. ArcReel never switches models for you. A notice also appears when the selected model is no longer in the provider's model list: if ArcReel has received its discontinuation details, the notice says it is discontinued and names the officially recommended successor (if any); otherwise it says the model is no longer available and needs to be reselected.
 
-- Turning off a model's switch disables it immediately: disabled models no longer appear among the global and project default model
-  candidates, and when a provider's default model is disabled, automatic selection skips it;
+When setting models by purpose, the dropdown only allows models that can be used for that purpose. Candidate default models that cannot be used there are listed at the bottom of the dropdown with the reason, such as "Does not accept a first frame" or "Does not accept reference images", and cannot be selected. Disabled and discontinued models are excluded.
+
+- Turning off a model's switch disables it immediately: disabled models no longer appear among the global and project default model candidates, and when a provider's recommended model is disabled, it is not written into the default models and no prompt suggests switching to it;
 - A model already selected in settings or a project keeps working after it is disabled; to replace it, pick another one in the default model settings;
 - The old Agnes models that were hidden in earlier versions appear as disabled after upgrading, and can be re-enabled if needed.
 
-The price summary shows the unit price range for each billing item; for models priced by tiers such as resolution or duration, it shows
-the lowest to the highest tier. Actual costs are further multiplied by the provider's multiplier, which is set higher up on the same page.
+The price summary shows the unit price range for each billing item; for models priced by tiers such as resolution or duration, it shows the lowest to the highest tier. Actual costs are further multiplied by the provider's multiplier, which is set higher up on the same page.
 
 ### 3.2 Model Settings {#model-settings}
 
@@ -72,7 +61,7 @@ Select a model in the provider details to open Provider settings and Model info.
 
 **Check the effective capabilities**
 
-The interface shows the parameters in effect. This usually means the range supported by both the catalog and the call endpoint, with the smaller limit for any count. Unlisted means ArcReel has no data for that limit. An image model with a reference image limit of zero cannot be used for image-to-image. For ComfyUI, [workflow node bindings](./comfyui.md#bindings) determine the capabilities.
+The interface shows the parameters in effect. This usually means the range supported by both the catalog and the call endpoint, with the smaller limit for any count. "Not recorded" means ArcReel has no data for that limit. For a video model that does not match a known catalog entry, text-to-video and first-frame support follow the call endpoint, last frame and reference audio are unavailable, and the reference image count is limited only by the call endpoint; for an image model that does not match a known catalog entry, capabilities follow the call endpoint. An image model with a reference image limit of zero cannot be used for image-to-image. For ComfyUI, [workflow node bindings](./comfyui.md#bindings) determine the capabilities.
 
 You can enable or disable officially listed provider models. Official data maintains their provider parameters. For a custom provider model or a model you added to a built-in provider, you can change the endpoint and supported parameters. Switching endpoints clears parameter and request path changes for the old endpoint. Save and then check the new endpoint. When you change a custom provider model ID, ArcReel updates saved global and project references. Check the existing selections after changing the ID of a manually added model under a built-in provider.
 
@@ -86,41 +75,32 @@ A manual link takes precedence over a match by model name. Choose Unlink to retu
 
 ### 3.3 Adding and Fetching Models {#add-models}
 
-Above the model list are two entries, "Add model" and "Fetch models", for both Preset and custom providers.
+Above the model list are two entries, "Add model" and "Fetch models", for both built-in and custom providers.
 
 "Add model" lets you search model names or type a model ID directly, and filter by media type:
 
-- "Disabled models": shown only for Preset Providers. It lists the officially listed models that are disabled; selecting one enables it;
-- "Add by model ID": adds the model ID you typed. Its media type comes from the model catalog when the name maps to a known model;
-  otherwise it is inferred from the model name, or taken from the media type filter when one is selected;
-- "Model catalog": adds a model picked from the model catalog; its price and model info follow the selected entry. Entries already in the
-  list are marked "Added"; when a Preset Provider already lists the model (its API model name may differ from the catalog name),
-  selecting it enables that listed model.
+- "Disabled models": shown only for built-in providers. It lists the officially listed models that are disabled; selecting one enables it;
+- "Add by model ID": adds the model ID you typed. Its media type comes from the model catalog when the name maps to a known model; otherwise it is inferred from the model name, or taken from the media type filter when one is selected;
+- "Model catalog": adds a model picked from the model catalog; its price and model info follow the selected entry. Entries already in the list are marked "Added"; when a built-in provider already lists the model (its API model name may differ from the catalog name), selecting it enables that listed model.
 
 After adding, the new model's settings open right away so you can adjust its call endpoint and other settings.
 
-"Fetch models" calls the provider's model-listing interface and lists only the models not yet added; already-added models are shown as a
-count. The results are split into two groups:
+Do not change the call endpoint of a built-in provider's video model while video tasks submitted before an upgrade are still running. Older tasks did not record an endpoint identifier, so changing the endpoint can cause resumption to fail, and ArcReel will not resubmit the generation.
+
+"Fetch models" calls the provider's model-listing interface and lists only the models not yet added; already-added models are shown as a count. The results are split into two groups:
 
 - "Recognized": models that map to a known model in the model catalog, checked by default;
-- "Unrecognized": unchecked by default. A model whose name maps to an entry in the model catalog shows the matching model name on its row
-  and is priced as that entry once added; a model that maps to no entry, or to an entry without a price, is flagged on its row as
-  recorded as "Unpriced". For each row you can click "Match model" to pick one from the model catalog, and the model is then priced as
-  the selected one.
+- "Unrecognized": unchecked by default. A model whose name maps to an entry in the model catalog shows the matching model name on its row and is priced as that entry once added; a model that maps to no entry, or to an entry without a price, is flagged on its row as recorded as "Unpriced". For each row you can click "Match model" to pick one from the model catalog, and the model is then priced as the selected one.
 
-For custom providers each row also has a call endpoint dropdown. Its default is inferred from the model name, or from the media type of the
-matching model once you pick one. When fetching fails, the reason is shown, and you can check the base URL and key and try again.
+For custom providers each row also has a call endpoint dropdown. Its default is inferred from the model name, or from the media type of the matching model once you pick one. When fetching fails, the reason is shown, and you can check the base URL and key and try again.
 
-Among Preset Providers, AI Studio, Vertex AI, OpenAI, Grok, DashScope, MiniMax, and Agnes support fetching models, which
-requires adding a key first. A model ID returned by the provider counts as "Recognized" only when it exactly matches the API model name of an
-officially listed model. A provider listing a model does not mean your account or region can call it; likewise, officially listed models
-that are not returned stay in the list as usual.
+Among built-in providers, AI Studio, Vertex AI, OpenAI, Grok, DashScope, MiniMax, and Agnes support fetching models, which requires adding a key first. A model ID returned by the provider counts as "Recognized" only when it exactly matches the API model name of an officially listed model. A provider listing a model does not mean your account or region can call it; likewise, officially listed models that are not returned stay in the list as usual.
 
 ## 4. Choose a Model and Validate a Sample {#six-selection-dimensions}
 
-1. Check the inputs your workflow needs under Parameters This Provider Supports. Storyboard to Video needs a start frame, and Reference to Video needs reference images.
+1. Check the inputs your workflow needs under Parameters this provider supports. Storyboard to Video needs a start frame, and Reference to Video needs reference images.
 2. Try the same short shot with your candidate models. Review character or product appearance, motion, audio, and delivery resolution before replacing the project's default model.
-3. Compare usage and reference costs for generation and rework in [Usage Records](#cost-tracking). Check subscriptions, overage charges, account availability, and terms with the provider.
+3. Compare usage and reference costs for generation and rework in [Usage Records](#cost-tracking). Reference costs might not reflect external subscriptions or overage charges; check account availability, compliance terms, and invoices with the provider.
 
 ## 5. Image Provider Configuration {#image-providers}
 
@@ -203,13 +183,15 @@ High-reasoning models are not necessarily suitable for every task. Complex conte
 
 ## 8. TTS Configuration {#tts-providers}
 
-ArcReel's voice-over capability can use DashScope Qwen TTS and qwen-audio TTS, MiniMax Speech, Gemini TTS (AI Studio, Vertex), Volcengine Ark Agent Plan TTS, or a compatible TTS interface.
+ArcReel's voice-over capability can use DashScope Qwen TTS and qwen-audio TTS, MiniMax Speech, Gemini TTS (AI Studio, Vertex), Grok TTS, Volcengine Ark Agent Plan's Doubao Speech Synthesis Model 2.0, or a compatible TTS interface.
 
 After you choose a TTS model in global settings or project settings, the narration voice field lists the common voices available for that model. Voices are listed only when official docs confirm they apply to that model: custom model names, relay aliases, models the official voice list does not cover, and models on an OpenAI-compatible interface that does not connect directly to the official OpenAI address get no list, and they never borrow the voices of another model on the same call endpoint. Having no list does not mean the model cannot take a voice. For voices outside the list (cloned voices, for example), enter the voice ID from the provider docs; a saved voice is never cleared or rewritten because no list is shown.
 
 DashScope speech has two call endpoints: "Alibaba Model Studio (TTS)" calls Qwen TTS (`qwen3-tts` and similar), and "Alibaba Model Studio (qwen-audio TTS)" calls qwen-audio TTS (the `qwen-audio-3.0-tts` and `qwen-audio-3.1-tts` series). The two endpoints do not share voices, and each qwen-audio model only accepts its own voices; see the DashScope [voice list](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list) for the full set. The qwen-audio endpoint supports narration speed from 0.5 to 2.0; values outside this range are sent as the nearest bound. When you add a model, names containing `qwen-audio` are prefilled with the qwen-audio endpoint and other DashScope speech models with the Qwen TTS endpoint; you can change this in [Model settings](#model-settings).
 
-Volcengine Ark Agent Plan TTS reuses the configured dedicated API Key; no additional AK/SK is required. Requests use the plan's dedicated speech endpoint. If speech is unavailable under the plan, concurrency is exhausted, the voice is not authorized, or the plan quota is used up without overage postpaid billing, the task fails with an error code. ArcReel does not switch to a pay-as-you-go endpoint. If [overage postpaid billing](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh) is enabled in the Ark console, calls made after the monthly quota is used up still succeed and Ark bills the overage as postpaid; check your Ark bill for the actual charges. The voice list contains common Chinese voices from the 2.0 model; enter other 2.0 voice IDs from the official [voice list](https://docs.volcengine.com/docs/6561/1257544). Voices from the 1.0 model are not supported. Narration speed ranges from 0.5 to 2.0; out-of-range values fail before submission without incurring a charge. Usage records use the billed character count returned by the service, falling back to the submitted text length when it is absent.
+Grok TTS supports narration speed from 0.7 to 1.5. Values outside this range fail before submission without incurring a charge and are not clamped to the nearest bound; adjust or clear the narration speed in settings.
+
+Volcengine Ark Agent Plan TTS reuses the configured dedicated API Key; no additional AK/SK is required. Requests use the plan's dedicated speech endpoint. If speech is unavailable under the plan, concurrency is exhausted, the voice is not authorized, or the plan quota is used up without overage postpaid billing, the task fails with an upstream error code. ArcReel does not switch to a pay-as-you-go endpoint. If [overage postpaid billing](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh) is enabled in the Ark console, calls made after the monthly quota is used up still succeed and Ark bills the overage as postpaid; check your Ark bill for the actual charges. The voice list contains common Chinese voices from Doubao Speech Synthesis Model 2.0; enter other 2.0 voice IDs from the official [voice list](https://docs.volcengine.com/docs/6561/1257544). Voices from the 1.0 model are not supported. Narration speed ranges from 0.5 to 2.0; out-of-range values fail before submission without incurring a charge. Usage records use the billed character count returned by the service, falling back to the submitted text length when it is absent.
 
 After configuration, first validate:
 
@@ -240,9 +222,9 @@ Choose a call endpoint that the provider supports. If a private gateway implemen
 
 **Capabilities and request URLs**
 
-Check the effective capabilities under Parameters Supported by This Provider. To describe a limit for just one provider, edit its supported parameters. If ArcReel cannot find a matching catalog entry, [bind the model or enter model information](#model-settings).
+Check the effective capabilities under Parameters this provider supports. To describe a limit for just one provider, edit its supported parameters. If ArcReel cannot find a matching catalog entry, [link the model or enter model information](#model-settings).
 
-If a gateway uses the official protocol with different paths, edit those requests under Model Settings → Request URL. The edited path is appended directly to the base URL. Use only placeholders already available in that request, such as `{{ model }}` or `{{ task_id }}`. A query string replaces the original query parameters, so include any required parameters you need to keep.
+If a gateway uses the official protocol with different paths, edit those requests under Model settings → Request URL. The edited path is appended directly to the base URL. Use only placeholders already available in that request, such as `{{ model }}` or `{{ task_id }}`. A query string replaces the original query parameters, so include any required parameters you need to keep.
 
 Connection Test and generation use the edited paths. Fetch Models and Connectivity Check keep using the provider's base URL. Switching endpoints resets path changes. If a video request's path changes after submission, resuming after a restart can fail. ArcReel does not submit it a second time.
 
@@ -250,27 +232,15 @@ Connection Test and generation use the edited paths. Fetch Models and Connectivi
 
 The call endpoint detail page in Settings offers three test modes, ordered from lowest to highest risk:
 
-- **Check a response**: paste a provider response from the submit, progress, or fetch stage to inspect every
-  extraction path, status mapping, and error field. This does not contact the provider or incur a charge.
-  When the base64 path of an image definition matches, only the number of image bytes is shown, not the
-  full string.
-- **Preview the request**: render the URL, method, headers, and body from sample parameters so you can compare
-  them with the provider documentation. This also does not contact the provider or incur a charge.
-- **Test connection**: submit one real generation and track it to a terminal state. A billing badge identifies
-  that this mode incurs one API call. Endpoints with required assets need the corresponding first frame, last
-  frame, reference images, or reference audio before the test can start.
+- **Check a response**: paste a provider response from the submit, progress, or fetch stage to inspect every extraction path, status mapping, and error field. This does not contact the provider or incur a charge. When the base64 path of an image definition matches, only the number of image bytes is shown, not the full string.
+- **Preview the request**: render the URL, method, headers, and body from sample parameters so you can compare them with the provider documentation. This also does not contact the provider or incur a charge.
+- **Test connection**: submit one real generation and track it to a terminal state. A billing badge identifies that this mode incurs one API call. Endpoints with required assets need the corresponding first frame, last frame, reference images, or reference audio before the test can start.
 
-You can cancel a connection test while it is running. Cancellation stops ArcReel from tracking that test and
-removes its local result, but the provider's remote job may continue and charges already incurred remain in the
-ledger. A successful video artifact plays directly in the result card, and a successful image artifact is
-displayed there. The call number links to the spend ledger.
-The server retains terminal results and artifacts for 24 hours; they are unavailable after that period.
+You can cancel a connection test while it is running. Cancellation stops ArcReel from tracking that test and removes its local result, but the provider's remote job may continue and charges already incurred remain in usage records. A successful video artifact plays directly in the result card, and a successful image artifact is displayed there. The call number links to usage records. The server retains terminal results and artifacts for 24 hours; they are unavailable after that period.
 
 ### 9.2 Adapt a Custom Call Endpoint with an Agent {#custom-endpoint-agent}
 
-When a video or image provider submits jobs as JSON and then polls JSON results by task ID, you can delegate the
-adaptation to an external Agent such as Claude Code. Signature-based authentication, multipart requests sent to
-the provider, and routing by asset shape are outside the first version of declarative definitions.
+When a video or image provider submits jobs as JSON and then polls JSON results by task ID, you can delegate the adaptation to an external Agent such as Claude Code. Signature-based authentication, multipart requests sent to the provider, and routing by asset shape are outside the first version of declarative definitions.
 
 Install the public skill:
 
@@ -278,22 +248,13 @@ Install the public skill:
 npx skills add ArcReel/skills
 ```
 
-Select both `setup-arcreel-skills` and `adapt-custom-endpoint` from the installation list. You can also
-[view or download the same skill source](https://github.com/ArcReel/ArcReel/tree/main/agent_runtime_profile/.claude/skills/adapt-custom-endpoint).
+Select both `setup-arcreel-skills` and `adapt-custom-endpoint` from the installation list. You can also [view or download the same skill source](https://github.com/ArcReel/ArcReel/tree/main/agent_runtime_profile/.claude/skills/adapt-custom-endpoint).
 
-First use the `setup-arcreel-skills` skill to connect ArcReel MCP. It persists the same connection in the current
-workspace so the local `adapt-custom-endpoint` script can reuse it across sessions.
+First use the `setup-arcreel-skills` skill to connect ArcReel MCP. It persists the same connection in the current workspace so the local `adapt-custom-endpoint` script can reuse it across sessions.
 
-Then ask the Agent to read the provider documentation and use this skill. It follows the sequence “write a
-definition → run the shared validator → check responses offline → preview requests → run a connection test →
-save.” The definition reference and thin HTTP script are downloaded with the skill; the adaptation flow adds no
-MCP or SDK tool. Response checks and request previews do not contact the provider. A connection test performs a real
-generation and may incur charges, so the Agent must obtain your explicit approval first. When a definition with
-the same author and name exists, the Agent may save a copy directly; overwriting the existing endpoint always
-requires your explicit approval.
+Then ask the Agent to read the provider documentation and use this skill. It follows the sequence “write a definition → run the shared validator → check responses offline → preview requests → run a connection test → save.” The definition reference and thin HTTP script are downloaded with the skill; the adaptation flow adds no MCP or SDK tool. Response checks and request previews do not contact the provider. A connection test performs a real generation and may incur charges, so the Agent must obtain your explicit approval first. When a definition with the same author and name exists, the Agent may save a copy directly; overwriting the existing endpoint always requires your explicit approval.
 
-Pass required assets with `--start-image`, `--end-image`, repeatable `--reference-images`, and repeatable
-`--reference-audio-files`. These CLI options use the same multipart fields as the Settings page.
+Pass required assets with `--start-image`, `--end-image`, repeatable `--reference-images`, and repeatable `--reference-audio-files`. These CLI options use the same multipart fields as the Settings page.
 
 ## 10. Multiple API Keys {#multiple-api-keys}
 
