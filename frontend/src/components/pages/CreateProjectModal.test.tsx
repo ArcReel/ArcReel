@@ -470,6 +470,163 @@ describe("CreateProjectModal", () => {
     expect(payload.model_settings).toEqual({ "openai/gpt-image-2": { quality: "high" } });
   });
 
+  it("lets step 2 pick independent t2i and i2i image resolutions when global defaults use different models", async () => {
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...mockSysConfig,
+      settings: {
+        ...mockSysConfig.settings,
+        default_image_backend_t2i: "gemini-aistudio/nano-banana",
+        default_image_backend_i2i: "openai/gpt-image-2",
+      },
+      options: {
+        ...mockSysConfig.options,
+        image_backends: ["gemini-aistudio/nano-banana", "openai/gpt-image-2"],
+        provider_names: { "gemini-aistudio": "Gemini AI Studio", openai: "OpenAI" },
+      },
+    } as never);
+    vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [
+        {
+          ...mockProviders.providers[0],
+          models: {
+            ...mockProviders.providers[0].models,
+            "nano-banana": {
+              display_name: "Nano Banana",
+              media_type: "image",
+              capabilities: [],
+              default: true,
+              supported_durations: [],
+              resolutions: ["1K", "2K", "4K"],
+              qualities: [],
+            },
+          },
+        },
+        {
+          id: "openai",
+          display_name: "OpenAI",
+          description: "",
+          status: "ready" as const,
+          media_types: ["image"],
+          capabilities: [],
+          credential_count: 0,
+          models: {
+            "gpt-image-2": {
+              display_name: "GPT Image 2",
+              media_type: "image",
+              capabilities: [],
+              default: true,
+              supported_durations: [],
+              resolutions: ["1K", "2K"],
+              qualities: [],
+            },
+          },
+        },
+      ],
+    } as never);
+
+    const user = userEvent.setup();
+    render(<CreateProjectModal />);
+    fillBasics();
+    clickNext();
+
+    const t2iPicker = await screen.findByRole("combobox", { name: "文生图 · 分辨率" });
+    const i2iPicker = screen.getByRole("combobox", { name: "图生图 · 分辨率" });
+    await user.click(t2iPicker);
+    await user.click(await screen.findByRole("option", { name: "4K" }));
+    await user.click(i2iPicker);
+    expect(screen.queryByRole("option", { name: "4K" })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("option", { name: "2K" }));
+
+    clickNext();
+    fireEvent.click(await screen.findByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    const payload = vi.mocked(API.createProject).mock.calls[0][0] as { model_settings?: Record<string, unknown> };
+    expect(payload.model_settings).toEqual({
+      "gemini-aistudio/nano-banana": { resolution: "4K" },
+      "openai/gpt-image-2": { resolution: "2K" },
+    });
+  });
+
+  it("collapses split image resolutions into one picker when step 2 overrides the project default image model", async () => {
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      ...mockSysConfig,
+      settings: {
+        ...mockSysConfig.settings,
+        default_image_backend_t2i: "gemini-aistudio/nano-banana",
+        default_image_backend_i2i: "openai/gpt-image-2",
+      },
+      options: {
+        ...mockSysConfig.options,
+        image_backends: ["gemini-aistudio/nano-banana", "openai/gpt-image-2"],
+        provider_names: { "gemini-aistudio": "Gemini AI Studio", openai: "OpenAI" },
+      },
+    } as never);
+    vi.spyOn(API, "getProviders").mockResolvedValue({
+      providers: [
+        {
+          ...mockProviders.providers[0],
+          models: {
+            ...mockProviders.providers[0].models,
+            "nano-banana": {
+              display_name: "Nano Banana",
+              media_type: "image",
+              capabilities: [],
+              default: true,
+              supported_durations: [],
+              resolutions: ["1K", "2K", "4K"],
+              qualities: [],
+            },
+          },
+        },
+        {
+          id: "openai",
+          display_name: "OpenAI",
+          description: "",
+          status: "ready" as const,
+          media_types: ["image"],
+          capabilities: [],
+          credential_count: 0,
+          models: {
+            "gpt-image-2": {
+              display_name: "GPT Image 2",
+              media_type: "image",
+              capabilities: [],
+              default: true,
+              supported_durations: [],
+              resolutions: ["1K", "2K"],
+              qualities: [],
+            },
+          },
+        },
+      ],
+    } as never);
+
+    const user = userEvent.setup();
+    render(<CreateProjectModal />);
+    fillBasics();
+    clickNext();
+
+    await user.click(await screen.findByRole("combobox", { name: "图生图 · 分辨率" }));
+    await user.click(await screen.findByRole("option", { name: "2K" }));
+    await user.click(screen.getByRole("combobox", { name: "默认图片模型" }));
+    await user.click(await screen.findByRole("option", { name: /nano-banana/ }));
+
+    expect(screen.queryByRole("combobox", { name: "文生图 · 分辨率" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "图生图 · 分辨率" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "分辨率" }));
+    await user.click(await screen.findByRole("option", { name: "4K" }));
+
+    clickNext();
+    fireEvent.click(await screen.findByRole("button", { name: "创建项目" }));
+
+    await waitFor(() => expect(API.createProject).toHaveBeenCalled());
+    const payload = vi.mocked(API.createProject).mock.calls[0][0] as { model_settings?: Record<string, unknown> };
+    expect(payload.model_settings).toEqual({
+      "gemini-aistudio/nano-banana": { resolution: "4K" },
+    });
+  });
+
   it("shows an error toast and stays on step 3 when createProject fails", async () => {
     vi.spyOn(API, "createProject").mockRejectedValueOnce(new Error("boom"));
     render(<CreateProjectModal />);

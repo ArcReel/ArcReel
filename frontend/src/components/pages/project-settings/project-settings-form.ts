@@ -48,8 +48,8 @@ export interface ProjectSettingsForm {
   /** 广告项目的目标总时长（秒）；自定义输入不是正整数时为 null，拦住保存。 */
   adTargetDuration: number | null;
   style: ProjectStyle;
-  /** 模型通道；`videoResolution` 按执行模型从 `videoResolutions` 现取，不单独保存。 */
-  models: Omit<ModelConfigValue, "videoResolution"> & {
+  models: Omit<ModelConfigValue, "videoResolution" | "videoResolutions" | "imageResolution" | "imageResolutions"> & {
+    modelResolutions: Record<string, string | null>;
     /** 「生成有声视频」：null 跟随全局。 */
     generateAudio: boolean | null;
   };
@@ -172,16 +172,21 @@ export function deriveForm(
   // 读 legacy video_model_settings。
   const executingVb = executingVideoModel(models, globals, route === "reference_video");
   const executingI2V = executingVideoModel(models, globals, false);
-  const executingIb = executingImageModel(models, globals);
+  const executingIb = executingImageModel(models, globals, "t2i");
+  const executingI2I = executingImageModel(models, globals, "i2i");
   const modelSettings = (project.model_settings ?? {}) as Record<string, ModelSettingEntry>;
   const legacyVideo = (project.video_model_settings ?? {}) as Record<string, { resolution?: string | null }>;
-  const videoResolutions: Record<string, string | null> = Object.fromEntries(
+  const modelResolutions: Record<string, string | null> = Object.fromEntries(
     Object.entries(modelSettings).map(([model, settings]) => [model, settingEntry(settings).resolution ?? null]),
   );
   for (const model of new Set([executingVb, executingI2V])) {
     if (!model) continue;
     const modelId = model.includes("/") ? model.split("/")[1] : model;
-    videoResolutions[model] = videoResolutions[model] ?? legacyVideo[modelId]?.resolution ?? null;
+    modelResolutions[model] = modelResolutions[model] ?? legacyVideo[modelId]?.resolution ?? null;
+  }
+  for (const model of new Set([executingIb, executingI2I])) {
+    if (!model) continue;
+    modelResolutions[model] = modelResolutions[model] ?? null;
   }
 
   const rawSpeed = project.narration_speed;
@@ -209,8 +214,7 @@ export function deriveForm(
     models: {
       ...models,
       defaultDuration: finiteOrNull(project.default_duration),
-      videoResolutions,
-      imageResolution: executingIb ? (settingEntry(modelSettings[executingIb]).resolution ?? null) : null,
+      modelResolutions,
       imageQuality: executingIb ? stringOrNull(settingEntry(modelSettings[executingIb]).quality) : null,
       generateAudio: typeof project.video_generate_audio === "boolean" ? project.video_generate_audio : null,
     },
@@ -247,9 +251,9 @@ function fullProjectPatch(
 
   // resolution 与 quality 的 key 用执行模型，与读侧一致。接口整表替换 model_settings，每项都在已保存的
   // 那一项上合并：只写本表单管的字段，其余字段（别的模型上的画质）原样带回，否则改一次分辨率就会抹掉它们。
-  const executingImage = executingImageModel(models, globals);
+  const executingImage = executingImageModel(models, globals, "t2i");
   const modelSettings: Record<string, ModelSettingEntry> = { ...value.modelSettings };
-  for (const [model, resolution] of Object.entries(models.videoResolutions ?? {})) {
+  for (const [model, resolution] of Object.entries(models.modelResolutions)) {
     modelSettings[model] = { ...settingEntry(modelSettings[model]), resolution };
   }
   if (executingImage) {
@@ -257,7 +261,7 @@ function fullProjectPatch(
     const { quality: _quality, ...rest } = settingEntry(modelSettings[executingImage]);
     modelSettings[executingImage] = {
       ...rest,
-      resolution: models.imageResolution,
+      resolution: models.modelResolutions[executingImage] ?? null,
       ...(models.imageQuality ? { quality: models.imageQuality } : {}),
     };
   }

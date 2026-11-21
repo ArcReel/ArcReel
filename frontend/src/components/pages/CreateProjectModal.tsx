@@ -40,6 +40,7 @@ const EMPTY_MODELS: ModelConfigValue = {
   defaultDuration: null,
   videoResolution: null,
   imageResolution: null,
+  imageResolutions: {},
   imageQuality: null,
 };
 
@@ -222,18 +223,25 @@ export function CreateProjectModal() {
         videoR2V: "",
         image: "",
         imageT2I: "",
+        imageI2I: "",
       };
       const executingVideo = executingVideoModel(models, globals, generationRoute === "reference_video");
-      const executingImage = executingImageModel(models, globals);
+      const executingImage = executingImageModel(models, globals, "t2i");
+      const executingImageI2I = executingImageModel(models, globals, "i2i");
+      const t2iResolution = models.imageResolutions?.[executingImage] ?? models.imageResolution;
+      const i2iResolution = models.imageResolutions?.[executingImageI2I] ?? null;
       const modelSettings: Record<string, ModelSettingEntry> = {};
       if (executingVideo && models.videoResolution) {
         modelSettings[executingVideo] = { resolution: models.videoResolution };
       }
-      if (executingImage && (models.imageResolution || models.imageQuality)) {
+      if (executingImage && (t2iResolution || models.imageQuality)) {
         modelSettings[executingImage] = {
-          ...(models.imageResolution ? { resolution: models.imageResolution } : {}),
+          ...(t2iResolution ? { resolution: t2iResolution } : {}),
           ...(models.imageQuality ? { quality: models.imageQuality } : {}),
         };
+      }
+      if (executingImageI2I && executingImageI2I !== executingImage && i2iResolution) {
+        modelSettings[executingImageI2I] = { resolution: i2iResolution };
       }
 
       const resp = await API.createProject({

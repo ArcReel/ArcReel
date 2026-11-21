@@ -16,7 +16,7 @@ import { ProjectMemoryFiles } from "@/components/agent-memory/ProjectMemoryFiles
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { PartialSaveError, useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { isValidEpisodeTargetDuration } from "@/components/shared/episode-target-duration";
-import { executingVideoModel } from "@/components/shared/model-layers";
+import { executingImageModel, executingVideoModel } from "@/components/shared/model-layers";
 import { countModelOverrides } from "@/components/shared/model-overrides";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import { narrationDeliveryProblem } from "@/components/shared/narration-delivery";
@@ -376,7 +376,10 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
   const usesReferenceImages = facts.generationRoute === "reference_video";
   const modelValue: ModelConfigValue = {
     ...value.models,
-    videoResolution: value.models.videoResolutions?.[executingVideoModel(value.models, globals, usesReferenceImages)] ?? null,
+    videoResolution: value.models.modelResolutions[executingVideoModel(value.models, globals, usesReferenceImages)] ?? null,
+    videoResolutions: value.models.modelResolutions,
+    imageResolution: value.models.modelResolutions[executingImageModel(value.models, globals, "t2i")] ?? null,
+    imageResolutions: value.models.modelResolutions,
   };
 
   let content: ReactNode;
@@ -394,9 +397,28 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
           <ModelConfigSection
             projectName={projectName}
             value={modelValue}
-            onChange={({ videoResolution: _videoResolution, ...next }) =>
-              setValue((prev) => ({ ...prev, models: { ...prev.models, ...next } }))
-            }
+            onChange={({
+              videoResolution: _videoResolution,
+              videoResolutions,
+              imageResolution: _imageResolution,
+              imageResolutions,
+              ...next
+            }) => {
+              const nextResolutions =
+                videoResolutions !== modelValue.videoResolutions
+                  ? videoResolutions
+                  : imageResolutions !== modelValue.imageResolutions
+                    ? imageResolutions
+                    : value.models.modelResolutions;
+              setValue((prev) => ({
+                ...prev,
+                models: {
+                  ...prev.models,
+                  ...next,
+                  modelResolutions: nextResolutions ?? prev.models.modelResolutions,
+                },
+              }));
+            }}
             providers={loaded.providers}
             customProviders={loaded.customProviders}
             options={{

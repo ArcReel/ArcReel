@@ -53,6 +53,7 @@ export interface ModelConfigValue {
   videoResolution: string | null;
   videoResolutions?: Record<string, string | null>;
   imageResolution: string | null;
+  imageResolutions?: Record<string, string | null>;
   /** 图片执行模型的画质；null 即未选择，后端按分辨率档位推出画质。存值原样保留，不在这里去空白。 */
   imageQuality: string | null;
 }
@@ -186,7 +187,8 @@ export function ModelConfigSection({
   // 它不是默认层那个模型，拿默认层去查会把用户引到执行时并不支持的时长与分辨率上。
   const executingVideo = executingVideoModel(value, globalDefaults, usesReferenceImages);
   const executingI2V = executingVideoModel(value, globalDefaults, false);
-  const executingImage = executingImageModel(value, globalDefaults);
+  const executingImage = executingImageModel(value, globalDefaults, "t2i");
+  const executingImageI2I = executingImageModel(value, globalDefaults, "i2i");
 
   // 穿透演算（docs/adr/0054，项目优先）：细分项留空 → 项目默认模型 → 全局同名细分 → 全局默认模型。
   const mediaCandidates = showSubFields ? candidates : null;
@@ -212,10 +214,14 @@ export function ModelConfigSection({
 
   const withImageLayer = (base: ModelConfigValue, patch: Partial<ModelConfigValue>): ModelConfigValue => {
     const next = { ...base, ...patch };
-    const nextExecuting = executingImageModel(next, globalDefaults);
-    return nextExecuting === executingImageModel(base, globalDefaults)
+    const nextExecuting = executingImageModel(next, globalDefaults, "t2i");
+    return nextExecuting === executingImageModel(base, globalDefaults, "t2i")
       ? next
-      : { ...next, imageResolution: null, imageQuality: null };
+      : {
+          ...next,
+          imageResolution: base.imageResolutions ? (base.imageResolutions[nextExecuting] ?? null) : null,
+          imageQuality: null,
+        };
   };
 
   const applyVideoLayer = (patch: Partial<ModelConfigValue>) => onChange(withVideoLayer(value, patch));
@@ -533,6 +539,29 @@ export function ModelConfigSection({
     );
   };
 
+  const splitImageResolution = Boolean(
+    value.imageResolutions &&
+      executingImage &&
+      executingImageI2I &&
+      executingImage !== executingImageI2I,
+  );
+  const t2iResolution = value.imageResolutions
+    ? (value.imageResolutions[executingImage] ?? null)
+    : value.imageResolution;
+  const i2iResolution = value.imageResolutions
+    ? (value.imageResolutions[executingImageI2I] ?? null)
+    : null;
+  const setImageResolution = (model: string, next: string | null) =>
+    onChange(
+      value.imageResolutions
+        ? {
+            ...value,
+            imageResolution: model === executingImage ? next : value.imageResolution,
+            imageResolutions: { ...value.imageResolutions, [model]: next },
+          }
+        : { ...value, imageResolution: next },
+    );
+
   return (
     <div className="flex flex-col gap-4">
       {showOverrideSources ? (
@@ -705,12 +734,41 @@ export function ModelConfigSection({
             subFieldsError={mediaCandidatesError}
             lifecycle={candidates?.lifecycle}
           >
-            {renderResolutionField(
-              executingImage,
-              value.imageResolution,
-              (v) => onChange({ ...value, imageResolution: v }),
-              t("resolution_label"),
-              true,
+            {splitImageResolution ? (
+              <>
+                {renderResolutionField(
+                  executingImage,
+                  t2iResolution,
+                  (v) => setImageResolution(executingImage, v),
+                  `${bucketLabels.t2i.label} · ${t("resolution_label")}`,
+                  true,
+                )}
+                {renderResolutionField(
+                  executingImageI2I,
+                  i2iResolution,
+                  (v) => setImageResolution(executingImageI2I, v),
+                  `${bucketLabels.i2i.label} · ${t("resolution_label")}`,
+                  true,
+                )}
+              </>
+            ) : executingImage ? (
+              renderResolutionField(
+                executingImage,
+                t2iResolution,
+                (v) => setImageResolution(executingImage, v),
+                t("resolution_label"),
+                true,
+              )
+            ) : (
+              value.imageResolutions &&
+              executingImageI2I &&
+              renderResolutionField(
+                executingImageI2I,
+                i2iResolution,
+                (v) => setImageResolution(executingImageI2I, v),
+                `${bucketLabels.i2i.label} · ${t("resolution_label")}`,
+                true,
+              )
             )}
             {renderImageQualityField()}
           </LayeredModelFields>

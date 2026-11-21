@@ -149,6 +149,10 @@ Recommendations:
 - Ordinary storyboards do not all need to use the most expensive model;
 - Lock in the characters and visual style before generating in batches.
 
+In the project settings Models tab and the project creation wizard, you can select the resolution below the image model. When the effective text-to-image and image-to-image models differ, separate resolution controls appear for each path with the options supported by that model; when both paths use the same model, only one resolution control is shown. Image models that support a quality parameter also offer a separate Quality control; when Quality is set to "Auto (from resolution tier)", the resolution tier determines the quality. Models that do not support a quality parameter omit this control.
+
+If a saved resolution or quality is no longer offered by the current model—for example, when a model removes a resolution tier—the settings page displays a notice under that field. Generation still requests the saved value, which the provider may reject; click the button next to the notice to reset to the default resolution or automatic quality.
+
 ## 6. Video Provider Configuration {#video-providers}
 
 Video capabilities may include:
