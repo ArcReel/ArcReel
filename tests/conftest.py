@@ -45,6 +45,7 @@ from sqlalchemy import event, pool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.memory_db_guard import install_shared_connection_write_guard
+from tests.system_proxy import disable_macos_system_proxy
 
 # `lib.db.engine` 的模块级 engine 在 import 期就按 `DATABASE_URL` 绑定，进程内不再重建，
 # 所以覆写必须发生在下方任何会传染到该模块的 import 之前。未显式指定时它落在仓库根的
@@ -716,6 +717,7 @@ def pytest_sessionstart(session: pytest.Session) -> None:
     controller 只从 worker 汇总结果，缺失选择连同同批的真实文件一起丢掉，只留下
     「no tests ran」与退出码 5，没有任何错误行。两种模式统一为收集前 fail loud。
     """
+    disable_macos_system_proxy()
     _validate_selection_args(session.config)
 
 
