@@ -44,7 +44,6 @@ const LABEL_CLS = "text-sm font-medium text-foreground";
 
 type DialogState = { mode: "add" } | { mode: "edit"; account: AssetLibraryAccount } | null;
 
-/** 「素材库账号」块：列出控制面账号，增改在对话框里提交、删除经 AlertDialog 确认，都立即生效。 */
 export function AssetLibraryAccountsBlock({
   data,
   onChanged,

@@ -14,7 +14,7 @@ def test_startup_migration_creates_marker_after_run(tmp_path: Path):
 
     marker = project / ".arcreel" / "source_encoding_migrated"
     assert marker.exists()
-    assert "p1" in summary  # 返回每项目的简报
+    assert "p1" in summary
 
 
 def test_startup_migration_skips_already_marked(tmp_path: Path):

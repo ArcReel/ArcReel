@@ -113,7 +113,6 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entr
     achieved_short = min(supported_shorts, key=lambda s: (abs(s - short), -s))
     legal = _SORA_SIZES_1080P if achieved_short == _SORA_1080P_MIN_SHORT else _SORA_SIZES_720P
     if short > achieved_short:
-        # 请求高于条目或端点的最高档时，封顶并提示清晰度让位
         logger.warning(
             "OpenAI video: model=%s 无法满足分辨率请求 %s（短边 %d），输出封顶到 %dp 档（清晰度让位比例）",
             model,
@@ -124,7 +123,7 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entr
 
     def _score(size: str) -> tuple[float, int]:
         w, h = (int(x) for x in size.split("x"))
-        return abs(w / h - target), -(w * h)  # 比例差小优先；并列取像素更多
+        return abs(w / h - target), -(w * h)
 
     chosen = min(legal, key=_score)
     # 9:16 / 16:9 精确命中；其它比例（如 1:1 / 21:9）sora 无对应档，吸附后比例必然偏差，

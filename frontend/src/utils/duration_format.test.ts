@@ -43,7 +43,6 @@ describe("parseDurationInput", () => {
   };
 
   it("仅含分隔符的输入抛 empty_after_split", () => {
-    // 防止 "," / ", ," 等被静默解析为 []
     for (const c of [",", ", ,", " , , ", ",,,"]) {
       expectErr(c, "empty_after_split");
     }

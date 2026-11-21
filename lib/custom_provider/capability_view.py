@@ -195,11 +195,6 @@ def _normalized_overrides(overrides: Mapping[str, object]) -> dict[str, object]:
     return result
 
 
-# ---------------------------------------------------------------------------
-# 自定义供应商的模型
-# ---------------------------------------------------------------------------
-
-
 def custom_capability_view(
     *,
     model_id: str,
@@ -213,7 +208,6 @@ def custom_capability_view(
     media_type = spec.media_type
     if spec.kind == COMFYUI_KIND:
         if media_type == "image":
-            # 节点绑定决定一切：没有参考图槽位就不接受参考图，有槽位时上限就是槽位数，不读条目。
             return CapabilityView(
                 media_type,
                 base=_image_base(
@@ -300,11 +294,6 @@ def custom_capability_view(
     return CapabilityView(
         media_type, editable=_ordered(editable), base=base, overrides=overrides, effective_values=effective
     )
-
-
-# ---------------------------------------------------------------------------
-# 内置供应商的模型
-# ---------------------------------------------------------------------------
 
 
 def _catalog_model_facts(provider_id: str, model_id: str, model: CatalogModel) -> dict[str, object]:

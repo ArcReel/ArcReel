@@ -9,10 +9,6 @@ from lib import PROJECT_ROOT
 from lib.agent.profile_manifest import ContentMode
 from lib.episode.source_kinds import SourceKind
 
-# ---------------------------------------------------------------------------
-# Agent 安装指引内容验证
-# ---------------------------------------------------------------------------
-
 
 class TestAgentInstallationGuide:
     """验证公开指引只承载外部 Agent 的安装与接线步骤。"""
@@ -34,11 +30,6 @@ class TestAgentInstallationGuide:
         assert "/api/v1/" not in self.guide
         assert "curl " not in self.guide
         assert "agent/chat" not in self.guide
-
-
-# ---------------------------------------------------------------------------
-# Agent 安装指引端点行为
-# ---------------------------------------------------------------------------
 
 
 def _installation_guide_app() -> FastAPI:
@@ -79,11 +70,6 @@ class TestAgentInstallationGuideEndpoint:
         assert "/api/v1/agent/chat" not in paths
 
 
-# ---------------------------------------------------------------------------
-# OpenAPI 写模型：不可写字段不在 UpdateProjectRequest 中
-# ---------------------------------------------------------------------------
-
-
 class TestUpdateProjectWritableFields:
     """验证 UpdateProjectRequest 不暴露服务端必然拒绝的字段。"""
 
@@ -101,11 +87,6 @@ class TestUpdateProjectWritableFields:
         from server.routers.projects import UpdateProjectRequest
 
         assert "image_backend" not in UpdateProjectRequest.model_fields
-
-
-# ---------------------------------------------------------------------------
-# 枚举语义：content_mode / generation_mode / source_kind
-# ---------------------------------------------------------------------------
 
 
 class TestEnumSemantics:

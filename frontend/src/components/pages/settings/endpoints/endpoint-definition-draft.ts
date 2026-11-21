@@ -20,7 +20,6 @@ export function definitionMediaType(definition: EndpointDefinition): EndpointMed
   return definition.media_type ?? "video";
 }
 
-/** 产物取值键：轮询或二次取件节里读出产物（地址或内联 base64）的那一项。 */
 export type EndpointArtifactKey = "video_url" | "image_url" | "image_b64";
 
 /**
@@ -30,7 +29,6 @@ export type EndpointArtifactKey = "video_url" | "image_url" | "image_b64";
 export interface MediaTypeFormProfile {
   inputSources: EndpointInputSource[];
   artifactKeys: EndpointArtifactKey[];
-  /** 变量名与说明文案的 i18n key。 */
   generationVariables: { name: string; descKey: string }[];
 }
 
@@ -116,9 +114,6 @@ export function newEndpointDefinition(author: string): EndpointDefinition {
   };
 }
 
-// ---------------------------------------------------------------------------
-// 取值路径
-// ---------------------------------------------------------------------------
 
 /** 读出取值声明中的路径数组；两种简写/全写形态归一，缺席为空数组。 */
 export function readPaths(spec: EndpointExtractSpec | undefined): EndpointPathItem[] {
@@ -147,9 +142,6 @@ export function pathItemText(item: EndpointPathItem): string {
   return isPlainPath(item) ? item : item.path;
 }
 
-// ---------------------------------------------------------------------------
-// 诊断定位
-// ---------------------------------------------------------------------------
 
 const SECTION_BY_ROOT: Record<string, EndpointFormSection> = {
   meta: "meta",
@@ -172,9 +164,6 @@ export function sectionOfIssuePath(path: string): EndpointFormSection | null {
   return SECTION_BY_ROOT[root] ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// 不可变写入
-// ---------------------------------------------------------------------------
 
 /** 按键序重建对象，让重命名键不改变字段顺序——顺序变化会让 JSON 视图无谓地跳动。 */
 export function renameKey<T>(

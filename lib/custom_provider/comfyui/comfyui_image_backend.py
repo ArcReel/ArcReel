@@ -165,9 +165,6 @@ class ComfyuiImageBackend:
                 provider=self._provider,
                 model=self._model,
                 image_uri=self._execution.view_url(picked.artifact),
-                # 实发种子：``policy: "random"`` 是提交那一刻现随机的，请求里那个值说不出它。报出来
-                # 而不是留空——图像调用入口不把它并进版本元数据（``_merge_result_provenance`` 只挂在
-                # 视频那一条路上），而这一位是本层唯一说得清这一版用了哪个种子的地方。
                 seed=built.seed,
             )
 

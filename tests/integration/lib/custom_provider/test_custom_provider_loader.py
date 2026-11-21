@@ -50,7 +50,6 @@ class TestLoadCustomBackend:
 
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     async def test_falls_back_to_default_when_model_disabled(self, mock_cls, db_session):
-        # 请求的 model 已禁用 → 回退到该 media_type 的默认启用 model
         pid = await _seed(
             db_session,
             models=[
@@ -70,7 +69,6 @@ class TestLoadCustomBackend:
             )
 
     async def test_no_default_model_for_media_fails_loud(self, db_session):
-        # 只有 image model，请求 video → 无默认 video model
         pid = await _seed(
             db_session,
             models=[{"model_id": "dall-e-3", "endpoint": "openai-images", "is_enabled": True}],
@@ -87,7 +85,6 @@ class TestBucketAwareDefaultFallback:
         return await _seed(
             db_session,
             models=[
-                # openai-images-generations 只声明 t2i，openai-images-edits 只声明 i2i
                 {"model_id": "t2i-m", "endpoint": "openai-images-generations", "is_enabled": True, "is_default": True},
                 {"model_id": "i2i-m", "endpoint": "openai-images-edits", "is_enabled": True, "is_default": True},
             ],
@@ -179,7 +176,6 @@ class TestVideoCapabilityOverridesReachExecution:
         )
         assert two_sided_video_capabilities(endpoint="ark-seedance-2", model_id="seedance-1-pro").last_frame is False
         assert backend.video_capabilities.last_frame is True
-        # 未覆盖的维度跟随两侧求值：参考图上限未收录
         assert backend.video_capabilities.max_reference_images is None
 
     @patch("lib.custom_provider.endpoints.OpenAIVideoBackend", new=MagicMock())

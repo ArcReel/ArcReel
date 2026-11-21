@@ -49,7 +49,6 @@ class TestVersionManager:
         assert vm.backup_current("characters", "Alice", current, "p1") == 1
         assert vm.ensure_current_tracked("characters", "Alice", current, "p2") is None
 
-        # create v2
         current.write_bytes(b"png-v2")
         assert vm.add_version("characters", "Alice", "p2", source_file=current) == 2
 

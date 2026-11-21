@@ -46,7 +46,6 @@ from lib.speech.character_voice import CharacterVoiceBinding, character_voice_bi
 
 logger = logging.getLogger(__name__)
 
-# 布尔字符串解析的 truthy 值集合
 _TRUTHY = frozenset({"true", "1", "yes"})
 
 
@@ -396,7 +395,6 @@ _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
 }
 
 
-#: 自动选模预览的用途（``ConfigResolver.auto_resolved_backends``）。
 AutoResolvePurpose = Literal["t2i", "i2i", "i2v", "r2v", "text"]
 
 #: 用途 → 执行期解析该用途时消费的键位。自动推断层只读键位的 media_type 与 generation_type，
@@ -597,7 +595,6 @@ def apply_duration_constraints(
 DurationExclusionReason = Literal["resolution", "reference", "end_frame"]
 
 
-#: 端点固定标志的成因值：能力载荷里 ``*_endpoint_fixed_reason`` 的唯一取值，标志为假时成因为 None。
 DURATION_ENDPOINT_FIXED_REASON = "endpoint"
 
 
@@ -756,8 +753,6 @@ class ConfigResolver:
         self._session_factory = session_factory
         self._bound_session = _bound_session
 
-    # ── Session 管理 ──
-
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[ConfigResolver]:
         """打开共享 session，返回绑定到该 session 的 ConfigResolver。"""
@@ -775,8 +770,6 @@ class ConfigResolver:
         else:
             async with self._session_factory() as session:
                 yield session, ConfigService(session)
-
-    # ── 公开 API ──
 
     async def video_generate_audio(self, project_name: str | None = None) -> bool:
         """解析 video_generate_audio。
@@ -1177,8 +1170,6 @@ class ConfigResolver:
             return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
         async with self._open_session() as (session, svc):
             return await self._resolve_reference_payload_limits(svc, session, provider_id)
-
-    # ── 内部解析方法（可独立测试，接收已创建的 svc） ──
 
     async def _resolve_video_generate_audio(
         self,
@@ -1809,7 +1800,6 @@ class ConfigResolver:
         try:
             cfg = await self._resolve_provider_config(svc, session, provider_id)
         except ValueError:
-            # 未知 / 自定义供应商（_validate_provider 抛 ValueError）→ 回退保守通用默认
             return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
         total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
         single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
@@ -1938,7 +1928,6 @@ class ConfigResolver:
             )
         repo = CustomProviderRepository(session)
         custom_models = await repo.list_enabled_models_by_media_type(media_type)
-        # 自定义供应商的默认模型同样跳过所对应条目已下线的
         defaults = callable_models([model for model in custom_models if model.is_default], media_type)
         candidates = await filter_by_bucket(session, defaults, generation_type)
         if candidates:

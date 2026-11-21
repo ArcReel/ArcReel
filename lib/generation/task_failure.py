@@ -151,7 +151,6 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in VIDEO_REQUEST_FACTS_FAILURE_CODES},
     **{code: code for code in PROVIDER_ASSET_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
-    # 配音语速超出所选模型的取值范围：提交前拒绝，没有发出计费请求。
     "narration_tts_speed_out_of_range": "narration_tts_speed_out_of_range",
     # 方舟 Agent Plan 语音合成：上游拒绝（鉴权、套餐权限、额度或并发、音色授权）、其他业务错误码、流在合成成功结束
     # 之前中断或内容残缺，以及重试用尽后仍连不上（请求没有送达）。参数只带有界的数字错误码，不保留上游与底层异常原文。
@@ -197,7 +196,6 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "comfyui_output_missing": "task_fail_comfyui_output_missing",
     # 图片供应商成功响应却没带回图片（多为内容安全过滤）：见 ImageOutputMissingError。
     "image_output_missing": "task_fail_image_output_missing",
-    # 返回的图片格式转不成位图（如矢量 SVG）：见 ImageOutputFormatError。
     "image_output_format_unsupported": "task_fail_image_output_format_unsupported",
     "comfyui_output_type_mismatch": "task_fail_comfyui_output_type_mismatch",
     "comfyui_output_container_mismatch": "task_fail_comfyui_output_container_mismatch",
@@ -222,7 +220,6 @@ _STRUCTURED_RE = re.compile(r"^\[(\w+)\](?:[ ](\{.*\}))?$", re.DOTALL)
 
 CASCADE_FAILURE_CODE = "cascade_blocked_dependency"
 
-# collapse_cascade_reason 的解包上限，纯粹的空转防线。
 _MAX_CASCADE_UNWRAP = 100
 
 

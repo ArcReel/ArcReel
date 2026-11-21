@@ -41,7 +41,6 @@ def _dump_prompt_yaml(ordered: Mapping[str, Any]) -> str:
 # 的那一版。冒号后只吃空格与制表符，换行不进前缀。
 _AVOID_LINE = re.compile(r"^Avoid:[ \t]*(.*)$")
 
-# 排除项拼接与追加到负向节点字面值时的分隔符。
 _AVOID_SEPARATOR = "，"
 
 # 正文里连续空行的塌缩上限：删掉 Avoid 行后留下的空行按此并成一个，与模版引擎对自身产生的连续
@@ -165,7 +164,6 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     ordered["Camera_Motion"] = video_prompt["camera_motion"]
     ordered["Ambiance_Audio"] = video_prompt.get("ambiance_audio", "")
 
-    # 仅在有对话时添加 Dialogue 字段
     if dialogue:
         ordered["Dialogue"] = dialogue
     return builtin_templates.render("storyboard/video", body=_dump_prompt_yaml(ordered).rstrip()) + "\n"

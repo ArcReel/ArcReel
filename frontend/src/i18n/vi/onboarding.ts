@@ -1,7 +1,6 @@
 import type enOnboarding from '@/i18n/en/onboarding';
 
 export default {
-  // Các bước hướng dẫn
   'welcome_title': 'Chào mừng đến với [[brand]]',
   'welcome_body': '[[brand]] biến tiểu thuyết hoặc kịch bản thành video ngắn. Việc sản xuất do Agent thực hiện, mỗi bước đều có thể chỉnh sửa thủ công. Phần hướng dẫn này giới thiệu giao diện chính và quy trình cơ bản.',
   'lobby_create_title': 'Tạo dự án',
@@ -27,7 +26,6 @@ export default {
   'finish_title': 'Bắt đầu dự án đầu tiên của bạn',
   'finish_body': 'Tạo dự án và tải lên tiểu thuyết hoặc kịch bản, rồi để Agent bắt đầu sản xuất. Có thể xem lại phần hướng dẫn này bất cứ lúc nào trong Cài đặt → Chung.',
 
-  // Điều khiển hướng dẫn
   'next': 'Tiếp theo',
   'prev': 'Quay lại',
   'done': 'Hoàn tất',
@@ -35,29 +33,24 @@ export default {
   'close': 'Đóng hướng dẫn',
   'progress': 'Bước {{current}} / {{total}}',
 
-  // Mục "Dự án mẫu" ở sảnh trong lúc hướng dẫn
   'demo_section_title': 'Dự án mẫu',
   'demo_section_note': 'Chỉ hiển thị trong lúc hướng dẫn',
   'demo_project_title': 'Alice ở xứ sở thần tiên',
   'demo_project_style': 'Truyện tranh màu nước',
 
-  // Bàn làm việc minh hoạ chỉ đọc: huy hiệu cạnh tên dự án trên thanh trên cùng
   'demo_badge': 'Minh hoạ · Chỉ đọc',
   'demo_badge_hint': 'Bạn đang xem một dự án mẫu. Chỉnh sửa, tạo, tải lên và xuất không khả dụng trong bản minh hoạ.',
   'demo_action_unavailable': 'Không khả dụng trong bản minh hoạ',
   'demo_episode_placeholder': 'Bản minh hoạ chỉ đến tập {{position}}: tập này chỉ có tiêu đề, chưa có kịch bản và phân cảnh.',
 
-  // Hội thoại tĩnh trong bảng Agent của bàn làm việc minh hoạ: người dùng bắt đầu sản xuất → Agent báo cáo tiến độ; các dòng công việc ở giữa ghép từ tên tài sản
   'demo_chat_user_start': 'Bắt đầu sản xuất',
   'demo_chat_agent_progress': 'Ảnh tạo hình nhân vật và ảnh bối cảnh đã được tạo. Tiếp theo sẽ lần lượt tạo ảnh phân cảnh và video cho từng tập, tiến độ sẽ được báo cáo tại đây.',
 
-  // Tổng quan dự án minh hoạ
   'demo_overview_synopsis': 'Một buổi chiều nóng nực, Alice đuổi theo con thỏ trắng mặc áo gi-lê, tay giữ đồng hồ quả quýt, rồi rơi xuống một nơi mà kích cỡ, phép tắc và cả logic đều không còn tính. Cô bé lúc lớn lúc nhỏ, lần lượt gặp sâu bướm, Thợ Mũ điên và Nữ hoàng Cơ, cuối cùng làm đổ cả triều đình quân bài trong một phiên xử vô lý.',
   'demo_overview_genre': 'Cổ tích · Phiêu lưu kỳ ảo',
   'demo_overview_theme': 'Sự vô lý của trật tự, và một đứa trẻ không chịu chơi theo luật',
   'demo_overview_world': 'Buổi chiều bên bờ sông thời Victoria mở ra xứ sở thần tiên: hành lang toàn cửa khoá dưới hang thỏ, khu vườn mắc kẹt ở giờ trà chiều, triều đình quân bài trị vì bằng croquet và những án chặt đầu. Chất liệu truyện tranh màu nước, thấy rõ vân giấy, viền loang màu.',
 
-  // Tiêu đề tập minh hoạ
   'demo_episode_1_title': 'Xuống hang thỏ',
   'demo_episode_2_title': 'Hồ nước mắt',
   'demo_episode_3_title': 'Lời khuyên của sâu bướm',
@@ -67,7 +60,6 @@ export default {
   'demo_episode_7_title': 'Chuyện của Rùa Giả',
   'demo_episode_8_title': 'Ai đã lấy bánh nhân?',
 
-  // Nhân vật minh hoạ
   'demo_character_1_name': 'Alice',
   'demo_character_1_desc': 'Cô bé người Anh bảy tuổi, váy xanh yếm trắng, tóc vàng nhạt cài băng đen. Tò mò nhiều hơn thận trọng: gặp chuyện vô lý thì tranh luận trước, không xong thì tự đi tiếp.',
   'demo_character_1_voice': 'Giọng trẻ trong sáng, nhịp hơi nhanh, tò mò hơn là sợ',
@@ -81,7 +73,6 @@ export default {
   'demo_character_4_desc': 'Người trị vì triều đình quân bài, váy dài hoa văn hình trái tim đỏ đen, tay nắm trượng. Phán quyết chỉ một câu: chặt đầu nó đi.',
   'demo_character_4_voice': 'Giọng nữ vang và nóng nảy; mở miệng là ra lệnh',
 
-  // Bối cảnh minh hoạ
   'demo_scene_1_name': 'Bờ sông dưới rặng liễu',
   'demo_scene_1_desc': 'Bờ cỏ một buổi chiều nóng nực, cành liễu rủ xuống mặt nước, dòng sông chậm và sáng, một quyển sách mở ra không có tranh cũng không có đối thoại.',
   'demo_scene_2_name': 'Hành lang dưới hang thỏ',
@@ -89,7 +80,6 @@ export default {
   'demo_scene_3_name': 'Khu vườn tiệc trà điên',
   'demo_scene_3_desc': 'Chiếc bàn dài dưới tán cây lớn, tách và đĩa dồn hết về cuối bàn, ghế nhiều hơn số người ngồi. Mọi đồng hồ dừng ở sáu giờ; trà thì lúc nào cũng vừa rót.',
 
-  // Đạo cụ minh hoạ
   'demo_prop_1_name': 'Đồng hồ quả quýt của Thỏ Trắng',
   'demo_prop_1_desc': 'Đồng hồ quả quýt bằng đồng, dây xích mòn bóng, mặt trong nắp có khắc chữ. Kim chạy nhanh hơn mọi loại đồng hồ, và Thỏ vừa nhìn vừa hét là mình muộn.',
   'demo_prop_2_name': 'Lọ "UỐNG TÔI"',
@@ -97,7 +87,6 @@ export default {
   'demo_prop_3_name': 'Chim hồng hạc làm vồ',
   'demo_prop_3_desc': 'Con hồng hạc kẹp dưới cánh tay để làm vồ croquet. Vừa vuốt thẳng cổ nó lại tự xoắn về; mỗi cú đánh đều phải thương lượng trước.',
 
-  // Phân cảnh minh hoạ — tập 1
   'demo_shot_1_text': 'Buổi chiều ấy rất nóng. Alice ngồi bên bờ sông cạnh chị gái, quyển sách chị đọc không có tranh cũng không có đối thoại, và cô bé bắt đầu buồn ngủ.',
   'demo_shot_1_image': 'Bờ sông ngày hè; Alice váy xanh yếm trắng ngủ gà trên sườn cỏ, chị gái đọc sách bên cạnh, cành liễu rủ xuống mặt nước. Chất liệu truyện tranh màu nước, viền loang mềm, thấy rõ vân giấy.',
   'demo_shot_1_lighting': 'Ngược sáng chiều muộn, bóng lá lốm đốm trên cỏ',
@@ -135,7 +124,6 @@ export default {
   'demo_shot_6_video': 'Máy lùi ra khi cô bé co lại; váy đổ xuống, góc nhìn chuyển từ ngang mắt sang ngước lên cánh cửa thấp.',
   'demo_shot_6_audio': 'Một tiếng nuốt, vải trượt, chiếc lọ rỗng đặt xuống đất',
 
-  // Mục trong Cài đặt → Chung
   'replay_title': 'Hướng dẫn sử dụng',
   'replay_desc': 'Xem lại phần hướng dẫn lần đầu, tìm hiểu giao diện chính và quy trình cơ bản.',
   'replay_action': 'Xem lại hướng dẫn',

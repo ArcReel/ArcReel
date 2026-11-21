@@ -135,7 +135,6 @@ describe("endpoint-catalog-store", () => {
     expect(map["openai-images"]).toEqual(["text_to_image", "image_to_image"]);
     expect(map["openai-images-generations"]).toEqual(["text_to_image"]);
     expect(map["openai-images-edits"]).toEqual(["image_to_image"]);
-    // 非 image 类不出现在 map 中
     expect(map["openai-chat"]).toBeUndefined();
     expect(map["newapi-video"]).toBeUndefined();
   });

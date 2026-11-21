@@ -137,7 +137,6 @@ describe("EndpointsSection", () => {
       });
     });
 
-    /** 市场安装的 ce-8：当前 v1.0.0、市场有 v1.1.0；updated 是更新成功后列表里的那一条。 */
     function marketUpdateFixtures() {
       const installed = {
         ...COMFYUI_MINE,
@@ -213,7 +212,6 @@ describe("EndpointsSection", () => {
       return { installed, entryResponse, updated, installResult };
     }
 
-    /** 在当前打开的 workflow 端点上走一遍「重新导入」，停在绑定编辑器里、草稿未保存。 */
     async function reimportDraft(fileName: string, definition = COMFYUI_MINE.definition) {
       vi.spyOn(API, "validateCustomEndpoint").mockResolvedValue(validation({ import_shape: "endpoint_definition" }));
       await userEvent.click(screen.getByRole("button", { name: "重新导入" }));
@@ -403,7 +401,6 @@ describe("EndpointsSection", () => {
       expect(importValidationCalls(validate).map(([payload]) => payload)).toContainEqual(workflow);
       expect(infer).toHaveBeenCalledWith(wrapped, { mediaType: "video" });
       expect(await screen.findByLabelText("端点名称")).toHaveValue("ComfyUI workflow");
-      // 粘贴进来的没有文件名，头部的「来源文件」因此不显示。
       expect(screen.queryByText(/^来自 /)).not.toBeInTheDocument();
     });
 
@@ -532,7 +529,6 @@ describe("EndpointsSection", () => {
       await pickFile("v2_api.json");
       await screen.findByText("来自 v2_api.json");
 
-      // 不保存这份草稿，直接走到另一个 workflow 端点上再点重新导入。
       await clickRail(/我的画图 workflow/);
       await screen.findByLabelText("端点名称");
       await userEvent.click(screen.getByRole("button", { name: "重新导入" }));

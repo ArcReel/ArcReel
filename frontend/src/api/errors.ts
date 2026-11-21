@@ -11,7 +11,6 @@ import i18n from "@/i18n";
 import { useProjectsStore } from "@/stores/projects-store";
 import { findEpisodeItem } from "@/utils/episode-item";
 
-/** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
   /** 后端附加的诊断或修复信息；调用方可按请求语境解析，永不并进 detail 摘要。 */
   diagnostic?: unknown;
@@ -72,7 +71,6 @@ export class ScriptEditCommandError extends Error {
   }
 }
 
-/** Preserves the structured speech blocker for UI actions and diagnostics. */
 export class SpeechAdmissionError extends Error {
   readonly code = "speech_admission_blocked" as const;
 
@@ -98,7 +96,6 @@ export class ApiRequestError extends Error {
   }
 }
 
-/** Preserves reference request blockers so the UI can show a repair action. */
 export class ReferenceProjectionError extends Error {
   readonly code = "reference_request_projection_blocked" as const;
 
@@ -109,7 +106,6 @@ export class ReferenceProjectionError extends Error {
   }
 }
 
-/** Structured detail returned when the local Agent process cannot start. */
 export interface AgentFailureDetail {
   code: "agent_startup_failed";
   message: string;
@@ -145,7 +141,6 @@ export class ConflictError extends Error {
   }
 }
 
-/** Error payload from the import project endpoint (extends ErrorResponse with import-specific fields). */
 export interface ImportErrorPayload {
   detail?: string | { msg?: string }[];
   errors?: string[];
@@ -154,7 +149,6 @@ export interface ImportErrorPayload {
   /** 导入包升级时有调整或没能带入的内容：带上 `migration_report`，确认后重新提交。 */
   confirmation_required?: boolean;
   migration_report?: unknown;
-  /** 导入包的集列表（集 ID 与标题），供确认窗显示集名。 */
   episodes?: unknown;
   diagnostics?: unknown;
 }
@@ -285,7 +279,6 @@ function formatSpeechAdmission(admission: SpeechAdmission): string {
     parse_failed: "speech_admission_parse_failed",
     empty_speaker: "speech_admission_empty_speaker",
   }[problem.code];
-  // 文案里称呼单元用它在本集里的当前位置；单元已不在剧本里时写「已删除」。
   const position = findEpisodeItem(useProjectsStore.getState().currentScripts, problem.unit_id)?.position;
   return i18n.t(`dashboard:${key}`, { position: position ?? i18n.t("common:deleted"), location });
 }

@@ -1,4 +1,3 @@
-/** 市场源的刷新状态。 */
 export type MarketSourceStatus =
   | "never_fetched"
   | "ok"
@@ -8,7 +7,6 @@ export type MarketSourceStatus =
 
 export type MarketSourceKind = "official" | "custom";
 
-/** 快照索引的顶层信息。 */
 export interface MarketIndexSummary {
   name: string;
   description: string | null;
@@ -39,7 +37,6 @@ export interface MarketSourceListResponse {
   sources: MarketSourceInfo[];
 }
 
-/** 合并条目列表里的一条：索引条目字段加所在源。 */
 export interface MarketEntry {
   source_id: number;
   source_display_name: string;
@@ -79,7 +76,6 @@ export interface MarketEntryInstallation {
   installed_version: string;
   /** 条目就在市场列表里，不会是 unavailable。 */
   state: Exclude<MarketInstallationState, "unavailable">;
-  /** 当前定义摘要与安装时不同。 */
   modified: boolean;
 }
 
@@ -93,7 +89,6 @@ export interface EndpointInstallation {
   installed_version: string;
   installed_at: string;
   state: MarketInstallationState;
-  /** 当前定义摘要与安装时不同。 */
   modified: boolean;
 }
 
@@ -105,17 +100,13 @@ export interface MarketEntryDetail {
 
 /** 官方服务的开关状态；`enabled` 为 false 时市场页不展示任何官方服务元素。 */
 export interface OfficialServiceState {
-  /** 官方服务地址非空。 */
   available: boolean;
-  /** 地址非空且总开关为开。 */
   enabled: boolean;
-  /** 市场页的首次说明已确认。 */
   notice_seen: boolean;
   /** 随请求发往官方服务的实例标识；尚未生成时为 null。 */
   instance_id: string | null;
 }
 
-/** 官方市场源条目在官方服务的安装量与评分。 */
 export interface MarketEntryAggregate {
   source_id: number;
   slug: string;
@@ -126,10 +117,8 @@ export interface MarketEntryAggregate {
   rating_average: number | null;
 }
 
-/** 分享提交的状态：审核中 / 已采纳 / 已拒绝。 */
 export type MarketSubmissionStatus = "open" | "merged" | "closed";
 
-/** 一个端点最近一次分享到官方市场的提交。 */
 export interface MarketSubmission {
   endpoint_id: number;
   endpoint_key: string;

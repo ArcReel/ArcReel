@@ -405,7 +405,6 @@ class VersionManager:
             if not resource_data:
                 return {"current_version": 0, "versions": []}
 
-            # 添加 is_current 和 file_url 字段
             versions = []
             for v in resource_data.get("versions", []):
                 version_info = v.copy()
@@ -465,11 +464,9 @@ class VersionManager:
         with self._lock:
             data = self._load_versions()
 
-            # 确保资源类型存在
             if resource_type not in data:
                 data[resource_type] = {}
 
-            # 获取或创建资源记录
             if resource_id not in data[resource_type]:
                 data[resource_type][resource_id] = {"current_version": 0, "versions": []}
 
@@ -484,18 +481,15 @@ class VersionManager:
             )
             new_version = max_version + 1
 
-            # 生成版本文件名和路径
             timestamp = self._generate_timestamp()
             version_rel_path = version_snapshot_relative_path(
                 resource_type, resource_id, version=new_version, timestamp=timestamp
             )
 
-            # 如果有源文件，保存为版本快照
             persisted: PersistedContent | None = None
             if source_file and Path(source_file).exists():
                 persisted = self._persist_snapshot(resource_type, Path(source_file), version_rel_path, [])
 
-            # 创建版本记录
             version_record = _new_version_record(
                 version=new_version,
                 rel_path=version_rel_path,
@@ -986,7 +980,6 @@ class VersionManager:
                     prior_current = 0
                     resource_data["current_version"] = 0
                 version = _append_snapshot(staged_file, prompt, metadata)
-                # Persist paid history before any selection callback can fail.
                 self._save_versions(data)
             except BaseException as failure:
                 history_rollback_errors: list[OSError] = []

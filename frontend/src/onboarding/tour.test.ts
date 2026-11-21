@@ -65,7 +65,6 @@ describe("startTour", () => {
   });
 
   it("drops driver's own transitions when the user asks for reduced motion", () => {
-    // driver 把动画开关写成 body 上的 driver-fade / driver-simple 二选一
     const matchMedia = vi.fn((query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList);
     vi.stubGlobal("matchMedia", matchMedia);
 
@@ -151,7 +150,6 @@ describe("startTour", () => {
     const handle = startTour([{ anchor: ONBOARDING_ANCHORS.lobbyDemoCard, title: "演示卡", body: "长这样" }], LABELS, {
       onExit: vi.fn(),
     });
-    // 高亮框的上沿 = 锚点上沿 - stagePadding(8)
     await vi.waitFor(() => expect(stage()).toContain(",92 h"));
 
     top = 166;
@@ -174,7 +172,6 @@ describe("startTour", () => {
       { onExit: vi.fn() },
     );
     const stage = () => document.querySelector(".driver-overlay path")?.getAttribute("d") ?? "";
-    // 遮罩在第一步挂上，之后的步骤不再插入它
     await vi.waitFor(() => expect(stage()).not.toBe(""));
     click(".driver-popover-next-btn");
 
@@ -190,7 +187,6 @@ describe("startTour", () => {
     document.body.prepend(document.createElement("h1"));
 
     await vi.waitFor(() => expect(stage()).toContain(",158 h"));
-    // 气泡在锚点下方，driver 写的是到视口底边的距离：视口高 -（锚点下沿 + stagePadding 8 + 默认间距 10）
     await vi.waitFor(() => expect(popover()).toHaveStyle({ bottom: `${window.innerHeight - (166 + 200 + 18)}px` }));
 
     handle.dispose();
@@ -212,7 +208,6 @@ describe("startTour", () => {
     await vi.waitFor(() => {
       expect(document.querySelector(".driver-active-element")?.id).toBe("driver-dummy-element");
     });
-    // 讲解照常进行，丢的只是高亮 —— driver 顶上自己的占位元素，气泡回到屏幕中央
     expect(document.querySelector(".driver-popover-title")?.textContent).toBe("演示卡");
     expect(popover()).not.toHaveClass("driver-popover-waiting");
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(ONBOARDING_ANCHORS.lobbyDemoCard));
@@ -450,8 +445,6 @@ describe("startTour", () => {
 
     it("also inerts a dialog already portaled to body when the tour starts, and clears it on dispose", () => {
       const appRoot = withAppRoot();
-      // 模拟经 Portal 挂到 body 的对话框——
-      // 是 #app-root 的兄弟节点，不在其子树内。
       const modal = document.createElement("div");
       document.body.appendChild(modal);
 
@@ -497,7 +490,6 @@ describe("startTour", () => {
       ];
       const handle = startTour(steps, LABELS, { onExit: vi.fn() });
 
-      // interactive 步：目标元素的祖先链（含 #app-root 本身）解除 inert，才够得到目标
       expect(appRoot.inert).toBe(false);
 
       click(".driver-popover-next-btn");

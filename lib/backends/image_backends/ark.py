@@ -107,7 +107,6 @@ class ArkImageBackend:
     @with_retry_async()
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """异步生成图片（T2I / I2I）。"""
-        # 构建 SDK 参数
         kwargs: dict = {
             "model": self._model,
             "prompt": request.prompt,
@@ -119,7 +118,6 @@ class ArkImageBackend:
         kwargs["size"] = self._size(request.image_size, request.aspect_ratio)
         reference_count = 0
 
-        # I2I: 读取参考图并转为 base64 data URI
         if request.reference_images:
             data_uris = await asyncio.to_thread(
                 lambda: [
@@ -135,7 +133,6 @@ class ArkImageBackend:
             kwargs["seed"] = request.seed
 
         logger.info("调用 %s 图片 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
-        # 同步 SDK 通过 to_thread 包装
         response = await asyncio.to_thread(
             self._client.images.generate,
             **kwargs,

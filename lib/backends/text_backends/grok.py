@@ -62,14 +62,11 @@ class GrokTextBackend:
             chat_kwargs["response_format"] = response_model
         chat = self._client.chat.create(**chat_kwargs)
 
-        # System prompt
         if request.system_prompt:
             chat.append(xai_chat.system(request.system_prompt))
 
-        # Build user message parts
         user_parts: list = []
 
-        # Images for vision
         if request.images:
             for img_input in request.images:
                 if img_input.path:
@@ -102,7 +99,6 @@ class GrokTextBackend:
         response = await chat.sample()
         text = response.content if hasattr(response, "content") else str(response)
 
-        # Try to extract token usage from the response
         input_tokens = None
         output_tokens = None
         cache_read_tokens = None

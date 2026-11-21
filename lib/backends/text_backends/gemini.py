@@ -67,14 +67,13 @@ def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
     if not isinstance(node, dict):
         return node
     if in_subschema_map:
-        # 当前 dict 的 key 是属性名/定义名；每个值才是子 schema
         return {k: _const_to_enum(v) for k, v in node.items()}
     out: dict = {}
     for k, v in node.items():
         if k in _UNSUPPORTED_KEYWORDS:
             continue  # Gemini responseSchema 不认识，且对约束解码无影响
         if k in _INSTANCE_KEYWORDS:
-            out[k] = v  # 值是实例数据，原样保留
+            out[k] = v
         else:
             out[k] = _const_to_enum(v, in_subschema_map=k in _SUBSCHEMA_MAP_KEYS)
     if "const" in out and (out["const"] is None or isinstance(out["const"], (str, int, float, bool))):
@@ -96,7 +95,7 @@ def _to_response_schema(schema: dict | type) -> dict:
     归一为 ``types.Schema`` 可表达的字符串枚举，并剥除 ``additionalProperties``。
     """
     normalized = _const_to_enum(resolve_schema(schema))
-    assert isinstance(normalized, dict)  # resolve_schema 必返回 dict
+    assert isinstance(normalized, dict)
     return normalized
 
 

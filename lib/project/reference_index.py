@@ -119,7 +119,6 @@ _AGENT_CONFIG = FileReference(FileRole.AGENT_CONFIG)
 
 _TIMELINE_PATH_RE = re.compile(r"^edit_timelines/episode_[1-9]\d*/(tl-[0-9a-f]{8})\.json$")
 _RENDER_RECORD_SUFFIX = ".render.json"
-#: 剧本条目数组与各自的 ID 字段；参考生视频的条目是视频单元。
 _ITEM_ARRAYS = (("segments", "segment_id"), ("scenes", "scene_id"), ("shots", "shot_id"), ("video_units", "unit_id"))
 _ASSET_TYPE_BY_BUCKET = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
 _SEGMENT_RESOURCE_TYPES = frozenset({"storyboards", "videos", "audio", END_FRAME_RESOURCE_TYPE})
@@ -195,8 +194,6 @@ class ReferenceIndex:
         index._index_grid_records(project_dir)
         return index
 
-    # ------------------------------------------------------------------ 查询
-
     def reference_of(self, rel: str) -> FileReference:
         """项目内相对 POSIX 路径（文件）的角色与所属对象。"""
         rel = self._canonical(rel)
@@ -241,8 +238,6 @@ class ReferenceIndex:
         if resource_type in _ASSET_RESOURCE_TYPES:
             resource_id = normalize_asset_name(resource_id)
         return (resource_type, resource_id) in self._resources
-
-    # ------------------------------------------------------------------ 构建
 
     def _canonical(self, rel: str) -> str:
         """采用磁盘上的实际名称，统一大小写及 Unicode 别名，不合并独立存在的文件。"""
@@ -349,7 +344,6 @@ class ReferenceIndex:
                 self._item_episodes[item_id] = episode
                 if array_key == "video_units":
                     owner = FileOwner("reference_unit", id=item_id, episode=episode)
-                    # 视频单元也有自己的旁白配音。
                     self._resources.update({("reference_videos", item_id), ("audio", item_id)})
                 else:
                     owner = FileOwner("segment", id=item_id, episode=episode)

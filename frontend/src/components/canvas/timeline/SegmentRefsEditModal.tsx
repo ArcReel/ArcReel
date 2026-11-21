@@ -319,7 +319,6 @@ interface SectionProps {
   icon: ReactNode;
   rows: RefRow[];
   selectedSets: Record<SegmentAssetKind, Set<string>>;
-  /** 已选且失效的引用数；由 parent 基于未过滤集合计算，避免搜索过滤后徽标消失 */
   staleCount: number;
   onToggle: (kind: SegmentAssetKind, name: string) => void;
   projectName: string;

@@ -39,7 +39,6 @@ vi.mock("./ShotSplitView", () => ({
   ),
 }));
 
-/** 集页路由给画布的视图：缺省停在分镜视图。 */
 const BOARD = { view: "board", onViewChange: () => {} } as const;
 
 function makeProjectData(): ProjectData {
@@ -172,7 +171,6 @@ describe("TimelineCanvas", () => {
       }),
       planKey: workflowPlanKey("demo", 1),
     });
-    // 正在生成的不算缺口
     useTasksStore.setState({
       tasks: [makeTask({ project_name: "demo", task_type: "storyboard", resource_id: "SEG-2", status: "running" })],
     });

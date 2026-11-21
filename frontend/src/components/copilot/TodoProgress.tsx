@@ -34,10 +34,6 @@ function extractLatestTodos(turns: Turn[], draftTurn: Turn | null): TodoItem[] |
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// TodoProgress — 输入框上方的一行进度：当前进行项与完成数，点开展开清单。
-// 没有待办或全部完成时不显示。
-// ---------------------------------------------------------------------------
 
 interface TodoProgressProps {
   turns: Turn[];

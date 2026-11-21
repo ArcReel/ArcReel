@@ -64,7 +64,6 @@ function mockConfig(config: object = FAKE_CONFIG) {
   vi.spyOn(API, "getSystemConfig").mockResolvedValue(config as Awaited<ReturnType<typeof API.getSystemConfig>>);
 }
 
-/** 加载项目，保存时按服务端行为回显合并后的项目。 */
 function mockProject(project: Record<string, unknown>) {
   const base = { title: "Demo", episodes: [], characters: {}, clues: {}, ...project };
   vi.spyOn(API, "getProject").mockResolvedValue({ project: base, scripts: {} } as unknown as ProjectResponse);
@@ -337,7 +336,6 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
 
     const group = await screen.findByRole("radiogroup", { name: "目标总时长" });
     await waitFor(() => expect(within(group).getByRole("radio", { name: "30 秒" })).toBeChecked());
-    // 自定义输入留空：目标总时长无效
     fireEvent.click(within(group).getByRole("radio", { name: "自定义" }));
     fireEvent.click(within(sidebar()).getByRole("link", { name: /^模型/ }));
     fireEvent.click(saveButton());
@@ -364,7 +362,6 @@ describe("ProjectSettingsPage – 模型分页的覆盖来源", () => {
 
     expect(await screen.findByText("本项目覆盖了 3 项全局默认，其余跟随全局。")).toBeInTheDocument();
     expect(within(sidebar()).getByRole("link", { name: /^模型3 项覆盖$/ })).toBeInTheDocument();
-    // 图片通道没有覆盖：显示跟随全局与全局默认模型
     expect(screen.getByText("跟随全局 · nano-banana")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "文本模型：恢复全局" }));
@@ -571,7 +568,6 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     const user = userEvent.setup();
     renderAt("/app/projects/demo/settings?tab=models");
 
-    // 图片分辨率在视频分辨率之后；读到的是文生图执行模型的 720p
     await waitFor(() => expect(screen.getAllByRole("combobox", { name: "分辨率" })).toHaveLength(2));
     const imageResolution = screen.getAllByRole("combobox", { name: "分辨率" })[1];
     expect(imageResolution).toHaveTextContent("720p");
@@ -678,7 +674,6 @@ describe("ProjectSettingsPage – model_settings quality", () => {
 
     expect(await qualityPicker()).toHaveTextContent("high");
     await pick(user, screen.getByRole("combobox", { name: /^默认图片模型$/ }), /gpt-image-1/);
-    // 换了执行模型：画质回到未选择
     expect(await qualityPicker()).toHaveTextContent("自动（按分辨率档位）");
     await pick(user, await qualityPicker(), "low");
     fireEvent.click(saveButton());
@@ -763,7 +758,6 @@ describe("ProjectSettingsPage – 基础", () => {
     expect(await screen.findByText(/跳过分镜图，直接用角色、场景、道具图作为参考生成视频/)).toBeInTheDocument();
     expect(screen.getByText(/生成方式创建后不可更改/)).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: /参考生视频|分镜图生视频/ })).not.toBeInTheDocument();
-    // 参考生视频下不呈现宫格开关
     expect(screen.queryByRole("switch", { name: /多宫格分镜/ })).not.toBeInTheDocument();
   });
 
@@ -844,7 +838,6 @@ describe("ProjectSettingsPage – 基础", () => {
 
     const input = await screen.findByLabelText(/^语速（可选）$/);
     expect(input).toHaveValue(3);
-    // en 项目按词计
     expect(screen.getByText("词/秒")).toBeInTheDocument();
 
     fireEvent.change(input, { target: { value: "4.5" } });

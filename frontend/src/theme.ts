@@ -21,7 +21,6 @@ export function getThemePreference(): ThemePreference {
 }
 
 function systemPrefersDark(): boolean {
-  // 取不到系统偏好时按深色处理
   return typeof window.matchMedia !== "function" || window.matchMedia(SYSTEM_DARK_QUERY).matches;
 }
 

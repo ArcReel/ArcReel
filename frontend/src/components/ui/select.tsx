@@ -77,10 +77,8 @@ function SelectContent({
         align={align}
         alignOffset={alignOffset}
         alignItemWithTrigger={alignItemWithTrigger}
-        // 层级用 z-index token，与其他弹层原语一致
         className="isolate z-overlay"
       >
-        {/* 弹层动画使用项目时长 token。 */}
         <SelectPrimitive.Popup
           data-slot="select-content"
           data-align-trigger={alignItemWithTrigger}

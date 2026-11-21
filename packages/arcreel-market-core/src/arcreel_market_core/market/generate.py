@@ -22,10 +22,8 @@ ENDPOINTS_DIR = "endpoints"
 DEFINITION_FILENAME = "definition.json"
 ICON_STEM = "icon"
 
-#: 沿用既有索引时保留的顶层可选字段。
 _HEADER_FIELDS = ("name", "description", "homepage")
 
-#: 条目定义缺 ``meta`` 对象时，``definition_invalid`` 诊断里的细节消息。
 META_NOT_OBJECT_KEY = "val_market_detail_meta_not_object"
 
 

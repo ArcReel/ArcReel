@@ -24,7 +24,6 @@ import { ProviderModelFlags } from "./ProviderModelFlags";
 import { MEDIA_LABEL_KEY, priceSummaryText } from "./providerModelDisplay";
 import { ProviderModelSheet, type CustomProviderContext, type OpenProviderModel } from "./ProviderModelSheet";
 
-// 分组顺序：文本、图片、视频、音频。
 const MEDIA_ORDER = ["text", "image", "video", "audio"] as const;
 
 type Filter = "all" | "enabled";
@@ -32,7 +31,6 @@ type Filter = "all" | "enabled";
 interface Props {
   /** 内置供应商 ID，或自定义供应商的 `custom-<id>`。 */
   providerId: string;
-  /** 供应商名称，显示在模型 Sheet 的标题下与「从『X』移除」里。 */
   providerName: string;
   /** 自定义供应商的接口地址与模型发现协议：模型 Sheet 据此编辑调用端点与请求地址。 */
   custom?: CustomProviderContext;
@@ -167,7 +165,6 @@ export function ProviderModelList({
   );
   const closeSheet = useCallback(() => setOpenModel(null), []);
 
-  // 添加或启用之后：整表重取（新模型可能成为默认），并打开新模型的 Sheet
   const handleAdded = useCallback(
     (model: ProviderModelItem) => {
       setModels((prev) => {

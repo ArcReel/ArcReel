@@ -19,7 +19,6 @@ from typing import Any
 #: 第三方异常文案），没有可翻译的结构，占位后原样输出。
 LITERAL_KEY = "val_literal"
 
-#: 渲染消息用的 translator：``translate(key, **params) -> str``。
 type Translator = Callable[..., str]
 
 
@@ -41,7 +40,6 @@ class MessageJoin:
     separator: str = "; "
 
 
-#: 片段序列里允许出现的元素：字面文本、嵌套翻译键，或再嵌一层的片段序列。
 type MessagePart = str | MessageRef | MessageJoin
 
 

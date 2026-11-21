@@ -39,7 +39,6 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   providerName: string;
-  /** 调用供应商的模型列表接口。 */
   load: (signal: AbortSignal) => Promise<FetchProviderModelsResponse>;
   /** 已添加的模型不列出，只计数。 */
   isAdded: (model: FetchedProviderModel) => boolean;
@@ -158,7 +157,6 @@ function FetchModelsBody({
         onClose();
         return;
       }
-      // 添加成功的行取消勾选（上层刷新列表后移走），失败的行留下并写明原因
       setRows((prev) => {
         const next = { ...prev };
         selections.forEach((s, i) => {

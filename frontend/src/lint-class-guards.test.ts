@@ -28,12 +28,12 @@ const templateFixture = (className: string) =>
 
 // 覆盖每个带 no-restricted-syntax 的配置块：flat config 对同名规则整体替换选项，漏列一块就会静默失守。
 const SOURCE_FILES = [
-  "src/lint-fixture/Fixture.tsx", // 任意源码
-  "src/components/ui/fixture.tsx", // 原语目录
-  "src/components/shared/page-shell/PageShell.tsx", // 视口断点白名单
-  "src/actions/fixture.tsx", // 入队动作层
-  "src/hooks/useModelCapabilities.ts", // 模型能力真相源
-  "src/components/layout/ToastOverlay.tsx", // 提示队列的唯一转交点
+  "src/lint-fixture/Fixture.tsx",
+  "src/components/ui/fixture.tsx",
+  "src/components/shared/page-shell/PageShell.tsx",
+  "src/actions/fixture.tsx",
+  "src/hooks/useModelCapabilities.ts",
+  "src/components/layout/ToastOverlay.tsx",
 ];
 
 const LAYOUT_GUARDS = {

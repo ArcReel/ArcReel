@@ -41,7 +41,6 @@ NOTICE_SEEN_SETTING = "official_service_notice_seen"
 INSTANCE_ID_SETTING = "official_service_instance_id"
 INSTANCE_HEADER = "X-ArcReel-Instance"
 REQUEST_TIMEOUT_SECONDS = 3.0
-#: 官方服务批量查询聚合的单次条目上限。
 AGGREGATES_BATCH_SIZE = 100
 
 _ERROR_KEY_PREFIX = "official_service_error_"
@@ -86,7 +85,6 @@ class EntryRef:
 @dataclass(frozen=True)
 class EntryAggregate:
     ref: EntryRef
-    #: 服务端取整后的展示值。
     installs: int
     rating_count: int
     #: 评分人数不足服务端阈值时为 None。
@@ -109,12 +107,10 @@ SUBMISSION_STATUSES = frozenset({"open", "merged", "closed"})
 
 @dataclass(frozen=True)
 class OfficialServiceState:
-    #: 地址非空。
     available: bool
     #: 地址非空且总开关为开：只有此时才会对官方服务出站。
     enabled: bool
     notice_seen: bool
-    #: 尚未生成时为 None。
     instance_id: str | None
 
 

@@ -20,7 +20,6 @@ def test_epub_injects_chapter_markers_and_counts(epub_factory):
     assert "# 第一章 起点" in result.text
     assert "# 第二章 转折" in result.text
     assert "# 第三章 终局" in result.text
-    # 章节顺序与 spine 一致
     pos1 = result.text.find("第一章正文")
     pos2 = result.text.find("第二章正文")
     pos3 = result.text.find("第三章正文")
@@ -37,7 +36,6 @@ def test_epub_falls_back_to_index_when_no_toc(epub_factory):
     )
     result = EpubExtractor().extract(src)
     assert result.chapter_count == 2
-    # 没有 toc → 标题降级为 "第 N 章"
     assert "# 第 1 章" in result.text
     assert "# 第 2 章" in result.text
 
@@ -203,7 +201,6 @@ def test_epub_chapter_text_excludes_document_head(epub_factory):
     """章节 <head><title> 不是正文，不得与 <h1> 重复出现。"""
     src = epub_factory([("起点", "正文一。")])
     result = EpubExtractor().extract(src)
-    # 一次来自注入的 "# 起点" 标记，一次来自正文 <h1>
     assert result.text.count("起点") == 2
 
 

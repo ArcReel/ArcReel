@@ -106,7 +106,6 @@ class MiniMaxAudioBackend:
         # 与文本共用 {host}/v1 归一化：容忍用户填 host 或带 /v1 后缀
         self._base_url = minimax_text_base_url(base_url)
         self._model = model or DEFAULT_MODEL
-        # 自定义供应商挂接时用真实 provider 记账
         self._provider_name = provider_name
         self._http_timeout = http_timeout
         self._transport_layer = transport_layer

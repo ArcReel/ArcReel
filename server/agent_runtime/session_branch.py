@@ -115,7 +115,6 @@ class SessionBranchService:
             if not await self._meta_store.mark_superseded(session_id, new_session_id):
                 raise SessionBranchError(f"session {session_id} has already been superseded by another branch")
         except InvalidAnchorError as exc:
-            # 锚点校验在任何写入之前，没有可撤回的东西。
             raise BranchAnchorError(
                 f"anchor {anchor_user_entry_uuid} is not a user message of session {session_id}: {exc}"
             ) from exc
@@ -163,8 +162,6 @@ class SessionBranchService:
         except Exception:
             logger.exception("failed to discard superseded pointer of session %s", origin_session_id)
         if project_key is None:
-            # 元数据行已不在，定位不到 transcript 所属的 project_key；剩下的行成为
-            # 无主数据，只能靠日志留痕。
             logger.warning("cannot locate transcript of incomplete branch %s: project key unresolved", new_session_id)
         else:
             try:

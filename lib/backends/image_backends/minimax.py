@@ -110,7 +110,6 @@ class MiniMaxImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        # 文生图 + 图生图（subject_reference）同一端点。
         return set(self.CHANNEL_CAPABILITIES)
 
     async def reference_image_limit(self) -> int | None:
@@ -263,7 +262,6 @@ H3_DEFAULT_MODEL = "MiniMax-H3-Image"
 H3_GENERATIONS_PATH = "/images/generations"
 H3_EDITS_PATH = "/images/edits"
 
-# edits 单请求接受 1–16 张参考图。
 _H3_REFERENCE_LIMIT = 16
 # 服务端同步等待最长 600 秒，官方要求客户端超时不少于此值。
 _H3_HTTP_TIMEOUT_SECONDS = 600.0
@@ -279,7 +277,6 @@ _H3_SUPPORTED_RATIOS = f"1:{_H3_MAX_RATIO} – {_H3_MAX_RATIO}:1"
 _H3_MIN_PIXELS = 655_360
 _H3_MAX_PIXELS = 20_000_000
 _H3_SIZE_ROUND_TO = 8
-# 产物格式随输出路径后缀；其余后缀按 png 输出。
 _H3_OUTPUT_FORMATS: dict[str, str] = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".webp": "webp"}
 # edits 受理的参考图格式：JPG、JPEG、PNG、WEBP、HEIC、HEIF。
 _H3_REFERENCE_MIME_TYPES: dict[str, str] = {
@@ -335,7 +332,6 @@ def _h3_size_params(image_size: str | None, aspect_ratio: str, model: str) -> di
     )
     if value.lower() in {tier.lower() for tier in IMAGE_TIER_SHORT_EDGE}:
         raise unsupported
-    # 无法解析的值回落为 0，与越界面积一并报错。
     short = resolution_to_short_edge(value, tier_map={}, default_short=0)
     if short <= 0:
         raise unsupported

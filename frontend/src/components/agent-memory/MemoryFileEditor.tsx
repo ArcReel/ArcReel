@@ -32,7 +32,6 @@ export type MemoryEditorLayout = "pane" | "flow";
 interface MemoryFileEditorProps {
   scope: AgentMemoryScope;
   entry: MemoryEntry;
-  /** 记忆目录的服务端路径，与文件名拼成完整路径展示。 */
   dir: string;
   layout: MemoryEditorLayout;
   /** 保存成功后重取文件列表（说明、修改时间与索引行数随之更新）。 */

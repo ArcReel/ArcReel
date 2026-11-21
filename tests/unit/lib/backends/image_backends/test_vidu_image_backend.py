@@ -105,7 +105,6 @@ class TestCapabilityMismatchRaises:
             output_path=image_output_path,
             reference_images=[ReferenceImage(path=str(ref_file))],
         )
-        # 不应是 ImageCapabilityError；应是我们注入的 RuntimeError
         with pytest.raises(RuntimeError, match="short-circuit"):
             await backend.generate(request)
 
@@ -168,7 +167,6 @@ class TestViduImageCreateTaskHttpErrors:
         with pytest.raises(httpx.HTTPStatusError) as ei:
             await backend._create_task(client, {"model": "viduq2", "prompt": "x"})
         assert ei.value.response.status_code == 413
-        # 413 非 retryable → fail-fast 单次
         assert client.post.call_count == 1
 
     async def test_rejection_body_becomes_a_redacted_provider_reason(self, image_output_path: Path):

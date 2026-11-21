@@ -24,7 +24,6 @@ TIERS: tuple[Tier, ...] = ("model", "haiku", "sonnet", "opus", "subagent")
 #: Anthropic 官方预设：留空的档位由 CLI 自行解析，不替用户填成主模型。
 OFFICIAL_PRESET_ID = "anthropic-official"
 
-#: 档位在凭证上的字段名。
 _CREDENTIAL_FIELDS: Mapping[Tier, str] = {
     "model": "model",
     "haiku": "haiku_model",

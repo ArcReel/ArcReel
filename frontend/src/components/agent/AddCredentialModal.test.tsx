@@ -89,7 +89,7 @@ describe("AddCredentialModal", () => {
         onClose={vi.fn()}
       />,
     );
-    fireEvent.click(screen.getAllByTestId("preset-chip")[0]); // custom
+    fireEvent.click(screen.getAllByTestId("preset-chip")[0]);
     const input = screen.getByLabelText(
       /base[_ ]url|代理地址/i,
     ) as HTMLInputElement;
@@ -262,10 +262,8 @@ describe("AddCredentialModal", () => {
       /display[_ ]name|显示名/i,
     ) as HTMLInputElement;
     expect(nameInput.value).toBe("DeepSeek");
-    // 用户改名
     fireEvent.change(nameInput, { target: { value: "My Custom Name" } });
     expect(nameInput.value).toBe("My Custom Name");
-    // 切换到另一个 preset → displayName 跟随预设切换
     fireEvent.click(screen.getByRole("button", { name: /Moonshot/i }));
     expect(nameInput.value).toBe("Moonshot");
   });
@@ -406,7 +404,6 @@ describe("AddCredentialModal", () => {
           onClose={vi.fn()}
         />,
       );
-      // effect 跑完后仍无按钮（默认 mock 返回空数组）
       await waitFor(() => {
         expect(API.listCustomProviders).toHaveBeenCalled();
       });
@@ -569,7 +566,6 @@ describe("AddCredentialModal", () => {
           onClose={vi.fn()}
         />,
       );
-      // 初始 custom 模式：baseUrl 空 → 测试按钮禁用
       const btn = screen.getByTestId("test-connection");
       expect(btn).toBeDisabled();
     });
@@ -602,7 +598,6 @@ describe("AddCredentialModal", () => {
       });
       // TestResultPanel headline 渲染（test_ok 文案三语 OR-match）
       await screen.findByText(/test[_ ]ok|连通正常|Kết nối/i);
-      // 结果面板只剩调用地址，没有发现端点行
       const panel = within(screen.getByRole("status"));
       expect(panel.getByText("https://api.deepseek.com/anthropic/v1/messages")).toBeInTheDocument();
       expect(panel.queryByText(/发现端点|Discovery endpoint|Endpoint discovery/i)).not.toBeInTheDocument();

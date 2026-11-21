@@ -10,13 +10,11 @@ interface UploadIconButtonProps {
   accept: string;
   /** 按钮的无障碍名称，悬停或聚焦时显示在提示里 */
   label: string;
-  /** 上传请求进行中：显示 spinner 并禁用 */
   busy?: boolean;
   disabled?: boolean;
   onSelect: (file: File) => void;
 }
 
-/** 卡片头部的图标式上传入口：隐藏的文件输入框加一个图标按钮，与旁边的「局部修改」「版本」同样式。 */
 export function UploadIconButton({ accept, label, busy, disabled, onSelect }: UploadIconButtonProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 

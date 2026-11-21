@@ -175,7 +175,6 @@ async def test_stream_project_events_breaks_on_disconnect_during_continuous_even
 
     stream = project_events_router.stream_project_events("demo", request, service=service)
 
-    # snapshot 通过(第 1 次 is_disconnected 返回 False)
     assert (await anext(stream)).event == "snapshot"
     # 下一轮迭代顶部的检测命中断线 → break,即使后面 _iter() 还在持续吐 changes。
     with pytest.raises(StopAsyncIteration):

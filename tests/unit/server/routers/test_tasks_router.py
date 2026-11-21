@@ -10,7 +10,6 @@ from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_display_names
 
-# 这些用例的项目没有剧本文件：条目找不到，位置为 None。
 _NO_SCRIPT = {"item_position": None, "item_excerpt": "", "item_thumbnail": None}
 
 

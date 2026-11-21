@@ -169,7 +169,6 @@ interface ButtonProps {
   projectName: string;
   episode: number;
   regenerate: boolean;
-  /** 页头动作用描边小按钮；空状态里的主操作用实心按钮。 */
   prominent?: boolean;
 }
 

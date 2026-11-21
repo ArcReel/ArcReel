@@ -404,7 +404,6 @@ describe("EndpointsSection", () => {
       expect.stringContaining("backup-video"),
     ]);
     expect(within(rows[1]).getByText("Backup relay")).toBeInTheDocument();
-    // 二级栏第二行写的是同一份数据
     expect(screen.getAllByRole("link", { name: /Example Video API.*2 个模型使用/ })[0]).toBeInTheDocument();
 
     await userEvent.click(within(rows[1]).getByRole("link", { name: "打开「Backup relay」中的模型 backup-video" }));

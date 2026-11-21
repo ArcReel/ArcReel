@@ -52,7 +52,6 @@ function pickPatchFields(source: MarketSourceInfo, patch: SourcePatch): SourcePa
   return Object.fromEntries((Object.keys(patch) as (keyof SourcePatch)[]).map((key) => [key, source[key]]));
 }
 
-/** 按 `ordered` 的顺序与 position 重排当前行，行内其他字段保留本地值；不在其中的行排在最后。 */
 function applyOrder(current: MarketSourceInfo[], ordered: MarketSourceInfo[]): MarketSourceInfo[] {
   const slots = new Map(ordered.map((source, index) => [source.id, { index, position: source.position }]));
   const slotIndex = (source: MarketSourceInfo) => slots.get(source.id)?.index ?? ordered.length;

@@ -42,7 +42,6 @@ from lib.custom_provider.comfyui.failures import (
 
 logger = logging.getLogger(__name__)
 
-#: 生成路径上每个 HTTP 请求的超时。
 HTTP_TIMEOUT_SECONDS = 60
 
 #: 叫停远端用的超时。比生成路径的短得多：这几个请求发在任务已被取消之后，一台不响应的
@@ -131,8 +130,6 @@ class ComfyuiExecution:
             }
         )
         return f"{self._client.base_url}/view?{query}"
-
-    # ------------------------------------------------------------------ 轮询与取件
 
     async def _poll_to_terminal(
         self,
@@ -236,8 +233,6 @@ class ComfyuiExecution:
             logger.info("ComfyUI 队列读取失败，本轮不判丢失", exc_info=True)
             return None
 
-    # ------------------------------------------------------------------ 叫停远端
-
     async def stop_remote(self, prompt_id: str) -> None:
         """best-effort 叫停远端：失败只记日志，本地状态机不动。
 
@@ -261,8 +256,6 @@ class ComfyuiExecution:
                 if prompt_id in pending:
                     await self._client.drop_from_queue(http, prompt_id)
                 elif prompt_id in running:
-                    # ``/interrupt`` 打断的是「当前正在执行的那一个」、不认 id：running 里不是
-                    # 自己这一笔时发出去，停掉的是别人的活。
                     await self._client.interrupt(http)
         except Exception:
             logger.warning("ComfyUI 远端叫停失败 prompt_id=%s", prompt_id, exc_info=True)

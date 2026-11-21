@@ -47,13 +47,11 @@ function itemAtDeletion(t: TFunction<"dashboard">, object: TrashRecord["object"]
   return `${episodeDisplayName(episodes, object.episode, t)} · ${object.item_position}`;
 }
 
-/** 名称后接删除时的正文摘录，同一集的多条记录凭它区分；没有摘录时只有名称。 */
 function withExcerpt(t: TFunction<"dashboard">, name: string, object: TrashRecord["object"]): string {
   const excerpt = object.item_excerpt;
   return typeof excerpt === "string" && excerpt !== "" ? t("trash_object_with_excerpt", { name, excerpt }) : name;
 }
 
-/** 对象名：按对象类型显示，只涉及文件的对象取被删文件的路径。 */
 function objectTitle(
   t: TFunction<"dashboard">,
   object: TrashRecord["object"],
@@ -100,7 +98,6 @@ function recordTitle(t: TFunction<"dashboard">, record: TrashRecord, episodes: E
   return objectTitle(t, record.object, episodes) ?? record.files[0] ?? record.id;
 }
 
-/** 恢复结果的提示：降级时说明找回了什么、哪些只能下载；对象换了名时给出新名，文件换了位置时给出真实落点。 */
 function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result: RestoreResult): string {
   const { currentScripts, currentProjectData } = useProjectsStore.getState();
   const episodes = currentProjectData?.episodes ?? [];
@@ -115,7 +112,6 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
     const label = episodeItemLabel(String(result.object.id), currentScripts, episodes, t);
     return t("trash_restored_object", { name: label });
   }
-  // 带名字的对象（剪辑时间线）按名字说明是否改名；其余按文件落点说明。
   if (record.has_snapshot && typeof record.object.name === "string") {
     const landed = result.object.name;
     return typeof landed === "string" && landed !== record.object.name
@@ -127,7 +123,6 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
   return renamed ? t("trash_restored_renamed", { name, path: renamed.path }) : t("trash_restored", { name });
 }
 
-/** 生成完成时目标已删除的结果：不是谁删的，单独说明来历。 */
 function recordMetaKey(record: TrashRecord): string {
   return record.object.note === "target_deleted_during_generation"
     ? "trash_record_meta_target_deleted"
@@ -143,10 +138,6 @@ interface PurgeRequest {
   run: () => Promise<unknown>;
 }
 
-/**
- * 文件视图的「回收站」分区：列出删除记录，可以恢复、彻底删除或清空。
- * 恢复可以再删回去，直接执行；彻底删除与清空不可逆，先用 AlertDialog 确认。
- */
 export function TrashSection({ projectName, refreshKey }: { projectName: string; refreshKey: number }) {
   const { t } = useTranslation("dashboard");
   const trashRevision = useAppStore((s) => s.trashRevision);
@@ -198,7 +189,6 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
     setBusyIds((current) => new Set(current).add(record.id));
     try {
       const result = await API.restoreTrashRecord(projectName, record.id);
-      // 降级后留下只能下载的结构文件时记录还在，由随后的重拉换成只能下载的样子
       if (result.download_only.length === 0) dropRecords((item) => item.id !== record.id);
       if (record.object.kind === "script_entry" && !result.degraded) {
         if (await refreshAfterWrite(projectName, t) !== "success") return;
@@ -333,7 +323,6 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
   );
 }
 
-/** 降级恢复后留下的结构文件：说明为什么只能下载，逐个提供下载。 */
 function DownloadOnlyFiles({ projectName, record }: { projectName: string; record: TrashRecord }) {
   const { t } = useTranslation("dashboard");
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -378,7 +367,6 @@ function DownloadOnlyFiles({ projectName, record }: { projectName: string; recor
   );
 }
 
-/** 彻底删除与清空的确认：不可恢复。`request` 为 null 时关闭。 */
 function PurgeConfirmDialog({
   request,
   blocked,

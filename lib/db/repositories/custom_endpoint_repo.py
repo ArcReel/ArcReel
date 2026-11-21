@@ -105,8 +105,6 @@ class CustomEndpointRepository(BaseRepository):
         await self.session.execute(delete(CustomEndpoint).where(CustomEndpoint.id == endpoint_id))
         await self.session.flush()
 
-    # ── 引用完整性 ────────────────────────────────────────────────
-
     async def list_attachments(self, endpoint_key: str) -> list[EndpointAttachment]:
         """按 ``endpoint`` 键字面量列出引用它的模型行及其供应商协议。
 

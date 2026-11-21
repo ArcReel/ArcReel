@@ -23,7 +23,6 @@ export interface TimelinePlayback {
   playing: boolean;
   /** 是否已经开始播放过。此前 `<video>` 只需拉元数据与首帧，之后才需要整段缓冲与预载下一段。 */
   started: boolean;
-  /** 当前片段在播放计划里的下标；没有可播放片段时为 -1。 */
   index: number;
   /** 正在显示的 `<video>`。切到下一个片段时，新片段有了画面才换过去，之前停在上一个片段的末帧上。 */
   visibleSlot: Slot;
@@ -56,7 +55,6 @@ interface Runtime {
   /** 播放过一次后为 true；此前不为下一段预载。 */
   started: boolean;
   lastFrame: number;
-  /** 每个元素当前装载的片段 ID。 */
   loaded: [string | null, string | null];
   /** 每个元素等待元数据到达后要定位到的时间；换装载时作废。 */
   pendingSeek: [(() => void) | null, (() => void) | null];
@@ -235,7 +233,6 @@ export function useTimelinePlayback(
     if (state.preloadedAfter !== state.index) preloadAfter(state.index);
   }, [element, preloadAfter]);
 
-  /** 只缓冲 `at` 附近要放的音频。 */
   const preloadAudioAround = useCallback((at: number) => {
     for (const placement of audioRef.current) {
       const entry = audioPool.current.get(placement.id);

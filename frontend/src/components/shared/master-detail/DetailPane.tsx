@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
 
 interface DetailPaneProps {
-  /** 页头：名称、状态与页头动作，不随正文滚动。 */
   header?: ReactNode;
-  /** 页脚：常驻的保存栏（`SaveBar`），不随正文滚动。 */
   footer?: ReactNode;
   children: ReactNode;
 }

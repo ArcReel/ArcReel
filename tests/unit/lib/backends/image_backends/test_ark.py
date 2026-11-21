@@ -24,10 +24,6 @@ from lib.backends.providers import PROVIDER_ARK
 from tests.factories import image_bytes
 from tests.http_capture import capture_http, only_request, request_json
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 FAKE_B64 = base64.b64encode(b"fake-png-data").decode()
 
 
@@ -81,11 +77,6 @@ def _recorded_ark_client(
 
     with patch("lib.backends.image_backends.ark.create_ark_client", _create):
         yield created, client
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 
 class TestArkImageBackendInit:
@@ -213,7 +204,6 @@ class TestArkImageBackendGenerate:
 
         result = await backend.generate(request)
 
-        # SDK called correctly
         call_kwargs = client.requests[-1]
         assert call_kwargs["model"] == "doubao-seedream-5-0-pro-260628"
         assert call_kwargs["prompt"] == "a cat"
@@ -221,7 +211,6 @@ class TestArkImageBackendGenerate:
         assert "response_format" not in call_kwargs
         assert "image" not in call_kwargs
 
-        # Result
         assert isinstance(result, ImageGenerationResult)
         assert result.provider == PROVIDER_ARK
         assert result.image_path == output
@@ -303,7 +292,6 @@ class TestArkImageBackendGenerate:
     async def test_i2i_single_ref(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client
 
-        # Prepare a reference image file
         ref_file = tmp_path / "ref.png"
         ref_file.write_bytes(image_bytes())
         expected_data_uri = "data:image/png;base64," + base64.b64encode(image_bytes()).decode()

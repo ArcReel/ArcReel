@@ -30,7 +30,6 @@ export const COMFYUI_EXPECTED_SUFFIXES: Readonly<Record<string, string>> = {
   video: ".m4v / .mov / .mp4",
 };
 
-/** 无值时的占位。 */
 const DASH = "—";
 
 export const STATUS_LABEL_KEYS: Record<UsageRecordStatus, string> = {
@@ -40,7 +39,6 @@ export const STATUS_LABEL_KEYS: Record<UsageRecordStatus, string> = {
   cancelled: "usage_status_cancelled",
 };
 
-/** 状态文字与状态点的颜色。 */
 export const STATUS_TEXT_CLASSES: Record<UsageRecordStatus, string> = {
   pending: "text-primary",
   success: "text-good",
@@ -90,7 +88,6 @@ export function purposeKey(purpose: string | null): string | null {
  */
 export interface TargetItem {
   kind: EpisodeItemKind;
-  /** 在本集里的当前位置；条目已不在剧本里时为 null。 */
   position: number | null;
   excerpt: string;
   thumbnail: string | null;
@@ -136,7 +133,6 @@ export function targetParts(
   return { item: null, prefix: null, name: key ? t(`dashboard:${key}`) : DASH };
 }
 
-/** 供应商显示名优先取筛选候选值里的 label，查不到回退 id。 */
 export function providerLabelResolver(
   summary: UsageSummary | null,
 ): (provider: string | null) => string {
@@ -162,7 +158,6 @@ export function unpricedReasonKey(reason: string | null): string {
   return (reason && UNPRICED_REASON_KEYS[reason]) || "usage_unpriced_reason_unknown";
 }
 
-/** 汇总里只有项目名，标题从 `filter_options.project_titles` 查。 */
 export function projectTitleResolver(summary: UsageSummary | null): (name: string) => string | null {
   const titles = summary?.filter_options.project_titles ?? {};
   return (name) => titles[name] ?? null;
@@ -222,7 +217,6 @@ export function formatCount(value: number, language: string): string {
 
 const compactFormatters = new Map<string, Intl.NumberFormat>();
 
-/** 末位去零的定点小数：12.0 → 12，12.34 → 12.3。 */
 function trimmedFixed(value: number): string {
   return String(Number(value.toFixed(1)));
 }
@@ -296,7 +290,6 @@ export function usageProjectLabel(
   return t("usage_project_deleted", { name: project, date });
 }
 
-/** 耗时列；无时长可显示时给破折号。文案与任务读数共用 `formatElapsedMs`。 */
 export function formatDurationMs(
   durationMs: number | null,
   t: ElapsedTranslate,
@@ -305,7 +298,6 @@ export function formatDurationMs(
   return formatElapsedMs(durationMs, t);
 }
 
-/** 进行中行的实时耗时，起点为 ISO 时刻。 */
 export function elapsedSince(startedAt: string, now: number, t: ElapsedTranslate): string {
   const start = parseIsoTimestamp(startedAt).getTime();
   if (Number.isNaN(start)) return DASH;

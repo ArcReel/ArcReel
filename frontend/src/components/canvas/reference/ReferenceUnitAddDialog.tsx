@@ -40,7 +40,6 @@ export function ReferenceUnitAddDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // 提交中不关闭，结果出来前对话框保持原样
         if (!next && !submitting) onClose();
       }}
     >

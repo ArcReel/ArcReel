@@ -63,9 +63,6 @@ class Violation:
         return f"{self.rule} {self.path.as_posix()}:{self.line} {self.guidance}"
 
 
-# ---------------------------------------------------------------- 规范索引
-
-
 @dataclass(frozen=True)
 class Standard:
     path: Path
@@ -170,9 +167,6 @@ def check_generated_blocks(root: Path, standards: list[Standard], fix: bool, out
                 )
 
 
-# ---------------------------------------------------------------- Dependabot 分组
-
-
 def _line_of(root: Path, path: Path, needle: str) -> int:
     for n, line in enumerate((root / path).read_text(encoding="utf-8").split("\n"), 1):
         if needle in line:
@@ -262,9 +256,6 @@ def check_dependabot_groups(root: Path, out: list[Violation]) -> None:
             )
 
 
-# ---------------------------------------------------------------- 工具版本
-
-
 def check_tool_versions(root: Path, out: list[Violation]) -> None:
     pre_commit = yaml.safe_load((root / PRE_COMMIT_CONFIG).read_text(encoding="utf-8"))
     revs = {
@@ -299,8 +290,6 @@ def check_tool_versions(root: Path, out: list[Violation]) -> None:
                 )
             )
 
-
-# ---------------------------------------------------------------- 豁免理由
 
 SUPPRESSION_SKIP_DIRS = frozenset(
     {
@@ -434,8 +423,6 @@ def check_suppression_reasons(root: Path, out: list[Violation]) -> None:
             _text_suppressions(rel, source, out)
 
 
-# ---------------------------------------------------------------- 随包 ffmpeg
-
 FFMPEG_SCAN_GLOBS = ("lib/**/*.py", "server/**/*.py", "packages/*/src/**/*.py", "agent_runtime_profile/**/*.py")
 FFMPEG_FINDERS = frozenset({Path("lib/infra/ffmpeg.py")})
 _FFMPEG_NAMES = frozenset({"ffmpeg", "ffprobe"})
@@ -459,8 +446,6 @@ def check_bundled_ffmpeg(root: Path, out: list[Violation]) -> None:
                 )
                 out.append(Violation("BUNDLED-FFMPEG", rel, node.lineno, guidance))
 
-
-# ---------------------------------------------------------------- 跨模块私有导入
 
 PRIVATE_IMPORT_SCAN_GLOBS = ("lib/**/*.py", "server/**/*.py", "scripts/**/*.py", "packages/*/src/**/*.py")
 
@@ -500,8 +485,6 @@ def check_private_imports(root: Path, out: list[Violation]) -> None:
                     )
                     out.append(Violation("PRIVATE-IMPORT", rel, node.lineno, guidance))
 
-
-# ---------------------------------------------------------------- 硬删除类别
 
 HARD_DELETE_SCAN_GLOBS = ("lib/**/*.py", "server/**/*.py", "packages/*/src/**/*.py")
 # 项目回收站与已删除项目模块本身负责真正删除（彻底删除、清空、过期清理）
@@ -634,8 +617,6 @@ def check_hard_deletes(root: Path, out: list[Violation]) -> None:
         out.extend(Violation("HARD-DELETE", rel, line, orphan) for line in sorted(tags.keys() - covered))
 
 
-# ---------------------------------------------------------------- 测试期按名字取被替换的函数
-
 TEST_SCAN_GLOBS = ("tests/**/*.py",)
 #: 根 conftest 的 autouse fixture 经替换模块属性固定的函数（``tests/catalog_support.py`` 的
 #: ``install_catalog``、``set_catalog_today``）。导入时按名字绑定的是替换前的函数，用例因此绕过 fixture。
@@ -730,9 +711,6 @@ def check_root_fixture_patched_names(root: Path, out: list[Violation]) -> None:
                 )
                 found.append(Violation("TEST-PATCHED-NAME", rel, node.lineno, guidance))
         out.extend(sorted(found, key=lambda v: v.line))
-
-
-# ---------------------------------------------------------------- 入口
 
 
 def audit(root: Path = ROOT, *, fix: bool = False) -> list[Violation]:

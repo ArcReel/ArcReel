@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export interface LeaveGuardOptions {
-  /** 有未保存修改；为 false 时不拦截。 */
   dirty: boolean;
   /**
    * 保存请求在途。此时的离开先等保存落定再判断：成功且没有新修改就直接放行，失败或又有修改才询问。
@@ -57,7 +56,6 @@ export interface ConfirmLeaveOptions {
 }
 
 interface LeaveRequest extends ConfirmLeaveOptions {
-  /** 被这次离开影响的编辑单元。 */
   unitIds: string[];
   title?: string;
   proceed: LeaveAction;
@@ -161,7 +159,6 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation("common");
   const [path] = useLocation();
   const search = useSearch();
-  // 路由的当前地址（路径加查询串），供 aroundNav 识别跳到当前地址
   const hereRef = useRef("");
   useLayoutEffect(() => {
     hereRef.current = search ? `${path}?${search}` : path;
@@ -181,7 +178,6 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  /** 这次离开会影响的编辑单元：排除放行该目标的单元。 */
   const leavingUnits = useCallback(
     (to?: string) => [...unitsRef.current].filter(([, unit]) => !(to !== undefined && unit.allowNavigation?.(to))),
     [],

@@ -413,7 +413,6 @@ export function ReferenceVideoCanvas({
   const handleRestoringChange = restoring.set;
   const setDurationSaving = durationSaving.set;
 
-  /** 该 unit 是否被任一写入路径占用：生成（tasks-store 占用集）、成片上传、版本恢复或时长保存。 */
   const isUnitLocked = useCallback(
     (unitId: string) =>
       isUnitBusy(projectName, unitId) ||
@@ -572,7 +571,6 @@ export function ReferenceVideoCanvas({
       ),
     [projectName, episode],
   );
-  /** 单元入口的复核：无占用且规划状态可生成。 */
   const canEnqueueUnit = useCallback(
     (unitId: string) => !isUnitLocked(unitId) && !isUnitGenerationBlocked(unitId),
     [isUnitLocked, isUnitGenerationBlocked],
@@ -634,7 +632,6 @@ export function ReferenceVideoCanvas({
   const durationGate = useReferenceDurationGate({ projectName, episode, onEditReferences: editUnitReferences });
   /** 整批准入判定的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
   const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
-  /** 提交前确认框的输入：本轮要预览的单元与画布摘掉的跳过项。 */
   const [batchPlan, setBatchPlan] = useState<{ unitIds: string[]; skipped: ReferenceBatchSkip[] } | null>(null);
 
   const enqueue = useCallback(
@@ -651,7 +648,6 @@ export function ReferenceVideoCanvas({
         return;
       }
       try {
-        // 乐观打标（请求发出前）、失败回滚与 queued/deduped 提示都在动作层内完成
         await enqueueReferenceVideoUnit(
           projectName,
           episode,
@@ -1071,7 +1067,6 @@ export function ReferenceVideoCanvas({
     const status = statusMap[unit.unit_id];
     return (
       <>
-        {/* 中栏上方：单元头部、单元提示与窄屏下的编辑 / 预览切换 */}
         <div className="col-start-2 row-start-1 flex min-w-0 flex-col border-b border-border">
           <div className="flex flex-wrap items-center gap-2 px-4 py-2">
             <ItemPositionOfTotal itemId={unit.unit_id} kind="unit" position={selectedIndex + 1} total={units.length} />
@@ -1377,7 +1372,6 @@ export function ReferenceVideoCanvas({
         {(content) => content}
       </RetainedEditUnit>
 
-      {/* 图标栏展开的完整列表：搜索、新增与排序 */}
       <Sheet open={listSheetOpen} onOpenChange={setListSheetOpen}>
         <SheetContent
           side="left"

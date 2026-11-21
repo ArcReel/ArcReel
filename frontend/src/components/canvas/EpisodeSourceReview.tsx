@@ -33,9 +33,6 @@ import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
  * 脚本规划过期时，保存前先确认。
  */
 
-// ---------------------------------------------------------------------------
-// 本集导览：节拍是顺序，保留编号；尾钩子单独一块
-// ---------------------------------------------------------------------------
 
 function hasGuide(meta: EpisodeMeta | undefined): boolean {
   return (meta?.outline?.story_beats?.length ?? 0) > 0 || Boolean(meta?.hook);
@@ -81,7 +78,6 @@ function guideSummary(meta: EpisodeMeta | undefined, t: (key: string, options?: 
   ].filter((part): part is string => part !== null);
 }
 
-/** 窄视图：导览放在原文上方，默认展开，可以收起。 */
 function GuideCollapsible({ meta, className }: { meta: EpisodeMeta | undefined; className?: string }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -106,7 +102,6 @@ function GuideCollapsible({ meta, className }: { meta: EpisodeMeta | undefined; 
   );
 }
 
-/** 宽视图：导览在右侧栏，随滚动固定在视野里。 */
 function GuideRail({ meta, className }: { meta: EpisodeMeta | undefined; className?: string }) {
   const { t } = useTranslation("dashboard");
   const titleId = useId();
@@ -122,9 +117,6 @@ function GuideRail({ meta, className }: { meta: EpisodeMeta | undefined; classNa
   );
 }
 
-// ---------------------------------------------------------------------------
-// 本集原文
-// ---------------------------------------------------------------------------
 
 /** 切片的来源说明：文件名、起止偏移与约略字数；跨文件的切片起止偏移不能相减，只写起止文件。 */
 function SourceRangeNote({ meta }: { meta: EpisodeMeta | undefined }) {
@@ -153,7 +145,6 @@ function SourceRangeNote({ meta }: { meta: EpisodeMeta | undefined }) {
   );
 }
 
-/** 集原文的阅读排版：编辑体、保留原文换行，长串折行。 */
 export function EpisodeSourceText({ text }: { text: string }) {
   return (
     <p className="max-w-[40em] font-editorial text-base leading-loose wrap-break-word whitespace-pre-wrap text-subtle-foreground">
@@ -164,7 +155,6 @@ export function EpisodeSourceText({ text }: { text: string }) {
 
 interface SourceValue {
   text: string;
-  /** 源文件类型；null 时不提供类型选择（非剧情演绎项目）。 */
   kind: SourceKind | null;
 }
 
@@ -193,7 +183,6 @@ function SourceEditor({
   const { t } = useTranslation("dashboard");
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
-  // 改类型的确认：受影响的集，以及等确认结果的保存
   const [pending, setPending] = useState<number[] | null>(null);
   const [confirming, setConfirming] = useState(false);
   const resolveRef = useRef<((confirmed: boolean) => void) | null>(null);
@@ -272,7 +261,6 @@ function SourceEditor({
           />
         </label>
       )}
-      {/* 正文用编辑体，与只读的原文同一字族；框随内容撑高，由起步态整体滚动 */}
       <div className="max-w-[calc(40em+1.25rem)] font-editorial">
         <Textarea
           ref={fieldRef}
@@ -411,9 +399,6 @@ function EpisodeSource({
   );
 }
 
-// ---------------------------------------------------------------------------
-// 入口
-// ---------------------------------------------------------------------------
 
 export function EpisodeSourceReview({
   projectName,

@@ -5,8 +5,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 「供应商」分区：全出血档的二级栏（预置 | 自定义 Tab、紧凑档图标栏）、预置供应商详情（密钥、高级配置、底部保存栏）
-// 与自定义供应商详情（连接、模型列表、并发上限、底部保存栏），以及点开模型行打开的模型 Sheet。
 
 const PROVIDERS_PATH = "/app/settings?section=providers";
 
@@ -118,7 +116,6 @@ const MANY_CUSTOM_PROVIDERS: ApiOverrides = {
   },
 };
 
-// 压力变体：一个自定义供应商挂 9 个模型，名称、接口地址与模型 ID 都长。
 const CUSTOM_PROVIDER_ID = 7;
 const CUSTOM_PROVIDER_PATH = `${PROVIDERS_PATH}&custom=${CUSTOM_PROVIDER_ID}`;
 const CUSTOM_PROVIDER_NAME = "自建 OpenAI 兼容网关 · 华东二区备用线路（按量计费，月底结算）";
@@ -210,7 +207,6 @@ const ENDPOINT_MEDIA: Record<string, string> = {
   "dashscope-video": "video",
 };
 
-// 模型列表的行（GET /providers/custom-7/models）与已保存的模型一一对应
 const customListItems = customProvider.models.map((m) => ({
   model_id: m.model_id,
   api_model_name: m.model_id,
@@ -435,7 +431,6 @@ async function customDetailReady(page: Page) {
   await page.getByRole("region", { name: "模型" }).getByRole("listitem").first().waitFor();
 }
 
-/** 点开模型列表里的一行，等模型 Sheet 读完。 */
 async function openModelSheet(page: Page, modelId: string) {
   const row = page.getByRole("region", { name: "模型" }).getByRole("button", { name: new RegExp(modelId) });
   await row.scrollIntoViewIfNeeded();
@@ -482,7 +477,6 @@ defineRegionScenarios("供应商", [
       await models.getByRole("button", { name: /已启用/ }).click();
       await expect(models.getByText("已下线")).toHaveCount(0);
       await expect(models.getByRole("switch").first()).toBeChecked();
-      // 回到「全部」，截长名称与状态标记所在的行
       await models.getByRole("button", { name: /全部/ }).click();
       await legacy.scrollIntoViewIfNeeded();
       await expect(legacy).toBeInViewport();
@@ -565,7 +559,6 @@ defineRegionScenarios("供应商", [
     path: CUSTOM_PROVIDER_PATH,
     api: {
       ...CUSTOM_PROVIDER_DETAIL,
-      // 打开时搜索词为空，列出整个目录；输入后按名字搜索
       "GET /api/v1/catalog/entries": { status: 200, body: { entries: SEEDANCE_ENTRIES } },
       "GET /api/v1/catalog/entries?q=seedance": { status: 200, body: { entries: SEEDANCE_ENTRIES } },
     },

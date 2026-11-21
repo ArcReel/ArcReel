@@ -1,11 +1,9 @@
 """English translations for style template names and taglines."""
 
 MESSAGES: dict[str, str] = {
-    # ===== Category names =====
     "template_category_custom": "Custom",
     "template_category_live": "Live Action",
     "template_category_anim": "Animation",
-    # ===== Live names (18) =====
     "template_name_live_cinematic_ancient": "Cinematic Historical",
     "template_name_live_zhang_yimou": "Zhang Yimou",
     "template_name_live_ancient_xianxia": "Ancient Xianxia",
@@ -24,7 +22,6 @@ MESSAGES: dict[str, str] = {
     "template_name_live_wong": "Wong Kar-wai",
     "template_name_live_shaw": "Shaw Brothers",
     "template_name_live_cyberpunk": "Live Cyberpunk",
-    # ===== Anim names (18) =====
     "template_name_anim_3d_cg": "3D Game CG",
     "template_name_anim_cn_3d": "Chinese 3D",
     "template_name_anim_kyoto": "Kyoto Animation",
@@ -43,7 +40,6 @@ MESSAGES: dict[str, str] = {
     "template_name_anim_bloodborne": "Bloodborne",
     "template_name_anim_itojunji": "Junji Ito",
     "template_name_anim_90s_retro": "90s Retro Anime",
-    # ===== Live taglines (18) =====
     "template_tagline_live_cinematic_ancient": "Pro lighting · TV quality",
     "template_tagline_live_zhang_yimou": "Bold colors · Ritual",
     "template_tagline_live_ancient_xianxia": "Linjiangxian · Soft filter",
@@ -62,7 +58,6 @@ MESSAGES: dict[str, str] = {
     "template_tagline_live_wong": "Film grain · Eastern city",
     "template_tagline_live_shaw": "HK wuxia · Cinematic",
     "template_tagline_live_cyberpunk": "Cinematic · Ultra HD",
-    # ===== Anim taglines (18) =====
     "template_tagline_anim_3d_cg": "Cinematic · Unreal Engine",
     "template_tagline_anim_cn_3d": "Cinematic · Unreal Engine",
     "template_tagline_anim_kyoto": "Soft cel · Tateishi",

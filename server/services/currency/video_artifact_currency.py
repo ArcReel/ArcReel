@@ -476,8 +476,6 @@ async def complete_video_artifact_commit(
     """Finish normal and resumed video generation through one selection seam."""
 
     async def _notify_completed() -> None:
-        # 完成回调（发项目变更事件）会读剧本、算产物指纹，放进工作线程。产物已定型，回调不可打断：
-        # 取消若在发事件时打断等待，补偿会与仍在发事件的线程竞争，客户端可能收到已撤销视频的成功事件。
         if on_completed is not None:
             await run_noninterruptible_sync(on_completed)
 

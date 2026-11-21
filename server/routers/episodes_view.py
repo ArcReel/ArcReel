@@ -312,11 +312,6 @@ async def set_source_file_kind(
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-# ---------------------------------------------------------------------------
-# 整本源文文件的替换、编辑、删除与调序
-# ---------------------------------------------------------------------------
-
-
 class _SourceFileChangeBase(BaseModel):
     #: 创作者确认过的受影响集清单的版本；缺省或与锁内重算的不一致时只返回清单，不写入。
     revision: str | None = None

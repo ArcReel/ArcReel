@@ -6,10 +6,8 @@ import { EditUnitRetentionContext, useRetainWhile } from "./edit-unit-retention"
 
 import { useLeaveGuard } from "./LeaveGuard";
 
-/** 保存状态：「已保存」短暂显示后回到 idle。 */
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-/** 「已保存」在保存栏或提示条上停留的时长。 */
 const SAVED_DISPLAY_MS = 2000;
 
 export interface EditUnitOptions<T> {
@@ -26,7 +24,6 @@ export interface EditUnitOptions<T> {
   save: (value: T, savedValue: T) => Promise<T | void>;
   /** 判断两份内容是否相同，默认按 JSON 序列化比较。需传稳定引用（或模块级函数）。 */
   isEqual?: (a: T, b: T) => boolean;
-  /** 离开拦截对话框的标题，如「分镜 3 有未保存的修改」；缺省为通用标题。 */
   leaveTitle?: string;
   /**
    * 对返回 true 的应用内导航不拦截，用于不会卸载本编辑单元的跳转（如同一编辑单元的分页切换）。
@@ -41,12 +38,10 @@ export interface SaveAndGenerateOptions {
 }
 
 export interface EditUnit<T> {
-  /** 当前内容，包含未保存修改。 */
   value: T;
   /** 已保存的内容。按字段子集判断修改（如侧栏分页的修改标记）时与 `value` 比较。 */
   savedValue: T;
   setValue: (next: T | ((prev: T) => T)) => void;
-  /** 有未保存修改。 */
   dirty: boolean;
   status: SaveStatus;
   /** 最近一次保存失败的原因；再次编辑、放弃或保存成功时清除。 */
@@ -57,7 +52,6 @@ export interface EditUnit<T> {
   externalChangeMessage?: string;
   /** 提交未保存修改，返回是否成功；没有修改时直接返回 true。 */
   save: () => Promise<boolean>;
-  /** 丢弃未保存修改，回到最新的已保存内容。 */
   discard: () => void;
   /**
    * 「保存并生成」：确认（如需要）→ 保存（有修改时）→ 生成。
@@ -69,7 +63,6 @@ export interface EditUnit<T> {
 interface UnitState<T> {
   value: T;
   saved: T;
-  /** 最近一次见到的 `source`，用来识别外部更新。 */
   seenSource: T;
   status: SaveStatus;
   error: string | null;
@@ -171,7 +164,6 @@ export function useEditUnit<T>({
       setState((prev) => ({
         ...prev,
         saved: next,
-        // 保存期间没有继续编辑时，采用服务端规范化后的内容；继续编辑过的保留新修改
         value: isEqual(prev.value, submitted) ? next : prev.value,
         status: "saved",
         error: null,

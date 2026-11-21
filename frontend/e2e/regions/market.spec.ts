@@ -36,7 +36,6 @@ function source(id: number, overrides: Record<string, unknown> = {}) {
   };
 }
 
-// 压力变体：8 个市场源，含刷新失败（错误信息很长）、索引无效与停用的源。
 const SOURCES = [
   source(1),
   source(2),

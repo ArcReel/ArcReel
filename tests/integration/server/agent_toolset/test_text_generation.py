@@ -39,10 +39,6 @@ from tests.integration.server.agent_tool_support import (
     use_fake_caps,
 )
 
-# ---------------------------------------------------------------------------
-# get_video_capabilities
-# ---------------------------------------------------------------------------
-
 
 def _as_json(value: Any) -> Any:
     """Agent 收到的 JSON 形态（如 int 键变为字符串）。"""
@@ -881,7 +877,7 @@ def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
     assert valid["scenes"][0]["duration_seconds"] == 8
     assert valid["scenes"][0]["source_text"] == ""
 
-    bad = {**base_scene, "duration_seconds": 5}  # 5 不在 supported_durations
+    bad = {**base_scene, "duration_seconds": 5}
     # 超出枚举 → 动态 schema 校验失败 → fail-loud 抛 ValueError，不把未校验内容当成正式 script_plan 落盘
     with pytest.raises(ValueError, match="script_plan 规范化内容结构校验失败"):
         _parse_normalized_content(json.dumps({"title": "t", "scenes": [bad]}), model)
@@ -1524,10 +1520,6 @@ async def test_get_video_capabilities_annotates_each_formal_unit(
     assert units["E1U2"]["hydrated_capability"] == "i2v"
     assert units["E1U2"]["problems"] == []
 
-
-# ---------------------------------------------------------------------------
-# 输出截断：脚本规划与提示词编写落到同一个问题码
-# ---------------------------------------------------------------------------
 
 _TRUNCATION_PARAMS = {"provider_id": "custom-3", "model": "my-llm", "custom_model": True}
 

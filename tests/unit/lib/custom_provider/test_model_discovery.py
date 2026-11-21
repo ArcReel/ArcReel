@@ -64,11 +64,6 @@ class TestInferEndpointSmoke:
         assert infer_endpoint("gemini-3-flash", "google") == "gemini-generate"
 
 
-# ---------------------------------------------------------------------------
-# discover_models — OpenAI format
-# ---------------------------------------------------------------------------
-
-
 class TestDiscoverModelsOpenAI:
     @patch("lib.custom_provider.discovery.OpenAI")
     async def test_basic_discovery(self, mock_openai_cls):
@@ -92,16 +87,13 @@ class TestDiscoverModelsOpenAI:
             api_key="sk-test",
         )
 
-        # 鉴权与 base_url 原样透传到 SDK 客户端构造参数
         mock_openai_cls.assert_called_once_with(
             api_key="sk-test",
             base_url="https://api.example.com/v1",
         )
         assert len(result) == 3
-        # 按 id 排序
         ids = [m["model_id"] for m in result]
         assert ids == ["dall-e-3", "gpt-4o", "kling-v2"]
-        # 每项都有 endpoint 字段
         for m in result:
             assert "endpoint" in m
 
@@ -165,9 +157,6 @@ class TestDiscoverModelsOpenAI:
             api_key="sk-test",
         )
 
-        # 按 id 排序: dall-e-4, gpt-5.4, gpt-5.4-mini, gpt-image-1.5
-        # openai-images: dall-e-4 (default), gpt-image-1.5
-        # openai-chat: gpt-5.4 (default), gpt-5.4-mini
         text_models = [m for m in result if m["endpoint"] == "openai-chat"]
         image_models = [m for m in result if m["endpoint"] == "openai-images"]
 
@@ -201,7 +190,6 @@ class TestDiscoverModelsOpenAI:
         audio_models = [m for m in result if m["endpoint"] == "openai-tts"]
         text_models = [m for m in result if m["endpoint"] == "openai-chat"]
         assert [m["model_id"] for m in audio_models] == ["tts-1", "tts-1-hd"]
-        # audio 组首个为默认，且不影响 text 组自己的默认
         assert audio_models[0]["is_default"] is True
         assert audio_models[1]["is_default"] is False
         assert text_models[0]["is_default"] is True
@@ -278,11 +266,6 @@ class TestDiscoverModelsOpenAI:
         )
 
         assert result == []
-
-
-# ---------------------------------------------------------------------------
-# discover_models — Google format
-# ---------------------------------------------------------------------------
 
 
 class TestDiscoverModelsGoogle:
@@ -430,11 +413,6 @@ class TestDiscoverModelsGoogle:
         assert created == [{"api_key": "test-key", "http_options": {"base_url": "https://custom-endpoint.com/"}}]
 
 
-# ---------------------------------------------------------------------------
-# Unknown format
-# ---------------------------------------------------------------------------
-
-
 class TestUnknownFormat:
     async def test_unknown_discovery_format(self):
         from lib.custom_provider.discovery import discover_models
@@ -445,11 +423,6 @@ class TestUnknownFormat:
                 base_url="https://api.example.com",
                 api_key="sk-test",
             )
-
-
-# ---------------------------------------------------------------------------
-# discover_models — Anthropic format
-# ---------------------------------------------------------------------------
 
 
 class TestDiscoverModelsAnthropic:
@@ -469,7 +442,7 @@ class TestDiscoverModelsAnthropic:
             )
             result = await discover_models(
                 discovery_format="anthropic",
-                base_url="https://example.com/anthropic/v1/messages",  # 整条端点，验证归一
+                base_url="https://example.com/anthropic/v1/messages",
                 api_key="sk-ant-test",
             )
 
@@ -556,11 +529,6 @@ class TestDiscoverModelsAnthropic:
             await discover_models(discovery_format="bogus", base_url=None, api_key="k")
 
 
-# ---------------------------------------------------------------------------
-# Task spec 示例 fixture
-# ---------------------------------------------------------------------------
-
-
 def test_discover_openai_returns_endpoints(monkeypatch):
     """discover_models(discovery_format='openai', ...) 返回项含 endpoint 字段。"""
     from lib.custom_provider import discovery
@@ -581,6 +549,5 @@ def test_discover_openai_returns_endpoints(monkeypatch):
     assert by_id["gpt-4o"]["endpoint"] == "openai-chat"
     assert by_id["kling-v2"]["endpoint"] == "kling-video-silent"
     assert by_id["dall-e-3"]["endpoint"] == "openai-images"
-    # 每种 media_type 仅一个 default
     defaults = [m for m in result if m["is_default"]]
     assert {m["endpoint"] for m in defaults} == {"openai-chat", "kling-video-silent", "openai-images"}

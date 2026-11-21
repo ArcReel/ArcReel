@@ -21,7 +21,6 @@ class TestSessionMetaStore:
         assert len(sessions) == 1
         assert sessions[0].id == session.id
 
-        # Test status update
         updated = await store.update_status(session.id, "running")
         assert updated
 
@@ -29,25 +28,21 @@ class TestSessionMetaStore:
         assert running_session is not None
         assert running_session.status == "running"
 
-        # Test delete
         deleted = await store.delete(session.id)
         assert deleted
         assert await store.get(session.id) is None
 
     async def test_list_with_filters(self, store):
-        # Create sessions for different projects
         await store.create(project_name="project_a", sdk_session_id="sdk-a1")
         await store.create(project_name="project_a", sdk_session_id="sdk-a2")
         await store.create(project_name="project_b", sdk_session_id="sdk-b1")
 
-        # Filter by project
         sessions_a = await store.list(project_name="project_a")
         assert len(sessions_a) == 2
 
         sessions_b = await store.list(project_name="project_b")
         assert len(sessions_b) == 1
 
-        # Filter by status
         await store.update_status(sessions_a[0].id, "completed")
         completed = await store.list(status="completed")
         assert len(completed) == 1

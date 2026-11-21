@@ -194,9 +194,7 @@ function Ruler({ duration, percent }: { duration: number; percent: (seconds: num
 
 interface TrackRowProps {
   label: string;
-  /** 轨道高度的类名，如 `h-10`。 */
   height: string;
-  /** 轨道名旁的操作按钮。 */
   action?: ReactNode;
   children: ReactNode;
 }
@@ -497,7 +495,6 @@ const SubtitleBlocks = memo(function SubtitleBlocks({
   );
 });
 
-/** BGM 片段的淡入淡出画成两端的渐变。 */
 const BgmBlocks = memo(function BgmBlocks({ items, duration }: { items: readonly AudioPlacement[]; duration: number }) {
   const { t } = useTranslation("dashboard");
   return (

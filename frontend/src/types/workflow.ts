@@ -8,7 +8,6 @@
  * - 任务与供应商收单 —— 这一次尝试跑到哪了，以及供应商侧是否已经收单
  */
 
-/** 编排步骤自身的进度，与产物、任务两轴无关。 */
 export type WorkflowStepState =
   | "completed"
   | "ready"
@@ -20,7 +19,6 @@ export type WorkflowStepState =
 /** 产物时效。stale 是「可继续使用的告警」，不是缺失，也不授权自动重生。 */
 export type ArtifactStatus = "current" | "stale" | "missing" | "blocked";
 
-/** 旁白交付方式：项目配置（docs/adr/0089）。 */
 export type NarrationDelivery = "post_production" | "use_tts";
 
 /**
@@ -90,7 +88,6 @@ export interface WorkflowBlocker {
 export interface WorkflowProblem {
   code: string;
   action: string;
-  /** 出问题的单元；项目级提示为空。 */
   unit_id?: string | null;
   params: Record<string, unknown>;
 }
@@ -164,11 +161,9 @@ export interface AdmissionProblem {
   detail?: string | null;
   action?: string | null;
   params?: Record<string, unknown>;
-  /** 已按用户语言本地化，可直接展示；缺省时按 `code` 查译文表。 */
   message?: string | null;
 }
 
-/** 供应商侧对这一次视频请求的精确报价。 */
 export interface VideoRequestCostQuote {
   /** null 表示价目表算不出这次请求，原因见 unpriced_reason。 */
   amount: number | null;
@@ -196,7 +191,6 @@ export interface BatchAdmissionTier {
   unit_ids: string[];
   cost_amount?: number | null;
   cost_currency?: string | null;
-  /** 这一档里价目表算不出价、未计入 `cost_amount` 的单元数。 */
   unpriced_count?: number;
 }
 
@@ -221,20 +215,17 @@ export interface WorkflowTarget {
   source: string;
 }
 
-/** 一个 AI 操作此刻的结构准入；`reason` 是稳定的理由码，与操作入口的拒绝理由同源。 */
 export interface WorkflowOperation {
   state: "admitted" | "refused" | "not_applicable";
   reason?: string | null;
 }
 
-/** 目标集上在场的一份草稿；`needs_repair` 区分待修复草稿与 Agent 的可编辑草稿。 */
 export interface WorkflowDraft {
   kind: string;
   path: string;
   needs_repair: boolean;
 }
 
-/** 内容现状。集级字段只在有目标集时有值；项目整体不可用时整份为空。 */
 export interface WorkflowContent {
   episode_count: number;
   whole_source: "present" | "absent" | "not_applicable";
@@ -261,7 +252,6 @@ export interface WorkflowContent {
   project_complete?: boolean;
 }
 
-/** 上一次迁移没能带入的一件产物：文件原地保留，没有登记。 */
 export interface WorkflowMigrationSkippedArtifact {
   kind: string;
   episode: number | null;
@@ -272,7 +262,6 @@ export interface WorkflowMigrationSkippedArtifact {
   category?: "unreadable" | "legacy_audio_basis" | null;
 }
 
-/** 迁移或导入对用户数据做的一处调整；`code` 决定展示文案，`params` 是文案里的值。 */
 export type WorkflowMigrationAdjustmentCode =
   | "draft_name_conflict_resolved"
   | "duplicate_episode_entry_removed"
@@ -334,7 +323,6 @@ export interface WorkflowStatus {
   migration_report?: WorkflowMigrationReport | null;
 }
 
-/** 账本中一集建议的下一步（`GET /projects/{name}/workflow-status/episodes`），按账本顺序排列。 */
 export interface EpisodeNextStep {
   episode: number;
   /** 该集的集规划已失效（原文已重新规划），下一步为 `none`。 */
@@ -347,13 +335,11 @@ export interface WorkflowPlan {
   status: WorkflowStatus;
   steps: WorkflowPlanStep[];
   blockers: WorkflowBlocker[];
-  /** 不属于任何步骤的项目级提示（如数据升级失败）。 */
   problems: WorkflowProblem[];
   next_action: WorkflowNextAction;
   next_alternatives: WorkflowNextAction[];
 }
 
-/** `POST /projects/{name}/workflow-plan` 的请求体。 */
 export interface WorkflowPlanRequest {
   episode_id?: number | null;
   confirmed_request_durations?: Record<string, number>;

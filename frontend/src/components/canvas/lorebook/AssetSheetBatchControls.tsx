@@ -7,9 +7,6 @@ import { pendingSheetCounts } from "./useAssetSheetStatus";
 import { useActiveResourceIds } from "@/stores/tasks-store";
 import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
 
-/**
- * 画廊工具栏上的「生成待生成的 X（N）」批量入口；旁边注明另有几个因缺描述不会生成。
- */
 export function AssetSheetBatchControls({
   projectName,
   assetType,

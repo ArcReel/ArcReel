@@ -10,11 +10,8 @@ interface RenderButtonProps {
   projectName: string;
   timelineId: string;
   timelineName: string;
-  /** 当前修订的 issues；有阻断全部交付物的 issue 时按钮不可点。 */
   issues: readonly EditTimelineIssueRef[];
-  /** 项目用 TTS 配音时可以选旁白版本。 */
   narrationAvailable: boolean;
-  /** 打开剪辑视图的「问题」列表。 */
   onShowIssues: () => void;
 }
 

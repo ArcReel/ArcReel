@@ -32,19 +32,14 @@ interface MediaCardProps {
   segmentId: string;
   /** 资产相对路径，如 storyboards/E1S2_v1.png */
   assetPath: string | null;
-  /** 视频海报缩略图（仅 kind=video 用） */
   posterPath?: string | null;
-  /** 渲染比例 */
   aspectRatio: "9:16" | "16:9";
   /** 生成按钮是否禁用（视频生成需要先有分镜图） */
   generateDisabled?: boolean;
   /** 自定义禁用 tooltip，未提供时使用默认（"分镜图未生成"）的视频禁用提示 */
   generateDisabledHint?: string;
-  /** 进行中状态 */
   generating?: boolean;
-  /** 估算费用（按币种 breakdown，例如 {USD: 0.12} 或 {CNY: 5.25}） */
   estimatedCost?: CostBreakdown;
-  /** 触发生成 */
   onGenerate?: () => void;
   /** 生成按钮文案，缺省按有无产物写「生成」或「重新生成」；有未保存修改时传「保存并生成」。 */
   generateLabel?: string;
@@ -52,7 +47,6 @@ interface MediaCardProps {
   onRestore?: () => Promise<unknown> | void;
   /** 自主上传回调（替换该分镜的分镜图/视频）；未提供时不显示上传入口 */
   onUpload?: (file: File) => Promise<void> | void;
-  /** 本卡片的上传请求进行中 */
   uploading?: boolean;
   /** 其他上传进行中等需要互斥的场景：禁用上传入口但不显示 spinner */
   uploadDisabled?: boolean;

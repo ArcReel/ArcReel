@@ -227,7 +227,7 @@ class TestMergeKeepsScriptPlanConfirmation:
         pm.merge_asset(PROJECT, "characters", "老王", "王建国")
 
         impact = next(item for item in preview.episodes if item.episode == 1)
-        assert impact.script_plan == 2  # 引用数组一处 + 并入目标一处
+        assert impact.script_plan == 2
         plan = load_json_or_none(path)
         assert plan is not None
         resolution = resolve_new_assets(pm.load_project(PROJECT), plan["new_assets"])
@@ -582,7 +582,7 @@ class TestMergeWithProducedArtifacts:
             for unit_id in ("E2U1", "E2U2", "E2U3")
         }
         assert storyboards == {"E1S01": False, "E1S02": True, "E1S03": True}
-        assert videos == {"E2U1": False, "E2U2": True, "E2U3": False}  # E2U3 只换了说话人
+        assert videos == {"E2U1": False, "E2U2": True, "E2U3": False}
 
     @pytest.mark.parametrize("uploaded", [False, True])
     def test_a_selected_uploaded_video_is_not_counted_as_outdated(
@@ -687,7 +687,7 @@ class TestMergeWithProducedArtifacts:
         preview = produced.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
         produced.merge_asset(PROJECT, "characters", "老王", "王建国")
 
-        assert (preview.episodes[0].episode, preview.episodes[0].storyboards) == (1, 1)  # 只有 E1S01
+        assert (preview.episodes[0].episode, preview.episodes[0].storyboards) == (1, 1)
         assert self._grid_currency(produced) == (True, True)
         record = load_json_or_none(produced.get_project_path(PROJECT) / "grids" / f"{self._GRID_ID}.json")
         assert record["reference_images"] == [

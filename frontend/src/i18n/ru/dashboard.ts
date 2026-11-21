@@ -80,7 +80,6 @@ export default {
   'lorebook': 'Лорбук',
   'no_episodes_yet': 'Серий пока нет',
   'confirm_delete_file': 'Удалить «{{name}}»?',
-  // 全局设置侧栏
   'settings_group_generation': 'Генерация',
   'settings_group_agent': 'Агент',
   'settings_group_system': 'Система',
@@ -222,10 +221,8 @@ export default {
   'subagent_card_label': 'Субагент',
   'subagent_tokens': 'токенов: {{count}}',
   'task_in_progress_default': 'Выполняется',
-  // One-time inline tip after the story setting is extracted
   'overview_handoff_tip': 'Сеттинг истории извлечён. Теперь отправьте агенту справа «Начать производство».',
   'overview_handoff_dismiss': 'Понятно',
-  // Project overview and the empty-project welcome page
   'overview_meta_episodes_one': '{{count}} серия',
   'overview_meta_episodes_few': '{{count}} серии',
   'overview_meta_episodes_many': '{{count}} серий',
@@ -320,7 +317,6 @@ export default {
   'pause_audio_sample': 'Приостановить',
   'delete_audio_sample': 'Удалить образец голоса',
 
-  // TTS-generated reference audio sample
   'voice_sample_action': 'Сгенерировать через TTS',
   'voice_sample_not_configured_hint': 'Сначала настройте аудиопровайдера в настройках',
   'voice_sample_modal_title': 'Сгенерировать образец голоса',
@@ -356,7 +352,6 @@ export default {
   'generate_design': 'Сгенерировать изображение материала',
   'regenerate_design': 'Сгенерировать изображение материала заново',
 
-  // Instruction-based image editing
   'image_edit_action': 'Изменить область',
   'image_edit_no_image_hint': 'Сначала сгенерируйте или загрузите изображение, затем редактируйте',
   'image_edit_modal_title': 'Изменить область',
@@ -437,7 +432,6 @@ export default {
   'text_models': 'Текстовые модели',
   'text_models_desc': 'Настройте текстовые модели по уровням задач; оставьте пустым, чтобы использовать модель по умолчанию.',
   'no_text_providers_hint': 'Пока нет провайдера, который умеет генерировать текст.',
-  // GlobalHeader
   'mode_badge_drama': 'Драма 16:9',
   'mode_badge_narration': 'Закадровый текст/комментарий 9:16',
   'project_zip_download_started_with_diagnostics': 'Загрузка ZIP-архива проекта началась, в экспорт входит {{count}} сообщений диагностики',
@@ -504,7 +498,6 @@ export default {
   'episode_status_label_completed': 'Завершена',
   'episode_status_label_missing': 'Отсутствует',
 
-  // CreateProjectModal
   'wizard_steps_label': 'Шаги',
   'wizard_step_done': ' (готово)',
   'wizard_missing': 'Ещё нужно: {{items}}',
@@ -525,7 +518,6 @@ export default {
   'default_duration_desc': 'AI определяет длительность по содержанию или задайте фиксированную длительность',
   'auto': 'Авто',
 
-  // ExportScopeDialog
   'export_scope_title': 'Выберите область экспорта',
   'export_scope_description': 'Скачайте проект в виде ZIP-архива.',
   'export_scope_confirm': 'Экспортировать',
@@ -556,7 +548,6 @@ export default {
   'draft_path_default_mac': '/Users/<YourUsername>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft',
   'draft_path_default_windows': String.raw`C:\Users\<YourUsername>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`,
 
-  // Task status & cancellation flow
   'generating_status': 'Генерация…',
   'queued_status': 'В очереди',
   'completed_status': 'Завершено',
@@ -602,7 +593,6 @@ export default {
   'task_type_render_final_cut': 'Рендер финального видео',
   'task_type_render_jianying_draft': 'Экспорт черновика Jianying',
 
-  // Agent
   'new_session': 'Новая сессия',
   'delete_session': 'Удалить сессию',
   'generating_queue_hint': 'Агент отвечает. Отправленные сейчас сообщения будут в очереди',
@@ -738,7 +728,6 @@ export default {
   'agent_failure_conclusion_subprocess_unsupported': "Бэкенд не может создавать подпроцессы из-за устройства цикла событий, поэтому запустить Claude Code не удалось. Так бывает в Windows, когда бэкенд запущен с --reload; перезапустите бэкенд без --reload.",
   'agent_failure_conclusion_startup_failed': 'При запуске произошла ошибка. Исходные данные — в разделе «Подробности».',
 
-  // StudioCanvasRouter & Toasts
   'storyboard_task_submitted_toast': 'Задача генерации раскадровки для «{{id}}» отправлена',
   'generate_storyboard_failed': 'Не удалось сгенерировать раскадровку: {{message}}',
   'video_task_submitted_toast': 'Задача генерации видео для «{{id}}» отправлена',
@@ -760,11 +749,9 @@ export default {
   'add_to_library_button_label': 'Добавить в библиотеку',
   'loading_placeholder': 'Загрузка…',
 
-  // Form actions
   'cancel': 'Отмена',
   'add': 'Добавить',
 
-  // OverviewCanvas cost & style section
   'estimate': 'Оценка',
   'storyboard': 'Раскадровка',
   'video': 'Видео',
@@ -779,7 +766,6 @@ export default {
 
   'load_failed': 'Не удалось загрузить: {{message}}',
 
-  // AgentConfigTab
   'api_credentials': 'Учётные данные API',
   'env_anthropic_api_key': 'Соответствует переменной окружения ANTHROPIC_API_KEY',
   'clear_saved': 'Удалить сохранённое',
@@ -805,16 +791,12 @@ export default {
   'clear_base_url_input': 'Очистить поле Base URL',
   'clear_model_input': 'Очистить поле конфигурации модели',
 
-  // WelcomeCanvas
 
-  // WorkspaceNotificationsDrawer title
   'workspace_notifications_title': 'Уведомления рабочего пространства',
   'notifications_trigger_unread': 'Уведомления рабочего пространства, непрочитанных: {{count}}',
 
-  // MediaModelSection
   'save_failed': 'Не удалось сохранить: {{message}}',
 
-  // Usage header entry & popover
   'usage_entry_aria': 'Записи расхода · справочная стоимость {{cost}}',
   'usage_entry_aria_active': 'Записи расхода · справочная стоимость {{cost}} · задач в работе: {{count}}',
   'usage_close_panel': 'Закрыть панель записей расхода',
@@ -825,7 +807,6 @@ export default {
   'usage_popover_empty': 'У этого проекта пока нет записей расхода. Вызовы появятся здесь, когда начнётся генерация.',
   'usage_view_all_records': 'Показать все записи',
 
-  // UsageRecordsSection
   'all': 'Все',
   'usage_records_title': 'Записи расхода',
   'usage_records_desc': 'Смотрите результат и справочную стоимость каждого вызова в разрезе проекта, провайдера и модели.',
@@ -991,7 +972,6 @@ export default {
   'usage_attention_consecutive_detail': 'Сбоев: {{count}} ({{media}}), последний в {{time}}',
   'usage_attention_consecutive_action': 'Показать этот кадр',
 
-  // import diagnostics
   'import_auto_fixed': 'Проект «{{title}}» импортирован (автоматически исправлено проблем: {{count}})',
   'import_success_with_diagnostics': 'Импорт завершён с замечаниями — проверьте подробности ниже',
   'import_diagnostics': 'Диагностика импорта',
@@ -999,7 +979,6 @@ export default {
   'import_failure_with_diagnostics': 'Импорт не завершён. Ниже перечислены блокирующие и предупреждающие пункты.',
   'blocking_issues': 'Блокирующие проблемы',
   'auto_fixed_issues': 'Автоматически исправленные проблемы',
-  // config-status-store
   'video_provider_not_configured': 'Для генерации видео не настроен провайдер',
   'image_provider_not_configured': 'Для генерации изображений не настроен провайдер',
   'text_provider_not_configured': 'Для генерации текста не настроен провайдер',
@@ -1014,7 +993,6 @@ export default {
   'recommendation_keep': 'Оставить текущую',
   'recommendation_dismiss': 'Не сейчас',
 
-  // OverviewCanvas / shared aria labels
   'import_project_file_aria': 'Импорт ZIP-файла проекта',
   'import_credential_file_aria': 'Импорт JSON-файла учётных данных',
   'upload_asset_file_aria': 'Загрузить файл материала',
@@ -1032,7 +1010,6 @@ export default {
   'storyboard_count': 'Кадров: {{count}}',
   'video_unit_count': 'Видеофрагментов: {{count}}',
 
-  // ProjectSettingsPage
   'project_settings': 'Настройки проекта',
   'agent_profile_title': 'Профиль агента',
   'agent_profile_description': 'Инструкции агента проекта безопасно обновляются вместе со встроенными с сохранением локальных изменений.',
@@ -1162,7 +1139,6 @@ export default {
   'image_edit_task_failed': 'Не удалось изменить «{{id}}»: {{reason}}',
   'script_plan_task_failed': 'Не удалось спланировать сценарий «{{episode}}» с помощью ИИ: {{reason}}',
   'task_failed_provider_reason_suffix': ' (Причина провайдера: {{reason}})',
-  // ========== reference-to-video editor ==========
   'reference_editor_view_aria': 'Вид редактора',
   'reference_editor_view_script': 'Сценарий',
   'reference_editor_view_parse': 'Предпросмотр разбора',
@@ -1272,7 +1248,6 @@ export default {
   'voice_consistency_none_desc': 'Эта модель не поддерживает озвученные реплики — в сгенерированном видео нет голосовой дорожки.',
   'text_model_override_desc': 'Переопределение по типу задачи; оставьте пустым, чтобы использовать глобальное значение',
 
-  // ProviderSection
   'status_ready': 'Готов',
   'status_error': 'Ошибка',
   'status_unconfigured': 'Не настроен',
@@ -1281,14 +1256,12 @@ export default {
   'select_provider': 'Выберите провайдера',
   'provider_saved_refresh_failed': 'Сохранено, но список провайдеров не обновился. Перезагрузите страницу.',
 
-  // ProviderDetail
   'media_type_video': 'Видео',
   'media_type_audio': 'Аудио',
   'media_type_image': 'Изображение',
   'media_type_text': 'Текст',
   'advanced_config': 'Расширенная конфигурация',
 
-  // CustomProviderSection
   'add_custom_provider': 'Добавить своего провайдера',
   'provider_rail_preset': 'Встроенные',
   'provider_rail_custom': 'Свои',
@@ -1470,7 +1443,6 @@ export default {
   'pm_multiplier_help': 'Стоимость равна официальной цене, умноженной на этот множитель. Например, 0,8 означает скидку 20%.',
   'pm_multiplier_help_subscription': 'Тариф по подписке. По умолчанию 0, поэтому стоимость не записывается.',
   'pm_multiplier_save_failed': "Расширенные настройки сохранены, но множитель не сохранён: {{message}}",
-  // 供应商模型 Sheet
   'pm_sheet_provider_settings': 'Настройки провайдера',
   'pm_sheet_model_info': 'Сведения о модели',
   'pm_sheet_enabled': 'Включена',
@@ -1612,7 +1584,6 @@ export default {
   'provider_field_gcs_bucket': 'Бакет GCS',
   'provider_field_wan3_base_url': 'Базовый URL Wan 3.0',
 
-  // CustomProviderForm
   'add_custom_provider_title': 'Добавить своего провайдера',
   'cp_connection_heading': 'Подключение',
   'cp_base_url_label': 'Базовый URL',
@@ -1781,7 +1752,6 @@ export default {
   'cp_provider_multiplier_save_failed': 'Провайдер сохранён, но множитель провайдера не сохранён: {{message}}',
   'cp_provider_multiplier_create_failed': 'Провайдер создан, но множитель провайдера не сохранён: {{message}}. Введите его заново в сведениях о провайдере.',
 
-  // CustomProviderDetail
   'discovery_format_label': 'Протокол поиска моделей',
   'discovery_format_help': 'Используется только для «Получить список моделей» и «Проверить подключение»; на рабочие вызовы не влияет.',
   'discovery_format_openai': 'Совместимый с OpenAI',
@@ -1877,14 +1847,12 @@ export default {
   'endpoint_gemini_vertex_interactions_video_display': 'Vertex AI Video (Omni)',
   'endpoint_agnes_video_display': 'Agnes (видео)',
   'endpoint_catalog_loading': 'Загрузка каталога эндпоинтов…',
-  // Image Capability
   'image_capability_t2i': 'T2I',
   'image_capability_i2i': 'I2I',
   'image_capability_both': 'T2I · I2I',
   'image_model_t2i_label': 'Модель «текст в изображение»',
   'image_model_i2i_label': 'Модель «изображение в изображение»',
 
-  // WorkspaceNotificationsDrawer
   'notifications_count': 'Уведомления: {{count}}',
   'no_notifications': 'Уведомлений нет',
   'notifications_hint': 'Здесь появятся обновления проектов, завершения генераций и изменения, к которым можно перейти',
@@ -1893,7 +1861,6 @@ export default {
   'just_now': 'Только что',
   'minutes_ago': '{{count}} мин назад',
 
-  // TimelineCanvas
   'select_episode_hint': 'Выберите серию на боковой панели',
   'cost_estimate_short': 'Оценка',
   'cost_actual_short': 'Факт',
@@ -1995,15 +1962,12 @@ export default {
   'reference_meta_cost': 'Стоимость',
   'reference_meta_cost_spent': 'потрачено',
 
-  // Source file normalization toasts
 
-  // Grid preview
   'grid_batch_count': 'Мультисеточных раскадровок: {{count}}',
   'generating_grid': 'Генерация...',
   'generate_grid_btn': 'Сгенерировать мультисеточную раскадровку',
   'insufficient_scenes_for_grid': 'Недостаточно сцен для мультисеточной раскадровки',
 
-  // GridPreviewPanel
   'grid_status_pending': 'Ожидает',
   'grid_status_generating': 'Генерация',
   'grid_status_completed': 'Готово',
@@ -2039,10 +2003,8 @@ export default {
   'grid_upload_success': 'Композит загружен; можно разделить его на ячейки',
   'grid_upload_failed': 'Не удалось загрузить: {{message}}',
 
-  // StudioCanvasRouter
   'grid_generation_failed': 'Не удалось сгенерировать мультисеточную раскадровку: {{message}}',
 
-  // CredentialList
   'add_credential': 'Добавить провайдера',
   'no_credentials': 'Ключей пока нет. Добавьте ключ, чтобы использовать модели этого провайдера.',
   'active_label': 'Используется',
@@ -2065,14 +2027,12 @@ export default {
   'enter_credentials_required_any_group': 'Полностью заполните хотя бы одну группу учётных данных',
   'or_label': 'или',
 
-  // ProviderModelSelect
   'select_model_placeholder': 'Выберите модель...',
   'select_model_aria': 'Выбор модели',
   'search_model_placeholder': 'Поиск моделей или провайдеров...',
   'search_model_aria': 'Поиск моделей или провайдеров',
   'no_models_match': 'Подходящих моделей нет',
 
-  // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
   'composition_params': 'Композиция',
   'shot_label': 'Кадр',
   'lighting_label': 'Освещение',
@@ -2081,7 +2041,6 @@ export default {
   'ambiance_placeholder': 'Описание атмосферы...',
   'camera_motion_section': 'Камера и фоновый звук',
   'camera_motion_label': 'Движение камеры',
-  // Shot type enum values
   'shot_type_extreme_close_up': 'Сверхкрупный план',
   'shot_type_close_up': 'Крупный план',
   'shot_type_medium_close_up': 'Средне-крупный план',
@@ -2091,7 +2050,6 @@ export default {
   'shot_type_extreme_long_shot': 'Дальний план',
   'shot_type_over_the_shoulder': 'Через плечо',
   'shot_type_point_of_view': 'От первого лица',
-  // Camera motion enum values
   'camera_motion_static': 'Статично',
   'camera_motion_pan_left': 'Панорама влево',
   'camera_motion_pan_right': 'Панорама вправо',
@@ -2114,7 +2072,6 @@ export default {
   'line_placeholder': 'Реплика',
   'add_dialogue': 'Добавить диалог',
   'dialogue_remove': 'Удалить диалог',
-  // script_plan → prompt_authoring content confirmation
   'utterance_kind_dialogue': 'Диалог',
   'utterance_kind_voiceover': 'Закадровый голос',
   'utterance_toggle_kind': 'Переключить между диалогом и закадровым голосом',
@@ -2154,7 +2111,6 @@ export default {
   'review_confirm_failed': 'Не удалось подтвердить, попробуйте ещё раз',
   'review_load_failed': 'Не удалось загрузить результаты плана сценария',
   'review_retry': 'Повторить',
-  // Drafts needing fixes / Agent editable drafts (DraftStatus)
   'draft_prompt_authoring_title': 'Черновик написания промптов требует исправлений',
   'draft_status_invalid': 'Черновик требует исправлений',
   'draft_violation_count_one': '{{count}} нарушение',
@@ -2219,7 +2175,6 @@ export default {
   'review_structure_hint': 'После подтверждения вы сможете добавлять, удалять и менять порядок кадров на таймлайне',
   'review_video_model_unresolved_action': 'Открыть настройки проекта',
 
-  // ReferenceScriptPlanPreviewPanel (reference_video variant script_plan per-episode preview)
   'reference_script_plan_source_text_label': 'Исходный текст',
   'reference_script_plan_source_anchor_broken': 'Не дословный фрагмент исходного текста',
   'reference_script_plan_edit_text': 'Редактировать сценарий',
@@ -2252,7 +2207,6 @@ export default {
   'image_prompt_placeholder': 'Описание раскадровки…',
   'video_prompt_placeholder': 'Описание действия в видео…',
 
-  // VersionTimeMachine
   'version_mgmt': 'Версии',
   'switch_version_failed': 'Не удалось переключить версию: {{message}}',
   'no_history': 'Версий в истории пока нет',
@@ -2278,11 +2232,9 @@ export default {
   'version_moved_to_trash': "v{{version}} перемещена в корзину проекта и будет храниться 30 дней",
   'version_delete_failed': "Не удалось удалить v{{version}}: {{message}}",
 
-  // ProjectCard - more actions
   'more_actions': 'Другие действия',
   'delete_project': 'Удалить проект',
 
-  // ---- Workbench v3 ----
   'project_switcher_current': 'Текущий проект',
   'project_switcher_new': 'Новый проект…',
   'project_switcher_label': 'Переключить проект (текущий: {{name}})',
@@ -2453,7 +2405,6 @@ export default {
   'shot_detail_prev': 'Назад',
   'shot_detail_next': 'Вперёд',
   'eyebrow_segment_refs': 'Референсы',
-  // Agent work rows (tool calls, subagents, skills, background tasks)
   'tool_call_input_label': 'Параметры',
   'tool_call_result_label': 'Результат',
   'work_status_running': 'Выполняется',
@@ -2497,7 +2448,6 @@ export default {
   // Timeline typed entries (interrupt / AskUserQuestion answer)
   'chat_interrupt_notice': 'Остановлено. Ответ не был завершён',
   'chat_compacted_label': 'Контекст сжат',
-  // Agent message stream
   'chat_transcript_label': 'Диалог',
   'chat_code_block_label': 'Блок кода',
   'chat_table_label': 'Таблица',
@@ -2939,7 +2889,6 @@ export default {
   'trash_purge_description': "{{name}} будет удалён безвозвратно, восстановить его нельзя.",
   'trash_action_failed': "Не удалось выполнить действие: {{message}}",
 
-  // ---- Projects lobby · Darkroom ----
   'lobby_search_placeholder': 'Поиск проектов',
   'lobby_search_kbd': '⌘K',
   'lobby_hero_greeting_morning': 'Доброе утро, режиссёр.',
@@ -3006,7 +2955,6 @@ export default {
   'lobby_no_filter_match': 'Подходящих проектов нет',
   'lobby_no_filter_match_hint': 'Попробуйте сбросить фильтры или изменить ключевое слово.',
   'lobby_clear_filters': 'Сбросить фильтры',
-  // 外部 Agent 接入与访问令牌
   'ext_agent_desc': 'Внешние агенты используют инструменты [[brand]] через публичные навыки и удалённый MCP. Чтобы подключиться, выполните три шага ниже.',
   'ext_agent_steps': 'Шаги подключения',
   'ext_agent_step_skills_title': 'Установите публичные навыки',
@@ -3119,7 +3067,6 @@ export default {
   'diagnosis_network': 'Сеть недоступна. Проверьте URL и брандмауэр.',
   'diagnosis_timeout': 'Вышестоящий сервис не ответил вовремя. Эндпоинт доступен, но модель не успела ответить; можно сохранить и повторить.',
   'diagnosis_unknown': 'Неизвестная ошибка. Смотрите исходный ответ.',
-  // ==================== Shot end frame ====================
   'end_frame_title': 'Последний кадр',
   'end_frame_description': 'Видео начинается с изображения раскадровки и заканчивается этим кадром. При повторной генерации видео он сохраняется.',
   'end_frame_choose': 'Выбрать изображение',
@@ -3158,7 +3105,6 @@ export default {
   'script_edit_commit_failed': 'Не удалось безопасно сохранить сценарий. Повторите правку.',
   'script_edit_rejected': 'Правка сценария отклонена. Проверьте затронутую операцию и повторите.',
 
-  // 自定义调用端点
   'ce_section_title': 'Эндпоинты',
   'ce_rail_label': 'Список эндпоинтов',
   'ce_rail_mine_empty': 'Пользовательских эндпоинтов пока нет.',
@@ -3524,7 +3470,6 @@ export default {
   'ce_download_policy_image': 'Если указаны и URL изображения, и base64, сначала используется URL. URL изображения скачивается автоматически: с ключом, если он на том же хосте, что и базовый URL, и без учётных данных в остальных случаях. base64 принимается как обычная строка или data URI и сохраняется после декодирования.',
   'cp_no_api_key': 'Этому провайдеру не нужен ключ',
   'cp_no_api_key_conflict': 'Эти модели используют эндпоинты, которым нужен ключ: {{models}}. Их запросы будут уходить без учётных данных.',
-  // ---- 市场 ----
   'market_section_title': 'Маркет',
   'market_refresh_all': 'Обновить всё',
   'market_sources_desc': 'Эндпоинты показываются в порядке этого списка. Отключённые источники маркета остаются в списке, но их эндпоинты скрыты.',
@@ -4080,14 +4025,12 @@ export default {
   'edit_transition_radial': 'Радиальная шторка',
   'edit_transition_gradient_wipe': 'Градиентная шторка',
   'edit_transition_squeeze': 'Сжатие',
-  // Ad project overview and the "Story setting" tab
   'episode_view_setting': 'Мир истории',
   'ad_setting_hint': 'Генерация сценария с ИИ опирается на эти настройки. После сохранения изменений уже сгенерированный сценарий помечается как устаревший.',
   'ad_brief_title': 'Творческий бриф',
   'ad_brief_placeholder': 'Опишите нужное видео: аудитория, тон, ключевые преимущества, призыв к действию…',
   'ad_products_view_all': 'Показать все',
   'ad_products_empty_hint': 'Добавьте фото товара и преимущества, и генерация сценария с ИИ будет строить сюжет вокруг товара. Без товара можно генерировать только по брифу.',
-  // 共享组件：缩略图的查看大图
   'image_fullscreen_preview': 'Открыть изображение {{name}} в полном размере',
   // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
   'catalog_picker_title': 'Выбрать из каталога моделей',

@@ -4,10 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# validate_script_filename — shared guard for all enqueue tools
-# ---------------------------------------------------------------------------
-
 
 @pytest.mark.parametrize(
     "bad",

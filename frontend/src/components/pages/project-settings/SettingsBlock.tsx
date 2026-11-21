@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-/** 分页页头：只显示分页名，可选一行说明。 */
 export function TabHeader({ title, description }: { title: string; description?: ReactNode }) {
   return (
     <header className="flex flex-col gap-1">
@@ -10,7 +9,6 @@ export function TabHeader({ title, description }: { title: string; description?:
   );
 }
 
-/** 分页里的一个分区：标题、可选说明与内容，相邻分区之间一条细线。 */
 export function SettingsBlock({
   title,
   titleId,

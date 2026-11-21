@@ -27,12 +27,9 @@ import { AssetThumb } from "./AssetThumb";
 /** 入库预览展示的项目资产内容，取项目里已保存的数据：入库时后端照这份数据复制。 */
 export interface LibraryImportPreview {
   description: string;
-  /** 角色的声音风格。 */
   voiceStyle?: string;
-  /** 角色是否有参考音频。 */
   hasReferenceAudio?: boolean;
   sheetPath?: string | null;
-  /** 角色的衍生数量。 */
   derivativeCount?: number;
 }
 
@@ -45,10 +42,6 @@ interface Props {
   busy?: boolean;
 }
 
-/**
- * 把项目里的资产复制到全局资产库。对话框只读预览将要复制的内容，只有名称可以修改。
- * 受控打开：入口是画廊卡片「更多」菜单里的「加入资产库」。
- */
 export function AddToLibraryDialog({
   open,
   onOpenChange,
@@ -110,7 +103,6 @@ function AddToLibraryForm({
   const typeLabel = t(`type.${resourceType}`);
   const isCharacter = resourceType === "character";
 
-  // 资产库里同类型下名称唯一：名称变化后重新查一次是否重名。
   useEffect(() => {
     if (!checkedName) return;
     const controller = new AbortController();

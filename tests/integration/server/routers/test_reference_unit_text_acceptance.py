@@ -185,7 +185,6 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
         },
     )
     _write_json(
-        # v8 项目的草稿仍是 v9→v10 改名前的名字。
         episode_drafts_dir(project_dir, 1) / "step1_reference_units.json",
         {
             "episode": 1,

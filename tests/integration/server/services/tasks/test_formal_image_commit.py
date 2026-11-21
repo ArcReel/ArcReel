@@ -241,9 +241,6 @@ class TestGenerationTasks:
             finally:
                 writer_done.set()
 
-        # 互斥判据由「主线程持锁时对方进不来」双向给出：清单激活与形式产物提交各自在项目
-        # 元数据锁上排队，因而彼此也不可能交错。两段等待窗口都是单向否证——互斥若被破坏，
-        # 慢机上也可能因窗口内尚未跑完而漏报，但绝不会把守规矩的实现判成失败。
         activation_thread = threading.Thread(target=_activate)
         with project_metadata_lock(project_path):
             activation_thread.start()
@@ -284,7 +281,6 @@ class TestGenerationTasks:
 
         use_project_manager(monkeypatch, fake_pm)
         use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
-        # 参考图冻结之后、发给供应商之前登记被删：提交前的复核须在此拦下。
         hook_claim_recheck(monkeypatch, before=lambda: ProjectArtifactManifestAdapter(project_path).delete_entry(key))
 
         with pytest.raises(ValueError, match="no longer registered"):
@@ -309,7 +305,6 @@ class TestGenerationTasks:
 
         use_project_manager(monkeypatch, fake_pm)
         use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
-        # 参考图冻结之后、发给供应商之前字节被换：提交前的复核须在此拦下。
         hook_claim_recheck(monkeypatch, before=lambda: (project_path / artifact_path).write_bytes(b"replacement"))
 
         with pytest.raises(ValueError, match="changed since it was selected"):
@@ -411,7 +406,6 @@ class TestGenerationTasks:
                 refs = kwargs["reference_images"]
 
                 def _race_then_read() -> list[bytes]:
-                    # 生成期间另一方改写了原始参考图；供应商读到的应是冻结时的字节
                     character_path.write_bytes(b"changed-character")
                     previous_path.write_bytes(b"changed-previous")
                     return [(ref["image"] if isinstance(ref, dict) else ref).read_bytes() for ref in refs]

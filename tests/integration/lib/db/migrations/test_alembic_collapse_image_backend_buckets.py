@@ -167,7 +167,6 @@ _RESOLVED_AFTER: dict[str, tuple[str | None, str | None]] = {
     # 语义变更行：迁移前空桶跟随自动推断，迁移后落默认层
     "empty_buckets_with_default": ("grok/grok-2-image", "grok/grok-2-image"),
     "empty_buckets_without_default": (None, None),
-    # 语义变更行：i2i 侧同上
     "mixed_empty_bucket": ("openai/gpt-image-2", "grok/grok-2-image"),
     "empty_default_with_equal_buckets": ("openai/gpt-image-2", "openai/gpt-image-2"),
     "bucket_without_slash_dropped": ("grok/grok-2-image", "grok/grok-2-image"),

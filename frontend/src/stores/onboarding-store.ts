@@ -10,7 +10,6 @@ interface OnboardingState {
    * 靠这个字段把两种「true」的含义分开，避免 `exit()` 把前者误判成不必再写。
    */
   seenConfirmed: boolean;
-  /** 引导是否正在运行 */
   active: boolean;
   /** 拉取「是否已看过」。失败时按已看过处置，宁可不弹也不误弹。 */
   loadStatus: (options?: { signal?: AbortSignal }) => Promise<void>;

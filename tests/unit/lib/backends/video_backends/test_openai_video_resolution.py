@@ -48,7 +48,7 @@ async def test_standard_aspect_maps_to_exact_legal_size(tmp_path, aspect, expect
 @pytest.mark.parametrize("resolution", [None, "720p", "1080p", "4K"])
 async def test_resolution_does_not_break_ratio(tmp_path, resolution):
     """sora-2（base）只有 720p 档：任何 resolution 都不破坏比例，始终 720x1280（清晰度让位比例/模型能力）。"""
-    backend = _make_backend()  # sora-2 base
+    backend = _make_backend()
     size = await _capture_size(backend, output_path=tmp_path / "o.mp4", aspect_ratio="9:16", resolution=resolution)
     assert size == "720x1280"
 

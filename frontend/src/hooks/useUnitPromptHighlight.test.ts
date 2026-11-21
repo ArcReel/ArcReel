@@ -119,8 +119,6 @@ describe("tokenizePrompt", () => {
   });
 
   it("rejects '@' following a word character (mirrors backend MENTION_RE boundary)", () => {
-    // `price@5`: `e` 是 \w 前缀 → `@5` 不算 mention
-    // `email a@b`: `a` 是 \w 前缀 → `@b` 不算 mention
     const t = tokenizePrompt("price@5, email a@b", LOOKUP);
     const mentions = t.filter((x) => x.kind === "mention");
     expect(mentions).toHaveLength(0);

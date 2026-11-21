@@ -336,7 +336,6 @@ export function AddCredentialModal({
                   </DropdownMenu>
                 )}
               </div>
-              {/* 自定义固定在首格，推荐项次之 */}
               <ToggleGroup
                 aria-labelledby="cred-preset-label"
                 variant="outline"

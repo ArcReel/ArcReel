@@ -1,11 +1,9 @@
 """Russian translations for style template names and taglines."""
 
 MESSAGES: dict[str, str] = {
-    # ===== Category names =====
     "template_category_custom": "Свой",
     "template_category_live": "Игровое кино",
     "template_category_anim": "Анимация",
-    # ===== Live names (18) =====
     "template_name_live_cinematic_ancient": "Историческая драма",
     "template_name_live_zhang_yimou": "Чжан Имоу",
     "template_name_live_ancient_xianxia": "Древнее сянься",
@@ -24,7 +22,6 @@ MESSAGES: dict[str, str] = {
     "template_name_live_wong": "Вонг Кар-Вай",
     "template_name_live_shaw": "Братья Шоу",
     "template_name_live_cyberpunk": "Игровой киберпанк",
-    # ===== Anim names (18) =====
     "template_name_anim_3d_cg": "Игровой 3D CG",
     "template_name_anim_cn_3d": "Китайский 3D",
     "template_name_anim_kyoto": "Kyoto Animation",
@@ -43,7 +40,6 @@ MESSAGES: dict[str, str] = {
     "template_name_anim_bloodborne": "Bloodborne",
     "template_name_anim_itojunji": "Дзюндзи Ито",
     "template_name_anim_90s_retro": "Ретро-аниме 90-х",
-    # ===== Live taglines (18) =====
     "template_tagline_live_cinematic_ancient": "Профессиональный свет · Качество ТВ",
     "template_tagline_live_zhang_yimou": "Смелые цвета · Ритуальность",
     "template_tagline_live_ancient_xianxia": "Линьцзянсянь · Мягкий фильтр",
@@ -62,7 +58,6 @@ MESSAGES: dict[str, str] = {
     "template_tagline_live_wong": "Зерно плёнки · Восточный город",
     "template_tagline_live_shaw": "Гонконгское уся · Кинематографичность",
     "template_tagline_live_cyberpunk": "Кинематографичность · Ultra HD",
-    # ===== Anim taglines (18) =====
     "template_tagline_anim_3d_cg": "Кинематографичность · Unreal Engine",
     "template_tagline_anim_cn_3d": "Кинематографичность · Unreal Engine",
     "template_tagline_anim_kyoto": "Мягкий селл · Татэиси",

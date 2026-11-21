@@ -44,7 +44,6 @@ class TestReadMp4Layout:
         [
             pytest.param(MOOV_FIRST, Mp4Layout(major_brand=b"isom", moov_first=True), id="moov-first"),
             pytest.param(MOOV_LAST, Mp4Layout(major_brand=b"isom", moov_first=False), id="moov-last"),
-            # 64 位 largesize 的 mdat 照样越过
             pytest.param(
                 _FTYP + _large_box(b"mdat", b"\x01" * 64) + _MOOV,
                 Mp4Layout(major_brand=b"isom", moov_first=False),

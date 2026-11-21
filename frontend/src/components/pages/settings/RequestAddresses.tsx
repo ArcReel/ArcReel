@@ -102,7 +102,6 @@ interface AddressBarProps {
   onCommit: (draft: string) => void;
 }
 
-/** 一条请求的地址条：点击路径进入行内输入，Enter 或失焦提交，Esc 取消。 */
 function AddressBar({ request, rawBase, override, display, onCommit }: AddressBarProps) {
   const { t } = useTranslation("dashboard");
   const [draft, setDraft] = useState<string | null>(null);

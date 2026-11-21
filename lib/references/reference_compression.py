@@ -26,8 +26,6 @@ from PIL import Image
 
 from lib.infra.image_utils import compress_image_bytes
 
-# ── 保守通用上限（ArcReel 侧安全策略常量，不声称任何一家的真实数字；被动 413 自我纠正）──
-# 与 lib/config/service.py 的 _DEFAULT_REFERENCE_*_MAX_BYTES 数值一致（单测断言对齐）。
 DEFAULT_TOTAL_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_SINGLE_MAX_BYTES = 4 * 1024 * 1024
 
@@ -43,7 +41,6 @@ _FLOOR: tuple[int, int] = (1024, 80)
 # 统一色度抽样 4:4:4，保住带文字 sheet 的边缘（避免 4:2:0 在文字边缘色彩外溢）。
 _SUBSAMPLING_444 = 0
 _BASELINE_QUALITY = 92
-# FRAME 永不缩尺寸：用一个远大于任何真实图片的长边上限，使 compress_image_bytes 不触发 resize。
 _FRAME_NO_RESIZE_EDGE = 1_000_000
 
 # step 0 有条件透传阈值：已是 JPEG 且小于此且尺寸合规则原样透传，避免对合理小图二压。
@@ -56,7 +53,7 @@ LADDER_STEPS = len(_LADDER)
 class RefRole(Enum):
     """参考图角色，决定压缩策略。"""
 
-    ARRAY = "array"  # 多图参考数组：完整基线 + 降档梯子 + 字节预算
+    ARRAY = "array"
     FRAME = "frame"  # 单张首/尾帧：仅超字节时重编码、永不缩尺寸（护 Sora 像素匹配）
 
 
@@ -264,7 +261,6 @@ def compressed_reference_payload(
         for k, (idx, data) in enumerate(zip(compressible_indices, compressed_bytes, strict=True)):
             spec = specs[idx]
             if data is compressible_raws[k]:
-                # 透传：未重编码，直接用原始源路径（不写临时副本）。
                 by_index[idx] = CompressedRef(path=Path(spec.source), role=spec.role)
                 continue
             # 重编码：写临时文件，按 idx 分子目录避免重名，文件名沿用源 stem 保留参考图名。

@@ -32,11 +32,8 @@ interface MessageRowProps {
   streaming?: boolean;
   /** 该 turn 是查看期间新到达的系统事件，其中的失败卡片播报给读屏。 */
   announce?: boolean;
-  /** 此刻是否给出改写入口（判据见 utils.canEditUserTurn）。 */
   editable?: boolean;
-  /** 该条消息是否处于原地编辑态。 */
   editing?: boolean;
-  /** 改写请求在途，编辑器锁定。 */
   submitting?: boolean;
   onStartEdit?: (turnUuid: string, text: string) => void;
   onCancelEdit?: () => void;

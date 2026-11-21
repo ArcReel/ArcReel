@@ -194,7 +194,6 @@ class TestDerivativeDeleteCascade:
         assert response.status_code == 200, response.text
         self._assert_purged(project_path)
         assert read_project_json(project_path)["characters"] == {}
-        # 本体的资产图与衍生一起进了同一条删除记录。
         assert not (project_path / "characters/阿岚.png").exists()
 
     def test_purging_one_derivative_leaves_its_sibling_untouched(self, tmp_path, monkeypatch):
@@ -278,7 +277,6 @@ class TestDerivativeRenameCascade:
 
         assert renamed.status_code == 200, renamed.text
         self._assert_relocated(project_path, digest, owner="阿柳", derivative="战斗装", sheet=sheet)
-        # 旧本体名下的两个收纳目录随之作废。
         assert not (project_path / derivative_sheet_dir("阿岚")).exists()
         assert not (project_path / _VERSION_DIR).exists()
         assert [version["version"] for version in listed.json()["versions"]] == [1]

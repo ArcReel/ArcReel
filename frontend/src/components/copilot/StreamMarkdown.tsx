@@ -4,11 +4,6 @@ import { useOpenAppLink } from "@/hooks/useOpenAppLink";
 import { parseAppLink } from "@/utils/app-link";
 import { voidCall } from "@/utils/async";
 
-// ---------------------------------------------------------------------------
-// StreamMarkdown – lazy-loads the Streamdown component from the `streamdown`
-// package and renders markdown content.  Falls back to a plain whitespace-
-// preserving <div> while the library is loading.
-// ---------------------------------------------------------------------------
 
 interface LoadedStreamdown {
   Component: ComponentType<Record<string, unknown>>;

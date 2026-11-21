@@ -24,7 +24,6 @@ __all__ = [
     "trash_result_if_target_deleted",
 ]
 
-#: 删除记录的对象类型：一份生成结果。
 GENERATION_RESULT_KIND = "generation_result"
 #: 删除记录的标注「生成完成时目标已删除」，前端据此改写发起方文案。
 TARGET_DELETED_NOTE = "target_deleted_during_generation"
@@ -58,8 +57,6 @@ def trash_result_if_target_deleted(
     记录里的文件路径是产物本该落下的原路径，恢复时按回收站的规则加回。
     """
     target_type, target_id = target or (resource_type, resource_id)
-    # shortcut: 复核与随后的正式提交分属两次加锁（项目锁不可重入，提交路径先取剧本锁再取项目锁），
-    # 两者之间的删除仍按各提交路径原有的目标缺失处理；需要严格原子时把复核并进各提交路径的锁内。
     with project_metadata_lock(project_dir):
         if ReferenceIndex.build(project_dir).contains_resource(target_type, target_id):
             return

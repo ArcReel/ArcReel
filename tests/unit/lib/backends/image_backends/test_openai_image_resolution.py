@@ -70,7 +70,7 @@ async def test_image_size_none_still_sends_ratio_correct_size(tmp_path):
     await backend.generate(req)
 
     assert captured["size"] == "720x1280"
-    assert "quality" not in captured  # None 无档位 → 不传 quality
+    assert "quality" not in captured
 
 
 @pytest.mark.asyncio
@@ -86,7 +86,7 @@ async def test_image_size_tier_maps_to_short_edge(tmp_path):
     )
     await backend.generate(req)
 
-    assert captured["size"] == "1008x1792"  # 1K 短边 1024 → 9:16 精确
+    assert captured["size"] == "1008x1792"
     assert captured["quality"] == "medium"
 
 
@@ -100,14 +100,14 @@ async def test_custom_wh_strips_embedded_ratio(tmp_path):
         prompt="hi",
         output_path=tmp_path / "o.png",
         aspect_ratio="9:16",
-        image_size="1920x1080",  # 16:9 的值，但项目要 9:16
+        image_size="1920x1080",
     )
     await backend.generate(req)
 
     w, h = (int(x) for x in captured["size"].split("x"))
-    assert w * 16 == h * 9  # 精确 9:16，而非输入的 16:9
-    assert w < h  # 竖屏
-    assert "quality" not in captured  # 自定义值无档位映射
+    assert w * 16 == h * 9
+    assert w < h
+    assert "quality" not in captured
 
 
 @pytest.mark.asyncio
@@ -120,7 +120,7 @@ async def test_noncanonical_tier_casing_still_maps_quality(tmp_path):
         prompt="hi",
         output_path=tmp_path / "o.png",
         aspect_ratio="9:16",
-        image_size="2k ",  # 小写 + 尾随空格
+        image_size="2k ",
     )
     await backend.generate(req)
 
@@ -141,7 +141,7 @@ async def test_2k_tier(tmp_path):
     )
     await backend.generate(req)
 
-    assert captured["size"] == "1440x2560"  # 2K 短边 1440
+    assert captured["size"] == "1440x2560"
     assert captured["quality"] == "high"
 
 

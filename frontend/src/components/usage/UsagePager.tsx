@@ -12,7 +12,6 @@ interface UsagePagerProps {
   onPage: (direction: "prev" | "next") => void;
 }
 
-/** 记录表与会话表共用的分页脚：当前位置与上下页按钮。 */
 export function UsagePager({ from, to, total, hasPrev, hasNext, onPage }: UsagePagerProps) {
   const { t } = useTranslation("dashboard");
   return (

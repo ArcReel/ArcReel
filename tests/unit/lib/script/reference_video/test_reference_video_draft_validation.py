@@ -259,7 +259,7 @@ class TestDialogueLoad:
         assert validate_dialogue_load("unit E1U01", "镜头1：门开了\n@[李明]：{我来了。}", 4, "zh") is None
 
     def test_overload_rejected(self):
-        long_line = "这是一段非常长的台词" * 6  # 60 字 ÷ 5 字/秒 ≈ 12 秒
+        long_line = "这是一段非常长的台词" * 6
         with pytest.raises(DraftViolation, match="超过该 unit"):
             validate_dialogue_load("unit E1U01", f"镜头1：门开了\n@[李明]：{{{long_line}}}", 4, "zh")
 

@@ -95,7 +95,6 @@ def move_episode(pm: ProjectManager, project_name: str, episode: int, *, after: 
     def _mutate(project: dict[str, Any]) -> None:
         entries = list(_ledger(project))
         if after == episode:
-            # 移到自己之后即原地不动
             _index_of(entries, episode)
             return
         moving = entries.pop(_index_of(entries, episode))

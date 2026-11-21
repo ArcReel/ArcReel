@@ -97,7 +97,6 @@ export interface DialogueUtterance {
 
 export interface VoiceoverUtterance {
   kind: "voiceover";
-  /** 无说话人画外音：speaker 恒为 null 或缺省。 */
   speaker?: null;
   text: string;
 }
@@ -118,16 +117,13 @@ export interface DramaSceneContent {
   props: string[];
   /** 视觉改编自由文本（供 prompt_authoring 生成画面，不内嵌口播）。 */
   scene_description: string;
-  /** 分镜级有序发声序列：台词 / 画外音按时序排列（内容确认的富编辑对象）。 */
   utterances: Utterance[];
   /** 逐字原文摘录（追溯锚，不朗读、不出音）。 */
   source_text: string;
 }
 
-/** 本集新增资产的类型：只有角色、场景、道具会在规划里新增。 */
 export type NewAssetType = "character" | "scene" | "prop";
 
-/** 新增项的处理决定：登记为新资产 / 归到已有资产 / 登记为角色衍生 / 不登记。 */
 export type NewAssetDecision = "register" | "merge" | "derivative" | "skip";
 
 /**
@@ -136,10 +132,8 @@ export type NewAssetDecision = "register" | "merge" | "derivative" | "skip";
  */
 export interface PlanNewAsset {
   type: NewAssetType;
-  /** 规划条目里写的称呼。 */
   name: string;
   decision: NewAssetDecision;
-  /** AI 给出的一句依据。 */
   reason: string;
   /** register：外观描述；derivative：相对本体的变化描述。 */
   description: string;
@@ -187,7 +181,6 @@ export interface ScriptOverwriteEntry {
   has_video: boolean;
   has_narration_audio: boolean;
   has_end_frame: boolean;
-  /** 所属宫格（联合图）ID；不在任何宫格内为 null。 */
   grid_id: string | null;
 }
 
@@ -262,13 +255,13 @@ export interface VideoPrompt {
 
 export interface GeneratedAssets {
   storyboard_image: string | null;
-  storyboard_last_image: string | null;  // grid mode last frame
-  grid_id: string | null;                // source grid ID
-  grid_cell_index: number | null;        // cell index in source grid
+  storyboard_last_image: string | null;
+  grid_id: string | null;
+  grid_cell_index: number | null;
   video_clip: string | null;
   video_thumbnail: string | null;
   video_uri: string | null;
-  narration_audio?: string | null;       // narration audio file path
+  narration_audio?: string | null;
   status: AssetStatus;
 }
 
@@ -327,7 +320,6 @@ export interface DramaScene {
   pending_authoring?: boolean;
 }
 
-/** Novel source information (present in both episode script types). */
 export interface NovelInfo {
   title: string;
   chapter: string;
@@ -426,7 +418,6 @@ export interface PlanScriptRequest {
   instructions?: string | null;
 }
 
-/** 提交后立即返回的生成批次，形状同提示词编写。 */
 export type PlanScriptResponse = AuthorPromptsResponse;
 
 /** 广告/短片「AI 生成脚本」的请求：附加指令只随本次提交；整份重做时带上认可覆盖的令牌。 */
@@ -442,7 +433,6 @@ export interface AdScriptTaskResult {
   new_assets?: { type: "character" | "scene" | "prop"; name: string }[];
 }
 
-/** AI 修复待修复草稿：提交后立即返回的生成批次，形状同提示词编写。 */
 export type DraftRepairResponse = AuthorPromptsResponse;
 
 /** AI 修复任务成功时的结果：违约清零即已采用；未采用时草稿里还剩的违约数。 */
@@ -462,7 +452,6 @@ export interface RenderedPromptPreview {
   previous_storyboard?: string | null;
   text: string | null;
   unavailable: string | null;
-  /** 该条目的这一侧提示词当前是文本形态。 */
   is_text_form: boolean;
   /** 渲染这份文本时产生的提示，已由后端按请求语言渲染成成品文案。 */
   warnings: string[];

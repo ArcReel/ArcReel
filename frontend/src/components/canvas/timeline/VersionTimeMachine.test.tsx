@@ -78,17 +78,14 @@ describe("VersionTimeMachine", () => {
 
     expect(API.getVersions).not.toHaveBeenCalled();
 
-    // Open the panel
     fireEvent.click(screen.getByRole("button", { name: /版本/ }));
 
-    // Click v1 pill to preview
     expect(await screen.findByRole("button", { name: "v1" })).toBeInTheDocument();
     expect(API.getVersions).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "v1" }));
     expect(await screen.findByAltText("版本 v1 预览")).toBeInTheDocument();
     expect(screen.getByText("old prompt")).toBeInTheDocument();
 
-    // Click restore button in header
     fireEvent.click(screen.getByRole("button", { name: /切换到此版本/ }));
 
     await waitFor(() => {
@@ -101,7 +98,6 @@ describe("VersionTimeMachine", () => {
       expect(onRestore).toHaveBeenCalledWith(1);
       expect(API.getVersions).toHaveBeenCalledTimes(2);
     });
-    // 切换结果体现在「当前」标记上，成功不弹提示
     expect(await screen.findByText("当前 v1")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
     expect(useAppStore.getState().toast).toBeNull();
@@ -207,7 +203,6 @@ describe("VersionTimeMachine", () => {
     fireEvent.click(screen.getByRole("button", { name: /版本/ }));
     expect(await screen.findByRole("button", { name: "v1" })).toBeInTheDocument();
 
-    // Click v1 pill to preview
     fireEvent.click(screen.getByRole("button", { name: "v1" }));
 
     const previewImage = await screen.findByAltText("版本 v1 预览");
@@ -409,7 +404,6 @@ describe("VersionTimeMachine", () => {
       subtitles_webvtt: null,
     });
 
-    // 预览的可访问名称按本集位置称呼分镜：E1S01 排在第 2 位
     useProjectsStore.setState({
       currentScripts: {
         "episode_1.json": {

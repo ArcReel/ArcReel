@@ -13,7 +13,6 @@ from lib.project import deleted_projects, project_trash
 
 logger = logging.getLogger(__name__)
 
-#: 保留期按天计，每 6 小时清一次足够及时。
 SWEEP_INTERVAL_SECONDS = 6 * 3600
 
 

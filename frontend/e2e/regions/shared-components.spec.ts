@@ -4,8 +4,6 @@ import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 各区域共用的组件：待修复草稿的状态条与两个确认弹层、内容确认页的「本集新增资产」、「编写提示词」与
-// 广告「AI 生成脚本」对话框、分镜图的查看大图，以及集页顶部的文本任务失败提示。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const PLAN_PATH = `${EPISODE_PATH}?view=plan`;
 const PROJECT = "GET /api/v1/projects/demo";
@@ -140,7 +138,6 @@ const planSegments = Array.from({ length: 12 }, (_, i) => ({
   props: [],
 }));
 
-// 待修复草稿压力：十二条分镜里多处违约（含整集层面的两条）与降级提示。
 const INVALID_DRAFT: ApiOverrides = {
   ...SCRIPTED,
   [SCRIPT_REVIEW]: {
@@ -173,7 +170,6 @@ const INVALID_DRAFT: ApiOverrides = {
   },
 };
 
-// 内容确认页的「本集新增资产」压力：十二项，长依据、长描述与多处出场。
 const NEW_ASSET_NAMES = ["沈砚", "守备", "说书人", "档房老吏", "渡口茶棚", "护城河", "旧档房", "铜牌", "私印", "马灯", "箭楼", "茶楼"];
 const NEW_ASSET_TYPES = ["character", "character", "character", "character", "scene", "scene", "scene", "prop", "prop", "prop", "scene", "scene"];
 const NEW_ASSETS: ApiOverrides = {
@@ -202,7 +198,6 @@ const NEW_ASSETS: ApiOverrides = {
   },
 };
 
-// 广告项目，第一集已有正式脚本：页头的「重新生成脚本」打开整份重做的对话框。
 const AD_PROJECT: ApiOverrides = {
   ...BASE,
   [PROJECT]: {

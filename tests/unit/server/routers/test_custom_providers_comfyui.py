@@ -70,11 +70,6 @@ def _model(endpoint: str, **overrides: Any) -> dict[str, Any]:
     return row
 
 
-# ---------------------------------------------------------------------------
-# 供应商创建与端点目录
-# ---------------------------------------------------------------------------
-
-
 class TestComfyuiProviderCreation:
     async def test_an_empty_api_key_is_accepted(self, comfyui_client: TestClient, custom_providers_app_session_factory):
         """ComfyUI 本体零鉴权，凭据模板在端点定义里：供应商行的 api_key 留空须能保存。"""
@@ -124,11 +119,6 @@ class TestComfyuiProviderCreation:
         assert entry["media_type"] == "image"
         # 夹具没有参考图绑定：这份 workflow 只走得通文生图那一条（``docs/adr/0082``）。
         assert entry["image_capabilities"] == ["text_to_image"]
-
-
-# ---------------------------------------------------------------------------
-# 连通性检查
-# ---------------------------------------------------------------------------
 
 
 def _stats_response(version: str | None = "0.3.60") -> httpx.Response:
@@ -252,11 +242,6 @@ class TestComfyuiProbeDestination:
         assert body["success"] is True
 
 
-# ---------------------------------------------------------------------------
-# 模型发现
-# ---------------------------------------------------------------------------
-
-
 class TestComfyuiDiscovery:
     def test_discovery_reports_not_applicable_rather_than_an_empty_list(self, comfyui_client: TestClient):
         """空列表会被读成「一个都没发现」，界面据此提示检查凭证——那是另一回事。"""
@@ -284,11 +269,6 @@ class TestComfyuiDiscovery:
                 json={"discovery_format": "openai", "base_url": "https://api.example.com/v1", "api_key": "sk-x"},
             ).json()
         assert body["not_applicable"] is False
-
-
-# ---------------------------------------------------------------------------
-# 端点挂接双向校验
-# ---------------------------------------------------------------------------
 
 
 class TestComfyuiEndpointAttachment:
@@ -379,14 +359,8 @@ class TestComfyuiEndpointAttachment:
             },
         )
         assert resp.status_code == 422
-        # 整批不入库：原来那一行还在。
         kept = comfyui_client.get(f"/api/v1/custom-providers/{provider['id']}").json()
         assert [m["endpoint"] for m in kept["models"]] == [comfyui_key]
-
-
-# ---------------------------------------------------------------------------
-# 能力覆盖关闭
-# ---------------------------------------------------------------------------
 
 
 class TestComfyuiCapabilityOverrides:

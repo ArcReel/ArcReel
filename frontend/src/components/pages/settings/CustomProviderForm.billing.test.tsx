@@ -97,7 +97,6 @@ async function renderExisting(existing: CustomProviderInfo, providerMultiplier?:
   await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
 }
 
-/** 新建表单：填好名称、接口地址与密钥。 */
 function renderNew(onSaved = vi.fn()) {
   render(<CustomProviderForm onSaved={onSaved} />);
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的中转站" } });
@@ -106,7 +105,6 @@ function renderNew(onSaved = vi.fn()) {
   return onSaved;
 }
 
-/** 新建表单里手动添加一行模型并填上模型 ID；新加的行默认展开。 */
 function addModelRow(modelId: string) {
   fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
   fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: modelId } });
@@ -170,7 +168,6 @@ describe("CustomProviderForm（计费）", () => {
       renderNew();
 
       fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
-      // 对应不上条目的模型默认不勾选
       fireEvent.click(await screen.findByRole("checkbox", { name: /relay-only/ }));
       fireEvent.click(screen.getByRole("button", { name: "添加 2 个模型" }));
 
@@ -291,7 +288,6 @@ describe("CustomProviderForm（计费）", () => {
       save();
 
       expect(await screen.findByRole("alert")).toHaveTextContent("供应商已保存，供应商倍率未保存：网关拒绝");
-      // 未保存的只剩倍率：输入保留，保存按钮仍可用
       expect(providerMultiplierInput()).toHaveValue("0.5");
       expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
     });

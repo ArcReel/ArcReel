@@ -247,7 +247,6 @@ class TestAssetRouterFactory:
                 json={"reference_image": {"foo": "bar"}},
             )
             assert resp.status_code == 422
-            # entry 未被污染
             assert fake_pm.projects["demo"]["characters"]["Alice"]["reference_image"] == ""
 
     def test_character_patch_reference_audio_stamps_voice_updated_at(self, monkeypatch):
@@ -328,7 +327,6 @@ class TestAssetRouterFactory:
                 json={"voice_notice_dismissed_at": "9999-12-31T00:00:00+00:00"},
             )
             assert resp.status_code == 422
-            # entry 未被污染
             assert "voice_notice_dismissed_at" not in fake_pm.projects["demo"]["characters"]["Alice"]
 
     def test_unknown_asset_type_raises(self):

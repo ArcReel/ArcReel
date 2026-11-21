@@ -49,9 +49,6 @@ async def _add_custom_video_model(db_session: AsyncSession, model_id: str, resol
     return make_provider_id(provider.id)
 
 
-# --- 纯项目字典优先级（非自定义供应商，DB 默认恒 None） ---
-
-
 @pytest.mark.asyncio
 async def test_returns_none_when_nothing_configured(resolver: ConfigResolver):
     assert await resolver.resolve_resolution({}, "gemini-aistudio", "veo-3.1-lite-generate-preview") is None
@@ -97,28 +94,24 @@ async def test_tolerates_null_entries(resolver: ConfigResolver):
 
 @pytest.mark.asyncio
 async def test_tolerates_top_level_field_as_string(resolver: ConfigResolver):
-    # 手编脏数据：model_settings / video_model_settings 顶层本身被写成字符串。
     project = {"model_settings": "oops", "video_model_settings": "also-broken"}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
 @pytest.mark.asyncio
 async def test_tolerates_top_level_field_as_list(resolver: ConfigResolver):
-    # 手编脏数据：model_settings / video_model_settings 顶层本身被写成列表。
     project = {"model_settings": ["gemini-aistudio/m"], "video_model_settings": ["m"]}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
 @pytest.mark.asyncio
 async def test_tolerates_composite_key_entry_as_string(resolver: ConfigResolver):
-    # 手编脏数据：model_settings 里具体某个复合 key 的 entry 被写成字符串而非 dict。
     project = {"model_settings": {"gemini-aistudio/m": "1080p"}}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
 
 @pytest.mark.asyncio
 async def test_tolerates_legacy_model_entry_as_list(resolver: ConfigResolver):
-    # 手编脏数据：legacy video_model_settings 里具体某个 model 的 entry 被写成列表。
     project = {"video_model_settings": {"m": ["1080p"]}}
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") is None
 
@@ -131,9 +124,6 @@ async def test_dirty_model_settings_falls_through_to_legacy(resolver: ConfigReso
         "video_model_settings": {"m": {"resolution": "1080p"}},
     }
     assert await resolver.resolve_resolution(project, "gemini-aistudio", "m") == "1080p"
-
-
-# --- 自定义供应商默认（真实 DB） ---
 
 
 @pytest.mark.asyncio
@@ -175,12 +165,8 @@ async def test_falls_through_to_custom_when_project_empty_string(resolver: Confi
     assert await resolver.resolve_resolution(project, provider_id, "m") == "1K"
 
 
-# ---------------------------------------------------------------------------
-# 时长联动约束
-# ---------------------------------------------------------------------------
-
-_VEO = ("gemini-aistudio", "veo-3.1-generate-preview")  # 声明 {1080p:[8], 4k:[8]} + 参考图 [8]
-_HAILUO = ("minimax", "MiniMax-Hailuo-2.3")  # 声明 {1080p:[6]}，无参考图声明
+_VEO = ("gemini-aistudio", "veo-3.1-generate-preview")
+_HAILUO = ("minimax", "MiniMax-Hailuo-2.3")
 
 
 def test_constrain_durations_by_resolution():

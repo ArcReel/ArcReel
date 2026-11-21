@@ -42,7 +42,6 @@ function scrollIntoViewTop(el: HTMLElement | undefined) {
   el?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
 }
 
-/** 解析地址上的打开请求；没有可识别的参数时返回 null。 */
 function parseViewRequest(
   search: string,
 ): { upload: SourceUploadMode | null; episode: number | null; create: boolean } | null {
@@ -152,7 +151,6 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     [setCurrent],
   );
   const locateFile = useCallback((sourceFile: string) => scrollIntoViewTop(fileBars.current.get(sourceFile)), []);
-  // 开始重新规划时原文滚到重新规划的起点：发起的那一集
   const replan = useReplanEpisode(projectName, locate);
   const compare = useMemo(() => (view === null ? null : replanCompare(view, view.replan)), [view]);
 
@@ -165,7 +163,6 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     else fileBars.current.delete(sourceFile);
   }, []);
 
-  // 待滚动到的集：地址参数、新建与切分完成后指定，原文渲染出这一集时滚过去一次
   const [scrollTarget, setScrollTarget] = useState<{ episode: number } | null>(null);
   const scrolledTarget = useRef<{ episode: number } | null>(null);
   useEffect(() => {

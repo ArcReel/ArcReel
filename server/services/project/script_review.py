@@ -261,8 +261,6 @@ class ScriptReviewService:
         project_path = self.pm.get_project_path(project_name)
         path = script_review.script_plan_path(project_path, project, episode)
         if path is not None:
-            # 适用 gate（drama / narration 非 reference_video）才要求分集已登记；
-            # not_applicable（ad / reference_video）与分集存在性无关，保持原样返回。
             project = self._require_episode(project_name, project, episode)
         content: dict[str, Any] | None = None
         fingerprint: str | None = None

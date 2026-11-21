@@ -86,8 +86,8 @@ def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Pat
 
     def _other() -> None:
         inside.wait(timeout=5)
-        attempting.set()  # 即将去抢项目锁
-        pm.update_project(name, lambda p: p.setdefault("episodes", []))  # 需要 _project_lock
+        attempting.set()
+        pm.update_project(name, lambda p: p.setdefault("episodes", []))
         order.append("other")
         other_done.set()
 
@@ -95,7 +95,7 @@ def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Pat
     t.start()
     try:
         with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
-            inside.set()  # 此刻已持脚本锁 + 项目锁
+            inside.set()
             # 等对方真的开始申请，而不是睡一段猜它到没到——到了仍未完成，才说明是被锁挡住的
             assert attempting.wait(timeout=5), "另一线程应已开始申请项目锁"
             assert not other_done.is_set(), "持项目锁期间 update_project 不应完成"
@@ -123,7 +123,6 @@ def test_locked_episode_script_detects_rebind(tmp_path: Path) -> None:
     with pytest.raises(EpisodeScriptReboundError), pm.locked_episode_script(name, _resolver, validate=False) as script:
         script["video_units"] = [{"unit_id": "SHOULD_NOT_PERSIST"}]
 
-    # 旧脚本未被写入（with 体未执行）
     units = pm.load_script(name, "episode_1.json").get("video_units") or []
     assert units == [], "重绑检测命中时不应改写旧脚本"
 

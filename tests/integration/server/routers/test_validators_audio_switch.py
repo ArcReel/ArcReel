@@ -52,7 +52,6 @@ class TestRequireAudioSwitchSupported:
         await _seed_settings(db_factory, default_video_backend=_ALWAYS_AUDIBLE)
         bind_session_factory(monkeypatch, db_factory)
 
-        # 预检放行即静默返回 None
         assert await require_audio_switch_supported({}, "i2v") is None
 
     async def test_controllable_model_keeps_the_off_setting(self, db_factory, monkeypatch):

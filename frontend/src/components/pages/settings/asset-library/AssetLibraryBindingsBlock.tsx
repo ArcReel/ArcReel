@@ -32,7 +32,6 @@ export function AssetLibraryBindingsBlock({
   reloadToken,
 }: {
   accounts: AssetLibraryAccount[];
-  /** 账号增删改后递增，触发重新读取绑定。 */
   reloadToken: number;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);

@@ -68,9 +68,6 @@ def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> 
 
     overhead = len(encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=""))
     budget = max(FAILURE_MESSAGE_LIMIT - overhead, 0)
-    # JSON 转义（reason 中的引号/反斜杠）会让 budget 字符的 reason 编码后略超预算；始终经
-    # bound_reason 收窄以保持结构化 reason 合法，不对已裁剪结果做原始字符再截断（那会切断
-    # JSON 尾部）。极少数迭代仍超限时接受结果略超 FAILURE_MESSAGE_LIMIT，好过写坏 JSON。
     for _ in range(5):
         reason = bound_reason(reason, budget)
         encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
@@ -255,7 +252,6 @@ class TaskRepository(BaseRepository):
             await self.session.flush()
         except IntegrityError:
             await self.session.rollback()
-            # Unique partial index violation: an active task already exists
             result = await self.session.execute(
                 select(Task)
                 .where(
@@ -466,7 +462,6 @@ class TaskRepository(BaseRepository):
         )
         return [_task_to_dict(t) for t in result.scalars().all()]
 
-    # NOTE: In multi-user mode, override this method to add user_id filtering
     async def claim_next(
         self,
         media_type: str,
@@ -499,7 +494,6 @@ class TaskRepository(BaseRepository):
             provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
             params["providers"] = tuple(pool_full_providers)
 
-        # Use raw SQL for the dependency join (clearer than ORM for self-join)
         raw_stmt = text(f"""
             SELECT tasks.task_id
             FROM tasks
@@ -536,12 +530,10 @@ class TaskRepository(BaseRepository):
             )
         )
         if rowcount(update_result) == 0:
-            # Another worker claimed this task between our SELECT and UPDATE
             await self.session.rollback()
             return None
         await self.session.flush()
 
-        # Reload task
         result = await self.session.execute(select(Task).where(Task.task_id == target_task_id))
         running_task = result.scalar_one()
         task_data = _task_to_dict(running_task)
@@ -615,11 +607,6 @@ class TaskRepository(BaseRepository):
             or not task.provider_id
         ):
             raise ValueError(f"task is not eligible for artifact download retry: {task_id}")
-        # 落 artifact_download_failed 的任务，其调用可能停在 failed（首次下载耗尽后已结算），
-        # 也可能停在 pending（续跑路径下载耗尽，结算与任务翻状态之间有窗口）。两种都受理并
-        # 原地翻回 pending：仍是同一条调用，不新增计费行；上一次下载的失败原文与机器码一并
-        # 清掉，否则重试成功后 resume 结算只翻状态，这条 success 行会一直挂着 download_failed。
-        # 调用行按 ``api_calls.task_id`` 反查——任务与调用的关联只有这一个真相源。
         call_row = await self.session.execute(
             select(ApiCall.id)
             .where(
@@ -1029,7 +1016,6 @@ class TaskRepository(BaseRepository):
         now = utc_now()
         limit = max(1, min(5000, limit))
 
-        # Step 1: collect task_ids to requeue
         id_result = await self.session.execute(
             select(Task.task_id).where(Task.status == "running").order_by(Task.updated_at.asc()).limit(limit)
         )
@@ -1037,7 +1023,6 @@ class TaskRepository(BaseRepository):
         if not task_ids:
             return 0
 
-        # Step 2: batch UPDATE — single round-trip for all tasks
         await self.session.execute(
             update(Task)
             .where(Task.task_id.in_(task_ids), Task.status == "running")
@@ -1052,7 +1037,6 @@ class TaskRepository(BaseRepository):
         )
         await self.session.flush()
 
-        # Step 3: reload updated tasks in one SELECT IN
         rows = await self.session.execute(select(Task).where(Task.task_id.in_(task_ids), Task.status == "queued"))
         requeued_tasks = rows.scalars().all()
 
@@ -1136,7 +1120,6 @@ class TaskRepository(BaseRepository):
         if project_name:
             filters.append(Task.project_name == project_name)
 
-        # Group by status
         stmt = select(Task.status, func.count().label("cnt")).where(*filters).group_by(Task.status)
         stmt = self._scope_query(stmt, Task)
         result = await self.session.execute(stmt)
@@ -1158,8 +1141,6 @@ class TaskRepository(BaseRepository):
         stats["total"] = total
         return stats
 
-    # ---- Worker Lease ----
-
     async def acquire_or_renew_lease(
         self,
         *,
@@ -1171,7 +1152,6 @@ class TaskRepository(BaseRepository):
         lease_until = now_epoch + max(1.0, float(ttl))
         updated_at = utc_now()
 
-        # Fast path: renew existing lease only when we own it or it's expired.
         update_result = await self.session.execute(
             update(WorkerLease)
             .where(
@@ -1188,7 +1168,6 @@ class TaskRepository(BaseRepository):
             await self.session.commit()
             return True
 
-        # Slow path: lease row may not exist yet; try to create it.
         lease = WorkerLease(
             name=name,
             owner_id=owner_id,

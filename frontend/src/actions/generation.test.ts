@@ -38,13 +38,11 @@ import { makeTask } from "@/test/factories";
 
 const SINGLE_OK = { success: true, task_id: "t1", deduped: false, message: "ok" };
 
-/** 该资源是否被占用（真实任务行或乐观标记）。 */
 function occupied(projectName: string, resourceKind: ResourceKind, resourceId: string): boolean {
   const { tasks, optimisticActive } = useTasksStore.getState();
   return selectActiveResourceIds(tasks, resourceKind, projectName, optimisticActive).has(resourceId);
 }
 
-/** 该剧集在指定 taskType 下是否被占用。 */
 function scriptFileOccupied(projectName: string, taskType: string, scriptFile: string): boolean {
   const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
   return selectHasActiveTaskForScriptFile(
@@ -225,7 +223,6 @@ describe("enqueueEpisodeNarration", () => {
 
     expect(occupied("demo", "tts", "E1S01")).toBe(true);
     expect(occupied("demo", "tts", "E1S02")).toBe(true);
-    // 服务端跳过的段（已有旁白 / 无原文）不在映射里，不能被标成生成中
     expect(occupied("demo", "tts", "E1S03")).toBe(false);
     expect(markCounts()).toEqual({ resource: 2, scriptFile: 0 });
     expect(useAppStore.getState().toast?.text).toBe(
@@ -247,7 +244,6 @@ describe("enqueueEpisodeNarration", () => {
 
     await enqueueEpisodeNarration("demo", "episode_1.json");
 
-    // 只有 E1S01 的任务行落库：它让位，E1S02 仍占用。
     useTasksStore.getState().setTasks([
       {
         task_id: "t1",
@@ -333,7 +329,6 @@ describe("enqueueGrid", () => {
 
     await enqueueGrid("demo", 1, "episode_1.json");
 
-    // 只有 g1 的任务行落库：它让位，g2 仍占用。
     useTasksStore.getState().setTasks([
       {
         task_id: "t1",
@@ -474,7 +469,6 @@ describe("enqueuePromptAuthoring", () => {
     useAppStore.setState({ toast: null });
     finish(result, status);
     expect(useAppStore.getState().toast).toBeNull();
-    // 本次任务已结束，监听器随之退订：后续同项目的空操作任务行不归它管。
     finish({ message: "没有待编写的条目", no_pending_authoring: true }, "succeeded", "t-other");
     expect(useAppStore.getState().toast).toBeNull();
   });
@@ -582,7 +576,6 @@ describe("enqueueReferenceVideoBatch", () => {
       unit_ids: ["E1U1", "E1U2"],
     });
 
-    // 只有 E1U1 的任务行落库：它让位，E1U2 仍占用。
     useTasksStore.getState().setTasks([
       {
         task_id: "t1",

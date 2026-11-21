@@ -39,7 +39,6 @@ export interface MessageFlowHandle {
 
 interface MessageFlowProps {
   ref?: Ref<MessageFlowHandle>;
-  /** 提交原地编辑的改写。 */
   onSubmitEdit: (turnUuid: string, text: string, images: ImagePayload[]) => void;
   /** 启动失败卡片的「重试」；不传时卡片不给重试。 */
   onRetryStartup?: () => void;

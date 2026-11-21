@@ -17,12 +17,8 @@ import type {
 import { isComfyuiEndpoint, withDurationsOverride, type DiscoveryFormat } from "./customProviderHelpers";
 import type { FetchSelection } from "./FetchModelsDialog";
 
-// ---------------------------------------------------------------------------
-// 自定义供应商表单的编辑单元内容：已保存的供应商与未保存修改都按这份形状比较。
-// ---------------------------------------------------------------------------
 
 export interface ModelRow {
-  /** 行的稳定标识，随机生成。 */
   key: string;
   model_id: string;
   display_name: string;
@@ -41,7 +37,6 @@ export interface ModelRow {
   // undefined = 还不知道（手动新增、选了对应模型或改过模型 ID 与端点的行，保存后才知道）。
   matched_entry: MatchedCatalogEntry | null | undefined;
   capability_overrides: CapabilityOverrides | null;
-  // 请求地址修改（请求名 → 路径）；null = 全部按端点默认。
   path_overrides: PathOverrides | null;
   // 行创建时的模型 ID 与端点：获取模型时服务端给出的对应条目只对这一组合有效，改过任一项即按「还不知道」处理。
   original_model_id: string;
@@ -109,7 +104,6 @@ export function fetchedToRow(selection: FetchSelection, isDefault: boolean): Mod
   });
 }
 
-/** 新建表单的模型发现结果转成「获取模型」对话框的行；自定义供应商以名字对应上条目为已识别。 */
 export function discoveredToFetched(m: DiscoveredModel, mediaOf: (endpoint: EndpointKey) => MediaType | undefined): FetchedProviderModel {
   return {
     model_id: m.model_id,
@@ -164,7 +158,6 @@ export function formFromProvider(
   };
 }
 
-/** 新建表单的初始内容；从「调用端点」接线过来时预填接口地址，并按所选端点起一行模型。 */
 export function newProviderForm(initialBaseUrl?: string, initialEndpoint?: EndpointKey): CustomProviderFormValue {
   return {
     displayName: "",
@@ -191,7 +184,6 @@ export function parsePositiveInt(s: string): number | null | undefined {
   return Number.isSafeInteger(n) && n >= 1 ? n : undefined;
 }
 
-/** 供应商倍率：空串 = 恢复默认（null）；否则同 parseMultiplier，非法输入返回 undefined。 */
 export function parseOptionalMultiplier(s: string): number | null | undefined {
   return s.trim() ? parseMultiplier(s) : null;
 }
@@ -205,7 +197,6 @@ export function matchedEntryFor(row: ModelRow): MatchedCatalogEntry | null | und
 }
 
 export interface RowToInputOptions {
-  /** 这一行的可选时长可编辑（ComfyUI 视频端点、档位给得出来）：此时由 durations_text 写回覆盖。 */
   durationsEditable: boolean;
 }
 

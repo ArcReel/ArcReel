@@ -72,7 +72,6 @@ IMAGES_PATH = "/images"
 MODELS_PATH = "/images/models"
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-#: 落盘后能转成 PNG 的输出格式
 _RASTER_OUTPUT_FORMATS = frozenset({"png", "jpeg", "jpg", "webp"})
 
 #: 生成耗时可达 90s+，超时须远大于常规请求
@@ -246,7 +245,6 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
             params["size"] = size
         if ratio:
             params["aspect_ratio"] = ratio
-    # 收录但三类都不声明：省略全部尺寸参数，信任模型默认
     if quality and quality_values and quality.lower() in {v.lower() for v in quality_values}:
         params["quality"] = quality
     return params

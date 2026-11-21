@@ -123,7 +123,6 @@ class WorkflowActionType(StrEnum):
     自动进入各处覆盖检查，不必再手抄一份清单。
     """
 
-    # 本模块给出的建议下一步及其分岔
     NONE = "none"
     COLLECT_PROJECT_INPUT = "collect_project_input"
     CREATE_EPISODE = "create_episode"
@@ -1410,7 +1409,6 @@ class WorkflowStateService:
                 WorkflowDraft(
                     kind=kind,
                     path=quarantine_path(project_path, number, kind).relative_to(project_path).as_posix(),
-                    # 信封读不出的草稿同样要先修好才能处置。
                     needs_repair=draft is None or bool(draft.violations),
                 )
             )

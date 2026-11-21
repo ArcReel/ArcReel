@@ -32,7 +32,6 @@ class TestEncodeFailure:
             encode_failure("totally_unknown_code")
 
     def test_every_known_code_round_trips_through_render(self):
-        # Each known code must encode and render to a non-empty, non-raw string.
         translate = _translator("en")
         for code in FAILURE_CODE_KEYS:
             encoded = encode_failure(code, provider_id="p", media_type="video", detail="boom")
@@ -100,7 +99,6 @@ class TestRenderKnownCodes:
         vi = render_failure(encoded, _translator("vi"), make_display_names("vi"))
         assert "Grok" in vi
         assert "image" in vi
-        # locales differ
         assert render_failure(encoded, _translator("zh"), make_display_names("zh")) != render_failure(
             encoded, _translator("en"), make_display_names("en")
         )

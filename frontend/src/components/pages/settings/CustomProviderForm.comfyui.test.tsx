@@ -100,7 +100,6 @@ function protocolPicker() {
   return screen.getByRole("combobox", { name: "模型发现协议" });
 }
 
-/** 在协议下拉里选中某个模型发现协议。 */
 async function selectProtocol(format: string) {
   const user = userEvent.setup();
   await user.click(protocolPicker());
@@ -111,13 +110,11 @@ function endpointPicker() {
   return screen.getByRole("combobox", { name: "调用端点" });
 }
 
-/** 打开端点选择器弹层并返回它的 listbox。 */
 async function openEndpointPicker() {
   await userEvent.setup().click(endpointPicker());
   return await screen.findByRole("listbox");
 }
 
-/** 保存后保存栏上显示的失败原因。 */
 async function saveError() {
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   return await screen.findByRole("alert");

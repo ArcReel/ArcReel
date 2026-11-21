@@ -13,6 +13,6 @@ status: accepted
 - 供应商提交之前写入检查点。收到供应商任务号后，在轮询之前持久化该号码。持久化失败立即终止本地等待并记录 `provider_job_id_persist_failed`。
 - 缺少任务号、检查点不可用、供应商不支持续查或任务已过期都会失败。分流和故障码由 [恢复服务](../../lib/generation/restart_recovery.py) 和 [任务故障契约](../../lib/generation/task_failure.py) 定义。
 - 提交使用任务专属的引用媒体副本，恢复继续使用冻结的请求事实。任务结束时清理自身暂存副本，已登记的产物继续保留。
-- 引用媒体超限后的降档重试只适用于能够确定尚未受理的提交。有关执行检查点与请求一致性的决策见 [ADR 0086](0086-video-request-facts-evaluated-once.md)。
+- 执行期的提交、降档和取件重试见 [ADR 0123](0123-provider-submission-and-retrieval-retry-boundaries.md)。执行检查点与请求一致性见 [ADR 0086](0086-video-request-facts-evaluated-once.md)。
 
 孤儿判定依赖单服务进程的任务所有权。引入多 worker 或多实例部署时，必须区分已终止的任务与其他实例仍在执行的任务。用户主动取消的范围见 [ADR 0006](0006-cancel-only-queued-tasks.md)。

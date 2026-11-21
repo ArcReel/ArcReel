@@ -34,11 +34,6 @@ from tests.fakes import FakeConfigResolver
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("video_request_facts")]
 
 
-# ---------------------------------------------------------------------------
-# 项目与脚本规划装配
-# ---------------------------------------------------------------------------
-
-
 def _activate(project_dir: Path, episode: int = 1) -> None:
     source = project_dir / "source" / f"episode_{episode}.txt"
     source.parent.mkdir(parents=True, exist_ok=True)
@@ -85,11 +80,6 @@ def _fake_generator(responses: list[str]) -> MagicMock:
 
 def _script(project_dir: Path) -> dict[str, Any]:
     return json.loads((project_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-
-
-# ---------------------------------------------------------------------------
-# 三种变体的装配器：造项目 + 脚本规划 + 视觉层响应
-# ---------------------------------------------------------------------------
 
 
 def _narration_plan(*, texts: tuple[str, ...] = ("原文甲。", "原文乙。")) -> dict[str, Any]:
@@ -399,11 +389,6 @@ def _plan_text_field(variant: _Variant) -> str:
 def prompt_variant(request) -> _Variant:
     """带 image_prompt / video_prompt 的两个变体；参考生视频的视觉层是 unit 正文，无提示词字段。"""
     return request.param
-
-
-# ---------------------------------------------------------------------------
-# 用例
-# ---------------------------------------------------------------------------
 
 
 class TestPromptAuthoring:

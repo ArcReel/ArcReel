@@ -13,7 +13,6 @@ interface Props {
   variant?: "outline" | "ghost";
 }
 
-/** 打开「编写提示词」弹窗的入口；本集的提示词编写在跑时禁用。 */
 export function PromptAuthoringButton({ projectName, episode, scope, currentEntryId, variant = "outline" }: Props) {
   const { t } = useTranslation("dashboard");
   const open = usePromptAuthoringStore((s) => s.open);

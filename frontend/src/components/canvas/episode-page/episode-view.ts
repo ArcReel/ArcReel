@@ -26,9 +26,7 @@ export type CanvasView = Exclude<EpisodeView, "setting" | "edit">;
 export interface EpisodeViewFacts {
   isAd: boolean;
   route: GenerationRoute;
-  /** 分镜图生视频且开启了宫格分镜图。 */
   grid: boolean;
-  /** 已有正式剧本。 */
   hasScript: boolean;
   /** 已有脚本规划中间稿（`script_status` 为 segmented 或 generated）。 */
   hasDraft: boolean;
@@ -43,7 +41,6 @@ export function episodeViewTabId(view: EpisodeView): string {
   return `episode-view-tab-${view}`;
 }
 
-/** 本集已有中间稿：分段稿或生成好的剧本草稿。 */
 export function hasEpisodeDraft(meta: EpisodeMeta | undefined): boolean {
   return meta?.script_status === "segmented" || meta?.script_status === "generated";
 }
@@ -91,7 +88,6 @@ function planAvailable(facts: EpisodeViewFacts): boolean {
   return facts.sourceReview || facts.hasDraft || (facts.route === "reference_video" && facts.hasScript);
 }
 
-/** 集页页头的视图 tab，按显示顺序排列。 */
 export function episodeViewTabs(facts: EpisodeViewFacts): EpisodeViewTab[] {
   const plan = planAvailable(facts);
   const tabs: EpisodeViewTab[] = [];
@@ -111,7 +107,6 @@ export function defaultEpisodeView(facts: EpisodeViewFacts): EpisodeView {
   return planAvailable(facts) ? "plan" : "board";
 }
 
-/** 地址上的取值落到哪个视图：无效或不可选时按缺省视图。 */
 export function resolveEpisodeView(requested: string | null, facts: EpisodeViewFacts): EpisodeView {
   const tab = episodeViewTabs(facts).find((entry) => entry.view === requested);
   return tab && !tab.disabled ? tab.view : defaultEpisodeView(facts);

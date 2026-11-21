@@ -104,7 +104,6 @@ def _sync_grid_record(
     )
 
 
-# resource_type（复数，URL 段）→ asset_type（单数，ASSET_SPECS 键）
 _RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
     "characters": "character",
     "scenes": "scene",
@@ -268,9 +267,6 @@ def _restore_non_typed_version(
     return restored[0]
 
 
-# ==================== 版本查询 ====================
-
-
 @router.get("/projects/{project_name}/versions/{resource_type}/{resource_id}")
 async def get_versions(
     project_name: str,
@@ -340,9 +336,6 @@ async def read_resource_versions(project_name: str, resource_type: str, resource
         # 非法项目名 / 损坏的 versions.json 等坏请求，str(e) 可能含路径只进日志
         logger.warning("版本查询请求非法: %s", e)
         raise BadRequestError("request_invalid") from e
-
-
-# ==================== 版本还原 ====================
 
 
 @router.post("/projects/{project_name}/versions/{resource_type}/{resource_id}/restore/{version}")
@@ -423,7 +416,6 @@ async def restore_resource_version(
                 project_path=project_path,
             )
 
-            # 计算还原后文件的 fingerprint
             asset_fingerprints: dict[str, int] = {}
             if current_file.exists():
                 asset_fingerprints[file_path] = current_file.stat().st_mtime_ns

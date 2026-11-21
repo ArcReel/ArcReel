@@ -13,7 +13,6 @@ import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 interface ScriptPlanStartProps {
   projectName: string;
   episode: number;
-  /** 本集上次保存的附加指令。 */
   savedInstructions: string;
   /**
    * 提交前先落定同页的相关修改（如本集原文），返回是否继续；缺省时直接提交。

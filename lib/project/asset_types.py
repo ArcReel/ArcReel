@@ -135,13 +135,8 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         namespace_priority=3,
         reference_list_fields=("products_in_shot",),
         original_image_fields=("reference_images",),
-        # brand 是用户填写的品牌要素自由文本；reference_images 是用户上传的多张产品
-        # 原图路径（系统级，保真验收锚点），selling_points 是卖点列表（agent 起草、
-        # 用户可改）。
         extra_string_fields=("brand",),
         extra_list_fields=("reference_images", "selling_points"),
-        # selling_points 允许 agent 起草/修改；reference_images 是上传路径（与
-        # reference_image 同性质），不进 agent 白名单，更新走专用上传 API。
         agent_editable_extra_fields=("selling_points",),
         # 全局资产库是单图列模型，多图列表型的 product 不进入。
         in_global_library=False,
@@ -157,7 +152,6 @@ SHEET_KEY: dict[str, str] = {t: s.sheet_field for t, s in ASSET_SPECS.items()}
 
 GLOBAL_LIBRARY_ASSET_TYPES: frozenset[str] = frozenset(t for t, s in ASSET_SPECS.items() if s.in_global_library)
 
-#: 衍生表在资产条目内的字段名，供开启 ``supports_derivatives`` 的类型共用。
 DERIVATIVES_FIELD = "derivatives"
 
 
@@ -261,7 +255,7 @@ def build_asset_entry(asset_type: str, description: str, source: Mapping[str, An
     for field in spec.extra_list_fields:
         value = data.get(field)
         if isinstance(value, list):
-            entry[field] = list(value)  # 复制，避免 entry 与调用方共享同一列表对象
+            entry[field] = list(value)
         elif value is None:
             entry[field] = []
         else:

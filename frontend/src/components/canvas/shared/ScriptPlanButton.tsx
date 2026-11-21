@@ -12,7 +12,6 @@ interface Props {
   /** 新规划会替换的现有内容。集页的首次规划走起步区（`ScriptPlanStart`），不经这里。 */
   replaces: ScriptPlanReplacement;
   className?: string;
-  /** 额外的禁用条件（如页面上有未保存的编辑）与对应的说明。 */
   disabledReason?: string | null;
 }
 

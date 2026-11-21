@@ -108,7 +108,6 @@ class OpenAITextBackend:
 
         native = await self._generate_native(request, messages)
         if native is None:
-            # 原生 response_format 通道不兼容（schema 错误），结构化输出整体降级
             return await _instructor_fallback(
                 self._client,
                 self._model,
@@ -211,7 +210,6 @@ def _build_messages(request: TextGenerationRequest) -> list[dict]:
     if request.system_prompt:
         messages.append({"role": "system", "content": request.system_prompt})
 
-    # 构建 user message
     if request.images:
         from lib.backends.image_backends.base import image_to_base64_data_uri
 

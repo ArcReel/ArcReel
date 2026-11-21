@@ -22,10 +22,6 @@ from server.routers import custom_endpoints, custom_providers, system_config
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import comfyui_api_workflow, comfyui_endpoint_definition, custom_endpoint_definition
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def endpoints_app(db_engine, set_error_handler_sessions) -> FastAPI:
@@ -99,11 +95,6 @@ def _create(client: TestClient, definition: dict[str, Any]) -> dict[str, Any]:
     resp = client.post("/api/v1/custom-endpoints", json=definition)
     assert resp.status_code == 201, resp.text
     return resp.json()
-
-
-# ---------------------------------------------------------------------------
-# 生命周期
-# ---------------------------------------------------------------------------
 
 
 class TestCreate:
@@ -274,11 +265,6 @@ class TestDelete:
         assert resp.status_code == 404
 
 
-# ---------------------------------------------------------------------------
-# 保存前确认
-# ---------------------------------------------------------------------------
-
-
 class TestValidate:
     def test_valid_definition_reports_no_errors(self, endpoints_client: TestClient):
         resp = endpoints_client.post("/api/v1/custom-endpoints/validate", json=custom_endpoint_definition())
@@ -407,11 +393,6 @@ class TestValidateDuplicates:
         ).json()
 
         assert body["duplicates"] == []
-
-
-# ---------------------------------------------------------------------------
-# 目录
-# ---------------------------------------------------------------------------
 
 
 class TestComfyuiEndpoint:

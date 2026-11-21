@@ -216,7 +216,6 @@ interface UsageRecordsState {
     filters: UsageRecordsFilters,
     options?: { refetchSummary?: boolean },
   ) => Promise<void>;
-  /** 手动刷新：按当前筛选重取全部三项。 */
   refresh: () => Promise<void>;
   /** 只重取 summary：供应商显示名由服务端按请求语言渲染，切换语言后要重取。 */
   refreshSummary: () => Promise<void>;

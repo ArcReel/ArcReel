@@ -16,7 +16,6 @@ from typing import Any
 
 from .workflow import VALUE_WRAPPER_KEY, is_link, node_inputs
 
-#: 一条连线：``(上游节点 id, 上游输出序号)``。
 type LinkRef = tuple[str, int]
 
 
@@ -148,7 +147,6 @@ class Resolution:
         return self.node is not None
 
 
-#: 上溯停不下来时的结果。
 UNRESOLVED = Resolution(None, None, None)
 
 

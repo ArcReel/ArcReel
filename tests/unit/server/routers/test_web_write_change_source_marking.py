@@ -34,7 +34,6 @@ _SERVICE = "来源在服务层标记：{}"
 _ASSET_LINK = "只写数据库里的供应商素材关联与入库任务；早期版本记录按需补写内容版本身份，不改变创作内容"
 
 _EXEMPT: dict[str, str] = {
-    # 任务提交与控制
     "ad_script:generate_ad_script": _TASK,
     "asset_sheets:submit_asset_sheet_batch_route": _TASK,
     "edit_timelines:export_jianying_draft": _TASK,
@@ -64,7 +63,6 @@ _EXEMPT: dict[str, str] = {
     "storyboard_batches:submit_storyboard_batch": _TASK,
     "storyboard_batches:submit_storyboard_video_batch_route": _TASK,
     "tasks:cancel_all_queued": _TASK,
-    # 预览与只读
     "_asset_prompt_preview:preview_asset": _NO_WRITE,
     "_asset_prompt_preview:preview_derivative": _NO_WRITE,
     "asset_sheets:preview_asset_sheet_batch": _NO_WRITE,
@@ -75,7 +73,6 @@ _EXEMPT: dict[str, str] = {
     "reference_videos:preview_units_batch": _NO_WRITE,
     "storyboard_batches:preview_storyboard_batch": _NO_WRITE,
     "storyboard_batches:preview_storyboard_video_batch": _NO_WRITE,
-    # Agent 会话、记忆与项目整体操作
     "agent_memory:clear_project_memory": _NOT_PROJECT_CHANGE,
     "agent_memory:delete_project_memory_file": _NOT_PROJECT_CHANGE,
     "agent_memory:write_project_memory_file": _NOT_PROJECT_CHANGE,
@@ -90,7 +87,6 @@ _EXEMPT: dict[str, str] = {
     "assistant:send_queued_message_now": _NOT_PROJECT_CHANGE,
     "projects:delete_project": _NOT_PROJECT_CHANGE,
     "projects:reset_agent_profile": _NOT_PROJECT_CHANGE,
-    # 供应商素材关联
     "provider_asset_links:refresh": _ASSET_LINK,
     "provider_asset_links:unlink_provider_asset": _ASSET_LINK,
     "provider_asset_links:upload_to_asset_library": _ASSET_LINK,

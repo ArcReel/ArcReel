@@ -126,7 +126,6 @@ logger = logging.getLogger(__name__)
 # 上限对附加指令文本足够宽松，仅挡病态输入；文本生成与分集规划共用。
 MAX_INSTRUCTIONS_LEN = 4000
 
-#: 提示词编写工具收到已取消的 ``scope`` 参数时的拒绝说明，由其请求模型给出。
 SCOPE_REMOVED_MESSAGE = (
     "scope 参数已取消：generate_episode_script 默认只编写正式脚本中全部待编写的条目；"
     "要覆盖已有提示词的条目，请用 entry_ids 点名这些条目并传 rewrite=true；要整集重做，请重跑脚本规划并重新完成内容确认。"
@@ -145,7 +144,6 @@ class TextGenerationRequest:
     rewrite: bool = False
     #: 用户认可覆盖的正式脚本指纹，取自 ``prompt_overwrite.revision``；整份重做时取自 ``script_overwrite.revision``。
     overwrite_revision: str | None = None
-    #: 仅广告/短片：整份重做，替换已有的正式脚本。
     regenerate: bool = False
 
     def __post_init__(self) -> None:
@@ -174,7 +172,6 @@ class TextGenerationResult:
     #: locale-neutral 的 ``{"key", "params"}`` 提示条目（如画面描述里没绑定参考图的 ``@[名称]``），
     #: 与任务 ``result.warnings`` 同一形态，读侧按语言渲染。
     warnings: list[dict[str, Any]] = dataclass_field(default_factory=list)
-    #: 广告/短片整份生成本次登记的新资产与衍生（``{"type", "name"}``），随任务结果交给 Web 列出。
     new_assets: list[dict[str, str]] = dataclass_field(default_factory=list)
     #: 提示词编写没有待编写的条目、未调用文本模型；Web 据此提示用户勾选覆盖后重写。
     no_pending_authoring: bool = False
@@ -773,7 +770,6 @@ async def generate_episode_script(
             project_path,
             config_resolver=config_resolver,
         )
-        # 正式剧本已存在时只编写条目；ad 项目尚无正式剧本才整份生成。
         formal_existed = await asyncio.to_thread(_formal_script_exists, project_path, generator.project_json, episode)
         rewritten: list[str] = []
         skipped: list[str] = []
@@ -858,11 +854,6 @@ def _rewritten_mention_warnings(
 
 def _unbound_mentions_note(warnings: Sequence[Mapping[str, Any]]) -> str:
     return "".join(f"\n   ⚠️ {line}" for line in render_storyboard_mention_warnings(warnings, translate))
-
-
-# ---------------------------------------------------------------------------
-# confirm_script_review
-# ---------------------------------------------------------------------------
 
 
 async def _describe(projects: ProjectManager, project_name: str, episode: int) -> str:
@@ -957,11 +948,6 @@ def collect_drama_violations(
         )
     violations.extend(new_asset_violations(project, new_assets))
     return violations
-
-
-# ---------------------------------------------------------------------------
-# drama generate_script_plan variant
-# ---------------------------------------------------------------------------
 
 
 async def generate_drama_script_plan(
@@ -1106,11 +1092,6 @@ async def generate_drama_script_plan(
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
         raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}") from exc
-
-
-# ---------------------------------------------------------------------------
-# reference-video generate_script_plan variant
-# ---------------------------------------------------------------------------
 
 
 class ReferenceSplitCaps(NamedTuple):
@@ -1478,7 +1459,6 @@ def _reference_soft_violation_lines(
 
 #: 晋升被违约挡下时，软违约段的处置说明：草稿仍在场、这些提示不是要修的违约。
 SOFT_VIOLATION_NOTE_QUARANTINED = "非违约、无需为此重改，草稿仍在场"
-#: 拆分 / 晋升成功回执里软违约段的处置说明。
 SOFT_VIOLATION_NOTE_COMMITTED = "产物已落盘"
 
 
@@ -1640,7 +1620,6 @@ def collect_narration_violations(
 
     dupes = sorted(str(sid) for sid, count in Counter(s.get("segment_id") for s in segments).items() if count > 1)
     if dupes:
-        # 集级违约，无单分镜归属：呈现层落聚合区。
         violations.append(
             DraftViolation(
                 f"segment_id 重复: {dupes}；每个分镜的 id 须全集唯一（prompt_authoring 视觉层按 id 与分镜对齐）",

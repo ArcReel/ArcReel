@@ -45,5 +45,4 @@ def test_downgrade_rebuilds_task_events_with_named_fk(alembic_cfg: tuple[Config,
     # ValueError: No such constraint。
     command.downgrade(cfg, _BELOW_FK_MIGRATION)
 
-    # 重新升到 head 不应因重建过的表残留报错
     command.upgrade(cfg, "head")

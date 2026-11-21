@@ -3,7 +3,6 @@ import type { ReferenceVideoUnit, TaskItem, UnitStatus } from "@/types";
 
 export interface UnitStatusConf {
   i18nKey: string;
-  /** 徽标的文字与底色。 */
   badgeClass: string;
   dotClass: string;
 }
@@ -31,7 +30,6 @@ export const STATUS_CONF: Record<UnitStatus, UnitStatusConf> = {
   },
 };
 
-/** 从画布传下来的 statusMap 取该单元状态；未提供时按有无成片退化为 ready/pending。 */
 export function resolveUnitStatus(
   unit: ReferenceVideoUnit,
   statusMap?: Record<string, UnitStatus>,
@@ -40,13 +38,11 @@ export function resolveUnitStatus(
 }
 
 export interface UnitStatusInput {
-  /** 该单元是否已有成片资产。 */
   hasClip: boolean;
   /** 该单元的最新任务行；「最新行胜出」由 selectLatestTaskByResource 保证。 */
   queueRow: TaskItem | undefined;
   /** 占用集命中——真实任务行占用或入队动作层的乐观标记。 */
   busy: boolean;
-  /** 该单元正在上传成片。 */
   uploading?: boolean;
   /**
    * 本画布是否提供手动上传成片入口。提供时成片可能来自上传而非生成，历史失败行不该

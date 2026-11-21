@@ -57,7 +57,6 @@ async def upload_derivative_sheet(
         if len(content) > max_bytes:
             raise UploadTooLargeError(max_bytes)
         try:
-            # 规范路径固定为 .png，任何输入格式都归一成 PNG
             png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc

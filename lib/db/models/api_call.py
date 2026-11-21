@@ -56,7 +56,6 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     text_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_provider_response: Mapped[object | None] = mapped_column(JSON, nullable=True)
-    # 未定价（cost_amount 为 NULL）的原因；已定价的行留空。
     unpriced_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     # input_tokens 仍记总输入（含缓存）；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
     cache_read_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

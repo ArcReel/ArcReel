@@ -52,7 +52,6 @@ async def test_sdk_endpoint_override_is_relative_to_the_raw_base_url_and_expands
         )
         with contextlib.suppress(Exception):
             await backend.generate(VideoGenerationRequest(prompt="p", output_path=Path("unused.mp4")))
-        # 400 会被重试；未声明路由的请求会抛错并被吞掉，所以比对总请求数
         assert submit.called
         assert router.calls.call_count == submit.call_count
 

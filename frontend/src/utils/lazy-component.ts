@@ -23,13 +23,10 @@ function markReloaded(name: string, reloaded: boolean) {
   else sessionStorage.removeItem(RELOAD_MARK);
 }
 
-/** 发起刷新后页面仍未离开、判定刷新被拦下的等待时长。 */
 const RELOAD_BLOCKED_AFTER_MS = 3000;
 
 interface LazyNamedOptions {
-  /** 整页刷新的实现，测试替换；默认 `window.location.reload()`。 */
   reload?: () => void;
-  /** 发起刷新后等待多久仍未离开页面，即视为刷新被拦下；测试缩短。 */
   reloadBlockedAfterMs?: number;
 }
 
@@ -78,7 +75,6 @@ export function lazyNamed<K extends string, P extends object>(
   let pending: Promise<Record<K, ComponentType<P>>> | null = null;
   const loadOnce = () =>
     (pending ??= load().catch((err: unknown) => {
-      // 失败的请求不缓存，下次渲染或预取重新发起
       pending = null;
       throw err;
     }));
@@ -94,7 +90,6 @@ export function lazyNamed<K extends string, P extends object>(
         // 刷新期间保持挂起，界面停在 Suspense 的占位上，不闪错误
         return new Promise<never>(() => {});
       }
-      // 刷新被拦下，本页不会换新：清除标记，让之后的失败仍能刷新，错误交给边界显示
       markReloaded(name, false);
       throw err;
     }

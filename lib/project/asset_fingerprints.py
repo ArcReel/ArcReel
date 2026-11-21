@@ -19,7 +19,6 @@ _MEDIA_SUBDIRS = (
     "bgm",
 )
 
-# 根目录下的已知媒体文件（如风格参考图）
 _ROOT_MEDIA_SUFFIXES = frozenset((".png", ".jpg", ".jpeg", ".webp", ".mp4"))
 
 #: 版本快照桶的目录名。快照落在项目根的 ``versions/{subdir}/``（见
@@ -58,7 +57,6 @@ def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
         if dir_path.is_dir() and not dir_path.is_symlink():
             _scan_media_tree(subdir, dir_path, fingerprints)
 
-    # 根目录下的媒体文件（如 style_reference.png）
     for f in project_path.iterdir():
         if f.is_file() and f.suffix.lower() in _ROOT_MEDIA_SUFFIXES:
             fingerprints[f.name] = f.stat().st_mtime_ns

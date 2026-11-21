@@ -72,9 +72,7 @@ def test_upgrade_preserves_already_set_new_keys(alembic_cfg):
             )
         ).fetchall()
     settings = {r.key: r.value for r in rows}
-    # _t2i 已存在 → 不覆盖
     assert settings.get("default_image_backend_t2i") == "openai/already-set"
-    # _i2i 不存在 → 用 legacy 值填充
     assert settings.get("default_image_backend_i2i") == "openai/legacy"
 
 

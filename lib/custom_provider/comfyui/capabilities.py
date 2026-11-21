@@ -131,9 +131,6 @@ def takes_reference_images(definition: Mapping[str, Any]) -> bool:
     return bool(targets_of(definition["bindings"].get("reference_images")))
 
 
-# ── 参数约束 ──────────────────────────────────────────────────────
-
-
 def size_is_fixed(bindings: Mapping[str, Any]) -> bool:
     """尺寸这一维 ArcReel 驱动不动：宽高两侧不是都有绑定。
 

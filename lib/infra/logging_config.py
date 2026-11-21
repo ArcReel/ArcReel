@@ -162,7 +162,6 @@ def setup_logging(level: str | None = None, *, file: bool = True) -> None:
     if file:
         attach_file_handler(formatter)
 
-    # 统一 uvicorn 的日志格式，避免两种格式并存
     for name in ("uvicorn", "uvicorn.error"):
         uv_logger = logging.getLogger(name)
         uv_logger.handlers.clear()

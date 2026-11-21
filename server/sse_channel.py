@@ -48,7 +48,6 @@ def _end_stream(queue: asyncio.Queue) -> None:
             queue.get_nowait()
         except asyncio.QueueEmpty:
             break
-    # 清空后不应再满
     with contextlib.suppress(asyncio.QueueFull):
         queue.put_nowait(_END_OF_STREAM)
 
@@ -72,7 +71,6 @@ class EvictNonCriticalAndSignal:
         except asyncio.QueueFull:
             if not self._is_critical(item):
                 return True  # 非关键消息可接受丢弃
-        # 关键消息遇满队列——逐出一条非关键消息腾位。
         self._evict_one_non_critical(queue)
         try:
             queue.put_nowait(item)
@@ -96,7 +94,7 @@ class EvictNonCriticalAndSignal:
             except asyncio.QueueEmpty:
                 break
             if not evicted and not self._is_critical(msg):
-                evicted = True  # 丢弃这一条
+                evicted = True
                 continue
             temp.append(msg)
         for msg in temp:

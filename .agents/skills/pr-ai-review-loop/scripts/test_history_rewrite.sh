@@ -127,7 +127,6 @@ check() {
   echo "PASS: $label"
 }
 
-# ---- 1. squashed fixes, reviewers finished on the rewritten head ----
 INDEX=$(poll final "$FINAL")
 check "last_push_at is the committer date of the rewritten head" "$INDEX" \
   '.head == $head and .last_push_at == $at' --arg head "$HEAD" --arg at "$HEAD_COMMITTED_AT"
@@ -147,7 +146,6 @@ check "receipts for orphaned commits are folded into history" "$INDEX" \
   '.codex.comments_history.total == 5'
 check "Codex has started on the rewritten head" "$INDEX" '.codex.started_current_head and (.codex.failed_current_head | not)'
 
-# ---- 2. right after the force push ----
 just_pushed 2026-11-12T21:09:50Z > "$TMP_ROOT/pushed.json"
 INDEX=$(poll pushed "$TMP_ROOT/pushed.json")
 check "the watermark moves with the force push before any reviewer reacts" "$INDEX" \
@@ -171,8 +169,6 @@ check "a walkthrough rewritten after the force push but anchored on the orphaned
 check "the Codex summary still naming the orphaned head is not a start signal" "$INDEX" \
   '.codex.started_current_head | not'
 
-# The summary is first posted after the force push, yet for the orphaned head: its commit
-# anchor decides, not its creation time.
 jq '.comments[1].created_at = "2026-11-12T21:12:30Z"' "$TMP_ROOT/slow.json" > "$TMP_ROOT/late-summary.json"
 INDEX=$(poll late-summary "$TMP_ROOT/late-summary.json")
 check "a Codex summary created after the force push but naming the orphaned head is neither a review nor a start signal" "$INDEX" \
@@ -200,15 +196,11 @@ cmp -s "$TMP_ROOT/final.cmp" "$TMP_ROOT/rebased.cmp" \
   || fail "expected a rebase of the earlier commits to leave the index unchanged: $(diff "$TMP_ROOT/final.cmp" "$TMP_ROOT/rebased.cmp" | head -5)"
 echo "PASS: rebasing the commits under the head changes nothing in the index"
 
-# ---- 5. the head is not the last listed commit ----
 jq '.commits |= reverse' "$FINAL" > "$TMP_ROOT/reordered.json"
 INDEX=$(poll reordered "$TMP_ROOT/reordered.json")
 check "last_push_at follows the head sha, not the list order" "$INDEX" \
   '.last_push_at == $at' --arg at "$HEAD_COMMITTED_AT"
 
-# ---- 6. straggler across a force push ----
-# A comment posted on the previous head that no poll had seen before the rewrite must
-# surface afterwards although it predates the rewritten head.
 jq 'del(.inline[] | select(.id == 4556215000))' "$TMP_ROOT/pushed.json" > "$TMP_ROOT/straggler-before.json"
 poll straggler "$TMP_ROOT/straggler-before.json" > /dev/null
 INDEX=$(poll straggler "$FINAL")

@@ -119,7 +119,6 @@ def test_downgrade_drops_usage_record_columns(
 
         assert not _NEW_COLUMNS & _columns(engine)
         assert "idx_api_calls_task_id" not in _indexes(engine)
-        # 同表既有索引不因逐列 DROP 丢失
         assert _indexes(engine) >= {"idx_api_calls_project_name", "idx_api_calls_status"}
     finally:
         engine.dispose()

@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-/** 资产图的生成按钮：生成中禁用，前置图标换成转圈。 */
 export function GenerateButton({
   onClick,
   loading = false,

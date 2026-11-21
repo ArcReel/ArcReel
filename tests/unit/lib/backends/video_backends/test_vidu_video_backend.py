@@ -131,7 +131,6 @@ class TestCoerceDuration:
         assert _coerce_duration(_profile("viduq3-turbo").endpoint, "/text2video", 8) == 8
 
     def test_q3_turbo_text2video_clamps_to_nearest(self):
-        # range 1..16；超过 16 应取 16
         assert _coerce_duration(_profile("viduq3-turbo").endpoint, "/text2video", 30) == 16
 
     def test_vidu2_0_img2video_only_4_or_8(self):
@@ -147,7 +146,6 @@ class TestCoerceDuration:
         assert _coerce_duration(_profile("viduq1").endpoint, "/text2video", 10) == 5
 
     def test_q3_reference2video_min_3(self):
-        # range 3..16；请求 1 → 取最近 3
         assert _coerce_duration(_profile("viduq3").endpoint, "/reference2video", 1) == 3
 
     @pytest.mark.parametrize("model", ["viduq2-pro", "viduq2-turbo", "viduq2-pro-fast"])
@@ -184,7 +182,6 @@ class TestBuildRequest:
         assert body["aspect_ratio"] == "9:16"
         # q3 默认透传 audio
         assert body["audio"] is True
-        # text2video 不携带 images
         assert "images" not in body
 
     @pytest.mark.parametrize(
@@ -221,7 +218,7 @@ class TestBuildRequest:
             prompt="x",
             output_path=video_output_path,
             start_image=start,
-            aspect_ratio="9:16",  # 应被丢弃
+            aspect_ratio="9:16",
             duration_seconds=5,
         )
         endpoint, body = backend._build_request(req)
@@ -250,7 +247,6 @@ class TestBuildRequest:
         assert len(body["images"]) == 2
         # reference2video 接受 aspect_ratio
         assert body["aspect_ratio"] == "9:16"
-        # range 3..16，5 透传
         assert body["duration"] == 5
 
     def test_non_q3_model_does_not_send_audio(self, video_output_path: Path):
@@ -541,7 +537,6 @@ class TestQ4Endpoint:
         assert endpoint == "/reference2video"
         assert len(body["images"]) == 15
         assert len(body["prompt"]) == 20000
-        # 默认请求有声：音轨开关随端点发出
         assert body["audio"] is True
         assert "sounds" not in body
 

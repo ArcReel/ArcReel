@@ -44,7 +44,6 @@ function adProject(project: Record<string, unknown>): ApiOverrides {
   };
 }
 
-// 刚建好的广告项目：没有创作灵感，也没有商品。
 const NEW_AD = adProject({});
 
 // 压力变体：很长的创作灵感、自定义目标时长、十二个长名称长描述的商品，以及写成分秒脚本的长梗概。
@@ -189,7 +188,6 @@ defineRegionScenarios("广告项目概览与故事设定", [
       const sheet = page.getByRole("dialog");
       await sheet.waitFor();
       await waitForEntrance(sheet);
-      // 右侧 Sheet 贴着视口右边缘
       const viewportWidth = page.viewportSize()?.width ?? 0;
       const rect = await box(sheet);
       expect(Math.round(rect.x + rect.width)).toBe(viewportWidth);

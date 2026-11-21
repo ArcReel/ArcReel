@@ -5,7 +5,6 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import type { AssetSheetType } from "@/types";
 import { ASSET_SHEET_TYPE_ICON } from "@/components/assets/asset-type-icons";
 
-/** 画廊还没有资产时的空状态；只读展示时不提供添加入口。 */
 export function GalleryEmptyState({
   assetType,
   onAdd,

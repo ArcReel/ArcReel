@@ -45,7 +45,6 @@ const GROUP_LABEL_KEY: Record<Group, string> = {
   prop: "segment_refs_badge_prop",
 };
 
-/** 行左侧细边按处理方式着色：一眼分出会新建资产、归并、衍生与不登记的项。 */
 const DECISION_EDGE: Record<NewAssetDecision, string> = {
   register: "border-l-primary",
   merge: "border-l-muted-foreground",

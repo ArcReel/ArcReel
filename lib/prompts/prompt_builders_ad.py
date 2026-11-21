@@ -28,10 +28,6 @@ from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.script.script_models import REFERENCE_UNIT_DURATION_RANGE
 from lib.speech.speech_rate import speech_rate_units_per_second
 
-# ---------------------------------------------------------------------------
-# 审定档位
-# ---------------------------------------------------------------------------
-
 #: 四个审定档位（秒）。非四档整数取距离最小的档位按比例适配；
 #: 等距时取更接近默认推荐档（30 秒）的一侧。
 AD_DURATION_TIERS: tuple[int, ...] = (15, 30, 60, 90)
@@ -43,11 +39,6 @@ AD_DEFAULT_TIER = 30
 def nearest_ad_tier(target_duration: int) -> int:
     """取距离最小的审定档位；等距时取更接近默认推荐档（30 秒）的一侧。"""
     return min(AD_DURATION_TIERS, key=lambda t: (abs(t - target_duration), abs(t - AD_DEFAULT_TIER)))
-
-
-# ---------------------------------------------------------------------------
-# 上下文块渲染
-# ---------------------------------------------------------------------------
 
 
 def _format_products(products: dict) -> str:
@@ -90,11 +81,6 @@ def _asset_registry_slot(
     return project_asset_appearances(
         dict(registry.get("characters") or {}), dict(registry.get("scenes") or {}), dict(registry.get("props") or {})
     )
-
-
-# ---------------------------------------------------------------------------
-# Builder
-# ---------------------------------------------------------------------------
 
 
 def _pacing_slots(target_duration: int) -> dict[str, object]:

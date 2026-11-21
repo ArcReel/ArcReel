@@ -200,8 +200,8 @@ class TestCapabilities:
         for model, _expected_key in (
             ("proxy/happyhorse-1.0-r2v", "happyhorse-1.0-r2v"),
             ("provider:wan2.7-r2v", "wan2.7-r2v"),
-            ("wan2.7-r2v-0715", "wan2.7-r2v"),  # 后缀版本号
-            ("Pro/HappyHorse-1.0-R2V", "happyhorse-1.0-r2v"),  # 大小写不敏感
+            ("wan2.7-r2v-0715", "wan2.7-r2v"),
+            ("Pro/HappyHorse-1.0-R2V", "happyhorse-1.0-r2v"),
         ):
             assert dashscope_video_endpoint_for_name(model) in {
                 "dashscope-reference-video",
@@ -282,11 +282,9 @@ class TestReferenceToVideo:
         assert len(media) == 2
         assert all(m["type"] == "reference_image" for m in media)
         assert media[0]["url"].startswith("data:image/png;base64,")
-        # resolution 大写、watermark 关、ratio 透传
         assert body["parameters"]["resolution"] == "720P"
         assert body["parameters"]["watermark"] is False
         assert body["parameters"]["ratio"] == "16:9"
-        # submit 端点 + async 头
         assert client.posts[-1]["url"].endswith("/api/v1/services/aigc/video-generation/video-synthesis")
         assert client.posts[-1]["headers"]["X-DashScope-Async"] == "enable"
         # 计费时长取 usage.duration（非请求值 5）
@@ -384,7 +382,6 @@ class TestReferenceToVideo:
                 )
         assert ei.value.code == "video_reference_images_unreadable"
         assert "nope.png" in ei.value.params["names"]
-        # 提交请求根本不应发出
         post.assert_not_called()
 
     async def test_r2v_no_refs_provided_raises(self, tmp_path: Path):
@@ -789,7 +786,6 @@ class TestRetryStatusGating:
         assert len(client.posts) == 1
 
     async def test_submit_real_503_retries_then_succeeds(self, tmp_path: Path):
-        # 真 5xx：按 status_code 重试，第三次成功。
         err503 = _resp({"code": "ServiceUnavailable"}, status_code=503)
         err503.raise_for_status = MagicMock(side_effect=_http_error_503_in_message(503))
         post = AsyncMock(side_effect=[err503, err503, _resp(_submit("t-ok"))])
@@ -1187,7 +1183,6 @@ class TestWan3:
         # 顺序即 prompt 中「音频N」的指认契约，不得重排
         assert media[1]["url"].startswith("data:audio/mpeg;base64,")
         assert media[2]["url"].startswith("data:audio/wav;base64,")
-        # 音频不挂在参考图项上
         assert "reference_voice" not in media[0]
 
     def test_reference_images_optional(self, tmp_path):
@@ -1312,7 +1307,6 @@ class TestWan3:
         client = _client(post=AsyncMock(), get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            # 配置已被改成 B，提交时用的是 A
             b = self._backend(wan3_base_url="https://maas-b.example.com/ws-2/api/v1")
             await b.resume_video(
                 "t-wan3",
@@ -1441,7 +1435,6 @@ class TestCustomProviderBaseUrlReplay:
         client = _client(post=AsyncMock(), get=get)
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
-            # 配置已被改成 B，提交时用的是 A
             backend = self._wrapped("https://custom-b.example.com")
             await backend.resume_video(
                 "job-c1",

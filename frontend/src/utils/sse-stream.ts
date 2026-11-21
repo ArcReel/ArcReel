@@ -32,10 +32,8 @@ export class SseStreamError extends Error {
 
 export interface SseStreamOptions {
   url: string;
-  /** 每次建连前调用，返回附加的请求头（凭证、语言等）。 */
   headers?: () => HeadersInit;
   onMessage: (message: SseMessage) => void;
-  /** 每次成功建立连接（含重连）后调用一次。 */
   onOpen?: () => void;
   /** 连接失败或中断时调用；`error.retryable` 为 true 时随后按退避重连。 */
   onError?: (error: SseStreamError) => void;
@@ -45,7 +43,6 @@ export interface SseStreamOptions {
 }
 
 export interface SseStreamHandle {
-  /** 关闭连接并停止重连；幂等。 */
   close(): void;
   readonly closed: boolean;
   /** 最近一次收到的事件 id，重连时作为 `Last-Event-ID` 发送。 */

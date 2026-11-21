@@ -11,7 +11,6 @@ interface CancelConfirmDialogProps {
   request: CancelRequest;
   cancelling: boolean;
   failed: boolean;
-  /** 服务端拒绝取消的已本地化原因；为空时显示通用失败文案。 */
   failureDetail?: string | null;
   onConfirm: () => Promise<void>;
   onDismiss: () => void;

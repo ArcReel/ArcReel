@@ -627,7 +627,6 @@ async def add_provider_model(
     )
 
 
-#: 内置供应商获取模型时等待模型列表接口的上限。
 _DISCOVERY_TIMEOUT_SECONDS = 30
 
 

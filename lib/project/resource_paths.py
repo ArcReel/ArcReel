@@ -23,7 +23,7 @@ class ResourcePattern:
 
     subdir: str
     extension: str
-    prefix: str = ""  # 文件名前缀：storyboards/videos 用 "scene_"，audio 用 "segment_"，其余空
+    prefix: str = ""
     id_segments: int = 1
 
 

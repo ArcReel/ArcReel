@@ -46,7 +46,6 @@ import { exportEndpointDefinition } from "./export-endpoint-definition";
 export const COMFYUI_PLACEHOLDER_NAME = "ComfyUI workflow";
 
 const MEDIA_TYPES: readonly ComfyuiMediaType[] = ["video", "image"];
-/** `auth` 节里的两张表，按渲染次序。 */
 const AUTH_SECTIONS = ["headers", "query"] as const;
 /** 「已保存」在保存栏上停留的时长，与 `useEditUnit` 一致。 */
 const SAVED_DISPLAY_MS = 2000;
@@ -67,10 +66,8 @@ function Section({ title, description, children }: { title: string; description?
 }
 
 export interface ComfyuiEndpointDetailProps {
-  /** 已保存的端点；从导入进来、还没保存的端点为 null。 */
   record: CustomEndpointInfo | null;
   definition: ComfyuiEndpointDefinition;
-  /** 导入时那份文件的名字；已保存的端点没有来源文件。 */
   sourceFileName: string | null;
   /** 导入时已经跑过一轮推断的话带过来，省掉进详情后的第二次请求。 */
   initialInference: ComfyuiInferResponse | null;
@@ -94,7 +91,6 @@ export interface ComfyuiEndpointDetailProps {
   ) => void;
   /** 更新弹窗所需的条目详情正在加载：暂停编辑，保持导出快照与当前定义一致。 */
   marketUpdatePending: boolean;
-  /** 「更多操作」里由上层提供的条目（分享、删除）。 */
   menuItems: (hasUnsavedChanges: boolean, pending: boolean) => ReactNode;
   submissionBadge?: ReactNode;
 }
@@ -456,7 +452,6 @@ export function ComfyuiEndpointDetail({
               value={[definition.media_type]}
               onValueChange={(next: string[]) => {
                 const media = MEDIA_TYPES.find((item) => item === next[0]);
-                // 单选：再次点击已选项不取消选择
                 if (media) changeMediaType(media);
               }}
             >
@@ -507,7 +502,6 @@ export function ComfyuiEndpointDetail({
   );
 }
 
-/** 用户本轮亲手定过的那几条节点绑定。 */
 function onlyTouched(bindings: ComfyuiBindings, touched: ReadonlySet<ComfyuiBindingKey>): ComfyuiBindings {
   const kept: ComfyuiBindings = {};
   for (const key of touched) {

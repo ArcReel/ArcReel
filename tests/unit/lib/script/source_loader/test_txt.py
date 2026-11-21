@@ -7,7 +7,7 @@ from lib.script.source_loader.txt import TxtExtractor, decode_txt
 
 
 def test_decode_utf8_bom():
-    raw = b"\xef\xbb\xbf\xe4\xbd\xa0\xe5\xa5\xbd"  # "你好"
+    raw = b"\xef\xbb\xbf\xe4\xbd\xa0\xe5\xa5\xbd"
     text, enc = decode_txt(raw)
     assert text == "你好"
     assert enc == "utf-8-sig"
@@ -99,7 +99,6 @@ def test_gb18030_fallback_clean_is_labeled_gb18030(monkeypatch):
             return None
 
     monkeypatch.setattr(mod.charset_normalizer, "from_bytes", lambda _raw: _NoBest())
-    # Valid GB18030 bytes — no decode replacements needed
     raw = ("一二三四五" * 10).encode("gb18030")
     text, enc = mod.decode_txt(raw)
     assert "一二三四五" in text
@@ -119,6 +118,5 @@ def test_gb18030_fallback_with_replacements_is_labeled_lossy(monkeypatch):
     # (0x80 is not a valid GB18030 lead byte → replacement char)
     raw = ("一二三四" * 100).encode("gb18030") + b"\x80" * 5
     text, enc = mod.decode_txt(raw)
-    # Replaces present but ratio < 5%, so no raise; labeled lossy
     assert "\ufffd" in text
     assert enc == "gb18030-lossy"

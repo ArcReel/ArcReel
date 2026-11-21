@@ -21,7 +21,6 @@ import { PlanGapButton } from "./PlanGapButton";
 import { cutEpisodeActions } from "./manual-split-model";
 import { episodeHue, formatVolume, otherEpisodes, outlineFileGroups } from "./episodes-view-model";
 
-/** 集目录每行「⋯」里的单集操作。 */
 export interface EpisodeMenuActions {
   /** 手工切分的请求在途：合并与清除暂不可用。 */
   splitBusy: boolean;
@@ -37,7 +36,6 @@ export interface EpisodeMenuActions {
 interface EpisodeOutlineProps {
   view: EpisodesView;
   episodes: EpisodeMeta[];
-  /** 原文视口顶部所在的集。 */
   current: number | null;
   onLocate: (episode: number) => void;
   onLocateFile: (sourceFile: string) => void;
@@ -54,7 +52,6 @@ export function EpisodeOutline({ view, episodes, current, onLocate, onLocateFile
   const others = otherEpisodes(view, episodes);
   const listRef = useRef<HTMLElement>(null);
 
-  // 高亮随原文滚动变化时，把这一行带进集目录的可见范围
   useEffect(() => {
     if (current === null) return;
     listRef.current?.querySelector(`[data-outline-episode="${current}"]`)?.scrollIntoView({ block: "nearest" });

@@ -258,7 +258,6 @@ async def run_with_backend(
     md = render_report([result])
     if existing_rows:
         lines = md.splitlines()
-        # 把已有数据行塞回表尾
         lines.extend(existing_rows)
         md = "\n".join(lines) + "\n"
     fname.write_text(md, encoding="utf-8")

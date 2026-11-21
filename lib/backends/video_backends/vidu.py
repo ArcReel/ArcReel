@@ -187,7 +187,6 @@ VIDU_Q3_AD = ViduEndpoint(
 )
 
 
-# 端点是否接受 aspect_ratio
 _ENDPOINTS_WITH_ASPECT_RATIO = frozenset({"/text2video", "/reference2video"})
 
 
@@ -249,8 +248,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
         return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # Vidu 不支持 resume：poll 完全内联在 generate，没有可供接续的独立轮询入口。
-        # orphan handler 据 NotImplementedError 标 [resume_unsupported]
         raise NotImplementedError("ViduVideoBackend 暂不支持 resume_video")
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
@@ -306,8 +303,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
             .output_audio(request.generate_audio),
         )
 
-    # ── request building ────────────────────────────────────────────────
-
     def _build_request(self, request: VideoGenerationRequest) -> tuple[str, dict]:
         endpoint = self._select_endpoint(request)
 
@@ -315,7 +310,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
         profile = self.endpoint
         audio_files = [Path(p) for p in request.reference_audio_files or []]
         if audio_files:
-            # 只有参考生视频接口收参考音频（sounds）
             if endpoint != "/reference2video" or not profile.max_reference_audio:
                 raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
             if len(audio_files) > profile.max_reference_audio:
@@ -352,7 +346,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
         # 1) 型号接不接受这条端点的输入由模型条目与通道两侧求值后在 gate_video_request 处判定（docs/adr/0104），
         #    这里不按型号拒绝；条目未收录的输入由上游判定。
 
-        # 2) duration 在合法集合内取最近值
         duration = _coerce_duration(profile, endpoint, request.duration_seconds)
 
         # 3) prompt 长度（上限按端点与子路径声明）
@@ -381,7 +374,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
         if request.resolution:
             body["resolution"] = request.resolution
 
-        # 5) seed
         if request.seed is not None:
             body["seed"] = request.seed
 
@@ -420,7 +412,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
         elif endpoint == "/img2video":
             assert request.start_image is not None
             body["images"] = [images[Path(request.start_image)].data_uri()]
-        # /text2video 不带 images
 
         return endpoint, body
 
@@ -454,8 +445,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
             reference_to_video=endpoint == "/reference2video",
         )
 
-    # ── HTTP wrappers ───────────────────────────────────────────────────
-
     @with_retry_async(retry_if=should_retry_submit)
     async def _create_task(
         self, client, endpoint: str, body: dict, request: VideoGenerationRequest | None = None
@@ -466,11 +455,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
             endpoint,
             format_kwargs_for_log(safe_body_for_log(body)),
         )
-        # create 是非幂等的「创建 + 计费」调用：submit_post 把歧义态（ReadTimeout 等
-        # 「请求可能已送达服务端」）转 AmbiguousSubmitError 终态失败、不重试，仅「请求确定
-        # 未送达」的连接建立失败交 should_retry_submit 重试，避免重复建任务 + 重复计费。
-        # 413 等 4xx 经 raise_for_status 透出 httpx.HTTPStatusError（保留 status_code），
-        # 让咽喉层识别 413 走降档重试；body 由 submit_post 落日志保留可诊断性。
         resp = await submit_post(lambda: client.post(endpoint, json=body), provider=PROVIDER_VIDU, request=request)
         data = resp.json()
         if not data.get("task_id"):

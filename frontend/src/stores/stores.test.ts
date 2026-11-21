@@ -284,7 +284,6 @@ describe("stores", () => {
 
   it("does not treat a fresh draft as replaced by a stale committed message_id after a full setState reset", () => {
     const assistant = useAssistantStore.getState();
-    // 先提交一条权威 assistant 条目（message_id 进入替换索引）
     assistant.resetTimeline();
     assistant.appendEntry({
       seq: 0,
@@ -293,7 +292,6 @@ describe("stores", () => {
       uuid: "a-1",
       content: [{ type: "text", text: "上一会话" }],
     });
-    // 整帧 setState 重置（绕过 store action，等价于测试 harness 的 reset）
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
     // 新会话复用同一 message_id 的 draft：替换索引应按新（空）entries 自愈，
     // draftTurn 不被上一会话的陈旧 message_id 误判为已替换
@@ -320,7 +318,6 @@ describe("stores", () => {
     assistant.setEntries([entryX, entryMid1, entryA]);
     expect(useAssistantStore.getState().turns).toHaveLength(3);
 
-    // 整帧 setState 重置（绕过 resetTimeline action）
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
 
     // "新会话"首尾复用同一对条目对象引用，仅中段条目是新对象

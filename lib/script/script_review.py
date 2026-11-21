@@ -81,8 +81,6 @@ STALE_SCRIPT_PLAN_REVISION_FIELD = "stale_script_plan_revision"
 #: stale 分集的 script_plan 重建完成事实。指纹可能与旧内容相同，不能仅以内容变化推断是否执行过重建。
 STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD = "stale_script_plan_rebuilt_revision"
 
-# ScriptPlanKind 的字面量定义在 lib.script.script_plan_entries，由本模块顶部的 import 再导出。
-
 
 def script_plan_kind(project: dict[str, Any]) -> ScriptPlanKind | None:
     """项目的 script_plan 变体；无结构化 script_plan 中间态（如 ad）时返回 None。
@@ -97,7 +95,7 @@ def script_plan_kind(project: dict[str, Any]) -> ScriptPlanKind | None:
         return None
     if is_reference_video_project(project):
         return "reference_video"
-    return content_mode  # "drama" | "narration"（SCRIPT_PLAN_FILENAMES 成员）
+    return content_mode
 
 
 def is_applicable(project: dict[str, Any]) -> bool:
@@ -449,11 +447,9 @@ def write_formal_script_plan_locked(
         with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
             atomic_write_json(path, content)
             if changed and clear_dependent_quarantine and quarantine is not None:
-                # 内容变了才作废：草稿进项目回收站，提交后由事务按内容变化记账
                 record = trash_planning_draft(project_path, episode, quarantine)
     except BaseException:
         # 事务已把草稿按字节写回，记录随之撤掉。
-        # shortcut: 外层另有 formal_write_transaction 包住草稿、在本函数返回后失败时，外层写回草稿而记录留着（多一条可恢复的记录，内容不丢）；需要严格时把记录建在最外层事务里。
         if record is not None and quarantine is not None and quarantine.is_file():
             project_trash.purge(project_path, record.id)
         raise
@@ -563,7 +559,6 @@ class FormalScriptOverwrite:
         }
 
 
-#: 覆盖清单里逐条目列出的产物种类：``to_dict`` 的条目键 → 文案 key。顺序即行文顺序。
 _OVERWRITE_ENTRY_KINDS: tuple[tuple[str, str], ...] = (
     ("has_storyboard", "script_overwrite_kind_storyboard"),
     ("has_video", "script_overwrite_kind_video"),
@@ -572,7 +567,6 @@ _OVERWRITE_ENTRY_KINDS: tuple[tuple[str, str], ...] = (
     ("grid_id", "script_overwrite_kind_grid"),
 )
 
-#: 覆盖清单的汇总项：（计数键，文案 key）。计数为 0 的项不出现。
 _OVERWRITE_LOSS_TOTALS: tuple[tuple[str, str], ...] = (
     ("storyboard_count", "script_overwrite_loss_storyboard"),
     ("video_count", "script_overwrite_loss_video"),

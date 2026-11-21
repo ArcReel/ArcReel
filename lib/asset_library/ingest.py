@@ -301,7 +301,7 @@ async def _submit(
     except VersionSnapshotCorruptedError:
         await _fail(session_factory, link.id, now, "content_changed")
         return
-    except (OSError, ValueError, ApiError):  # 快照不在盘上，或项目已不存在、已删除，或远端取回失败
+    except (OSError, ValueError, ApiError):
         await _fail(session_factory, link.id, now, "content_unavailable")
         return
 

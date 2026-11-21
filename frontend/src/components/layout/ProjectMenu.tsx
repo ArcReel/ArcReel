@@ -52,10 +52,6 @@ function useProjectList(open: boolean): ProjectList {
   return list;
 }
 
-/**
- * 顶栏左上的项目切换器：触发按钮显示当前项目的名称、创作类型与画幅；弹层里可以搜索全部项目，
- * 选中即切换，底部是项目设置、新建项目与全部项目。
- */
 export function ProjectMenu() {
   const { t } = useTranslation(["dashboard", "common"]);
   const [, setLocation] = useLocation();

@@ -29,7 +29,6 @@ export function sameResolution(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-/** 去掉时长联动约束里已不在可选分辨率中的分辨率。 */
 export function withoutDroppedResolutions(constraints: unknown, resolutions: string[]): Constraints {
   const value = asConstraints(constraints);
   const byResolution = Object.fromEntries(

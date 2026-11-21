@@ -1,6 +1,5 @@
 import { useEffect, type RefObject } from "react";
 
-/** 焦点在可输入的控件里：J / K 是要输入的字符，不当作快捷键。 */
 function isTypingTarget(target: Element): boolean {
   if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
   if (target instanceof HTMLInputElement) {
@@ -23,7 +22,6 @@ interface ShotShortcutsOptions {
   onNext: () => void;
   /** ⌘S / Ctrl+S；传入时整页拦下浏览器的保存快捷键，不传时不拦截。 */
   onSave?: () => void;
-  /** 切换分镜暂不可用（改序、增删在途）。 */
   navDisabled: boolean;
 }
 
@@ -43,7 +41,6 @@ export function useShotShortcuts({ rootRef, onPrev, onNext, onSave, navDisabled 
 
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && key === "s") {
         if (!onSave) return;
-        // 焦点在弹层或 Agent 面板里时不保存分镜，但浏览器的「保存网页」同样拦下
         event.preventDefault();
         if (inScope) onSave();
         return;

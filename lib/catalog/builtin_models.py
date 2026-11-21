@@ -75,7 +75,7 @@ async def recommended_builtin_model(session: AsyncSession, provider_id: str, med
     推荐只写进用户自己的默认模型设置（``lib.config.recommended_models``），运行时解析不经这里补模型
     （docs/adr/0099）。不是内置供应商时同样为 ``None``。
     """
-    model_id = catalog.default_model(provider_id, media_type)  # 已下线的默认模型目录不给
+    model_id = catalog.default_model(provider_id, media_type)
     if model_id is None:
         return None
     row = await BuiltinProviderModelRepository(session).get(provider_id, model_id)

@@ -9,9 +9,6 @@ import { SystemConfigPage } from "@/components/pages/SystemConfigPage";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import type { GetSystemConfigResponse, GetSystemVersionResponse, ProviderInfo } from "@/types";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeConfigResponse(
   overrides?: Partial<GetSystemConfigResponse["settings"]>,
@@ -92,9 +89,6 @@ function renderPage(path = "/app/settings", searchPath?: string) {
   return location;
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("SystemConfigPage", () => {
   beforeEach(() => {
@@ -244,7 +238,6 @@ describe("SystemConfigPage", () => {
 
     renderPage("/app/settings", "section=agent-memory");
 
-    // 还没有记忆文件时详情栏是新建表单
     expect(await screen.findByRole("heading", { name: "新建记忆文件" })).toBeInTheDocument();
     expect(API.getAgentMemory).toHaveBeenCalledWith({ level: "user" }, expect.anything());
   });

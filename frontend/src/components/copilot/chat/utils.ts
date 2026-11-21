@@ -28,9 +28,6 @@ export function composeAllTurns(turns: Turn[], draftTurn: Turn | null): Turn[] {
   return [...turns, draftTurn];
 }
 
-// ---------------------------------------------------------------------------
-// turnPlainText – 一个 turn 的可复制 / 可改写正文（只取 text 块）。
-// ---------------------------------------------------------------------------
 
 export function turnPlainText(turn: Turn): string {
   return (turn.content ?? [])
@@ -87,7 +84,6 @@ export function canEditUserTurn(
   return true;
 }
 
-/** 工具结果的展示文本：字符串原样，其余按 JSON 缩进展开。 */
 export function stringifyResult(value: unknown): string {
   if (value === undefined || value === null) return "";
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);

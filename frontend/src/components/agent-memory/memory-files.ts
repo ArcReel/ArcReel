@@ -23,7 +23,6 @@ export type MemoryEntry =
       modifiedAt: string;
     };
 
-/** 列表顺序：索引置顶，记忆文件按修改时间倒序。 */
 export function memoryEntries(overview: AgentMemoryOverview | null): MemoryEntry[] {
   if (!overview) return [];
   const topics = [...overview.files]
@@ -70,7 +69,6 @@ export function checkNewName(name: string, entries: MemoryEntry[]): NewNameProbl
   return null;
 }
 
-/** 新建文件的正文：带 frontmatter 的模板，`type` 按记忆层级取 user 或 project。 */
 export function newFileTemplate(
   filename: string,
   level: AgentMemoryScope["level"],

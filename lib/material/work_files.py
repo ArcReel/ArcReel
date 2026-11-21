@@ -72,8 +72,6 @@ class MaterialConnectionUnavailableError(ConflictError):
         super().__init__("material_object_connection_unavailable")
 
 
-# ---- 使用保护 ---------------------------------------------------------------------------------
-
 _LEASE_GUARD = threading.Lock()
 _LEASES: Counter[str] = Counter()
 _LAST_USED: dict[str, float] = {}
@@ -108,9 +106,6 @@ def _in_use_or_recent(path: Path, stat_result: os.stat_result, idle_before: floa
         return True
     last_used = _LAST_USED.get(key, 0.0)
     return max(stat_result.st_mtime, last_used) > idle_before
-
-
-# ---- 工作文件与版本记录的对应 -------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -302,8 +297,6 @@ def _same_work_file(project_path: Path, work_file: _WorkFile, data: object) -> b
     """``data`` 是版本锁内读取的版本历史：工作文件仍对应同一个内容版本（正式文件仍是它被选中时的位置）。"""
     return work_file in _work_files(data, _load_project_json(project_path))
 
-
-# ---- 取回 -------------------------------------------------------------------------------------
 
 _FETCH_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 
@@ -507,9 +500,6 @@ async def local_work_files(
     _real_root, relative = await asyncio.to_thread(_project_relative_paths, project_path, paths)
     async with held_work_files(project_path, relative, session_factory=session_factory):
         yield
-
-
-# ---- 清理 -------------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)

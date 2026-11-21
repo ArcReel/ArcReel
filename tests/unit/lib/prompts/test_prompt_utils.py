@@ -197,7 +197,6 @@ class TestBuildDramaVideoPrompt:
 
 class TestUtterancesToDialogue:
     def test_takes_dialogue_kind_in_order_maps_text_to_line(self):
-        # 仅 dialogue-kind 进 video YAML 的 {speaker, line}，按时序保留，voiceover 不进
         utterances = [
             {"kind": "voiceover", "speaker": None, "text": "旁白一"},
             {"kind": "dialogue", "speaker": "姜月茴", "text": "你来了。"},
@@ -210,7 +209,6 @@ class TestUtterancesToDialogue:
         ]
 
     def test_robust_to_dirty_data(self):
-        # 非 list / 非 dict 元素 / 缺 kind / 全空一律跳过，不抛
         assert utterances_to_dialogue(None) == []
         assert utterances_to_dialogue("nope") == []
         assert utterances_to_dialogue([1, "x", {"kind": "dialogue", "speaker": " ", "text": " "}]) == []
@@ -237,7 +235,6 @@ class TestUtterancesToDialogue:
         assert utterances_to_dialogue(utterances) == [{"speaker": "王", "line": "走吧。"}]
 
     def test_feeds_video_prompt_to_yaml_dialogue(self):
-        # 与 video_prompt_to_yaml 串联：drama 台词从 utterances 派生后正确出现在 YAML Dialogue
         dialogue = utterances_to_dialogue([{"kind": "dialogue", "speaker": "王", "text": "走吧。"}])
         parsed = yaml.safe_load(
             video_prompt_to_yaml(

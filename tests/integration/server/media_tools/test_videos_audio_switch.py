@@ -86,7 +86,6 @@ class TestAssertAudioSwitchSupported:
 
         await assert_audio_switch_supported({}, "i2v")
 
-        # 闸门放行后关音设置原样生效，没有被改写成有声
         assert await ConfigResolver(db_factory).video_generate_audio_for_project({}) is False
 
 

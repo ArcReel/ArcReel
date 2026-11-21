@@ -52,9 +52,7 @@ export function AssetCreateForm({
   projectName: string;
   assetType: AssetSheetType;
   onCancel: () => void;
-  /** 创建成功、项目数据已刷新后调用。 */
   onCreated: (name: string) => void;
-  /** 创建请求在途时 Sheet 不响应关闭。 */
   onSubmittingChange: (submitting: boolean) => void;
 }) {
   const { t } = useTranslation(["assets", "dashboard", "common"]);

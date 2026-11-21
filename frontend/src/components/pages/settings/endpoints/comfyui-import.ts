@@ -21,7 +21,6 @@ export interface ComfyuiImportDraft {
   token: string;
   record: CustomEndpointInfo | null;
   definition: ComfyuiEndpointDefinition;
-  /** 这份定义是从哪个文件来的，详情头部据此显示来源。 */
   fileName: string;
   inference: ComfyuiInferResponse;
 }
@@ -42,7 +41,6 @@ export function reimportedDefinition(
   return { ...existing, workflow: incoming.workflow };
 }
 
-/** 一份定义是不是 ComfyUI 端点定义。 */
 export function isComfyuiDefinition(value: unknown): value is ComfyuiEndpointDefinition {
   return typeof value === "object" && value !== null && (value as { kind?: unknown }).kind === "comfyui";
 }

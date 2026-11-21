@@ -10,7 +10,6 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 const USER_MEMORY = "/api/v1/agent/memory";
 const PROJECT_MEMORY = "/api/v1/projects/demo/agent-memory";
 
-// 压力变体：索引超出行数上限，三十个记忆文件，名称与说明都很长；索引正文三百行，含很长的行。
 const TOPICS = Array.from({ length: 30 }, (_, i) => ({
   name: `feedback-${String(i + 1).padStart(2, "0")}-keep-the-original-plot-and-character-voices-when-revising.md`,
   size: 640,
@@ -87,7 +86,6 @@ defineRegionScenarios("Agent 记忆", [
       await expect(nav.getByRole("link", { name: /新建记忆文件/ }).filter({ visible: true })).toBeInViewport({
         ratio: 1,
       });
-      // 列表滚到底不带动编辑框，编辑框滚到底也不带动列表
       expect(await box.evaluate((el) => el.scrollTop)).toBe(0);
       await scrollToBottom(box);
       expect(await nav.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);

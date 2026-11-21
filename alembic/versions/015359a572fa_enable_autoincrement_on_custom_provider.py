@@ -13,7 +13,6 @@ import sqlalchemy as sa
 
 from alembic import op
 
-# revision identifiers, used by Alembic.
 revision: str = "015359a572fa"
 down_revision: str | Sequence[str] | None = "e3b81f6c4a27"
 branch_labels: str | Sequence[str] | None = None
@@ -43,7 +42,6 @@ def _rebuild_custom_provider(*, autoincrement: bool) -> None:
         pass
 
 
-#: 失败记录与用量所在的表。
 _REFERENCING_TABLES = ("tasks", "api_calls")
 _CUSTOM_PROVIDER_ID = re.compile(r"\bcustom-(\d{1,9})\b")
 

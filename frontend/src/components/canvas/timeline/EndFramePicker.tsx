@@ -27,7 +27,6 @@ interface PickableImage {
 }
 
 interface ImageGroup {
-  /** 分组标题（已翻译） */
   title: string;
   images: PickableImage[];
 }
@@ -40,7 +39,6 @@ interface EndFramePickerProps {
   onClose: () => void;
   /** 选定项目内图片：交由父级调用设置 API（父级负责提交时刻的占用复核）。 */
   onPickProjectImage: (sourcePath: string) => void;
-  /** 选定本地文件上传：同上。 */
   onPickUpload: (file: File) => void;
   /** 设置请求在途：禁用确认，避免重复提交。 */
   submitting?: boolean;

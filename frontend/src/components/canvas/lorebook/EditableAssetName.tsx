@@ -29,7 +29,6 @@ interface EditableAssetNameProps {
    * 名称标题。编辑时 `hidden` 为 true，标题仍需渲染（视觉隐藏），所在弹层的无障碍名称不随之消失。
    */
   renderTitle: (hidden: boolean) => ReactNode;
-  /** 只读展示（引导演示项目）：不渲染重命名入口。 */
   readOnly?: boolean;
   /** 与详情里兄弟控件共享的占用态（生成中、上传中、保存中）。 */
   busy?: boolean;
@@ -141,7 +140,6 @@ export function EditableAssetName({
       })());
     } catch (err) {
       useAppStore.getState().pushToast(t("assets:rename_failed", { message: errMsg(err) }), "error");
-      // 失败保持确认框关闭、编辑态保留，可以改名后重试
       setPreview(null);
     } finally {
       setRenaming(false);
@@ -200,7 +198,6 @@ export function EditableAssetName({
       <AlertDialog
         open={preview !== null}
         onOpenChange={(next) => {
-          // 提交中不响应 Esc，请求在途时确认框不先关掉
           if (!next && !renaming) setPreview(null);
         }}
       >

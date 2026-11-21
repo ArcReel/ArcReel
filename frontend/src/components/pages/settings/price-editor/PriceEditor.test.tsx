@@ -108,7 +108,6 @@ describe("PriceEditor", () => {
     const meter = card("视频时长");
     expect(within(meter).queryByRole("button", { name: /(移除|删除)条件/ })).not.toBeInTheDocument();
     expect(within(meter).getByText(/加上的条件不能移除/)).toBeInTheDocument();
-    // 已经加过的条件不再出现在选项里
     fireEvent.click(within(meter).getByRole("button", { name: "按条件分价" }));
     expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).not.toContain("声音");
   });

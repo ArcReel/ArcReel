@@ -67,7 +67,6 @@ export function ProjectAssetDeleteDialog({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 每次打开都重新查询，并清掉上一次的错误。
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);

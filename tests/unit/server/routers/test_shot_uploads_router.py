@@ -135,7 +135,6 @@ class TestShotStoryboardUpload:
             assert body["version"] == 1
             assert "storyboards/scene_E1S01.png" in body["asset_fingerprints"]
 
-        # 元数据回写 + status 自动推导
         script = pm.load_script("demo", "episode_1.json")
         ga = script["segments"][0]["generated_assets"]
         assert ga["storyboard_image"] == "storyboards/scene_E1S01.png"
@@ -146,7 +145,6 @@ class TestShotStoryboardUpload:
         with Image.open(target) as img:
             assert img.format == "PNG"
 
-        # 版本记录带 manual_upload 来源标记
         vm = VersionManager(pm.get_project_path("demo"))
         info = vm.get_versions("storyboards", "E1S01")
         assert info["current_version"] == 1
@@ -191,7 +189,7 @@ class TestShotStoryboardUpload:
         info = vm.get_versions("storyboards", "E1S01")
         assert info["current_version"] == 2
         assert len(info["versions"]) == 2
-        assert info["versions"][0].get("source") is None  # 补登的旧文件
+        assert info["versions"][0].get("source") is None
         assert info["versions"][1]["source"] == "manual_upload"
 
     def test_upload_resizes_long_edge(self, tmp_path, monkeypatch):
@@ -462,7 +460,7 @@ class TestSaveUploadedVideoStream:
         with pytest.raises(upload_finalize.UploadTooLargeError):
             asyncio.run(upload_finalize.save_uploaded_video_stream(BytesIO(b"\x00" * 64), target, max_bytes=16))
         assert not target.exists()
-        assert list(target.parent.iterdir()) == []  # dot-tmp 已清理
+        assert list(target.parent.iterdir()) == []
 
     def test_writes_via_tmp_then_replace(self, tmp_path):
         target = tmp_path / "videos" / "scene_X.mp4"
@@ -474,9 +472,6 @@ class TestSaveUploadedVideoStream:
         """tmp 文件名每次调用唯一：并发上传同一目标不会交错写同一个 tmp 文件。"""
         target = tmp_path / "videos" / "scene_X.mp4"
         assert upload_finalize._upload_tmp_path(target) != upload_finalize._upload_tmp_path(target)
-
-
-# ==================== 参考单元视频上传 ====================
 
 
 def _seed_reference_project(tmp_path) -> ProjectManager:

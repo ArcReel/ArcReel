@@ -38,7 +38,6 @@ async def test_resolution_none_not_in_generate_kwargs(tmp_path):
         await backend._create_video(req)
 
     assert "resolution" not in captured
-    # 其他字段仍正常透传
     assert captured["aspect_ratio"] == "9:16"
     assert captured["duration"] == 5
 

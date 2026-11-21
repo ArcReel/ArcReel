@@ -34,7 +34,6 @@ async def init_db() -> None:
     from sqlalchemy import inspect as sa_inspect
     from sqlalchemy import text
 
-    # Detect pre-Alembic databases (tables exist but no version tracking)
     async with async_engine.connect() as conn:
         tables = await conn.run_sync(lambda c: sa_inspect(c).get_table_names())
         has_app_tables = any(t in tables for t in ("tasks", "agent_sessions", "api_calls"))

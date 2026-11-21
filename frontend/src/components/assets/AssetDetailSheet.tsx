@@ -52,7 +52,6 @@ export function AssetDetailSheet({
   onClose: () => void;
   onApply: (asset: Asset) => void;
   onDelete: (asset: Asset) => void;
-  /** 保存或更换图片后的资产。 */
   onChanged: (asset: Asset) => void;
 }) {
   const confirmLeave = useConfirmLeave();

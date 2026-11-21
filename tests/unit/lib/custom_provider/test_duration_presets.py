@@ -13,38 +13,27 @@ from lib.custom_provider.duration_presets import (
 @pytest.mark.parametrize(
     ("model_id", "expected"),
     [
-        # OpenAI Sora 第一方
         ("sora-2", [4, 8, 12]),
         ("sora-2-pro", [4, 8, 12]),
         ("sora-2-pro-2026-01-15", [4, 8, 12]),
         # 第三方聚合 sora-pro 变体（命名含 sora 与 pro 但不匹配第一方严格 regex）
         ("aggregator-sora-pro-v2", [6, 10, 12, 16, 20]),
-        # Veo 系列
         ("veo-3.1-generate-001", [4, 6, 8]),
         ("veo-3.1-fast-generate-preview", [4, 6, 8]),
         ("veo3-lite", [4, 6, 8]),
-        # Kling 全系
         ("kling-v3.0", [5, 10]),
         ("kling-3.0-omni-pro", [5, 10]),
         ("kling-2.5-turbo", [5, 10]),
         ("kling-o1-pro", [5, 10]),
-        # Runway Gen
         ("runway-gen-4.5", [5, 8, 10]),
         ("gen-4.5", [5, 8, 10]),
-        # Luma Ray
         ("ray-3", [5, 10]),
-        # ByteDance Seedance / Dreamina（4-15 全展开）
         ("dreamina-seedance-2-0-260128", list(range(4, 16))),
         ("doubao-seedance-1-5-pro-251215", list(range(4, 16))),
-        # 即梦
         ("jimeng-video-3.0", list(range(4, 16))),
-        # HappyHorse
         ("happyhorse-1.0", list(range(3, 16))),
-        # Grok Imagine
         ("grok-imagine-video", list(range(1, 16))),
-        # Vidu
         ("viduq3-pro", list(range(1, 17))),
-        # PixVerse
         ("pixverse-v6", list(range(1, 16))),
         ("v5.6", list(range(1, 16))),
         # Hailuo / MiniMax（真实视频 model id 都带 hailuo 品牌名）
@@ -53,7 +42,6 @@ from lib.custom_provider.duration_presets import (
         ("MiniMax-Hailuo-2.3-Fast", [6]),
         # 不带 hailuo 的 minimax id 不再命中固定 6，落回默认（裸 minimax token 已移除）
         ("minimax-abab-6.5", DEFAULT_FALLBACK),
-        # MiniMax H3（含大小写/前缀变体，不落入 hailuo 的固定 6 预设）
         ("minimax-h3", list(range(4, 16))),
         ("MiniMax-H3", list(range(4, 16))),
         ("proxy-minimax-h3-turbo", list(range(4, 16))),
@@ -67,19 +55,15 @@ from lib.custom_provider.duration_presets import (
         # 万相 3.0（不落入通用 Wan 的 [4, 5] 预设）
         ("wan3.0-video", list(range(2, 31))),
         ("Wan3.0-Video", list(range(2, 31))),
-        # 连字符形态（第三方聚合命名）与点号形态匹配宽度一致，均识别为万相 3.0
         ("wan-3-turbo", list(range(2, 31))),
         ("wan3-turbo", list(range(2, 31))),
-        # 下划线形态匹配宽度同样一致
         ("wan_3_turbo", list(range(2, 31))),
         ("wan_3.0-turbo", list(range(2, 31))),
         # 标识符边界：含 "wan3" 子串但非该家族的型号名不落入万相 3.0 档位
         ("swan3", [4, 5]),
         ("vendorwan3", [4, 5]),
         ("wan30", [4, 5]),
-        # Pika
         ("pika-2.0", [3, 5, 10]),
-        # 未知模型 → fallback
         ("totally-unknown-model", DEFAULT_FALLBACK),
         ("", DEFAULT_FALLBACK),
     ],

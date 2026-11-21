@@ -11,19 +11,16 @@ export interface PageSidebarItem {
   href: string;
   /** 标签右侧的标记，如配置问题的警告点、「N 项覆盖」。需要读屏播报时自带可访问名称。 */
   badge?: ReactNode;
-  /** 新手引导锚点（`ONBOARDING_ANCHORS` 中的值）。 */
   onboardingAnchor?: string;
 }
 
 export interface PageSidebarGroup {
   id: string;
-  /** 分组标题；单独成项的条目不设标题。 */
   label?: string;
   items: PageSidebarItem[];
 }
 
 interface PageSidebarProps {
-  /** 导航区的可访问名称。 */
   label: string;
   groups: PageSidebarGroup[];
   activeId: string;
@@ -31,7 +28,6 @@ interface PageSidebarProps {
   replace?: boolean;
 }
 
-/** 页面外壳的侧栏：贴左、独立滚动，标准档 224px、紧凑档 200px。 */
 export function PageSidebar({ label, groups, activeId, replace }: PageSidebarProps) {
   return (
     <nav

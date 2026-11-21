@@ -128,7 +128,6 @@ describe("SortableList", () => {
 
   it("refuses moves rejected by canMove, also when dropped with the keyboard", async () => {
     const onMove = vi.fn();
-    // 第一项固定在最前
     render(<Harness onMove={onMove} canMove={(move) => move.id !== "甲" && move.to !== 0} />);
     expect(screen.getByRole("button", { name: "上移 乙" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "下移 甲" })).toBeDisabled();

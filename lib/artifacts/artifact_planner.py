@@ -359,7 +359,6 @@ class TargetStatePlanner:
             self._plan_persisted_presentations()
             self._plan_bgm()
         except ProjectMigrationError:
-            # Already carries the episode / file it was rejected at.
             raise
         except (ArtifactManifestError, ValueError) as exc:
             # Preflight refused outside any single episode: the offending input is

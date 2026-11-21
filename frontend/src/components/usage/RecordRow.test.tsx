@@ -112,7 +112,6 @@ describe("RecordRow compact layout", () => {
         providerLabel={providerLabel}
       />,
     );
-    // 条目已不在剧本里：写「已删除」，不回退成条目 ID。
     expect(screen.getByRole("img", { name: "已删除" })).toBeInTheDocument();
     expect(screen.queryByText(/U01/)).not.toBeInTheDocument();
 
@@ -135,7 +134,6 @@ describe("RecordRow compact layout", () => {
         providerLabel={providerLabel}
       />,
     );
-    // 宫格不按位置指称，仍以集内 ID 开头。
     expect(screen.getByText("G01")).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /分镜|已删除/ })).not.toBeInTheDocument();
   });

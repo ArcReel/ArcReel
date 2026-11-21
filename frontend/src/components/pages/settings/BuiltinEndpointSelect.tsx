@@ -7,11 +7,9 @@ interface BuiltinEndpointSelectProps {
   id?: string;
   value: string;
   onChange: (next: string) => void;
-  /** 这个供应商在该媒体类型下的内置调用端点，由服务端给出。 */
   options: BuiltinEndpointOption[];
 }
 
-/** 内置供应商下用户添加的模型的「调用端点」选择器：只列这个供应商在该媒体类型下的内置调用端点。 */
 export function BuiltinEndpointSelect({ id, value, onChange, options }: BuiltinEndpointSelectProps) {
   const { t } = useTranslation("dashboard");
   const label = (option: BuiltinEndpointOption) =>

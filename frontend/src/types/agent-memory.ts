@@ -35,5 +35,4 @@ export interface AgentMemoryOverview {
   files: AgentMemoryFile[];
 }
 
-/** 记忆的归属层级：两级只换请求路径与文案。 */
 export type AgentMemoryScope = { level: "user" } | { level: "project"; projectName: string };

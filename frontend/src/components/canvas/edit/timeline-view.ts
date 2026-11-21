@@ -1,4 +1,3 @@
-/** 剪辑视图的展示辅助：默认选中哪条剪辑时间线、片段的失效标记、时间格式，视频单元的位置与缩略图。 */
 
 import type { TFunction } from "i18next";
 
@@ -78,7 +77,6 @@ export function unitPositions(script: unknown): Map<string, number> {
   return new Map(itemsOf(script).map(({ id }, index) => [id, index + 1]));
 }
 
-/** 称呼视频单元：「分镜 5」「视频单元 5」，已不在剧本里时「已删除」。 */
 export function unitPositionLabel(positions: ReadonlyMap<string, number>, unitId: string, t: TFunction): string {
   return itemPositionLabel(episodeItemKind(unitId), positions.get(unitId) ?? null, t);
 }

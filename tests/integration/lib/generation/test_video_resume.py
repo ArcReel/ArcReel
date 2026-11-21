@@ -56,9 +56,6 @@ class TestVideoResumeRunner:
         assert not staged_output.exists()
         assert not provider_media.exists()
 
-    # ------------------------------------------------------------------
-    # VideoResumeRunner.run：分流 + provider 锁定
-    # ------------------------------------------------------------------
     @pytest.mark.asyncio
     async def test_run_uses_storyboard_checkpoint_identity(self, monkeypatch):
         """分镜视频只有 checkpoint + job 齐备才续跑；enqueue payload 不再承担身份锁定。"""
@@ -202,7 +199,6 @@ class TestVideoResumeRunner:
         await worker._resume.run(task)
         assert queue.failed
         assert queue.failed[0][0] == "boom"
-        # 无 [resume_*] 前缀
         assert not queue.failed[0][1].startswith("[resume_")
 
     @pytest.mark.asyncio

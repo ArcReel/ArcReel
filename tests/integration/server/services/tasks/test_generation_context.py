@@ -1121,7 +1121,7 @@ class TestBackendCache:
             await asyncio.sleep(0)
 
         generation_context.invalidate_backend_cache()  # 失效边界：此时 follower 已排队，代数已翻篇
-        release.set()  # 放行 leader，完成构造
+        release.set()
         stale, _ = await leader
         stale_from_follower, _ = await follower
 

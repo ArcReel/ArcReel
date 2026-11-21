@@ -41,17 +41,12 @@ export function ShotDetailLayout({
   );
 }
 
-/** 编辑栏里的一组内容；组与组之间用分隔线隔开。 */
 export function ShotGroup({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-col gap-4 border-t border-border/50 pt-5 first:border-t-0 first:pt-0">{children}</div>
   );
 }
 
-/**
- * 编辑栏里的一段：小标题加内容。给了 `htmlFor` 时标题是对应输入框的 label，
- * 否则是一个三级标题；`actions` 放在标题行右侧。
- */
 export function ShotSection({
   title,
   icon,
@@ -87,7 +82,6 @@ export function ShotSection({
   );
 }
 
-/** 默认折叠的「对应原文与参考」。 */
 export function ShotSourceCollapsible({ children }: { children: ReactNode }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -103,10 +97,6 @@ export function ShotSourceCollapsible({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * 媒体栏：媒体栏够宽时分镜图与视频并排（竖屏 440px、横屏 720px 起），否则上下排；
- * 配音卡在下方横跨整栏。
- */
 export function ShotMediaGrid({
   aspectRatio,
   storyboard,

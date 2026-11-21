@@ -54,9 +54,6 @@ def _write(directory: Path, key: str, document: object) -> Path:
     return path
 
 
-# ---------------------------------------------------------------- 遍历闸门
-
-
 @pytest.mark.parametrize("path", _shipped_definition_files(), ids=lambda p: p.name)
 def test_shipped_definition_passes_the_shared_validator(path: Path):
     diagnostics = validate_definition(json.loads(path.read_text(encoding="utf-8")))
@@ -76,9 +73,6 @@ def test_shipped_builtin_definitions_are_registered_as_declarative_endpoints():
         spec = ENDPOINT_REGISTRY[key]
         assert spec.kind == "declarative"
         assert spec.definition is not None
-
-
-# ---------------------------------------------------------------- fail-fast
 
 
 def test_invalid_definition_fails_loading(tmp_path: Path):
@@ -125,9 +119,6 @@ def test_key_colliding_with_a_python_endpoint_fails_merging(tmp_path: Path):
 def test_shipped_definitions_are_authored_by_arcreel():
     for definition in load_builtin_definitions().values():
         assert definition["meta"]["author"] == BUILTIN_DEFINITION_AUTHOR
-
-
-# ---------------------------------------------------------------- 派生的端点元数据
 
 
 def test_declarative_spec_derives_catalog_fields():

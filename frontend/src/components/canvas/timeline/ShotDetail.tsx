@@ -72,7 +72,6 @@ import { PromptAuthoringButton } from "@/components/canvas/shared/PromptAuthorin
 type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
 
-/** 提示词形态切换与预览按分镜图 / 视频两侧分别作用。 */
 type PromptSide = "image" | "video";
 /** `null` = 待编写：机械转换落盘的条目还没有这一侧提示词。 */
 type ImagePromptValue = ImagePrompt | string | null;
@@ -90,7 +89,6 @@ interface ShotDetailProps {
   scriptFile?: string;
   /** 上一分镜的当前分镜图路径；存在且未设章节切分点时，标出本分镜会参考它 */
   previousStoryboardPath?: string | null;
-  /** Total shot count for "1/N" indicator */
   selectedIndex: number;
   totalCount: number;
   onPrev: () => void;
@@ -100,15 +98,12 @@ interface ShotDetailProps {
    * 为 false 时界面上的剧本还是旧的，「保存并生成」不能接着生成。缺省时只读展示。
    */
   onUpdatePrompt?: (segmentId: string, patch: Record<string, unknown>) => Promise<boolean>;
-  /** 分镜改序：向前或向后移动一位 */
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => void | Promise<void>;
-  /** 分镜重排请求在途，移动按钮禁用 */
   movePending?: boolean;
   /** 在当前分镜之后新增分镜（旁白带正文），resolve 为是否成功；缺省时不渲染入口。 */
   onInsertShot?: InsertShotHandler;
   /** 移除当前分镜，resolve 为是否成功；缺省时不渲染入口。 */
   onRemoveShot?: (itemId: string) => Promise<boolean>;
-  /** 分镜新增 / 移除请求在途，切镜与增删入口禁用 */
   structurePending?: boolean;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void | Promise<void>;
@@ -130,10 +125,8 @@ interface ShotDetailProps {
   editRef?: RefObject<ShotEditHandle | null>;
 }
 
-/** 分镜视图需要的当前分镜编辑状态。 */
 export interface ShotEditHandle {
   dirty: boolean;
-  /** 保存当前分镜；保存在途或没有修改时什么都不做。 */
   save: () => void;
 }
 
@@ -149,14 +142,10 @@ interface ShotFields {
   characters: string[];
   scenes: string[];
   props: string[];
-  /** 旁白 / 剧情演绎：章节切分点 */
   segment_break?: boolean;
-  /** 广告 / 短片：口播文案与带货框架段落标签 */
   voiceover_text?: string;
   section?: string;
-  /** 剧情演绎：分镜级有序发声序列（台词 + 画外音） */
   utterances?: Utterance[];
-  /** 旁白 / 解说：旁白正文 */
   novel_text?: string;
 }
 
@@ -281,16 +270,13 @@ interface DurationPillProps {
   seconds: number;
   segmentId: string;
   projectName: string;
-  /** 本集剧本文件名；宫格任务按它做 scriptFile 粒度的占用判定。 */
   scriptFile?: string;
   durationOptions: number[];
   durationEndpointFixed?: boolean;
   durationLoading?: boolean;
   durationUnavailableReason?: string | null;
   durationWarningReason?: ShotDetailProps["durationWarningReason"];
-  /** 选中的时长写进未保存修改；缺省时只读展示。 */
   onChange?: (seconds: number) => void;
-  /** 该分镜有分镜图 / 视频任务在跑；置真时禁止改时长。 */
   busy?: boolean;
 }
 
@@ -672,7 +658,6 @@ export function ShotDetail({
         spacing={0}
         value={[current]}
         onValueChange={(next: string[]) => {
-          // 再点当前形态会清空选择，忽略
           if (next[0] === "text") void switchToTextForm(side);
           else if (next[0] === "structured") setPendingStructSwitch(side);
         }}
@@ -738,7 +723,6 @@ export function ShotDetail({
   // 展示用去重：products_in_shot 无唯一性约束（同一商品多次入画合法），重复名直接作 key 会撞
   const productNames = isAd ? Array.from(new Set((segment as AdShot).products_in_shot ?? [])) : [];
 
-  // 引用弹窗的「确定」只把改动写进未保存修改，与其他字段一起保存
   const handleRefsApply = (patch: Record<string, string[]>) => {
     setValue((prev) => ({
       ...prev,
@@ -748,7 +732,6 @@ export function ShotDetail({
     }));
   };
 
-  // 广告/短片的段落标签、口播与商品与引用同属中栏顶部的「引用」组。
   const refsGroup = (
     <ShotGroup>
       {isAd && (
@@ -999,7 +982,6 @@ export function ShotDetail({
     </ShotGroup>
   ) : null;
 
-  // 有未保存修改时生成按钮先保存再生成；保存失败不生成
   const generateLabel = dirty ? t("common:save_and_generate") : undefined;
   const savingHint = saving ? t("common:save_status_saving") : undefined;
 

@@ -108,7 +108,6 @@ class AssetMergeReport:
     aliases_added: tuple[str, ...]
     #: 并为衍生时新建的衍生名；保留方已有同名（只差大小写也算）衍生时并入那个，这里为 ``None``。
     derivative_created: str | None
-    #: 被并方名下迁到保留方的衍生。
     derivatives_moved: tuple[str, ...]
     #: 被并方名下与保留方已有衍生同名（只差大小写也算）、并入已有那个的衍生（这些衍生的描述与资产图不保留）。
     derivatives_folded: tuple[str, ...]
@@ -518,7 +517,6 @@ def plan_derivative_merge(
     文件）；并入的衍生在引用里改用已有衍生的名字。并为衍生时先新建以被并方命名的衍生；保留方
     已有同名衍生时并入它，不新建。被并方名下与之同名的衍生同样并入。
     """
-    # 保留方名下的衍生：已有的，加上本次新建与迁入的。
     kept: dict[str, None] = dict.fromkeys(derivative_table(target_entry))
     created: str | None = None
     source_derivative: str | None = None

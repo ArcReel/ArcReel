@@ -125,7 +125,6 @@ class TestBindings:
             )
             assert scope is not None
             assert (scope.site, scope.region, scope.project_name) == ("volcengine", "cn-beijing", "film")
-            # 本次调用实际用的 endpoint 与确认时不同：不适用
             assert (
                 await resolve_bound_scope(
                     session,

@@ -3,7 +3,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目「文件」视图：左侧目录树按需展开，右侧是选中文件的角色、预览与入口；两栏各自滚动。
 const PATH = "/app/projects/demo/files";
 const LISTING = "GET /api/v1/projects/demo/file-view";
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
@@ -30,7 +29,6 @@ const scriptFile = scripts.entries[0];
 
 const tree = (page: Page) => page.getByRole("navigation", { name: "项目文件" });
 
-// 压力变体：分镜目录里两百张图，文件名很长、角色各异；剧本正文三千行。
 const LONG_NAME = "scene_E12S0001_雨夜里的旧城茶馆与修表匠的约定_第三稿_含删去的支线与批注";
 const STORYBOARDS: Listing = {
   path: "storyboards",
@@ -67,7 +65,6 @@ const STRESS: ApiOverrides = {
   },
 };
 
-// 压力变体：项目回收站里一百二十条删除记录，路径很长，发起方交替。
 const TRASH_STRESS: ApiOverrides = {
   ...EVENT_STREAM,
   "GET /api/v1/projects/demo/trash": {

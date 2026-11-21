@@ -1,7 +1,6 @@
 """Vietnamese translations for provider registry metadata."""
 
 MESSAGES: dict[str, str] = {
-    # Provider display names
     "provider_name_gemini-aistudio": "AI Studio",
     "provider_name_gemini-vertex": "Vertex AI",
     "provider_name_ark": "Volcengine Ark",
@@ -30,7 +29,6 @@ MESSAGES: dict[str, str] = {
     "provider_desc_minimax": "Nền tảng mở của MiniMax, công ty AI có trụ sở tại Thượng Hải, cung cấp các mô hình đa phương thức và dịch vụ tạo video Hailuo. Mặc định kết nối site nội địa; đặt base_url sang site quốc tế khi dùng ở nước ngoài.",
     "provider_desc_kling": "Nền tảng mở của Kling AI, dịch vụ AI tạo sinh của Kuaishou. Xác thực bằng API Key áp dụng cho mọi model; Access Key + Secret Key (JWT) chỉ áp dụng cho model từ 3.0 trở về trước. Chọn một trong hai — nếu điền cả hai, API Key được ưu tiên.",
     "provider_desc_agnes": "Nền tảng AI đa phương thức của Agnes AI, cung cấp các mô hình AI tạo sinh của hãng qua một API thống nhất.",
-    # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "Endpoint Anthropic-compat chính thức của DeepSeek; cần API key sk-.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo chỉ chấp nhận tên model đã biết; không có danh sách model công khai.",
     "preset_notes_ark_coding_plan": "Gói Volcengine Ark Coding Plan; không có endpoint danh sách model — hãy chọn model gợi ý đã bật trong bảng điều khiển Ark.",

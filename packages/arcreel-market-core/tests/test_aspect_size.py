@@ -19,9 +19,6 @@ from arcreel_market_core.aspect_size import (
 ALL_ASPECTS = ["9:16", "16:9", "1:1", "3:4", "4:3", "2:3", "3:2", "21:9"]
 
 
-# ---------------- parse_aspect_ratio ----------------
-
-
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
@@ -29,9 +26,9 @@ ALL_ASPECTS = ["9:16", "16:9", "1:1", "3:4", "4:3", "2:3", "3:2", "21:9"]
         ("16:9", (16, 9)),
         ("1:1", (1, 1)),
         ("3:4", (3, 4)),
-        ("21:9", (7, 3)),  # 约简
-        ("18:32", (9, 16)),  # 约简到互质
-        ("16：9", (16, 9)),  # 全角冒号
+        ("21:9", (7, 3)),
+        ("18:32", (9, 16)),
+        ("16：9", (16, 9)),
     ],
 )
 def test_parse_aspect_ratio_reduces(raw, expected):
@@ -45,20 +42,14 @@ def test_parse_aspect_ratio_invalid_falls_back(bad, caplog):
     assert any("aspect_ratio" in r.message for r in caplog.records)
 
 
-# ---------------- aspect_size 精确比例 + 整除 ----------------
-
-
 @pytest.mark.parametrize("aspect", ALL_ASPECTS)
 @pytest.mark.parametrize("short", [480, 720, 1024, 1440, 2160])
 def test_aspect_size_exact_ratio_and_divisible(aspect, short):
     w, h = aspect_size(aspect, short, round_to=16)
     aw, ah = parse_aspect_ratio(aspect)
-    # 比例零偏差：w/h == aw/ah ⇔ w*ah == h*aw
     assert w * ah == h * aw
-    # 均被 16 整除
     assert w % 16 == 0
     assert h % 16 == 0
-    # 宽高方向与比例一致
     assert (w >= h) == (aw >= ah)
 
 
@@ -88,7 +79,7 @@ def test_aspect_size_max_long_edge_clamps_keeping_ratio():
     # gpt-image-2：长边上限 3840
     w, h = aspect_size("9:16", 4000, round_to=16, max_long_edge=3840)
     assert h <= 3840
-    assert w * 16 == h * 9  # 仍精确 9:16
+    assert w * 16 == h * 9
     assert (w, h) == (2160, 3840)
 
 
@@ -101,7 +92,6 @@ def test_aspect_size_max_long_edge_floor_keeps_min_legal():
 @pytest.mark.parametrize(
     ("aspect", "expected"),
     [
-        # DashScope 标准预算 2048²=4194304：各比例最大且精确
         ("9:16", (1440, 2560)),
         ("16:9", (2560, 1440)),
         ("1:1", (2048, 2048)),
@@ -114,18 +104,16 @@ def test_aspect_size_max_total_pixels_standard_budget(aspect, expected):
     assert (w, h) == expected
     assert w * h <= 2048 * 2048
     aw, ah = parse_aspect_ratio(aspect)
-    assert w * ah == h * aw  # 精确
+    assert w * ah == h * aw
 
 
 def test_aspect_size_4k_total_budget():
-    # wan 4K 预算 4096²=16777216
     w, h = aspect_size("9:16", 2160, round_to=16, max_total_pixels=4096 * 4096)
     assert (w, h) == (2160, 3840)
     assert w * h <= 4096 * 4096
 
 
 def test_aspect_size_takes_stricter_of_two_clamps():
-    # max_long_edge 与 max_total_pixels 同时给定时取更严者
     w, h = aspect_size("9:16", 2160, round_to=16, max_long_edge=2000, max_total_pixels=4096 * 4096)
     assert h <= 2000
     assert w * 16 == h * 9
@@ -133,14 +121,11 @@ def test_aspect_size_takes_stricter_of_two_clamps():
 
 def test_aspect_size_extreme_ratio_warns(caplog):
     with caplog.at_level(logging.WARNING):
-        aspect_size("21:9", 720, round_to=16, max_ratio=3.0)  # 7:3≈2.33 < 3，不 warn
+        aspect_size("21:9", 720, round_to=16, max_ratio=3.0)
     assert not any("超出后端支持上限" in r.message for r in caplog.records)
     with caplog.at_level(logging.WARNING):
-        aspect_size("32:9", 720, round_to=16, max_ratio=3.0)  # 32:9≈3.56 > 3，warn
+        aspect_size("32:9", 720, round_to=16, max_ratio=3.0)
     assert any("超出后端支持上限" in r.message for r in caplog.records)
-
-
-# ---------------- resolution_to_short_edge ----------------
 
 
 def test_resolution_none_returns_default():

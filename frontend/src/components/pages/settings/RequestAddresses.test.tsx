@@ -48,7 +48,6 @@ describe("RequestAddresses", () => {
     expect(screen.getByText("查询进度")).toBeInTheDocument();
     expect(pathButton("/v1/videos/veo-3")).toBeInTheDocument();
     expect(pathButton("/v1/videos/{{ task_id }}")).toBeInTheDocument();
-    // 端点剥掉了版本段，灰显部分是归一化后的接口地址
     expect(screen.getAllByText("https://relay.test/api")).toHaveLength(2);
   });
 

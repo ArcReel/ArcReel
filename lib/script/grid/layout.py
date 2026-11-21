@@ -28,7 +28,6 @@ class GridLayout:
         w_str, h_str = self.grid_aspect_ratio.split(":")
         w_ratio = int(w_str)
         h_ratio = int(h_str)
-        # Scale so that the larger dimension matches the base reference
         if w_ratio >= h_ratio:
             width = _BASE_WIDTH
             height = round(_BASE_WIDTH * h_ratio / w_ratio)

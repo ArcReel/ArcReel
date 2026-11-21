@@ -2,7 +2,6 @@ import type { TFunction } from "i18next";
 import type { CapabilityKey, ProviderModelEntryInfo, ProviderModelItem } from "@/types";
 import { priceTableOf, type PriceTable } from "./price-editor/priceTable";
 
-/** 「模型信息」可以修改的部分。 */
 export interface EntryDraft {
   display_name: string;
   facts: Record<string, unknown>;
@@ -22,7 +21,6 @@ export const EDITABLE_FACTS: Record<ProviderModelItem["media_type"], CapabilityK
   audio: [],
 };
 
-/** 供应商名列表，如「『A』『B』」。 */
 export function providerNames(t: TFunction, entry: ProviderModelEntryInfo): string {
   return entry.shared_with
     .map((p) => t("pm_entry_provider_name", { name: p.display_name }))

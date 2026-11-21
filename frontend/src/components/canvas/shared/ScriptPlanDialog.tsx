@@ -20,11 +20,9 @@ import { useScriptPlanStore, type ScriptPlanOpenRequest } from "@/stores/script-
 interface HostProps {
   projectName: string;
   episode: number;
-  /** 本集上次保存的附加指令。 */
   savedInstructions?: string;
 }
 
-/** 集页上唯一的「重新规划脚本」对话框宿主：按 {@link useScriptPlanStore} 的请求打开。 */
 export function ScriptPlanHost({ projectName, episode, savedInstructions }: HostProps) {
   const request = useScriptPlanStore((s) => s.request);
   const close = useScriptPlanStore((s) => s.close);

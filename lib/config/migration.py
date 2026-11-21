@@ -77,7 +77,6 @@ async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
     provider_repo = ProviderConfigRepository(session)
     setting_repo = SystemSettingRepository(session)
 
-    # 1. Provider-specific keys
     for json_key, provider, config_key, is_secret in _PROVIDER_KEY_MAP:
         value = overrides.get(json_key)
         if value is not None:
@@ -111,7 +110,6 @@ async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
         video_model = _model_fix.get(video_model, video_model)
     await setting_repo.set("default_video_backend", f"gemini-{video_backend}/{video_model}")
 
-    # 4. System setting keys
     for key in _SYSTEM_SETTING_KEYS:
         value = overrides.get(key)
         if value is not None:
@@ -133,7 +131,6 @@ async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
         if video_max is not None and "video" in media_types:
             await provider_repo.set(provider_id, "video_max_workers", str(video_max), is_secret=False)
 
-    # 6. Catch-all: remaining override keys → system_setting
     for key, value in overrides.items():
         if key not in _HANDLED_KEYS:
             logger.warning("迁移未知配置项: %s=%s", key, value)
@@ -141,7 +138,6 @@ async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
 
     await session.commit()
 
-    # 7. Rename to .bak
     bak_path = json_path.with_suffix(".json.bak")
     json_path.rename(bak_path)
     logger.info("Migration complete. Renamed to %s", bak_path)

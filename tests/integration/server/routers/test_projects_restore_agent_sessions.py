@@ -121,7 +121,6 @@ async def test_renamed_restore_moves_session_transcripts_to_the_new_key(tmp_path
     assert {summary["session_id"] for summary in await store.list_session_summaries(new_key)} == {SID, OLD_ONLY_SID}
     assert {summary["session_id"] for summary in await store.list_session_summaries(old_key)} == {NEW_DEMO_SID}
     assert {row["session_id"] for row in await store.list_sessions(new_key)} == {SID, OLD_ONLY_SID}
-    # 新建的同名 demo 的会话原样留在旧键下
     assert len(await store.load({"project_key": old_key, "session_id": NEW_DEMO_SID}) or []) == 2
     assert await store.load({"project_key": new_key, "session_id": NEW_DEMO_SID}) is None
 

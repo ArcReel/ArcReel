@@ -26,7 +26,6 @@ interface Props {
   view: EpisodesView;
   replan: ReplanSummary;
   episodes: EpisodeMeta[];
-  /** 方案还在逐窗生成。 */
   generating: boolean;
   onChanged: () => void;
 }
@@ -316,7 +315,6 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
   );
 }
 
-/** 原文旁并排色条的图例：左侧现有分集、右侧新方案、琥珀色虚线是分界不同处；`pending` 时加上等待规划。 */
 function CompareLegend({ pending }: { pending: boolean }) {
   const { t } = useTranslation("dashboard");
   return (

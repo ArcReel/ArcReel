@@ -126,7 +126,6 @@ describe("ProviderModelSheet", () => {
 
     const sheet = await screen.findByRole("dialog");
     await within(sheet).findByText("这个供应商支持的参数");
-    // 视频的维度，没有文本模型的维度
     expect(within(rowOf("可选时长")).getByText("4, 8 秒")).toBeInTheDocument();
     expect(within(rowOf("首帧")).getByText("支持")).toBeInTheDocument();
     expect(screen.queryByText("图片输入")).not.toBeInTheDocument();
@@ -485,7 +484,6 @@ describe("ProviderModelSheet", () => {
     await user.click(within(info).getByRole("button", { name: "添加计费项" }));
     await user.click(await screen.findByRole("menuitem", { name: "视频时长" }));
 
-    // 单价还没填：保存被拦下，不发请求
     expect(within(info).getByText("请填写单价。")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "保存" }));
     expect(await screen.findByText(/「模型信息」里有填写不正确的值。/)).toBeInTheDocument();

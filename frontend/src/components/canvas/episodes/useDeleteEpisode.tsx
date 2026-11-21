@@ -15,7 +15,6 @@ interface PendingDeletion {
   episode: number;
   name: string;
   impact: EpisodeDeletionImpact & { text: string };
-  /** 确认时服务端的清单已变，这是更新后的清单。 */
   changed: boolean;
 }
 

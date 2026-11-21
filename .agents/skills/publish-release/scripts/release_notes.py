@@ -85,7 +85,6 @@ def section_bounds(lines: list[str], version: str) -> tuple[int, int]:
     return start, end
 
 
-# ---------------------------------------------------------------- themes
 
 
 @dataclass
@@ -240,7 +239,6 @@ def cmd_themes(args: argparse.Namespace) -> None:
             break
 
 
-# ----------------------------------------------------------------- apply
 
 
 def highlight_span(section: list[str]) -> tuple[int, int] | None:

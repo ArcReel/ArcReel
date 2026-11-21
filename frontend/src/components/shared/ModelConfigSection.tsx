@@ -123,10 +123,6 @@ export interface ModelConfigSectionProps {
    * 时长选项据此过滤——该模式由所在页面持有，故从外部传入而非在本组件推断。
    */
   usesReferenceImages?: boolean;
-  /**
-   * 标出各通道的来源（项目设置用）：顶部说明本项目覆盖了几项全局默认，并可全部恢复；每个通道标题行
-   * 显示「本项目」与「恢复全局」，或「跟随全局 · 全局默认模型名」。
-   */
   showOverrideSources?: boolean;
   enable?: {
     video?: boolean;
@@ -148,7 +144,6 @@ function ChannelCard({ title, source, children }: { title: string; source?: Reac
   );
 }
 
-/** 通道内的字段小标题：本地化常规字，不用等宽大写。 */
 function FieldTitle({ children }: { children: React.ReactNode }) {
   return <div className="text-xs font-medium text-muted-foreground">{children}</div>;
 }
@@ -226,7 +221,6 @@ export function ModelConfigSection({
   const applyVideoLayer = (patch: Partial<ModelConfigValue>) => onChange(withVideoLayer(value, patch));
   const applyImageLayer = (patch: Partial<ModelConfigValue>) => onChange(withImageLayer(value, patch));
 
-  // 恢复全局：清空通道的模型字段，经与下拉相同的路径校正时长与分辨率；视频通道连同「生成有声视频」。
   const clearedFields = (channel: ModelChannel): Partial<ModelConfigValue> =>
     Object.fromEntries(CHANNEL_MODEL_FIELDS[channel].map((field) => [field, ""]));
   const resetChannel = (channel: ModelChannel) => {
@@ -359,7 +353,6 @@ export function ModelConfigSection({
           : "dashboard:audio_switch_locked_always_off",
       )
     : null;
-  // 按生效值判矛盾：项目级 null 表示跟随全局，全局为「关闭」时同样落在恒有声模型上。
   const audioConflict =
     audioControl === "always_on" && (videoGenerateAudio ?? globalVideoGenerateAudio) === false;
 
@@ -770,9 +763,6 @@ export function ModelConfigSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Stale stored values
-// ---------------------------------------------------------------------------
 
 /** 未选择：null 与纯空白都按未设置读，与后端读取存值的清洗一致。 */
 function storedValue(stored: string | null): string | null {
@@ -790,9 +780,6 @@ function resolutionStale(stored: string | null, options: readonly string[]): boo
 }
 
 
-// ---------------------------------------------------------------------------
-// Duration sub-components
-// ---------------------------------------------------------------------------
 
 /**
  * 时长档位的单选项：选中项用 secondary 底色。过期上下文下用 aria-disabled 而不是 disabled，
@@ -897,7 +884,6 @@ function DurationSlider({
   onChange: (next: number | null) => void;
   ariaLabel: string;
   autoLabel: string;
-  /** 同 {@link DurationButtonGroup}：过期上下文下只展示、不接受选择。 */
   disabled?: boolean;
 }) {
   const { t } = useTranslation("dashboard");

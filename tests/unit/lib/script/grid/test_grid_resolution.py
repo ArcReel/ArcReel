@@ -60,9 +60,9 @@ async def test_resolution_failure_blocks_large_grid():
     ("provider_id", "model_id", "expected"),
     [
         ("vidu", "viduq1", None),  # 目录只声明 1080p：不发保底档，交上游默认
-        ("vidu", "viduq2", GRID_FALLBACK_RESOLUTION),  # 目录含保底档
-        ("ark", "doubao-seedream-4-5", GRID_FALLBACK_RESOLUTION),  # 目录未声明档位
-        ("custom-1", "any-model", GRID_FALLBACK_RESOLUTION),  # 不在目录中
+        ("vidu", "viduq2", GRID_FALLBACK_RESOLUTION),
+        ("ark", "doubao-seedream-4-5", GRID_FALLBACK_RESOLUTION),
+        ("custom-1", "any-model", GRID_FALLBACK_RESOLUTION),
     ],
 )
 def test_unset_grid_size_follows_catalog(provider_id: str, model_id: str, expected: str | None):

@@ -22,9 +22,6 @@ def _marks(line: str) -> list[tuple[str, str]]:
     return [(mark.speaker, mark.text) for mark in line_speech_marks(line)]
 
 
-# ── extract_mentions ────────────────────────────────────────
-
-
 def test_extract_mentions_ordered_unique():
     """顺序即执行期参考图编号：重复提及去重，保留首次出现顺序。"""
     text = "@张三 看向 @酒馆\n@张三 拔剑 @长剑"
@@ -74,9 +71,6 @@ def test_speaker_only_before_braces_is_excluded_from_references():
     assert extract_mentions("@[张三]{我来了}\n@[李四]{你也来了}") == []
 
 
-# ── mention 前缀边界 ────────────────────────────────────────
-
-
 def test_mention_ignores_email_like_prefix():
     """email 左侧是 \\w，不应被当成 mention。"""
     assert extract_mentions("contact a@张三 for help") == []
@@ -105,9 +99,6 @@ def test_mention_underscore_prefix_is_rejected():
     assert extract_mentions("prefix_@张三") == []
 
 
-# ── BOM / 编码归一 ────────────────────────────────────────
-
-
 def test_bom_prefixed_dialogue_line_is_normative():
     """BOM 开头的台词记号两侧同判：说话人不进参考图。
 
@@ -133,9 +124,6 @@ def test_dialogue_speaker_is_stripped_to_asset_comparison_key():
     assert leading_mention_before_colon("@[ 张三 ]：我来了") == "张三"
 
 
-# ── render_mentions_as_subjects ────────────────────────────
-
-
 def test_render_mentions_replaces_mentions():
     text = "中景，@张三 走进 @酒馆 找 @长剑。"
     rendered = render_mentions_as_subjects(text, {"张三", "酒馆", "长剑"})
@@ -152,7 +140,7 @@ def test_render_mentions_unknown_mention_kept():
     text = "@张三 和 @未知 对话"
     rendered = render_mentions_as_subjects(text, {"张三"})
     assert "<张三>" in rendered
-    assert "@未知" in rendered  # 未注册保留
+    assert "@未知" in rendered
 
 
 def test_render_mentions_across_multiple_lines():
@@ -163,9 +151,6 @@ def test_render_mentions_across_multiple_lines():
 
 def test_render_mentions_as_subjects_strips_comparison_whitespace():
     assert render_mentions_as_subjects("@[ Hero ] 推门而入", ["Hero"]) == "<Hero> 推门而入"
-
-
-# ── resolve_references ────────────────────────────────────
 
 
 def _proj(characters=None, scenes=None, props=None):
@@ -250,9 +235,6 @@ def test_resolve_references_matches_across_encoding_forms(registered: str, writt
 def test_render_mentions_as_subjects_matches_across_encoding_forms(registered: str, written: str):
     """两侧编码形式不同也要替换成主体记号：漏替换时 ``@[名称]`` 会原样进供应商请求。"""
     assert render_mentions_as_subjects(f"@[{written}] 推门而入", [registered]) == f"<{_NAME_NFC}> 推门而入"
-
-
-# ── 行内发声记号切分 ────────────────────────────────────────
 
 
 def test_inline_dialogue_after_description_is_a_speech_mark():
@@ -433,9 +415,6 @@ class TestRewriteDerivativeMentions:
 
     def test_other_characters_derivatives_are_untouched(self):
         assert rewrite_mentions("@[王五/劲装]", "张三", "李四") == ("@[王五/劲装]", 0)
-
-
-# ── render_mentions ─────────────────────────────────────────
 
 
 def test_render_mentions_hands_each_name_to_the_renderer_in_comparison_form():

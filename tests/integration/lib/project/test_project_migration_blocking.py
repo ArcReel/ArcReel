@@ -80,7 +80,6 @@ def test_failed_migration_records_the_offending_episode_and_file(tmp_path: Path)
     failure = migrate_project_with_verdict(project_dir)
 
     assert failure is not None
-    # 项目卡在清单激活这一步的起点版本上，不是迁移链的末端。
     assert failure.schema_version == ARTIFACT_MANIFEST_SCHEMA_VERSION - 1
     assert failure.reason
     assert [(d.episode, d.file) for d in failure.details] == [(1, "scripts/episode_1.json")]
@@ -460,7 +459,6 @@ def test_retry_keeps_the_project_blocked_when_the_chain_cannot_place_it(tmp_path
     _break_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is not None
 
-    # 「修复」把 project.json 弄没了：链条无处落脚，schema 仍未达标。
     (project_dir / "project.json").unlink()
     residual = migrate_project_with_verdict(project_dir)
 
@@ -532,7 +530,6 @@ def test_rest_guard_refuses_writes_but_keeps_reads_open(tmp_path: Path, monkeypa
     assert refused.status_code == 409
     assert "demo" in refused.json()["detail"]
 
-    # 只读照常：被阻断的项目仍要能看脚本与画布上已有的产物
     assert client.get("/projects/demo/thing").status_code == 200
 
     _repair_episode_script(project_dir)
@@ -569,6 +566,5 @@ def test_a_repaired_project_is_idempotent_to_retry(tmp_path: Path) -> None:
     project_dir, *_ = _project(tmp_path)
 
     assert migrate_project_with_verdict(project_dir) is None
-    # Already at the current schema: rerunning is a no-op success, not a second migration.
     assert migrate_project_with_verdict(project_dir) is None
     assert load_migration_failure(project_dir) is None

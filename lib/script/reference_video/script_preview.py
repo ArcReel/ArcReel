@@ -31,7 +31,6 @@ from lib.script.reference_video.text_parser import (
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_models import Utterance
 
-#: 未闭合花括号 warning 里回显的原行片段长度上限。
 _EXCERPT_LEN = 30
 
 WARN_UNREGISTERED_MENTION = "ref_warn_unregistered_mention"
@@ -181,7 +180,6 @@ def derive_voice_bindings(
             if settings.audio_ready is not None
             else None
         )
-        # 音频编号 = dialogue speaker 首现顺序，受 max_reference_audio 上限截断。
         for speaker in registered:
             char_data = characters.get(speaker)
             audio_field_set = bool(char_data.get("reference_audio")) if isinstance(char_data, dict) else False

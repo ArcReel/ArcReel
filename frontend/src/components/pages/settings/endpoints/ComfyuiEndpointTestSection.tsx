@@ -32,7 +32,6 @@ const RESOLUTION_TIERS: Record<ComfyuiMediaType, readonly string[]> = {
   image: ["512px", "1K", "2K", "4K"],
 };
 
-/** 项目的画幅比例只有竖屏与横屏两档，测试参数照它给。 */
 const ASPECT_RATIOS = ["9:16", "16:9"] as const;
 
 /** 分辨率下拉里「沿用 workflow 原生尺寸」那一项的取值；发请求时换回 null。 */
@@ -41,12 +40,10 @@ const NATIVE_RESOLUTION = "native";
 /** 时长输入清空时按这个秒数发出，占位符把它写在空输入框里。 */
 const DEFAULT_DURATION_SECONDS = 5;
 
-/** 能从节点绑定推出素材格子的四个语义键，按渲染次序。 */
 const ASSET_KEYS = ["start_image", "end_image", "reference_images", "reference_audio"] as const;
 
 type ComfyuiAssetKey = (typeof ASSET_KEYS)[number];
 
-/** 四段各自打给 ComfyUI 的那条路由，测试连接的状态点上原样标出。 */
 const STAGE_ROUTES: Record<TrialRunStage, string | null> = {
   submit: "POST /prompt",
   poll: "GET /history",
@@ -72,7 +69,6 @@ const STAGE_DOT_CLS: Record<TrialRunStageState, string> = {
 export interface ComfyuiEndpointTestSectionProps {
   /** 当前这份草稿，含尚未保存的节点绑定：要预览的正是刚绑好的那一份。 */
   definition: ComfyuiEndpointDefinition;
-  /** 可选作凭证来源的 comfyui 供应商。 */
   providers: CustomProviderInfo[];
   /**
    * 节点绑定还不成立，服务端会按定义不合法拒绝这两卡。由 `saveBlockers` 里那几条同为服务端硬
@@ -390,7 +386,6 @@ function ConversionsTable({
 }: {
   conversions: NonNullable<EndpointPreviewResponse["conversions"]>;
   mediaType: ComfyuiMediaType;
-  /** 种子这一维的取值策略，来自节点绑定；没绑就没有策略。 */
   seedPolicy: "random" | "keep" | null;
 }) {
   const { t } = useTranslation("dashboard");
@@ -470,7 +465,6 @@ function ConversionsTable({
   );
 }
 
-/** 一次测试连接走到哪儿了：四段状态点 + `prompt_id`，随后是产物卡或失败码卡。 */
 function TrialRunReport({
   run,
   artifactUrl,

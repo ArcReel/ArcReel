@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 
 interface EditableEpisodeTitleProps {
   title: string;
-  /** 标题为空时展示的集名（按播出位置派生的「第 N 集」），也是输入框的占位文字。 */
   placeholder?: string;
   /** 保存回调；reject 时组件保持编辑态，错误提示由调用方负责（如 toast）。 */
   onSave: (next: string) => Promise<void>;
@@ -16,10 +15,6 @@ interface EditableEpisodeTitleProps {
   canEdit: boolean;
 }
 
-/**
- * 集页页头的集标题：点铅笔进入行内输入，Enter 保存，Esc 取消还原；清空后保存即回到派生集名（placeholder）。
- * canEdit=false 时只显示标题。
- */
 export function EditableEpisodeTitle({ title, placeholder, onSave, canEdit }: EditableEpisodeTitleProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [isEditing, setIsEditing] = useState(false);

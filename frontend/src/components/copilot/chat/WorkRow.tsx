@@ -9,11 +9,6 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { TERMINAL_SESSION_STATUSES } from "./utils";
 import { toolLabel, type EpisodeRefs, type WorkLabel, type WorkStatus } from "./work-label";
 
-// ---------------------------------------------------------------------------
-// WorkRow – 工具调用、子智能体、Skill、后台任务共用的单行工序：图标、名称、一句摘要、
-// 状态。运行中是呼吸点，失败时图标与名称变红并带失败标记，成功不加标记。有详情时
-// 整行是折叠触发器，默认收起，与思考块同一行高与缩进。
-// ---------------------------------------------------------------------------
 
 const NO_EPISODES: EpisodeRefs = [];
 
@@ -35,7 +30,6 @@ interface WorkRowProps {
   name: string;
   summary?: string;
   status: WorkStatus;
-  /** 展开后的详情；没有时整行不可展开。 */
   children?: ReactNode;
 }
 
@@ -112,7 +106,6 @@ function collapsedText(text: string): string | null {
   return head === text ? null : `${head.trimEnd()}…`;
 }
 
-/** 展开后的一段：「参数」「结果」这类小标题加原文。 */
 export function WorkDetail({ label, text, error = false }: { label: string; text: string; error?: boolean }) {
   const { t } = useTranslation("dashboard");
   const [showAll, setShowAll] = useState(false);

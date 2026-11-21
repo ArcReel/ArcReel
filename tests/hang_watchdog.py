@@ -42,7 +42,6 @@ IDLE_DUMP_SECONDS = 180.0
 # SIGSEGV 这类致命信号归 pytest 的 faulthandler 插件，它把调用栈写到 stderr；它只给启用它的线程
 # 准备了备用信号栈，别的线程栈溢出时处理函数跑不起来，进程无声死掉。
 CRASH_SIGNALS = ("SIGTERM", "SIGHUP", "SIGINT")
-# worker 宕掉后等它的进程结束、取退出状态的上限（秒）。
 EXIT_STATUS_WAIT_SECONDS = 5.0
 
 _real_os_exit = os._exit
@@ -109,7 +108,7 @@ def _traced_os_exit(status: int) -> NoReturn:
 
 
 def _dump_stacks_on_signals(directory: Path, stem: str) -> None:
-    if not hasattr(faulthandler, "register"):  # Windows 没有
+    if not hasattr(faulthandler, "register"):
         return
     for name in CRASH_SIGNALS:
         signum = getattr(signal, name, None)
@@ -123,7 +122,6 @@ def _dump_stacks_on_signals(directory: Path, stem: str) -> None:
 
 def _describe_exit(node: Any) -> str:
     """取宕掉的 worker 的进程退出状态；拿不到时说明原因。"""
-    # execnet 没有公开 popen 网关背后的子进程，按其内部结构取，结构变了就退化为说明。
     popen = getattr(getattr(getattr(node, "gateway", None), "_io", None), "popen", None)
     if not isinstance(popen, subprocess.Popen):
         return "取不到进程退出状态"
@@ -174,7 +172,6 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
 
 @pytest.hookimpl(optionalhook=True)
 def pytest_testnodedown(node: Any, error: object | None) -> None:
-    # xdist 的 controller 才有这个钩子；error 为空是正常收尾。
     if _watchdog is not None and error is not None:
         worker_id = getattr(getattr(node, "gateway", None), "id", "?")
         _watchdog.note(f"worker {worker_id} 宕机（{error}），{_describe_exit(node)}")

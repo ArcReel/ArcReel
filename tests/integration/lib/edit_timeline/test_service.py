@@ -51,7 +51,6 @@ async def test_mechanical_timeline_orders_clips_by_script_with_voice_defaults(
     assert [(clip.id, clip.unit_id) for clip in readout.clips] == [("c1", "E1U1"), ("c2", "E1U2"), ("c3", "E1U3")]
     assert [(clip.start, clip.duration) for clip in readout.clips] == [(0.0, 1.0), (1.0, 1.5), (2.5, 0.5)]
     assert readout.duration == 3.0
-    # 台词与无人声单位保持原音量，画外音单位压低
     assert [clip.source_volume for clip in readout.clips] == [1.0, 0.3, 1.0]
     assert all(clip.transition_to_next is None for clip in readout.clips)
     assert all(clip.trim is None for clip in readout.clips)

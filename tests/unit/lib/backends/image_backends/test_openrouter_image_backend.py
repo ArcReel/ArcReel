@@ -54,7 +54,6 @@ def _enum(name: str, *values: str) -> dict:
     return {name: {"type": "enum", "values": list(values)}}
 
 
-# 与 OpenRouter 目录返回同构的 supported_parameters 样本
 _GEMINI_LIKE = {
     "id": "google/gemini-3.1-flash-image",
     "supported_parameters": {
@@ -156,7 +155,6 @@ def test_unknown_model_falls_back_to_size(tmp_path: Path):
     assert "aspect_ratio" not in req_json
     # 没有声明依据的参数不带：quality 也不发（1K 档在 OpenAI 口径下本会映射出 quality）
     assert "quality" not in req_json
-    # 纯 T2I 不带参考图字段
     assert "input_references" not in req_json
 
 
@@ -178,7 +176,6 @@ def test_resolution_model_sends_ar_and_resolution_never_size(tmp_path: Path):
         _run(_request(tmp_path, image_size="2K"), model="google/gemini-3.1-flash-image")
     req_json = request_json(only_request(route))
     assert req_json["aspect_ratio"] == "9:16"
-    # 2K 档短边 1440 → 枚举里 ≥ 请求值的最小档 2K
     assert req_json["resolution"] == "2K"
     assert "size" not in req_json
 

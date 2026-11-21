@@ -37,9 +37,7 @@ function hasKind(value: unknown): value is AnyEndpointDefinition {
   return typeof value === "object" && value !== null && "kind" in value;
 }
 
-/** 刚导入、还没保存的 ComfyUI 端点在 URL 里的占位键。 */
 const COMFYUI_DRAFT_KEY = "comfyui-new";
-/** 新建端点在 URL 里的占位键。 */
 const NEW_KEY = "new";
 
 /**
@@ -64,11 +62,6 @@ interface MarketUpdateTarget {
   hasUnsavedChanges: boolean;
 }
 
-/**
- * 调用端点分区（全出血档）：左侧二级栏按「我的端点 | 内置」分组，右侧端点详情。
- * 选中项写进 URL 的 endpoint 参数，切换经路由，刷新与外部跳转都能落回同一个端点；
- * 从自定义供应商跳来时带 from 参数，详情顶部显示「返回『供应商名』」，切换端点时保留。
- */
 export function EndpointsSection() {
   const { t } = useTranslation(["dashboard", "common"]);
   const [, navigate] = useLocation();
@@ -101,7 +94,6 @@ export function EndpointsSection() {
     definition: ComfyuiEndpointDefinition;
   } | null>(null);
   const [comfyuiDraft, setComfyuiDraft] = useState<ComfyuiImportDraft | null>(null);
-  // 未保存定义的一次性身份发号器；只进详情的 React key，不参与渲染。
   const draftSeq = useRef(0);
 
   const [marketUpdateTarget, setMarketUpdateTarget] = useState<MarketUpdateTarget | null>(null);
@@ -128,13 +120,11 @@ export function EndpointsSection() {
         }
       })(),
       () => {
-        // 官方服务不可用时端点页照常工作，只是不提供分享入口。
       },
     );
     return () => controller.abort();
   }, []);
 
-  /** 端点地址：保留「从哪个供应商来」，切到别的端点后仍能返回。 */
   const hrefOf = useCallback(
     (key: string | null) => endpointSettingsPath(key ?? undefined, { fromCustomProvider: fromProviderId }),
     [fromProviderId],
@@ -175,7 +165,6 @@ export function EndpointsSection() {
     };
   }, [reload, reloadKey]);
 
-  /** 使用各端点的模型行：只有自定义供应商的模型行能指定端点。 */
   const usagesByEndpoint = useMemo(() => groupUsagesByEndpoint(providers), [providers]);
 
   // 本节管的是自定义端点，内置端点只作参照。自定义端点的媒体类型由定义自己声明（一份
@@ -271,7 +260,6 @@ export function EndpointsSection() {
     return provider ? { providerId: provider.id, providerName: provider.display_name } : null;
   }, [fromProviderId, providers]);
 
-  // --- 导入 ---
 
   // 连续选文件时后一次接管：作废在途的读取与校验，避免第二个文件的定义配上
   // 第一个文件的校验结果。
@@ -300,7 +288,6 @@ export function EndpointsSection() {
     [],
   );
 
-  /** 清掉上一次交出去的载荷与它的结果；弹窗开着时用户可以接着再交一份。 */
   const resetImportSource = useCallback(() => {
     importRunRef.current += 1;
     setImportFileName("");
@@ -310,7 +297,6 @@ export function EndpointsSection() {
     setImportPending(false);
   }, []);
 
-  /** 接下弹窗交出来的一份载荷：上传的文件与粘贴的文本走同一条分流。 */
   const takeImportSource = useCallback(
     async (text: string, fileName: string) => {
       const run = ++importRunRef.current;
@@ -338,7 +324,6 @@ export function EndpointsSection() {
     [importMediaType, validatePayload, pushToast, t],
   );
 
-  /** 换媒体类型：原始 workflow 按哪一种包装由它决定，包装结果与诊断都要重来一遍。 */
   const handleImportMediaTypeChange = useCallback(
     (mediaType: ComfyuiMediaType) => {
       setImportMediaType(mediaType);
@@ -403,7 +388,6 @@ export function EndpointsSection() {
     }
   }, [importDefinition, importValidation, importFileName, select, pushToast, t]);
 
-  /** 关掉导入弹窗：在途的识别与推断一并作废，回来的那一份不再装进详情。 */
   const closeImport = useCallback(() => {
     importRunRef.current += 1;
     setImportBusy(null);
@@ -418,7 +402,6 @@ export function EndpointsSection() {
     setImportOpen(true);
   }, [resetImportSource]);
 
-  /** 为当前这个 ComfyUI 端点换一份 workflow：身份与已确认的节点绑定沿用手上这一份。 */
   const startComfyuiReimport = useCallback(
     (current: ComfyuiEndpointDefinition) => {
       // 草稿的身份只在它就是当前选中的那一个时才算数：手上留着端点 A 的未保存草稿、人却走到
@@ -460,7 +443,6 @@ export function EndpointsSection() {
     [importDefinition, finishImport, pushToast, t],
   );
 
-  // --- 从市场更新 ---
 
   useEffect(() => {
     marketUpdateRef.current?.abort();
@@ -506,7 +488,6 @@ export function EndpointsSection() {
   );
 
 
-  // --- 接线到供应商 ---
 
   const handleCreateProvider = useCallback(
     (definition: EndpointDefinition, endpointKey: string) => {
@@ -550,7 +531,6 @@ export function EndpointsSection() {
   }
 
   return (
-    // 全出血档：二级栏与详情栏各自滚动
     <div className="flex min-h-0 min-w-0 flex-1">
       <SecondaryRail label={t("ce_rail_label")} groups={railGroups} activeId={selectedKey} replace />
 

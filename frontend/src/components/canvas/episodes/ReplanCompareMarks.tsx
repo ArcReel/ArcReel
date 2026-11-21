@@ -56,7 +56,6 @@ export function LaneBar({
   );
 }
 
-/** 落在两行之间的不同分界：横跨正文与右侧色条的琥珀色虚线，画在下一行上方的段落间距正中。 */
 export function BoundaryRule() {
   const { t } = useTranslation("dashboard");
   return (
@@ -70,7 +69,6 @@ export function BoundaryRule() {
   );
 }
 
-/** 落在一行中间的不同分界：插在那个字之前的琥珀色竖虚线。 */
 export function BoundaryTick() {
   const { t } = useTranslation("dashboard");
   return (
@@ -81,7 +79,6 @@ export function BoundaryTick() {
   );
 }
 
-/** 方案还没生成到这一集：「等待规划」。 */
 export function WaitingBadge() {
   const { t } = useTranslation("dashboard");
   return (

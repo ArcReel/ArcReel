@@ -19,7 +19,6 @@ function segment(overrides: Partial<EpisodesViewSegment>): EpisodesViewSegment {
   };
 }
 
-// 一个文件 40 字：第 1 集 [0, 10)、第 2 集 [10, 20)、第 3 集 [20, 30)、第 4 集 [30, 40)；第 3 集开头是换行
 const view: EpisodesView = {
   unit: "chars",
   units: 40,
@@ -53,7 +52,6 @@ function sourceFile(name: string, segments: EpisodesViewSegment[]) {
   return { ...view.files[0], source_file: `source/${name}`, name, length: 20, segments };
 }
 
-// a.txt：第 1 集 [0, 10)、第 2 集 [10, 20) 接到 b.txt；b.txt：第 2 集 [0, 10)、第 3 集 [10, 20)
 const crossing: EpisodesView = {
   ...view,
   files: [
@@ -143,7 +141,6 @@ describe("新旧分法的对照", () => {
   });
 
   it("跨文件的一集在文件交界处不算分界，方案在文件结尾的分界就是下一个文件的开头", () => {
-    // 新方案：a.txt 的 [10, 20) 一集，b.txt 整个一集
     const drafts = [draft(10, 20), { ...draft(0, 20), source_file: "source/b.txt" }];
     const compare = replanCompare(
       crossing,

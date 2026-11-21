@@ -31,7 +31,6 @@ export interface AssetGalleryProps<T extends GalleryAssetSource> {
   assetType: AssetSheetType;
   title: string;
   assets: Record<string, T>;
-  /** 有资产图任务在跑的资产名。 */
   generatingNames?: Set<string>;
   /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传等改写入口。 */
   readOnly: boolean;
@@ -45,10 +44,6 @@ export interface AssetGalleryProps<T extends GalleryAssetSource> {
   libraryPreview?: (asset: T) => LibraryImportPreview;
 }
 
-/**
- * 角色、场景、道具、商品共用的画廊：工具栏、按画布宽度加列的浏览卡网格、详情 Sheet 与大图查看。
- * 画廊只负责浏览，点卡片打开详情，次要操作在卡片的「更多」里；「添加」在详情 Sheet 里打开空白表单。
- */
 export function AssetGallery<T extends GalleryAssetSource>({
   projectName,
   assetType,
@@ -98,7 +93,6 @@ export function AssetGallery<T extends GalleryAssetSource>({
     stale: items.filter(({ asset }) => matchesGalleryFilter(asset, statusByName.get(asset.name), "stale")).length,
   };
 
-  // Agent 改动某个资产时定位到它的卡片；被筛选藏起来时先回到「全部」。
   const prepareTarget = useCallback(
     (target: WorkspaceFocusTarget) => {
       if (!(target.id in assets)) return false;

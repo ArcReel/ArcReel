@@ -1,7 +1,5 @@
-/** 参考费用：货币 → 金额映射。 */
 export type CostBreakdown = Record<string, number>;
 
-/** 按类型拆分的费用 */
 export interface CostByType {
   image?: CostBreakdown;
   video?: CostBreakdown;
@@ -13,7 +11,6 @@ export interface CostByType {
   unassigned?: CostBreakdown;
 }
 
-/** 单个 segment 的费用 */
 export interface SegmentCost {
   segment_id: string;
   duration_seconds: number;
@@ -21,7 +18,6 @@ export interface SegmentCost {
   actual: { image: CostBreakdown; video: CostBreakdown; audio?: CostBreakdown };
 }
 
-/** 单集费用 */
 export interface EpisodeCost {
   episode: number;
   title: string;
@@ -29,7 +25,6 @@ export interface EpisodeCost {
   totals: { estimate: CostByType; actual: CostByType };
 }
 
-/** 模型信息 */
 export interface ModelInfo {
   provider: string;
   model: string;
@@ -44,7 +39,6 @@ export interface UnpricedModel {
   count: number;
 }
 
-/** 费用估算 API 响应 */
 export interface CostEstimateResponse {
   project_name: string;
   models: { image: ModelInfo; video: ModelInfo; audio?: ModelInfo };

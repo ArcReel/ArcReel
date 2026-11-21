@@ -66,10 +66,6 @@ const VALIDATE_DEBOUNCE_MS = 400;
 /** 示例模板下拉里「空白定义」的取值；Select 的值不能是空串。 */
 const BLANK_TEMPLATE = "blank";
 
-/**
- * 选中项：新建端点、我的声明式端点、我的 ComfyUI 端点、刚导入还没保存的 ComfyUI 端点、
- * 内置声明式、内置 Python 六态。
- */
 export type EndpointSelection =
   | { mode: "new"; definition: EndpointDefinition }
   | { mode: "custom"; record: CustomEndpointInfo; definition: EndpointDefinition }
@@ -86,16 +82,13 @@ function savedRecordOf(selection: EndpointSelection): CustomEndpointInfo | null 
 interface EndpointDetailProps {
   selection: EndpointSelection;
   providers: CustomProviderInfo[];
-  /** 使用这个端点的模型行，来自自定义供应商的模型列表。 */
   usages: EndpointUsage[];
-  /** 从自定义供应商跳来时的返回目标。 */
   back: EndpointBackTarget | null;
   onSaved: (record: CustomEndpointInfo) => void;
   onDeleted: () => void;
   onCopied: (record: CustomEndpointInfo) => void;
   onCreateProvider: (definition: EndpointDefinition, endpointKey: string) => void;
   onNavigateToModel: (reference: EndpointReference) => void;
-  /** 打开导入对话框（新建端点页的入口）。 */
   onImport: () => void;
   /** 打开安装确认弹窗的更新态；只在市场轴可更新时提供入口，两种 kind 共用。 */
   onUpdateFromMarket: (
@@ -103,7 +96,6 @@ interface EndpointDetailProps {
     currentDefinition: AnyEndpointDefinition,
     hasUnsavedChanges: boolean,
   ) => void;
-  /** 更新弹窗所需的条目详情正在加载。 */
   marketUpdatePending: boolean;
   /** 为当前这个 ComfyUI 端点重新导入一份 workflow：新 workflow 接到传出去的这份定义上，回来走重匹配。 */
   onReimportComfyui: (current: ComfyuiEndpointDefinition) => void;
@@ -147,7 +139,6 @@ export function EndpointDetail({
   const persistedId = savedRecord?.id ?? null;
   const installation = savedRecord?.installation ?? null;
 
-  // 内置声明式端点的定义另行拉取，只读展示。
   const [builtinDefinition, setBuiltinDefinition] = useState<EndpointDefinition | null>(null);
   const [editorMode, setEditorMode] = useState<"form" | "json">("form");
   // JSON 片段编辑器自持文本状态：换端点或从 JSON 视图返回时递增，强制它按新定义重挂载。
@@ -255,7 +246,6 @@ export function EndpointDetail({
     setEditorMode("form");
   };
 
-  /** 用示例模板整份替换新建端点的定义；两种视图都按新定义重挂载。 */
   const applyTemplate = (id: string) => {
     if (selection.mode !== "new") return;
     const template = EXAMPLE_TEMPLATES.find((item) => item.id === id);
@@ -326,7 +316,6 @@ export function EndpointDetail({
       ? selection.descriptor.key
       : null;
 
-  // 「更多操作」里与 kind 无关的条目：删除、分享与它们的对话框两种详情共用。
   const openDelete = () => {
     setDeleteReferences(null);
     setConfirmDelete(true);
@@ -352,7 +341,6 @@ export function EndpointDetail({
       <AlertDialog
         open={confirmDelete}
         onOpenChange={(open) => {
-          // 删除请求在途时不响应 Esc 与遮罩点击
           if (!open && !deleting) {
             setConfirmDelete(false);
             setDeleteReferences(null);
@@ -390,7 +378,6 @@ export function EndpointDetail({
           }
           onClose={() => setShareOpen(false)}
           onSubmitted={(submission) => {
-            // 提交结果由页头的分享状态标记表达
             setShareOpen(false);
             share.onSubmitted(submission);
           }}
@@ -476,7 +463,6 @@ export function EndpointDetail({
       </>
     );
   } else if (selection.mode === "builtin") {
-    // 内置端点只读，常见去向是拿它新建供应商；复制为我的端点是次要操作
     primary = (
       <>
         <Button variant="outline" onClick={() => void handleCopyAsMine()} disabled={copying || !draft}>
@@ -540,7 +526,6 @@ export function EndpointDetail({
             menu={menu}
           />
         }
-        // 保存栏与正文的表单列同宽同起点（正文 max-w-190 含左右各 24px 内边距）
         footer={editable ? <SaveBar unit={unit} className="max-w-178" /> : undefined}
       >
         <div className="flex max-w-190 flex-col gap-8 px-6 py-6">

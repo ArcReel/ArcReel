@@ -9,7 +9,6 @@ import { formatRatio } from "./usage-record-format";
 import type { TrendBucket, TrendMetric, TrendSeries } from "./usage-trend";
 import { bucketSuccessRate, bucketTotal, seriesFor, shortDay, trendTicks } from "./usage-trend";
 
-/** 柱宽上限与顶端圆角。 */
 const MAX_BAR_WIDTH = 24;
 const BAR_RADIUS = 4;
 

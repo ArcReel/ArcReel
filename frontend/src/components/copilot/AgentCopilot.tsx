@@ -17,13 +17,6 @@ import { sessionTitle } from "./session-title";
 import { TodoProgress } from "./TodoProgress";
 import { MessageFlow, type MessageFlowHandle } from "./chat/MessageFlow";
 
-// ---------------------------------------------------------------------------
-// AgentCopilot — Agent 面板。
-//
-// 顶栏显示当前会话标题；「历史」开关把消息区换成会话列表，输入框仍可用。
-// 消息区下方依次是待办进度、错误条与输入框（排队消息托盘在输入框正上方）；Agent
-// 提问时问题占用输入框的位置。
-// ---------------------------------------------------------------------------
 
 export function AgentCopilot() {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -59,7 +52,6 @@ export function AgentCopilot() {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const isRunning = sessionStatus === "running";
-  // 回复进行中输入框照常可用：此时发出的消息进排队消息托盘
   const inputDisabled = Boolean(pendingQuestion) || answeringQuestion || sending;
   const title =
     isDraftSession || !currentSessionId
@@ -71,7 +63,6 @@ export function AgentCopilot() {
 
   const handleSend = useCallback(
     (text: string, images?: AttachedImage[]) => {
-      // 发送即回到消息区的最新处，随后到达的这条消息与回复都在视野里
       setHistoryOpen(false);
       flowRef.current?.scrollToEnd();
       return sendMessage(text, images);
@@ -100,7 +91,6 @@ export function AgentCopilot() {
     [rewriteMessage],
   );
 
-  // 提交回答与发送消息同理：回到最新处等 Agent 接着回复
   const handleSubmitAnswers = useCallback(
     (questionId: string, answers: Record<string, string>) => {
       setHistoryOpen(false);

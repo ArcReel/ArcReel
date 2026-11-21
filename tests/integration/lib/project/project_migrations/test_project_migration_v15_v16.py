@@ -387,7 +387,6 @@ def test_project_without_registered_narration_audio_becomes_post_production(tmp_
         "whole_source_files": [{"source_file": "source/1-7-0227.txt"}],
         "narration_delivery": "post_production",
         EPISODE_ID_HIGH_WATER_KEY: 1,
-        # 整本源文还没有切出集
         "source_remaining": True,
         "schema_version": 16,
     }
@@ -619,11 +618,6 @@ def test_the_whole_chain_registers_uploads_made_before_the_manifest(tmp_path: Pa
         _status(project_dir, ArtifactKey.episode_storyboard(1, "E1S2"), "storyboards/scene_E1S2.png")
         is ArtifactStatus.CURRENT
     )
-
-
-# ---------------------------------------------------------------------------
-# 集 ID 与播出顺序分离
-# ---------------------------------------------------------------------------
 
 
 def test_high_water_covers_ledger_disk_remnants_and_recorded_ids(tmp_path: Path) -> None:

@@ -241,7 +241,6 @@ class TestResolveSchema:
         resolved = resolve_schema(model)
         descriptions = _description_values(resolved)
 
-        # 顶层与内联后的嵌套模型都不带类 docstring 说明
         assert "description" not in resolved
         assert _class_docstring_texts(model).isdisjoint(descriptions)
         assert field_descriptions <= set(descriptions)
@@ -325,7 +324,6 @@ class TestStructuredFallbackReason:
 
         from lib.backends.text_backends.base import structured_fallback_reason
 
-        # 合法 JSON 但 age 为中文字符串、违反 int 约束
         violating = json.dumps({"name": "A", "age": "三十"}, ensure_ascii=False)
         assert structured_fallback_reason(violating, _Person) is not None
 
@@ -475,7 +473,6 @@ class TestSummarizeValidationError:
         except ValidationError as exc:
             summary = summarize_validation_error(exc)
         assert "age" in summary
-        # 摘要不含模型原始输入值
         assert "三十" not in summary
 
 
@@ -530,7 +527,6 @@ class TestCheckTruncation:
         assert exc.provider == "ark"
         assert exc.model == "doubao"
         assert exc.output_tokens == 8192
-        # 点名当前模型 + 换模型建议
         assert "ark/doubao" in str(exc)
         assert "输出能力更高的文本模型" in str(exc)
         assert "output_tokens=8192" in str(exc)

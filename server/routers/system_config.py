@@ -69,10 +69,6 @@ _latest_release_cache: dict[str, datetime | dict[str, str] | None] = {
     "fetched_at": None,
 }
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 class _OptionsDict(TypedDict):
     video_backends: list[str]
@@ -169,7 +165,7 @@ class _ModelCandidate:
     option: str  # "provider_id/model_id"
     media_type: str
     fit: BucketFit  # 各任务类型桶的判定，连同不进桶的原因
-    display_name: str  # 按请求语言成文的模型名
+    display_name: str
     entry: str | None = None  # 所对应条目的引用（「模型厂商/官方模型名」）；对应不上条目时为 None
 
     @property
@@ -385,7 +381,7 @@ def _lifecycle_notices(
         successor_key = catalog.binding_key(state.successor, model.media_type)
         successor_entry = catalog.get_entry(successor_key) if successor_key is not None else None
         notices[model.option] = LifecycleNotice(
-            status="discontinued" if state.discontinued else "retiring",  # 只收即将下线与已下线的模型
+            status="discontinued" if state.discontinued else "retiring",
             shutdown_date=state.shutdown_date,
             successor=state.successor,
             successor_name=successor_entry.display_name if successor_entry is not None else None,
@@ -429,11 +425,6 @@ async def _build_options(svc: ConfigService, session: AsyncSession, locale: str 
         provider_names=provider_names,
         model_names=_model_names(candidates),
     )
-
-
-# ---------------------------------------------------------------------------
-# Pydantic models
-# ---------------------------------------------------------------------------
 
 
 class FilteredCandidate(BaseModel):
@@ -513,18 +504,12 @@ _STRING_SETTINGS = (
 )
 
 
-# ---------------------------------------------------------------------------
-# GET /system/config
-# ---------------------------------------------------------------------------
-
-
 @router.get("/system/config")
 async def get_system_config(
     svc: Annotated[ConfigService, Depends(get_config_service)],
     locale: Locale,
     session: AsyncSession = Depends(get_async_session),
 ) -> dict[str, Any]:
-    # Read all settings in a single query
     all_s = await svc.get_all_settings()
     video_generate_audio_raw = all_s.get("video_generate_audio", "")
     video_generate_audio = (
@@ -794,11 +779,6 @@ async def get_system_version(
     }
 
 
-# ---------------------------------------------------------------------------
-# PATCH /system/config
-# ---------------------------------------------------------------------------
-
-
 def _is_valid_proxy_prefix(prefix: str) -> bool:
     if not prefix.isprintable() or any(char.isspace() for char in prefix):
         return False
@@ -871,7 +851,6 @@ async def patch_system_config(
                 raise HTTPException(status_code=422, detail=_t("narration_speed_must_be_positive"))
             await svc.set_setting("narration_speed", str(speed))
 
-    # Boolean settings
     if "video_generate_audio" in patch and patch["video_generate_audio"] is not None:
         await svc.set_setting("video_generate_audio", "true" if patch["video_generate_audio"] else "false")
 
@@ -881,7 +860,6 @@ async def patch_system_config(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=_t("video_poll_timeout_minimum")) from exc
 
-    # Anthropic API key (secret)
     if "anthropic_api_key" in patch:
         value = patch["anthropic_api_key"]
         if value:
@@ -889,7 +867,6 @@ async def patch_system_config(
         else:
             await svc.set_setting("anthropic_api_key", "")
 
-    # Integer settings with range validation
     _INT_SETTINGS_RANGES = {
         "agent_session_cleanup_delay_seconds": (10, 3600),
         "agent_max_concurrent_sessions": (1, 20),
@@ -904,7 +881,6 @@ async def patch_system_config(
                 )
             await svc.set_setting(key, str(value))
 
-    # String settings
     for key in _STRING_SETTINGS:
         if key in patch:
             value = patch[key]
@@ -912,5 +888,4 @@ async def patch_system_config(
 
     await session.commit()
 
-    # Return updated config
     return await get_system_config(svc=svc, locale=locale, session=session)

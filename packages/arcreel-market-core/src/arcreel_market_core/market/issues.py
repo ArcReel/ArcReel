@@ -14,29 +14,24 @@ from arcreel_market_core.validation_messages import Translator, ValidationMessag
 
 MESSAGE_KEY_PREFIX = "val_market_"
 
-#: JSON 文档内的根路径。
 ROOT_PATH = "$"
 
-#: 索引文件名，也是诊断里指向索引时的 ``file``。
 INDEX_FILENAME = "arcreel-market.json"
 
 
 class MarketIssueCode(StrEnum):
     """市场源校验能产出的全部诊断码。"""
 
-    # ---- ① 索引结构 ----
     INDEX_UNREADABLE = "index_unreadable"
     UNSUPPORTED_SCHEMA_VERSION = "unsupported_schema_version"
     MISSING_FIELD = "missing_field"
     INVALID_TYPE = "invalid_type"
     INVALID_VALUE = "invalid_value"
 
-    # ---- ② slug ----
     SLUG_INVALID = "slug_invalid"
     SLUG_DUPLICATE = "slug_duplicate"
     SLUG_DIRECTORY_MISMATCH = "slug_directory_mismatch"
 
-    # ---- ③ 旁置文件 ----
     PATH_NOT_RELATIVE = "path_not_relative"
     FILE_MISSING = "file_missing"
     SYMLINK_NOT_ALLOWED = "symlink_not_allowed"
@@ -45,14 +40,11 @@ class MarketIssueCode(StrEnum):
     ICON_NOT_SQUARE = "icon_not_square"
     ICON_AMBIGUOUS = "icon_ambiguous"
 
-    # ---- ④ 定义 ----
     DEFINITION_UNREADABLE = "definition_unreadable"
     DEFINITION_INVALID = "definition_invalid"
 
-    # ---- ⑤ 投影一致性 ----
     PROJECTION_MISMATCH = "projection_mismatch"
 
-    # ---- ⑥ 版本门槛格式 ----
     MIN_APP_VERSION_INVALID = "min_app_version_invalid"
 
 

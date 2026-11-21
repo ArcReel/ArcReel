@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// 校验中英文文档的配对与更新状态、标题锚点，以及英文站点界面文案。
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -41,7 +40,6 @@ const JSX_HEADING_EXEMPT_DOCS = new Set(["index.mdx"]);
 
 const TRANSLATION_DOCS_SUFFIX = "docusaurus-plugin-content-docs/current";
 
-// 文档根：中文源目录，加 i18n 下每个 locale 的译文目录。新增 locale 自动纳入，无需登记。
 function docRoots() {
   const i18nDir = resolve(websiteDir, "i18n");
   if (!existsSync(i18nDir)) return ["docs"];

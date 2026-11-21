@@ -136,8 +136,6 @@ class BlockingGuard:
         self.scanned_prefixes = tuple(str(self.root / name) + os.sep for name in SCANNED_DIRS)
         self.tests_prefix = str(self.root / TESTS_DIR) + os.sep
 
-    # ------------------------------------------------------------------ 启停
-
     def activate(self) -> None:
         blockbuster = BlockBuster()
         # 绝对路径的 abspath 只做字符串规范化，不碰文件系统；相对路径才会读 cwd。
@@ -155,8 +153,6 @@ class BlockingGuard:
             self._blockbuster.deactivate()
         while self._restore:
             self._restore.pop()()
-
-    # ------------------------------------------------------------------ 记录
 
     def _recording_predicate(self, function: BlockBusterFunction) -> Callable[..., bool]:
         allowed = function.can_block_predicate
@@ -249,8 +245,6 @@ class BlockingGuard:
     def _key(self, frame: FrameType) -> str:
         return f"{self._relpath(frame.f_code.co_filename)}::{frame.f_code.co_qualname}"
 
-    # ------------------------------------------------------------------ 结算
-
     def settle(self) -> list[Violation]:
         """取走待结算的违规，登记豁免的触发情况，返回豁免之外的部分。"""
         drained, self.pending[:] = list(self.pending), []
@@ -301,9 +295,6 @@ def _frame_allowed(filename: str, function: str, allowed_frames: Iterable[tuple[
         if normalized.endswith(suffix) and (names is None or function in names):
             return True
     return any(normalized.endswith(suffix) and function in names for suffix, names in allowed_frames)
-
-
-# ---------------------------------------------------------------------- 锁规则
 
 
 class _WatchedRLock:
@@ -376,9 +367,6 @@ def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
     return [function for _, function in rules]
 
 
-# ---------------------------------------------------------------------- 清单
-
-
 def load_exemptions(root: Path) -> dict[str, str]:
     exemptions: dict[str, str] = {}
     exemptions_path = root / EXEMPTIONS_RELPATH
@@ -392,8 +380,6 @@ def load_exemptions(root: Path) -> dict[str, str]:
             exemptions[key] = reason
     return exemptions
 
-
-# ---------------------------------------------------------------------- pytest 钩子
 
 _GUARD_KEY = pytest.StashKey[BlockingGuard]()
 _SESSION_KEY = pytest.StashKey["_SessionTotals"]()

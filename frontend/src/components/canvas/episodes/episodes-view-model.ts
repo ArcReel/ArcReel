@@ -10,7 +10,6 @@ export const EPISODES_VIEW_CREATE_PARAM = "create";
 
 export type SourceUploadMode = "whole_source" | "episode";
 
-/** 「分集」视图的地址（工作区内的相对路由）。 */
 export function episodesViewPath(
   options: { upload?: SourceUploadMode; episode?: number; create?: boolean } = {},
 ): string {
@@ -27,7 +26,6 @@ export function episodeHue(episodeId: number): number {
   return (episodeId * 67) % 360;
 }
 
-/** 体量：「1,234 字」或「1,234 词」。 */
 export function formatVolume(t: TFunction, units: number, unit: EpisodesView["unit"]): string {
   return t(unit === "words" ? "dashboard:episodes_view_words" : "dashboard:episodes_view_chars", {
     count: units,
@@ -35,7 +33,6 @@ export function formatVolume(t: TFunction, units: number, unit: EpisodesView["un
   });
 }
 
-/** 约略朗读时长：不足 1 分钟、约 N 分钟。 */
 export function formatSpoken(t: TFunction, seconds: number): string {
   const minutes = Math.round(seconds / 60);
   return minutes < 1
@@ -51,7 +48,6 @@ export interface OutlineFileGroup {
   file: EpisodesViewFile;
   index: number;
   rows: OutlineRow[];
-  /** 本文件在最后一个切出集之后尚未分集的原文体量。 */
   tailUnits: number;
 }
 

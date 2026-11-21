@@ -144,7 +144,6 @@ async def stop_planning(project_name: str, user: CurrentUser):
 class EpisodeReplanRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: 从哪一集开始重新规划（集 ID）。
     episode: Annotated[int, Field(gt=0)]
     instructions: Annotated[str, Field(max_length=MAX_INSTRUCTIONS_LEN)] | None = Field(
         default=None, description="附加指令原文；空白视同未传"

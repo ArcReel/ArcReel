@@ -463,7 +463,7 @@ class TestCostEstimationService:
     @pytest.mark.parametrize(
         ("has_audio_track", "controllable", "requested", "expected"),
         [
-            (True, False, False, True),  # 恒有声（AI Studio 目录型号）：上游照常出有声成片
+            (True, False, False, True),
             (True, True, False, False),  # 开关可控（Vertex，含放宽了音轨的用户添加型号）：跟随开关
             (False, False, True, True),  # 恒无声：原样带出开关，由调用通道按型号计量
             (True, True, True, True),
@@ -784,9 +784,8 @@ class TestCostEstimationService:
         service = CostEstimationService(resolver, db_factory)
 
         grid_id = "grid_abc123"
-        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]  # 9 scenes
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]
 
-        # Record grid image API call
         await _seed_call(
             db_factory,
             "proj",
@@ -799,7 +798,6 @@ class TestCostEstimationService:
             output_path="g.png",
         )
 
-        # All 9 scenes reference the same grid_id
         overrides = [{"grid_id": grid_id, "grid_cell_index": i} for i in range(9)]
         project_data = {
             "title": "Test",
@@ -812,18 +810,15 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="proj")
 
-        # Each scene should get 1/9 of the grid cost
         expected_per_scene = round(0.101 / 9, 6)
         for seg in result["episodes"][0]["segments"]:
             assert seg["actual"]["image"]["USD"] == pytest.approx(expected_per_scene, abs=1e-5)
 
-        # Episode total should equal the full grid cost
         ep_total_image = result["episodes"][0]["totals"]["actual"].get("image", {})
         assert ep_total_image.get("USD", 0) == pytest.approx(0.101, abs=1e-4)
 
         # Project totals should NOT have a separate "grid" bucket
         assert "grid" not in result["project_totals"]["actual"]
-        # But should have the cost under "image"
         assert result["project_totals"]["actual"]["image"]["USD"] == pytest.approx(0.101, abs=1e-4)
 
     async def test_grid_duplicate_ids_each_claim_own_share(self, db_factory):
@@ -914,7 +909,7 @@ class TestCostEstimationService:
         service = CostEstimationService(resolver, db_factory)
 
         grid_id = "grid_remainder"
-        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]  # 9 scenes
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]
 
         await _seed_call(
             db_factory,
@@ -989,7 +984,7 @@ class TestCostEstimationService:
         service = CostEstimationService(resolver, db_factory)
 
         grid_id = "grid_partial"
-        seg_ids = [f"E1S{i:03d}" for i in range(1, 6)]  # 5 scenes
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 6)]
 
         await _seed_call(
             db_factory,
@@ -1003,13 +998,12 @@ class TestCostEstimationService:
             output_path="g.png",
         )
 
-        # Only first 3 scenes have grid_id
         overrides = [
             {"grid_id": grid_id, "grid_cell_index": 0},
             {"grid_id": grid_id, "grid_cell_index": 1},
             {"grid_id": grid_id, "grid_cell_index": 2},
-            {},  # no grid_id
-            {},  # no grid_id
+            {},
+            {},
         ]
         project_data = {
             "title": "Test",
@@ -1147,7 +1141,6 @@ class TestCostEstimationService:
         total_2k = await _estimated_image_total("2K")
         total_4k = await _estimated_image_total("4K")
         assert total_2k > 0
-        # 该型号 4K 单价高于 2K，估算须随之上浮而非恒按 2K
         assert total_4k > total_2k
         # 未配置分辨率时按保底档计价，与执行期下发的档位同源
         assert await _estimated_image_total(None) == pytest.approx(
@@ -1204,7 +1197,6 @@ class TestCostEstimationService:
 
         total_1k = await _estimated_image_total("1K")
         assert total_1k > 0
-        # 该型号 4K 单价高于 1K，估算须随之上浮
         assert await _estimated_image_total("4K") > total_1k
         # 未配置分辨率：执行时不下发，价目表默认档是 1K
         assert await _estimated_image_total(None) == pytest.approx(total_1k)
@@ -1231,9 +1223,8 @@ class TestCostEstimationService:
         result = await service.compute(project_data, {"ep1.json": script}, project_name="proj")
         segments = result["episodes"][0]["segments"]
 
-        unit = segments[9]["estimate"]["image"]["USD"]  # 独占一张宫格 → 满张单价
+        unit = segments[9]["estimate"]["image"]["USD"]
         assert unit > 0
-        # 含末位与第 10 条同名的第 9 条：按 ID 建 key 时它会被后写的第二组覆盖成满张单价
         for seg in segments[:9]:
             assert seg["estimate"]["image"]["USD"] == pytest.approx(round(unit / 9, 6))
 
@@ -1242,7 +1233,6 @@ class TestCostEstimationService:
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
-        # 3 条 project-level image 调用，分别落在 characters / scenes / props
         for sub in ("characters", "scenes", "props"):
             await _seed_call(
                 db_factory,
@@ -1268,7 +1258,6 @@ class TestCostEstimationService:
         assert actual["scenes"].get("USD", 0) > 0
         assert "props" in actual
         assert actual["props"].get("USD", 0) > 0
-        # 旧 key 不应出现
         assert "character_and_clue" not in actual
 
     async def test_dirty_script_skipped_with_warning(self, db_factory, caplog):
@@ -1295,7 +1284,7 @@ class TestCostEstimationService:
             "content_mode": "narration",
             "summary": "t",
             "novel": {"title": "t", "chapter": "c"},
-            "segments": None,  # 脏数据
+            "segments": None,
         }
         scripts = {
             "ep1.json": _make_script(1, ["E1S001"], [6]),
@@ -1306,14 +1295,12 @@ class TestCostEstimationService:
         with caplog.at_level(logging.WARNING, logger="server.services.admission.cost_estimation"):
             result = await service.compute(project_data, scripts, project_name="test")
 
-        # 正常集 ep1 / ep3 都参与估算,脏集 ep2 仍出现但 segments 为空
         assert len(result["episodes"]) == 3
         eps_by_episode = {ep["episode"]: ep for ep in result["episodes"]}
         assert len(eps_by_episode[1]["segments"]) == 1
         assert len(eps_by_episode[2]["segments"]) == 0
         assert len(eps_by_episode[3]["segments"]) == 1
 
-        # warning 显式标出哪一集被跳过
         warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         assert any("ep2.json" in m for m in warnings), warnings
 
@@ -1341,9 +1328,7 @@ class TestCostEstimationService:
         segments = result["episodes"][0]["segments"]
         # qwen3-tts-flash 按 ¥0.8/万字符、汉字计 2：100 个汉字计 200 字符 → 0.016 CNY
         assert segments[0]["estimate"]["audio"]["CNY"] == pytest.approx(0.016)
-        # 无原文的段不产生旁白预估
         assert segments[1]["estimate"]["audio"] == {}
-        # 集/项目两级合计纳入 audio
         assert result["episodes"][0]["totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.016)
         assert result["project_totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.016)
 
@@ -1980,7 +1965,6 @@ class TestCostEstimationService:
         project_data = {
             "title": "Test",
             "content_mode": "narration",
-            # 仅有 i2i 与 legacy 字段：cost_estimation 应忽略，落到 resolver 默认值
             "image_provider_i2i": "openai/gpt-image-1-edit",
             "image_backend": "gemini/gemini-2.0-flash-preview-image-generation",
             "episodes": [],
@@ -2338,7 +2322,7 @@ class TestCostEstimationService:
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         script = _make_script(1, ["E1S001"], [6])
-        script["segments"][0]["novel_text"] = "字" * 10000  # 1 万字符
+        script["segments"][0]["novel_text"] = "字" * 10000
         scripts = {"ep1.json": script}
 
         result = await service.compute(project_data, scripts, project_name="test-custom")
@@ -2351,7 +2335,6 @@ class TestCostEstimationService:
         assert seg["estimate"]["video"]["CNY"] == pytest.approx(0.9)
         # audio：1 万个汉字按 2 计 → 2 万字符 / 1 万 × 2.0 = 4.0 CNY
         assert seg["estimate"]["audio"]["CNY"] == pytest.approx(4.0)
-        # 集/项目两级合计同步纳入
         assert result["project_totals"]["estimate"]["video"]["CNY"] == pytest.approx(0.9)
 
     async def test_custom_provider_grid_estimate_uses_the_entry_price(self, db_factory):
@@ -2396,7 +2379,6 @@ class TestCostEstimationService:
         segments = result["episodes"][0]["segments"]
         for seg in segments:
             assert seg["estimate"]["image"]["USD"] == pytest.approx(round(0.02 / 9, 6))
-        # 集合计 = 满张单价 0.02 USD
         assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(0.02, abs=1e-4)
 
     async def test_grid_estimate_counts_every_chunk_of_oversized_group(self, db_factory):
@@ -2453,7 +2435,7 @@ class TestCostEstimationService:
         project_data = {
             "title": "Test",
             "content_mode": "narration",
-            "image_provider_t2i": "custom-99/ghost",  # DB 无此供应商/模型
+            "image_provider_t2i": "custom-99/ghost",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, ["E1S001"], [6])}
@@ -2474,7 +2456,7 @@ class TestCostEstimationService:
         project_data = {
             "title": "Test",
             "content_mode": "narration",
-            "image_provider_t2i": "custom-abc/ghost",  # 写入侧校验只查前缀，后缀非数字仍可能入库
+            "image_provider_t2i": "custom-abc/ghost",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, ["E1S001"], [6])}
@@ -2844,7 +2826,6 @@ class TestSelectedImageQuality:
 
     @staticmethod
     def _usd(tokens: int) -> float:
-        # 测试目录数据里 gpt-image-2 的图片输出 token 单价是 $30 / 百万
         return tokens * 30 / 1_000_000
 
     @pytest.mark.parametrize(

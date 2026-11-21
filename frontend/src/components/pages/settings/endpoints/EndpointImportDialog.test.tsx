@@ -174,7 +174,6 @@ describe("EndpointImportDialog", () => {
     await userEvent.paste(workflow);
     await userEvent.click(screen.getByRole("button", { name: "识别" }));
 
-    // 粘进来的没有文件名——详情头部的「来源文件」因此不显示。
     expect(onSource).toHaveBeenCalledWith(workflow, "");
   });
 
@@ -290,7 +289,6 @@ describe("EndpointImportDialog", () => {
 
     await userEvent.type(box, "-edited");
 
-    // 识别结果连同它认出的形状一起作废，动作按钮退回未识别时的样子并禁用。
     expect(screen.queryByRole("button", { name: "去绑定节点" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "导入" })).toBeDisabled();
   });

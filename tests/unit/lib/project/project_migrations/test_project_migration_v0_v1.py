@@ -63,10 +63,8 @@ def test_migrate_v0_to_v1_project_json(tmp_path: Path):
     assert "clues" not in data
     assert set(data["scenes"].keys()) == {"庙宇"}
     assert set(data["props"].keys()) == {"玉佩"}
-    # importance / type 字段被清理
     assert "importance" not in data["props"]["玉佩"]
     assert "type" not in data["props"]["玉佩"]
-    # sheet 字段重命名
     assert data["props"]["玉佩"]["prop_sheet"] == "props/玉佩.png"
     assert "clue_sheet" not in data["props"]["玉佩"]
 
@@ -95,7 +93,7 @@ def test_migrate_v0_to_v1_script_clues_split(tmp_path: Path):
 def test_migrate_idempotent(tmp_path: Path):
     p = _make_v0_project(tmp_path)
     migrate_v0_to_v1(p)
-    migrate_v0_to_v1(p)  # 再跑一次不应抛错
+    migrate_v0_to_v1(p)
     data = json.loads((p / "project.json").read_text())
     assert data["schema_version"] == 1
 

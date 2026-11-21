@@ -52,8 +52,6 @@ _DEFAULT_PRICING = CustomModelPricing()
 class CustomProviderRepository(BaseRepository):
     """自定义供应商 + 模型 CRUD。"""
 
-    # ── Provider CRUD ──────────────────────────────────────────────
-
     async def create_provider(
         self,
         display_name: str,
@@ -77,7 +75,7 @@ class CustomProviderRepository(BaseRepository):
             audio_max_workers=audio_max_workers,
         )
         self.session.add(provider)
-        await self.session.flush()  # 获取 provider.id
+        await self.session.flush()
 
         if models:
             for m in models:
@@ -119,8 +117,6 @@ class CustomProviderRepository(BaseRepository):
         )
         await self.session.execute(delete(CustomProvider).where(CustomProvider.id == provider_id))
         await self.session.flush()
-
-    # ── Model management ──────────────────────────────────────────
 
     async def list_models(self, provider_id: int) -> list[CustomProviderModel]:
         stmt = (

@@ -54,13 +54,10 @@ function readPromptOverwrite(err: unknown): PromptOverwrite | null {
 interface HostProps {
   projectName: string;
   episode: number;
-  /** 本集正式脚本；尚无时不渲染。 */
   script: unknown;
-  /** 本集上次保存的附加指令。 */
   savedInstructions?: string;
 }
 
-/** 集页上唯一的「编写提示词」弹窗宿主：按 {@link usePromptAuthoringStore} 的请求打开。 */
 export function PromptAuthoringHost({ projectName, episode, script, savedInstructions }: HostProps) {
   const request = usePromptAuthoringStore((s) => s.request);
   const close = usePromptAuthoringStore((s) => s.close);
@@ -89,7 +86,6 @@ interface DialogProps {
   projectName: string;
   episode: number;
   entries: PromptAuthoringEntry[];
-  /** 参考生视频单元：视觉层是单元正文，提示文案按单元说。 */
   unitMode: boolean;
   request: PromptAuthoringOpenRequest;
   savedInstructions: string;

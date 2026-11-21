@@ -25,20 +25,15 @@ const NAME_COL_KEYS: Record<BreakdownDim, string> = {
   model: "usage_col_model",
 };
 
-/** 成功率低于这条线的行用警示色，扫一眼就能挑出问题行。 */
 const LOW_SUCCESS_RATE = 0.85;
 
-/** 名称列吃掉剩余宽度，三列数字固定宽度。 */
 const GRID_CLS = "grid grid-cols-[minmax(0,1fr)_3.5rem_4rem_6rem] items-center gap-x-2";
 
-/** 一行的展示数据；三个维度投影到同一形状后共用渲染。 */
 interface BreakdownRowView {
   key: string;
   name: string;
-  /** 模型行的副标题是它的供应商。 */
   sub: string | null;
   stats: UsageStatsBlock;
-  /** `other` 行不可点击，它没有对应的筛选值。 */
   filters: Partial<UsageRecordsFilters> | null;
   active: boolean;
 }
@@ -129,7 +124,6 @@ function BreakdownRow({
   const { i18n } = useTranslation("dashboard");
   const content = (
     <>
-      {/* 占比条：宽度是该行调用数占总调用数的比例，经 CSS 变量传入 */}
       <span
         aria-hidden="true"
         className="pointer-events-none absolute inset-y-1 left-0 w-(--share) rounded-r-xs bg-primary/10"
@@ -217,7 +211,6 @@ interface RowLabels {
   providerLabel: (provider: string | null) => string;
   projectLabel: (name: string) => string;
   other: (count: number) => string;
-  /** Agent 记录合并成的那一项的名称。 */
   agentSessions: string;
 }
 

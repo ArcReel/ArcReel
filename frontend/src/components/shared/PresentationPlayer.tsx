@@ -28,7 +28,6 @@ interface PresentationPlayerProps {
    * 同一个 `requestId` 只生效一次，换一个 `requestId` 就再定位一次。浏览器拦截自动播放时停在该位置等用户点播放。
    */
   startAt?: { seconds: number; requestId: string };
-  /** `startAt` 生效后回调，参数为该请求的 `requestId`。 */
   onStartApplied?: (requestId: string) => void;
   className?: string;
 }

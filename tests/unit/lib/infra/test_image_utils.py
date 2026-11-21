@@ -1,4 +1,3 @@
-# tests/test_image_utils.py
 """image_utils 单元测试。"""
 
 from __future__ import annotations
@@ -94,7 +93,6 @@ class TestCompressImageBytes:
     def test_default_subsampling_unchanged(self):
         """缺省（sentinel -1）不向 PIL 传 subsampling，与历史行为一致。"""
         raw = self._make_png(800, 600)
-        # 缺省 == 显式 sentinel == 不传 subsampling
         assert compress_image_bytes(raw) == compress_image_bytes(raw, subsampling=-1)
 
     def test_subsampling_0_valid_and_takes_effect(self):
@@ -112,7 +110,6 @@ class TestCompressImageBytes:
         assert len(big) > 2 * 1024 * 1024
         processed, suffix = normalize_uploaded_image(big, ".png")
         assert suffix == ".jpg"
-        # 与默认 compress_image_bytes 字节一致（未引入 subsampling 漂移）
         assert processed == compress_image_bytes(big)
 
     def test_normalize_uploaded_image_small_passthrough(self):

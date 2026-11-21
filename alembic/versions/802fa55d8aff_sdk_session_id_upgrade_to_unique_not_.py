@@ -12,7 +12,6 @@ import sqlalchemy as sa
 
 from alembic import op
 
-# revision identifiers, used by Alembic.
 revision: str = "802fa55d8aff"
 down_revision: str | Sequence[str] | None = "e13e987e2170"
 branch_labels: str | Sequence[str] | None = None
@@ -21,7 +20,6 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # 1. 删除 sdk_session_id IS NULL 的幽灵记录
     op.execute("DELETE FROM agent_sessions WHERE sdk_session_id IS NULL")
 
     # 2. 添加 UNIQUE + NOT NULL 约束（使用 batch_alter_table 以兼容 SQLite）

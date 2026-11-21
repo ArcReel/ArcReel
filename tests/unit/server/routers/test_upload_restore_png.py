@@ -23,13 +23,11 @@ class TestUploadRestorePng:
 
         current_file = project_path / "characters" / f"{char_name}.png"
 
-        # Create v1: a red PNG as the initial version.
         img_v1 = Image.new("RGBA", (8, 8), (255, 0, 0, 255))
         img_v1.save(current_file, format="PNG")
         vm = VersionManager(project_path)
         vm.add_version("characters", char_name, "prompt_v1", source_file=current_file)
 
-        # Simulate manual upload: user uploads a JPEG that overwrites the current image.
         img_upload = Image.new("RGB", (8, 8), (0, 0, 255))
         buf = BytesIO()
         img_upload.save(buf, format="JPEG")
@@ -40,7 +38,6 @@ class TestUploadRestorePng:
         project["characters"][char_name]["character_sheet"] = f"characters/{char_name}.jpg"
         pm.save_project(project_name, project)
 
-        # Patch router project manager to the temp projects root.
         use_project_manager(monkeypatch, pm)
 
         # Switch back to v1 without creating a synthetic new version.
@@ -51,11 +48,9 @@ class TestUploadRestorePng:
         assert result["current_version"] == 1
         assert result["file_path"] == f"characters/{char_name}.png"
 
-        # project.json should be updated to point to the normalized .png path.
         project2 = pm.load_project(project_name)
         assert project2["characters"][char_name]["character_sheet"] == f"characters/{char_name}.png"
 
-        # Current file content should match v1 (red pixel).
         with Image.open(current_file) as restored:
             restored_rgba = restored.convert("RGBA")
             assert restored_rgba.getpixel((0, 0)) == (255, 0, 0, 255)

@@ -128,7 +128,6 @@ def _try_encode_failure(code: str, params: dict[str, Any]) -> str | None:
     try:
         return encode_failure(code, **params)
     except KeyError:
-        # code 未登记进 FAILURE_CODE_KEYS——两份清单靠约定同步而非运行时校验。
         logger.warning("失败 code 未登记进 FAILURE_CODE_KEYS，降级为通用失败原因: code=%s", code)
     except (TypeError, ValueError, RecursionError):
         # params 无法 JSON 序列化（TypeError：default=str 也转不了的键类型；

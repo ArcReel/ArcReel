@@ -283,7 +283,7 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
         await _link(source_sessions, account, source_history[0], state="active", asset_id="asset-a")
         await _link(source_sessions, account, source_history[1], state="active", asset_id="asset-b")
         await _link(source_sessions, other_account, source_history[1], state="pending", asset_id=None)
-        assert _cleanup(source.api) == 2  # 远端版本 B 的正式文件与版本快照
+        assert _cleanup(source.api) == 2
         source_dir = source.projects.get_project_path("demo")
         assert not (source_dir / "characters" / "Alice.png").exists()
 

@@ -54,7 +54,7 @@ def _clear_secret_envs(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_clean_environ_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_secret_envs(monkeypatch)
-    assert_no_provider_secrets_in_environ()  # no raise
+    assert_no_provider_secrets_in_environ()
 
 
 @pytest.mark.parametrize("leaked_key", _SECRET_KEYS_SORTED)
@@ -69,7 +69,7 @@ def test_empty_string_value_not_treated_as_leak(monkeypatch: pytest.MonkeyPatch)
     """空字符串不算泄漏（os.environ.pop 后 SDK 子进程会跳过空值）。"""
     _clear_secret_envs(monkeypatch)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
-    assert_no_provider_secrets_in_environ()  # 空值不 raise
+    assert_no_provider_secrets_in_environ()
 
 
 def test_claude_code_oauth_token_does_not_trigger_startup_rejection(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,7 +210,7 @@ def test_sandbox_bwrap_probe_fallback_container_hint(monkeypatch: pytest.MonkeyP
     msg = str(exc_info.value)
     assert "seccomp:unconfined" in msg
     assert "NET_ADMIN" in msg
-    assert "Ubuntu 24.04" not in msg  # 未命中 apparmor sysctl，不应误导
+    assert "Ubuntu 24.04" not in msg
 
 
 @pytest.mark.parametrize(

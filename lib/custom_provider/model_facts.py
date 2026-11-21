@@ -26,7 +26,6 @@ from lib.custom_provider.duration_presets import infer_supported_durations
 
 logger = logging.getLogger(__name__)
 
-#: 每种媒体类型可以覆盖的模型事实维度。音频没有模型事实维度。
 MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
     "image": frozenset({"text_to_image", "image_to_image", "max_reference_images"}),
@@ -34,7 +33,6 @@ MODEL_FACT_OVERRIDE_KEYS: Mapping[str, frozenset[str]] = {
     "audio": frozenset(),
 }
 
-#: 全部模型事实维度的键，供写入侧白名单合并。
 ALL_MODEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset().union(*MODEL_FACT_OVERRIDE_KEYS.values())
 
 _BOOL_KEYS = frozenset({"image_input", "structured_output", "text_to_image", "image_to_image"})

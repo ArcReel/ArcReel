@@ -44,7 +44,6 @@ from .trial_run import TrialRunTarget, provider_from_base_url
 #: 提交之后才有的值：预览恒保持占位符，与声明式那一侧的 ``{{ task_id }}`` 同形。
 UNRESOLVED_PROMPT_ID = "{{ prompt_id }}"
 
-#: 测试连接发出的那一笔在 ComfyUI 上的名字前缀，接一段随机后缀。
 _TRIAL_RUN_LABEL_PREFIX = "endpoint-test-"
 
 
@@ -59,18 +58,14 @@ class ComfyuiConversions:
 
     #: 实发 workflow 的指纹，与成片版本元数据里记的是同一个值，可据此核对某一版是照哪份图出的。
     workflow_sha256: str
-    #: 换算的输入：请求侧的比例、分辨率档与时长。
     aspect_ratio: str
     resolution: str | None
     duration_seconds: float | None
-    #: 换算的产物：填进 workflow 的像素、帧数与种子。
     width: int | None
     height: int | None
     frames: int | None
     seed: int | None
-    #: 从正文里拆出、写进负向节点的排除项文本。
     negative_prompt: str
-    #: 这次按参考图张数改图删掉的节点。空元组即没删。
     dropped_nodes: tuple[str, ...]
 
     @classmethod

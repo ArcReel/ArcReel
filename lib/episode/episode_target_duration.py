@@ -19,7 +19,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-#: 单集目标时长在 ``project.json`` 的顶层字段名（秒）。
 EPISODE_TARGET_DURATION_FIELD: str = "episode_target_duration"
 
 #: 单集目标时长的硬区间（闭区间，秒）。宽松区间只拦明显误输入（填了毫秒、填了分钟数、

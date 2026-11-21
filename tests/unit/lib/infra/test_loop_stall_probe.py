@@ -186,7 +186,6 @@ async def test_capturing_the_stack_while_other_threads_are_busy_does_not_crash(
     done = threading.Event()
 
     def _churn(depth: int) -> int:
-        # 不停压栈出栈，让帧在取栈的同时持续变化。
         return 0 if depth == 0 else 1 + _churn(depth - 1)
 
     def _busy() -> None:
@@ -199,7 +198,6 @@ async def test_capturing_the_stack_while_other_threads_are_busy_does_not_crash(
     for worker in workers:
         worker.start()
     try:
-        # 每次停滞之间让心跳走一拍，每次检查都是一次新的停滞，都要取一次栈。
         for _ in range(20):
             await _let_heartbeat_beat(clock)
             clock.now += STALL_THRESHOLD_SECONDS + 1

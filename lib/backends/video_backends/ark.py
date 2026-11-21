@@ -88,7 +88,6 @@ _SEEDANCE_2_5_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
     ("480p", "9:16"): (480, 854),
 }
 
-# 请求的服务档取值 → 价目表的服务档取值：方舟请求里的 ``default`` 即标准档。
 _CATALOG_SERVICE_TIERS = {"default": "standard"}
 
 
@@ -100,15 +99,12 @@ class SeedanceEndpoint:
     同一端点下各型号接受哪些输入是模型事实，记在模型条目上（``lib.backends.video_capabilities``）。
     """
 
-    #: 内置调用端点名，与自定义供应商共用（``lib.custom_provider.endpoints.ENDPOINT_REGISTRY`` 的键）。
     key: str
     #: 请求体是否带 ``service_tier``：只有 1.x 接受；2.0 在参考生视频下以 400 拒绝该参数，2.5 按同代口径不带。
     sends_service_tier: bool
-    #: 视频 token 预估用的「分辨率 × 宽高比 → 输出像素」表；``None`` 表示不按视频 token 预估（1.x 按次计价）。
     token_pixels: Mapping[tuple[str, str], tuple[int, int]] | None
     #: 参考图槽位是否接受 ``asset://`` 素材引用：官方《Seedance 人像素材使用指南》只给出 2.0 / 2.5 的契约。
     reference_image_asset: bool
-    #: 首帧在场时比例是否只能交给上游按首帧自适应（2.5），见 ``VideoCapabilities.first_frame_ratio_adaptive_only``。
     first_frame_ratio_adaptive_only: bool
 
 
@@ -238,7 +234,6 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         self._transport_layer = transport_layer
         # 续跑回放提交域名时要按同一份凭据另建 client（SDK 在构造时绑定 base_url，没有换域名的公开方法）。
         self._api_key = api_key
-        # 本实例请求实际发往的域名，与 create_ark_client 同一套归一化；提交时随 job_id 一并落库。
         self._base_url = ark_base_url(base_url)
         if not model:
             raise ValueError("ArkVideoBackend 需要指定模型")
@@ -376,7 +371,6 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> str:
         """创建 Ark 视频生成任务（带重试保护）。"""
-        # 1. Build content list
         content: list[dict[str, Any]] = [{"type": "text", "text": request.prompt}]
 
         # Ark 视频 API 要求每个 image_url 条目在顶层带 `role` 字段
@@ -423,13 +417,11 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         }
         if request.resolution is not None:
             create_params["resolution"] = request.resolution
-        # 只有 Seedance 1.x 端点接受 service_tier，见 SeedanceEndpoint.sends_service_tier
         if self.endpoint.sends_service_tier:
             create_params["service_tier"] = request.service_tier
         if request.seed is not None:
             create_params["seed"] = request.seed
 
-        # 3. Create task (sync SDK call, run in executor)
         logger.info(
             "调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(_safe_create_params_for_log(create_params))
         )
@@ -502,11 +494,9 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 ),
             )
 
-        # Download video
         video_url = result.content.video_url
         await self._download_video_with_retry(video_url, request.output_path)
 
-        # Extract result metadata
         seed = getattr(result, "seed", None)
         usage_tokens = None
         if hasattr(result, "usage") and result.usage:
@@ -543,7 +533,6 @@ class Seedance25VideoBackend(ArkVideoBackend):
     endpoint = SEEDANCE_2_5
 
 
-#: Seedance 内置调用端点名 → 实现它的调用通道，按声明顺序（1、2、2.5）。
 SEEDANCE_BACKENDS: Mapping[str, type[ArkVideoBackend]] = {
     backend.endpoint.key: backend for backend in (Seedance1VideoBackend, Seedance2VideoBackend, Seedance25VideoBackend)
 }

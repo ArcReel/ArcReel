@@ -547,14 +547,12 @@ class OptionsAssembler:
             if not file_path or not file_path.endswith(".json"):
                 return {}
 
-            # --- Reject curly/smart quotes that would corrupt JSON ---
             _CURLY_QUOTES = "“”„‟"  # ""„‟
 
             def _has_curly_quotes(text: str) -> bool:
                 """Return True if *text* contains Unicode curly/smart quotes."""
                 return any(ch in _CURLY_QUOTES for ch in text)
 
-            # --- Simulate the result without touching the file ---
             simulated: str | None = None
 
             if tool_name == "Write":
@@ -610,7 +608,6 @@ class OptionsAssembler:
                     )
                     return {}
 
-                # Save backup for PostToolUse restore on corruption
                 if json_backups is not None and _tool_use_id:
                     json_backups[_tool_use_id] = (resolved, current)
 
@@ -734,7 +731,6 @@ class OptionsAssembler:
                 )
                 return {}
             except json.JSONDecodeError as exc:
-                # File is corrupt — restore from backup if available
                 restored = False
                 if backup:
                     backup_path, backup_content = backup

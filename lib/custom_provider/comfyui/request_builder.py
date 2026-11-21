@@ -154,9 +154,6 @@ def workflow_sha256(workflow: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-# ---------------------------------------------------------------- 填值原语
-
-
 def _mutable_inputs(node: Any) -> dict[str, Any]:
     """取一个节点可写的 ``inputs``。缺 ``inputs`` 或形状不对时就地补一个空表。"""
     if not isinstance(node, dict):
@@ -189,9 +186,6 @@ def _write_all(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], v
         _write_one(workflow, target, value)
 
 
-# ---------------------------------------------------------------- 负向提示词
-
-
 def _write_negative_prompt(workflow: dict[str, Any], targets: object, avoid_text: str) -> None:
     """把正文里拆出的排除项追加到负向节点的字面值之后。
 
@@ -201,9 +195,6 @@ def _write_negative_prompt(workflow: dict[str, Any], targets: object, avoid_text
     for target in _targets(targets):
         literal = _literal(workflow, target)
         _write_one(workflow, target, append_avoid_text(literal if isinstance(literal, str) else "", avoid_text))
-
-
-# ---------------------------------------------------------------- 尺寸
 
 
 def _write_size(
@@ -276,9 +267,6 @@ def _align_down(value: int, step: int) -> int:
     return max(step, value - value % step)
 
 
-# ---------------------------------------------------------------- 帧数
-
-
 def _write_frames(
     workflow: dict[str, Any], bindings: Mapping[str, Any], *, duration_seconds: float | None
 ) -> int | None:
@@ -311,9 +299,6 @@ def _write_frames(
     return written
 
 
-# ---------------------------------------------------------------- 种子
-
-
 def _write_seed(
     workflow: dict[str, Any], bindings: Mapping[str, Any], *, requested: int | None, rng: Random
 ) -> int | None:
@@ -337,9 +322,6 @@ def _write_seed(
     for target in rolling:
         _write_one(workflow, target, value)
     return value
-
-
-# ---------------------------------------------------------------- 改图
 
 
 def _apply_media(

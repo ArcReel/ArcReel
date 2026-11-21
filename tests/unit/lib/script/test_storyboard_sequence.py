@@ -49,7 +49,6 @@ class TestStoryboardSequence:
             {"segment_id": "E1S03", "segment_break": False},
         ]
 
-        # E1S02 的登记指针指向尚未落盘的文件：E1S03 只看紧邻的前一项，不回溯到 E1S01。
         assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S03") is None
 
     def test_previous_storyboard_requires_an_explicit_binding(self, tmp_path: Path):
@@ -131,7 +130,6 @@ class TestAdStoryboardItems:
         assert items[0]["shot_id"] == "E1S01"
 
 
-# 骨架种类 → 触发该骨架的最小剧本（取证解析逐种覆盖，含 video_units 短路）。
 _SCRIPT_BY_KIND = {
     "segments": {"content_mode": "narration", "segments": [{"segment_id": "E1S01"}]},
     "scenes": {"content_mode": "drama", "scenes": [{"scene_id": "E1S01"}]},
@@ -157,7 +155,6 @@ class TestStoryboardSkeletonExhaustiveness:
         _items, id_field, char_field, scenes_field, props_field = get_storyboard_items(_SCRIPT_BY_KIND[kind])
         assert id_field == SKELETONS[kind].id_field
         assert char_field == SKELETONS[kind].chars_field
-        # scenes / props 资产键为项目级常量，不随骨架变。
         assert (scenes_field, props_field) == ("scenes", "props")
 
 

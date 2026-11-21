@@ -113,7 +113,6 @@ describe("staysInEpisodeView", () => {
     const referenceDraft: EpisodeViewFacts = { ...SCRIPTED, route: "reference_video", hasScript: false };
     expect(staysInEpisodeView("/episodes/1", "/episodes/1?view=board", referenceDraft)).toBe(false);
     expect(staysInEpisodeView("/episodes/1?view=plan", "/episodes/1", referenceDraft)).toBe(true);
-    // 没开宫格时 view=grid 不可选，按缺省视图（分镜）显示
     expect(staysInEpisodeView("/episodes/1?view=grid", "/episodes/1", SCRIPTED)).toBe(true);
   });
 });

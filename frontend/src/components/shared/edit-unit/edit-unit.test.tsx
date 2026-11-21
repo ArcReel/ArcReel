@@ -45,7 +45,6 @@ function NoteEditor({ label = "备注", source, save, inline = false, generate, 
 const note = () => screen.getByRole("textbox", { name: "备注" });
 const leaveDialog = () => screen.findByRole("alertdialog", { name: "有未保存的修改" });
 
-/** 备注页与另一个页面之间的应用内跳转。 */
 function renderNotePage(editor: ReactNode) {
   const location = memoryLocation({ path: "/notes", record: true });
   render(
@@ -393,7 +392,6 @@ describe("离开拦截", () => {
       window.history.replaceState(null, "", "/");
     });
 
-    /** 用浏览器地址渲染，模拟依次访问 visited 中的页面后进入备注页。 */
     function renderInBrowser(visited = ["/elsewhere"], save: SaveNote = vi.fn<SaveNote>()) {
       window.history.replaceState(null, "", visited[0]);
       for (const path of visited.slice(1)) window.history.pushState(null, "", path);

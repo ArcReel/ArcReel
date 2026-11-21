@@ -371,7 +371,6 @@ async def replace_image(
 ):
     # 同一条目的换图串行：在锁内读取被换下的旧图，提交后撤下的正是它
     async with library_entry_lock(asset_id):
-        # 1) 先取资产并校验存在
         async with async_session_factory() as s:
             repo = AssetRepository(s)
             a = await repo.get_by_id(asset_id)
@@ -401,7 +400,6 @@ async def replace_image(
                 await _discard(writer)
                 raise
 
-        # 4) DB 更新成功后才撤下旧图的引用、删除旧文件
         await _forget_after_commit(holder, [old_image])
         if old_image is not None and old_image.path != new_image.path:
             await _delete_global_asset_files([old_image.path])
@@ -422,11 +420,9 @@ async def from_project(
     req: FromProjectRequest,
     _t: Translator,
 ):
-    # 1) 类型合法性
     if req.resource_type not in GLOBAL_LIBRARY_ASSET_TYPES:
         raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
 
-    # 2) 加载项目
     try:
         project = await asyncio.to_thread(get_project_manager().load_project, req.project_name)
     except FileNotFoundError as exc:
@@ -435,7 +431,6 @@ async def from_project(
         logger.exception("Failed to load project '%s' for from-project", req.project_name)
         raise HTTPException(status_code=500, detail=_t("asset_load_project_failed")) from exc
 
-    # 3) 从对应 bucket 中读取资源
     bucket_key = BUCKET_KEY[req.resource_type]
     bucket = project.get(bucket_key) or {}
     # 存量 key 与请求名可能是 NFC/NFD 中的任一形态，按坐标系解析
@@ -664,7 +659,6 @@ async def _write_from_project(
                 derivative_fields[derivative_name] = columns
             await writer.hold()
 
-            # 6) 写 DB：条目、衍生与复制的关联在同一个事务里提交
             try:
                 payload, stale_images = await _write_library_entry(
                     req,
@@ -792,7 +786,7 @@ def _applied_sheet_version(resource_type: str, resource_id: str, sheet_file: Pat
 class ApplyToProjectRequest(BaseModel):
     asset_ids: list[str]
     target_project: str
-    conflict_policy: str = "skip"  # 'skip' | 'overwrite' | 'rename'
+    conflict_policy: str = "skip"
 
 
 def _rejected_by_existing_name(project: dict, asset: Asset, conflict_policy: str) -> bool:
@@ -820,7 +814,6 @@ async def apply_to_project(
         raise HTTPException(status_code=400, detail=_t("asset_invalid_conflict_policy"))
     asset_ids = list(dict.fromkeys(req.asset_ids))
 
-    # 2) 校验目标项目存在
     project_manager = get_project_manager()
     try:
         project = await asyncio.to_thread(project_manager.load_project, req.target_project)
@@ -833,7 +826,6 @@ async def apply_to_project(
     skipped: list[dict] = []
     failed: list[dict] = []
 
-    # 3) 批量读取所有请求的 asset，缺失的直接归入 failed
     async with async_session_factory() as s:
         repo = AssetRepository(s)
         assets = await repo.get_by_ids(asset_ids)
@@ -886,7 +878,7 @@ async def apply_to_project(
         for asset_id in asset_ids:
             a = assets_by_id.get(asset_id)
             if a is None:
-                continue  # 已在 failed
+                continue
 
             bucket_key = BUCKET_KEY[a.type]
             sheet_key = SHEET_KEY[a.type]
@@ -911,9 +903,7 @@ async def apply_to_project(
                 elif not same_entry:
                     failed.append({"id": a.id, "reason": "project_name_conflict"})
                     continue
-                # overwrite 只能覆盖同类型的同名条目。
 
-            # 规划图片拷贝
             target_sheet: str | None = None
             copy_src: Path | None = None
             copy_dst: Path | None = None
@@ -1193,7 +1183,6 @@ async def apply_to_project(
                 VersionManager(project_dir).commit_installed_versions(commits, on_commit=_after_versions_committed)
 
             try:
-                # 应用后的图片是目标项目的新内容版本，按全局设置保存在本地或对象存储
                 async with formal_commit(req.target_project):
                     with project_change_source("webui"):
                         await run_noninterruptible_async(

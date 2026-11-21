@@ -18,7 +18,6 @@ from lib.material.work_files import DEFAULT_MIN_IDLE, cleanup_work_cache
 
 logger = logging.getLogger(__name__)
 
-#: 重试删除待删除对象的间隔。
 SWEEP_INTERVAL_SECONDS = 300.0
 #: 重算对象引用与清理闲置工作文件的间隔；闲置门槛见 :data:`lib.material.work_files.DEFAULT_MIN_IDLE`。
 CACHE_CLEANUP_INTERVAL = timedelta(hours=1)

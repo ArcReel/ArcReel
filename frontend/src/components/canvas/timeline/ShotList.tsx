@@ -29,19 +29,15 @@ interface ShotListProps {
   onSelect: (index: number) => void;
   contentMode: ListContentMode;
   projectName: string;
-  /** 竖屏分镜图的缩略图是竖条，横屏是横条。 */
   aspectRatio?: "9:16" | "16:9";
   collapsed: boolean;
   onToggleCollapse: () => void;
   /** 追加一条分镜到末尾；缺省时列表头部不显示新增按钮。 */
   onAppend?: InsertShotHandler;
-  /** 增删或保存在途时禁用新增。 */
   appendDisabled?: boolean;
   /** 改序：把分镜移到 afterId 之后，null 移到最前；缺省时列表不可排序。 */
   onMove?: (itemId: string, afterId: string | null) => void | Promise<void>;
-  /** 改序或增删在途时禁用排序。 */
   moveDisabled?: boolean;
-  /** 展开时固定在列表底部的内容（快捷键提示）；收起时不显示。 */
   footer?: ReactNode;
 }
 
@@ -65,7 +61,6 @@ function getSegmentText(seg: Segment, mode: ListContentMode): string {
     if (typeof voiceover === "string" && voiceover.trim()) return voiceover;
     return getImagePromptScene(seg);
   }
-  // 剧情演绎：用 image_prompt.scene 作为画面预览，与 narration 的 novel_text 对称
   return getImagePromptScene(seg);
 }
 
@@ -107,7 +102,6 @@ export function ShotList({
     return pendingOrder;
   }, [indexById, pendingOrder]);
 
-  // 显示的位置跟着显示顺序走：改序在途时按新顺序编号，落定后与剧本一致。
   const positionById = useMemo(() => new Map(orderedIds.map((id, i) => [id, i + 1])), [orderedIds]);
   const positionLabel = (id: string) => t("common:item_position_shot", { position: positionById.get(id) });
 

@@ -36,10 +36,8 @@ export type StepRowKey =
   | "videos"
   | "edit";
 
-/** 行的现状色调：已齐 / 还没有 / 部分 / 进行中 / 需要留意 / 读不出。 */
 export type StepRowTone = "done" | "todo" | "partial" | "running" | "warn" | "danger";
 
-/** 按下一个入口之后要做的事；面板按类型分派到具体的处理函数。 */
 export type StepIntent =
   | { type: "agent"; text: string }
   | { type: "draft_to_agent"; docType: DraftDocType }
@@ -85,7 +83,6 @@ export interface StepRowView {
   tone: StepRowTone;
   status: string;
   notes: StepNote[];
-  /** 本行常驻的入口（不是建议的下一步）。 */
   acts: StepAct[];
   /** 归到这一行的后端步骤：任务、结构问题、过期产物与整批准入从这里取。 */
   steps: WorkflowPlanStep[];
@@ -99,7 +96,6 @@ export interface StepInstruction {
 
 export interface NextStepView {
   rowKey: StepRowKey;
-  /** 下一步的动作类型，面板用它区分附加指令的归属。 */
   actionType: WorkflowNextAction["type"];
   title: string;
   detail: string | null;
@@ -112,7 +108,6 @@ export interface NextStepView {
 export interface StepListView {
   rows: StepRowView[];
   next: NextStepView | null;
-  /** 收起时的一句话现状。 */
   summary: string;
   /** 广告/短片标题行的「总时长 / 目标时长」；`over` 为超出目标 10% 以上。 */
   adDuration: { total: number | null; target: number; over: boolean } | null;
@@ -125,27 +120,21 @@ export interface StepListContext {
   episodeId: number;
   /** 集名连同集 ID 的指称，预填给 Agent 用（`episodeAgentRef`）。 */
   episodeRef: string;
-  /** 界面上称呼条目：「视频单元 5」，按本集里的当前位置。 */
   itemLabel: (itemId: string) => string;
   /** 预填给 Agent 的条目指称：位置连同条目 ID（`episodeItemAgentRef`）。 */
   itemAgentRef: (itemId: string) => string;
   /** 本集正式脚本的总时长（秒），项目摘要给出；未知时为 null。 */
   episodeDurationSeconds: number | null;
-  /** 广告/短片的目标时长（秒）；未设或非广告为 null。 */
   adTargetSeconds: number | null;
-  /** 资产名对应的画廊路由；名字不在任何资产表里时为 null。 */
   assetRoute: (name: string) => string | null;
-  /** 本集保存的提示词编写附加指令。 */
   savedPromptInstructions: string;
   /** 集页上是否挂着「编写提示词」的宿主（有正式脚本时才有）。 */
   canAuthorPrompts: boolean;
-  /** 能否跳到画布上的某个单元。 */
   canViewUnit: boolean;
   /** 本集的剪辑概况；还没取到或本集没有剪辑时间线时为 null。 */
   editOverview: EpisodeEditOverview | null;
 }
 
-/** 状态里的草稿种类 → 草稿端点的 `doc_type`。 */
 const DOC_TYPE_BY_DRAFT_KIND: Record<string, DraftDocType> = {
   drama_script_plan: "drama_script_plan",
   narration_script_plan: "narration_script_plan",
@@ -155,7 +144,6 @@ const DOC_TYPE_BY_DRAFT_KIND: Record<string, DraftDocType> = {
 
 const PROMPT_AUTHORING_DRAFT_KIND = "reference_video_prompt_authoring";
 
-/** 超出目标时长多少算「明显超出」，按比例。 */
 const AD_DURATION_OVER_RATIO = 1.1;
 
 /** 整批准入与任务失败交回的动作：它们的入口在视频行的准入陈述里，不在下一步里另起按钮。 */
@@ -199,7 +187,6 @@ interface Facts {
   steps: Map<string, WorkflowPlanStep>;
 }
 
-/** 媒体类内容的一句话现状：「N 个中 M 个已生成」，都齐时「全部 N 个已生成」。 */
 function mediaStatus(t: TFunction, collection: WorkflowArtifactCollection | undefined): { status: string; tone: StepRowTone } {
   if (collection?.state === "blocked") return { status: t("workflow:status_unreadable"), tone: "danger" };
   const available = ids(collection, "current_ids").length + ids(collection, "stale_ids").length;
@@ -210,7 +197,6 @@ function mediaStatus(t: TFunction, collection: WorkflowArtifactCollection | unde
   return { status: t("workflow:status_media_some", { count: total, available }), tone: "partial" };
 }
 
-/** 补充集原文：集页上无原文的集直接显示填写框，按下后聚焦到它。 */
 function provideSourceAct(t: TFunction): StepAct {
   return {
     key: "provide-source",
@@ -220,7 +206,6 @@ function provideSourceAct(t: TFunction): StepAct {
   };
 }
 
-/** 去「脚本规划」tab 的起步区规划脚本，附加指令在那里填写。 */
 function goPlanScriptAct(t: TFunction): StepAct {
   return {
     key: "go-plan",
@@ -544,7 +529,6 @@ function editTimelineCount(facts: Facts, ctx: StepListContext): number {
   return ctx.editOverview?.timeline_count ?? (Array.isArray(ids) ? ids.length : 0);
 }
 
-/** 已有剪辑时间线时去剪辑视图的文字链；给出 `timelineId` 时切到那条剪辑时间线。 */
 function openEditViewAct(ctx: StepListContext, key: string, label: string, timelineId?: string): StepAct {
   return { key, label, kind: "nav", intent: { type: "route", path: episodeEditViewPath(ctx.episodeId, timelineId) } };
 }
@@ -633,7 +617,6 @@ function assetsRow(facts: Facts, ctx: StepListContext): StepRowView {
     status = t("workflow:status_assets_missing", { count: toGenerate.length });
     tone = "partial";
   } else if (content.referenced_assets_without_sheet.length > 0) {
-    // 余下没有资产图的是现在生成不了的（缺描述，或衍生的本体缺图），原因见本行的提醒。
     status = t("workflow:status_assets_unsheeted", { count: content.referenced_assets_without_sheet.length });
     tone = "warn";
   } else {
@@ -651,7 +634,6 @@ function assetsRow(facts: Facts, ctx: StepListContext): StepRowView {
   };
 }
 
-/** 下一步挂在哪一行。 */
 function ownerRow(facts: Facts, rows: StepRowView[], action: WorkflowNextAction): StepRowKey | null {
   switch (action.type) {
     case "resolve_draft":
@@ -979,7 +961,6 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
         ],
       };
     case "confirm_request_duration":
-      // 确认入口在视频行的整批准入陈述里。
       return base;
     default:
       return ADMISSION_ACTIONS.has(action.type)

@@ -14,7 +14,6 @@ function settings(tab?: string) {
   return tab ? `/app/projects/demo/settings?tab=${tab}` : "/app/projects/demo/settings";
 }
 
-/** 在录制的演示项目上改几个字段。 */
 function projectWith(fields: Record<string, unknown>): ApiOverrides {
   const recorded = RECORDED.get(PROJECT_KEY)!.body as { project: Record<string, unknown> };
   return { [PROJECT_KEY]: { status: 200, body: { ...recorded, project: { ...recorded.project, ...fields } } } };
@@ -124,7 +123,6 @@ function staleImageQualityOverrides(): ApiOverrides {
   };
 }
 
-// Agent 配置：很多定制文件，路径很长。
 const CUSTOMIZED_PROFILE: ApiOverrides = {
   "GET /api/v1/projects/demo/agent-profile": {
     status: 200,

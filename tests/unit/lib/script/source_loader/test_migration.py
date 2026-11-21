@@ -19,7 +19,6 @@ def test_migration_rewrites_non_utf8_txt_in_place(tmp_path: Path):
     assert summary.migrated == [target.name]
     assert summary.failed == []
     assert target.read_text(encoding="utf-8").startswith("第一章")
-    # 原文件备份到 source/raw/
     assert (project / "source" / "raw" / "novel.txt").exists()
 
 
@@ -31,9 +30,7 @@ def test_migration_skips_already_utf8(tmp_path: Path):
     summary = migrate_project_source_encoding(project)
     assert summary.migrated == []
     assert summary.skipped == [target.name]
-    # 原内容不变
     assert target.read_text(encoding="utf-8") == "已是 UTF-8"
-    # 不创建 raw 备份
     assert not (project / "source" / "raw").exists()
 
 
@@ -47,7 +44,6 @@ def test_migration_records_failures_without_raising(tmp_path: Path):
 
     summary = migrate_project_source_encoding(project)
     assert summary.failed == [bad.name]
-    # 文件未被改动
     assert bad.read_bytes() == original_bytes
 
 

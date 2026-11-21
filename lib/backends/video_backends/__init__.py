@@ -53,7 +53,6 @@ from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 for _endpoint, _backend in SEEDANCE_BACKENDS.items():
     register_backend(_endpoint, _backend)
 
-# Grok: xai-sdk
 from lib.backends.video_backends.grok import GrokVideoBackend
 
 register_backend(PROVIDER_GROK, GrokVideoBackend)
@@ -63,7 +62,6 @@ from lib.backends.video_backends.grok import GROK_BACKENDS
 for _endpoint, _backend in GROK_BACKENDS.items():
     register_backend(_endpoint, _backend)
 
-# OpenAI Sora
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 
 register_backend(PROVIDER_OPENAI, OpenAIVideoBackend)
@@ -79,7 +77,6 @@ from lib.backends.video_backends.vidu import VIDU_BACKENDS
 for _endpoint, _backend in VIDU_BACKENDS.items():
     register_backend(_endpoint, _backend)
 
-# 阿里百炼 DashScope — HappyHorse / 万相视频
 from lib.backends.video_backends.dashscope import DASHSCOPE_VIDEO_BACKENDS
 
 for _endpoint, _backend in DASHSCOPE_VIDEO_BACKENDS.items():

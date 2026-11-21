@@ -87,10 +87,8 @@ export default {
   'source_corrupt_file': 'Tệp nguồn "{{filename}}" không thể phân tích: {{reason}}',
   'source_too_large': 'Tệp nguồn "{{filename}}" quá lớn ({{size_mb}} MB > {{limit_mb}} MB)',
   'source_conflict': 'Tệp nguồn "{{existing}}" đã tồn tại',
-  // Image Capability
   'image_endpoint_mismatch_no_i2i': 'Mô hình {{model}} chỉ hỗ trợ text-to-image (không có /v1/images/edits); hãy bỏ ảnh tham chiếu hoặc chọn mô hình hỗ trợ chỉnh sửa ảnh',
   'image_endpoint_mismatch_no_t2i': 'Mô hình {{model}} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image',
-  // Thông báo dự phòng của tầng API và luồng sự kiện (khi máy chủ không nêu lý do)
   'request_failed': 'Yêu cầu thất bại',
   'session_expired': 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại',
   'content_mode_immutable': 'Không thể thay đổi content_mode sau khi đã tạo dự án',

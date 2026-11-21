@@ -48,7 +48,6 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox is not None
     assert opts.sandbox.get("enabled") is True
     assert opts.sandbox.get("autoAllowBashIfSandboxed") is True
-    # 非 Docker 默认 weakerNested=False
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
     # 出站显式全放行：省略 network 键等于零预放行，无人值守会话里新域名会被直接拒。
     # loopback 单列开关——skill 脚本调同源 ArcReel API 必须经 loopback，
@@ -156,11 +155,6 @@ async def test_bash_env_scrub_hook_passthrough_when_no_command(fs_session_manage
         None,
     )
     assert result == {"continue_": True}
-
-
-# ============================================================
-# Windows 沙箱回退：sandbox_enabled=False 分支（权限链接线）
-# ============================================================
 
 
 def _make_session_manager(tmp_path: Path, *, sandbox_enabled: bool) -> SessionManager:

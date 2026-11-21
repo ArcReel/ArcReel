@@ -83,7 +83,6 @@ export function ProviderSection() {
     };
   }, [search]);
 
-  // 首个 preset 兜底选中：拉取完成后 URL 仍未指定选中项时补一次。
   useEffect(() => {
     if (loading || selection) return;
     selectFirstPreset();
@@ -149,7 +148,6 @@ export function ProviderSection() {
   }
 
   return (
-    // 全出血档：二级栏与详情栏各自滚动
     <div className="flex min-h-0 min-w-0 flex-1">
       <SecondaryRail label={t("provider_list")} groups={railGroups} activeId={railId(selection)} replace />
 
@@ -164,7 +162,6 @@ export function ProviderSection() {
         />
       )}
       {selection?.kind === "custom" && (
-        // 深链换了要打开的模型时同样重建
         <CustomProviderDetail
           key={`${selection.id}:${modelId ?? ""}`}
           providerId={selection.id}

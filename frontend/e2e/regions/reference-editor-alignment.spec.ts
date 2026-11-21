@@ -103,12 +103,9 @@ async function requireVisibleScrollbars(page: Page) {
 }
 
 interface LayerAlignment {
-  /** 输入框与着色镜像层的内容区宽度。 */
   textareaClientWidth: number;
   preClientWidth: number;
-  /** 输入框内容超出可视高度。 */
   overflowing: boolean;
-  /** 实际比对过的、落在输入框可视区内的字符数。 */
   checked: number;
   /** 前几个错位的字符：着色层里它所在的位置，在输入框里命中的是另一个光标偏移（null 为没命中输入框）。 */
   mismatches: { offset: number; char: string; caretOffset: number | null }[];
@@ -184,7 +181,6 @@ defineRegionScenarios("参考视频文稿编辑器", [
       await clearAgentOverlay(page);
       await expect(editor(page)).toHaveValue(MENTION_HEAVY_TEXT);
       await expectLayersAligned(page);
-      // 滚到底：镜像层跟随输入框滚动后，末尾几行仍逐字重合
       const scrollTop = await editor(page).evaluate((el) => {
         el.scrollTop = el.scrollHeight;
         return el.scrollTop;

@@ -40,7 +40,6 @@ function renderHead(meta: EpisodeMeta = FIRST, overrides: Partial<Parameters<typ
   );
 }
 
-/** 已花与剩余在花费摘要的说明弹层里：点开摘要，返回弹层。 */
 async function openCostDetail(summary: string) {
   fireEvent.click(screen.getByRole("button", { name: summary }));
   return screen.findByRole("dialog");

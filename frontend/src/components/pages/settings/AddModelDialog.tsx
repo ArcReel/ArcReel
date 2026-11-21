@@ -22,14 +22,12 @@ import { MEDIA_LABEL_KEY } from "./providerModelDisplay";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 内置供应商 ID，或自定义供应商的 `custom-<id>`。 */
   providerId: string;
   providerName: string;
   /** 内置供应商：「未启用的模型」一组只有内置供应商有，选中即启用。 */
   builtin: boolean;
   /** 供应商当前的模型列表：取「未启用的模型」，并把已添加的目录条目标出来。 */
   models: ProviderModelItem[];
-  /** 添加或启用成功后调用，带新模型的列表行。 */
   onAdded: (model: ProviderModelItem) => void;
   /** 「目录中找不到？手动填写」：带当前搜索词；不给时不显示这一入口。 */
   onManualEntry?: (query: string) => void;

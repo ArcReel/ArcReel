@@ -105,7 +105,6 @@ export interface ReferenceUnitCapability {
   problems: ReferenceProjectionProblem[];
 }
 
-/** 按 `unit_id` 索引的逐单元结论。 */
 export type ReferenceUnitCapabilityMap = Record<string, ReferenceUnitCapability>;
 
 export interface ReferenceGenerationRequestOptions {
@@ -143,11 +142,9 @@ export interface ReferenceProjectionAdmission {
 export interface ReferenceDurationPrecheck {
   /** 请求档位与当前视觉档位（无成片时为剧本档位）不一致时为 true */
   needs_confirmation: boolean;
-  /** 剧本编排时长（秒） */
   script_duration: number;
   /** 取档输入，即剧本编排时长 */
   duration_input: number;
-  /** 将向模型申请的档位秒数 */
   request_duration: number;
   adjustment: "exact" | "up" | "down";
   declared_capability: "i2v" | "r2v";
@@ -183,14 +180,12 @@ export interface ReferenceBatchPreview extends WorkflowAdmission {
   skipped_unit_ids: string[];
   /** 只合计已报价的单元，按币种分开；一个都没报价时为 `null`。 */
   estimated_cost: CostBreakdown | null;
-  /** 没有报价、未计入 `estimated_cost` 的单元数。 */
   unpriced_count: number;
 }
 
 /** 批量端点请求体：省略 unit_ids 表示「缺失即生成」，空数组会被后端拒绝。 */
 export interface ReferenceBatchGenerateRequest {
   unit_ids?: string[];
-  /** 用户已确认的申请档位，按 unit 给 */
   confirmed_request_durations?: Record<string, number>;
 }
 
@@ -200,7 +195,6 @@ export interface ReferenceBatchGenerateRequest {
  * 正文是唯一真相：utterances 与参考图都是机械派生物，不落盘。
  * `warnings` 已按请求语言渲染成文本（`key` 保留供测试与埋点定位）。
  */
-/** `index` 是 1-based 的 utterance 序号，按正文出现顺序编号。 */
 export type ScriptPreviewUtterance =
   | { index: number; kind: "dialogue"; speaker: string; text: string }
   | { index: number; kind: "voiceover"; speaker: null; text: string };
@@ -222,7 +216,6 @@ export interface ScriptPreview {
  */
 export interface ReferenceScriptPlanUnit {
   unit_id: string;
-  /** 单元正文，用 `@[名称]` 引用已登记资产。 */
   text: string;
   /** Unit duration in seconds — one generation call, one duration. */
   duration_seconds: number;
@@ -268,7 +261,6 @@ export interface ScriptReviewViolation {
   params?: Record<string, unknown>;
 }
 
-/** 降级提示：不阻断采用，随条目呈现。`message` 由服务端按请求语言成文。 */
 export interface DraftSoftViolation {
   code: string;
   params: Record<string, unknown>;
@@ -305,7 +297,6 @@ export interface ScriptReviewQuarantine {
   content: Record<string, unknown> | null;
   violations: ScriptReviewViolation[];
   soft_violations: DraftSoftViolation[];
-  /** 丢弃后是否有正式内容可回。 */
   formal_exists: boolean;
 }
 

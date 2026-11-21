@@ -140,7 +140,6 @@ describe("EndFrameRow 能力警告", () => {
     const clear = vi.spyOn(API, "clearEndFrame").mockResolvedValue({ success: true });
     const { findByRole, getByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
 
-    // 收起状态即可见：不必展开就知道这条尾帧会让生成被拒。
     const alert = await findByRole("alert");
     expect(alert).toHaveTextContent(/当前模型不支持尾帧/);
     // 由项目端点按 generation_mode 解析实际 i2v/r2v 桶，不用默认层覆盖。
@@ -156,7 +155,6 @@ describe("EndFrameRow 能力警告", () => {
     await waitFor(() => {
       expect(refreshProject).toHaveBeenCalledWith(PROJECT);
     });
-    // 清除尾帧是即时动作，成功不弹提示
     expect(useAppStore.getState().toast).toBeNull();
   });
 
@@ -178,13 +176,11 @@ describe("EndFrameRow 能力警告", () => {
     const { getByRole, findByText, findByRole } = renderRow({ endFramePath: null });
     await findByText("未设置");
 
-    // 入口可点
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     const chooseBtn = getByRole("button", { name: "选择图片" });
     expect(chooseBtn).toBeEnabled();
     fireEvent.click(chooseBtn);
 
-    // 选图器内部同样不得残留禁用：候选可选、确认可点。
     const candidate = await findByRole("button", { name: /^分镜 1$/ });
     expect(candidate).toBeEnabled();
     fireEvent.click(candidate);
@@ -220,7 +216,6 @@ describe("EndFrameRow 能力警告", () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
     const { findByText, queryByRole } = renderRow({ endFramePath: null });
     await findByText("未设置");
-    // 没有会被拒绝的东西，不打扰。
     expect(queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -307,7 +302,6 @@ describe("EndFrameRow 占用态", () => {
     fireEvent.click(getByRole("button", { name: /^尾帧/ }));
     fireEvent.click(getByRole("button", { name: "选择图片" }));
 
-    // 选中本集分镜图（项目内通道）
     fireEvent.click(await findByRole("button", { name: /^分镜 1$/ }));
 
     // 打开选图器之后该分镜才被入队——只查开窗时刻会漏掉这个窗口
@@ -337,7 +331,6 @@ describe("EndFrameRow 占用态", () => {
     await waitFor(() => {
       expect(refreshProject).toHaveBeenCalledWith(PROJECT);
     });
-    // 设置尾帧是即时动作，成功不弹提示
     expect(useAppStore.getState().toast).toBeNull();
   });
 

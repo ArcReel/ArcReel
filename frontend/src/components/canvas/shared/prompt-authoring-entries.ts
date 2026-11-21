@@ -1,4 +1,3 @@
-/** 弹窗清单里的一个条目：是否待编写、视觉层是否已有内容。 */
 export interface PromptAuthoringEntry {
   id: string;
   pending: boolean;
@@ -19,7 +18,6 @@ function filled(value: unknown): boolean {
   return Boolean(value);
 }
 
-/** 从正式脚本取出弹窗清单（剧本顺序）。 */
 export function promptAuthoringEntries(script: unknown): PromptAuthoringEntry[] {
   if (!script || typeof script !== "object") return [];
   const record = script as Record<string, unknown>;

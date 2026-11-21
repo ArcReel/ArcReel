@@ -18,7 +18,6 @@ import { WelcomeCanvas } from "./WelcomeCanvas";
 interface OverviewCanvasProps {
   projectName: string;
   projectData: ProjectData | null;
-  /** 只读展示（引导演示项目）：不渲染编辑与生成入口。 */
   readOnly?: boolean;
 }
 

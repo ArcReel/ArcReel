@@ -140,9 +140,7 @@ async def test_generate_path_override_is_relative_to_the_raw_base_url(tmp_path: 
 @pytest.mark.parametrize(
     ("base_url", "generations_url"),
     [
-        # 只填 host：补全方舟协议挂载路径 /api/v3
         ("https://ark.cn-beijing.volces.com", "https://ark.cn-beijing.volces.com/api/v3/images/generations"),
-        # 已写到 /api/v3：不重复拼接
         ("https://relay.example.com/api/v3/", "https://relay.example.com/api/v3/images/generations"),
     ],
 )

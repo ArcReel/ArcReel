@@ -4,13 +4,10 @@ import { MEDIA_META, formatCalendarDay } from "./usage-record-format";
 /** 趋势图的两种指标：调用次数按结果堆叠，参考费用按媒体类型堆叠。 */
 export type TrendMetric = "calls" | "cost";
 
-/** 日桶多于这个数就把相邻若干天并成一桶，否则一天一桶。 */
 export const DAILY_POINT_LIMIT = 90;
 
-/** 合并时一桶覆盖的天数。 */
 export const MERGE_DAYS = 7;
 
-/** 堆叠顺序：费用视图从下往上按图片、音频、视频、文本。 */
 const MEDIA_ORDER: readonly CallType[] = ["image", "audio", "video", "text"];
 
 /** 一根柱；按天分桶时 `from` 与 `to` 相同，`days` 为 1。 */
@@ -99,7 +96,6 @@ export function countTicks(max: number): number[] {
   return [0, max];
 }
 
-/** 金额轴刻度：顶端取一个好读的整数倍，四等分。 */
 export function amountTicks(max: number): number[] {
   if (max <= 0) return [0, 1];
   const power = 10 ** Math.floor(Math.log10(max));

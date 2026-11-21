@@ -93,7 +93,6 @@ describe("useScriptGenerationNotice", () => {
         draftTurn: assistantTurn(toolUse(SCRIPT_TOOL, "tu-1")),
       });
     });
-    // Simulate an SSE reconnect re-delivering the same in-flight draft turn.
     act(() => {
       useAssistantStore.setState({ draftTurn: null });
       useAssistantStore.setState({
@@ -189,7 +188,6 @@ describe("useScriptGenerationNotice", () => {
         draftTurn: assistantTurn(toolUse(SCRIPT_TOOL, "tu-keep")),
       });
     });
-    // Switch away: turns/draft reset, status drops to idle.
     act(() => {
       useAssistantStore.setState({ draftTurn: null, turns: [], sessionStatus: "idle" });
     });

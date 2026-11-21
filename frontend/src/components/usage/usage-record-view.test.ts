@@ -22,7 +22,6 @@ describe("taskToUsageRecordView", () => {
     expect(
       segmentIdOf({ task_type: "reference_video", media_type: "video", resource_id: "E1U1" }),
     ).toBe("E1U1");
-    // audio 记账无白名单，resource_id 无条件作 segment_id。
     expect(segmentIdOf({ task_type: "tts", media_type: "audio", resource_id: "E1S10" })).toBe(
       "E1S10",
     );

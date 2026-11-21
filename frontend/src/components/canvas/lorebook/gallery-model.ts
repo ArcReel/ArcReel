@@ -9,7 +9,6 @@ export interface GalleryAsset {
   sheetPath: string | null;
   aliasCount: number;
   derivativeCount: number;
-  /** 商品原图张数。 */
   referenceCount: number;
 }
 
@@ -64,7 +63,6 @@ export function matchesGalleryFilter(asset: GalleryAsset, row: AssetSheetStatusR
   return filter === "pending" ? state === "missing" : state === "stale";
 }
 
-/** 资产图版本接口里的资源类型。 */
 export const VERSION_RESOURCE = {
   character: "characters",
   scene: "scenes",

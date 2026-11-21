@@ -425,7 +425,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("loading synced catalog data failed (non-fatal)")
 
-    # 用户修改的模型条目副本并进目录查询；读不到时这些条目暂按官方数据，其余照常
     try:
         from lib.catalog.user_entries import reload_user_entries
 
@@ -434,7 +433,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("loading user-modified catalog entries failed (non-fatal)")
 
-    # 内置供应商下用户添加的模型并进目录查询；读不到时这些模型暂不可用，其余模型照常
     try:
         from server.routers.provider_models import reload_user_added_models
 
@@ -493,7 +491,6 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("session-store transcript migration failed (non-fatal)")
 
-    # Migrate legacy .system_config.json → DB (no-op if file doesn't exist or already migrated)
     try:
         from lib.config.migration import migrate_json_to_db
 
@@ -540,10 +537,8 @@ async def lifespan(app: FastAPI):
     _profile_sync_stats = await asyncio.to_thread(_pm.sync_all_agent_profiles)
     _log_profile_sync_outcome(_profile_sync_stats)
 
-    # 启动共享 httpx 客户端（用于版本检查等外部 API 调用）
     await startup_http_client()
 
-    # Initialize async services
     await assistant.assistant_service.startup(in_docker=is_docker, sandbox_enabled=sandbox_enabled)
     assistant.assistant_service.session_manager.start_patrol()
 
@@ -566,7 +561,6 @@ async def lifespan(app: FastAPI):
     stall_probe = start_loop_stall_probe()
     # 模型目录的官方同步：启动时检查一次，之后每天一次；随应用关停取消
     catalog_sync = start_catalog_sync(async_session_factory)
-    # 项目回收站与已删除项目的过期清理：启动时清一次，之后定期清理；随应用关停取消
     from server.services.project.trash_expiry import start_trash_expiry, stop_trash_expiry
 
     trash_expiry = start_trash_expiry(layout)
@@ -587,7 +581,6 @@ async def lifespan(app: FastAPI):
         # 运行期异常或关停被取消时同样停掉探针，免得收尾阶段把关停工作误报成卡顿。
         await stop_loop_stall_probe(stall_probe)
 
-    # Shutdown
     assistant.assistant_service.session_manager.set_autonomous_turn_listener(None)
     project_event_service = getattr(app.state, "project_event_service", None)
     if project_event_service:
@@ -608,7 +601,6 @@ async def lifespan(app: FastAPI):
     await close_db()
 
 
-# 创建 FastAPI 应用
 app = FastAPI(
     title="视频项目管理 WebUI",
     description="AI 视频生成工作空间的 Web 管理界面",
@@ -623,7 +615,6 @@ app = FastAPI(
 # server/error_handlers.py::_cors_headers_for），handler 需要这份配置手工补 CORS 头。
 _allow_origins, _allow_credentials = resolve_cors_policy()
 
-# app 级异常处理器：异常→状态码→detail 映射的单点（见 server/error_handlers.py）
 register_error_handlers(app, cors_allow_origins=_allow_origins, cors_allow_credentials=_allow_credentials)
 
 app.add_middleware(

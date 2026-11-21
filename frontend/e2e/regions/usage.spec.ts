@@ -176,7 +176,6 @@ const STRESS: ApiOverrides = {
   [DETAIL_KEY]: { status: 200, body: DETAIL },
 };
 
-// 工作台顶栏的使用记录弹层：本项目 KPI、进行中与最近结束的调用。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const POPOVER_STRESS: ApiOverrides = {
   // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
@@ -199,7 +198,6 @@ const POPOVER_STRESS: ApiOverrides = {
   },
 };
 
-// 「Agent 会话」视图：每个会话一行，可展开按时间列出的明细；会话名称、模型名与提示词都很长。
 const AGENT_USAGE = `${USAGE}&u_view=agent`;
 const AGENT_SUMMARY_KEY = `${SUMMARY_KEY}&view=agent`;
 const SESSIONS_KEY = "GET /api/v1/usage/sessions?limit=20&since=2025-12-02T16:00:00.000Z";
@@ -288,7 +286,6 @@ defineRegionScenarios("使用记录", [
     api: STRESS,
     ready: recordsReady,
     act: async (page) => {
-      // 表头不换行：每个表头单元格只有一行高。
       for (const header of await page.getByRole("columnheader").all()) {
         const box = await header.boundingBox();
         expect(box?.height ?? 0).toBeLessThan(40);

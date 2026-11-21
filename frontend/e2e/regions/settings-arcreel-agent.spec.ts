@@ -2,7 +2,6 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 全局设置「ArcReel Agent」：Agent 供应商列表、默认折叠的运行参数、添加与删除 Agent 供应商的弹层。
 
 const PATH = "/app/settings?section=arcreel-agent";
 

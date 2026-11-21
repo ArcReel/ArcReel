@@ -51,11 +51,6 @@ class _FakeDriverError(Exception):
             self.sqlite_errorname = sqlite_errorname
 
 
-# ---------------------------------------------------------------------------
-# normalize_sdk_message_to_entries — 写入点定型纯函数
-# ---------------------------------------------------------------------------
-
-
 class TestNormalize:
     def test_assistant_message_becomes_single_entry_with_message_id(self):
         entries = normalize_sdk_message_to_entries(
@@ -100,7 +95,6 @@ class TestNormalize:
         assert entries[1]["tool_use_id"] == "tu-2"
         assert entries[1]["content"] == "boom"
         assert entries[1]["is_error"] is True
-        # 独立条目、不同 uuid
         assert entries[0]["uuid"] != entries[1]["uuid"]
 
     def test_mixed_user_content_splits_tool_results_from_text(self):
@@ -169,11 +163,6 @@ class TestNormalize:
         assert len(entries) == 1
         assert entries[0]["type"] == "user"
         assert entries[0]["content"] == [{"type": "text", "text": "继续下一章"}]
-
-
-# ---------------------------------------------------------------------------
-# 写入点定型 — interrupt / task 通知 XML / AskUserQuestion 答复
-# ---------------------------------------------------------------------------
 
 
 class TestNormalizeInterrupt:
@@ -470,11 +459,6 @@ class TestNormalizeQuestionAnswer:
         assert entries[1]["content"] == "answered 2"
 
 
-# ---------------------------------------------------------------------------
-# SdkMessageNormalizer — skill 调用定型（跨消息状态）
-# ---------------------------------------------------------------------------
-
-
 _SKILL_INJECTION_TEXT = (
     "Base directory for this skill: /proj/.claude/skills/generate-storyboard\n\n# 生成分镜图\n\n完整注入正文……"
 )
@@ -638,11 +622,6 @@ class TestSkillInvocationTyping:
         assert entries[0]["type"] == "user"
 
 
-# ---------------------------------------------------------------------------
-# EventLogStore — seq 单调 / 幂等键 / 游标
-# ---------------------------------------------------------------------------
-
-
 class TestEventLogStore:
     async def test_seq_is_monotonic_across_appends(self, log_store: EventLogStore):
         first = await log_store.append("s1", [{"type": "user", "uuid": "a"}])
@@ -714,7 +693,7 @@ class TestEventLogStore:
 
         result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])
 
-        assert calls["n"] == 2  # 首次撞主键冲突后重试一次即成功
+        assert calls["n"] == 2
         assert result[0]["uuid"] == "u1"
 
     async def test_append_retries_seq_race_with_localized_pg_error_via_sqlstate(
@@ -858,7 +837,7 @@ class TestEventLogStore:
 
         monkeypatch.setattr(log_store, "_append_once", _flaky_append_once)
 
-        result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])  # client_key 默认 None
+        result = await log_store.append("s1", [{"type": "user", "uuid": "u1"}])
 
         assert calls["n"] == 2
         assert result[0]["uuid"] == "u1"
@@ -976,11 +955,6 @@ class TestUserMessageLink:
         assert await log_store.find_user_message_link("s1", "user-1") is None
 
 
-# ---------------------------------------------------------------------------
-# EventLogService — 懒生成
-# ---------------------------------------------------------------------------
-
-
 class _FakeAdapter:
     def __init__(self, messages, subagent_timelines=None, subagent_descriptions=None):
         self._messages = messages
@@ -1020,7 +994,6 @@ class TestLazyBackfill:
         assert [e["seq"] for e in entries] == [0, 1]
         assert entries[0]["timestamp"] == "2026-01-01T00:00:00Z"
 
-        # 第二次访问不重复重放
         again = await service.list_entries("old-session", None)
         assert len(again) == 2
         assert adapter.read_count == 1
@@ -1100,7 +1073,6 @@ class TestLazyBackfill:
         adapter._messages = [{"type": "user", "content": "hi", "uuid": "u1"}]
         await asyncio.gather(*[service.ensure_backfilled("old", None) for _ in range(5)])
         assert len(await log_store.list_after("old")) == 1
-        # 写入成功后锁引用被清理
         assert "old" not in service._backfill_locks
 
     async def test_backfill_skips_message_that_fails_normalization(self, log_store: EventLogStore, monkeypatch):
@@ -1204,11 +1176,6 @@ class TestLazyBackfill:
         # 相邻两条回显收敛为一条；隔轮的新中断仍独立成条
         assert entries[1]["subtype"] == "interrupt"
         assert entries[3]["subtype"] == "interrupt"
-
-
-# ---------------------------------------------------------------------------
-# 懒生成 — subagent subpath 合并
-# ---------------------------------------------------------------------------
 
 
 class TestSubagentBackfillMerge:

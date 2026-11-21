@@ -31,11 +31,8 @@ export interface GridPreviewPanelProps {
   projectName: string;
   /** 这一组对上的宫格，一组超过单张格数上限时有多张。 */
   gridIds: string[];
-  /** 组卡上「生成这一组」等同一组的写请求在途：面板动作随之禁用。 */
   busy?: boolean;
-  /** 有生成入口时，空态提示用户从组卡标题行开始生成。 */
   canGenerate?: boolean;
-  /** 重新生成提交成功后通知父级刷新宫格列表。 */
   onRegenerated?: () => void;
 }
 
@@ -145,7 +142,6 @@ export function GridPreviewPanel({
   const [splitting, setSplitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  // 已加载完成的联合图地址：加载前按记录推算的比例占位，加载后改回按原图尺寸排版
   const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
   const project = useProjectsStore((s) => s.currentProjectData);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -245,7 +241,6 @@ export function GridPreviewPanel({
     API.uploadGridImage(projectName, selectedGridId, file)
       .then((res) => {
         useProjectsStore.getState().updateAssetFingerprints(res.asset_fingerprints);
-        // 联合图内容与宫格记录（status / split_at）已变，走全局失效信号重拉详情
         useAppStore.getState().invalidateGrids();
         useAppStore.getState().pushToast(t("grid_upload_success"), "success");
       })
@@ -272,8 +267,6 @@ export function GridPreviewPanel({
       .finally(() => setRegenerating(false));
   };
 
-  // 用持久化的 mtime 指纹做 cache-bust，跨页面刷新仍然有效。带版本的地址按 immutable 长缓存，
-  // 版本只能取文件自身的指纹；指纹尚未送达时不带版本，走服务端的协商缓存。
   const gridFp = useProjectsStore((s) =>
     grid?.grid_image_path ? (s.assetFingerprints[grid.grid_image_path] ?? null) : null,
   );

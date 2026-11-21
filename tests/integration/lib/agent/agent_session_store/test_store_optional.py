@@ -33,7 +33,7 @@ async def test_list_sessions_excludes_subagent_subpaths(session_factory):
         [{"type": "user", "uuid": "b"}],
     )
     items = await store.list_sessions("p")
-    assert [x["session_id"] for x in items] == ["s1"]  # not duplicated
+    assert [x["session_id"] for x in items] == ["s1"]
 
 
 @pytest.mark.asyncio

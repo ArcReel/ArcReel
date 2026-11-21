@@ -66,7 +66,6 @@ from lib.project.resource_paths import resource_extension
 
 logger = logging.getLogger(__name__)
 
-#: 正式素材对象的 key 前缀，与中转副本（``arcreel-relay/``）分开。
 FORMAL_PREFIX = "arcreel-materials/"
 #: 新内容版本保存位置的全局设置键；取值 :data:`NewContentTarget`，缺省本地。设置页经对象存储路由修改，
 #: 没有对象存储连接时不能设为 ``object_storage``。
@@ -242,8 +241,6 @@ class ObjectContentStorage:
         # 登记早于任何占用落库：启动补做读到的占用若属于本进程进行中的提交，按这份登记跳过
         _LIVE_ATTEMPTS.add(self.attempt_id)
 
-    # ---- 工作线程一侧 -------------------------------------------------------------------------
-
     def persist(self, project_path: Path, resource_type: str, source: Path, slot: LocalLocator) -> PersistedContent:
         # 在版本锁内核对：收尾先登记、再在版本锁内读取，读取之后发布的远端版本到不了这里
         if stores_remotely(resource_type) and project_is_retiring(project_path):
@@ -286,8 +283,6 @@ class ObjectContentStorage:
         if needs_upload:
             self.bridge.run(self._confirm(key))
         return ObjectLocator(self.connection.id, self.connection.bucket, key)
-
-    # ---- 事件循环一侧 -------------------------------------------------------------------------
 
     async def _begin(self, key: str, digest: str, size: int) -> bool:
         """登记对象与本次提交的占用，返回是否需要上传。对象已确认保存时复用，不再上传。

@@ -81,7 +81,6 @@ export function useMemoryWorkspace(scope: AgentMemoryScope, hrefFor: (file: stri
   };
 }
 
-/** 文件列表加载失败或首次加载中；加载成功时返回 null，由调用方渲染文件区。 */
 export function MemoryLoadState({ workspace, className }: { workspace: MemoryWorkspace; className?: string }) {
   const { t } = useTranslation("dashboard");
   if (workspace.error !== null) {

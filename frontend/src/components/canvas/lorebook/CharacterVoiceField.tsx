@@ -30,7 +30,6 @@ import { VoiceSampleButton } from "./VoiceSampleButton";
 
 const AUDIO_ACCEPT = ".wav,.mp3";
 
-/** mm:ss；无法确定时长（尚未加载完 metadata）时占位 --:--。 */
 function formatAudioDuration(seconds: number | null): string {
   if (seconds == null || !Number.isFinite(seconds)) return "--:--";
   const total = Math.round(seconds);
@@ -90,13 +89,11 @@ function AudioPlayer({ src }: { src: string }) {
 interface CharacterVoiceFieldProps {
   projectName: string;
   name: string;
-  /** 声音风格属于编辑单元的字段，由调用方持有。 */
   voiceStyle: string;
   onVoiceStyleChange: (value: string) => void;
   referenceAudio: string | undefined;
   voiceBinding: CharacterVoiceBinding;
   readOnly?: boolean;
-  /** 详情里其它写入或生成占用中：上传、删除与生成样本一起禁用。 */
   busy?: boolean;
 }
 

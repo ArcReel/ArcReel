@@ -13,10 +13,6 @@ import { UsagePopover } from "./UsagePopover";
 /** 无使用记录时也占住同样的宽度：第一笔参考费用出现时顶栏不能抖动。 */
 const FALLBACK_CURRENCY = "USD";
 
-/**
- * 顶栏用量入口。按钮上是本项目全部时间的参考费用（多币种全列，主币种正常字号），
- * 有任务运行或排队时图标呼吸并挂计数角标。点开是同一份数据的悬浮层。
- */
 export function UsageHeaderEntry({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
 

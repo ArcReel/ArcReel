@@ -291,7 +291,6 @@ class TestSessionEntryPipeline:
     async def test_adjacent_interrupt_echo_race_produces_single_entry(self):
         """SDK 回显与终态路径的合成中断（竞态双写）在写入点尾检去重。"""
         pipeline, store, _broadcasts = _make_pipeline()
-        # SDK 回显先落库
         await pipeline.handle_message({"type": "user", "content": "[Request interrupted by user]", "uuid": "i-1"})
         # 终态路径补写合成中断：尾条已是 interrupt，跳过
         appended = await pipeline.append_interrupt()

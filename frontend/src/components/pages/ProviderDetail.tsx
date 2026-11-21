@@ -61,7 +61,6 @@ function fieldPlaceholder(t: TFunction, field: ProviderField): string | undefine
   return field.placeholder;
 }
 
-/** 高级配置的已保存内容：字段 key → 当前值，未设置为空串。 */
 type AdvancedValues = Record<string, string>;
 
 function advancedValues(detail: ProviderConfigDetail | null): AdvancedValues {
@@ -77,7 +76,6 @@ function multiplierText(info: ProviderMultiplierInfo | null): string {
   return String(info.multiplier);
 }
 
-/** 保存栏管理的内容：顶部的供应商倍率与高级配置。 */
 interface DetailValues {
   multiplier: string;
   advanced: AdvancedValues;
@@ -280,7 +278,6 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
           </div>
         </div>
       }
-      // 保存栏与正文的表单列同宽同起点（正文 max-w-190 含左右各 24px 内边距），宽窗口下不横跨整栏
       footer={<SaveBar unit={unit} className="max-w-178" />}
     >
       <div className="flex max-w-190 flex-col gap-8 px-6 py-6">

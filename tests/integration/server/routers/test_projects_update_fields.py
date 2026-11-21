@@ -12,7 +12,6 @@ class TestProjectsRouter:
     def test_update_project_with_style_template_id_expands_and_clears_image(self, tmp_path, monkeypatch):
         """PATCH style_template_id：写入 id + 展开 prompt 到 style，并清掉 style_image/description。"""
         fake_pm = _FakePM(tmp_path)
-        # 预置一个带参考图的项目
         fake_pm.project_data["ready"]["style_image"] = "style_reference.png"
         fake_pm.project_data["ready"]["style_description"] = "old desc"
 
@@ -332,7 +331,6 @@ class TestProjectsRouter:
             assert "text_backend_complex" not in data
             assert "default_text_backend" not in data
 
-            # 非法 backend 值被 400 拒绝
             rejected = client.patch(
                 "/api/v1/projects/ready",
                 json={"text_backend_complex": "no-slash"},
@@ -355,7 +353,6 @@ class TestProjectsRouter:
         fake_pm.project_data["ready"]["generation_mode"] = "storyboard"
         client = build_projects_client(monkeypatch, fake_pm)
         with client:
-            # 宫格开关创建后可随时切换
             on = client.patch("/api/v1/projects/ready", json={"grid_storyboard": True})
             assert on.status_code == 200
             assert fake_pm.project_data["ready"]["grid_storyboard"] is True

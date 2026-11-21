@@ -41,7 +41,6 @@ class TestRegistry:
         assert models["MiniMax-M3"].default is True
         assert "vision" in models["MiniMax-M3"].capabilities
         assert models["MiniMax-M2.7"].default is False
-        # image-01：默认图像模型，T2I + I2I
         image = models["image-01"]
         assert image.media_type == "image"
         assert image.default is True
@@ -149,7 +148,6 @@ class TestCatalogPricing:
         [("768p", 4, 2.0), ("768p", 15, 7.5), ("2k", 5, 4.0), ("2k", 15, 12.0)],
     )
     def test_h3_per_second_by_resolution(self, resolution, duration, expected):
-        # H3 按秒 × 分辨率计价（768P 0.50、2K 0.80 元/秒），两档都钉死。
         amount, cur = builtin_price(
             PROVIDER_MINIMAX, "MiniMax-H3", "video", {"output_seconds": duration}, {"resolution": resolution}
         )
@@ -162,7 +160,6 @@ class TestVideoRegistry:
         models = catalog.list_models(PROVIDER_MINIMAX)
         h3 = models["MiniMax-H3"]
         assert h3.media_type == "video"
-        # H3 是 minimax 视频默认，海螺 2.3 仍可选回。
         assert h3.default is True
         assert models["MiniMax-Hailuo-2.3"].default is False
         assert h3.supported_durations == list(range(4, 16))

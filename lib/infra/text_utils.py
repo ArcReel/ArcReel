@@ -7,7 +7,6 @@ import re
 # 开栏：``` 后可跟空白、可选的语言标注 json（大小写不敏感）、可选空白与换行。
 # 兼容 ```json / ```JSON / ``` json / ```  JSON 等带空格变体。
 _OPENING_FENCE = re.compile(r"^```[ \t]*(?:json)?[ \t]*\n?", re.IGNORECASE)
-# 闭栏：结尾的 ``` 及其前导换行。
 _CLOSING_FENCE = re.compile(r"\n?```$")
 
 

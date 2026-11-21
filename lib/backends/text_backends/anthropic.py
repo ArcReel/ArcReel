@@ -121,7 +121,6 @@ class AnthropicTextBackend:
     async def _prompt_json_fallback(self, request: TextGenerationRequest) -> TextGenerationResult:
         async def _once(fb_request: TextGenerationRequest) -> TextGenerationResult:
             content = await asyncio.to_thread(_build_user_content, fb_request)
-            # 降级请求已不带 output_config，不会再返回 schema 错误的降级信号
             result = await self._generate_native(fb_request, content, structured=True)
             assert result is not None
             return result

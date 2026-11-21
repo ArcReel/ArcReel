@@ -4,8 +4,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
 import { idleSessionApi } from "../support/assistant-session.ts";
 
-// Agent 面板消息区：滚动跟随与「跳到最新」、气泡与正文限宽、Markdown 代码块与宽表格、
-// 原地编辑与图片放大。会话是手写的压力数据：长文本、长链接、多轮对话。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SESSION_ID = "session-stress";
 const SESSIONS_PATH = "/api/v1/projects/demo/assistant/sessions";
@@ -146,7 +144,6 @@ async function messagesReady(page: Page) {
   await page.waitForLoadState("networkidle");
 }
 
-/** 视口停在最底部（误差 1px 以内）。 */
 async function expectAtEnd(page: Page) {
   await expect
     .poll(() =>
@@ -186,7 +183,6 @@ defineRegionScenarios("Agent 消息区", [
       await jumpToLatest(page).click();
       await expectAtEnd(page);
       await expect(jumpToLatest(page)).toHaveAttribute("data-active", "false");
-      // 停在按钮出现的状态做探测与截图
       await transcript(page).hover();
       await page.mouse.wheel(0, -1600);
       await expect(jumpToLatest(page)).toHaveAttribute("data-active", "true");
@@ -203,7 +199,6 @@ defineRegionScenarios("Agent 消息区", [
       const code = page.getByRole("region", { name: "代码块" });
       await code.scrollIntoViewIfNeeded();
       await expect.poll(() => code.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
-      // 键盘聚焦后用方向键横向滚动
       await code.focus();
       await page.keyboard.press("ArrowRight");
       await expect.poll(() => code.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
@@ -279,7 +274,6 @@ test("代码块高亮分块晚于聚焦到达时，焦点留在代码块上", as
 
   release();
   await chunkDelivered;
-  // 等占位节点被替换掉，再看焦点落在哪里
   await expect.poll(() => placeholder?.evaluate((el) => el.isConnected)).toBe(false);
   await expect(code).toBeFocused();
 });

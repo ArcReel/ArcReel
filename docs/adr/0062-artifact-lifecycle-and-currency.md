@@ -21,6 +21,8 @@ status: accepted
 
 清单在项目级跨进程锁内原子替换，读取使用完整快照，无需获取写锁。项目元数据锁先于清单锁，付费前复核和激活沿用这一顺序。全量替换和读取成本随条目数增长，保留条目直到正式归属移除，避免按容量裁剪后失去产物的登记事实。代码入口见 [artifact_activation.py](../../lib/artifacts/artifact_activation.py) 与 [artifact_manifest.py](../../lib/artifacts/artifact_manifest.py)。
 
+付费产物的历史保存、当前选中与失败补偿见 [ADR 0124](0124-paid-versions-persist-before-current-selection.md)。
+
 ## 升级与归档
 
 升级以项目记录、正式剧本、资产索引和受管宫格记录补录，登记依据与比对依据同源，补录成功即 `current`。生成缺口以缺席事实表示，可证明且可用的产物照常补录。无法计算依据或读不到内容的条目按 [ADR 0098](0098-backfill-keeps-existing-content-gaps-only-gate-generation.md) 处理。

@@ -368,7 +368,6 @@ async def test_a_prefix_message_without_a_mapping_row_can_still_be_rewritten(bra
     await log_store.record_user_message_link(origin, "user-third", uuids[4])
 
     branched = await service.branch(origin, "user-third")
-    # 分支会话的前缀是前两轮，其中第二条用户消息在新会话里没有任何映射行。
     again = await service.branch(branched.session_id, uuids[2])
 
     assert again.resumable is True
@@ -389,7 +388,6 @@ async def test_rewriting_recurses_through_branches_of_branches(branching):
     third = await service.branch(second.session_id, uuids[0])
 
     assert third.session_id not in {origin, first.session_id, second.session_id}
-    # 锚点是整段历史的第一条，前缀为空——新会话就是全新会话。
     assert third.resumable is False
 
 

@@ -48,7 +48,6 @@ describe("ExternalAgentSection", () => {
     await user.click(screen.getByRole("button", { name: "复制 MCP 端点" }));
     expect(writeText).toHaveBeenLastCalledWith(`${window.location.origin}/mcp`);
     await user.click(screen.getByRole("button", { name: "复制提示词" }));
-    // 提示词只给安装指引地址，不夹带任何令牌
     expect(writeText).toHaveBeenLastCalledWith(
       `帮我接入 ArcReel。请阅读并执行 ${window.location.origin}/agent-installation-guide.md`,
     );
@@ -82,7 +81,6 @@ describe("ExternalAgentSection", () => {
       return Promise.resolve({ ...token, key: "arc-ext-full-secret" });
     });
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
-    // 设置页挂载时会拉取配置状态，这里让它拿到空结果
     vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
     vi.spyOn(API, "getSystemConfig").mockRejectedValue(new Error("not needed"));

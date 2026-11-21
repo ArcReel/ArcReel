@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-/** 向导步骤里的一个分区：标题、可选说明与内容。 */
 export function WizardSection({
   title,
   description,

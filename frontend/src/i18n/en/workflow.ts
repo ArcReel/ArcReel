@@ -1,5 +1,4 @@
 export default {
-  // ---- Panel shell ----
   'panel_title': 'Production progress',
   'panel_blocker_count_one': '{{count}} needs repair',
   'panel_blocker_count_other': '{{count}} need repair',
@@ -12,7 +11,6 @@ export default {
   'technical_detail': 'Technical detail',
   'next_step': 'Next: {{step}}',
 
-  // ---- Step list ----
   'next_label': 'Next',
   'alternatives_lead': 'or',
   'summary_row': '{{title}}: {{status}}',
@@ -183,7 +181,6 @@ export default {
   'refusal_operation_not_applicable': 'Not available for this type of project',
   'refusal_unknown': 'Not available right now',
 
-  // ---- Stale artifacts ----
   'stale_title_one': '{{count}} result is older than the current content',
   'stale_title_other': '{{count}} results are older than the current content',
   'stale_still_usable': 'These files are kept. You can open them on the canvas, and they still go into this episode. Keeping them costs nothing; regenerating charges the provider again.',
@@ -194,7 +191,6 @@ export default {
   'stale_regenerate_all_one': 'Regenerate {{count}} result',
   'stale_regenerate_all_other': 'Regenerate all {{count}} results',
 
-  // ---- Tasks and provider checkpoint ----
   'tasks_title_one': '{{count}} attempt in progress',
   'tasks_title_other': '{{count}} attempts in progress',
   'task_type_storyboard': 'Storyboard',
@@ -222,7 +218,6 @@ export default {
   'task_status_interrupted': 'interrupted',
   'checkpoint_submitted': 'Already submitted to the provider — retrying may be charged again.',
 
-  // ---- Batch admission ----
   'admission_blocked_intro': 'This batch created no tasks. Nothing was charged. Fix the items below and request it again.',
   'admission_withheld_title_one': '{{count}} unit was fine but was held back with the batch:',
   'admission_withheld_title_other': '{{count}} units were fine but were held back with the batch:',
@@ -242,7 +237,6 @@ export default {
   'duration_seconds': '{{value}}s',
   'unit_request_tier': 'requesting {{request}}',
 
-  // ---- Next-step phrases ----
   'action_unknown': 'follow the guidance from the agent',
   'action_none': 'nothing to do',
   'action_retry': 'try again shortly',
@@ -279,7 +273,6 @@ export default {
   'action_create_edit_timeline': 'create an edit timeline and let the Agent edit it',
   'action_retry_project_migration': 'fix the reported project files, then retry the data upgrade',
 
-  // ---- Problem summaries ----
   'problem_generation_unit_not_found': 'This unit is no longer in the script.',
   'problem_generation_unit_input_unusable': 'This unit is missing an input it needs.',
   'problem_generation_unit_request_invalid': 'The request for this unit is not valid.',

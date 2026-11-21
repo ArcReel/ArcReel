@@ -53,7 +53,6 @@ export function useStaleRegenerateConfirm({
   hasSheet: boolean;
   onGenerate: () => void;
 }): {
-  /** 确认后生成。 */
   request: () => void;
   /** 只确认不生成：resolve 为是否继续。 */
   confirm: (options?: StaleConfirmOptions) => Promise<boolean>;

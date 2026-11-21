@@ -144,7 +144,6 @@ def _files_under(root: Path, rel_dir: str) -> list[str]:
 
 def _remove_empty_dirs(directory: Path) -> None:
     for dirpath, _dirnames, _filenames in os.walk(directory, topdown=False):
-        # 还有没移走的条目（如符号链接）时目录留着
         with contextlib.suppress(OSError):
             # hard-delete: derived -- 文件都已移进项目回收站，只剩空目录
             os.rmdir(dirpath)

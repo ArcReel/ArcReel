@@ -28,7 +28,6 @@ from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.retry import NonRetryableError
 
-#: 解析器：``(host, port)`` → 该主机解析出的地址文本。
 Resolver = Callable[[str, int], Awaitable[Iterable[str]]]
 
 #: 各媒体类型产物的总字节上限。取值远高于各供应商单个产物的实际体积，只拦异常大的响应。
@@ -44,7 +43,6 @@ ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE: dict[str, int] = {
 #: 主机名解析的时限。解析不走 httpx 的超时配置，单独兜住。
 DNS_RESOLVE_TIMEOUT_SECONDS = 10.0
 
-#: 错误响应体读取上限：够状态错误带出诊断摘要即可。
 ERROR_BODY_MAX_BYTES = 64 * 1024
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
@@ -110,7 +108,7 @@ async def check_destination(
         try:
             async with asyncio.timeout(resolve_timeout):
                 addresses = await resolver(host, port)
-        except OSError:  # TimeoutError 亦是 OSError
+        except OSError:
             return
     if any(_is_rejected_address(address) for address in addresses):
         raise ArtifactDestinationRejectedError(f"artifact host resolves to a disallowed address: {host}")

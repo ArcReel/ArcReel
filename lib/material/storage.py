@@ -29,7 +29,6 @@ from typing import Any, Protocol
 from lib.infra.api_errors import ConflictError
 from lib.infra.content_digest import sha256_file
 
-#: 版本记录里内容版本身份的键。
 CONTENT_VERSION_ID = "content_version_id"
 #: 版本记录里内容摘要的键：该版本快照的裸 sha256 hexdigest，算法同 ``lib.infra.content_digest.sha256_file``。
 CONTENT_DIGEST = "content_digest"

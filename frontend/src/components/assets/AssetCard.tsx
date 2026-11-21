@@ -18,9 +18,6 @@ import { AssetThumb } from "./AssetThumb";
 
 export type AssetCardAction = "open" | "edit" | "apply" | "delete";
 
-/**
- * 资产库卡片：整张卡片可点，打开详情；「更多」菜单常驻，不依赖悬停，提供编辑、应用到项目与删除。
- */
 export const AssetCard = memo(function AssetCard({
   asset,
   onAction,

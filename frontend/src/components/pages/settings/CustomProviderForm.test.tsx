@@ -153,7 +153,6 @@ function discovered(modelId: string, endpoint = "openai-chat"): DiscoveredModel 
   };
 }
 
-/** 填满新建表单的全部必填项：名称、接口地址、密钥，以及一行启用的模型。 */
 function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的中转站" } });
   fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://api.example.invalid" } });
@@ -252,7 +251,6 @@ describe("CustomProviderForm", () => {
     const sheet = await screen.findByRole("dialog");
     expect(await within(sheet).findByRole("textbox", { name: "模型 ID" })).toHaveValue("gpt-4o-mini");
     expect(API.getProviderModel).toHaveBeenCalledWith("custom-3", "gpt-4o-mini", expect.anything());
-    // 已保存的供应商不再有整表编辑的模型表
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 

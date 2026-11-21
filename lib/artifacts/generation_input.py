@@ -66,19 +66,15 @@ from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_
 #: 而不是去生成资产图。
 ORIGINAL_MISSING_CODE = "asset_original_missing"
 
-#: 分镜的图片提示词待生成：语义未就绪，沿用生成入口的同一码。
 PROMPT_PENDING_CODE = "script_prompt_pending"
 
-#: 资产还没有描述：资产图的语义未就绪。
 ASSET_DESCRIPTION_REQUIRED_CODE = "asset_description_required"
 
-#: 衍生还没有外观变化描述：衍生资产图的语义未就绪，沿用衍生生成入口的同一码。
 DERIVATIVE_DESCRIPTION_REQUIRED_CODE = "derivative_description_required"
 
 #: 衍生的本体资产图不可用（未声明、文件不在或清单未登记），沿用衍生生成入口的同一码。
 DERIVATIVE_OWNER_SHEET_MISSING_CODE = "derivative_owner_sheet_missing"
 
-#: 资产图与衍生资产图的画布比例，执行器与规划器共用。
 ASSET_SHEET_CANVAS_RATIO = "16:9"
 
 
@@ -237,9 +233,7 @@ class FrozenGenerationInput:
         warnings: tuple[dict[str, Any], ...],
     ) -> None:
         self.prompt = prompt
-        #: 随请求发给供应商的完整参考图集。
         self.references = references
-        #: 按完整冻结集构造的登记依据。
         self.basis = basis
         self.claims = claims
         self.warnings = warnings
@@ -792,7 +786,6 @@ def _visual_basis(
                 absent=absent,
             )
         case DerivativeSheetSemantics():
-            # 本体资产图不可用时没有来源，缺口记在 absent 里。
             [*sources] = references
             if len(sources) > 1:
                 raise ValueError("a derivative sheet has at most one source image")
@@ -806,7 +799,6 @@ def _visual_basis(
             )
 
 
-#: 资产图提示词按资产类型的渲染出口。
 _ASSET_SHEET_PROMPT_BUILDERS: dict[str, Callable[[str, str, str, str], str]] = {
     "character": build_character_prompt,
     "scene": build_scene_prompt,

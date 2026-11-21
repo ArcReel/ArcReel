@@ -22,7 +22,6 @@ export function draftFixRequestText(
   ].join("\n");
 }
 
-/** 丢弃后回到哪份内容：按草稿对应的文档与正式内容是否存在给出说明。 */
 export function draftFallbackText(
   t: (key: string, options?: Record<string, unknown>) => string,
   docType: DraftDocType,

@@ -103,7 +103,6 @@ describe("UsageRecordsSection filters", () => {
     await userEvent.click(screen.getByRole("button", { name: "7 天" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("加载失败");
-    // 旧筛选的 summary 不再留在界面上冒充当前筛选的结果。
     expect(useUsageRecordsStore.getState().summary).toBeNull();
   });
 
@@ -183,7 +182,6 @@ describe("UsageRecordsSection filters", () => {
     await waitFor(() =>
       expect(vi.mocked(API.getUsageRecords).mock.calls.length).toBeGreaterThan(seen),
     );
-    // 筛选变化后发出的每一次记录请求都从第一页起，不带上一页留下的游标。
     for (const [query] of vi.mocked(API.getUsageRecords).mock.calls.slice(seen)) {
       expect(query?.cursor).toBeUndefined();
     }

@@ -31,7 +31,6 @@ export interface VoiceNoticeUnit {
 }
 
 export interface VoiceLegacyNotice {
-  /** 生成于设置之前、且当前未被关闭覆盖的片段数 */
   count: number;
   /** 计数实际涉及的角色名——关闭时需要分别写回这些角色的 dismissed_at */
   characterNames: string[];

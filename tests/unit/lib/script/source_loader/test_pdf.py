@@ -13,7 +13,6 @@ def test_pdf_extracts_text(pdf_factory):
     result = PdfOxideExtractor().extract(src)
     assert _EXPECTED_SNIPPET_PAGE_1 in result.text
     assert _EXPECTED_SNIPPET_PAGE_2 in result.text
-    # 页间双换行
     assert "\n\n" in result.text
     assert result.chapter_count == 0
 

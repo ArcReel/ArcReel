@@ -145,7 +145,6 @@ describe("AgentCopilot", () => {
       const form = screen.getByRole("form", { name: "Agent 的提问" });
       expect(within(form).getByRole("progressbar")).toHaveTextContent("第 1 / 2 题");
 
-      // 没选就前进：留在原题并提示
       await user.click(within(form).getByRole("button", { name: "下一题" }));
       expect(within(form).getByRole("progressbar")).toHaveTextContent("第 1 / 2 题");
       expect(within(form).getByRole("alert")).toHaveTextContent("选择一项，或写下你的回答");
@@ -222,7 +221,6 @@ describe("AgentCopilot", () => {
       const toggle = screen.getByRole("button", { name: "会话历史" });
       await user.click(toggle);
       expect(toggle).toHaveAttribute("aria-pressed", "true");
-      // 历史视图打开时输入框仍可用
       expect(screen.getByRole("combobox", { name: "Agent 输入" })).toBeEnabled();
 
       await user.type(screen.getByRole("searchbox", { name: "搜索会话" }), "原著");
@@ -390,7 +388,6 @@ describe("AgentCopilot", () => {
         { type: "image" as const, source: { type: "base64" as const, media_type: "image/png", data: "AAAA" } },
         { type: "text" as const, text: "第 3 镜改成黄昏" },
       ];
-      // 撤回成功时 hook 把内容交给输入框
       withdrawQueuedMessage.mockImplementationOnce(async () => {
         useAssistantStore.getState().appendToComposer(content);
       });

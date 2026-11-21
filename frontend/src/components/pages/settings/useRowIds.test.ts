@@ -27,7 +27,6 @@ describe("useRowIds", () => {
     expect(result.current.ids.slice(0, 2)).toEqual([first, third]);
     expect(new Set(result.current.ids).size).toBe(3);
 
-    // 外部整体换值（采用官方值、放弃修改）
     act(() => result.current.setCount(1));
     expect(result.current.ids).toHaveLength(1);
     expect([first, third]).not.toContain(result.current.ids[0]);

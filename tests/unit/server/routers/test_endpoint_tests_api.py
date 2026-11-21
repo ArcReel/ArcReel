@@ -566,7 +566,6 @@ class TestTrialRuns:
             client.portal.call(submits.get)
             cancelled = client.post(f"/api/v1/custom-endpoints/trial-runs/{run_id}/cancel")
             assert cancelled.status_code == 204
-            # 取消后名额让出，同一份定义可以再发一次。
             third = _post(client, "trial-runs", payload)
             assert third.status_code == 201
             # 这一笔也要在离开 http 替身之前停掉，否则它会挂在闸口上直到事件循环消亡。
@@ -706,7 +705,6 @@ class TestTrialRuns:
         fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
         assert fetched["status"] == "succeeded", fetched["error"]
         assert fetched["request"]["url"] == "https://api.minimaxi.com/v2/video_generation"
-        # 未指定分辨率：定义的 defaults.resolution 渲进请求，结果体的渲染请求里同样可见。
         assert fetched["request"]["body"]["resolution"] == "768P"
         assert fetched["extractions"]["submit"]["task_id"] == "t-1"
 

@@ -72,7 +72,6 @@ async function goNext(page: Page) {
   await nextButton(page).click();
 }
 
-/** 滚到正文最底部，确认最后一块内容可达，标题与底部按钮仍完整可见。 */
 async function expectBodyScrollsToEnd(page: Page, last: Locator) {
   await last.scrollIntoViewIfNeeded();
   await expect(last).toBeInViewport();

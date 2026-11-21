@@ -92,7 +92,6 @@ DEFAULT_VALUE_TYPES: dict[str, type] = {
     "seed": int,
 }
 
-#: 视频定义的能力字段，与 ``VideoCapabilities`` 同名同义。
 VIDEO_CAPABILITY_FIELDS = frozenset(field.name for field in fields(VideoCapabilities))
 
 
@@ -105,15 +104,10 @@ class MediaTypeRules:
     写定义的人才知道错在媒体类型上。
     """
 
-    #: 请求模板可引用的保留变量。
     variables: frozenset[str]
-    #: 可做枚举映射的变量。
     enum_map_variables: frozenset[str]
-    #: 可声明缺省值的变量与各自的宿主类型。
     default_value_types: Mapping[str, type]
-    #: ``inputs.*.source`` 可取的素材来源。
     input_sources: frozenset[str]
-    #: ``capabilities`` 节可写的字段。
     capabilities: frozenset[str]
     #: 产物提取键，按运行时取用的先后排列。产物所在节（无 ``result`` 节时为 ``poll``，否则为
     #: ``result``）的 ``extract`` 至少写一项。
@@ -124,7 +118,6 @@ class MediaTypeRules:
     required_capabilities: tuple[str, ...]
 
 
-#: ``media_type`` → 该媒体类型的字段集合。
 MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
     "video": MediaTypeRules(
         variables=BASE_VARIABLES,
@@ -275,9 +268,6 @@ def current_schema_version(document: object) -> str:
     return _CURRENT_SCHEMA_VERSION_BY_KIND.get(str(kind), CURRENT_SCHEMA_VERSION)
 
 
-# ---------------------------------------------------------------- 容器层
-
-
 @cache
 def _container_validator() -> Draft202012Validator:
     schema = {
@@ -294,15 +284,9 @@ def _container_issues(document: Any) -> Iterator[DefinitionIssue]:
         yield from translate_schema_error(error, removed_fields={})
 
 
-# ---------------------------------------------------------------- 结构层
-
-
 def _structural_issues(document: Any) -> Iterator[DefinitionIssue]:
     for error in _schema_validator().iter_errors(document):
         yield from translate_schema_error(most_specific(error), removed_fields=REMOVED_FIELD_REASONS)
-
-
-# ---------------------------------------------------------------- 语义层
 
 
 class _Scope:
@@ -345,8 +329,6 @@ class _SemanticChecker:
         self._check_artifact_extract()
         self._check_capabilities()
 
-    # ---- 记录 ----
-
     def _error(self, path: str, code: DefinitionErrorCode, **params: Any) -> None:
         self.errors.append(DefinitionIssue(path, code, params))
 
@@ -359,8 +341,6 @@ class _SemanticChecker:
 
     def _warn(self, path: str, code: DefinitionErrorCode, **params: Any) -> None:
         self.warnings.append(DefinitionIssue(path, code, params))
-
-    # ---- auth ----
 
     def _check_auth_section(self) -> None:
         """auth 节的检查与 ComfyUI 定义同一份实现，只有变量作用域是本 kind 自己的。"""
@@ -376,8 +356,6 @@ class _SemanticChecker:
         """
         issue = self._variable_issue(name, path, _Scope(section="auth"))
         return [] if issue is None else [issue]
-
-    # ---- 请求节 ----
 
     def _check_request(self, section: str) -> None:
         request: Mapping[str, Any] = self._document[section]
@@ -444,8 +422,6 @@ class _SemanticChecker:
             return
         if parsed.has_wildcard:
             self._warn(path, DefinitionErrorCode.JSONPATH_WILDCARD_ORDER, path_expression=parsed.source)
-
-    # ---- 模板扫描 ----
 
     def _scan_node(self, node: object, path: str, scope: _Scope, *, in_array: bool = False) -> None:
         if isinstance(node, str):
@@ -540,8 +516,6 @@ class _SemanticChecker:
             return DefinitionIssue(path, DefinitionErrorCode.LIST_INPUT_REQUIRES_EACH, {"name": name})
         self._referenced_inputs.add(name)
         return None
-
-    # ---- 字典与能力 ----
 
     def _check_enum_maps(self) -> None:
         allowed = self._rules.enum_map_variables

@@ -12,7 +12,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 
-#: 活动文案所在的顶层根，以及各自要扫的后缀。
 SCAN_ROOTS: dict[str, frozenset[str]] = {
     "lib": frozenset({".py"}),
     "server": frozenset({".py"}),

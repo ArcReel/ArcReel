@@ -42,7 +42,6 @@ import { EpisodeSourceViewer } from "./EpisodeSourceViewer";
 import { EpisodeViewFactsProvider } from "./EpisodeViewScope";
 import { StorySettingView } from "./StorySettingView";
 
-// 剪辑视图（时间线播放器与轨道）只在切到「剪辑」时用到，按需拉取
 const EditTimelineView = lazyNamed(() => import("@/components/canvas/edit/EditTimelineView"), "EditTimelineView");
 
 export interface EpisodeViewChangeOptions {
@@ -82,7 +81,6 @@ function EpisodePageContent({
   demo: boolean;
   /** 保存集标题；reject 时标题保持编辑态。 */
   onSaveTitle: (title: string) => Promise<void>;
-  /** 制作进度里「查看」某个单元。 */
   onViewUnit: (unitId: string) => void;
   /** 制作进度里重生某一步的指定单元；不传时只给「查看」。 */
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
@@ -106,7 +104,6 @@ function EpisodePageContent({
   const tabs = useMemo(() => episodeViewTabs(facts), [facts]);
   const view = resolveEpisodeView(searchParams.get(EPISODE_VIEW_PARAM), facts);
 
-  // 切到不可选的视图不生效；切到当前视图不写历史。
   const changeView = useCallback(
     (next: EpisodeView, options?: EpisodeViewChangeOptions) => {
       if (next === view || !tabs.some((tab) => tab.view === next && !tab.disabled)) return;
@@ -198,7 +195,6 @@ function EpisodePageContent({
       <div className="flex min-h-0 flex-1 flex-col">
         <EpisodePageHeader
           head={
-            // 换集时重置：编辑到一半的标题草稿与删除确认不能带到另一集
             <EpisodeHead
               key={`${projectName}::${episode}`}
               projectName={projectName}
@@ -211,7 +207,6 @@ function EpisodePageContent({
             />
           }
           sourceEntry={
-            // 换集时重置：弹层与读取结果都属于这一集
             <EpisodeSourceViewer
               key={`source::${projectName}::${episode}`}
               projectName={projectName}

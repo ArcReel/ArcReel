@@ -307,7 +307,7 @@ class TestSdkTranscriptAdapterStorePath:
         fake_store = MagicMock()
         fake_store.load = AsyncMock(
             return_value=[
-                {"type": "user", "uuid": "uuid-xyz", "message": {"content": "x"}},  # no timestamp
+                {"type": "user", "uuid": "uuid-xyz", "message": {"content": "x"}},
             ]
         )
 
@@ -375,7 +375,6 @@ class TestSubagentTimelines:
         assert set(result.keys()) == {"toolu_agent"}
         assert result["toolu_agent"][0]["type"] == "assistant"
         assert result["toolu_agent"][0]["uuid"] == "sub-uuid-1"
-        # 子时间线时间戳从 subpath 载荷回填
         assert result["toolu_agent"][0]["timestamp"] == "2026-05-01T00:00:05Z"
 
     async def test_agent_without_anchor_is_skipped(self):

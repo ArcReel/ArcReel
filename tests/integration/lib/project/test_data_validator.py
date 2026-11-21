@@ -151,11 +151,9 @@ class TestDataValidator:
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
-        # title 完全缺失 → "缺少必填字段",区别于"字段类型错误"
         assert any("缺少必填字段：title" in error for error in result.errors)
         assert any("content_mode" in error for error in result.errors)
         assert any("角色 'A' 数据格式错误" in error for error in result.errors)
-        # 描述为空的场景 / 道具不报错
         assert not any("场景 'X'" in error for error in result.errors)
         assert not any("道具 'Y'" in error for error in result.errors)
 
@@ -301,7 +299,6 @@ class TestDataValidator:
 
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
-        # 引用的音频文件不存在 → 中央校验报错（不再被白名单静默放过）
         assert not result.valid
         assert any("narration_audio" in error for error in result.errors)
 
@@ -332,7 +329,6 @@ class TestDataValidator:
 
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
-        # 文件存在 → 整条校验链应通过，且不产生 narration_audio 相关错误
         assert result.valid
         assert not any("narration_audio" in error for error in result.errors)
 
@@ -360,7 +356,6 @@ class TestDataValidator:
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_episode("demo", "episode_1.json")
 
         assert result.valid
-        # scenes/props 都是 optional，缺少时应有警告
         assert any("缺少 scenes" in warning for warning in result.warnings)
         assert any("缺少 props" in warning for warning in result.warnings)
 
@@ -393,7 +388,6 @@ class TestDataValidator:
         assert not result.valid
         assert any("episode (整数)" in error for error in result.errors)
         assert any("segment_id 格式错误" in error for error in result.errors)
-        # 5 是正整数 → 合法，不应再报 duration_seconds 错误
         assert not any("duration_seconds 值无效" in error for error in result.errors)
         assert any("不存在于 project.json 的角色" in error for error in result.errors)
         assert any("不存在于 project.json 的场景" in error for error in result.errors)
@@ -531,7 +525,6 @@ class TestDataValidator:
         assert result.valid
 
     def _drama_episode_with_scene(self, tmp_path, scene_extra: dict, project_extra: dict | None = None):
-        # 构造一个最小 drama 剧集，scene 合并 scene_extra（用于针对性校验 utterances）
         project_dir = tmp_path / "projects" / "demo"
         project = _project_payload("drama")
         project.update(project_extra or {})
@@ -553,7 +546,6 @@ class TestDataValidator:
         return validate_episode("demo", "episode_2.json", projects_dir=str(tmp_path / "projects"))
 
     def test_validate_episode_drama_accepts_valid_utterances(self, tmp_path):
-        # 合法 utterances（dialogue 带 speaker、voiceover 无 speaker）→ 通过
         result = self._drama_episode_with_scene(
             tmp_path,
             {
@@ -566,13 +558,11 @@ class TestDataValidator:
         assert result.valid
 
     def test_validate_episode_drama_rejects_non_list_utterances(self, tmp_path):
-        # utterances 出现但不是数组 → 结构错误
         result = self._drama_episode_with_scene(tmp_path, {"utterances": "这不是数组"})
         assert not result.valid
         assert any("utterances" in error for error in result.errors)
 
     def test_validate_episode_drama_rejects_dialogue_without_speaker(self, tmp_path):
-        # kind ⇄ speaker：dialogue 缺非空 speaker → 校验失败
         result = self._drama_episode_with_scene(
             tmp_path, {"utterances": [{"kind": "dialogue", "speaker": "", "text": "无主台词"}]}
         )
@@ -580,7 +570,6 @@ class TestDataValidator:
         assert any("speaker" in error for error in result.errors)
 
     def test_validate_episode_drama_rejects_voiceover_with_speaker(self, tmp_path):
-        # kind ⇄ speaker：voiceover 带 speaker → 校验失败
         result = self._drama_episode_with_scene(
             tmp_path, {"utterances": [{"kind": "voiceover", "speaker": "旁白人", "text": "解说"}]}
         )
@@ -610,8 +599,7 @@ class TestDataValidator:
         assert result.valid
 
     def test_validate_episode_drama_warns_when_speech_overflows_scene(self, tmp_path):
-        # 单向上界：估算说话时长（台词）超场景 duration × 容差 → 仅 warn，不阻塞保存
-        long_line = "台词" * 60  # 120 个汉字阅读单位，远超 8 秒场景的容差上界
+        long_line = "台词" * 60
         assert estimate_spoken_seconds(long_line, None) > 8 * (1 + DRAMA_SPEECH_OVERFLOW_TOLERANCE)
         result = self._drama_episode_with_scene(
             tmp_path,
@@ -624,7 +612,6 @@ class TestDataValidator:
         assert any("说话时长" in w for w in result.warnings)
 
     def test_validate_episode_drama_speech_overflow_uses_project_speech_rate(self, tmp_path):
-        # 项目级语速覆盖生效：同一段台词在快速覆盖下不再触发说话量上界 warning
         line = "台词" * 60
         scene = {
             "duration_seconds": 8,
@@ -657,7 +644,6 @@ class TestDataValidator:
         assert result.valid, result.errors
 
     def test_validate_project_rejects_out_of_range_episode_target_duration(self, tmp_path):
-        # 出现即须是落在硬区间内的整数秒；越界 / 浮点 / 非数字都是 error
         for index, bad in enumerate((5, 900, 120.0, "120")):
             case_root = tmp_path / f"etd-{index}"
             project_dir = case_root / "projects" / "demo"
@@ -690,7 +676,6 @@ class TestDataValidator:
         assert any("说话时长" in w for w in result.warnings)
 
     def test_validate_episode_drama_no_warning_when_speech_fits(self, tmp_path):
-        # 界内：说话量在场景 duration × 容差以内 → 不产说话量 warning
         result = self._drama_episode_with_scene(
             tmp_path,
             {
@@ -723,7 +708,6 @@ class TestDataValidator:
         assert not any("说话时长" in w for w in result.warnings)
 
     def test_validate_episode_drama_accepts_source_text(self, tmp_path):
-        # source_text（逐字原文锚）为字符串 → 通过
         result = self._drama_episode_with_scene(tmp_path, {"source_text": "推门而入，信纸还在桌上。"})
         assert result.valid
 
@@ -755,8 +739,6 @@ class TestDataValidator:
         result = validate_project("missing", projects_dir=str(tmp_path / "projects"))
         assert not result.valid
         assert any("无法加载 project.json" in error for error in result.errors)
-
-    # ── 新增测试 ──────────────────────────────────────────────
 
     def test_project_json_validates_scenes_and_props(self, tmp_path):
         """新 schema：scenes + props 两个字典都通过校验"""
@@ -1207,7 +1189,6 @@ class TestAdProjectValidation:
         assert result.valid, result.errors
 
     def test_ad_accepts_arbitrary_positive_target_duration(self, tmp_path):
-        # UI 只给四档，但数据层接受任意正整数秒
         result = self._validate(tmp_path, _ad_project_payload(target_duration=47))
         assert result.valid, result.errors
 
@@ -1697,7 +1678,6 @@ class TestSkeletonEntryTypeGuards:
         ],
     )
     def test_non_dict_entry_reported_not_crash(self, tmp_path, kind, array_key):
-        # 骨架数组含非 dict 条目（字符串）：记「条目类型错误」并继续，valid=False，不抛异常
         project, episode = _episode_for_kind(kind, ["不是对象", {}])
         result = self._validate(tmp_path, project, episode)
         assert not result.valid
@@ -1713,7 +1693,6 @@ class TestSkeletonEntryTypeGuards:
         ],
     )
     def test_non_list_skeleton_field_reported_not_crash(self, tmp_path, kind, array_key):
-        # 骨架数组字段本身非 list（dict）：记「必须是数组」，valid=False，不抛异常
         project, episode = _episode_for_kind(kind, {"E1S01": {}})
         result = self._validate(tmp_path, project, episode)
         assert not result.valid
@@ -1828,8 +1807,6 @@ class TestInvalidContentModeEpisodeValidation:
         assert any("content_mode" in error for error in result.errors), result.errors
 
     def test_episode_level_invalid_content_mode_also_reported(self, tmp_path):
-        # 项目级 content_mode 合法，但剧集自身声明的 content_mode 非法（覆盖项目级值）：
-        # 同样结构化报错，不抛异常。
         project_dir = tmp_path / "projects" / "demo"
         _write_json(project_dir / "project.json", _project_payload("narration"))
         _write_json(
@@ -1879,7 +1856,6 @@ _KIND_TO_MODES = {
     "shots": ("ad", None),
     "video_units": ("narration", "reference_video"),
 }
-# 骨架种类 → 该骨架应触达的 validator 方法名。
 _KIND_TO_VALIDATOR = {
     "segments": "_validate_segments",
     "scenes": "_validate_scenes",

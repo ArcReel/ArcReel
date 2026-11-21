@@ -50,7 +50,6 @@ async def test_discover_falls_back_to_active_credential(discover_client, monkeyp
 
     monkeypatch.setattr("lib.custom_provider.discovery.discover_models", fake_discover)
 
-    # Create an active credential first
     create_resp = await discover_client.post(
         "/api/v1/agent/credentials",
         json={"preset_id": "deepseek", "api_key": "stored-sk"},

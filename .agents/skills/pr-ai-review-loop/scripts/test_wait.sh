@@ -401,7 +401,6 @@ grep -q '/code-scanning/alerts?' "$TMP_ROOT/gh-args" || fail "probe did not requ
 grep -q '/rules/branches/main?' "$TMP_ROOT/gh-args" || fail "probe did not request the base branch rules"
 echo "PASS: findings, reviewer notices and a head change always end the wait; other changes only once required checks had finished on entry"
 
-# ---- required checks ----
 expect_wait "required checks finish green" checks_finish "WAIT_READY: checks_passed"
 expect_wait "a required check fails" checks_fail "WAIT_READY: checks_failed(ci-required)"
 expect_wait "a rerun supersedes the earlier failure" checks_rerun_finish "WAIT_READY: checks_passed"
@@ -425,7 +424,6 @@ for rules in none empty; do
 done
 echo "PASS: without readable required-check rules every check run on the head stands in"
 
-# ---- Codex trigger window ----
 reset_case
 WAIT_TEST_CODEX=silent run_wait flat --max 600
 [[ "$(sleeps)" == "60,60,60,60,60" ]] || fail "expected the Codex window to close 300 seconds after the head commit, got $(sleeps)"
@@ -445,7 +443,6 @@ for mode in codex_receipt codex_summary; do
   [[ "$(<"$TMP_ROOT/result.out")" == "WAIT_READY: codex_silent" ]] \
     || fail "expected a $mode naming another commit not to count as a start signal, got: $(<"$TMP_ROOT/result.out")"
 done
-# A failed review of the head: reported at once, and never a start signal afterwards.
 for codex in silent started; do
   reset_case
   WAIT_TEST_CODEX=$codex WAIT_TEST_HEAD=00259c60c4d473b0639d7e794faeb26c42a54aad run_wait codex_failed --max 600
@@ -460,7 +457,6 @@ run_wait flat --max 600
 grep -q '^WAIT_TIMEOUT:' "$TMP_ROOT/result.out" || fail "expected a started Codex never to report codex_silent"
 echo "PASS: the Codex trigger window ends the wait once, only when it closes during the wait with no start signal and no trigger"
 
-# ---- budget, retries and failures ----
 reset_case
 run_wait flat --max 125
 [[ "$(sleeps)" == "60,60,5" ]] || fail "expected 60-second probes capped at --max"

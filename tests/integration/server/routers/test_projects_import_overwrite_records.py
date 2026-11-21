@@ -94,6 +94,5 @@ async def test_failed_overwrite_leaves_the_project_and_its_records(tmp_path, mon
         assert len(await SessionRepository(session).list(project_name="demo")) == 1
         [row] = await UsageRepository(session).fetch_summary_rows(filters=UsageFilters(project_name="demo"))
         assert row.cost_amount == 1.5
-    # 执行中的任务仍可落盘
     with claim_task_project(old["running"], "demo"):
         ensure_task_project_claim("demo")

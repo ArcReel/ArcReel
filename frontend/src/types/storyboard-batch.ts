@@ -1,10 +1,8 @@
-/** 一集分镜图 / 分镜视频的批量生成：预览（名单、跳过项、预估费用）与提交结果。 */
 
 import type { CostBreakdown } from "./cost";
 import type { ReferenceBatchEnqueueFailure } from "./reference-video";
 import type { WorkflowAdmission } from "./workflow";
 
-/** `storyboards` 批量生成分镜图，`videos` 批量生成分镜视频。 */
 export type StoryboardBatchKind = "storyboards" | "videos";
 
 /** 没有可用产物、却不进这一批的原因。 */

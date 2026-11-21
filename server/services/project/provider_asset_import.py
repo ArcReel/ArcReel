@@ -50,7 +50,6 @@ from server.services.currency.upload_finalize import (
 
 logger = logging.getLogger(__name__)
 
-#: 可以导入的资产图类型（版本历史里的名称）→ 资产类型。角色衍生图另见 ``CHARACTER_DERIVATIVE_RESOURCE_TYPE``。
 IMPORTABLE_ASSET_TYPES: dict[str, str] = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
 
 _NOT_FOUND_KEYS = {

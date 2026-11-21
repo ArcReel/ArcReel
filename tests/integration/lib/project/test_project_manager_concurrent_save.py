@@ -259,7 +259,6 @@ class TestSaveScriptConcurrency:
         name = "proj-concurrent"
         _seed_project(pm, name)
 
-        # 预置一次，确保文件存在
         pm.save_script(name, _make_script(1, payload_size=40), "episode_1.json")
 
         def _writer(i: int) -> int:
@@ -271,9 +270,8 @@ class TestSaveScriptConcurrency:
         with ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(_writer, i) for i in range(32)]
             for fut in as_completed(futures):
-                fut.result()  # 任一写入抛异常即失败
+                fut.result()
 
-        # 最终文件必须是完整合法的 JSON 且结构完整
         loaded = pm.load_script(name, "episode_1.json")
         assert loaded["episode"] == 1
         assert isinstance(loaded["segments"], list)
@@ -359,7 +357,6 @@ class TestLockPathAliasing:
         lock_paths = set()
         for alias in ["episode_1.json", "./episode_1.json", "scripts/episode_1.json"]:
             with pm._script_lock(name, alias):
-                # 锁持有期间断言 scripts 下应存在唯一的隐藏锁文件
                 hidden = [p for p in scripts_dir.iterdir() if p.name.startswith(".") and p.name.endswith(".lock")]
                 assert len(hidden) == 1, f"期望唯一锁文件，实际 {[p.name for p in hidden]}"
                 lock_paths.add(hidden[0].resolve())
@@ -380,7 +377,6 @@ class TestArchiveExcludesLocks:
         assert ProjectArchiveService._is_hidden_member(("scripts", ".episode_1.json.lock"))
         assert ProjectArchiveService._is_hidden_member((".project.abc.tmp",))
         assert ProjectArchiveService._is_hidden_member(("scripts", ".project.xyz.tmp"))
-        # 正常文件不被过滤
         assert not ProjectArchiveService._is_hidden_member(("scripts", "episode_1.json"))
         assert not ProjectArchiveService._is_hidden_member(("project.json",))
 
@@ -405,10 +401,8 @@ class TestSyncAfterConcurrentWrite:
         assert len(episodes) == 1
         assert episodes[0]["episode"] == 1
         assert episodes[0]["script_file"] == "scripts/episode_1.json"
-        # title 应来自某一次写入，非空且符合模式
         assert episodes[0]["title"].startswith("Title-")
 
-        # 剧本仍然是合法 JSON
         loaded = pm.load_script(name, "episode_1.json")
         assert loaded["title"] == episodes[0]["title"]
 
@@ -484,7 +478,6 @@ def test_loaded_json_not_extra_data_after_save_script(tmp_path: Path) -> None:
     pm.save_script(name, _make_script(1, payload_size=50), "episode_1.json")
 
     raw = (pm.get_project_path(name) / "scripts" / "episode_1.json").read_bytes().decode("utf-8")
-    # 直接用 json.loads 解析整个文件——若末尾多 `}` 会抛 Extra data
     json.loads(raw)
     assert raw.strip().endswith("}")
     # 末尾不应连续两个及以上 `}` 字符（排除合法嵌套尾巴，最内层 items 数组收尾为 "]\n}"）

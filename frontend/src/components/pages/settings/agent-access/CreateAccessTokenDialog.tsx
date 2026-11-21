@@ -29,7 +29,6 @@ interface CreateAccessTokenDialogProps {
   onCreated?: (token: ApiKeyInfo) => void;
 }
 
-/** 创建访问令牌：填名称与有效期，创建成功后在同一对话框里一次性展示完整令牌。「外部 Agent 接入」与「访问令牌」共用。 */
 export function CreateAccessTokenDialog({ open, onOpenChange, onCreated }: CreateAccessTokenDialogProps) {
   const [creating, setCreating] = useState(false);
   return (

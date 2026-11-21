@@ -32,7 +32,6 @@ interface MergeAssetDialogProps {
   assetType: MergeableAssetType;
   name: string;
   description: string;
-  /** 与卡片兄弟控件共享的禁用态（生成中 / 上传中）。 */
   busy?: boolean;
   /** 画廊各卡片在途的本地写入（上传、版本恢复、删除），任务队列里读不到，保留方命中时不能合并。 */
   writingNames?: ReadonlySet<string>;
@@ -44,7 +43,6 @@ type PreviewState =
   | { phase: "ready"; result: AssetMergeResult }
   | { phase: "failed"; message: string };
 
-/** 引用改写数按落点列出的顺序，与后端报告字段一一对应。 */
 const REFERENCE_COUNTS = ["script_plan", "script", "draft", "prompt_text", "speaker"] as const;
 
 function sameTypeNames(project: ProjectData | null, assetType: MergeableAssetType): string[] {
@@ -84,7 +82,6 @@ export function MergeAssetDialog({
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
-  // 每次打开都从空白开始；打开时资源已被占用则不打开。
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -237,7 +234,6 @@ export function MergeAssetDialog({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        // 合并在途时不响应 Esc，避免请求还在途时对话框先消失
         if (!next && !merging) close();
       }}
     >

@@ -100,7 +100,6 @@ def test_kling_image_models() -> None:
     assert o1.media_type == "image"
     assert o1.capabilities == ["text_to_image", "image_to_image"]
     assert o1.resolutions == ["1K", "2K"]
-    # 普通模型：无别名，键名即 API 名。
     assert o1.api_model_name is None
 
     # 两栖模型：图像模型用别名键避开与视频模型撞键，api_model_name 回指真实 API 名。

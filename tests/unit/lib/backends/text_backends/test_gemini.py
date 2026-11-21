@@ -33,7 +33,6 @@ class TestProperties:
     def test_name(self, mock_genai):
         b = GeminiTextBackend(api_key="k")
         assert b.name == "gemini"
-        # AI Studio 模式：构造时把 api_key 原样交给 genai.Client，未给 base_url 则不带 http_options
         mock_genai.Client.assert_called_once_with(api_key="k", http_options=None)
 
     def test_default_model(self, mock_genai):
@@ -215,11 +214,11 @@ class TestGenerate:
         schema = {
             "type": "object",
             "properties": {
-                "duration_seconds": {"const": 8, "type": "integer"},  # const 作关键字 → 归一
-                "const": {"type": "string"},  # 字段名为 const → 不动（值无 const）
+                "duration_seconds": {"const": 8, "type": "integer"},
+                "const": {"type": "string"},
                 "default": {"const": 6, "type": "integer"},  # 字段名为 default → 其值是子 schema，const 照常归一
                 "with_default": {"type": "object", "default": {"const": 42}},  # default 作关键字（数据）→ 不动
-                "obj_const": {"const": {"const": 5}},  # 非标量 const → 不动
+                "obj_const": {"const": {"const": 5}},
             },
         }
         props = backend._build_config(schema, None)["response_schema"]["properties"]
@@ -386,7 +385,7 @@ class TestStructuredFallback:
         gc = AsyncMock(
             side_effect=[
                 _resp(_PROSE, 10, 5),
-                _resp('{"genre": "都市"}', 10, 5),  # 缺必填 theme
+                _resp('{"genre": "都市"}', 10, 5),
                 _resp(_VALID_JSON, 10, 5),
             ]
         )
@@ -412,7 +411,6 @@ class TestStructuredFallback:
         assert gc.call_count == 3
         assert exc_info.value.provider == "gemini"
         assert exc_info.value.model == "gemini-3-flash-preview"
-        # reason 写明降级尝试次数与最后一次校验失败的原因
         assert exc_info.value.reason == "prompt 注入降级 2 次尝试后输出仍不合规（1 处字段不符（<root>））"
 
     async def test_fallback_logs_raw_model_output(self, backend, caplog):

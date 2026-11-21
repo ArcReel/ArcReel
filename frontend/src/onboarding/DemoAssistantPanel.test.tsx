@@ -29,7 +29,6 @@ describe("DemoAssistantPanel", () => {
   it("shows the finished work as plain rows that cannot be expanded", () => {
     render(<DemoAssistantPanel />);
 
-    // 工序行没有折叠触发器，也就不带参数与结果
     expect(screen.queryByRole("button", { name: /生成资产/ })).not.toBeInTheDocument();
     expect(screen.getAllByText(t("dashboard:tool_name_generate_assets"))).toHaveLength(2);
   });

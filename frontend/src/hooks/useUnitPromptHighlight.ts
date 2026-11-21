@@ -142,9 +142,6 @@ export function toScriptLines(text: string, lookup: MentionLookup): ScriptLine[]
   const lines: ScriptLine[] = [];
   for (const [sourceLine, raw] of splitScriptLines(text).entries()) {
     const parts = splitSpeechLine(raw.trim());
-    // 整行只有一个记号时单独成行，说话人与台词分栏显示；记号与描述混写的行按普通
-    // 描述行渲染，记号在行内就地着色，行文顺序因此与作者所写一致。
-    // 记号两侧的空白不算「描述」：`  @[张三]：{我来了}  ` 与顶格写的是同一条台词。
     const marks = parts.filter(isSpeechMark);
     const only =
       marks.length === 1 && parts.every((part) => isSpeechMark(part) || part.trim() === "") ? marks[0] : null;

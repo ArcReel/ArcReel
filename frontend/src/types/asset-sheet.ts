@@ -1,4 +1,3 @@
-/** 项目资产图（本体与衍生）的状态、批量生成与重生影响。 */
 
 import type { CostBreakdown } from "./cost";
 
@@ -11,7 +10,6 @@ export interface AssetSheetRef {
   /** `<类型>/<名字>`；衍生为 `<类型>/<本体>/<衍生>`。 */
   unit_id: string;
   asset_type: AssetSheetType;
-  /** 本体名；衍生时是其本体的名字。 */
   name: string;
   derivative: string | null;
 }
@@ -49,7 +47,6 @@ export interface AssetSheetBatchSubmitted {
 }
 
 export interface AssetRegenerationImpact {
-  /** 服务端此刻对这张资产图的判定是否为过期。 */
   stale: boolean;
   storyboards: number;
   videos: number;

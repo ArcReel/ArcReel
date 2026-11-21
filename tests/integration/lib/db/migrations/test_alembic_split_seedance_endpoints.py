@@ -12,7 +12,6 @@ from alembic.config import Config
 from alembic import command
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 
-#: 自定义供应商模型：(model_id, endpoint, entry_binding)
 _CUSTOM_MODELS = [
     # 靠条目绑定识别为 Seedance 2.0 的不透明 ID：升级前按条目的名字不带 service_tier、按 2.0 像素表估算
     ("ep-20261103-opaque", "ark-seedance", "bytedance/doubao-seedance-2.0"),
@@ -27,7 +26,6 @@ _CUSTOM_MODELS = [
     ("doubao-seedance-2-0-260128", "openai-video", None),
 ]
 
-#: 内置供应商下用户添加的模型：(provider_id, model_id, endpoint, entry_binding)
 _BUILTIN_MODELS = [
     ("ark", "ep-builtin-opaque", "ark-seedance", "bytedance/doubao-seedance-2.5"),
     ("ark-agent-plan", "doubao-seedance-1.5-pro", "ark-seedance", None),

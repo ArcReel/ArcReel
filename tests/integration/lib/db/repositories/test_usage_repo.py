@@ -241,7 +241,6 @@ class TestFinalizePendingByCallId:
         affected = await repo.finalize_pending_by_call_id(call_id=cid_a, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
 
-        # 全量查询
         calls = await stored_calls(async_session)
         by_id = {c.id: c for c in calls}
         assert by_id[cid_a].status == "success"
@@ -354,7 +353,6 @@ class TestFinalizePendingByCallId:
         """provider 在 submit 后可能降级/关闭音频；finalize 接受 caller 透传的 generate_audio
         覆盖 ApiCall 行上 start_call 时的请求值（与 finish_call 同语义）。计价按调用通道上报的有声维度，与之同源。"""
         repo = UsageRepository(async_session)
-        # start_call 时请求 generate_audio=True
         call_id = await repo.start_call(
             project_name="demo",
             call_type="video",
@@ -365,7 +363,6 @@ class TestFinalizePendingByCallId:
             provider="gemini-aistudio",
         )
 
-        # provider 实际降级到关闭音频
         usage = Usage(quantities={"output_seconds": 8}, dimensions={"resolution": "720p", "audio": False})
         affected = await repo.finalize_pending_by_call_id(
             call_id=call_id, settlement=SettlementInput(generate_audio=False, usage=(usage,))
@@ -904,7 +901,6 @@ class TestNullCostReadPaths:
 
         rows = await UsageRepository(async_session).get_unpriced_calls_by_model("demo")
 
-        # 7 行里 4 行 NULL，0 元与已定价的不计。
         assert rows == [("image", "gemini", "gemini-3.1-flash-image-preview", 3)]
 
     async def test_summary_rows_keep_null_distinct_from_zero(self, async_session):

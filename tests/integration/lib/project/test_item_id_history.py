@@ -109,7 +109,7 @@ def test_landing_issuance_never_hands_out_a_used_number(tmp_path: Path) -> None:
     project_dir = pm.get_project_path("demo")
     script = pm.load_script("demo", "episode_1.json")
     script["segments"] = script["segments"][:1]
-    pm.save_script("demo", script, "episode_1.json")  # 移除的 E1S02、E1S03 留下删除记录
+    pm.save_script("demo", script, "episode_1.json")
     timeline = project_dir / "edit_timelines" / "t1" / "timeline.json"
     _write_json(timeline, {"tracks": [{"clips": [{"id": "c1", "unit_id": "E1S04"}]}]})
     plan = {

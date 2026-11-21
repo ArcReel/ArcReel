@@ -86,7 +86,6 @@ async def test_build_options_forwards_stderr_callback(
     opts = await seeded_session_manager._build_options("demo", stderr=collector)
     assert opts.stderr is collector
 
-    # 模拟 SDK 透传一行 stderr
     opts.stderr("hello from claude.exe")
     assert captured == ["hello from claude.exe"]
 
@@ -243,7 +242,6 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
     err = exc_info.value
     assert "resume-failed" in err.sdk_stderr
     assert "Command failed with exit code 1" in str(err)
-    # 失败后会话不应残留在内存里
     assert "resumed-session" not in seeded_session_manager.sessions
 
 

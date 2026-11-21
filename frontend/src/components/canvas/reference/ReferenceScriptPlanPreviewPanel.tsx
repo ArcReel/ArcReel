@@ -54,9 +54,7 @@ interface ReferenceScriptPlanPreviewPanelProps {
   videoModelUnresolved?: boolean;
   /** 剧本规划档位；端点固定的单元按它选时长、判越档，与提示词编写的拒绝判据同源。未给时自查。 */
   planningDurations?: number[];
-  /** Asset name → kind, for mention coloring — same lookup the editor/parse preview share. */
   lookup: MentionLookup;
-  /** 切到本集视频单元时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
   onOpenTimeline?: () => void;
 }
 
@@ -72,7 +70,6 @@ const SPEECH_VIOLATION_KEYS: Record<string, string> = {
 /** unit 卡的统一显示形状：结构化（已晋升）与扁平（草稿）两种来源在这里收敛。 */
 interface DisplayUnit {
   key: string;
-  /** 在规划里的位置，从 1 起；界面以它称呼单元。 */
   position: number;
   duration_seconds: number;
   sourceText: string;
@@ -81,7 +78,6 @@ interface DisplayUnit {
   editable: boolean;
 }
 
-/** 头部统计：被解析器认作台词的行数，与正文高亮同一套切分口径。 */
 function unitStats(scriptText: string, lookup: MentionLookup): { utterances: number } {
   const lines = toScriptLines(scriptText, lookup);
   return {
@@ -100,7 +96,6 @@ function structuredDisplayUnits(draft: ReferenceScriptPlanDraft): DisplayUnit[] 
   }));
 }
 
-/** 待修复草稿的正文：扁平 unit 数组，unit ID 由集号与序号派生。 */
 interface FlatUnitsDraft {
   units: ReferenceScriptPlanFlatUnit[];
   new_assets?: PlanNewAsset[];
@@ -122,7 +117,6 @@ function narrowFlatUnitsDraft(content: Record<string, unknown> | null): FlatUnit
   return content as unknown as FlatUnitsDraft;
 }
 
-/** 各 unit 正文引用到的名字（画面位与说话人位）与原文片段，供「本集新增资产」区展开出场位置。 */
 function newAssetEntries(units: DisplayUnit[]): NewAssetEntryRefs[] {
   return units.map((unit) => ({
     id: unit.key,
@@ -187,11 +181,8 @@ function brokenDraftDisplayUnits(content: Record<string, unknown> | null, episod
 }
 
 interface UnitViolations {
-  /** 原文锚失配：呈现为「原文」小节的红标，不重复出现在逐行锚定或聚合区。 */
   anchorSource: ScriptReviewViolation[];
-  /** 有行号的违约，按 sourceLine 分组，交给 ScriptHighlight 的 renderAfterLine 逐行渲染。 */
   byLine: Map<number, ScriptReviewViolation[]>;
-  /** unit 级、无自然行归属的违约：落卡内聚合区。 */
   aggregate: ScriptReviewViolation[];
 }
 
@@ -280,7 +271,6 @@ function UnitCard({
 }: {
   unit: DisplayUnit;
   violations: UnitViolations;
-  /** 服务端下发的降级提示（「未引用场景」除外，那条按当前正文实时判）。 */
   softViolations: DraftSoftViolation[];
   lookup: MentionLookup;
   /** 项目登记了场景资产——没有可引用的场景时不发「未引用场景」提示（纯商品的广告项目即属此列）。 */
@@ -293,9 +283,7 @@ function UnitCard({
   onSourceTextChange: ((sourceText: string) => void) | null;
   supportedDurations: number[] | null;
   durationEndpointFixed: boolean;
-  /** 所落桶的视频请求事实失败：标签与带修复指引的提示，由 `tierProblemText` 按桶生成。 */
   durationProblem: { label: string; hint: string } | null;
-  /** 声明引用与可用参考图分裂时的服务端结论（缺图 / 未登记引用、桶的改变）；无分裂为 null。 */
   split: ReferenceUnitCapability | null;
   /** unit 当前存盘时长已不在收窄后的档位表内——展示照旧，但阻断确认（父组件按此禁用确认按钮）。 */
   outOfTier: boolean;
@@ -432,12 +420,10 @@ function UnitCard({
   );
 }
 
-/** 本面板只编辑 reference_video 变体的 units 内容；其余变体的内容不属于这里。 */
 function selectUnitsContent(state: ScriptReviewState): ReferenceScriptPlanDraft | null {
   return state.content != null && "units" in state.content ? state.content : null;
 }
 
-/** 「未引用场景」按当前正文实时判（见 `unitLacksSceneReference`），不取服务端快照。 */
 const LIVE_SOFT_VIOLATION_CODES: ReadonlySet<string> = new Set(["ref_warn_unit_without_scene"]);
 
 /**
@@ -466,7 +452,6 @@ export function ReferenceScriptPlanPreviewPanel({
   });
   const modelUnresolved = videoModelUnresolved ?? standaloneCapabilities.videoModelUnresolved;
   const fixedPlanningDurations = planningDurations ?? standaloneCapabilities.planningDurations;
-  // 单元可选的时长档位：所落桶收窄后的档位；端点固定时桶档位是空集，改取剧本规划档位。
   const unitTiers = (capability: ReferenceUnitCapability | null | undefined): number[] | null =>
     capability?.duration_endpoint_fixed ? fixedPlanningDurations : (capability?.allowed_durations ?? null);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -705,12 +690,10 @@ export function ReferenceScriptPlanPreviewPanel({
     );
   }
 
-  // Agent 的可编辑草稿在场：正式内容只读，确认与编辑一并锁住，待 Agent 完成或丢弃这份修改。
   const agentEditing = quarantine != null;
   // 已确认的脚本规划只读：保存端点按同一判据拒绝，内容修改改在时间线上做。
   const confirmed = status === "confirmed" && !agentEditing;
   const readOnly = agentEditing || confirmed;
-  // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
   const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
   // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
   const scriptMissing = confirmed && state?.script_overwrite == null;
@@ -733,7 +716,6 @@ export function ReferenceScriptPlanPreviewPanel({
       })
       .map((u) => u.key),
   );
-  // 所落桶的视频请求事实解析不出的 unit：档位未知，不能确认一份执行不了的方案。
   const unknownUnits = displayUnits.flatMap((u) => {
     const capability = unitCapability(u, durationTiers);
     return capability?.problem ? [{ key: u.key, capability }] : [];
@@ -867,7 +849,6 @@ export function ReferenceScriptPlanPreviewPanel({
         />
       )}
 
-      {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
       <EpisodeDurationSummary
         totalSeconds={sumItemDuration(displayUnits)}
         targetSeconds={state?.episode_target_duration ?? null}

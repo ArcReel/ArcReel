@@ -54,7 +54,6 @@ async def _seed(session_manager, meta_store, *, frames=None, status="idle"):
         session_manager._process_inbox(managed),
         name=f"inbox-{meta.id}",
     )
-    # Ensure inbox sentinel is pushed when actor ends.
     if actor._task is not None:
 
         def _done_cb(_t):
@@ -200,7 +199,6 @@ class TestSessionManagerUserInput:
         assert any("超时" in r.getMessage() for r in caplog.records)
         # 断开挂起时 actor 必须被取消，否则协程随失败的会话一起泄漏。
         assert cancelled == [True]
-        # 超时不阻断后续清理：会话从注册表摘除。
         assert session_manager.sessions == {}
 
     async def test_cleanup_on_error_disconnect_timeout_settles_the_startup_failure_as_error(
@@ -252,7 +250,6 @@ class TestSessionManagerUserInput:
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(session_manager.send_new_session("demo", "你好"), timeout=2.0)
 
-        # 启动失败不是中断：终态不写 interrupted。
         assert captured_sessions[0].status == "error"
 
     async def test_ask_user_question_waits_for_answer_and_merges_answers(self, session_manager, meta_store):
@@ -324,7 +321,6 @@ class TestSessionManagerUserInput:
             assert client.interrupted
             assert managed.interrupt_requested
             assert new_status in ("running", "interrupted")
-            # Consumer/actor task should still be alive (not cancelled).
             assert managed.actor._task is not None
             assert not managed.actor._task.done()
         finally:

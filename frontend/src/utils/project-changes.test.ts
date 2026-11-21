@@ -198,7 +198,6 @@ describe("project-changes utils", () => {
   });
 
   it("labels each skeleton kind's group title and item nouns consistently", () => {
-    // 四种骨架 created 分组的标题名词须与条目名词一致：三种分镜骨架 / 视频单元。
     const cases: Array<{
       entityType: ProjectChange["entity_type"];
       labelKey: string;

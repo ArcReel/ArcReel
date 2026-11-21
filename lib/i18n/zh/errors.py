@@ -204,7 +204,6 @@ MESSAGES = {
     "scene_task_submitted": "场景「{name}」资产图生成任务已提交",
     "prop_task_submitted": "道具「{name}」资产图生成任务已提交",
     "product_task_submitted": "商品「{name}」资产图生成任务已提交",
-    # Files
     "file_not_found": "文件不存在：{path}",
     "forbidden_access": "禁止访问项目目录外的文件",
     "invalid_upload_type": "无效的上传类型：{upload_type}",
@@ -296,14 +295,12 @@ MESSAGES = {
     "script_review_unregistered_references": "以下条目引用的名字既未登记，也不是本集登记的新增资产，本次确认未完成：{details}。请从引用中移除这些名字或改选已登记的资产后重试",
     "script_review_foreign_formal_script": "集（id={episode}）绑定的剧本文件已不在，而规范路径 scripts/{filename} 上是另一集的剧本，本次确认未完成——写进去会重建那一集的剧本；请把该集的 script_file 改回它自己的剧本文件后重试",
     "script_review_quarantine_unreadable": "待修复草稿文件已损坏或格式不符，无法读取，请丢弃草稿后重新生成",
-    # Source loader
     "source_unsupported_format": "不支持的源文件格式：{ext}（支持 .txt / .md / .docx / .epub / .pdf）",
     "source_name_reserved": "形如 episode_N.txt 的文件名留给集原文文件，作为整本源文上传前请先改名",
     "source_decode_failed": "源文件「{filename}」解码失败（已尝试：{tried}）",
     "source_corrupt_file": "源文件「{filename}」无法解析：{reason}",
     "source_too_large": "源文件「{filename}」过大（{size_mb} MB > {limit_mb} MB）",
     "source_conflict": "源文件「{existing}」已存在，建议改名为「{suggested}」",
-    # Providers
     "unknown_provider": "未知供应商：{value}",
     "max_workers_must_be_positive_integer": "{field} 必须是正整数，收到：{value}",
     "credentials_not_found": "凭证不存在",
@@ -317,7 +314,6 @@ MESSAGES = {
     "connectivity_check_unsupported": "供应商 {provider_id} 暂不支持连通性检查",
     "missing_credentials": "缺少凭证配置，请先添加密钥",
     "credential_group_ambiguous": "本次提交包含多组互斥凭证的字段，无法判断切换方向，请仅填写其中一组",
-    # Assistant
     "assistant_image_too_large": "每张图片的原图大小不能超过 5 MB",
     "assistant_images_total_too_large": "图片总大小不能超过 7.5 MB",
     "session_not_found": "会话 '{session_id}' 不存在",
@@ -327,7 +323,6 @@ MESSAGES = {
     "agent_startup_failed_title": "Agent 启动失败",
     "interface_offline": "该接口已下线，请使用推荐的接口",
     "answers_required": "answers 不能为空",
-    # Custom Providers
     "model_id_required": "已启用的模型必须填写 model_id",
     "duplicate_model_id": "model_id 重复：{model_id}",
     "default_model_conflict": "每个 media_type 最多只能有一个默认模型，冲突：{conflict}",
@@ -354,7 +349,6 @@ MESSAGES = {
     "custom_endpoint_not_found": "调用端点不存在",
     "custom_endpoint_definition_invalid": "调用端点定义未通过校验，请按诊断逐条修正后重试",
     "custom_endpoint_referenced_by_models": "该调用端点已被 {count} 个模型使用，解除引用后才能删除",
-    # ---- 市场 ----
     "market_source_not_found": "市场源不存在",
     "market_source_official_undeletable": "官方市场源不可删除，可以禁用",
     "market_source_duplicate": "该市场源已添加",
@@ -377,7 +371,6 @@ MESSAGES = {
     "market_entry_icon_not_found": "该市场条目没有图标",
     "market_entry_fetch_failed": "无法从市场源取回条目文件（{reason}）",
     "market_entry_asset_invalid": "市场源提供的条目文件不可用（{reason}）",
-    # ---- 端点测试 ----
     "endpoint_test_payload_required": "缺少 payload 字段：带素材时请把请求 JSON 放在 payload 表单字段里",
     "endpoint_test_payload_invalid": "请求内容无法解析，请检查 JSON 格式与字段类型",
     "endpoint_test_asset_too_large": "素材 {name} 超过 {limit_mb} MB 上限",
@@ -450,7 +443,6 @@ MESSAGES = {
     "path_override_unknown_request": "模型 {model_id} 的调用端点没有可修改地址的请求 {request}",
     "path_override_invalid_path": "模型 {model_id} 的请求地址 {path} 不合法：路径须以 / 开头，不含空白和 #，花括号只能用于占位符",
     "path_override_placeholder_not_allowed": "模型 {model_id} 的请求地址 {path} 用了这条请求没有的占位符，可用的只有 {allowed}",
-    # Projects
     "unknown_style_template": "未知的风格模板：{template_id}",
     "ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",
     "ad_no_default_duration": "广告/短片项目不支持默认时长，分镜时长按目标总时长规划",
@@ -461,7 +453,6 @@ MESSAGES = {
     "project_deleted": "项目 '{name}' 已移入已删除项目，30 天内可以恢复",
     "scene_updated": "分镜 '{scene_id}' 已更新",
     "segment_updated": "分镜 '{segment_id}' 已更新",
-    # Characters / Scenes / Props
     "character_already_exists": "角色「{name}」已存在",
     "character_deleted": "角色「{name}」已删除",
     "project_scene_already_exists": "场景「{name}」已存在",
@@ -474,18 +465,13 @@ MESSAGES = {
     "product_not_found": "商品「{name}」不存在",
     "product_deleted": "商品「{name}」已删除",
     "project_asset_name_conflict": "{requested_type}名称「{name}」已被{existing_type}「{existing_name}」使用，项目内角色、场景、道具和商品不能同名",
-    # API Keys
     "jwt_auth_required": "API Key 无权执行此操作，请使用 JWT 认证",
     "api_key_name_exists": "名称 '{name}' 已存在",
     "api_key_not_found": "API Key {key_id} 不存在",
-    # Agent 对话
     "session_project_mismatch": "会话 '{session_id}' 属于项目 '{session_project}'，与请求项目 '{request_project}' 不符",
-    # Cost Estimation
     "cost_estimation_failed": "费用估算失败，请稍后重试",
-    # Validators
     "invalid_backend_format": "模型选择格式无效，应为「供应商/模型」",
     "backend_media_type_mismatch": "所选模型类型不符：该项需要 {expected} 模型，但 {provider}/{model} 是 {actual} 模型",
-    # Versions
     "unsupported_resource_type": "不支持的资源类型：{resource_type}",
     "invalid_resource_id": "非法的资源 ID: {resource_id}",
     "resource_id_required": "资源 ID 不能为空",
@@ -493,7 +479,6 @@ MESSAGES = {
     "end_frame_source_not_found": "尾帧来源图片不存在：{path}",
     "end_frame_source_too_large": "尾帧图超过大小上限（{max_mb} MB）: {path}",
     "end_frame_reference_video_unsupported": "参考生视频的视频单元无首尾帧概念，不支持设置尾帧",
-    # Reference Video
     "ref_missing_asset": "参考图引用的{type}「{name}」不在项目资产库中，请先生成",
     "ref_duration_exceeded": "脚本编排 {total}s 超出 {model} 最大档位，已按 {duration}s 生成，成片短于脚本编排",
     "ref_duration_rounded_up": "脚本编排 {total}s 不在 {model} 的时长档位内，已按 {duration}s 生成，成片长于脚本编排",
@@ -510,7 +495,6 @@ MESSAGES = {
     "ref_unit_needs_replan": "该视频单元存在发声归属或迁移问题，请先重新规划后再生成",
     "ref_script_missing": "该集绑定的脚本文件不存在",
     "ref_script_rebound": "该集脚本绑定已变更，请重试",
-    # 分镜文稿解析预览的降级可见性提示
     "ref_warn_unregistered_mention": "@[{name}] 未在商品/角色/场景/道具中登记：不会附带参考图，请检查名称或先创建资产",
     "ref_warn_unclosed_brace": "第 {line} 行：台词花括号未闭合，未识别为台词，该行文本将原样发送：{excerpt}…",
     "ref_warn_braces_not_speech": (
@@ -525,15 +509,12 @@ MESSAGES = {
     "ref_warn_unit_without_scene": "本单元未引用场景，画面地点将由模型自由决定",
     "ref_warn_silent_model": "当前视频模型「{model}」不会生成有声视频，台词仅用于提示词参考",
     "ref_warn_silent_episode": "本集已关闭参考音频：不会上传参考音频，声音一致性不生效，台词仅用于提示词参考；成片是否有声音由所选模型决定",
-    # 分镜画面描述里的 @[名称] 没有绑定到参考图
     "storyboard_warn_mention_unbound": "分镜 {unit_id} 的画面描述引用了 @[{name}]，但它未登记为资产或不在该分镜的引用字段里：不会编号为图N，将按名字原样发送",
-    # Episode meta
     "episode_not_found": "集（id={episode}）不存在或尚无脚本文件",
     "storyboard_batch_script_invalid": "第 {episode} 集的正式脚本不能用于分镜批量生成：脚本结构与项目的生成模式不符，或脚本未绑定到这一集",
     "episode_source_empty": "集原文不能为空",
     "episode_source_derived": "这一集切自整本源文，集原文由分集规划得出，不能在这里改写",
     "episode_source_symlink": "这一集的集原文文件是符号链接，无法写入",
-    # 手工切分
     "manual_split_episode_not_found": "这一集已不在分集列表中，刷新后再试",
     "manual_split_episode_not_placed": "这一集的原文不在整本源文里，不能在原文上调整它的边界",
     "manual_split_source_file_not_found": "整本源文里没有这个文件，或文件读不到",
@@ -582,7 +563,6 @@ MESSAGES = {
     "episode_replan_adopt_moved_item": "{name} → 第 {new} 集",
     "episode_replan_delete_heading": "勾选「一并删除」后，以下集连同产物一起移入项目回收站，保留 30 天：",
     "episode_replan_delete_item": "{name}：{items}",
-    # 整本源文文件的改动
     "source_file_change_source_file_not_found": "整本源文里没有这个文件，刷新后再试",
     "source_file_change_source_file_unreadable": "这个文件读不到或不是 UTF-8 文本，只能删除",
     "source_file_change_source_changed": "这个文件在 ArcReel 之外被改动过，更新分集账本之前不能替换、编辑或调序，可以删除",
@@ -610,7 +590,6 @@ MESSAGES = {
     "source_name_not_whole_source": "以下划线开头或形如 episode_N.txt 的文件名不能加入整本源文，可以把 {filename} 作为某一集的原文，或者删除",
     "about_update_check_failed": "检查更新失败，请稍后重试",
     "about_version_read_failed": "读取应用版本失败",
-    # Image Capability
     "image_endpoint_mismatch_no_i2i": "模型 {model} 仅支持文生图（不支持 /v1/images/edits）；请去掉参考图或换一个支持图生图的模型",
     "image_endpoint_mismatch_no_t2i": "模型 {model} 仅支持图生图（必须传参考图）；请提供参考图或换一个支持文生图的模型",
     "image_seedream_edits_unavailable": "模型 {model} 当前的调用端点不支持带参考图生成；请在模型设置里把调用端点改为「Seedream (1K) / Seedream (2K)」后重试",
@@ -622,14 +601,12 @@ MESSAGES = {
     "image_aspect_ratio_not_supported": "模型 {model} 不支持 {aspect_ratio} 比例（仅支持 {supported}）；请选择支持的比例",
     "image_reference_images_exceeded": "模型 {model} 最多接受 {limit} 张参考图，本次共 {count} 张。超出的参考图：{names}。请减少出场资产或 @ 引用、拆分镜头，或换用上限更高的模型。",
     "previous_storyboard_limit_hint": "将当前分镜设为章节切分点，即可不再参考上一分镜图 {previous_storyboard}。",
-    # Image Edit
     "image_edit_resource_type_invalid": "资源类型「{resource_type}」不支持图片编辑",
     "image_edit_instruction_required": "编辑指令不能为空",
     "image_edit_script_file_required": "编辑分镜图需要提供 script_file",
     "image_edit_no_current_image": "「{id}」还没有可编辑的当前图，请先生成或上传",
     "image_edit_i2i_unavailable": "当前未配置支持图生图（i2i）的图片供应商，请先在设置中配置",
     "image_edit_task_submitted": "「{id}」图片编辑任务已提交",
-    # Video Capability
     "video_duration_invalid": "视频时长 {duration} 不是合法的整数秒数",
     "video_duration_not_supported": "视频时长 {duration}s 不在该模型支持的时长（{supported}）内",
     "video_end_frame_durations_incompatible": "当前配置下没有可用的首尾帧视频时长，请修改视频配置或移除尾帧",
@@ -667,7 +644,6 @@ MESSAGES = {
     "video_prompt_too_long": "{provider}/{model} 的提示词最多 {limit} 个字符，当前 {count} 个；超出部分会被供应商静默截断，已中止生成。请缩短提示词",
     "video_request_conflicts_with_active_task": "单元「{resource_id}」已有确认申请时长不同的视频任务在处理中；请等待任务完成后重试（仍在排队的任务可先取消）",
     "audio_restore_conflicts_with_active_task": "单元「{resource_id}」的旁白配音正在生成；请等待任务完成后再切换音频版本（仍在排队的任务可先取消）",
-    # Agent 凭证
     "agent_preset_unknown": "未知预设供应商：{preset_id}",
     "agent_base_url_required_custom": "自定义配置需要填写 base_url",
     "agent_api_key_required": "请填写 api_key 或选择要导入的自定义供应商",
@@ -708,7 +684,6 @@ MESSAGES = {
     "project_config_invalid": "项目配置无效，请检查参数后重试",
     "invalid_discovery_format": "不支持的模型发现格式：{discovery_format}",
     "request_invalid": "请求无效，请检查后重试",
-    # Agent 记忆
     "memory_invalid_filename": "记忆文件名 '{filename}' 非法：只允许目录顶层的 .md 文件",
     "memory_file_not_found": "记忆文件 '{filename}' 不存在",
     "memory_file_too_large": "记忆文件 '{filename}' 超出大小限制（最大 {limit_kib} KiB）",
@@ -719,7 +694,6 @@ MESSAGES = {
     "market_entry_already_installed": "此条目已安装，请选择已安装的端点进行更新",
     "market_endpoint_already_installed": "该端点已有其他安装记录，无法覆盖",
     "market_overwrite_target_not_duplicate": "只能覆盖与该条目同作者、同名的端点",
-    # 官方服务
     "official_service_disabled": "官方服务已关闭",
     "official_service_unavailable": "暂时无法连接官方服务，请稍后重试",
     "market_entry_rating_not_installed": "安装此条目后才能评分",
@@ -751,7 +725,6 @@ MESSAGES = {
     "official_service_error_github_unavailable": "官方服务暂时无法连接 GitHub，请稍后重试",
     "official_service_error_submissions_unconfigured": "官方服务暂未开放分享提交",
     "official_service_error_submission_not_found": "找不到这次提交",
-    # Edit timeline
     "edit_timeline_not_found": "剪辑时间线「{timeline_id}」不存在",
     "edit_timeline_revision_not_found": "剪辑时间线「{timeline_id}」没有修订 {revision}（最新修订为 {latest_revision}）",
     "edit_timeline_name_conflict": "集（id={episode}）已有名为「{name}」的剪辑时间线",
@@ -761,7 +734,6 @@ MESSAGES = {
     "edit_timeline_invalid": "剪辑时间线文件已损坏，无法读取：{file}",
     "edit_timeline_revision_unchanged": "修订 {revision} 的内容与最新修订相同，无需回滚",
     "edit_timeline_render_in_progress": "这条剪辑时间线还有成片或剪映草稿的渲染任务在排队或执行（{task_id}），任务结束后再删除",
-    # Final cut
     "final_cut_narration_unavailable": "只有 TTS 配音项目可以渲染带旁白版本的成片",
     "final_cut_presentation_unavailable": "视频单元 {unit_id} 的旁白配音或字幕无法用于成片，请检查旁白配音后重新渲染",
     "final_cut_blocked": "剪辑时间线有阻止渲染成片的问题，涉及视频单元：{units}。处理这些问题后再提交渲染",
@@ -772,7 +744,6 @@ MESSAGES = {
     "final_cut_render_failed": "成片渲染失败，请重试",
     "final_cut_acceptance_failed": "渲染出的成片未通过验收，请重试",
     "final_cut_render_in_progress": "这条剪辑时间线已有一个参数不同的成片渲染任务在排队或执行（{task_id}），请等它结束后再提交",
-    # Jianying draft
     "jianying_draft_narration_unavailable": "只有 TTS 配音项目可以导出带旁白版本的剪映草稿",
     "jianying_draft_blocked": "剪辑时间线有阻止导出剪映草稿的问题，涉及视频单元：{units}。处理这些问题后再提交导出",
     "jianying_draft_empty": "剪辑时间线没有可导出的剪辑片段",
@@ -782,7 +753,6 @@ MESSAGES = {
     "jianying_draft_presentation_unavailable": "视频单元 {unit_id} 的素材无法用于剪映草稿，请检查视频与旁白配音后重新导出",
     "jianying_draft_hold_frame_unavailable": "无法提取剪辑片段 {clip_id} 的出点帧，剪映草稿未导出，请重试",
     "jianying_draft_acceptance_failed": "生成的剪映草稿未通过验收，请重试",
-    # 集管理
     "episode_manage_episode_not_found": "这一集已不在分集列表中，刷新后再试",
     "episode_manage_ledger_invalid": "分集账本的格式异常，无法调整分集",
     "episode_manage_cut_order_locked": "切自整本源文的集之间按源文顺序排列，不能调换它们的先后",

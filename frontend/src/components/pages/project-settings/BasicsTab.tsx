@@ -25,7 +25,6 @@ interface BasicsTabProps {
   facts: ProjectFacts & { sourceLanguage: string | null };
 }
 
-/** 「基础」：画面比例、生成方式（只读，含宫格开关）、口播语速估算与目标时长。 */
 export function BasicsTab({ value, savedValue, onChange, facts }: BasicsTabProps) {
   const { t } = useTranslation("dashboard");
   const aspectId = useId();

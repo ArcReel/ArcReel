@@ -13,7 +13,6 @@ import sqlalchemy as sa
 from alembic import op
 from lib.db.migration_helpers import preserve_sqlite_indexes
 
-# revision identifiers, used by Alembic.
 revision: str = "285dbe1e9824"
 down_revision: str | Sequence[str] | None = "8b1e8a1290ca"
 branch_labels: str | Sequence[str] | None = None

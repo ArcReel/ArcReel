@@ -124,7 +124,6 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_client):
     client, proj_dir, monkeypatch = three_bucket_client
 
-    # 1) 新建 unit：正文混合 3 bucket mention、跨多行
     prompt = "镜头1：@张三 推门进 @酒馆\n镜头2：近景 @张三 握紧 @长剑\n"
     resp = client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",
@@ -138,7 +137,6 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     assert unit["text"] == prompt
     assert unit["duration_seconds"] == 7
 
-    # 2) generate 入队（mock queue）
     captured: dict = {}
 
     async def _fake_enqueue(**kwargs):
@@ -199,7 +197,6 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
 
     use_video_thumbnail_extractor(monkeypatch, _fake_extract)
 
-    # 4) 直接调 executor（绕过真实 worker 轮询）
     from server.services.tasks.generation_tasks import execute_generation_task
 
     result = await execute_generation_task(
@@ -212,21 +209,18 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
         }
     )
 
-    # 5) 断言三段论渲染：第一段按正文提及顺序绑定，正文 @mention 全部替成 <X>
     rendered = captured_backend_kwargs["prompt"]
     assert rendered.startswith("<张三>@图片1、<酒馆>@图片2、<长剑>@图片3。")
-    assert "@张三" not in rendered  # 所有 @ 已替换
+    assert "@张三" not in rendered
     assert "@酒馆" not in rendered
     assert "@长剑" not in rendered
     assert "[图" not in rendered  # 对照表编号已废除
-    assert "Style: 唐风水墨\nVisual style: 墨色晕染，留白构图\n" in rendered  # 第三段风格块
-    assert "Avoid: " in rendered  # 第三段视频负向提示词
+    assert "Style: 唐风水墨\nVisual style: 墨色晕染，留白构图\n" in rendered
+    assert "Avoid: " in rendered
 
-    # 6) 断言 reference_images 传了 3 个临时文件
     ref_images = captured_backend_kwargs["reference_images"]
     assert len(ref_images) == 3
 
-    # 7) 断言 mp4 + thumbnail 落盘 + generated_assets 写回
     assert result["file_path"].endswith(f"{uid}.mp4")
     assert (proj_dir / "reference_videos" / f"{uid}.mp4").exists()
 

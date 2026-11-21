@@ -43,7 +43,6 @@ def test_builtin_multiplier_defaults_set_and_reset(multiplier_client: TestClient
     assert resp.json() == {"multiplier": 0.8, "default": 1.0}
     assert multiplier_client.get("/api/v1/providers/openai/multiplier").json()["multiplier"] == 0.8
 
-    # null 恢复默认值
     resp = multiplier_client.put("/api/v1/providers/openai/multiplier", json={"multiplier": None})
     assert resp.json() == {"multiplier": 1.0, "default": 1.0}
 

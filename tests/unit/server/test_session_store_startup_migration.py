@@ -36,7 +36,6 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
         patch("server.app.ProjectEventService") as pes_factory,
         patch("server.app.close_db", new=AsyncMock(return_value=None)),
     ):
-        # Mock the worker so its start() / stop() are awaitables, no-op.
         worker_factory.return_value = type(
             "W",
             (),
@@ -45,7 +44,6 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
                 "stop": AsyncMock(),
             },
         )()
-        # assistant_service.startup is awaited
         svc_mock.startup = AsyncMock()
         svc_mock.session_manager = type(
             "S",
@@ -56,7 +54,6 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
                 "set_autonomous_turn_listener": lambda self, listener: None,
             },
         )()
-        # project_event_service.start() / shutdown()
         pes_factory.return_value = type(
             "P",
             (),

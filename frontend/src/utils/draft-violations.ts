@@ -17,7 +17,6 @@ export function draftViolationMessage(
   return violation.message.replace(label, itemPositionLabel(kind, current, t));
 }
 
-/** 草稿违约按条目分组：带条目定位的挂到对应条目，其余是整集层面的违约。 */
 export interface DraftViolationGroups {
   episodeLevel: ScriptReviewViolation[];
   byItem: Map<number, ScriptReviewViolation[]>;

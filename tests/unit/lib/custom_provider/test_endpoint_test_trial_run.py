@@ -672,7 +672,6 @@ class TestConcurrencyAndCancel:
         async with db_factory() as session:
             rows = (await session.execute(select(ApiCall).order_by(ApiCall.id))).scalars().all()
         assert [row.status for row in rows] == ["cancelled", "success"]
-        # 取消的 run 不留结果文件，读接口据此 404。
         assert trial_runs.get(started.id) is None
 
     async def test_cancelling_an_unknown_run_reports_nothing_to_cancel(self, trial_runs: TrialRunManager):

@@ -20,9 +20,7 @@ interface VersionTimeMachineProps {
   resourceType: "storyboards" | "videos" | "audio" | "characters" | "character_derivatives" | "scenes" | "props" | "products" | "reference_videos" | "grids";
   resourceId: string;
   onRestore?: (version: number) => void | Promise<unknown>;
-  /** Icon-only trigger button: hides label and chevron for narrow card headers. */
   iconOnly?: boolean;
-  /** Allow preview/download history without exposing the restore mutation. */
   readOnly?: boolean;
   /**
    * 同资源正被生成/编辑占用（含 image_edit 乐观占用）：禁用版本恢复。
@@ -71,7 +69,6 @@ interface VersionDeleteButtonProps {
   version: number;
   /** 不可删除的原因（当前版本、资源占用）；非空时图标置灰并说明，保留聚焦让键盘和读屏读得到原因。 */
   disabledReason: string | null;
-  /** 同一面板有别的版本写请求在途：暂时不可操作，请求结束即恢复，不另作说明。 */
   blocked: boolean;
   deleting: boolean;
   onConfirm: () => Promise<void>;
@@ -163,7 +160,6 @@ interface VersionDetailProps {
   onRestore: (version: number) => void;
 }
 
-/** 选中版本的预览卡片：媒体、生成说明，以及切换为当前版本的入口。 */
 function VersionDetail({
   info,
   projectName,
@@ -465,7 +461,6 @@ export function VersionTimeMachine({
 
   if (!resourceId) return null;
 
-  // Derive the selected version's full info from the latest `versions` array
   const selectedInfo =
     selectedVersion != null
       ? versions.find((v) => v.version === selectedVersion) ?? null

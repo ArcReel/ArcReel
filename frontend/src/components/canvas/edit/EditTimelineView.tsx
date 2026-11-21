@@ -43,7 +43,6 @@ import {
 } from "./timeline-view";
 import { useTimelinePlayback } from "./useTimelinePlayback";
 
-/** 标签行右侧操作区拿到的当前剪辑时间线。 */
 export interface EditTimelineActionsContext {
   timelineId: string;
   timelineName: string;
@@ -66,9 +65,7 @@ interface EditTimelineViewProps {
   aspect: PreviewAspect;
   /** 项目的旁白交付方式是否为 TTS 配音；否则为后期配音，旁白轨不按缺配音处理。 */
   ttsNarration: boolean;
-  /** 标签行右侧的操作区；不传时不渲染。 */
   renderActions?: (context: EditTimelineActionsContext) => ReactNode;
-  /** 本集没有剪辑时间线时的空状态。 */
   renderEmptyState: (context: EditTimelineEmptyStateContext) => ReactNode;
 }
 
@@ -152,7 +149,6 @@ export function EditTimelineView({
   // 刷新期间沿用上一次的列表，避免每次项目变更都闪回加载态。
   const timelines = list && "value" in list ? list.value : null;
 
-  // 列表到了才能判断链接指向的剪辑时间线还在不在：在就直接选中它，不在就提示并放弃这次定位。
   const jumpTimelineId = jump?.timelineId ?? null;
   const jumpTarget =
     timelines !== null && jumpTimelineId !== null && timelines.some((item) => item.id === jumpTimelineId)
@@ -238,7 +234,6 @@ export function EditTimelineView({
   const panelId = `${tabIdPrefix}-panel`;
   const choose = (timelineId: string) => {
     setChosenId(timelineId);
-    // 手动切换标签后放弃尚未完成的链接定位。
     setJump(null);
   };
   const authorName = t(`edit_view_author_${selected.updated_by.kind}`);
@@ -249,7 +244,6 @@ export function EditTimelineView({
   return (
     <div className="@container-size/edit-view flex h-full min-h-0 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-2 px-4 edit-short:h-10">
-        {/* 剪辑时间线多、名称长时标签横向滚动，不把标签行撑高 */}
         <div className="relative flex min-w-0 overflow-x-auto scroll-fade-x">
           {/* 方向键移动焦点即切换：切换标签只换预览内容，不卸载别的东西 */}
           <Tabs value={selected.id} onValueChange={(value: string) => choose(value)} className="shrink-0">
@@ -382,7 +376,6 @@ function TimelinePreview({
   const subtitles = useMemo(() => placeSubtitles(readout, plan, media), [readout, plan, media]);
   const bgm = useMemo(() => audio.filter((placement) => placement.kind === "bgm"), [audio]);
 
-  // 链接带了时间点：播放头移过去（暂停在那一刻），并选中落在该时间的片段。
   const { seek } = playback;
   useEffect(() => {
     if (!seekRequest) return;
@@ -405,7 +398,6 @@ function TimelinePreview({
   const selectedClip = readout.clips.find((clip) => clip.id === selectedClipId);
   const clipIds = useMemo(() => new Set(readout.clips.map((clip) => clip.id)), [readout]);
 
-  // 播放器在左、详情栏在右，轨道横跨底部全宽。详情栏随画布宽度取 280px 或 340px。
   return (
     <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] grid-rows-[minmax(0,1fr)_auto] gap-3 edit-short:gap-2 @6xl/canvas:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-h-0 min-w-0">

@@ -80,7 +80,6 @@ export default {
   'lorebook': 'Sổ tri thức',
   'no_episodes_yet': 'Chưa có tập nào',
   'confirm_delete_file': 'Bạn có chắc muốn xóa "{{name}}"?',
-  // 全局设置侧栏
   'settings_group_generation': 'Tạo nội dung',
   'settings_group_agent': 'Agent',
   'settings_group_system': 'Hệ thống',
@@ -218,10 +217,8 @@ export default {
   'subagent_card_label': 'Subagent',
   'subagent_tokens': '{{count}} tokens',
   'task_in_progress_default': 'Đang xử lý',
-  // Gợi ý tại chỗ một lần sau khi trích xuất xong thiết lập câu chuyện
   'overview_handoff_tip': 'Đã trích xuất xong thiết lập câu chuyện. Tiếp theo, gửi "Bắt đầu sản xuất" cho Agent ở bên phải.',
   'overview_handoff_dismiss': 'Đã hiểu',
-  // Tổng quan dự án và trang chào mừng của dự án trống
   'overview_meta_episodes_one': '{{count}} tập',
   'overview_meta_episodes_other': '{{count}} tập',
   'overview_meta_no_episodes': 'Chưa có tập nào',
@@ -308,7 +305,6 @@ export default {
   'pause_audio_sample': 'Tạm dừng',
   'delete_audio_sample': 'Xóa mẫu âm thanh',
 
-  // Tạo mẫu âm thanh tham chiếu bằng TTS
   'voice_sample_action': 'Tạo bằng TTS',
   'voice_sample_not_configured_hint': 'Vui lòng cấu hình nhà cung cấp âm thanh trong cài đặt trước',
   'voice_sample_modal_title': 'Tạo mẫu giọng đọc tham chiếu',
@@ -342,7 +338,6 @@ export default {
   'generate_design': 'Tạo hình tài sản',
   'regenerate_design': 'Tạo lại hình tài sản',
 
-  // Chỉnh sửa ảnh theo chỉ dẫn
   'image_edit_action': 'Chỉnh sửa cục bộ',
   'image_edit_no_image_hint': 'Hãy tạo hoặc tải ảnh lên trước rồi mới chỉnh sửa',
   'image_edit_modal_title': 'Chỉnh sửa cục bộ',
@@ -423,7 +418,6 @@ export default {
   'text_models': 'Mô hình văn bản',
   'text_models_desc': 'Cấu hình mô hình văn bản theo bậc tác vụ; để trống để quay về mô hình mặc định.',
   'no_text_providers_hint': 'Chưa có nhà cung cấp nào tạo được văn bản.',
-  // GlobalHeader
   'mode_badge_drama': 'Phim truyện 16:9',
   'mode_badge_narration': 'Thuyết minh/Bình luận 9:16',
   'project_zip_download_started_with_diagnostics': 'Đã bắt đầu tải ZIP dự án, gói xuất chứa {{count}} mục chẩn đoán',
@@ -484,7 +478,6 @@ export default {
   'diagnostics_auto_fixed': 'Đã tự sửa',
   'diagnostics_warnings': 'Cảnh báo',
 
-  // CreateProjectModal
   'wizard_steps_label': 'Các bước',
   'wizard_step_done': ' (đã xong)',
   'wizard_missing': 'Còn thiếu: {{items}}',
@@ -505,7 +498,6 @@ export default {
   'default_duration_desc': 'Để AI tự quyết định thời lượng theo nội dung, hoặc đặt thời lượng cố định',
   'auto': 'Tự động',
 
-  // ExportScopeDialog
   'export_scope_title': 'Chọn phạm vi xuất',
   'export_scope_description': 'Tải dự án xuống dưới dạng tệp lưu trữ ZIP.',
   'export_scope_confirm': 'Xuất',
@@ -536,7 +528,6 @@ export default {
   'draft_path_default_mac': '/Users/<TênNgườiDùng>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft',
   'draft_path_default_windows': String.raw`C:\Users\<TênNgườiDùng>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`,
 
-  // Trạng thái tác vụ & luồng hủy
   'generating_status': 'Đang tạo...',
   'queued_status': 'Đang chờ',
   'completed_status': 'Hoàn tất',
@@ -582,7 +573,6 @@ export default {
   'task_type_render_final_cut': 'Kết xuất video thành phẩm',
   'task_type_render_jianying_draft': 'Xuất bản nháp Jianying',
 
-  // Agent
   'new_session': 'Phiên mới',
   'delete_session': 'Xóa phiên',
   'generating_queue_hint': 'Agent đang trả lời, tin nhắn gửi lúc này sẽ được xếp hàng',
@@ -716,7 +706,6 @@ export default {
   'agent_failure_conclusion_subprocess_unsupported': 'Vòng lặp sự kiện của backend không hỗ trợ tạo tiến trình con nên không khởi chạy được Claude Code. Trên Windows, lỗi này xảy ra khi khởi động backend với --reload; hãy khởi động lại backend mà không dùng --reload.',
   'agent_failure_conclusion_startup_failed': 'Đã xảy ra lỗi khi khởi động. Thông tin gốc nằm trong Chi tiết.',
 
-  // StudioCanvasRouter & Toasts
   'storyboard_task_submitted_toast': 'Đã gửi tác vụ tạo phân cảnh cho "{{id}}"',
   'generate_storyboard_failed': 'Tạo phân cảnh thất bại: {{message}}',
   'video_task_submitted_toast': 'Đã gửi tác vụ tạo video cho "{{id}}"',
@@ -738,11 +727,9 @@ export default {
   'add_to_library_button_label': 'Thêm vào thư viện',
   'loading_placeholder': 'Đang tải...',
 
-  // Form actions
   'cancel': 'Hủy',
   'add': 'Thêm',
 
-  // OverviewCanvas cost & style section
   'estimate': 'Ước tính',
   'storyboard': 'Phân cảnh',
   'video': 'Video',
@@ -757,7 +744,6 @@ export default {
 
   'load_failed': 'Tải thất bại: {{message}}',
 
-  // AgentConfigTab
   'api_credentials': 'Thông tin xác thực API',
   'env_anthropic_api_key': 'Ánh xạ tới biến môi trường ANTHROPIC_API_KEY',
   'clear_saved': 'Xóa giá trị đã lưu',
@@ -783,12 +769,9 @@ export default {
   'clear_base_url_input': 'Xóa nội dung Base URL',
   'clear_model_input': 'Xóa nội dung cấu hình mô hình',
 
-  // WelcomeCanvas
 
-  // MediaModelSection
   'save_failed': 'Lưu thất bại: {{message}}',
 
-  // Mục nhật ký sử dụng trên thanh trên cùng & popover
   'usage_entry_aria': 'Nhật ký sử dụng · chi phí tham khảo {{cost}}',
   'usage_entry_aria_active': 'Nhật ký sử dụng · chi phí tham khảo {{cost}} · {{count}} tác vụ đang chạy',
   'usage_close_panel': 'Đóng bảng nhật ký sử dụng',
@@ -799,7 +782,6 @@ export default {
   'usage_popover_empty': 'Dự án này chưa có nhật ký sử dụng. Các lệnh gọi sẽ hiện ở đây khi bắt đầu tạo.',
   'usage_view_all_records': 'Xem toàn bộ nhật ký',
 
-  // UsageRecordsSection
   'all': 'Tất cả',
   'usage_records_title': 'Bản ghi sử dụng',
   'usage_records_desc': 'Xem kết quả và chi phí tham khảo của từng lượt gọi theo dự án, nhà cung cấp và mô hình.',
@@ -963,12 +945,10 @@ export default {
   'usage_attention_consecutive_detail': '{{count}} lần ({{media}}), gần nhất {{time}}',
   'usage_attention_consecutive_action': 'Xem phân cảnh này',
 
-  // import diagnostics
   'import_auto_fixed': 'Đã nhập dự án "{{title}}" (tự sửa {{count}} vấn đề)',
   'import_success_with_diagnostics': 'Nhập hoàn tất với chẩn đoán — xem chi tiết bên dưới',
   'blocking_issues': 'Vấn đề nghiêm trọng',
   'auto_fixed_issues': 'Vấn đề đã tự sửa',
-  // config-status-store
   'video_provider_not_configured': 'Chưa cấu hình nhà cung cấp cho việc tạo video',
   'image_provider_not_configured': 'Chưa cấu hình nhà cung cấp cho việc tạo ảnh',
   'text_provider_not_configured': 'Chưa cấu hình nhà cung cấp cho việc tạo văn bản',
@@ -983,7 +963,6 @@ export default {
   'recommendation_keep': 'Giữ hiện tại',
   'recommendation_dismiss': 'Để sau',
 
-  // OverviewCanvas / shared aria labels
   'import_project_file_aria': 'Nhập tệp ZIP dự án',
   'import_credential_file_aria': 'Nhập tệp thông tin xác thực JSON',
   'upload_asset_file_aria': 'Tải lên tệp tài nguyên',
@@ -1001,7 +980,6 @@ export default {
   'storyboard_count': '{{count}} cảnh quay',
   'video_unit_count': '{{count}} đơn vị video',
 
-  // ProjectSettingsPage
   'project_settings': 'Cài đặt dự án',
   'agent_profile_title': 'Hồ sơ Agent',
   'agent_profile_description': 'Chỉ dẫn Agent trong dự án được nâng cấp an toàn theo cấu hình tích hợp và vẫn giữ các tùy chỉnh cục bộ.',
@@ -1014,7 +992,6 @@ export default {
   'agent_profile_reset_confirm': 'Xác nhận đặt lại',
   'agent_profile_resetting': 'Đang đặt lại…',
   'agent_profile_reset_failed': 'Không thể đặt lại hồ sơ Agent: {{message}}',
-  // 项目设置：侧栏分页、风格对话框与模型通道来源
   'project_settings_group_project': 'Dự án',
   'project_settings_group_agent': 'Agent',
   'project_settings_tab_basics': 'Cơ bản',
@@ -1107,7 +1084,6 @@ export default {
   'reference_units_count': '{{count}} đơn vị',
   'reference_needs_replan': 'Đơn vị này cần được lập kế hoạch lại trước khi tạo video.',
   'reference_preview_video_aria': 'Xem trước video cho đơn vị {{id}}',
-  // Reference video unit UI status labels — derived from task queue state.
   'reference_status_pending': 'Đang chờ',
   'reference_status_running': 'Đang chạy',
   'reference_status_ready': 'Sẵn sàng',
@@ -1127,7 +1103,6 @@ export default {
   'image_edit_task_failed': 'Chỉnh sửa "{{id}}" thất bại: {{reason}}',
   'script_plan_task_failed': 'AI lập kế hoạch kịch bản cho "{{episode}}" thất bại: {{reason}}',
   'task_failed_provider_reason_suffix': ' (Lý do từ nhà cung cấp: {{reason}})',
-  // ========== reference-to-video editor ==========
   'reference_editor_view_aria': 'Chế độ xem trình soạn thảo',
   'reference_editor_view_script': 'Kịch bản',
   'reference_editor_view_parse': 'Xem trước phân tích',
@@ -1233,7 +1208,6 @@ export default {
   'voice_consistency_none_desc': 'Mô hình này không hỗ trợ lời thoại — video tạo ra không có track giọng nói.',
   'text_model_override_desc': 'Ghi đè theo loại tác vụ; để trống để theo mặc định toàn cục',
 
-  // ProviderSection
   'status_ready': 'Sẵn sàng',
   'status_error': 'Lỗi',
   'status_unconfigured': 'Chưa cấu hình',
@@ -1242,14 +1216,12 @@ export default {
   'select_provider': 'Vui lòng chọn nhà cung cấp',
   'provider_saved_refresh_failed': 'Đã lưu, nhưng không làm mới được danh sách nhà cung cấp. Vui lòng tải lại trang.',
 
-  // ProviderDetail
   'media_type_video': 'Video',
   'media_type_audio': 'Âm thanh',
   'media_type_image': 'Ảnh',
   'media_type_text': 'Văn bản',
   'advanced_config': 'Cấu hình nâng cao',
 
-  // CustomProviderSection
   'add_custom_provider': 'Thêm nhà cung cấp tùy chỉnh',
   'provider_rail_preset': 'Có sẵn',
   'provider_rail_custom': 'Tùy chỉnh',
@@ -1421,7 +1393,6 @@ export default {
   'pm_multiplier_help': 'Chi phí bằng giá chính thức nhân với hệ số. Ví dụ 0.8 nghĩa là giảm 20%.',
   'pm_multiplier_help_subscription': 'Gói thuê bao, mặc định là 0, không tính chi phí.',
   'pm_multiplier_save_failed': 'Đã lưu cấu hình nâng cao nhưng chưa lưu được hệ số: {{message}}',
-  // 供应商模型 Sheet
   'pm_sheet_provider_settings': 'Cài đặt nhà cung cấp',
   'pm_sheet_model_info': 'Thông tin mô hình',
   'pm_sheet_enabled': 'Bật',
@@ -1563,7 +1534,6 @@ export default {
   'provider_field_gcs_bucket': 'GCS bucket',
   'provider_field_wan3_base_url': 'Địa chỉ API Wan 3.0',
 
-  // CustomProviderForm
   'add_custom_provider_title': 'Thêm nhà cung cấp tùy chỉnh',
   'cp_connection_heading': 'Kết nối',
   'cp_base_url_label': 'Base URL',
@@ -1659,7 +1629,6 @@ export default {
   'supported_durations_err_range_too_large': "Khoảng '{{seg}}' quá lớn (>{{max_span}})",
   'supported_durations_err_range_inverted': "Đoạn '{{seg}}': cận trên của khoảng phải ≥ cận dưới",
   'supported_durations_err_unparseable': "Không thể phân tích đoạn '{{seg}}'",
-  // Ghi đè năng lực (điều khiển ba trạng thái trong hàng model; hiện chỉ có last_frame)
   'cap_override_last_frame_label': 'Khung cuối',
   'cap_override_group_label': 'Ghi đè năng lực khung cuối',
   'cap_override_follow': 'Theo nhận định',
@@ -1730,7 +1699,6 @@ export default {
   'cp_provider_multiplier_save_failed': 'Đã lưu nhà cung cấp, nhưng chưa lưu được hệ số nhân của nhà cung cấp: {{message}}',
   'cp_provider_multiplier_create_failed': 'Đã tạo nhà cung cấp, nhưng chưa lưu được hệ số nhân của nhà cung cấp: {{message}}. Hãy nhập lại trong phần chi tiết nhà cung cấp.',
 
-  // CustomProviderDetail
   'discovery_format_label': 'Giao thức phát hiện mô hình',
   'discovery_format_help': 'Chỉ dùng cho "Lấy danh sách mô hình" và "Kiểm tra kết nối"; không ảnh hưởng tới các lượt gọi runtime.',
   'discovery_format_openai': 'Tương thích OpenAI',
@@ -1828,14 +1796,12 @@ export default {
   'endpoint_gemini_vertex_interactions_video_display': 'Vertex AI Video (Omni)',
   'endpoint_agnes_video_display': 'Agnes (Video)',
   'endpoint_catalog_loading': 'Đang tải danh mục endpoint…',
-  // Image Capability
   'image_capability_t2i': 'T2I',
   'image_capability_i2i': 'I2I',
   'image_capability_both': 'T2I · I2I',
   'image_model_t2i_label': 'Mô hình Text-to-Image',
   'image_model_i2i_label': 'Mô hình Image-to-Image',
 
-  // WorkspaceNotificationsDrawer
   'notifications_count': '{{count}} thông báo',
   'no_notifications': 'Không có thông báo',
   'notifications_hint': 'Cập nhật dự án, hoàn tất tạo và các thay đổi có thể điều hướng sẽ xuất hiện ở đây',
@@ -1844,7 +1810,6 @@ export default {
   'just_now': 'Vừa xong',
   'minutes_ago': '{{count}} phút trước',
 
-  // TimelineCanvas
   'select_episode_hint': 'Vui lòng chọn một tập từ thanh bên',
   'cost_estimate_short': 'Ước tính',
   'cost_actual_short': 'Thực tế',
@@ -1866,7 +1831,6 @@ export default {
   'reference_tab_preview': 'Video',
   'reference_tab_aria': 'Chuyển giữa soạn thảo và xem trước',
 
-  // ArcReel Workbench v3 — Video Tham Chiếu
   'reference_batch_nothing_to_do': 'Tất cả đơn vị đã được tạo hoặc đang xử lý',
   'reference_generate_busy': 'Đơn vị này đang được tạo, vui lòng thử lại sau',
   'reference_duration_seconds': '{{value}} giây',
@@ -1930,15 +1894,12 @@ export default {
   'reference_meta_cost': 'Chi phí',
   'reference_meta_cost_spent': 'đã chi',
 
-  // Source file normalization toasts
 
-  // Grid preview
   'grid_batch_count': '{{count}} phân cảnh đa lưới',
   'generating_grid': 'Đang tạo...',
   'generate_grid_btn': 'Tạo phân cảnh đa lưới',
   'insufficient_scenes_for_grid': 'Chưa đủ cảnh để tạo phân cảnh đa lưới',
 
-  // GridPreviewPanel
   'grid_status_pending': 'Đang chờ',
   'grid_status_generating': 'Đang tạo',
   'grid_status_completed': 'Hoàn tất',
@@ -1972,10 +1933,8 @@ export default {
   'grid_upload_success': 'Đã tải ảnh ghép lên; sẵn sàng tách vào khung hình',
   'grid_upload_failed': 'Tải lên thất bại: {{message}}',
 
-  // StudioCanvasRouter
   'grid_generation_failed': 'Tạo phân cảnh đa lưới thất bại: {{message}}',
 
-  // CredentialList
   'add_credential': 'Thêm nhà cung cấp',
   'no_credentials': 'Chưa có khóa nào. Thêm khóa để dùng các mô hình của nhà cung cấp này.',
   'active_label': 'Đang dùng',
@@ -1998,14 +1957,12 @@ export default {
   'enter_credentials_required_any_group': 'Vui lòng điền đầy đủ ít nhất một nhóm thông tin xác thực',
   'or_label': 'hoặc',
 
-  // ProviderModelSelect
   'select_model_placeholder': 'Chọn mô hình...',
   'select_model_aria': 'Chọn mô hình',
   'search_model_placeholder': 'Tìm mô hình hoặc nhà cung cấp...',
   'search_model_aria': 'Tìm mô hình hoặc nhà cung cấp',
   'no_models_match': 'Không có mô hình phù hợp',
 
-  // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
   'composition_params': 'Bố cục',
   'shot_label': 'Cỡ cảnh',
   'lighting_label': 'Ánh sáng',
@@ -2014,7 +1971,6 @@ export default {
   'ambiance_placeholder': 'Mô tả không khí...',
   'camera_motion_section': 'Chuyển động máy quay và âm thanh môi trường',
   'camera_motion_label': 'Chuyển động camera',
-  // Shot type enum values
   'shot_type_extreme_close_up': 'Cực cận',
   'shot_type_close_up': 'Cận cảnh',
   'shot_type_medium_close_up': 'Trung cận',
@@ -2024,7 +1980,6 @@ export default {
   'shot_type_extreme_long_shot': 'Đại toàn cảnh',
   'shot_type_over_the_shoulder': 'Qua vai',
   'shot_type_point_of_view': 'Góc nhìn người',
-  // Camera motion enum values
   'camera_motion_static': 'Cố định',
   'camera_motion_pan_left': 'Lia trái',
   'camera_motion_pan_right': 'Lia phải',
@@ -2047,7 +2002,6 @@ export default {
   'line_placeholder': 'Câu thoại',
   'add_dialogue': 'Thêm đối thoại',
   'dialogue_remove': 'Xoá đối thoại',
-  // script_plan → prompt_authoring content confirmation
   'utterance_kind_dialogue': 'Lời thoại',
   'utterance_kind_voiceover': 'Lời dẫn',
   'utterance_toggle_kind': 'Chuyển giữa lời thoại và lời dẫn',
@@ -2087,7 +2041,6 @@ export default {
   'review_confirm_failed': 'Không thể xác nhận, vui lòng thử lại',
   'review_load_failed': 'Không thể tải kết quả kế hoạch kịch bản',
   'review_retry': 'Thử lại',
-  // Drafts needing fixes / Agent editable drafts (DraftStatus)
   'draft_prompt_authoring_title': 'Bản nháp viết prompt cần sửa',
   'draft_status_invalid': 'Bản nháp cần sửa',
   'draft_violation_count_one': '{{count}} vi phạm',
@@ -2144,7 +2097,6 @@ export default {
   'review_structure_hint': 'Sau khi xác nhận, bạn có thể thêm, xóa và đổi thứ tự trên dòng thời gian',
   'review_video_model_unresolved_action': 'Mở cài đặt dự án',
 
-  // ReferenceScriptPlanPreviewPanel (xem trước theo tập, biến thể script_plan của reference_video)
   'reference_script_plan_source_text_label': 'Văn bản gốc',
   'reference_script_plan_source_anchor_broken': 'Không phải chuỗi con nguyên văn của văn bản gốc',
   'reference_script_plan_edit_text': 'Chỉnh sửa văn bản',
@@ -2177,7 +2129,6 @@ export default {
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 
-  // VersionTimeMachine
   'version_mgmt': 'Phiên bản',
   'switch_version_failed': 'Chuyển phiên bản thất bại: {{message}}',
   'no_history': 'Chưa có phiên bản lịch sử',
@@ -2203,19 +2154,15 @@ export default {
   'version_moved_to_trash': "Đã chuyển v{{version}} vào thùng rác dự án, giữ trong 30 ngày",
   'version_delete_failed': "Không thể xóa v{{version}}: {{message}}",
 
-  // ProjectCard - more actions
   'more_actions': 'Thao tác khác',
   'delete_project': 'Xóa dự án',
 
-  // Tab labels (timeline / grid canvas)
   'grid_preview_summary': '{{groups}} nhóm · {{batches}} ảnh ghép · {{cells}} ô · {{ready}} nhóm sẵn sàng',
   'grid_preview_batch_card_title': 'Nhóm {{index}} · {{cellCount}} ô · {{rows}}×{{cols}}',
   'grid_preview_batch_generate': 'Tạo nhóm này',
   'grid_group_regenerate': 'Tạo lại nhóm này',
   'grid_preview_empty_episode': 'Tập này chưa có phân cảnh — hãy tách phân cảnh ở bước Kế hoạch kịch bản trước',
 
-  // External Agent integration modal
-  // 外部 Agent 接入与访问令牌
   'ext_agent_desc': 'Agent bên ngoài dùng khả năng sáng tạo của [[brand]] qua skills công khai và MCP từ xa. Hoàn tất ba bước dưới đây để kết nối.',
   'ext_agent_steps': 'Các bước kết nối',
   'ext_agent_step_skills_title': 'Cài đặt skills công khai',
@@ -2601,7 +2548,6 @@ export default {
   'sidebar_collapse': 'Thu gọn thanh bên',
   'sidebar_expand': 'Mở rộng thanh bên',
   'toggle_options': 'Bật/tắt tùy chọn',
-  // Agent work rows (tool calls, subagents, skills, background tasks)
   'tool_call_input_label': 'Tham số',
   'tool_call_result_label': 'Kết quả',
   'work_status_running': 'Đang chạy',
@@ -2642,7 +2588,6 @@ export default {
   'chat_transcript_label': 'Cuộc trò chuyện',
   'chat_code_block_label': 'Khối mã',
   'chat_table_label': 'Bảng',
-  // Toolbar labels for code blocks, tables, diagrams and links in Markdown (Streamdown translations)
   'chat_md_close': 'Đóng',
   'chat_md_copied': 'Đã sao chép',
   'chat_md_copy_code': 'Sao chép mã',
@@ -2732,7 +2677,6 @@ export default {
   'tool_name_merge_asset': 'Gộp tài sản',
   'tool_name_retry_project_migration': 'Thử lại nâng cấp dữ liệu',
 
-  // Thanh trạng thái đầu trang (ProjectStatusBar): tiến độ tập, bước tiếp theo cấp dự án, nâng cấp dữ liệu thất bại
   'guide_hand_to_agent': 'Giao cho Agent',
   'guide_alt_create_episode': 'Tạo tập mới',
   'guide_alt_agent': 'Giao cho Agent: {{step}}',
@@ -2787,7 +2731,6 @@ export default {
   'migration_repair_title': 'Dự án này cần được sửa',
   'migration_repair_body': 'Nâng cấp dữ liệu chưa hoàn tất nên chức năng tạo nội dung tạm thời bị tắt. Kịch bản và hình ảnh đã có vẫn xem được bình thường. Nhấn "Thử lại" để chạy lại nâng cấp dữ liệu.',
   'migration_repair_prefill': 'Nâng cấp dữ liệu của dự án này đã thất bại. Hãy giải thích từng mục trong chi tiết lỗi — tập nào, tệp nào, vi phạm điều gì — rồi dùng patch_project / patch_episode_meta / rename_asset để sửa và gọi retry_project_migration.',
-  // Báo cáo nâng cấp dữ liệu: thông báo một lần trên trang dự án và hộp xác nhận trước khi nhập
   'migration_report_notice_one': 'Lần nâng cấp này đã điều chỉnh {{count}} mục',
   'migration_report_notice_other': 'Lần nâng cấp này đã điều chỉnh {{count}} mục',
   'migration_report_dismiss': 'Đóng thông báo nâng cấp',
@@ -3033,7 +2976,6 @@ export default {
   'diagnosis_network': 'Không thể truy cập mạng. Kiểm tra URL và tường lửa.',
   'diagnosis_timeout': 'Upstream hết thời gian chờ. Endpoint truy cập được nhưng model không trả lời kịp; bạn có thể lưu và thử lại.',
   'diagnosis_unknown': 'Lỗi không xác định. Xem chi tiết bên dưới.',
-  // ==================== Khung hình cuối ====================
   'end_frame_title': 'Khung hình cuối',
   'end_frame_description': 'Video mở đầu bằng ảnh storyboard và kết thúc bằng ảnh này. Tạo lại video vẫn giữ nguyên.',
   'end_frame_choose': 'Chọn ảnh',
@@ -3072,7 +3014,6 @@ export default {
   'script_edit_commit_failed': 'Không thể lưu kịch bản an toàn. Hãy thử lại.',
   'script_edit_rejected': 'Chỉnh sửa kịch bản bị từ chối. Hãy kiểm tra thao tác tương ứng rồi thử lại.',
 
-  // 自定义调用端点
   'ce_section_title': 'Điểm gọi',
   'ce_rail_label': 'Danh sách điểm gọi',
   'ce_rail_mine_empty': 'Chưa có điểm gọi tùy chỉnh.',
@@ -3436,7 +3377,6 @@ export default {
   'ce_download_policy_image': 'Khi cấu hình cả địa chỉ ảnh và base64, địa chỉ được ưu tiên. Địa chỉ ảnh được tải về tự động, mang theo khóa khi cùng máy chủ với địa chỉ giao diện, khác máy chủ thì không. Base64 nhận cả chuỗi thuần lẫn data URI và được lưu sau khi giải mã.',
   'cp_no_api_key': 'Nhà cung cấp này không cần khóa',
   'cp_no_api_key_conflict': 'Các mô hình sau dùng điểm gọi cần khóa: {{models}}. Yêu cầu của chúng sẽ đi ra mà không có thông tin xác thực.',
-  // ---- 市场 ----
   'market_section_title': 'Chợ',
   'market_refresh_all': 'Làm mới tất cả',
   'market_sources_desc': 'Các mục được hiển thị theo thứ tự của danh sách này. Nguồn chợ bị tắt vẫn ở trong danh sách nhưng không hiển thị mục.',
@@ -3960,14 +3900,12 @@ export default {
   'edit_transition_radial': 'Quét xoay',
   'edit_transition_gradient_wipe': 'Quét chuyển sắc',
   'edit_transition_squeeze': 'Ép',
-  // Tổng quan dự án quảng cáo và tab «Thiết lập câu chuyện»
   'episode_view_setting': 'Thiết lập câu chuyện',
   'ad_setting_hint': 'AI tham khảo các thiết lập này khi tạo kịch bản. Sau khi lưu thay đổi, kịch bản đã tạo sẽ được đánh dấu lỗi thời.',
   'ad_brief_title': 'Ý tưởng sáng tạo',
   'ad_brief_placeholder': 'Mô tả video bạn muốn: đối tượng, phong cách, điểm bán hàng chính, lời kêu gọi hành động...',
   'ad_products_view_all': 'Xem tất cả',
   'ad_products_empty_hint': 'Thêm ảnh sản phẩm và điểm bán hàng để AI xây dựng kịch bản quanh sản phẩm. Không có sản phẩm, bạn vẫn có thể tạo kịch bản chỉ từ ý tưởng sáng tạo.',
-  // 共享组件：缩略图的查看大图
   'image_fullscreen_preview': 'Xem ảnh lớn của {{name}}',
   // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
   'catalog_picker_title': 'Chọn từ danh mục mô hình',

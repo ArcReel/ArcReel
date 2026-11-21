@@ -31,7 +31,6 @@ class TestProjectsRouter:
             listed = client.get("/api/v1/projects")
             assert listed.status_code == 200
             names = [p["name"] for p in listed.json()["projects"]]
-            # 没有 project.json 的 "empty" 不是项目，不列出
             assert names == ["ready", "broken"]
             broken = next(p for p in listed.json()["projects"] if p["name"] == "broken")
             assert broken["status"] == {}
@@ -197,7 +196,6 @@ class TestProjectsRouter:
             )
             assert rejected_ratio_dict.status_code == 422
 
-            # aspect_ratio 字符串更新应成功
             updated_ratio = client.patch(
                 "/api/v1/projects/ready",
                 json={"aspect_ratio": "16:9"},

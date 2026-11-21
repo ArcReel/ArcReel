@@ -147,7 +147,6 @@ function RenderPanel({
   jianyingVersion: JianyingVersion;
   onJianyingVersionChange: (version: JianyingVersion) => void;
   blockedReason: string | null;
-  /** 提交或下载请求在途与否，对话框据此忽略关闭请求。 */
   onBusyChange: (busy: boolean) => void;
 }) {
   const { t, i18n } = useTranslation("dashboard");
@@ -399,7 +398,6 @@ function KindOption({
   );
 }
 
-/** 两三个互斥选项的一行单选：旁白版本、剪映版本。 */
 function ChoiceRow({
   label,
   value,

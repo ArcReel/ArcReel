@@ -35,7 +35,6 @@ def reset_root_logger():
     }
     root.handlers.clear()
     yield
-    # 关闭测试中临时挂的 handler 释放 fd
     for handler in list(root.handlers):
         root.removeHandler(handler)
         handler.close()
@@ -90,7 +89,7 @@ def test_mkdir_failure_graceful(isolated_log_dir: Path, monkeypatch: pytest.Monk
 
     monkeypatch.setattr(Path, "mkdir", fake_mkdir)
 
-    logging_config.setup_logging()  # 不抛
+    logging_config.setup_logging()
     root = logging.getLogger()
     assert any(isinstance(h, logging.StreamHandler) for h in root.handlers)
     assert not any(isinstance(h, TimedRotatingFileHandler) for h in root.handlers)
@@ -111,9 +110,6 @@ def test_disabled_env_accepts_aliases(isolated_log_dir: Path, monkeypatch: pytes
     logging_config.setup_logging()
     root = logging.getLogger()
     assert not any(isinstance(h, TimedRotatingFileHandler) for h in root.handlers)
-
-
-# --- 日志位置 + 旧位置迁入 -----------------------------------------------------
 
 
 @pytest.fixture
@@ -282,7 +278,7 @@ def test_log_dir_occupied_by_project_is_left_untouched(
 
 
 def test_migrate_noop_when_legacy_absent(isolated_data_dir: Path) -> None:
-    _migrate(isolated_data_dir)  # 不抛
+    _migrate(isolated_data_dir)
     assert not (isolated_data_dir / "data" / "logs").exists()
 
 
@@ -295,7 +291,7 @@ def test_migrate_noop_when_paths_equal(tmp_path: Path, monkeypatch: pytest.Monke
         logs.mkdir()
         (logs / "arcreel.log").write_text("hi\n", encoding="utf-8")
 
-        logging_config.migrate_legacy_log_dir(legacy_dir=logs)  # 不抛
+        logging_config.migrate_legacy_log_dir(legacy_dir=logs)
 
         assert (logs / "arcreel.log").read_text(encoding="utf-8") == "hi\n"
     finally:

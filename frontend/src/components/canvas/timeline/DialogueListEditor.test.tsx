@@ -85,7 +85,6 @@ describe("DialogueListEditor", () => {
     const firstLineNode = screen.getByDisplayValue("第一行");
     const thirdLineNode = screen.getByDisplayValue("第三行");
 
-    // Delete the middle row (乙/第二行).
     const removeButtons = screen.getAllByRole("button", { name: "删除对话" });
     fireEvent.click(removeButtons[1]);
 

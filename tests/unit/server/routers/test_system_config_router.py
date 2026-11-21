@@ -25,10 +25,6 @@ from server.error_handlers import register_error_handlers
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 def _make_app_with_mock(mock_svc: ConfigService) -> FastAPI:
     """App with a fully mocked ConfigService + in-memory DB (no real DB)."""
@@ -110,11 +106,6 @@ def _make_mock_svc(
 
     svc.get_all_providers_status = AsyncMock(side_effect=_get_all_providers_status)
     return svc
-
-
-# ---------------------------------------------------------------------------
-# GET /system/config
-# ---------------------------------------------------------------------------
 
 
 class TestGetSystemConfig:
@@ -294,11 +285,6 @@ class TestGetSystemConfig:
         with TestClient(_make_app_with_mock(mock_svc)) as client:
             res = client.get("/api/v1/system/config")
         assert res.json()["settings"]["video_poll_timeout_seconds"] == 3600
-
-
-# ---------------------------------------------------------------------------
-# PATCH /system/config
-# ---------------------------------------------------------------------------
 
 
 class TestPatchSystemConfig:

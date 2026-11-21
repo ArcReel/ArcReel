@@ -37,8 +37,8 @@ class TestMigrateProjectDictPureFunction:
                 "image_provider_t2i": "openai/gen-1",
             }
         )
-        assert after["image_provider_t2i"] == "openai/gen-1"  # 已存在不覆盖
-        assert after["image_provider_i2i"] == "ark/legacy"  # 缺失槽由 legacy 拆分填补
+        assert after["image_provider_t2i"] == "openai/gen-1"
+        assert after["image_provider_i2i"] == "ark/legacy"
         assert "image_backend" not in after
 
     def test_normalizes_bare_provider_name_without_model(self):
@@ -66,7 +66,7 @@ class TestMigrateProjectDictPureFunction:
     def test_does_not_mutate_input(self):
         before = {"image_backend": "seedance/x"}
         migrate_project_dict(before)
-        assert before == {"image_backend": "seedance/x"}  # 原 dict 不变
+        assert before == {"image_backend": "seedance/x"}
 
     def test_idempotent(self):
         before = {
@@ -103,7 +103,6 @@ class TestMigrateV1ToV2File:
         d = self._write(tmp_path, {"schema_version": 2, "image_backend": "seedance/x"})
         migrate_v1_to_v2(d)
         data = json.loads((d / "project.json").read_text(encoding="utf-8"))
-        # 已是 v2 → 不重复迁移，legacy 字段原样保留（不会被再次处理）
         assert data["image_backend"] == "seedance/x"
 
     def test_missing_project_json_is_noop(self, tmp_path: Path):

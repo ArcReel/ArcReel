@@ -4,11 +4,10 @@ export type StyleCategory = "live" | "anim";
 export interface StyleTemplate {
   id: string;
   category: StyleCategory;
-  thumbnail: string;  // 静态资源 URL（public/style-thumbnails/）
+  thumbnail: string;
 }
 
 export const STYLE_TEMPLATES: StyleTemplate[] = [
-  // ===== 真人 (18) =====
   { id: "live_cinematic_ancient", category: "live", thumbnail: "/style-thumbnails/live_cinematic_ancient.png" },
   { id: "live_zhang_yimou",       category: "live", thumbnail: "/style-thumbnails/live_zhang_yimou.png" },
   { id: "live_ancient_xianxia",   category: "live", thumbnail: "/style-thumbnails/live_ancient_xianxia.png" },
@@ -27,7 +26,6 @@ export const STYLE_TEMPLATES: StyleTemplate[] = [
   { id: "live_wong",              category: "live", thumbnail: "/style-thumbnails/live_wong.png" },
   { id: "live_shaw",              category: "live", thumbnail: "/style-thumbnails/live_shaw.png" },
   { id: "live_cyberpunk",         category: "live", thumbnail: "/style-thumbnails/live_cyberpunk.png" },
-  // ===== 动画 (18) =====
   { id: "anim_3d_cg",             category: "anim", thumbnail: "/style-thumbnails/anim_3d_cg.png" },
   { id: "anim_cn_3d",             category: "anim", thumbnail: "/style-thumbnails/anim_cn_3d.png" },
   { id: "anim_kyoto",             category: "anim", thumbnail: "/style-thumbnails/anim_kyoto.png" },

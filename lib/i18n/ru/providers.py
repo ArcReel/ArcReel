@@ -1,7 +1,6 @@
 """Russian translations for provider registry metadata."""
 
 MESSAGES: dict[str, str] = {
-    # Provider display names
     "provider_name_gemini-aistudio": "AI Studio",
     "provider_name_gemini-vertex": "Vertex AI",
     "provider_name_ark": "Volcengine Ark",
@@ -30,7 +29,6 @@ MESSAGES: dict[str, str] = {
     "provider_desc_minimax": "Открытая платформа шанхайской ИИ-компании MiniMax с её мультимодальными моделями и генерацией видео Hailuo. По умолчанию подключается к китайскому сайту; для работы из-за рубежа укажите в base_url международный сайт.",
     "provider_desc_kling": "Открытая платформа Kling AI, сервиса генеративного ИИ компании Kuaishou. Аутентификация по API-ключу работает со всеми моделями; Access Key + Secret Key (JWT) поддерживает только модели версии 3.0 и более ранние. Выберите один способ — если заданы оба, приоритет у API-ключа.",
     "provider_desc_agnes": "Мультимодальная ИИ-платформа Agnes AI с генеративными моделями ИИ через единый API.",
-    # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "Официальная конечная точка DeepSeek с совместимостью с Anthropic; нужен ключ с префиксом sk-.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo принимает только известные имена моделей; публичного списка моделей нет.",
     "preset_notes_ark_coding_plan": "Volcengine Ark Coding Plan; эндпоинта списка моделей нет — выберите предложенную модель, включённую в консоли Ark.",

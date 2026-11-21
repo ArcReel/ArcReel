@@ -21,7 +21,6 @@ import { ConfigIssueNotice } from "./settings/ConfigIssueNotice";
 /** Agent 会话启动时拼进系统提示的语言规范模版，正文在「提示词模版」中查看。 */
 const AGENT_LANGUAGE_RULE_ID = "text/agent_language_rule";
 
-/** 运行参数编辑单元：输入框里的原始字符串，保存时再转成数字。 */
 interface AgentRuntimeFields {
   cleanupDelaySeconds: string;
   maxConcurrentSessions: string;

@@ -458,7 +458,6 @@ class ProjectEventService:
                     logger.exception("构建显式项目事件快照失败 project=%s", project_name)
                     return
 
-                # 以下在事件循环线程中执行，线程安全
                 previous = channel.snapshot
                 channel.snapshot = snapshot
                 channel.input_stamp = stamp
@@ -605,14 +604,12 @@ class ProjectEventService:
                         covered_sources = channel.pending_sources
                         channel.pending_sources = set()
                         try:
-                            # 仅文件 I/O 在线程中执行
                             stamp, snapshot = await asyncio.to_thread(self._poll_snapshot, project_name, known_stamp)
                         except BaseException:
                             channel.pending_sources |= covered_sources
                             raise
                         # 输入未变时快照沿用，换出的来源标记随之结算（与无差异的扫描同一口径）
                         if snapshot is not None:
-                            # 状态更新和广播在事件循环线程中执行（线程安全）
                             channel.input_stamp = stamp
                             self._apply_scan_result(project_name, channel, snapshot, covered_sources)
                 except asyncio.CancelledError:

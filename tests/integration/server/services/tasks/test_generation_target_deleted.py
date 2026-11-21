@@ -75,7 +75,6 @@ async def test_asset_deleted_while_generating_lands_the_result_in_project_trash(
     assert record.object["note"] == TARGET_DELETED_NOTE
     assert record.files == ("characters/阿岚.png",)
     assert (project_trash.trash_dir(project_dir) / record.id / "files" / "characters" / "阿岚.png").read_bytes() == png
-    # 原路径与版本历史不变，也不留暂存文件；被删的资产没有复活。
     assert list((project_dir / "characters").iterdir()) == []
     assert VersionManager(project_dir).get_versions("characters", "阿岚")["versions"] == []
     assert "阿岚" not in manager.load_project("demo")["characters"]

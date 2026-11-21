@@ -259,7 +259,6 @@ describe("AppRoutes", () => {
     });
 
     act(() => navigate("/app/projects/B"));
-    // 切换完成后 A 的响应才落定
     await act(async () => {
       resolveA({ project: { title: "A-迟到数据" } as never, scripts: {} });
       await pendingA;
@@ -327,15 +326,12 @@ describe("AppRoutes", () => {
 
     renderAt("/app/projects");
 
-    // 挂载即首次拉取
     await vi.advanceTimersByTimeAsync(0);
     expect(API.getProviders).toHaveBeenCalledTimes(1);
 
-    // 第一次退避重试(800ms)
     await vi.advanceTimersByTimeAsync(800);
     expect(API.getProviders).toHaveBeenCalledTimes(2);
 
-    // 第二次退避重试(再 1600ms)
     await vi.advanceTimersByTimeAsync(1600);
     expect(API.getProviders).toHaveBeenCalledTimes(3);
   });

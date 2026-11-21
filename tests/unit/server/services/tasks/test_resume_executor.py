@@ -51,7 +51,7 @@ class _FakeGenerator:
     def __init__(self, *, raises: Exception | None = None) -> None:
         self.resume_calls: list[dict[str, Any]] = []
         self.raises = raises
-        self.versions = self  # 让 generator.versions.get_versions 走自身
+        self.versions = self
 
     async def resume_video_async(self, **kwargs: Any) -> tuple[Path, int, Any, str | None]:
         self.resume_calls.append(kwargs)
@@ -322,7 +322,6 @@ async def test_execute_resume_skips_storyboard_check(monkeypatch, fake_pm, video
     """resume 路径不读 storyboard 本地文件——即使 storyboard 不存在也能成功。"""
     from server.services.tasks.resume_executor import execute_resume_video_task
 
-    # 故意确保 storyboard 不存在
     storyboard_dir = fake_pm.project_path / "storyboards"
     if storyboard_dir.exists():
         for f in storyboard_dir.glob("*.png"):
@@ -331,7 +330,6 @@ async def test_execute_resume_skips_storyboard_check(monkeypatch, fake_pm, video
     fake_gen = _FakeGenerator()
     _patch_resume_executor_deps(monkeypatch, fake_pm, fake_gen)
 
-    # 不应抛 "storyboard not found"
     result = await execute_resume_video_task(video_task, job_id="openai-job-1")
     assert result["file_path"] == "videos/scene_E1S01.mp4"
 
@@ -503,7 +501,6 @@ async def test_execute_resume_accepts_float_string_duration(monkeypatch, fake_pm
         "payload": {"script_file": "episode_1.json", "prompt": "p", "duration_seconds": "8.0"},
         "execution_checkpoint_json": _storyboard_checkpoint_json(task_id="T-float"),
     }
-    # 不应抛 ValueError
     result = await execute_resume_video_task(task, job_id="openai-job-1")
     assert result["resource_type"] == "videos"
     assert fake_gen.resume_calls[0]["duration_seconds"] == 8
@@ -846,9 +843,6 @@ async def test_reference_resume_rejects_resolved_model_drift_before_poll(monkeyp
     assert not (fake_pm.project_path / ".arcreel" / "tasks" / "T-ref" / "provider_media").exists()
 
 
-# ── endpoint 比对闸 ──────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_resume_fails_when_endpoint_changed(monkeypatch, fake_pm, video_task):
     """提交时的 endpoint 与模型行当下的 endpoint 不同 → 显式失败，绝不接续轮询。
@@ -912,9 +906,6 @@ async def test_resume_proceeds_for_builtin_provider_without_endpoint(monkeypatch
     await execute_resume_video_task(video_task, job_id="openai-job-1")
 
     assert len(fake_gen.resume_calls) == 1
-
-
-# ── 提交域名回放 ──────────────────────────────────────────────
 
 
 @pytest.mark.asyncio

@@ -1026,7 +1026,6 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
 
 
 async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
-    # 尚无正式剧本：脚本规划未确认，可取回编辑副本。
     (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
     app = _mounted(remote_server)
     async with (

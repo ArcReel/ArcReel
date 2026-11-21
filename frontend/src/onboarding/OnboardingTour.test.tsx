@@ -239,7 +239,6 @@ describe("OnboardingTour", () => {
     });
   }
 
-  /** 大厅三步的锚点。 */
   function mountLobbyAnchors(): HTMLElement[] {
     return mountAnchors(
       ONBOARDING_ANCHORS.lobbyCreateProject,
@@ -248,7 +247,6 @@ describe("OnboardingTour", () => {
     );
   }
 
-  /** 设置页两步的锚点。 */
   function mountSettingsAnchors(): HTMLElement[] {
     return mountAnchors(ONBOARDING_ANCHORS.settingsProviders, ONBOARDING_ANCHORS.settingsAgent);
   }
@@ -272,9 +270,9 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    click(".driver-popover-next-btn"); // → 新建项目入口
-    click(".driver-popover-next-btn"); // → 设置入口（仍在大厅）
-    click(".driver-popover-next-btn"); // → 供应商（跨页到设置）
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn");
+    click(".driver-popover-next-btn");
 
     await waitFor(() => expect(popoverTitle()).toBe("配置供应商"));
     // 带上 section 查询参数——设置页内容区靠它落到供应商一节。
@@ -300,11 +298,11 @@ describe("OnboardingTour", () => {
 
     click(".driver-popover-next-btn");
     click(".driver-popover-next-btn");
-    click(".driver-popover-next-btn"); // → 供应商（跨页到设置）
+    click(".driver-popover-next-btn");
     await waitFor(() => expect(popoverTitle()).toBe("配置供应商"));
     expect(history.at(-1)).toBe("/app/settings?section=providers");
 
-    click(".driver-popover-prev-btn"); // ← 设置入口（跨页回大厅）
+    click(".driver-popover-prev-btn");
 
     await waitFor(() => expect(popoverTitle()).toBe("设置"));
     expect(history.at(-1)).toBe("/app/projects");
@@ -324,7 +322,7 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn"); // → 演示卡（interactive 步，锚点在大厅）
+    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn");
     await waitFor(() => expect(popoverTitle()).toBe("演示项目"));
 
     // 演示卡步是 interactive，允许用户点卡片本身离开大厅进工作台；但如果落点是引导
@@ -350,7 +348,7 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn"); // → 演示卡（interactive 步）
+    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn");
     await waitFor(() => expect(popoverTitle()).toBe("演示项目"));
 
     // 落点之外的去处一律拽回，不因为它在引导覆盖范围之外就放过：资产库是主界面路由但
@@ -376,7 +374,7 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 4; i++) click(".driver-popover-next-btn"); // → 配置 Agent
+    for (let i = 0; i < 4; i++) click(".driver-popover-next-btn");
     await waitFor(() => expect(popoverTitle()).toBe("配置 ArcReel Agent"));
     expect(history.at(-1)).toBe("/app/settings?section=arcreel-agent");
 
@@ -447,7 +445,6 @@ describe("OnboardingTour", () => {
     [...lobbyAnchors, settingsAnchor].forEach((el) => el.remove());
   });
 
-  /** 演示工作台五步的锚点。 */
   function mountWorkbenchAnchors(): HTMLElement[] {
     return mountAnchors(
       ONBOARDING_ANCHORS.workbenchOverview,
@@ -458,7 +455,6 @@ describe("OnboardingTour", () => {
     );
   }
 
-  /** 全程 12 步的锚点，供跑完整串联的用例一次挂齐。 */
   function mountAllAnchors(): HTMLElement[] {
     return [...mountLobbyAnchors(), ...mountSettingsAnchors(), ...mountWorkbenchAnchors()];
   }
@@ -502,7 +498,7 @@ describe("OnboardingTour", () => {
     // 收尾之前一次都没写过标记——中途没有哪一步误判成结束。
     expect(API.markOnboardingSeen).not.toHaveBeenCalled();
 
-    click(".driver-popover-next-btn"); // 收尾气泡上是「完成」
+    click(".driver-popover-next-btn");
     await waitFor(() => expect(API.markOnboardingSeen).toHaveBeenCalledTimes(1));
     expect(popoverTitle()).toBeNull();
     expect(useOnboardingStore.getState().seen).toBe(true);
@@ -522,7 +518,7 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn"); // → 演示卡（interactive）
+    for (let i = 0; i < 5; i++) click(".driver-popover-next-btn");
     await waitFor(() => expect(popoverTitle()).toBe("演示项目"));
 
     // 顺着这一步给的入口点进演示工作台：不拽回大厅，引导顺势推进到工作台首步（Agent）——
@@ -548,7 +544,7 @@ describe("OnboardingTour", () => {
     );
     await waitFor(() => expect(popoverTitle()).toBe("欢迎使用 ArcReel"));
 
-    for (let i = 0; i < 6; i++) click(".driver-popover-next-btn"); // → Agent（工作台第一步）
+    for (let i = 0; i < 6; i++) click(".driver-popover-next-btn");
     await waitFor(() => expect(popoverTitle()).toBe("Agent"));
     expect(history.at(-1)).toBe(DEMO_WORKBENCH);
 

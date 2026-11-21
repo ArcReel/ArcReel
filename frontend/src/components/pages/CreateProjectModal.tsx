@@ -95,10 +95,6 @@ function styleUploadFailureReason(err: unknown, transportFallback: string): stri
   return reason === transportFallback ? "" : reason;
 }
 
-/**
- * 新建项目向导：基础信息、生成设置、风格三步，走完三步才能创建。
- * 由项目大厅在 `useProjectsStore().showCreateModal` 为 true 时挂载，关闭时把它置回 false。
- */
 export function CreateProjectModal() {
   const { t, i18n } = useTranslation(["dashboard", "common", "templates"]);
   const [, navigate] = useLocation();
@@ -195,7 +191,6 @@ export function CreateProjectModal() {
 
   const isAd = basics.contentMode === "ad";
 
-  // 当前步骤还缺的必填项与需要修正的字段，按界面上的顺序列出
   const missing: string[] = [];
   const invalid: string[] = [];
   if (step === 1) {
@@ -223,7 +218,6 @@ export function CreateProjectModal() {
 
   const goTo = (next: WizardStep) => {
     setStep(next);
-    // 三步共用一个滚动区，进入新步骤时从顶部开始
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   };
 
@@ -327,7 +321,6 @@ export function CreateProjectModal() {
     <Dialog
       open
       onOpenChange={(open) => {
-        // 创建请求在途时忽略关闭请求（Esc、关闭按钮、点击遮罩）
         if (!open && !creating) close();
       }}
     >

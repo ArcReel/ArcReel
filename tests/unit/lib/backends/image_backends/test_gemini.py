@@ -12,10 +12,6 @@ from PIL import Image as PILImage
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
 from tests.unit.lib.backends.write_cancel_gate import WriteGate, cancel_during_write
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def fake_rate_limiter():
@@ -33,7 +29,6 @@ def patch_genai():
     with patch.dict(
         "sys.modules", {"google": MagicMock(), "google.genai": mock_genai, "google.genai.types": mock_types}
     ):
-        # Make `from google import genai` return our mock
         import sys
 
         sys.modules["google"].genai = mock_genai
@@ -74,11 +69,6 @@ def backend_vertex(fake_rate_limiter, patch_genai):
         )
 
 
-# ---------------------------------------------------------------------------
-# Tests: properties
-# ---------------------------------------------------------------------------
-
-
 class TestProperties:
     def test_name_aistudio(self, backend_aistudio):
         assert backend_aistudio.name == "gemini-aistudio"
@@ -105,17 +95,11 @@ class TestProperties:
         assert asyncio.run(backend.reference_image_limit()) is None
 
 
-# ---------------------------------------------------------------------------
-# Tests: generate
-# ---------------------------------------------------------------------------
-
-
 class TestGenerate:
     async def test_generate_calls_sdk(self, backend_aistudio, fake_rate_limiter, tmp_path):
         """generate() should call client.aio.models.generate_content and save the image."""
         output_file = tmp_path / "out.png"
 
-        # Mock the response: a part with inline_data that returns a PIL image
         mock_image = PILImage.new("RGB", (100, 100), "red")
         mock_part = MagicMock()
         mock_part.inline_data = b"fake"
@@ -132,13 +116,10 @@ class TestGenerate:
         )
         result = await backend_aistudio.generate(request)
 
-        # Verify rate limiter was called
         fake_rate_limiter.acquire_async.assert_awaited_once()
 
-        # Verify SDK was called
         backend_aistudio._client.aio.models.generate_content.assert_awaited_once()
 
-        # Verify result
         assert result.image_path == output_file
         assert result.provider == "gemini"
         assert output_file.exists()
@@ -177,7 +158,6 @@ class TestGenerate:
         output_file = tmp_path / "out.png"
         ref_img_path = tmp_path / "characters" / "角色A.png"
         ref_img_path.parent.mkdir(parents=True, exist_ok=True)
-        # Create a small test image
         PILImage.new("RGB", (10, 10), "blue").save(ref_img_path)
 
         mock_image = PILImage.new("RGB", (100, 100), "green")
@@ -238,11 +218,6 @@ class TestGenerate:
         request = ImageGenerationRequest(prompt="test", output_path=output_file)
         with pytest.raises(RuntimeError, match="未返回图片"):
             await backend_aistudio.generate(request)
-
-
-# ---------------------------------------------------------------------------
-# Tests: helper methods
-# ---------------------------------------------------------------------------
 
 
 async def test_corrupt_and_missing_references_are_reported_before_submission(tmp_path, backend_aistudio):

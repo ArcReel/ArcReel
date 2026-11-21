@@ -78,7 +78,7 @@ def test_a_successor_entry_reference_renders_as_the_entry_display_name():
 @pytest.mark.parametrize(
     "ref",
     [
-        "acme/never-registered",  # 目录里没有这个条目
+        "acme/never-registered",
         "kuaishou/kling-v3-omni",  # 两栖条目：图像与视频条目的显示名不同，无从判断指哪一个
     ],
 )

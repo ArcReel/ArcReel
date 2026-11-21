@@ -24,8 +24,6 @@ from lib.agent.profile_manifest import (
 )
 from lib.project.project_manager import ProjectManager
 
-# ---------- 公共 fixtures ----------
-
 
 @pytest.fixture
 def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -322,8 +320,7 @@ class TestDecisionTable:
     def test_decision_15_collision_preserves_user_content(self, env):
         """#15：用户独立创建同名文件（D≠P）→ 保留 D，不写 entry。"""
         pm, profile_dir, project_dir = env
-        pm.sync_agent_profile(project_dir)  # 建 baseline
-        # 现在手加 user_x 和 profile_x 同名但不同内容
+        pm.sync_agent_profile(project_dir)
         user_x = project_dir / ".claude" / "skills" / "X" / "SKILL.md"
         user_x.parent.mkdir(parents=True)
         user_x.write_text("user version A")
@@ -358,9 +355,6 @@ class TestDecisionTable:
         stats2 = pm.sync_agent_profile(project_dir)
         assert stats2["collision"] == 0
         assert stats2["unchanged"] >= 1
-
-
-# ---------- force_resync ----------
 
 
 class TestForceResync:
@@ -415,9 +409,7 @@ class TestForceResync:
         demo，不要覆盖其他改过的 skill 或复活已删的 skill。
         """
         pm, _, project_dir = env
-        # 先 sync 一次让 dest 有完整 baseline + manifest
         pm.sync_agent_profile(project_dir)
-        # 模拟用户改了另一个 skill 文件
         other_skill = project_dir / ".claude" / "skills" / "other" / "SKILL.md"
         other_skill.parent.mkdir(parents=True, exist_ok=True)
         other_skill.write_text("user-customized other skill")
@@ -426,9 +418,7 @@ class TestForceResync:
 
         stats = pm.force_resync_profile(project_dir, paths=[".claude/skills/demo/SKILL.md"])
 
-        # demo 被回填
         assert _skill_path(project_dir).read_text() == "demo v1"
-        # other skill 不被破坏
         assert other_skill.read_text() == "user-customized other skill"
         # 新 manifest 只含 demo entry，不是全量
         from lib.agent.profile_manifest import load_manifest
@@ -451,7 +441,6 @@ class TestForceResync:
 
         pm, _, project_dir = env
         pm.sync_agent_profile(project_dir)
-        # 在 .claude 内放一个指向项目外的 symlink
         outside = project_dir.parent.parent / "outside_secret.md"
         outside.write_text("MUST NOT be touched")
         escape_link = project_dir / ".claude" / "evil_link.md"
@@ -473,9 +462,7 @@ class TestForceResync:
 
         stats = pm.sync_agent_profile(project_dir)
 
-        # outside 文件应原样不动
         assert outside.read_text() == "MUST NOT be touched"
-        # 该 rel 至少计为 errors（escape guard 拦下来）
         assert stats["errors"] >= 1
         # symlink 自身没被改（rmtree 在 _full_reset 才发生，这里走主路径）
         assert os.path.islink(escape_link)
@@ -557,9 +544,7 @@ class TestForceResync:
         )
         save_manifest(project, manifest, original_bytes=None)
 
-        # outside 内容必须不被截断/覆盖
         assert outside.read_text() == "MUST NOT be truncated"
-        # 真实 manifest 写入 project_dir
         assert (project / MANIFEST_FILENAME).read_bytes() == manifest.normalized_bytes()
 
     def test_load_manifest_refuses_symlink_manifest(self, tmp_path: Path):
@@ -591,7 +576,6 @@ class TestForceResync:
 
         with pytest.raises(ValueError, match="dest is a directory"):
             _safe_copy(src, dest_dir)
-        # dest 目录及内部都没被改
         assert dest_dir.is_dir()
         assert list(dest_dir.iterdir()) == []
 
@@ -613,9 +597,7 @@ class TestForceResync:
 
         _safe_copy(src, dest)
 
-        # outside 内容不应被修改
         assert outside.read_text() == "ORIGINAL outside content"
-        # dest 应该是真实文件（不再是 symlink），含新内容
         assert not dest.is_symlink()
         assert dest.read_text() == "new content"
 
@@ -636,9 +618,6 @@ class TestForceResync:
 
         with pytest.raises(ProfileEmptyError):
             pm.force_resync_profile(project_dir)
-
-
-# ---------- 入口防御 ----------
 
 
 class TestProfileEntryGuards:
@@ -671,9 +650,6 @@ class TestProfileEntryGuards:
 
         with pytest.raises(ProfileEmptyError):
             pm.sync_agent_profile(project_dir)
-
-
-# ---------- sync_all_agent_profiles ----------
 
 
 class TestRepairAllSymlinks:
@@ -759,9 +735,6 @@ class TestRepairAllSymlinks:
             assert not (directory / ".claude").exists(), directory
 
 
-# ---------- 老 symlink 迁移 ----------
-
-
 class TestLegacySymlinkMigration:
     def test_legacy_symlink_replaced_with_materialized_dir(self, env):
         """老版本部署遗留的 symlink → 首次 repair 拆除升级为物化。"""
@@ -776,9 +749,6 @@ class TestLegacySymlinkMigration:
         assert (project_dir / "CLAUDE.md").is_file()
         assert not (project_dir / "CLAUDE.md").is_symlink()
         assert (project_dir / MANIFEST_FILENAME).exists()
-
-
-# ---------- manifest 字段不变量 ----------
 
 
 class TestManifestInvariants:

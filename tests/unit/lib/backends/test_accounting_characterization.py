@@ -96,11 +96,6 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> _SteppingClock:
     return clock
 
 
-# ---------------------------------------------------------------------------
-# 真内存 SQLite 记账落点
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class _AccountingDb:
     engine: AsyncEngine
@@ -196,10 +191,6 @@ def _expected_pending_row(**overrides: Any) -> dict[str, Any]:
         **overrides,
     )
 
-
-# ---------------------------------------------------------------------------
-# 假 backend（Protocol 实现）
-# ---------------------------------------------------------------------------
 
 _PNG_BYTES = b"\x89PNG\r\n\x1a\nfake"
 
@@ -421,11 +412,6 @@ def _media_generator(
     # 唯一的接线替换：把记账落点指到测试内存库。记账链路内部（ledger→repo→结算→定价）全真实。
     gen.ledger = Ledger(session_factory=db.factory)
     return gen
-
-
-# ---------------------------------------------------------------------------
-# 通道一：image 生成括号
-# ---------------------------------------------------------------------------
 
 
 class TestImageChannel:
@@ -683,11 +669,6 @@ class TestImageChannel:
         )
 
 
-# ---------------------------------------------------------------------------
-# 通道二：audio 生成括号
-# ---------------------------------------------------------------------------
-
-
 class TestAudioChannel:
     async def test_chinese_tts_counts_each_han_character_twice(self, tmp_path: Path, acct: _AccountingDb) -> None:
         gen = _media_generator(
@@ -748,11 +729,6 @@ class TestAudioChannel:
         )
 
 
-# ---------------------------------------------------------------------------
-# 通道三：video 生成括号
-# ---------------------------------------------------------------------------
-
-
 def _veo_backend(**result_fields: Any) -> _FakeVideoBackend:
     """AI Studio 的 Veo 3.1：按 GeminiVideoBackend 的用量契约上报计量，价目表按输出秒数 × 分辨率 × 有声计价。"""
     return _FakeVideoBackend(
@@ -796,7 +772,6 @@ class TestVideoChannel:
 
         await _generate_video(gen)
 
-        # (720p, 有声) 0.40 USD/s × 8s
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_video_row(provider="gemini-aistudio", cost_amount=pytest.approx(3.2), usage_tokens=0),
@@ -858,7 +833,6 @@ class TestVideoChannel:
 
         await _generate_video(gen)
 
-        # 46.00 CNY/百万 token × 1M token
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_video_row(
@@ -1007,11 +981,6 @@ class TestCatalogPricedVideo:
             await acct.fetch_only_row(),
             _expected_video_row(model="clip", provider="openai", cost_amount=None, unpriced_reason="missing_rate"),
         )
-
-
-# ---------------------------------------------------------------------------
-# 通道四：text 生成括号
-# ---------------------------------------------------------------------------
 
 
 class TestTextChannel:
@@ -1364,7 +1333,6 @@ class TestCatalogPricedText:
             TextGenerationRequest(prompt="p"), project_name="demo"
         )
 
-        # (2 + 8) USD × 供应商倍率 0.5 × 供应商模型倍率 0.8 = 4.0
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
@@ -1450,11 +1418,6 @@ class TestIdentityInvariant:
                 cast(str, None),
                 purpose=CallPurpose.SCRIPT_GENERATION,
             )
-
-
-# ---------------------------------------------------------------------------
-# 通道五：resume 补账
-# ---------------------------------------------------------------------------
 
 
 _RESUME_TASK_ID = "T-resume"
@@ -1582,7 +1545,6 @@ class TestResumeChannel:
 
     async def test_pending_guard_never_touches_terminal_row(self, tmp_path: Path, acct: _AccountingDb) -> None:
         call_id = await _pending_video_call(acct)
-        # 预置一条已 success 的终态行（模拟 generate 已 finish），供 resume 幂等守卫验证。
         async with acct.factory() as session:
             await UsageRepository(session).finish_call(
                 call_id,

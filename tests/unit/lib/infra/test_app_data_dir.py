@@ -50,7 +50,6 @@ def test_relative_arcreel_data_dir_resolved_against_project_root(
 ):
     from lib.infra.env_init import PROJECT_ROOT
 
-    # Use a relative path; should be joined to PROJECT_ROOT.
     rel_name = "test_relative_data_dir_xyz"
     monkeypatch.setenv("ARCREEL_DATA_DIR", rel_name)
     monkeypatch.delenv("AI_ANIME_PROJECTS", raising=False)
@@ -62,7 +61,6 @@ def test_relative_arcreel_data_dir_resolved_against_project_root(
         assert result == expected
         assert result.exists()
     finally:
-        # Cleanup: remove the dir we accidentally created in repo root.
         created = PROJECT_ROOT / rel_name
         if created.exists():
             created.rmdir()
@@ -102,7 +100,7 @@ def test_empty_env_value_falls_through_to_default(
     from lib.infra.env_init import PROJECT_ROOT
 
     monkeypatch.setenv("ARCREEL_DATA_DIR", "")
-    monkeypatch.setenv("AI_ANIME_PROJECTS", "   ")  # whitespace-only
+    monkeypatch.setenv("AI_ANIME_PROJECTS", "   ")
     app_data_dir_fn = _import_fresh()
 
     result = app_data_dir_fn()
@@ -136,7 +134,6 @@ def test_result_is_cached_within_single_call_sequence(
     app_data_dir_fn = _import_fresh()
 
     first = app_data_dir_fn()
-    # mutate env, but don't reset cache — same result expected.
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(target_b))
     second = app_data_dir_fn()
     assert first == second == target_a.resolve()

@@ -20,7 +20,6 @@ interface EditTimelinePlayerProps {
   aspect: PreviewAspect;
   /** 当前片段；定格与占位期间同样有值，没有可播放片段时为 undefined。 */
   current: EditClip | undefined;
-  /** 视频单元 ID → 它在本集里的当前位置。 */
   positions: ReadonlyMap<string, number>;
   trimIgnored: boolean;
   subtitles: readonly PlacedSubtitle[];

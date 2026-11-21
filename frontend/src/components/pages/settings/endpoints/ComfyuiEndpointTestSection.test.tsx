@@ -238,7 +238,6 @@ describe("ComfyuiEndpointTestSection", () => {
     // 还没到的三段在非终态上说「进行中」，不是「未到达」。
     expect(within(stages).getAllByText("进行中")).toHaveLength(3);
     expect(within(stages).queryByText("未到达")).not.toBeInTheDocument();
-    // 未走完时取消入口在，重复提交挡住。
     expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "真实提交一次" })).toBeDisabled();
   });

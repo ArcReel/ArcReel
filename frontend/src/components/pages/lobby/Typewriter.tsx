@@ -7,7 +7,6 @@ export interface TypewriterSegment {
   after?: ReactNode;
 }
 
-/** 吐字完成后光标继续闪烁的时长，与 index.css 的 `--animate-caret-linger`（1.4s × 3 次）一致。 */
 const CARET_LINGER_MS = 1400 * 3;
 
 interface TypewriterProps {

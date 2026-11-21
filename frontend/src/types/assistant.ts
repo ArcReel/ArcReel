@@ -54,9 +54,7 @@ export interface ContentBlock {
   sub_turns?: Turn[];
   // 关联到锚点 tool_use 的子智能体状态/进度（由 task_progress 块折叠而来）
   task_info?: ContentBlock;
-  // image block fields
   source?: { type: "base64"; media_type: string; data: string };
-  // task_progress fields
   task_id?: string;
   status?: string;
   description?: string;
@@ -65,7 +63,6 @@ export interface ContentBlock {
   usage?: { total_tokens?: number; tool_uses?: number; duration_ms?: number };
   // question_answer fields（AskUserQuestion 答复：问题 → 所选选项）
   answers?: Record<string, string>;
-  // agent_failure block（写入点定型的 Agent 故障观测）
   failure?: FailureObservation;
 }
 
@@ -119,7 +116,6 @@ export interface TimelineEntry {
   message_id?: string | null;
   /** 子智能体消息标记：投影按 parent 归组为主时间线单一折叠卡片。 */
   parent_tool_use_id?: string;
-  // tool_result / question_answer 条目字段
   tool_use_id?: string | null;
   is_error?: boolean;
   // 写入点定型的子类型：system 条目为 task_* / interrupt / skill_invocation /
@@ -133,9 +129,7 @@ export interface TimelineEntry {
   // system 条目字段（skill_invocation 子类型：只记名与入参）
   skill_name?: string | null;
   skill_args?: string | null;
-  // question_answer 条目字段（AskUserQuestion 答复的结构化答案）
   answers?: Record<string, string> | null;
-  // agent_turn_failure 系统条目
   failure?: FailureObservation;
 }
 
@@ -156,7 +150,6 @@ export interface QueuedMessage {
 /** 撤回排队消息的意图：`edit` 把内容退回输入框，`delete` 直接丢弃。 */
 export type QueuedMessageWithdrawal = "edit" | "delete";
 
-/** 编辑 / 删除排队消息的响应。 */
 export interface QueuedMessageWithdrawalResponse {
   session_id: string;
   id: string;
@@ -173,7 +166,6 @@ export interface QueuedMessageResendResponse {
   queued_message: QueuedMessage;
 }
 
-/** 立即发送排队消息的响应。 */
 export interface QueuedMessageSendNowResponse {
   session_id: string;
   id: string;
@@ -214,7 +206,6 @@ export interface DraftDeltaPayload {
   partial_json?: string;
 }
 
-/** GET /sessions/{id}/entries 响应。 */
 export interface EntriesResponse {
   session_id: string;
   status: SessionStatus;

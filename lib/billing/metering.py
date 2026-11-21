@@ -46,9 +46,7 @@ _HAN = re.compile(r"[㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f]")
 class UnpricedReason(StrEnum):
     """未定价的原因，原样写入 ``api_calls.unpriced_reason``。"""
 
-    #: 供应商模型对应不上模型条目。
     NO_ENTRY = "no_entry"
-    #: 条目没有价目表。
     NO_PRICE_TABLE = "no_price_table"
     #: 查不到单价：单价表缺少请求的维度组合且没有默认值；上报了用量的 token 类计量项不在价目表里；或结算时
     #: 价目表的计量项一项用量都没有拿到。

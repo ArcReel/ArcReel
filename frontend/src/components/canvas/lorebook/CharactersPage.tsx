@@ -10,7 +10,6 @@ interface Props {
   onRestoreCharacterVersion?: () => Promise<unknown> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingCharacterNames?: Set<string>;
-  /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传入口。 */
   readOnly?: boolean;
 }
 

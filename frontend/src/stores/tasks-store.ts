@@ -4,7 +4,6 @@ import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import type { TaskItem, TaskStats, TaskStatus } from "@/types";
 
-/** 单次刷新拉取的任务条数上限。 */
 const TASKS_PAGE_SIZE = 200;
 
 /**
@@ -66,12 +65,9 @@ interface TasksState {
   stats: TaskStats;
   connected: boolean;
   refreshScope: TasksRefreshScope | null;
-  /** 乐观占用标记，见下方 {@link selectActiveResourceIds} 的乐观占用小节。 */
   optimisticActive: Set<string>;
-  /** 乐观占用标记（scriptFile 粒度），见下方 {@link selectHasActiveTaskForScriptFile} 的乐观占用小节。 */
   optimisticActiveScriptFile: Set<string>;
 
-  // Actions
   setTasks: (tasks: TaskItem[] | ((prev: TaskItem[]) => TaskItem[])) => void;
   setStats: (stats: TaskStats) => void;
   setConnected: (connected: boolean) => void;
@@ -158,12 +154,10 @@ function optimisticScriptFileKey(
   return `${projectName}\0${taskType}\0${stripScriptsPrefix(scriptFile)}\0${seq}\0${encodeTaskIds(taskIds)}`;
 }
 
-/** 把 key 末段的 taskIds 换成 `taskIds`，其余字段原样保留。 */
 function withTaskIds(key: string, taskIds: readonly string[]): string {
   return key.slice(0, key.lastIndexOf("\0") + 1) + encodeTaskIds(taskIds);
 }
 
-/** 本次快照里已落库的 task_id。 */
 function landedTaskIds(tasks: TaskItem[]): Set<string> {
   return new Set(tasks.map((t) => t.task_id));
 }
@@ -180,7 +174,7 @@ function landedTaskIds(tasks: TaskItem[]): Set<string> {
  */
 function keepMark(key: string, landed: ReadonlySet<string>): string | null {
   const taskIds = markTaskIds(key);
-  if (taskIds.length === 0) return key; // 在途标记
+  if (taskIds.length === 0) return key;
   const remaining = taskIds.filter((id) => !landed.has(id));
   if (remaining.length === 0) return null;
   return remaining.length === taskIds.length ? key : withTaskIds(key, remaining);
@@ -244,8 +238,6 @@ export const useTasksStore = create<TasksState>((set, get) => {
     if (!scope) return;
     const { projectName } = scope;
 
-    // 落定时作用域可能已被切项目/停用改写：迟到响应不写回，否则旧项目的任务列表会盖住
-    // 接管方刚写入的数据（停用时则会盖住本该清空的 store）。
     const scopeUnchanged = () => {
       const current = get().refreshScope;
       return current !== null && current.projectName === projectName;
@@ -277,10 +269,6 @@ export const useTasksStore = create<TasksState>((set, get) => {
     }
   };
 
-  /**
-   * begin/settle/rollback 三态的公共骨架：两种粒度只在 key 编码与落到哪个 Set 上不同。
-   * `field` 选定 Set，`keyOf(taskIds)` 按已兑现的 task_id 编码出 key（空数组即在途 key）。
-   */
   function beginMark(
     field: "optimisticActive" | "optimisticActiveScriptFile",
     keyOf: (taskIds: readonly string[]) => string,
@@ -294,7 +282,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
     });
 
     const drop = (replacement: string | null): void => {
-      if (!get()[field].has(pendingKey)) return; // 已被回滚或被 store 重置
+      if (!get()[field].has(pendingKey)) return;
       set((s) => {
         const next = new Set(s[field]);
         next.delete(pendingKey);
@@ -392,7 +380,6 @@ export const useTasksStore = create<TasksState>((set, get) => {
 // Set/Map 内容，保证内容不变时引用稳定，避免每次渲染返回新集合触发重渲染。
 // ---------------------------------------------------------------------------
 
-/** 显示谓词：排队或运行中的任务显示为进行中。 */
 export function isActiveStatus(status: TaskStatus): boolean {
   return status === "queued" || status === "running";
 }
@@ -459,7 +446,6 @@ export function isOccupyingStatus(status: TaskStatus): boolean {
   return status === "queued" || status === "running";
 }
 
-/** 脚本规划按项目模式分三种任务类型，一个项目只用其中一种。 */
 export const SCRIPT_PLAN_TASK_TYPES: ReadonlySet<string> = new Set([
   "text_drama_script_plan",
   "text_narration_script_plan",
@@ -564,10 +550,6 @@ export function selectActiveResourceIds(
 
 const EMPTY_OPTIMISTIC: ReadonlySet<string> = new Set();
 
-/**
- * 提交时刻复核占用态的统一入口：封装 `getState()` 新鲜读 + {@link selectActiveResourceIds} +
- * key 拼装，供各写入控件在提交那一刻直接判定，不必各自重复这三步。
- */
 export function isResourceBusy(kind: ResourceKind, projectName: string, resourceId: string): boolean {
   const { tasks, optimisticActive } = useTasksStore.getState();
   return selectActiveResourceIds(tasks, kind, projectName, optimisticActive).has(resourceId);
@@ -644,7 +626,6 @@ export function isScriptFileBusy(
   );
 }
 
-/** hook 版 {@link selectHasActiveTaskForScriptFile}；scriptFile/projectName 缺失时返回 false。 */
 export function useHasActiveTaskForScriptFile(
   taskType: string,
   scriptFile: string | undefined | null,
@@ -666,7 +647,6 @@ export function useHasActiveTaskForScriptFile(
 // projectName 缺失时复用同一空集，保证 hook 引用稳定。
 const EMPTY_ACTIVE_IDS: Set<string> = new Set();
 
-/** hook 版 {@link selectActiveResourceIds}；projectName 缺失时返回稳定空集。 */
 export function useActiveResourceIds(
   taskType: ResourceKind,
   projectName: string | undefined | null,
@@ -680,7 +660,6 @@ export function useActiveResourceIds(
   );
 }
 
-/** hook 版 {@link selectLatestTaskByResource}，按 project + type 预筛。 */
 export function useLatestTasksByResource(
   projectName: string,
   taskType: string,

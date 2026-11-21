@@ -122,7 +122,6 @@ def test_silent_episode_injects_no_voice_style_same_as_silent_model():
 
     assert "声音特征" not in silent_episode.prompt
     assert "声音特征" not in silent_model.prompt
-    # 第一段只剩主体绑定行，两条无声路径逐字同形
     assert silent_episode.prompt.split("\n\n")[0] == silent_model.prompt.split("\n\n")[0]
 
 
@@ -511,7 +510,6 @@ def test_audio_speaker_reference_index_tracks_image_slot_by_name_not_position():
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
     )
     assert rendered.audio_speakers == ["张三", "李四"]
-    # references[0]=酒馆, references[1]=张三 → 张三的 0-based 下标是 1；李四未随请求发图
     assert rendered.audio_speaker_reference_index == [1, None]
 
 
@@ -593,8 +591,8 @@ def test_resolve_reference_audio_paths_only_returns_existing_files_under_refs_au
     project = {
         "characters": {
             "张三": {"reference_audio": "characters/refs_audio/张三.wav"},
-            "李四": {"reference_audio": "characters/refs_audio/李四.mp3"},  # 文件不存在
-            "越界": {"reference_audio": "project.json"},  # refs_audio 之外
+            "李四": {"reference_audio": "characters/refs_audio/李四.mp3"},
+            "越界": {"reference_audio": "project.json"},
             "未设": {},
         }
     }

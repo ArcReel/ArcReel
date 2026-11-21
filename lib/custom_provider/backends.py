@@ -136,7 +136,6 @@ class CustomImageBackend:
         return implemented if self._model_capabilities is None else implemented & self._model_capabilities
 
     async def reference_image_limit(self) -> int | None:
-        # 通道一侧的上限即被包装的 backend 声明的那一个。
         return await self._delegate.reference_image_limit()
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:

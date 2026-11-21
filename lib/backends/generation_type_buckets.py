@@ -52,7 +52,6 @@ from lib.custom_provider.endpoints import (
 
 GenerationTypeBucket = Literal["t2i", "i2i", "i2v", "r2v"]
 
-#: 每个 media_type 有哪些桶。文本 / 音频不设桶，故不在表内。
 BUCKETS_BY_MEDIA_TYPE: dict[str, tuple[GenerationTypeBucket, ...]] = {
     "image": ("t2i", "i2i"),
     "video": ("i2v", "r2v"),
@@ -99,7 +98,6 @@ def _image_fit(
     return BucketFit("image", unmet)
 
 
-#: 视频各桶唯一看的那一维，与 ``video_capability_satisfied`` 的判定式一一对应。
 _VIDEO_BUCKET_DIMENSION: dict[GenerationTypeBucket, BucketDimension] = {
     "i2v": "first_frame",
     "r2v": "max_reference_images",

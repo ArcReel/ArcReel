@@ -29,10 +29,6 @@ import type {
 } from "@/types/agent-credential";
 import { errMsg, voidCall } from "@/utils/async";
 
-/**
- * Agent 供应商列表（数据上是 Agent 凭证）。增改、删除、切换生效都是即时动作：成功以列表变化为反馈，
- * 失败弹出提示；删除不可撤销，先经 AlertDialog 确认。
- */
 export function CredentialsSection() {
   const { t } = useTranslation("dashboard");
 

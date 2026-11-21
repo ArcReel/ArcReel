@@ -22,7 +22,6 @@ import { ModelLifecycleNotice, type ModelLifecycleNotices } from "@/components/s
 import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import type { BucketDimension, FilteredCandidate, GenerationTypeBucket } from "@/types/system";
 
-/** 任务类型桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
 export function useGenerationTypeBucketLabels(): Record<GenerationTypeBucket, { label: string; caption?: string }> {
   const { t } = useTranslation("templates");
   return useMemo(
@@ -38,12 +37,10 @@ export function useGenerationTypeBucketLabels(): Record<GenerationTypeBucket, { 
 
 export interface LayeredSubField {
   key: string;
-  /** 已 t() 的细分项标签，以生成路径命名（文生图 / 图生图 / 图生视频 / 参考生视频）。 */
   label: string;
   /** 已 t() 的覆盖范围说明，展示在下拉下方；仅在覆盖范围不可从标签自明时提供。 */
   caption?: string;
   value: string;
-  /** 该细分项的候选（细分层按能力过滤）。 */
   options: string[];
   /** 留空时的最终生效模型（provider/model）；演算不出即省略。 */
   effective?: string;
@@ -57,13 +54,11 @@ export interface LayeredSubField {
 }
 
 export interface LayeredModelFieldsProps {
-  /** 默认层下拉的无障碍标签；视觉标签由外层卡片标题承担。 */
   defaultLabel: string;
   defaultValue: string;
   /** 默认层候选，不过滤——默认层不承诺能力，能力不满足由解析闸报错兜底。 */
   defaultOptions: string[];
   onDefaultChange: (next: string) => void;
-  /** 默认层空值选项的标签：全局设置为「自动选择」，项目设置为「使用全局默认」。 */
   emptyLabel: string;
   emptyHint?: string;
   /** 默认层留空时的生效模型（项目层 = 全局默认层）；全局层是基准、不传。 */
@@ -82,7 +77,6 @@ export interface LayeredModelFieldsProps {
    * 否则一个下拉的路径会被当成全部下拉的路径。
    */
   renderOptionMeta?: (fullValue: string, subFieldKey?: string) => React.ReactNode;
-  /** 默认层下拉与折叠区之间的附加内容（模型规格条、分辨率、时长等）。 */
   children?: React.ReactNode;
   /** 细分项；省略或空数组即不渲染折叠区（创建向导只暴露默认层）。 */
   subFields?: LayeredSubField[];
@@ -95,12 +89,9 @@ export interface LayeredModelFieldsProps {
    */
   subFieldsError?: {
     onRetry: () => void;
-    /** 重试在途；置位时按钮灰化，避免慢响应下点击毫无反馈。 */
     retrying?: boolean;
   };
-  /** 折叠区之后常驻的补充说明（如文本档位的 Agent 边界）。 */
   footnote?: React.ReactNode;
-  /** 下线提示（候选接口的 `lifecycle`）：默认层与各细分项选中的模型即将下线或已下线时，在各自下拉下方提示。 */
   lifecycle?: ModelLifecycleNotices;
 }
 

@@ -94,7 +94,6 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-// 本地新增：Sheet 里唯一的滚动区
 function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div

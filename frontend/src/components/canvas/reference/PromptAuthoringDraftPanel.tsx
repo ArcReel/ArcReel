@@ -25,7 +25,6 @@ import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPosition
 
 const DOC_TYPE = "reference_prompt_authoring";
 
-/** 提示词编写草稿的正文：按剧本顺序对应正式剧本单元的一组 unit 正文。 */
 interface PromptAuthoringDraft {
   units: { text: string }[];
 }

@@ -57,11 +57,6 @@ def _veo_720p_facts(set_video_request_facts) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# split_reference_video_units
-# ---------------------------------------------------------------------------
-
-
 async def test_fetch_reference_split_caps_returns_declared_slots(set_video_request_facts) -> None:
     """unit 时长就是发给供应商的那个值，档位原样取自两桶事实（不与任何静态区间求交）。"""
     from server import text_generation as mod
@@ -78,7 +73,7 @@ async def test_fetch_reference_split_caps_returns_declared_slots(set_video_reque
     assert caps.reference_durations == [1, 8, 16, 18]
     assert caps.text_durations == [1, 8, 16, 18]
     assert caps.max_duration == 18
-    assert caps.default_duration == 16  # 是档位成员，照常采信
+    assert caps.default_duration == 16
     assert caps.max_refs is None
     assert caps.text_problem is None
 
@@ -286,7 +281,6 @@ async def test_split_reference_video_units_dry_run(fake_ctx: ToolHarness, video_
     assert out.problem is None, out
     prompt_text = said(out)
     assert "DRY RUN" in prompt_text
-    # 集号、资产候选与能力约束进 prompt；引用语法规范随之注入
     assert "第 1 集" in prompt_text
     assert "张三" in prompt_text
     # 上限是两套逐 unit 档位并集的最大值，随能力解析派生
@@ -502,7 +496,7 @@ async def test_split_reference_video_units_rejects_dialogue_overload(
 ) -> None:
     """台词量按语速估算超过 unit 时长（宽容系数外）→ 阻断。"""
     rv_source(fake_ctx)
-    long_line = "这是一段非常长的台词" * 6  # 60 字，zh 语速 5 字/秒 → 约 12 秒
+    long_line = "这是一段非常长的台词" * 6
     units = [rv_unit(f"@[张三] 起身\n@[张三]：{{{long_line}}}", duration=4)]
     out = await run_rv_split(fake_ctx, monkeypatch, units)
     assert out.problem is not None

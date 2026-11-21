@@ -298,11 +298,11 @@ class ManagedSession:
     """A managed ClaudeSDKClient session."""
 
     session_id: str  # sdk_session_id（已有会话）或临时 UUID（新会话等待中）
-    actor: "SessionActor"  # per-session actor owning the SDK client
+    actor: "SessionActor"
     status: SessionStatus = "idle"
-    project_name: str = ""  # 用于 _register_new_session
+    project_name: str = ""
     sdk_id_event: asyncio.Event = field(default_factory=asyncio.Event)
-    resolved_sdk_id: str | None = None  # consumer 设置，send_new_session 读取
+    resolved_sdk_id: str | None = None
     channel: SseChannel = field(default_factory=_make_session_channel)
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     # 排队消息，按发送顺序：已交给 CLI、尚未被接纳进对话。CLI 报告开始处理（started）时写入日志并移出。
@@ -347,9 +347,9 @@ class ManagedSession:
     # inbox 已停止处理：actor 仍在读帧，但读到 CLI 开始工作也不再切入 running，否则无人收尾。
     _inbox_stopped: bool = False
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
-    _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)  # async post-processing queue
-    _inbox_warned: bool = False  # edge-triggered backlog warning state
-    _process_task: asyncio.Task | None = None  # per-session async inbox processor
+    _inbox: asyncio.Queue = field(default_factory=asyncio.Queue)
+    _inbox_warned: bool = False
+    _process_task: asyncio.Task | None = None
     _interrupting: bool = False  # send_interrupt re-entry guard (distinct from interrupt_requested)
 
     # Message types that must never be silently dropped from subscriber queues.
@@ -706,7 +706,6 @@ class SessionManager:
                     return
         except Exception:
             logger.warning("从 DB 加载 assistant 配置失败，回退到环境变量", exc_info=True)
-        # Fallback to env var
         self._load_config()
 
     async def _build_options(
@@ -926,9 +925,6 @@ class SessionManager:
             self.sessions.pop(temp_id, None)
             startup_stderr.stop()
             raise startup_error from exc
-        # Register done callback BEFORE spawning processor to avoid a race
-        # where the actor task completes before add_done_callback is attached，
-        # leaving the completion notice un-pushed and _process_inbox hanging.
         actor.add_done_callback(self._make_actor_done_callback(managed))
 
         # Spawn inbox processor BEFORE sending query so we don't miss messages.
@@ -1043,7 +1039,6 @@ class SessionManager:
 
         sdk_id = managed.resolved_sdk_id
         assert sdk_id is not None
-        # Key swap already done in _on_sdk_session_id_received
         assert managed.session_id == sdk_id
 
         if managed.initial_user_entry_error is not None:
@@ -1154,7 +1149,6 @@ class SessionManager:
                             "_finalize_turn 失败，走 error 终态兜底 session_id=%s",
                             managed.session_id,
                         )
-                        # inbox 就此停止，之后的帧不再处理
                         managed._inbox_stopped = True
                         with contextlib.suppress(Exception):
                             await self._mark_session_terminal(managed, "error", "finalize failed")
@@ -1278,7 +1272,7 @@ class SessionManager:
         try:
             options = await self._build_options(
                 meta.project_name,
-                meta.id if resumable else None,  # SessionMeta.id 就是 sdk_session_id
+                meta.id if resumable else None,
                 can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
                 locale=locale,
                 stderr=startup_stderr,
@@ -1303,17 +1297,17 @@ class SessionManager:
             meta.status if meta.status in ("idle", "running", "interrupted", "error", "closed") else "idle"
         )
         managed = ManagedSession(
-            session_id=meta.id,  # 现在就是 sdk_session_id
+            session_id=meta.id,
             actor=actor,
             status=resumed_status,
             project_name=meta.project_name,
             agent_pricing=agent_pricing_of(options),
             # 恢复会话的 CLI 带着此前的累计用量，差分以恢复后第一条结果为起点
             usage_meter=TurnUsageMeter(resumed=resumable),
-            resolved_sdk_id=meta.id,  # 标记为已注册，防止重复创建 DB 记录
+            resolved_sdk_id=meta.id,
             channel=self._session_channel(meta.id),
         )
-        managed.sdk_id_event.set()  # 已有会话不需要等待 sdk_id
+        managed.sdk_id_event.set()
         managed.entry_pipeline = self._build_entry_pipeline(managed)
         managed_ref[0] = managed
         managed.last_activity = time.monotonic()
@@ -1335,9 +1329,6 @@ class SessionManager:
         finally:
             startup_stderr.stop()
 
-        # done_callback BEFORE processor spawn (avoids race where actor
-        # completes before the callback attaches and the None sentinel
-        # is never pushed).
         actor.add_done_callback(self._make_actor_done_callback(managed))
 
         managed._process_task = asyncio.create_task(
@@ -1647,7 +1638,6 @@ class SessionManager:
             # 确定送入才登记：等锁期间它可能已离开排队，登记残留会让之后的 aborted_* 轮次都被当成插队打断
             if priority == "now":
                 managed.now_messages_in_flight.add(queued.cli_uuid)
-                # CLI 先处理它：托盘也把它排到最前
                 managed.move_queued_message_first(queued)
             await self._deliver_queued_message(managed, queued, on_failure=_not_delivered, priority=priority)
 
@@ -1822,7 +1812,7 @@ class SessionManager:
                     "session_id": managed.session_id,
                     "subtype": result_msg.get("subtype"),
                     "is_error": result_msg.get("is_error"),
-                    "api_error_status": result_msg.get("api_error_status"),  # SDK 0.1.76+
+                    "api_error_status": result_msg.get("api_error_status"),
                     "stop_reason": result_msg.get("stop_reason"),
                 },
             )
@@ -1968,7 +1958,6 @@ class SessionManager:
             return
         self._disconnecting[session_id] = asyncio.Event()
         try:
-            # Cancel any pending cleanup timer first
             if managed._cleanup_task is not None and not managed._cleanup_task.done():
                 managed._cleanup_task.cancel()
                 with contextlib.suppress(BaseException):
@@ -1990,7 +1979,6 @@ class SessionManager:
                 logger.exception("actor 关停异常 session_id=%s", session_id)
                 managed.status = "error"
 
-            # Drain the inbox processor
             with contextlib.suppress(Exception):
                 managed._inbox.put_nowait(None)
             if managed._process_task is not None and not managed._process_task.done():
@@ -2081,10 +2069,9 @@ class SessionManager:
                 raise SessionCapacityError("存在未能关闭的空闲会话，当前无法释放并发槽位，请稍后重试") from exc
             return
 
-        # 所有会话都在 running → 拒绝
         raise SessionCapacityError(f"当前有{len(active)}个正在进行的会话，已达到最大上限，请稍后重试")
 
-    _PATROL_INTERVAL = 300  # 5 分钟
+    _PATROL_INTERVAL = 300
 
     async def _patrol_once(self) -> None:
         """单次巡检：清理所有超时的非 running 会话。"""
@@ -2218,7 +2205,7 @@ class SessionManager:
 
             # Whitelist fallback: deny any tool that was not pre-approved
             # by allowed_tools or settings.json allow rules.
-            reason = getattr(_context, "decision_reason", None)  # SDK 0.1.74+
+            reason = getattr(_context, "decision_reason", None)
             reason_line = f"上游决策原因: {reason}\n" if reason else ""
             hint = (
                 f"未授权的工具调用: {tool_name}"
@@ -2242,11 +2229,10 @@ class SessionManager:
         if not sdk_id:
             return
         if managed.resolved_sdk_id is not None:
-            return  # Already registered
+            return
 
         managed.resolved_sdk_id = sdk_id
 
-        # Only create DB record for new sessions (no existing meta)
         if not managed.sdk_id_event.is_set():
             # 会话与项目的归属只记在 meta_store。元数据落库即可被列出、打开 entry 流，
             # 通道先按 sdk_id 登记，此后的订阅挂在会话实际广播的通道上；已离开常驻集合的会话不登记。

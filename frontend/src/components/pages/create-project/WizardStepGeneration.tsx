@@ -40,7 +40,6 @@ export interface WizardGenerationData {
 export interface WizardDurationValue {
   /** 广告项目的目标总时长（秒）；「自定义」输入无效时为 null。 */
   targetDuration: number | null;
-  /** 单集目标时长（秒）；null = 不设目标。广告项目不使用。 */
   episodeTargetDuration: number | null;
   /** 口播语速估算（阅读单位 / 秒）；null = 按项目语言的默认值估算。 */
   speechRate: number | null;

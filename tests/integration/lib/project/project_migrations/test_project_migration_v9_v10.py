@@ -22,7 +22,6 @@ from lib.project.project_migrations.v9_to_v10_script_plan_naming import migrate_
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_review
 
-#: 三种脚本规划变体：content_mode / generation_mode / v9 草稿文件名 / 迁移后文件名。
 _VARIANTS = [
     ("drama", "storyboard", "step1_normalized_script.json", "script_plan_normalized_script.json"),
     ("narration", "storyboard", "step1_segments.json", "script_plan_segments.json"),
@@ -118,7 +117,6 @@ def test_every_script_plan_variant_keeps_its_confirmation_across_the_rename(
     episode = migrated["episodes"][0]
     assert "step1_review" not in episode
     assert episode["script_plan_review"] == {"fingerprint": fingerprint, "confirmed_at": "2026-01-01T00:00:00Z"}
-    # 链尾（v15）的剧本 metadata 不带整集指纹。
     assert _read_json(project_dir / "scripts" / "episode_1.json")["metadata"] == {}
     # 确认指纹是内容指纹，改名不动内容：迁移后这一集仍是已确认、不重新阻塞提示词编写。
     assert script_review.review_status(project_dir, migrated, 1) == "confirmed"

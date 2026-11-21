@@ -419,7 +419,6 @@ describe("ComfyuiEndpointDetail", () => {
     expect(within(group).getAllByRole("checkbox")[0]).toBeChecked();
     expect(within(group).getAllByRole("checkbox")[1]).toBeChecked();
 
-    // 再点一次即取消，只去掉这一条。
     await userEvent.click(within(group).getAllByRole("checkbox")[0]);
     expect(within(group).getAllByRole("checkbox")[0]).not.toBeChecked();
     expect(within(group).getAllByRole("checkbox")[1]).toBeChecked();

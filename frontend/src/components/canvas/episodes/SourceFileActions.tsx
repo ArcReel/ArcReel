@@ -56,7 +56,6 @@ export function SourceFileActions({ projectName, file, index, total }: SourceFil
   const hasEpisodes = file.segments.some((segment) => segment.kind === "episode");
   const paused = change.busy || file.changed_outside;
 
-  /** 跑一次改动；执行后刷新项目，返回是否已执行。 */
   const perform = async (
     title: string,
     confirmLabel: string,
@@ -199,7 +198,6 @@ function EditSourceFileDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // 保存在途时不响应 Esc 与遮罩点击
         if (!next && !busy) onClose();
       }}
     >

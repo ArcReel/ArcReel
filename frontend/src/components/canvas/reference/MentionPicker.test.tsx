@@ -161,10 +161,8 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // First option is initially active
     await user.keyboard("{ArrowDown}{ArrowDown}");
     await user.keyboard("{Enter}");
-    // After two ArrowDowns from the first (主角), we should be on 酒馆 (third overall)
     expect(onSelect).toHaveBeenCalledWith({ type: "scene", name: "酒馆" });
   });
 
@@ -196,7 +194,6 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // Move highlight down twice (主角 → 张三 → 酒馆) then narrow the filter.
     await user.keyboard("{ArrowDown}{ArrowDown}");
     rerender(
       <MentionPicker
@@ -207,8 +204,6 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // After the filter change, Enter must pick the first item in the filtered
-    // list (主角), not whatever was highlighted before.
     await user.keyboard("{Enter}");
     expect(onSelect).toHaveBeenCalledWith({ type: "character", name: "主角" });
   });
@@ -289,7 +284,6 @@ describe("MentionPicker", () => {
     expect(alice).toHaveAttribute("aria-selected", "true");
     expect(bob).toHaveAttribute("aria-selected", "false");
 
-    // Real pointer movement to bob → active moves.
     fireEvent.mouseMove(bob, { clientX: 20, clientY: 20 });
     expect(bob).toHaveAttribute("aria-selected", "true");
     expect(alice).toHaveAttribute("aria-selected", "false");
@@ -334,9 +328,7 @@ describe("MentionPicker", () => {
     );
     const tabs = screen.getAllByRole("tab");
     expect(tabs).toHaveLength(5);
-    // 第一个 tab 是 "全部/All"，默认选中
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
-    // 全部 count = 2 (chars) + 1 (scene) + 1 (prop) = 4
     expect(tabs[0]).toHaveTextContent(/4/);
   });
 
@@ -354,7 +346,6 @@ describe("MentionPicker", () => {
     const sceneTab = screen.getByRole("tab", { name: /场景|Scene/i });
     await user.click(sceneTab);
     expect(sceneTab).toHaveAttribute("aria-selected", "true");
-    // 场景里的"酒馆"可见；角色里的"张三"被过滤掉
     expect(screen.getByRole("option", { name: /酒馆/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /张三/ })).not.toBeInTheDocument();
     // 单 tab 选中时 group 小标题被抑制（避免和 tab 语义重复）
@@ -412,7 +403,6 @@ describe("MentionPicker", () => {
     expect(onSelect).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
 
-    // 普通 Tab（无 shift）仍补全并阻止默认（保留原有行为，防回归）
     const tabEvent = new KeyboardEvent("keydown", { key: "Tab", cancelable: true });
     window.dispatchEvent(tabEvent);
     expect(onSelect).toHaveBeenCalled();
@@ -433,9 +423,7 @@ describe("MentionPicker", () => {
       />,
     );
     const listbox = screen.getByRole("listbox");
-    // listbox 不应出现在 render() 返回的测试容器子树里
     expect(container.contains(listbox)).toBe(false);
-    // 但必须在 document.body 子树里
     expect(document.body.contains(listbox)).toBe(true);
   });
 

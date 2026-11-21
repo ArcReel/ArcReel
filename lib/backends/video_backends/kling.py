@@ -63,9 +63,6 @@ _IMAGE2VIDEO = "image2video"
 _MULTI_IMAGE2VIDEO = "multi-image2video"
 _RESUMABLE_SUBPATHS = frozenset({_TEXT2VIDEO, _IMAGE2VIDEO, _MULTI_IMAGE2VIDEO})
 
-# 多图主体（multi-image2video）子路径一次能承载的参考图张数（通道事实，编排层与调用通道按同一上限拒绝超量输入）。
-# 各型号接受几张参考图记在模型条目上（官方 3.0 Omni / O1 在无参考视频时可达 7 张），与本值两侧取较小值
-# （docs/adr/0104）；本子路径的请求体沿用保守值 4，由调用端点固定声明。
 _R2V_MAX_REFERENCE_IMAGES = 4
 
 
@@ -269,8 +266,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             ),
         )
 
-    # ── request building ────────────────────────────────────────────────
-
     @staticmethod
     def _resolve_mode_from(resolution: str | None, service_tier: str | None) -> str:
         """质量档 → mode：resolution=4k 独立成 ``4k`` 档（仅 v3/v3-omni 可达），1080p→``pro``，否则 service_tier→std/pro。
@@ -405,7 +400,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
                 raise VideoCapabilityError(
                     "video_reference_route_audio_unsupported", provider=self.name, model=self._model
                 )
-            # 多图主体：image_list 为 [{"image": <base64>}]（可灵原生 schema），无单首帧概念。
             images = read_video_images(request, self.model)
             payload["image_list"] = [{"image": images[Path(p)].base64()} for p in reference_images]
             return _MULTI_IMAGE2VIDEO, payload
@@ -461,8 +455,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             "prompt_len": len(prompt) if isinstance(prompt, str) else 0,
         }
 
-    # ── generate / resume ───────────────────────────────────────────────
-
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 组装 payload 要读首帧 / 尾帧 / 参考图并编码，放线程里跑，避免阻塞事件循环
         subpath, payload = await asyncio.to_thread(self._build_payload, request)
@@ -499,8 +491,6 @@ class KlingVideoBackend(EntryBoundCapabilities, KlingBackendBase, ProviderJobIdP
             return await self._poll_and_build(
                 client, subpath, task_id, request, generate_audio=generate_audio, resume_job_id=job_id
             )
-
-    # ── HTTP poll / download ────────────────────────────────────────────
 
     async def _poll_and_build(
         self,

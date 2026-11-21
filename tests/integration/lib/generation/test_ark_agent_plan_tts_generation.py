@@ -204,7 +204,6 @@ async def test_incomplete_stream_records_a_failed_call_and_keeps_no_version(
 
     assert caught.value.key == key
     assert len(server.requests) == 1
-    # 正式文件与暂存文件都没有留下，版本历史没有新增
     assert await asyncio.to_thread(lambda: sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*.wav"))) == []
     assert not await asyncio.to_thread((tmp_path / "versions").exists)
     record = await _only_record(session_factory)

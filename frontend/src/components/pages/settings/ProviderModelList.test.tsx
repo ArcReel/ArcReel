@@ -88,19 +88,16 @@ describe("ProviderModelList", () => {
     render(<ProviderModelList providerId="acme" providerName="Acme" />);
 
     const lists = await screen.findAllByRole("list");
-    // 文本组在图片组之前
     expect(lists).toHaveLength(2);
     const [text, image] = lists;
     expect(within(text).getByText("Chat One")).toBeInTheDocument();
     // 内置供应商的默认模型来自官方数据，只作推荐（docs/adr/0099）
     expect(within(text).getByText("推荐")).toBeInTheDocument();
     expect(within(text).getByText("$0.05/百万 token 输入，$0.15–0.3/百万 token 输出")).toBeInTheDocument();
-    // 没有显示名时显示模型 ID
     expect(within(text).getAllByText("chat-legacy")).toHaveLength(2);
     expect(within(text).getByText("已下线")).toBeInTheDocument();
     expect(within(text).getByText("未定价")).toBeInTheDocument();
     expect(within(image).getByText("Image One")).toBeInTheDocument();
-    // 改过模型信息的行带「已修改」
     expect(within(image).getByText("已修改")).toBeInTheDocument();
     // 没有模型列表接口的供应商没有「获取模型」
     expect(screen.queryByRole("button", { name: "获取模型" })).not.toBeInTheDocument();
@@ -308,7 +305,6 @@ describe("ProviderModelList", () => {
     expect(within(dialog).queryByRole("button", { name: "文本" })).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "音频" })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "视频" })).toBeInTheDocument();
-    // 默认选中第一个受支持的类型
     expect(within(dialog).getByRole("button", { name: "图片" })).toHaveAttribute("aria-pressed", "true");
   });
 

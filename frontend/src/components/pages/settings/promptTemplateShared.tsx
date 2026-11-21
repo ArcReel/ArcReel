@@ -16,7 +16,6 @@ export type Load<T> =
 export const SOURCE_BLOCK_CLS =
   "relative overflow-x-auto rounded-md border border-border bg-muted/40 px-3.5 py-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-subtle-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50";
 
-/** 取值、枚举等短代码片段。 */
 export const CHIP_CLS =
   "rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-xs break-all text-subtle-foreground";
 
@@ -60,7 +59,6 @@ export function ErrorCard({
   );
 }
 
-/** 详情页的一节：标题与说明在卡片外，内容在卡片内。 */
 export function DetailSection({
   title,
   description,

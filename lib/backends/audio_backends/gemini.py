@@ -213,5 +213,4 @@ class GeminiAudioBackend:
             for part in (candidate.content.parts if candidate.content else None) or []:
                 if part.inline_data is not None and part.inline_data.data:
                     return part.inline_data.data, part.inline_data.mime_type, response.usage_metadata
-        # 合成已在供应商侧计费，重试等于再次计费，直接失败交由任务层处理
         raise RuntimeError("Gemini 语音合成未返回音频")

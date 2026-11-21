@@ -87,7 +87,7 @@ class InferenceCredential:
 
     credential_type: CredentialType
     credential_id: int
-    provider: str  # 内置供应商 id，或自定义供应商的 ``custom-<id>``
+    provider: str
     name: str
     api_key: str
     endpoint: str

@@ -92,7 +92,6 @@ class KlingImageBackend(KlingBackendBase):
             http_timeout=http_timeout,
             transport_layer=transport_layer,
         )
-        # 发给可灵 API 的模型名：调用方按 registry 解耦后传入；缺省回退 registry 键名（普通模型键名即 API 名）。
         self._api_model_name = api_model_name or self._model
 
     @property
@@ -101,8 +100,6 @@ class KlingImageBackend(KlingBackendBase):
 
     async def reference_image_limit(self) -> int | None:
         return self.CHANNEL_REFERENCE_LIMIT
-
-    # ── request building ────────────────────────────────────────────────
 
     def _build_payload(self, request: ImageGenerationRequest) -> dict:
         """构建图像请求体。无参考图 → 文生图；有参考图 → 图生图（image 数组）。"""
@@ -139,8 +136,6 @@ class KlingImageBackend(KlingBackendBase):
             "reference_count": len(images) if isinstance(images, list) else int(bool(images)),
             "prompt_len": len(prompt) if isinstance(prompt, str) else 0,
         }
-
-    # ── generate ────────────────────────────────────────────────────────
 
     @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:

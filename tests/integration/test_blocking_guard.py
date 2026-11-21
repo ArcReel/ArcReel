@@ -479,7 +479,6 @@ def test_preview_caps_third_party_frames_without_dropping_business_frames(probe_
         r"tests/test_probe\.py:\d+ in test_lock_deep_in_third_party_code",
     )
     assert positions == sorted(positions), section
-    # 10 条非仓库帧（acquire_now 与 9 层 acquire_nested）保留最内层 4 条。
     assert section.count("in acquire_nested") == 3, section
 
 

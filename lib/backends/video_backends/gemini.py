@@ -259,7 +259,6 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> Any:
         """创建 Gemini 视频生成任务（带重试保护）。"""
-        # 1. 限流
         if self._rate_limiter:
             await self._rate_limiter.acquire_async(self._video_model)
 
@@ -284,11 +283,9 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             image = loaded[Path(path)]
             return self._types.Image(image_bytes=image.content, mime_type=image.mime)
 
-        # end_image → last_frame（帧插值）
         if request.end_image is not None:
             config_params["last_frame"] = image_param(request.end_image)
 
-        # reference_images → reference_images（参考图列表，type=ASSET）
         if request.reference_images:
             prepared_refs = [image_param(path) for path in request.reference_images]
             config_params["reference_images"] = [
@@ -301,12 +298,10 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         config = self._types.GenerateVideosConfig(**config_params)
 
-        # 4. 准备 source（prompt + 可选起始帧）
         source = self._types.GenerateVideosSource(
             prompt=request.prompt, image=image_param(request.start_image) if request.start_image else None
         )
 
-        # 5. 调用 API
         logger.info(
             "调用 %s 视频 SDK payload=%s",
             self.name,
@@ -335,7 +330,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
                 # SDK 通过 operation.name 查询状态并返回新对象，闭包捕获初始 operation 即可
                 poll_fn=lambda: self._client.aio.operations.get(operation),
                 is_done=lambda op: op.done,
-                is_failed=lambda op: None,  # Gemini 在轮询完成后检查失败
+                is_failed=lambda op: None,
                 max_wait=request.poll_timeout_seconds,
                 label="Gemini",
                 retry_if=_should_retry_gemini_poll,
@@ -363,7 +358,6 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
                 raise RuntimeError(f"视频生成失败: {error_detail}")
             raise RuntimeError("视频生成失败: API 返回空结果")
 
-        # 提取并下载视频
         generated_video = operation.response.generated_videos[0]
         video_ref = generated_video.video
         video_uri = video_ref.uri if video_ref else None
@@ -382,10 +376,6 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             .audio_track_for_route("r2v" if request.reference_images else "i2v")
             .output_audio(request.generate_audio),
         )
-
-    # ------------------------------------------------------------------
-    # 内部辅助方法（从 GeminiClient 提取）
-    # ------------------------------------------------------------------
 
     async def _download_video_with_retry(self, video_ref, output_path: Path) -> None:
         """下载视频，重试走共用的产物下载预算。

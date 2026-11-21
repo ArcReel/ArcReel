@@ -82,7 +82,6 @@ export interface UsageRecordPage {
   total: number;
 }
 
-/** 一组调用的计数与分币种参考费用。 */
 export interface UsageStatsBlock {
   calls: number;
   success: number;
@@ -190,7 +189,6 @@ export type UsageView = "generation" | "agent";
 
 /** Agent 会话列表里的一行；合计只含落在筛选内的记录。 */
 export interface UsageAgentSession {
-  /** SDK 会话 id。 */
   session_id: string;
   /** 会话标题；会话元数据已删除时为 null，空串表示尚未命名。 */
   title: string | null;
@@ -217,7 +215,6 @@ export interface UsageAgentSessionPage {
   total: number;
 }
 
-/** 会话明细里的一条记录：一轮里某个模型的用量与费用。 */
 export interface UsageAgentSessionRecord {
   id: number;
   started_at: string;

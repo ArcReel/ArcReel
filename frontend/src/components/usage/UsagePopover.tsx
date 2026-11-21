@@ -53,7 +53,6 @@ function KpiCell({ label, value, sub }: { label: string; value: string; sub: str
   );
 }
 
-/** KPI 一行 4 格，口径与入口按钮一致：本项目全部时间。 */
 function KpiStrip({ summary }: { summary: UsageSummary | null }) {
   const { t, i18n } = useTranslation("dashboard");
   const kpi = summary?.kpi ?? null;

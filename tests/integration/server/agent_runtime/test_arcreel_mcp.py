@@ -18,16 +18,10 @@ from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 from tests.fakes import FakeSDKClient, result_frame, system_frame, use_sdk_client
 
-# ---------------------------------------------------------------------------
-# build_arcreel_mcp_server
-# ---------------------------------------------------------------------------
-
 
 def test_build_arcreel_mcp_server_contains_all_tools(tmp_path: Path) -> None:
     srv = build_arcreel_mcp_server(project_name="demo", data_root=tmp_path)
     assert srv["name"] == "arcreel"
-    # SDK exposes the registered tools on srv["instance"]; we just sanity-check
-    # the type returned matches the spec contract.
     assert "instance" in srv
 
 

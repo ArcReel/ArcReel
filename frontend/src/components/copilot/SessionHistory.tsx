@@ -49,16 +49,10 @@ function SessionStatusDot({ status }: { status: SessionMeta["status"] }) {
 
 interface SessionHistoryProps {
   onPick: (sessionId: string) => void;
-  /** 删除会话，返回是否删除成功。 */
   onDelete: (sessionId: string) => Promise<boolean>;
-  /** 收起历史视图，回到消息区。 */
   onClose: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// SessionHistory — 「历史」开关打开后替换消息区的会话列表。
-// 可按标题搜索；行上显示状态点与相对时间，删除在行尾，确认后不可恢复。
-// ---------------------------------------------------------------------------
 
 export function SessionHistory({ onPick, onDelete, onClose }: SessionHistoryProps) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);

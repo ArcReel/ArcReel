@@ -37,7 +37,6 @@ function FileList({ files, label }: { files: string[]; label?: string }) {
   );
 }
 
-/** 「Agent 配置」：项目内 Agent 配置的状态，以及「重置为内置配置」。重置不可撤销，经 AlertDialog 确认。 */
 export function AgentProfileTab({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
   const [status, setStatus] = useState<AgentProfileStatus | null>(null);
@@ -135,7 +134,6 @@ export function AgentProfileTab({ projectName }: { projectName: string }) {
       <AlertDialog
         open={confirmOpen}
         onOpenChange={(next) => {
-          // 重置请求在途时不响应关闭，Esc 也关不掉
           if (!next && !resetting) setConfirmOpen(false);
         }}
       >

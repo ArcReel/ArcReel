@@ -955,7 +955,6 @@ def test_v7_schema_promotion_does_not_overwrite_a_concurrent_project_writer(tmp_
         artifact_activation._ensure_activation_backup(source, stamp=stamp, from_version=7)
         if source == project_path:
             writer_released.set()
-            # 写入方此刻必须还卡在项目锁上：拿得到锁就说明 activation 的临界区没罩住提升。
             assert not writer_finished.wait(timeout=0.2)
 
     writer = Thread(target=_update_project)
@@ -999,7 +998,6 @@ def test_v7_activation_rolls_back_when_inputs_drift_inside_the_critical_section(
             project_dir, bump_schema=True, backup_file=_drift_project_after_backup
         )
 
-    # 漂移写入原样留存，schema 未被快照里的旧值覆盖；清单回到激活前的「不存在」
     landed = _read_json(project_path)
     assert landed["title"] == "Drifted inside the lock"
     assert landed["schema_version"] == 7

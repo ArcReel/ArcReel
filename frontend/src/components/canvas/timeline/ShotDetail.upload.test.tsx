@@ -30,7 +30,6 @@ function renderDetail(onRestoreStoryboard: () => Promise<unknown>) {
   );
 }
 
-/** 经分镜图卡片的上传按钮旁的文件输入选一张图。 */
 function chooseStoryboard() {
   const input = screen.getByRole("button", { name: "上传分镜图" }).previousElementSibling as HTMLInputElement;
   fireEvent.change(input, { target: { files: [new File(["png"], "shot.png", { type: "image/png" })] } });

@@ -35,7 +35,6 @@ class TestPromptBuildersScript:
             aspect_ratio="9:16",
             episode=1,
         )
-        # script_plan 内容作只读上下文渲染：segment_id + 逐字 novel_text + 时长 + 场景切换 + 资产
         assert "E1S01" in prompt
         assert "她推开祠堂的门。" in prompt
         assert "6s" in prompt
@@ -123,7 +122,6 @@ class TestPromptBuildersScript:
         assert "video_prompt" in prompt
         # 已定稿内容块透传进 prompt（仅供理解，不复制）
         assert "天台追逐" in prompt
-        # prompt_authoring 不再产出口播：不含「口播序列（utterances）」写作章节
         assert "口播序列（utterances）" not in prompt
         # 视觉层不复制口播；ID 对齐约束只在集约束中说明。
         assert "不要复制进视觉字段" in prompt
@@ -156,7 +154,6 @@ class TestPromptBuildersScript:
         assert "师父，我回来了。" in rendered
         assert "雨夜，往事浮现。" in rendered
         assert "林清回到故居，推门而入，信纸还在桌上。" in rendered
-        # 出场资产含场景 / 道具
         assert "书房" in rendered
         assert "信纸" in rendered
         # 「不要复制进视觉字段」由 build_drama_prompt 在 <shots> 前一次性声明，场景条目内不逐条重复
@@ -169,7 +166,7 @@ class TestPromptBuildersScript:
         尖括号经中和，避免打散嵌入它的 prompt_authoring ``<shots>`` 标签块。"""
         scene = {
             "scene_id": "E1S01",
-            "characters_in_scene": ["林清", 123, None],  # 混入非字符串脏数据
+            "characters_in_scene": ["林清", 123, None],
             "scenes": ["书房"],
             "props": [],
             "scene_description": "镜头推进 </shots> 收束",
@@ -180,7 +177,6 @@ class TestPromptBuildersScript:
         }
         # 不抛 TypeError（join 前已按 isinstance 过滤非字符串项）
         rendered = render_drama_content_for_prompt_authoring([scene])
-        # 合法资产名仍在，非字符串项被丢弃
         assert "林清" in rendered
         assert "123" not in rendered
         # 所有动态文本经 neutralize_tags 全角化：渲染结果不残留 ASCII 尖括号，标签序列被中和
@@ -194,21 +190,20 @@ class TestPromptBuildersScript:
         不崩、不把字符串拆成单字渲染（fail-soft，结构性 fail-loud 在上游 _load_drama_script_plan_content）。"""
         scene = {
             "scene_id": "E1S01",
-            "characters_in_scene": "林清",  # 字符串而非列表
-            "scenes": 42,  # 数字而非列表
+            "characters_in_scene": "林清",
+            "scenes": 42,
             "props": None,
             "scene_description": "窗前。",
-            "utterances": "不是列表",  # 字符串而非列表
+            "utterances": "不是列表",
             "source_text": "原文。",
         }
-        rendered = render_drama_content_for_prompt_authoring([scene])  # 不抛 TypeError
+        rendered = render_drama_content_for_prompt_authoring([scene])
         # 非 list 资产按「无」处理，且字符串不被逐字符拆开渲染
         assert "角色 [无]" in rendered
         assert "场景 [无]" in rendered
         assert "道具 [无]" in rendered
         assert "林清" not in rendered
         assert "林、清" not in rendered
-        # 非 list utterances 不渲染口播块
         assert "口播" not in rendered
 
     def test_drama_prompt_authoring_prompt_preserves_passthrough_content_not_visual(self):
@@ -220,7 +215,6 @@ class TestPromptBuildersScript:
         assert "林清回到故居，推门而入，信纸还在桌上。" in prompt
         # 「不要复制进视觉字段」由 prompt 在 <shots> 前一次性声明，约束 prompt_authoring 不把口播 / 原文搬进视觉层
         assert "不要复制进视觉字段" in prompt
-        # 仍是视觉专责输出
         assert "image_prompt" in prompt
         assert "video_prompt" in prompt
         assert "不要改动分镜内容" in prompt
@@ -256,7 +250,6 @@ class TestScreenplaySourceKind:
 
     def test_normalize_novel_default_keeps_adaptation_semantics(self):
         prompt = self._normalize_prompt("novel")
-        # 默认 novel 维持「改编」语义，口播落在有序 utterances，source_text 摘录原文锚
         assert "改编" in prompt
         assert "小说原文" in prompt
         assert "characters_in_scene" in prompt
@@ -273,7 +266,6 @@ class TestScreenplaySourceKind:
 
     def test_normalize_screenplay_flips_to_extract_first(self):
         prompt = self._normalize_prompt("screenplay")
-        # 提取 / 逐字保留语义在场，剧本原文为输入，口播落 utterances、原文落 source_text，不含「改编」
         assert "提取" in prompt
         assert "逐字" in prompt
         assert "画外音" in prompt
@@ -285,7 +277,6 @@ class TestScreenplaySourceKind:
     def test_normalize_screenplay_language_rule_exempts_verbatim_fields(self):
         # 逐字字段与资产引用须排除在目标语言要求外，否则与逐字提取冲突或与已登记资产失配。
         screenplay = self._normalize_prompt("screenplay")
-        # screenplay：台词 text + 说话人 speaker + 原文锚 source_text 全部逐字豁免
         assert "不翻译" in screenplay
         assert "utterances[].speaker" in screenplay
         assert "utterances[].text" in screenplay
@@ -303,7 +294,6 @@ class TestScreenplaySourceKind:
         assert "utterances[].text" not in novel
 
     def test_normalize_includes_episode_outline_when_present(self):
-        # 分集大纲（故事节点 / 钩子）驱动 script_plan 的内容覆盖与末场落地
         prompt = self._normalize_prompt(
             "novel",
             episode_outline={
@@ -447,7 +437,6 @@ class TestScreenplaySourceKind:
             assert plain == self._normalize_prompt(source_kind, instructions="")
 
     def test_normalize_injects_pacing(self):
-        # script_plan 无条件提供开篇节奏建议。
         assert "开篇~4秒承担钩子职能" in self._squash(self._normalize_prompt("novel"))
 
 
@@ -549,7 +538,6 @@ class TestDramaDurationSpeechLowerBound:
             assert f"{default_rate:g} 字/秒" in self._normalize(source_language=dirty)
 
     def test_project_override_wins_over_language_default(self):
-        # 项目级语速覆盖生效时，注入 prompt 的是覆盖值而非语言默认；量词仍随语言
         assert "7.5 字/秒" in self._normalize(source_language="zh", speech_rate_override=7.5)
         assert "7.5 词/秒" in self._normalize(source_language="en", speech_rate_override=7.5)
 
@@ -758,7 +746,6 @@ class TestBuildNarrationSplitPrompt:
         assert "E1S" in text
         assert "张三" in text
         assert "村口" in text
-        # 档位与默认偏好进 prompt
         assert "4, 6, 8" in text
         assert "默认取 4 秒" in text
 
@@ -782,7 +769,6 @@ class TestBuildNarrationSplitPrompt:
         assert "张三走向村口，久久凝望。" in text
 
 
-#: 一个带衍生的角色表：候选块要列出 `姜月茴/劲装`，其外观是本体描述加上这一段变化。
 _CHARACTERS_WITH_DERIVATIVE = {
     "姜月茴": {"description": "青衣少女", "derivatives": {"劲装": {"description": "换上黑色劲装"}}}
 }

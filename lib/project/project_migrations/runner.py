@@ -124,7 +124,7 @@ class MigrationSummary:
 def _load_schema_version(project_dir: Path) -> int:
     pj = project_dir / "project.json"
     if not pj.exists():
-        return -1  # 跳过非项目目录
+        return -1
     try:
         data = json.loads(pj.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -329,7 +329,7 @@ def migrate_project_with_verdict(
 
     try:
         migrate_project_dir(project_dir, recorded_episode_ids=recorded_episode_ids)
-    except Exception as exc:  # 单个项目失败被隔离，不中断整体迁移
+    except Exception as exc:
         logger.error("迁移失败 %s: %s", project_dir.name, exc)
         # The persisted verdict is what the production status, the production plan
         # and every generation entry read to refuse work on this project.
@@ -366,7 +366,7 @@ def run_project_migrations(
     for child in list_project_dirs(projects_dir):
         version = _load_schema_version(child)
         if version < 0:
-            continue  # project.json 损坏
+            continue
         # Persisting the verdict is itself disk work: one project whose directory
         # cannot be written must not abort the pass for every project after it.
         try:
@@ -432,7 +432,6 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
                 logger.warning("无法删除 clues 备份：%s", bak_dir)
 
 
-# 注册迁移器（顶部 import，此处仅赋值）
 MIGRATORS[0] = migrate_v0_to_v1
 MIGRATORS[1] = migrate_v1_to_v2
 MIGRATORS[2] = migrate_v2_to_v3

@@ -72,7 +72,6 @@ _JOB_ID_PREFIX = "tasks:"
 # 也避免上游按各自默认值（kling-4.0 默认 1080p）出片，与计量的分辨率档位对不上。
 _DEFAULT_RESOLUTION = "720p"
 
-# 通道对任何型号都发得出文生视频、首帧与尾帧；参考图与参考音频没有对应的请求字段。
 _CHANNEL_CAPABILITIES = VideoCapabilities(
     text_to_video=True,
     first_frame=True,
@@ -139,8 +138,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         )
         self._base_url = kling_model_path_base_url(base_url)
 
-    # ── 能力与计量 ──────────────────────────────────────────────────────
-
     @classmethod
     def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
         """通道事实：文生、首帧、尾帧可发，参考图与参考音频不收，成片固定有声。
@@ -180,8 +177,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             reference_images=0,
         )
 
-    # ── 响应解读 ────────────────────────────────────────────────────────
-
     def _task_id_from(self, submit_payload: dict) -> str:
         return kling_model_path_task_id(submit_payload)
 
@@ -193,8 +188,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
 
     def _failure_reason(self, payload: dict) -> str | None:
         return kling_model_path_failure_reason(payload)
-
-    # ── 请求构造 ────────────────────────────────────────────────────────
 
     def _build_payload(self, request: VideoGenerationRequest) -> tuple[str, dict]:
         """返回 (提交路径, 请求体)；发不出的输入在付费前拒绝，不静默丢弃。"""
@@ -255,8 +248,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             "frames": ",".join(str(t) for t in frame_types),
             "prompt_len": len(prompt) if isinstance(prompt, str) else 0,
         }
-
-    # ── generate / resume ───────────────────────────────────────────────
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         path, payload = await asyncio.to_thread(self._build_payload, request)

@@ -50,9 +50,7 @@ _RESOURCE_ID = "seed-tts-2.0"
 # 上游请求体没有模型字段，这是 ArcReel 的本地标识：用于目录条目、记账和选择模型，与资源 ID 同名。
 DEFAULT_MODEL = "seed-tts-2.0"
 
-#: 音频或句子对象的 code。
 _CHUNK_CODE = 0
-#: 合成成功结束的 code。
 _SUCCESS_CODE = 20000000
 #: 音色鉴权失败或并发超限：官方错误码表里两种拒因共用这一个 code。
 _ACCESS_DENIED_CODE = 45000000
@@ -293,7 +291,6 @@ class ArkAgentPlanAudioBackend:
             "X-Api-Key": self._api_key,
             "X-Api-Resource-Id": _RESOURCE_ID,
             "X-Api-Request-Id": str(uuid.uuid4()),
-            # 要求结束对象带回计费字符数。
             "X-Control-Require-Usage-Tokens-Return": "text_words",
         }
         logger.info(

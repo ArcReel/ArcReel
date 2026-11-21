@@ -15,8 +15,6 @@ import type {
 } from "@/types";
 import { EndpointsSection } from "./EndpointsSection";
 
-// EndpointsSection 的测试按行为域拆成多个文件（主流程、ComfyUI、市场集成、分享到官方市场），
-// 样本数据、渲染入口与对话框驱动都在这里，各文件只写用例。
 
 export function makeDefinition(overrides?: Partial<EndpointDefinition>): EndpointDefinition {
   return {
@@ -158,7 +156,6 @@ export async function clickRail(name: string | RegExp) {
   await userEvent.click((await screen.findAllByRole("link", { name }))[0]);
 }
 
-/** 打开页头「更多操作」菜单里的一项。 */
 export async function chooseMenu(name: string) {
   await userEvent.click(await screen.findByRole("button", { name: "更多操作" }));
   await userEvent.click(await screen.findByRole("menuitem", { name }));
@@ -190,7 +187,6 @@ export async function pickFile(file: File) {
   fireEvent.change(importFileInput(), { target: { files: [file] } });
 }
 
-/** 在导入弹窗里粘贴一份载荷，与上传走同一条分流。 */
 export async function pasteSource(text: string) {
   await openImport();
   await userEvent.click(screen.getByLabelText("粘贴端点定义或 workflow"));

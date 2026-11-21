@@ -40,7 +40,6 @@ if command -v rsync >/dev/null 2>&1; then
     --exclude '/vertex_keys' \
     "${SOURCE_DIR}/" "${TARGET_DIR}/"
 else
-  # Fallback copy without rsync.
   cp -R "${SOURCE_DIR}/." "${TARGET_DIR}/"
   rm -rf "${TARGET_DIR}/.git" \
          "${TARGET_DIR}/.idea" \

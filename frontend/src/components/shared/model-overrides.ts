@@ -1,6 +1,5 @@
 import type { ModelConfigValue } from "./ModelConfigSection";
 
-/** 项目覆盖全局默认的三个模型通道。 */
 export type ModelChannel = "video" | "image" | "text";
 
 type ChannelFields = Pick<

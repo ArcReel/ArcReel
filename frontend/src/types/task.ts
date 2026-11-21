@@ -1,12 +1,5 @@
 import type { EpisodeItemRef } from "./project";
 
-/**
- * Task queue type definitions.
- *
- * Maps to backend models in:
- * - lib/generation/generation_queue.py (GenerationQueue task schema, get_task_stats)
- * - webui/server/routers/tasks.py (API responses)
- */
 
 export type TaskStatus =
   | "queued"

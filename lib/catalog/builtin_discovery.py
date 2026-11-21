@@ -19,7 +19,6 @@ from lib.custom_provider.endpoints import infer_media_type
 
 DiscoveryForm = Literal["google", "openai"]
 
-#: 有模型列表接口的内置供应商与接口形态。
 BUILTIN_DISCOVERY_FORMS: Mapping[str, DiscoveryForm] = {
     "gemini-aistudio": "google",
     "gemini-vertex": "google",

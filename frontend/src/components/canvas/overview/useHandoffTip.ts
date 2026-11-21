@@ -22,13 +22,9 @@ function readDismissed(projectName: string): boolean {
 }
 
 interface HandoffTipState {
-  /** 本次会话内等待显示提示的项目。 */
   pending: ReadonlySet<string>;
-  /** 本次会话内各项目上一次看到的故事设定是否为空。 */
   seenEmpty: Readonly<Record<string, boolean>>;
-  /** 记下看到的故事设定是否为空：由空变为有内容且项目此前没有关闭过提示时显示。 */
   observe: (projectName: string, empty: boolean) => void;
-  /** 关闭提示并按项目记住；提示尚未出现时同样记住，之后不再出现。 */
   dismiss: (projectName: string) => void;
 }
 

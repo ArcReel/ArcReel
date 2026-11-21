@@ -1,11 +1,9 @@
 """Vietnamese translations for style template names and taglines."""
 
 MESSAGES: dict[str, str] = {
-    # ===== Category names =====
     "template_category_custom": "Tùy chỉnh",
     "template_category_live": "Người đóng",
     "template_category_anim": "Hoạt hình",
-    # ===== Live names (18) =====
     "template_name_live_cinematic_ancient": "Cổ trang điện ảnh",
     "template_name_live_zhang_yimou": "Trương Nghệ Mưu",
     "template_name_live_ancient_xianxia": "Cổ trang Tiên hiệp",
@@ -24,7 +22,6 @@ MESSAGES: dict[str, str] = {
     "template_name_live_wong": "Vương Gia Vệ",
     "template_name_live_shaw": "Shaw Brothers",
     "template_name_live_cyberpunk": "Cyberpunk Người đóng",
-    # ===== Anim names (18) =====
     "template_name_anim_3d_cg": "3D Game CG",
     "template_name_anim_cn_3d": "3D Trung Quốc",
     "template_name_anim_kyoto": "Kyoto Animation",
@@ -43,7 +40,6 @@ MESSAGES: dict[str, str] = {
     "template_name_anim_bloodborne": "Bloodborne",
     "template_name_anim_itojunji": "Junji Ito",
     "template_name_anim_90s_retro": "Anime hoài cổ thập niên 90",
-    # ===== Live taglines (18) =====
     "template_tagline_live_cinematic_ancient": "Ánh sáng chuyên nghiệp · Chất lượng truyền hình",
     "template_tagline_live_zhang_yimou": "Màu sắc đậm · Nghi lễ",
     "template_tagline_live_ancient_xianxia": "Lâm Giang Tiên · Filter dịu",
@@ -62,7 +58,6 @@ MESSAGES: dict[str, str] = {
     "template_tagline_live_wong": "Hạt phim · Đô thị phương Đông",
     "template_tagline_live_shaw": "Võ hiệp HK · Chất điện ảnh",
     "template_tagline_live_cyberpunk": "Chất điện ảnh · Siêu nét",
-    # ===== Anim taglines (18) =====
     "template_tagline_anim_3d_cg": "Chất điện ảnh · Unreal Engine",
     "template_tagline_anim_cn_3d": "Chất điện ảnh · Unreal Engine",
     "template_tagline_anim_kyoto": "Cel mềm · Tateishi",

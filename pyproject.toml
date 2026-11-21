@@ -72,6 +72,8 @@ dev = [
     "blockbuster>=1.5.29",
     "anyio>=4.14.2",
     "time-machine>=3.6.0",
+    "tree-sitter-language-pack==0.13.0",
+    "tree-sitter>=0.25,<0.27",
 ]
 # 变异测试工具，不进 dev：只在按批次跑 mutmut 时 `uv sync --group mutation` 装入。
 # 独立成组是为了让版本 pin 进 uv.lock、被 dependabot 看到；流程见 docs/testing/mutmut-runbook.md。
@@ -153,15 +155,12 @@ layers = [
 ]
 containers = ["lib"]
 ignore_imports = [
-    # lib.config.resolver 直接向上引用自定义供应商装配层（函数体内延迟导入，静态分析仍计入）
     "lib.config.resolver -> lib.custom_provider",
     "lib.config.resolver -> lib.custom_provider.capabilities",
     "lib.config.resolver -> lib.custom_provider.default_models",
     "lib.config.resolver -> lib.custom_provider.endpoint_resolution",
     "lib.config.resolver -> lib.custom_provider.model_facts",
-    # lib.config.resolver 直接向上引用 backend 层
     "lib.config.resolver -> lib.backends.text_backends.base",
-    # 中间模块把 backend 层拉回 config 之下的可达范围
     "lib.backends.backend_assembly.specs -> lib.backends.audio_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.image_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.video_backends.registry",
@@ -325,10 +324,10 @@ DEP002 = [
 # dev 与生产文件，故逐项列出它们正当 import 的测试框架包；其余 dev 依赖仍受本规则守护。
 DEP004 = [
     "anyio",          # 回归测试直接构造 httpx 所用的 anyio 取消域
-    "pytest",         # 测试框架
+    "pytest",
     "_pytest",        # pytest 的内部模块，根 conftest 复用其选择参数解析器
     "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）
-    "respx",          # httpx 的测试替身
+    "respx",
     "blockbuster",    # 事件循环阻塞检测，tests/blocking_guard 护栏的拦截点来源
     "time_machine",   # scripts/e2e_record_backend.py 的 --perturb 前移系统时钟，核对 e2e 替身与录制日期无关
 ]
@@ -360,7 +359,6 @@ explicit-preview-rules = true
 [tool.ruff.lint.per-file-ignores]
 # 测试里的 /tmp 是假路径字符串，测试调用 git 依赖 PATH 是预期行为。
 "tests/**" = ["S108", "S607"]
-# 子包测试与主仓 tests/ 同一口径。
 "packages/*/tests/**" = ["S108", "S607"]
 
 [tool.ruff.lint.flake8-bugbear]

@@ -123,7 +123,6 @@ async def test_actor_start_connects_fake_client():
     await actor.start()
     assert actor._started.is_set()
     assert "connect" in client.method_tasks
-    # 立即发 disconnect 把 actor 收尾
     cmd = SessionCommand(type="disconnect")
     await actor.enqueue(cmd)
     await cmd.done.wait()
@@ -378,7 +377,6 @@ async def test_actor_fatal_drains_queued_commands():
     await actor.enqueue(q)
     await actor.enqueue(q_queued)
 
-    # 等 actor task 结束
     if actor._task is not None:
         with pytest.raises(RuntimeError):
             await actor._task
@@ -437,7 +435,6 @@ async def test_interrupt_failure_still_wakes_waiter():
         await asyncio.wait_for(i.done.wait(), timeout=1.0)
         assert i.error is not None
     finally:
-        # actor 已 crash；cancel 清理
         await actor.cancel_and_wait()
 
 
@@ -532,9 +529,6 @@ async def test_actor_exits_when_message_stream_closes():
     assert q.done.is_set()
     assert q.error is not None
     assert client.sent_queries == []
-
-
-# --- 原始帧流 ------------------------------------------------------------------
 
 
 async def test_command_lifecycle_frames_reach_the_hook_in_frame_order():

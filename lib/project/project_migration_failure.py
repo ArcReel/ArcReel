@@ -263,9 +263,6 @@ def _write_atomically(path: Path, record: MigrationFailureRecord) -> None:
             handle.write(payload)
         os.replace(tmp_name, path)
     except OSError as exc:
-        # Without the record on disk the project is not blocked anywhere, so a
-        # failed write is louder than the migration failure it was recording:
-        # generation stays open on data the migration already refused.
         logger.error("无法写入迁移失败记录，该项目不会被阻断：%s（%s）", path, exc)
         Path(tmp_name).unlink(missing_ok=True)  # hard-delete: temp -- 原子写的临时文件
         raise

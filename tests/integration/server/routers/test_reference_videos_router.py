@@ -35,7 +35,6 @@ _ADD_UNIT_CONTRACT = (
 
 @pytest.fixture
 def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    # 重定向 projects_root 到 tmp_path
     projects_root = tmp_path / "projects"
     projects_root.mkdir()
     proj_dir = projects_root / "demo"
@@ -82,7 +81,6 @@ def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     migrate_v7_to_v8(proj_dir)
     migrate_project_dir(proj_dir)
 
-    # Patch project_manager 的根目录
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
@@ -558,7 +556,7 @@ def test_generate_unit_enqueues_task(reference_videos_client: TestClient, monkey
 def test_generate_unit_requires_and_persists_explicit_duration_confirmation(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    uid = _seed_unit(reference_videos_client)  # 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, [4, 8])
     enqueued: list[dict[str, object]] = []
 
@@ -816,7 +814,7 @@ def test_precheck_slot_member_needs_no_confirmation(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     """总时长本身是档位成员 → 直接入队，无确认。"""
-    uid = _seed_unit(reference_videos_client)  # shots 求和 = 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, [3, 6, 9])
 
     body = _precheck(reference_videos_client, uid).json()
@@ -843,7 +841,7 @@ def test_precheck_rounds_up_and_needs_confirmation(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     """总时长非档位成员且有档位能装下 → 需确认，申请能装下它的最小档位。"""
-    uid = _seed_unit(reference_videos_client)  # 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, [4, 8, 12])
 
     body = _precheck(reference_videos_client, uid).json()
@@ -869,7 +867,7 @@ def test_precheck_is_identical_for_tts_and_post_production_projects(
 ) -> None:
     """项目的旁白交付方式不参与视频请求：同一 unit 的申请档位与确认要求只由计划时长决定。"""
 
-    uid = _seed_unit(reference_videos_client)  # 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, durations)
 
     _set_project_narration(tmp_path, narration_delivery="post_production")
@@ -909,7 +907,7 @@ def test_precheck_over_largest_slot_requires_replan(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
     """总时长超过最大档位时不得截断，返回结构化重新规划 blocker。"""
-    uid = _seed_unit(reference_videos_client)  # 3s
+    uid = _seed_unit(reference_videos_client)
     _patch_supported_durations(monkeypatch, [1, 2])
 
     response = _precheck(reference_videos_client, uid)
@@ -1061,9 +1059,6 @@ def test_add_unit_concurrent_rebind_returns_409(reference_videos_client: TestCli
         json={"prompt": "镜头1：空镜"},
     )
     assert resp.status_code == 409, resp.text
-
-
-# ============ 解析预览 ============
 
 
 def _patch_video_caps(monkeypatch: pytest.MonkeyPatch, caps: dict) -> None:

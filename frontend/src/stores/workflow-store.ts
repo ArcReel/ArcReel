@@ -96,7 +96,6 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => {
         if (signal.aborted) {
           result = "cancelled";
         } else {
-          // 留旧：只写 error，不动 plan / planKey。
           set({ error: err instanceof Error ? err.message : String(err), loading: false });
           result = "failed";
         }

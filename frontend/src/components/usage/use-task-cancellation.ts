@@ -25,13 +25,11 @@ export type CancelRequest =
 
 export interface TaskCancellation {
   request: CancelRequest | null;
-  /** 确认按钮的在途状态。 */
   cancelling: boolean;
   /** 上一次确认的取消请求失败；确认态保留，用户可重试。 */
   failed: boolean;
   /** 服务端拒绝取消时给出的已本地化原因（如任务已开始执行）；网络类失败为 null。 */
   failureDetail: string | null;
-  /** 取消请求在途的任务 id；行内把 × 换成 spinner 用它判定。 */
   cancellingTaskIds: ReadonlySet<string>;
   requestSingle: (taskId: string) => Promise<void>;
   requestAll: (projectName: string) => Promise<void>;
@@ -79,12 +77,10 @@ export function useTaskCancellation(
   const [cancellingTaskIds, setCancellingTaskIds] = useState<ReadonlySet<string>>(new Set());
   const previewAbort = useRef<AbortController | null>(null);
 
-  // 只在发起时的会话仍是当前会话时写入
   const updateSession = useCallback((forGen: number, patch: Partial<Omit<ConfirmSession, "gen">>) => {
     setSession((current) => (current.gen === forGen ? { ...current, ...patch } : current));
   }, []);
 
-  // 作废旧作用域在途的预览请求
   useEffect(
     () => () => {
       previewAbort.current?.abort();
@@ -173,7 +169,6 @@ export function useTaskCancellation(
     }
   }, [request, gen, updateSession, onCancelled]);
 
-  // 确认在途时两个按钮都禁用，关闭只发生在没有在途确认时
   const dismiss = useCallback(() => {
     setSession((current) => idleSession(current.gen + 1));
   }, []);

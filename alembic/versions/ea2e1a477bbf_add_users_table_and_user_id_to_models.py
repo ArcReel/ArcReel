@@ -13,7 +13,6 @@ import sqlalchemy as sa
 from alembic import op
 from lib.db.migration_helpers import preserve_sqlite_indexes
 
-# revision identifiers, used by Alembic.
 revision: str = "ea2e1a477bbf"
 down_revision: str | Sequence[str] | None = "802fa55d8aff"
 branch_labels: str | Sequence[str] | None = None
@@ -56,13 +55,11 @@ def upgrade() -> None:
         )
     )
 
-    # 3. Add user_id to tasks
     with op.batch_alter_table("tasks", schema=None) as batch_op:
         batch_op.add_column(sa.Column("user_id", sa.String(), server_default="default", nullable=False))
         batch_op.create_foreign_key("fk_tasks_user_id", "users", ["user_id"], ["id"], ondelete="CASCADE")
         batch_op.create_index(batch_op.f("ix_tasks_user_id"), ["user_id"], unique=False)
 
-    # 4. Fix api_calls: fill NULL created_at, add updated_at and user_id
     op.execute("UPDATE api_calls SET created_at = started_at WHERE created_at IS NULL")
 
     with op.batch_alter_table("api_calls", schema=None) as batch_op:
@@ -79,7 +76,6 @@ def upgrade() -> None:
         batch_op.alter_column("created_at", existing_type=sa.DATETIME(), nullable=False)
         batch_op.create_index(batch_op.f("ix_api_calls_user_id"), ["user_id"], unique=False)
 
-    # 5. Add updated_at and user_id to api_keys
     with op.batch_alter_table("api_keys", schema=None) as batch_op:
         batch_op.add_column(
             sa.Column(
@@ -93,7 +89,6 @@ def upgrade() -> None:
         batch_op.create_foreign_key("fk_api_keys_user_id", "users", ["user_id"], ["id"], ondelete="CASCADE")
         batch_op.create_index(batch_op.f("ix_api_keys_user_id"), ["user_id"], unique=False)
 
-    # 6. Add user_id to agent_sessions
     with op.batch_alter_table("agent_sessions", schema=None) as batch_op:
         batch_op.add_column(sa.Column("user_id", sa.String(), server_default="default", nullable=False))
         batch_op.create_foreign_key("fk_agent_sessions_user_id", "users", ["user_id"], ["id"], ondelete="CASCADE")

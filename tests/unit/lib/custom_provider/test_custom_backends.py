@@ -24,10 +24,6 @@ from lib.custom_provider.backends import (
     CustomVideoBackend,
 )
 
-# ---------------------------------------------------------------------------
-# CustomTextBackend
-# ---------------------------------------------------------------------------
-
 
 class TestCustomTextBackend:
     def test_properties(self):
@@ -82,11 +78,6 @@ class TestCustomTextBackend:
 
         call_args = delegate.generate.call_args[0]
         assert call_args[0] is request
-
-
-# ---------------------------------------------------------------------------
-# CustomImageBackend
-# ---------------------------------------------------------------------------
 
 
 class TestCustomImageBackend:
@@ -166,11 +157,6 @@ class TestCustomImageBackend:
 
         call_args = delegate.generate.call_args[0]
         assert call_args[0] is request
-
-
-# ---------------------------------------------------------------------------
-# CustomVideoBackend
-# ---------------------------------------------------------------------------
 
 
 class TestCustomVideoBackend:
@@ -366,11 +352,6 @@ class TestCustomVideoBackend:
         assert KlingProAudioVideoBackend._effective_audio_for("kling-v2-6", muted_req, subpath="image2video") is False
         usage = backend.metered_usage("kling-v2-6", muted_req)
         assert usage.dimensions["audio"] is False
-
-
-# ---------------------------------------------------------------------------
-# CustomAudioBackend
-# ---------------------------------------------------------------------------
 
 
 class TestCustomAudioBackend:

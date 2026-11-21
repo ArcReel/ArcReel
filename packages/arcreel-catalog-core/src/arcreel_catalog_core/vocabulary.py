@@ -61,7 +61,6 @@ METERS: Final[Mapping[str, MeterSpec]] = MappingProxyType(
         "cache_write_1h_tokens": _token(("text",)),
         "output_tokens": _token(("text", "image")),
         "audio_input_tokens": _token(("text",)),
-        # 图片
         "output_images": _count(("image",)),
         "input_images": _count(("image", "video")),
         "uncached_image_input_tokens": _token(("image",)),
@@ -72,10 +71,8 @@ METERS: Final[Mapping[str, MeterSpec]] = MappingProxyType(
         "output_seconds": _count(("video",)),
         "video_tokens": _count(("video",), _PER_MILLION),
         "input_video_seconds": _count(("video",)),
-        # 音频
         "characters": _count(("audio",), _PER_TEN_THOUSAND),
         "audio_output_tokens": _token(("audio",)),
-        # 通用
         "requests": _count(MEDIA_TYPES),
     }
 )

@@ -64,7 +64,6 @@ export interface EndpointRequest {
     | "strip_messages";
 }
 
-/** 请求名 → 整条替换的路径。 */
 export type PathOverrides = Record<string, string>;
 
 export interface CustomProviderInfo {
@@ -97,7 +96,6 @@ export interface CustomProviderModelInfo {
   entry_binding: string | null;
   /** 对应到的模型条目；null = 对应不上条目，这个模型的调用记为未定价。 */
   matched_entry: MatchedCatalogEntry | null;
-  /** 系统判定的视频能力（全字段）；非视频模型为 null。 */
   system_capabilities: VideoCapabilityFlags | null;
   /** 服务端求值后的音轨视图；不可从系统能力与覆盖自行拼装。 */
   audio_track?: VideoAudioMode | null;
@@ -105,9 +103,7 @@ export interface CustomProviderModelInfo {
   voice_consistency?: VoiceConsistencyTier | null;
   /** 用户覆盖（稀疏）；音轨生效值读取服务端字段，无覆盖为 null。 */
   capability_overrides: CapabilityOverrides | null;
-  /** 生效的请求地址修改；无修改为 null。 */
   path_overrides: PathOverrides | null;
-  /** 当前端点可修改地址的请求。 */
   requests: EndpointRequest[];
 }
 
@@ -136,10 +132,8 @@ export interface VideoCapabilityFlags {
   max_reference_audio_count: number | null;
 }
 
-/** 成片音轨形态：可控 / 恒有声 / 恒无声。 */
 export type VideoAudioMode = "controllable" | "always_on" | "always_off";
 
-/** 能力覆盖中视频的通道事实维度（输入模式、参考上限、提示词长度上限、音轨形态）。 */
 export interface VideoChannelFactOverrides extends VideoCapabilityFlags {
   text_to_video: boolean;
   max_reference_audio_total_seconds: number | null;
@@ -148,7 +142,6 @@ export interface VideoChannelFactOverrides extends VideoCapabilityFlags {
   reference_route_audio_track: VideoAudioMode | null;
 }
 
-/** 能力覆盖中的模型事实维度，按媒体类型开放：文本、图片、视频各自一组。 */
 export interface ModelFactOverrides {
   image_input: boolean;
   structured_output: boolean;
@@ -185,9 +178,7 @@ export interface DiscoveredModel {
   max_output_tokens?: number | null;
   /** 按模型名对应到的模型条目；null = 对应不上，调用记为未定价。 */
   matched_entry?: MatchedCatalogEntry | null;
-  /** 调用端点的媒体类型。 */
   media_type?: MediaType;
-  /** 对应上了条目（已识别）。 */
   recognized?: boolean;
   /** 改为对应其他媒体类型的条目时，各媒体类型下的默认调用端点。 */
   endpoint_by_media_type?: Record<MediaType, EndpointKey> | null;

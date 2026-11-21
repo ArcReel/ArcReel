@@ -18,7 +18,6 @@ DEFAULT_PROJECT_NAME = "default"
 
 @dataclass(frozen=True)
 class SiteSpec:
-    #: 区域 → 控制面主机
     hosts: dict[str, str]
 
     @property

@@ -1141,7 +1141,7 @@ class TestModelFacingSchemaOnWire:
         if mode is Mode.TOOLS:
             return json.dumps(body["tools"], ensure_ascii=False)
         system_content = body["messages"][0]["content"]
-        assert '"properties"' in system_content  # schema 确已注入，下面的断言才有意义
+        assert '"properties"' in system_content
         return system_content
 
     @pytest.mark.parametrize("mode", [Mode.TOOLS, Mode.MD_JSON])

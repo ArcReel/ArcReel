@@ -96,7 +96,6 @@ def request_tokens(usage: Mapping[str, Any]) -> RequestTokens:
     write_5m, write_1h = cache_write, 0
     if isinstance(split, Mapping):
         write_1h = _count(split, "ephemeral_1h_input_tokens")
-        # 拆分不足合计的部分（网关只给出合计）按 5 分钟档计。
         write_5m = max(_count(split, "ephemeral_5m_input_tokens"), cache_write - write_1h)
     return RequestTokens(
         uncached_input=_count(usage, "input_tokens"),

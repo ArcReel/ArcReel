@@ -100,8 +100,6 @@ class KlingBackendBase:
     def model(self) -> str:
         return self._model
 
-    # ── auth ────────────────────────────────────────────────────────────
-
     def _headers(self) -> dict[str, str]:
         """鉴权头：jwt 模式每次调用触发过期检查 + 按需重签；bearer 模式用静态 key。"""
         if self._jwt is not None:
@@ -123,8 +121,6 @@ class KlingBackendBase:
 
     def _failure_reason(self, payload: dict) -> str | None:
         return kling_task_failure_reason(payload)
-
-    # ── HTTP submit / poll 骨架 ─────────────────────────────────────────
 
     @with_retry_async(
         max_attempts=DEFAULT_MAX_ATTEMPTS,

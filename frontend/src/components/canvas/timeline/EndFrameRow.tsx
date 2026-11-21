@@ -24,9 +24,7 @@ interface EndFrameRowProps {
   scriptFile: string;
   contentMode: EditorContentMode;
   aspectRatio: "9:16" | "16:9";
-  /** 当前已设置的尾帧快照路径（项目内相对路径），未设置为 null。 */
   endFramePath: string | null;
-  /** 只读上下文（如剧本不可编辑时）：仅展示，不给写入入口。 */
   readOnly?: boolean;
   /** 提交在途状态回传：供父级同步禁用同卡片的视频生成 / 上传 / 恢复控件。 */
   onSubmittingChange?: (submitting: boolean) => void;
@@ -89,7 +87,6 @@ export function EndFrameRow({
   // 拦，等待查询结果更没有可拦的理由，否则换模型后又会凭能力管线短暂灰掉写入控件。
   const controlsDisabled = videoBusy || shotSaving || submitting || viewOnly;
 
-  // 灰化控件的 hover 原因。
   const disabledHint = viewOnly
     ? undefined
     : videoBusy
@@ -98,7 +95,6 @@ export function EndFrameRow({
         ? t("common:save_status_saving")
         : undefined;
 
-  // 已设尾帧 + 模型明确不支持才告警：未设尾帧的分镜没有会被拒绝的东西，不该打扰。
   const showUnsupportedNotice = unsupported && !!endFramePath;
 
   /**
@@ -124,7 +120,6 @@ export function EndFrameRow({
     onSubmittingChange?.(value);
   };
 
-  // 设置与清除尾帧是即时动作，成功不弹提示
   const runWrite = async (action: () => Promise<unknown>) => {
     if (rejectIfDisabled()) return;
     updateSubmitting(true);
@@ -158,7 +153,6 @@ export function EndFrameRow({
   const handleClear = () =>
     void runWrite(() => API.clearEndFrame(projectName, segmentId, scriptFile));
 
-  // 摘要行与展开面板里都只是小图，取 160 宽的缩略图
   const previewUrl = endFramePath ? API.getFileUrl(projectName, endFramePath, fp, { width: 160 }) : null;
 
   // 摘要只说尾帧本身设没设：能力不支持由下方警告条承载，混进摘要会盖掉「已设置」，

@@ -14,7 +14,6 @@ const LIGHT_SCREENSHOT_PROJECTS = new Set(["1440x900"]);
 
 export interface RegionScenario {
   name: string;
-  /** 打开的路由。 */
   path: string;
   /** 默认已登录。 */
   auth?: "signed-in" | "signed-out";

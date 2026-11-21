@@ -21,13 +21,11 @@ import sqlalchemy as sa
 
 from alembic import op
 
-# revision identifiers, used by Alembic.
 revision: str = "3c8b0ae43345"
 down_revision: str | Sequence[str] | None = "b942e8c5d545"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# Tables and their datetime columns that were corrupted by the CAST bug.
 TIMESTAMP_COLUMNS: dict[str, list[str]] = {
     "tasks": ["queued_at", "started_at", "finished_at", "updated_at"],
     "task_events": ["created_at"],

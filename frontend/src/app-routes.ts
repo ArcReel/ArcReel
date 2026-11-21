@@ -8,7 +8,6 @@ export const ROUTE_APP_PROJECTS = "/app/projects";
 export const ROUTE_APP_SETTINGS = "/app/settings";
 export const ROUTE_APP_ASSETS = "/app/assets";
 
-/** 全局设置的分区，即地址参数 `section` 的取值，顺序同侧栏；缺省或无法识别时落在 `providers`。 */
 export const SETTINGS_SECTIONS = [
   "providers",
   "default-models",
@@ -36,14 +35,11 @@ export function settingsSectionPath(section: SettingsSection, params: Record<str
   return `${ROUTE_APP_SETTINGS}?${new URLSearchParams({ section, ...params }).toString()}`;
 }
 
-/** 市场分区的 Tab；「浏览」是默认 Tab，地址里不写。 */
 export type MarketTab = "browse" | "shared" | "settings";
 
-/** 市场「浏览」Tab 可按媒体类型筛选的取值，即地址参数 `media` 的取值。 */
 export const MARKET_MEDIA_TYPES = ["image", "video"] as const;
 export type MarketMediaType = (typeof MARKET_MEDIA_TYPES)[number];
 
-/** 地址参数 `media` 解析出的媒体类型；缺省或无法识别时为 null。 */
 export function parseMarketMedia(value: string | null | undefined): MarketMediaType | null {
   return MARKET_MEDIA_TYPES.find((media) => media === value) ?? null;
 }
@@ -72,7 +68,6 @@ export type ProviderTarget =
   | { custom: number; model?: string }
   | { newCustom: { endpoint?: string; baseUrl?: string } };
 
-/** 全局设置「供应商」分区中某个供应商（或某个自定义模型）的地址。 */
 export function providerSettingsPath(target: ProviderTarget): string {
   if ("preset" in target) {
     const params: Record<string, string> = { provider: target.preset };
@@ -102,7 +97,6 @@ export function endpointSettingsPath(endpointKey?: string, options: { fromCustom
   return settingsSectionPath("endpoints", params);
 }
 
-/** 无子路由的单页顶层路由——精确匹配，前缀不算数。 */
 export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, ROUTE_APP_ASSETS] as const;
 
 /**
@@ -112,7 +106,6 @@ export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SE
  */
 export const WORKSPACE_ROUTE_SETTINGS = "settings";
 
-/** 项目设置的分页，即地址参数 `tab` 的取值，顺序同侧栏；缺省或无法识别时落在 `basics`。 */
 export const PROJECT_SETTINGS_TABS = ["basics", "style", "models", "voice", "memory", "agent"] as const;
 export type ProjectSettingsTab = (typeof PROJECT_SETTINGS_TABS)[number];
 
@@ -138,12 +131,10 @@ export const WORKSPACE_ROUTE_PRODUCTS = "products";
 export const WORKSPACE_ROUTE_EPISODES = "episodes";
 export const WORKSPACE_ROUTE_FILES = "files";
 
-/** 集页的视图查询参数：`?view=edit` 打开剪辑视图，缺省为分镜视图；`tl` 指定打开哪条剪辑时间线。 */
 export const EPISODE_VIEW_PARAM = "view";
 export const EPISODE_VIEW_EDIT = "edit";
 export const EPISODE_VIEW_TIMELINE_PARAM = "tl";
 
-/** 项目工作区内打开某集（集 ID）剪辑视图的相对路径；给出 `timelineId` 时切到那条剪辑时间线。 */
 export function episodeEditViewPath(episode: number, timelineId?: string): string {
   const query = new URLSearchParams({ [EPISODE_VIEW_PARAM]: EPISODE_VIEW_EDIT });
   if (timelineId) query.set(EPISODE_VIEW_TIMELINE_PARAM, timelineId);

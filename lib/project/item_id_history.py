@@ -84,7 +84,6 @@ def used_item_numbers(project_dir: Path) -> dict[int, set[int]]:
         obj = record.get("object") if isinstance(record, dict) else None
         if isinstance(obj, dict) and obj.get("kind") == _SCRIPT_ENTRY_KIND:
             _record(found, obj.get("id"))
-        # 快照里改写前的剧本、删掉的集与剪辑时间线
         for path in _json_files(record_dir):
             for item_id in _id_fields(_load(path)):
                 _record(found, item_id)

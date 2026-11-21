@@ -38,14 +38,12 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
   }, [projectData]);
 
   const prevStatusRef = useRef<Map<string, TaskStatus>>(new Map());
-  // 是否已用首个成功 poll 建立基线。基线内的 failed 一律视为历史失败、不推送。
   const seededRef = useRef(false);
   // 上次 effect 跑时观察到的 projectName。projectName 切换的过渡 commit 里 tasks 仍是
   // 旧项目数据，此 ref 仍是旧 projectName；只有等到 tasks/connected 因新一轮 poll
   // 变化、effect 再次跑时，ref 才与 props 同步。用它检测"这一轮是否是过渡 commit"。
   const lastSeenProjectNameRef = useRef<string | null | undefined>(projectName);
 
-  // 项目切换时重置基线，避免把新项目的历史 failed 误判为新失败。
   useEffect(() => {
     prevStatusRef.current = new Map();
     seededRef.current = false;
@@ -66,10 +64,8 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     const next = new Map<string, TaskStatus>();
     const seeded = seededRef.current;
     for (const tk of tasks) {
-      // 只跟踪当前项目的任务：其余项目的任务既不通知也不进 prevStatus。
       if (tk.project_name !== projectName) continue;
       const before = prev.get(tk.task_id);
-      // 状态转换，或基线建立后首次出现即处于该状态的新任务。
       const isNew = before === undefined ? seeded : before !== tk.status;
       // 资产图批次的成员由 useAssetSheetBatchNotifications 整批汇总成一条通知。
       const notify = isNew && !isAssetSheetBatchTask(tk.task_id);

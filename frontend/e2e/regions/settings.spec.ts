@@ -205,7 +205,6 @@ defineRegionScenarios("全局设置", [
     },
     act: async (page) => {
       const nav = page.getByRole("navigation", { name: "设置" });
-      // 录制环境既没有可用的供应商，也没有 Agent 供应商。
       const flagged = nav.getByRole("link").filter({ has: page.getByRole("img", { name: "配置不完整" }) });
       await expect(flagged).toHaveText(["供应商", "ArcReel Agent"]);
       await expect(page.getByRole("note", { name: "配置不完整" })).toBeInViewport();

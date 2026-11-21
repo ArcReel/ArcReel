@@ -69,11 +69,6 @@ DS_IMAGE_I2I_ONLY = "vidu/viduq1"
 DS_AUDIO = "dashscope/qwen3-tts-flash"
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 def _make_mock_svc(
     ready_providers: list[str], model_states=None, settings: dict[str, str] | None = None
 ) -> ConfigService:
@@ -162,11 +157,6 @@ async def _seed_custom_models(factory, models: list[dict]) -> None:
             models=models,
         )
         await session.commit()
-
-
-# ---------------------------------------------------------------------------
-# 内置模型的桶过滤
-# ---------------------------------------------------------------------------
 
 
 class TestBuiltinBucketFiltering:
@@ -282,11 +272,6 @@ class TestBuiltinBucketFiltering:
         assert "agnes/agnes-video-v2.0" not in all_candidates
 
 
-# ---------------------------------------------------------------------------
-# 自定义供应商模型的桶过滤
-# ---------------------------------------------------------------------------
-
-
 class TestCustomProviderBucketFiltering:
     async def test_custom_video_model_enters_buckets_by_endpoint_judgement(
         self, make_client, session_factory_and_engine
@@ -329,7 +314,6 @@ class TestCustomProviderBucketFiltering:
     async def test_custom_image_model_filtered_by_endpoint_capabilities(self, make_client, session_factory_and_engine):
         factory, _engine = session_factory_and_engine
         with make_client([]) as client:
-            # openai-images-edits 只声明 image_to_image
             await _seed_custom_models(
                 factory,
                 [
@@ -427,11 +411,6 @@ class TestCustomProviderBucketFiltering:
         assert body["video"]["default"] == []
 
 
-# ---------------------------------------------------------------------------
-# 被任务类型桶滤掉的模型与原因
-# ---------------------------------------------------------------------------
-
-
 def _filtered(body: dict, media_type: str, bucket: str) -> dict[str, list[str]]:
     return {item["option"]: item["unmet"] for item in body[media_type]["filtered"][bucket]}
 
@@ -478,11 +457,6 @@ class TestFilteredCandidates:
             assert listed | set(_filtered(body, media_type, bucket)) == set(body[media_type]["default"])
 
 
-# ---------------------------------------------------------------------------
-# 引用处的下线提示：生命周期与一键切换的目标
-# ---------------------------------------------------------------------------
-
-
 def _entry_ref(option: str, media_type: str = "video") -> str:
     provider_id, model_id = option.split("/", 1)
     entry = catalog.provider_model_entry(provider_id, model_id, media_type)
@@ -516,7 +490,6 @@ class TestLifecycleNotices:
         assert notice["successor"] == successor
         assert notice["successor_name"] == catalog.get_model(*DS_R2V.split("/", 1)).display_name
         assert notice["switch_targets"] == {"default": DS_R2V, "i2v": DS_R2V, "r2v": DS_R2V}
-        # 可用的模型不带提示
         assert DS_R2V not in body["lifecycle"]
 
     def test_discontinued_model_still_gets_a_notice_though_it_is_no_candidate(self, make_client, monkeypatch):
@@ -726,11 +699,6 @@ class TestUnlistedReferenceNotices:
         assert "custom-9/relay" not in lifecycle
 
 
-# ---------------------------------------------------------------------------
-# 目录名称：供应商名按语言翻译，模型名取目录条目
-# ---------------------------------------------------------------------------
-
-
 class TestCatalogDisplayNames:
     def test_builtin_provider_and_model_names_follow_accept_language(self, make_client):
         with make_client(["ark"]) as client:
@@ -781,11 +749,6 @@ class TestCatalogDisplayNames:
             body = client.get(CANDIDATES_URL).json()
         assert "openai" not in body["provider_names"]
         assert not any(k.startswith("openai/") for k in body["model_names"])
-
-
-# ---------------------------------------------------------------------------
-# 桶归属判定（真相源直读，不经 HTTP）
-# ---------------------------------------------------------------------------
 
 
 class TestBucketJudgement:

@@ -84,7 +84,6 @@ logger = logging.getLogger(__name__)
 # 不触发。lease_ttl 默认 10s → 阈值 30s。常量化便于单测注入与调参。
 _ORPHAN_RESCAN_LEASE_LOST_MULT = 3
 
-# Default provider used when a task payload does not specify one.
 DEFAULT_PROVIDER = "gemini-aistudio"
 
 
@@ -130,8 +129,8 @@ class CapacityTable:
     占用台账不受影响。``get`` 三态语义区分"已知但不支持（0）"与"provider 未知（懒默认）"。
     """
 
-    _limits: dict[str, dict[str, int]]  # provider_id → {media_type → 上限}
-    _defaults: dict[str, int]  # {"image": 5, "video": 3, "audio": 10}，未知 provider 懒默认
+    _limits: dict[str, dict[str, int]]
+    _defaults: dict[str, int]
 
     def get(self, provider_id: str, media_type: str) -> int:
         """返回 ``(provider, media)`` 的并发上限。
@@ -193,7 +192,6 @@ class CapacityTable:
         image_max = _read_int_env("IMAGE_MAX_WORKERS", 5, minimum=1)
         video_max = _read_int_env("VIDEO_MAX_WORKERS", 3, minimum=1)
         audio_max = _read_int_env("AUDIO_MAX_WORKERS", 10, minimum=1)
-        # 无用户配置的装载路径：每条 lane 取声明默认（若有）→ 否则全局默认
         limits = {
             pid: cls._lane_limits(
                 catalog.provider_media_types(pid),
@@ -248,7 +246,7 @@ class CapacityTable:
             # 同一端点可能挂在多行乃至多个供应商上，媒体类型按端点键缓存，整张表只读一次库。
             media_type_by_endpoint: dict[str, str] = {}
             for provider, models in await repo.list_providers_with_models():
-                pid = provider.provider_id  # "custom-{id}"
+                pid = provider.provider_id
                 # 模型行可以挂 ce- 端点，媒体类型写在它那份定义里，只能解析 spec 取。
                 media_types: set[str] = set()
                 for m in models:
@@ -413,7 +411,6 @@ async def _extract_provider(task: dict[str, Any]) -> str:
         # Task.script_file is the immutable queue coordinate. The payload copy is retained only for old/direct
         # callers and must not be able to redirect claim-time current-state projection to a different script.
         payload = {**payload, "script_file": task["script_file"]}
-    # 以 media lane 区分 video / audio / image：reference_video 等 task_type 同属 video lane。
     is_text = task.get("media_type") == "text"
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
     is_audio = task.get("media_type") == "audio" or task.get("task_type") == "tts"
@@ -516,10 +513,6 @@ class GenerationWorker:
             settle_interrupted_calls=settle_interrupted_calls or self._settle_interrupted_calls_via_ledger,
         )
 
-    # ------------------------------------------------------------------
-    # Capacity management
-    # ------------------------------------------------------------------
-
     async def reload_limits(self) -> None:
         """Reload per-provider concurrency limits from DB into the CapacityTable.
 
@@ -538,10 +531,6 @@ class GenerationWorker:
                 return
             self._capacity.replace(new._limits)
             logger.info("已更新供应商容量表: %s", self._capacity._limits)
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
 
     async def start(self) -> None:
         if self._main_task and not self._main_task.done():
@@ -567,10 +556,6 @@ class GenerationWorker:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
         self._wake_event.clear()
-
-    # ------------------------------------------------------------------
-    # Main loop
-    # ------------------------------------------------------------------
 
     async def _run_loop(self) -> None:
         try:
@@ -682,7 +667,6 @@ class GenerationWorker:
 
         for media_type in self._lanes:
             while True:
-                # 每轮重算池满集合：刚 claim 的任务可能让某 provider 进入满状态
                 pool_full = self._pool_full_providers(media_type)
                 task = await self.queue.claim_next_task(media_type=media_type, pool_full_providers=pool_full)
                 if not task:
@@ -692,7 +676,6 @@ class GenerationWorker:
                 cap = self._capacity.get(provider_id, media_type)
 
                 if cap <= 0:
-                    # 供应商不支持此媒体类型（容量 ≤ 0），直接失败（与 has_room 守卫一致）
                     logger.warning(
                         "供应商 %s 不支持 %s 生成，任务 %s 标记失败",
                         provider_id,
@@ -720,17 +703,13 @@ class GenerationWorker:
                         media_type,
                         task["task_id"],
                     )
-                    # 回队前把推算出的 provider 写回记录，下一轮 SQL 黑名单就能过滤它，
-                    # 不会每个 cycle 重复 claim → requeue。写回失败只损失过滤精度。
                     if not recorded:
                         recorded = await self._record_provider(task["task_id"], provider_id)
                     await self._requeue_single_task(task["task_id"])
                     if recorded:
-                        # 记录已指向池满 provider，下一轮 SQL 排除它，继续找其它 provider 的可运行任务。
                         continue
                     break
 
-                # Dispatch：登记占用（INFLIGHT），bucket 由 register 自动创建
                 claimed_any = True
                 self._slots.register(
                     provider_id,
@@ -801,10 +780,6 @@ class GenerationWorker:
             logger.warning("回队任务 %s 失败", task_id, exc_info=True)
             return False
 
-    # ------------------------------------------------------------------
-    # Task lifecycle
-    # ------------------------------------------------------------------
-
     async def _drain_finished_tasks(self) -> None:
         for task_id, finished_task in self._slots.drain_finished():
             # 同步判定取消/异常：drain_finished() 只返回 done() 的 task，无需 await。
@@ -826,7 +801,6 @@ class GenerationWorker:
                 logger.debug("已处理的任务异常已在 _process_task 中记录")
 
     async def _wait_inflight_completion(self) -> None:
-        # shutdown：先等重启自愈的 dispatcher 派完最后一批 sub-task，再等所有 active task。
         await self._recovery.wait_dispatchers()
 
         active_tasks = self._slots.all_active_tasks()
@@ -860,7 +834,6 @@ class GenerationWorker:
 
         try:
             if task_type in ("video", "reference_video"):
-                # 派发时把当下的全局轮询超时写进任务字典，执行器与续跑执行器都从这里读。
                 task["video_poll_timeout_seconds"] = await read_video_poll_timeout_seconds()
             result = await self._executor(task, claimed_provider_id=provider_id)
         except asyncio.CancelledError:
@@ -933,10 +906,6 @@ class GenerationWorker:
             logger.exception("标记任务成功失败 %s", task_id)
             raise
         logger.info("任务完成 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
-
-    # ------------------------------------------------------------------
-    # Restart recovery
-    # ------------------------------------------------------------------
 
     async def _settle_interrupted_calls_via_ledger(self, *, taskless_started_before: datetime | None) -> int:
         # 与队列共用同一处 session factory：任务行与它的调用行必须落在同一个库里。

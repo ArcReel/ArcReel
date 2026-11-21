@@ -57,7 +57,6 @@ enter_snapshot_dir() {
   chmod 700 "$SNAP_DIR"
 }
 
-# The repo slug keeps same-numbered PRs from different repos apart.
 snapshot_file_for() {
   local owner_repo="$1" pr="$2"
   printf '%s\n' "$SNAP_DIR/poll-${owner_repo//\//-}-${pr}.json"

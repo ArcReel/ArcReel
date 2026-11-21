@@ -67,7 +67,6 @@ function nextKey(keys: string[]): string {
   return `d${max + 1}`;
 }
 
-/** Editable list of speaker/line dialogue pairs. */
 export function DialogueListEditor({
   dialogue,
   onChange,

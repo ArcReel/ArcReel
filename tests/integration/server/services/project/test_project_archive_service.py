@@ -1490,7 +1490,7 @@ class TestProjectArchiveService:
         installed = _json.loads((pm.get_project_path(result.project_name) / "project.json").read_text(encoding="utf-8"))
         assert installed["schema_version"] == CURRENT_SCHEMA_VERSION
         assert installed["image_provider_t2i"] == "gemini-vertex/imagen-3"
-        assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"  # image_backend 拆分到两槽
+        assert installed["image_provider_i2i"] == "gemini-vertex/imagen-3"
         assert "image_backend" not in installed
 
     def test_import_v5_archive_migrates_conflicting_asset_namespace(self, tmp_path):
@@ -1884,7 +1884,6 @@ class TestProjectArchiveService:
         assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
         assert retire.retired == ["demo"]
         assert not list(pm.projects_dir.glob(".import-*"))
-        # 被覆盖的旧项目成为已删除项目
         [replaced] = deleted_projects.list_entries(pm.layout)
         assert replaced.name == "demo"
         replaced_dir = pm.layout.deleted_projects_dir / replaced.id
@@ -1980,7 +1979,6 @@ class TestProjectArchiveService:
         assert not claude_dir.is_symlink()
         # 导入触发 sync_agent_profile → 首次迁移分支 full reset → 写 manifest
         assert (imported_dir / MANIFEST_FILENAME).is_file()
-        # profile 内容真实落盘
         assert (claude_dir / "skills" / "demo" / "SKILL.md").read_text() == "demo"
 
     def test_import_overwrite_rolls_back_on_install_failure(self, tmp_path, monkeypatch):
@@ -2083,7 +2081,7 @@ class TestProjectArchiveService:
         # 残缺目录已清，同名 create 应该能成功（fixture 已 stub sync 抛错，所以先 undo）
         monkeypatch.undo()
         assert not (pm.projects_dir / "ghost").exists()
-        pm.create_project("ghost")  # 不撞 FileExistsError
+        pm.create_project("ghost")
         assert (pm.projects_dir / "ghost").is_dir()
 
     def test_import_repairs_legacy_narration_payload(self, tmp_path):
@@ -2325,7 +2323,7 @@ class TestProjectArchiveService:
         result = service.import_project_archive(archive_path, uploaded_filename="nfc-nfd.zip")
 
         imported = pm.load_project(result.project_name)
-        assert character_nfd not in imported["characters"]  # 不补重复占位角色
+        assert character_nfd not in imported["characters"]
         assert scene_nfd not in imported["scenes"]
         assert prop_nfd not in imported["props"]
         assert scene_nfc in imported["scenes"]
@@ -2486,7 +2484,6 @@ class TestExportScope:
         """创建带有 versions 历史的项目"""
         project_dir = _create_project(pm)
 
-        # 添加版本历史文件
         _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v1.png", b"png-v1")
         _write_bytes(project_dir / "versions" / "storyboards" / "E1S01_v2.png", b"png-v2")
         _write_bytes(project_dir / "versions" / "videos" / "E1S01_v1.mp4", b"mp4-v1")
@@ -2494,7 +2491,6 @@ class TestExportScope:
         _write_bytes(project_dir / "versions" / "scenes" / "Temple_v1.png", b"scene-v1")
         _write_bytes(project_dir / "versions" / "props" / "Key_v1.png", b"prop-v1")
 
-        # 创建 versions/versions.json
         versions_data = {
             "storyboards": {
                 "E1S01": {
@@ -2544,17 +2540,14 @@ class TestExportScope:
 
         with zipfile.ZipFile(archive_path) as archive:
             names = set(archive.namelist())
-            # 历史版本文件不应包含
             assert "demo/versions/storyboards/E1S01_v1.png" not in names
             assert "demo/versions/storyboards/E1S01_v2.png" not in names
             assert "demo/versions/videos/E1S01_v1.mp4" not in names
             assert "demo/versions/characters/Hero_v1.png" not in names
             assert "demo/versions/scenes/Temple_v1.png" not in names
             assert "demo/versions/props/Key_v1.png" not in names
-            # 主资源应保留
             assert "demo/storyboards/scene_E1S01.png" in names
             assert "demo/videos/scene_E1S01.mp4" in names
-            # versions.json 应保留（裁剪后）
             assert "demo/versions/versions.json" in names
 
     def test_export_scope_current_trims_versions_json(self, tmp_path):
@@ -2569,7 +2562,6 @@ class TestExportScope:
             # 非 typed 当前文件直接从 canonical 路径导出，其历史快照未入包，
             # 对应版本记录也不能留下悬空引用。
             assert "storyboards" not in versions_content
-            # videos.E1S01 应只保留 version 2
             vid_versions = versions_content["videos"]["E1S01"]["versions"]
             assert len(vid_versions) == 1
             assert vid_versions[0]["version"] == 2

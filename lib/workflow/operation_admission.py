@@ -123,11 +123,6 @@ def pending_authoring_entry_ids(items: Sequence[Any], kind: str | None) -> list[
     ]
 
 
-# ---------------------------------------------------------------------------
-# 准入谓词：每个 AI 操作一份
-# ---------------------------------------------------------------------------
-
-
 def admit_plan_episodes(
     content_mode: object, *, whole_source: bool, replan_pending: bool = False
 ) -> OperationAdmission:

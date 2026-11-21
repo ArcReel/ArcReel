@@ -246,8 +246,6 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
             warnings=warnings,
         )
 
-    # ------------------------------------------------------------------ 上传
-
     async def _upload_media(
         self, http: httpx.AsyncClient, request: VideoGenerationRequest, *, job_label: str
     ) -> MediaInputs:

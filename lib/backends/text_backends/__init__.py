@@ -28,7 +28,6 @@ __all__ = [
     "register_backend",
 ]
 
-# Backend auto-registration
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.text_backends.gemini import GeminiTextBackend
 

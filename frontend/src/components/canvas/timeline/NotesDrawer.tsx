@@ -7,7 +7,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 
 interface NotesDrawerProps {
-  /** 当前 shot 的 ID（用于 placeholder） */
   shotId: string;
   /** 备注的当前内容，包含未保存修改 */
   value: string;

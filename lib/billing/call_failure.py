@@ -57,7 +57,6 @@ CONTENT_POLICY_PROVIDER_CODES: frozenset[str] = frozenset(
     }
 )
 
-# 状态码本身就在说「等太久了」：408 请求超时、504 网关超时。
 _TIMEOUT_STATUS_CODES: frozenset[int] = frozenset({408, 504})
 
 _RATE_LIMIT_STATUS_CODE = 429

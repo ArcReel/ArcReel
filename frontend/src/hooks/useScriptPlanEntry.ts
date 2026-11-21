@@ -8,9 +8,7 @@ import type { TaskItem } from "@/types";
 const SCRIPT_PLAN_OPERATION = "prepare_script_plan";
 
 export interface ScriptPlanEntry {
-  /** 本集的脚本规划任务在排队或生成中（含请求往返期间的乐观占用）。 */
   busy: boolean;
-  /** 本集最近一次脚本规划任务；没有时为 undefined。 */
   latestTask: TaskItem | undefined;
   /** 准入不成立时的置灰原因；成立或制作状态尚未取回时为 null（提交时服务端按同一谓词复核）。 */
   refusedReason: string | null;

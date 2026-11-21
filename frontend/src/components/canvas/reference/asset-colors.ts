@@ -20,11 +20,8 @@
 export type MentionKind = "product" | "character" | "scene" | "prop" | "unknown";
 
 export interface AssetColorPalette {
-  /** Text color class */
   textClass: string;
-  /** Background tint class (low alpha) */
   bgClass: string;
-  /** Border class */
   borderClass: string;
   /** Solid dot color, contrasts against bgClass for inline indicators */
   dotClass: string;

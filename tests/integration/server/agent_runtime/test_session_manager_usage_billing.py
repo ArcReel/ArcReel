@@ -54,7 +54,6 @@ def _tiered(meter: str, low: float, high: float) -> Meter:
     return _meter(meter, ({"context_tier": 0}, low), ({"context_tier": 200_000}, high), dims=_TIER)
 
 
-#: 主模型：按单次请求的输入总量分两档，USD / 百万 token。
 _MAIN = CatalogEntry(
     maker="acme",
     name="main-model",
@@ -73,7 +72,6 @@ _MAIN = CatalogEntry(
     ),
 )
 
-#: 子智能体模型：不分档。
 _SUB = CatalogEntry(
     maker="acme",
     name="sub-model",

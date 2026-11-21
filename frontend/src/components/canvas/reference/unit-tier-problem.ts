@@ -1,7 +1,6 @@
 import type { TFunction } from "i18next";
 import type { ReferenceVideoBucket, VideoCapabilityProblem } from "@/types";
 
-/** 单元所落桶的用户可读名，随问题文案插值。 */
 export function bucketLabel(t: TFunction<"dashboard">, bucket: ReferenceVideoBucket): string {
   return t(bucket === "r2v" ? "reference_bucket_r2v" : "reference_bucket_i2v");
 }

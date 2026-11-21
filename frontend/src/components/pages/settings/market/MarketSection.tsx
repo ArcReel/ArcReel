@@ -155,7 +155,6 @@ export function MarketSection() {
         setAggregates(new Map(items.map((item) => [aggregateKey(item.source_id, item.slug), item])));
       })
       .catch(() => {
-        // 聚合取不回时不显示数字，不打扰浏览。
         if (!controller.signal.aborted) setAggregates(new Map());
       });
     return () => controller.abort();
@@ -169,7 +168,6 @@ export function MarketSection() {
         if (!controller.signal.aborted) setSubmissions(listed);
       })
       .catch(() => {
-        // 提交状态取不回时不展示，不打扰浏览。
       });
     return () => controller.abort();
   }, [officialEnabled]);

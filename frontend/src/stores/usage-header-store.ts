@@ -3,7 +3,6 @@ import { create } from "zustand";
 import { API } from "@/api";
 import type { UsageRecord, UsageRecordDetail, UsageSummary } from "@/types";
 
-/** 悬浮层右栏「最近已结束」的条数。 */
 export const HEADER_RECENT_LIMIT = 10;
 
 /** 右栏只看已结束调用；进行中的那部分由左栏的任务与 pending 调用负责。 */
@@ -13,7 +12,6 @@ interface UsageHeaderState {
   /** 顶栏入口当前挂靠的项目；演示项目与无项目时为 null，此时不发请求。 */
   projectName: string | null;
   summary: UsageSummary | null;
-  /** 最近 N 条已结束调用，按开始时刻倒序。 */
   recent: UsageRecord[];
   /** 无任务代表的 pending 调用；有任务的那部分由任务 store 提供。 */
   pending: UsageRecord[];
@@ -27,7 +25,6 @@ interface UsageHeaderState {
 
   /** 切换挂靠项目：作废在途请求、清空上一项目的数据，再取一轮。 */
   setProject: (projectName: string | null) => Promise<void>;
-  /** 重取 summary、最近记录与 pending 调用。多入口共享，在途时合并为结束后再跑一轮。 */
   refresh: () => Promise<void>;
   openDetail: (recordId: number) => Promise<void>;
   closeDetail: () => void;

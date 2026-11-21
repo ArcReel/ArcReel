@@ -11,7 +11,6 @@ export type EditUnitControls = Pick<
   "dirty" | "status" | "error" | "externallyUpdated" | "externalChangeMessage" | "save" | "discard"
 >;
 
-/** 保存栏与内联提示条左侧的状态：有未保存的修改、正在保存、已保存、保存失败、外部更新。 */
 export function SaveStatus({ unit }: { unit: EditUnitControls }) {
   const { t } = useTranslation("common");
 

@@ -1,6 +1,5 @@
 import type { CustomProviderInfo, CustomProviderModelInfo } from "@/types";
 
-/** 一个模型行对端点的使用：所属自定义供应商与模型。 */
 export interface EndpointUsage {
   provider: CustomProviderInfo;
   model: CustomProviderModelInfo;

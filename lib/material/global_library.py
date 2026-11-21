@@ -121,7 +121,6 @@ class GlobalImage:
         }
 
 
-#: 条目没有图片时写入的列值。
 NO_IMAGE_COLUMNS: dict[str, Any] = {
     "image_path": None,
     "image_digest": None,
@@ -255,8 +254,6 @@ def _delete_files(data_root: Path, rel_paths: Iterable[str]) -> None:
             logger.warning("delete global asset file failed: %s", rel_path)
 
 
-# ---- 读取：工作文件取回 -------------------------------------------------------------------------
-
 _FETCH_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
 
 
@@ -324,9 +321,6 @@ async def ensure_global_image(
         data = await fetch_object_content(image.stored, session_factory=session_factory)
         await asyncio.to_thread(_install, target, image.digest, data)
     return True
-
-
-# ---- 清理 -------------------------------------------------------------------------------------
 
 
 def _evict(target: Path, digest: str, idle_before: float) -> tuple[int, int, int]:

@@ -50,7 +50,6 @@ describe("ReferenceDurationConfirmDialog", () => {
     expect(screen.getByText("8 秒")).toBeInTheDocument();
     expect(screen.getByText("（长 4 秒）")).toBeInTheDocument();
     expect(screen.queryByText("（长 0 秒）")).not.toBeInTheDocument();
-    // 仅时长项：标题与正文都不掺入非阻断告知那一段
     expect(screen.getByText("确认视频生成档位变化")).toBeInTheDocument();
     expect(screen.queryByText("以下调整将在本次生成中生效：")).not.toBeInTheDocument();
   });

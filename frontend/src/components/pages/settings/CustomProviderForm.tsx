@@ -68,7 +68,6 @@ import {
   type ModelRow,
 } from "./customProviderFormState";
 
-/** 供应商配置接口里自定义供应商的 id。 */
 function customProviderKey(id: number): string {
   return `custom-${id}`;
 }
@@ -92,7 +91,6 @@ interface CustomProviderFormProps {
   focusModelId?: string;
   /** 保存成功后调用，带回保存后的供应商（新建时是刚创建的供应商，调用方据此选中它）。 */
   onSaved: (provider?: CustomProviderInfo) => void;
-  /** 删除成功后调用。 */
   onDeleted?: () => void;
 }
 
@@ -123,7 +121,6 @@ export function CustomProviderForm({
     void fetchEndpointCatalog();
   }, [fetchEndpointCatalog]);
 
-  // 已保存的内容：新建表单在挂载时定下，此后保持同一个引用
   const [newForm] = useState(() => newProviderForm(initialBaseUrl, initialEndpoint));
   // 供应商倍率不在供应商详情里，单独读写：保存后以 PUT 的回显为准，供应商重取不会带回它
   const [savedMultiplier, setSavedMultiplier] = useState(providerMultiplier ?? DEFAULT_PROVIDER_MULTIPLIER);
@@ -187,7 +184,6 @@ export function CustomProviderForm({
       // 停在未选择端点上的行：服务端按行校验协议配对，一行没有端点整份配置都落不了库
       if (models.some((m) => !m.endpoint)) fail(t("cp_model_endpoint_unselected"));
       if (models.some((m) => parseMultiplier(m.multiplier_text) === undefined)) fail(t("cp_model_multiplier_invalid"));
-      // 可选时长只在 ComfyUI 视频行上编辑，且档位给得出来时才写回覆盖；其余行的覆盖原样回传
       const durationsEditable = (endpoint: EndpointKey) => {
         const descriptor = catalogEndpoints.find((item) => item.key === endpoint);
         return descriptor !== undefined && isComfyuiVideoEndpoint(descriptor) && !descriptor.duration_tier_empty;
@@ -298,7 +294,6 @@ export function CustomProviderForm({
     [setValue, deriveModels],
   );
 
-  // 展开的模型行（只有新建表单有）：接线带来的行还没填模型 ID，默认展开
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(source.models.map((m) => m.key)));
   const toggleExpanded = useCallback((key: string) => {
     setExpanded((prev) => {
@@ -333,7 +328,6 @@ export function CustomProviderForm({
   // ComfyUI 本体零鉴权，反向代理的凭据模板写在端点定义的 auth 节（docs/adr/0081），密钥留空是常态。
   const keyOptional = value.noApiKey || isComfyui;
 
-  /** 测试连接与获取模型列表的前置检查；不满足时提示并返回 false。 */
   const checkConnectionInputs = () => {
     if (!value.baseUrl) {
       showError(t("fill_base_url_first"));
@@ -389,7 +383,6 @@ export function CustomProviderForm({
   );
 
   const handleTest = async () => {
-    // 先清空上一次结果：校验失败直接返回时也不残留旧的成功或失败提示
     setTestResult(null);
     if (!checkConnectionInputs()) return;
     setTesting(true);
@@ -455,7 +448,6 @@ export function CustomProviderForm({
     );
   }, [existing, onSaved]);
 
-  // --- 删除供应商 ---
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -656,7 +648,6 @@ export function CustomProviderForm({
           )}
         </section>
 
-        {/* 供应商设置在模型列表之上：接口地址与倍率经页面保存栏保存 */}
         <section aria-labelledby={billingHeadingId} className="flex max-w-178 flex-col gap-4">
           <div className="flex flex-col gap-1">
             <h3 id={billingHeadingId} className="text-base font-medium">
@@ -717,7 +708,6 @@ export function CustomProviderForm({
                 {t("add_model_manually")}
               </Button>
             </div>
-            {/* comfyui 没有模型发现，用说明替代按钮 */}
             {isComfyui && <p className="text-sm text-muted-foreground">{t("discovery_not_applicable")}</p>}
             {hasUnsetEndpoint && <p className="text-sm text-warn">{t("cp_model_endpoint_unselected")}</p>}
             {models.length > 0 ? (
@@ -800,7 +790,6 @@ export function CustomProviderForm({
         <AlertDialog
           open={confirmDelete}
           onOpenChange={(open) => {
-            // 删除请求在途时不响应 Esc
             if (!open && !deleting) setConfirmDelete(false);
           }}
         >

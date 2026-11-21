@@ -56,7 +56,6 @@ class TestOverrideFieldSchema:
         from server.routers.custom_providers import CAPABILITY_OVERRIDE_ALLOWLIST
 
         assert {
-            # 模型事实
             "image_input",
             "structured_output",
             "max_output_tokens",
@@ -65,7 +64,6 @@ class TestOverrideFieldSchema:
             "durations",
             "resolutions",
             "duration_constraints",
-            # 通道事实
             "text_to_video",
             "first_frame",
             "last_frame",
@@ -431,7 +429,7 @@ class TestReferenceAudioOverrideGuards:
                 overrides={"reference_audio_mode": "DIRECT"},
             )
 
-        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT  # 系统判定本身即 direct
+        assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
         assert "reference_audio_mode" in caplog.text
 
     def test_direct_without_positive_count_falls_back_to_none(self, caplog: pytest.LogCaptureFixture):

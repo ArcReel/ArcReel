@@ -179,7 +179,6 @@ async def test_unreadable_image_at_digest_time_is_named_before_submission(tmp_pa
 async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     proj_dir = write_project(tmp_path)
 
-    # Patch project_manager helpers
     from server.services.tasks import reference_video_tasks as rvt
 
     fake_pm = MagicMock()
@@ -193,11 +192,9 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     _wire_locked_script(fake_pm)
     use_project_manager(monkeypatch, fake_pm)
 
-    # Mock generator.generate_video_async: 创建伪视频文件
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
-        # (output_path, version, video_ref, video_uri)
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -205,7 +202,6 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
     _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
 
-    # Patch thumbnail extractor → success
     async def _fake_extract(*_a, **_k):
         return True
 
@@ -1070,7 +1066,6 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     不能保留指向过期 URI / 已删除文件的旧值。"""
     proj_dir = write_project(tmp_path)
 
-    # 预置上一次成功生成留下的旧产物
     script_path = proj_dir / "scripts" / "episode_1.json"
     script_data = json.loads(script_path.read_text(encoding="utf-8"))
     ga = script_data["video_units"][0]["generated_assets"]
@@ -1094,7 +1089,6 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     fake_pm.locked_script.side_effect = _locked_script
     use_project_manager(monkeypatch, fake_pm)
 
-    # 新后端不返回 video_uri（第 4 个元素为 None）
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
         await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
@@ -1105,7 +1099,6 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
     _wire_context(monkeypatch, rvt, fake_generator, backend_name="ark", backend_model="doubao-seedance-2-0-260128")
 
-    # 缩略图提取失败 → thumb_rel=None
     async def _fake_extract(*_a, **_k):
         return False
 
@@ -1121,7 +1114,6 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     ga_after = live_script["video_units"][0]["generated_assets"]
     assert "video_uri" not in ga_after
     assert "video_thumbnail" not in ga_after
-    # 正常产物仍正确写入
     assert ga_after["video_clip"] == "reference_videos/E1U1.mp4"
     assert ga_after["status"] == "completed"
 
@@ -1680,11 +1672,9 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
         user_id="u1",
     )
 
-    # Backend 被真实调用一次，且 output_path 走 resource_relative_path("reference_videos", ...) 模板
     assert len(captured_requests) == 1
     req = captured_requests[0]
     assert req.output_path == (proj_dir / "reference_videos" / "E1U1.mp4")
-    # 真实文件落盘
     assert (proj_dir / "reference_videos" / "E1U1.mp4").exists()
     assert result["file_path"] == "reference_videos/E1U1.mp4"
     assert result["video_uri"] == "uri-x"
@@ -1758,11 +1748,9 @@ async def test_execute_reference_video_task_rejects_duration_above_lane_maximum(
     """Executor never truncates a unit whose duration exceeds the current model tier."""
     proj_dir = write_project(tmp_path)
 
-    # 改造 unit 让它有 2 张 refs + 15s duration，便于验证超出时长档位时的拒绝
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["video_units"][0]["duration_seconds"] = 15
-    # characters 已有 张三 sheet；scenes 已有 酒馆 sheet —— refs 已是 2 张
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
     from server.services.tasks import reference_video_tasks as rvt
@@ -1825,7 +1813,6 @@ async def test_execute_reference_video_task_prompt_matches_full_refs(
     """
     proj_dir = write_project(tmp_path)
 
-    # 新增一个道具 sheet，让 unit 拥有 3 张 refs（1 character + 1 scene + 1 prop）。
     (proj_dir / "props").mkdir()
     (proj_dir / "props" / "瓶子.png").write_bytes(_TINY_PNG)
     project_path = proj_dir / "project.json"
@@ -1861,7 +1848,6 @@ async def test_execute_reference_video_task_prompt_matches_full_refs(
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    # 上限 3 张，与装配张数相同（provider_id=openai, model=sora-2）
     _wire_context(
         monkeypatch,
         rvt,
@@ -1884,7 +1870,6 @@ async def test_execute_reference_video_task_prompt_matches_full_refs(
         user_id="u1",
     )
 
-    # 3 张完整发出，三个主体分别绑定 @图片1/@图片2/@图片3
     assert len(captured["reference_images"]) == 3
     prompt = captured["prompt"]
     assert "@图片1" in prompt

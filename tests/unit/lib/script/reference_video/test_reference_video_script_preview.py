@@ -55,9 +55,6 @@ def keys(preview) -> list[str]:
     return [w["key"] for w in preview.warnings]
 
 
-# ---------- 行内记号匹配原语 ----------
-
-
 def marks(line: str) -> list[tuple[str, str]]:
     return [(mark.speaker, mark.text) for mark in line_speech_marks(line)]
 
@@ -80,11 +77,11 @@ def test_dialogue_mark_accepts_wrapped_bare_both_colons_and_inline(line: str):
 @pytest.mark.parametrize(
     "line",
     [
-        "@[张三]：我来了",  # 无花括号
-        "@[张三]：{我来了",  # 未闭合
-        "@[ ]：{我来了}",  # speaker 位全为空白
-        "@[张三]：{}",  # 空台词
-        "@[张三]：{   }",  # 台词只有空白
+        "@[张三]：我来了",
+        "@[张三]：{我来了",
+        "@[ ]：{我来了}",
+        "@[张三]：{}",
+        "@[张三]：{   }",
     ],
 )
 def test_line_without_valid_mark_derives_nothing(line: str):
@@ -120,9 +117,6 @@ def test_blank_braces_degrade_to_warning():
     preview = build_script_preview("中景。\n@[张三]：{}\n{   }", PROJECT_WITHOUT_SCENES, _SOFT)
     assert preview.utterances == []
     assert keys(preview) == [WARN_BRACES_NOT_SPEECH, WARN_BRACES_NOT_SPEECH]
-
-
-# ---------- 派生 ----------
 
 
 def test_normative_lines_derive_dialogue_and_voiceover():
@@ -195,9 +189,6 @@ def test_dialogue_only_line_derives_utterance_without_reference():
     assert derive_references_from_text(text, PROJECT)[0] == []
     assert [(u.kind, u.speaker) for u in preview.utterances] == [("dialogue", "张三")]
     assert extract_mentions(text) == []
-
-
-# ---------- 降级可见性 warning ----------
 
 
 def test_warn_unit_without_scene_when_project_has_scene_assets():
@@ -510,8 +501,6 @@ def test_silent_episode_keeps_utterances_for_lip_sync():
     )
     assert [u.text for u in preview.utterances] == ["我来了"]
 
-
-# ---------- i18n ----------
 
 WARNING_KEYS = [
     WARN_UNREGISTERED_MENTION,

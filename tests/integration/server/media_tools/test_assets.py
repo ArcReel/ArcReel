@@ -89,7 +89,6 @@ async def test_generate_assets_happy(fake_ctx: ToolHarness) -> None:
 
     out = await run_declared_tool("generate_assets", fake_ctx, {"type": "character"}, batch_waiter=fake_batch)
 
-    # 李四 没有 description，作为 blocked 逐 ID 报告。
     result = read_generation_result(out)
     assert result.succeeded == ["character/张三"]
     assert result.blocked == ["character/李四"]

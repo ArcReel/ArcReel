@@ -66,7 +66,6 @@ interface ScriptReviewGateProps {
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
 
-/** 条目卡编辑字段所需的上下文：时长档位、本集新增资产与说话人候选。 */
 interface PlanItemContext {
   projectName: string;
   durationOptions: number[] | null;
@@ -81,12 +80,10 @@ function durationOutOfTier(seconds: number, options: number[] | null): boolean {
   return options != null && options.length > 0 && !options.includes(seconds);
 }
 
-/** 条目卡里正文区块的小标题。 */
 function SectionLabel({ children, className }: { children: React.ReactNode; className?: string }) {
   return <h4 className={cn("mb-1.5 text-xs font-medium text-muted-foreground", className)}>{children}</h4>;
 }
 
-/** 两条 script_plan 变体（drama / narration）的可编辑草稿联合。 */
 type ReviewDraft = DramaNormalizedScript | NarrationScriptPlanDraft;
 
 /** 本面板承接 drama / narration 两个变体的内容，reference_video 变体不会路由到这里。 */
@@ -94,7 +91,6 @@ function selectReviewContent(state: ScriptReviewState): ReviewDraft | null {
   return (state.content ?? null) as ReviewDraft | null;
 }
 
-/** 只读的资产引用 pills（出场角色 / 场景 / 道具）。 */
 function MetaChips({ items }: { items: string[] }) {
   if (!items.length) return null;
   return (
@@ -108,7 +104,6 @@ function MetaChips({ items }: { items: string[] }) {
   );
 }
 
-/** 条目头部：位置、时长与章节切分点；可编辑时时长用档位下拉、切分点用开关，越档就地标红说明。 */
 function ItemHeader({
   position,
   durationSeconds,
@@ -208,7 +203,6 @@ function ItemReferences({
   );
 }
 
-/** 只读正文：保留换行，空值不渲染。 */
 function ReadOnlyText({ text, className = "" }: { text: string; className?: string }) {
   if (!text) return null;
   return <p className={cn("text-sm leading-relaxed whitespace-pre-wrap", className)}>{text}</p>;
@@ -231,7 +225,6 @@ function ReadOnlyUtterances({ utterances }: { utterances: Utterance[] }) {
   );
 }
 
-/** 条目卡在草稿上呈现时的违约挂载：违约（红）与降级提示（琥珀）随条目呈现，卡片是跳转落点。 */
 interface ItemDraftNotes {
   violations: ScriptReviewViolation[];
   softViolations: DraftSoftViolation[];
@@ -450,7 +443,6 @@ function reviewItems(content: ReviewDraft | null): { id: string }[] {
     : content.segments.map((segment) => ({ id: segment.segment_id }));
 }
 
-/** 各条目引用到的名字与原文片段，供「本集新增资产」区展开出场位置。 */
 function newAssetEntries(content: ReviewDraft | null): NewAssetEntryRefs[] {
   if (content == null) return [];
   return "scenes" in content
@@ -598,7 +590,6 @@ export function ScriptReviewGate({
     return <div className="flex h-64 items-center justify-center text-muted-foreground">{t("dashboard:loading_script_plan")}</div>;
   }
 
-  // 加载错误态：区别于「无 script_plan 产物」空态，展示错误信息 + 重试入口。
   if (loadError) {
     return (
       <div role="alert" className="flex h-64 flex-col items-center justify-center gap-3 text-center">
@@ -617,7 +608,6 @@ export function ScriptReviewGate({
 
   const status = state?.status ?? "no_script_plan";
   if (status === "no_script_plan" || (draft == null && quarantine == null)) {
-    // 没有规划也没有正式脚本：首次规划，给出起步区。已有正式脚本（如从空白开始）时，新规划经覆盖确认才替换它。
     const formalScript = state?.script_overwrite != null || onOpenTimeline !== undefined;
     if (status === "no_script_plan" && !formalScript) {
       return (
@@ -651,7 +641,6 @@ export function ScriptReviewGate({
     />
   );
 
-  // 本集还没有正式脚本、规划也未确认时，可以不用这份规划、从空白开始手写；规划与待修复草稿随之弃置，先确认。
   const blankStartAction =
     state?.script_overwrite == null && status !== "confirmed" ? (
       <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan variant="ghost" />
@@ -761,13 +750,11 @@ export function ScriptReviewGate({
   // 已确认的脚本规划只读：保存端点按同一判据拒绝，内容修改改在时间线上做。
   const confirmed = status === "confirmed" && !agentEditing;
   const readOnly = confirmed || agentEditing;
-  // 该集已有正式脚本：确认会整份覆盖它，确认按钮改呈 danger，点击先列出后果再确认。
   const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
   // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = confirmed && !scriptMissing;
   const videoModelBlocked = modelUnresolved && !confirmLocked;
-  // 有条目的时长不在当前档位内：确认会被拒绝，先就地改选。
   const durationBlocked =
     !confirmLocked &&
     draft != null &&
@@ -926,7 +913,6 @@ export function ScriptReviewGate({
   );
 }
 
-/** 内容确认状态条：待确认 / 已确认 / 已确认但缺正式脚本，右侧放保存与确认动作。 */
 function ReviewStatusBar({
   confirmed,
   scriptMissing,

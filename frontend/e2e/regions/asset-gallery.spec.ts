@@ -4,8 +4,6 @@ import { clearAgentOverlay, viewport, waitForEntrance } from "../support/region-
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 资产画廊：工具栏（筛选、批量生成、新增）+ 按画布宽度加列的浏览卡网格；点卡片打开右侧详情 Sheet，
-// 次要操作收在卡片的「更多」里。
 
 const PATH = "/app/projects/demo/characters";
 
@@ -35,7 +33,6 @@ const CHARACTERS: Record<string, Character> = {
   小满: { description: "隔壁绸缎庄的学徒，常来茶馆听书。" },
 };
 
-// 产物清单：沈砚的资产图已过期，阿岚与小满待生成。
 function statusRows(names: string[], stale: Set<string>, missing: Set<string>) {
   return {
     status: 200,
@@ -59,7 +56,6 @@ function projectWith(characters: Record<string, Character>, episodeTitles?: stri
   const body = structuredClone(recorded.body) as { project: Record<string, unknown> };
   body.project.characters = characters;
   if (episodeTitles) {
-    // 以录制的第 1 集为模板，按标题铺出多集。
     const [template] = body.project.episodes as Record<string, unknown>[];
     body.project.episodes = episodeTitles.map((title, i) => ({
       ...template,
@@ -71,7 +67,6 @@ function projectWith(characters: Record<string, Character>, episodeTitles?: stri
   return { status: recorded.status, body };
 }
 
-// 小满有一个进行中的资产图任务，卡片显示「生成中」。
 const RUNNING_TASKS = {
   status: 200,
   body: {
@@ -135,7 +130,6 @@ const BASE: ApiOverrides = {
   },
 };
 
-// 压力变体：40 个名字与描述都很长、带别名与衍生的角色。
 const MANY: Record<string, Character> = Object.fromEntries(
   Array.from({ length: 40 }, (_, i) => [
     `${LONG_NAME} ${i + 1}`,
@@ -154,7 +148,6 @@ const MANY_API: ApiOverrides = {
   "GET /api/v1/tasks?page_size=200&project_name=demo": { status: 200, body: { items: [], total: 0, page: 1, page_size: 200 } },
 };
 
-// 删除前的引用预览（dry_run）：林夕被前三集引用。
 const DELETE_PREVIEW_KEY = "DELETE /api/v1/projects/demo/characters/林夕?dry_run=true";
 const DELETE_API: ApiOverrides = {
   ...BASE,
@@ -174,7 +167,6 @@ const DELETE_API: ApiOverrides = {
     },
   },
 };
-// 压力变体：被 30 集引用，集标题很长。
 const MANY_EPISODES = Array.from({ length: 30 }, (_, i) => `${LONG_NAME}的第 ${i + 1} 段故事`);
 const DELETE_MANY_API: ApiOverrides = {
   ...BASE,
@@ -220,13 +212,11 @@ function versionsOf(name: string, count: number) {
   };
 }
 
-// 图片查看器：林夕、沈砚、周掌柜有资产图，阿岚与小满没有。
 const VIEWER_API: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo/versions/characters/沈砚": versionsOf("沈砚", 2),
   "GET /api/v1/projects/demo/versions/characters/周掌柜": versionsOf("周掌柜", 1),
 };
-// 压力变体：名字很长、有 60 个版本。
 const VIEWER_MANY_API: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo": projectWith({ [LONG_NAME]: { description: LONG_DESCRIPTION, character_sheet: sheetSvg(200) }, ...CHARACTERS }),
@@ -282,7 +272,6 @@ defineRegionScenarios("资产画廊", [
       await expect(xiaoman.getByText("生成中")).toBeVisible();
       await expect(page.getByRole("article", { name: "周掌柜" }).getByText("缺描述")).toBeVisible();
       await expect(page.getByRole("article", { name: "阿岚" }).getByText("待生成")).toBeVisible();
-      // 1440 宽、Agent 面板展开时，角色网格是两列。
       if (viewport(page).width === 1440) {
         await expect(page.getByRole("button", { name: "Agent", exact: true })).toHaveAttribute("aria-pressed", "true");
         expect(await columnCount(page)).toBe(2);
@@ -376,7 +365,6 @@ defineRegionScenarios("资产画廊", [
     path: PATH,
     api: {
       ...BASE,
-      // 详情的衍生区块读取衍生图状态
       "GET /api/v1/projects/demo/characters/林夕/derivatives": { status: 200, body: { success: true, derivatives: {} } },
     },
     ready: galleryReady,
@@ -428,7 +416,6 @@ defineRegionScenarios("资产画廊", [
       await page.keyboard.press("ArrowRight");
       viewer = page.getByRole("dialog", { name: "沈砚", exact: true });
       await expect(viewer.getByText("2 / 3")).toBeVisible();
-      // 阿岚没有资产图，跳过
       await page.keyboard.press("ArrowRight");
       viewer = page.getByRole("dialog", { name: "周掌柜", exact: true });
       await expect(viewer.getByText("3 / 3")).toBeVisible();

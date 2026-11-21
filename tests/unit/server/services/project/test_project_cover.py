@@ -30,7 +30,6 @@ def _mk_manager(scripts_by_file: dict[str, dict]) -> MagicMock:
     return mgr
 
 
-# 分镜图生视频的三种分镜骨架：(content_mode, 条目数组键)。
 _STORYBOARD_SKELETONS = [
     pytest.param("narration", "segments", id="narration-segments"),
     pytest.param("drama", "scenes", id="drama-scenes"),
@@ -123,7 +122,6 @@ def test_reference_mode_without_generated_assets_falls_back_to_scene_sheet():
     }
     scripts = {"scripts/episode_1.json": {"video_units": [{"generated_assets": {"status": "pending"}}]}}
     url = resolve_project_cover(_mk_manager(scripts), "proj", project)
-    # scene 优先于 character
     assert url == "/api/v1/files/proj/scenes/酒馆.png"
 
 

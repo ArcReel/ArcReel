@@ -10,7 +10,6 @@ interface CompactInputProps {
   readOnly?: boolean;
 }
 
-/** 结构化提示词里的单行字段：左侧标签、右侧输入框，放在 `PromptFieldGrid` 的两列里。 */
 export function CompactInput({ label, value, onChange, placeholder, readOnly }: CompactInputProps) {
   const id = useId();
   return (

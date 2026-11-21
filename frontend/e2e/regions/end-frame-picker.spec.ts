@@ -4,7 +4,6 @@ import { recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 分镜详情视频栏的尾帧选图器：本集分镜图与分镜切图两组平铺，选中一张后设为尾帧。
 const BOARD_PATH = "/app/projects/demo/episodes/1";
 
 interface RecordedProject {

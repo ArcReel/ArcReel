@@ -14,7 +14,6 @@ export const MAX_ENCODED_IMAGE_BYTES = (3 * 1024 * 1024) / 2;
  */
 export const TRANSCODED_IMAGE_MIME_TYPE = "image/jpeg";
 
-/** 质量阶梯：首档 0.85，超出单张预算时保持像素尺寸逐级降质重编码。 */
 const JPEG_QUALITY_LADDER = [0.85, 0.75, 0.65, 0.55, 0.45];
 
 export type TranscodeResult =

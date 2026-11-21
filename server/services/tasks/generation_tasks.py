@@ -302,7 +302,6 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
         audio_rel = resource_relative_path("audio", resource_id)
         paths.append((audio_rel, project_path / audio_rel))
     elif task_type == DERIVATIVE_TASK_TYPE:
-        # 衍生的 resource_id 本身是 `本体名/衍生名`，两段原样成为路径层级。
         sheet_rel = resource_relative_path(CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_id)
         paths.append((sheet_rel, project_path / sheet_rel))
 
@@ -331,8 +330,6 @@ _TASK_CHANGE_SPECS: dict[str, tuple] = {
     DERIVATIVE_TASK_TYPE: (DERIVATIVE_ASSET_TYPE, "updated", "asset_image_character_derivative", False),
 }
 
-# 骨架驱动的任务类型 → 完成事件 action。entity_type/条目名词按项目剧本当前骨架种类
-# （resolve_script_kind，与分镜级事件同一判定）动态解析，不按 task_type 恒定硬编码。
 _SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
     "storyboard": "storyboard_ready",
     "video": "video_ready",
@@ -479,7 +476,6 @@ async def execute_storyboard_task(
             resource_id=resource_id,
             observation=project_input_observation(_project_path),
         )
-        # 生成输入不成立时在解析供应商通道与付费之前失败，一次报出全部缺口。
         if (_refusal := _generation_input.refusal) is not None:
             raise input_refusal_error(_refusal)
         return _StoryboardImageInputs(
@@ -529,7 +525,6 @@ async def execute_storyboard_task(
         project_path=project_path,
         sources=[reference.visual.path for reference in inputs.generation_input.references],
     ) as frozen:
-        # 剧本 claim 排在最前，其后是参考图按冻结字节绑定的 claims。
         formal_claims = (inputs.script_claim, *frozen.claims)
 
         async def _assert_claims_usable() -> None:
@@ -660,7 +655,6 @@ async def execute_tts_task(
         formal_input_claims,
     ) = await run_sync_transaction(_prepare)
 
-    # 旁白配音只按项目的 TTS 快照合成：项目改为后期配音或快照不完整时拒绝执行。
     settings = require_project_tts_generation(project)
     voice = settings.voice
     speed = settings.speed
@@ -682,7 +676,6 @@ async def execute_tts_task(
 
     audio_rel = resource_relative_path("audio", resource_id)
     duration_seconds: float | None = None
-    # 选片依据的解析失败在回调里发生、在外层消费，用单元素信箱传递而非 nonlocal 哨兵。
     tts_selection_errors: list[BaseException] = []
     selected_current = True
 
@@ -1340,7 +1333,6 @@ async def execute_video_task(
         if task_id is not None
         else None
     )
-    #: backend 执行期产生的非阻断提示（如 ComfyUI 一次产出多个文件），随结果落进任务 result。
     warnings: list[dict[str, Any]] = []
     try:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
@@ -1487,7 +1479,6 @@ async def execute_asset_sheet_task(
             name=resource_id,
             observation=project_input_observation(_project_path),
         )
-        # 生成输入不成立时在解析供应商通道与付费之前失败，一次报出全部缺口。
         if (_refusal := _generation_input.refusal) is not None:
             raise input_refusal_error(_refusal)
         return _project, _project_path, _generation_input
@@ -1651,7 +1642,6 @@ async def execute_grid_task(
         manager = GridManager(project_path)
         return manager, manager.get(resource_id)
 
-    # a) Load grid
     grid_manager, grid = await asyncio.to_thread(_load_grid)
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
@@ -1685,7 +1675,6 @@ async def execute_grid_task(
     # 执行入口发现供应商与认领槽不一致时任务回队，宫格记录要回到领取前的状态，不能留在 generating。
     status_before_claim, error_before_claim = grid.status, grid.error_message
     try:
-        # b) Set status to generating
         grid.status = "generating"
         grid.error_message = None
         await run_sync_transaction(grid_manager.save, grid)
@@ -1698,7 +1687,6 @@ async def execute_grid_task(
         if missing_members:
             raise ValueError(f"grid scenes are no longer present in the bound script: {missing_members}")
 
-        # c) Build reference images + metadata
         from lib.script.grid.models import ReferenceImage
 
         grid_input = await asyncio.to_thread(
@@ -1709,7 +1697,6 @@ async def execute_grid_task(
                 observation=project_input_observation(project_path),
             )
         )
-        # 参考图集不成立时在解析供应商通道与付费之前失败，一次报出全部缺口。
         if (grid_refusal := grid_input.refusal) is not None:
             raise input_refusal_error(grid_refusal)
         assembled = grid_input.references
@@ -1742,7 +1729,6 @@ async def execute_grid_task(
 
         async with local_work_files(project_path, [reference.visual.path for reference in assembled]):
             frozen_references = await run_sync_transaction(_freeze_references)
-        # 剧本 claim 排在最前，其后是参考图按冻结字节绑定的 claims。
         formal_claims = list(
             await asyncio.to_thread(
                 bind_artifact_input_claims_to_frozen_visuals,
@@ -1768,7 +1754,6 @@ async def execute_grid_task(
             )
         await run_sync_transaction(grid_manager.save, grid)
 
-        # d) Generate grid image
         members = tuple(
             GridStoryboardVisual(
                 resource_id=scene_id,
@@ -1822,7 +1807,6 @@ async def execute_grid_task(
         async def _before_submit() -> None:
             await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)
 
-        # 新联合图按新内容版本的全局保存位置写入（缺省本地）
         async with formal_commit(project_name):
             await generator.generate_image_async(
                 prompt=prompt_text,
@@ -1965,9 +1949,6 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
         except GenerationTargetDeletedError as deleted:
             # 结果已进项目回收站，任务照常成功；没有写回任何资源，不发生成成功事件。
             return deleted.result
-        # 成功事件发出失败时不回滚产物：已写入的产物保持有效，异常照常上抛。
-        # 发事件要读剧本、算产物指纹，放进工作线程；to_thread 复制上下文，事件来源仍是 worker。
-        # 产物已提交，发事件不可打断：取消不能把已付费成功的任务改判为中断。
         await run_noninterruptible_sync(
             emit_generation_success_batch,
             task_type=task_type,

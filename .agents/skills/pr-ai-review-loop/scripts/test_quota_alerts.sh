@@ -39,9 +39,6 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 3
 fi
 
-# cr_rate_limited_body, quota_alert_body and the skip/pause judgments live in signals.jq,
-# shared with wait.sh; every jq program below includes it. The remaining defs are pulled
-# verbatim from poll.sh: quota_alerts ends on the line ending `];` that closes it.
 QUOTA_DEF=$(awk '/^[[:space:]]*def quota_alerts:/{flag=1} flag{print; if (/\];[[:space:]]*$/) exit}' "$POLL_SH")
 if [[ -z "$QUOTA_DEF" ]]; then
   echo "could not extract quota_alerts def from $POLL_SH" >&2
@@ -105,7 +102,6 @@ for tc in "${CASES[@]}"; do
     \$body | cr_rate_limited_body
     ")
 
-  # Rate-limited bodies must suppress reviewed_current_head; non-alert ones must not.
   if [[ "$expect_rl" == "true" ]]; then expect_wt="true:false"; else expect_wt="false:true"; fi
   got_wt=$(jq -rn -L "$SCRIPT_DIR" \
     --rawfile body "$body_file" \

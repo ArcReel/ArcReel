@@ -55,7 +55,6 @@ function movedIds<Id extends UniqueIdentifier>(ids: readonly Id[], from: number,
   return next;
 }
 
-// 只沿列表方向移动，拖动时条目不会横向（或纵向）漂出列表。
 const lockToVertical: Modifier = ({ transform }) => ({ ...transform, x: 0 });
 const lockToHorizontal: Modifier = ({ transform }) => ({ ...transform, y: 0 });
 
@@ -66,7 +65,6 @@ interface SortableListProps<Id extends UniqueIdentifier> {
   onMove: (move: SortableMove<Id>) => void;
   /** 返回 false 的落点不接受：拖放后条目回到原处，`useSortableMove` 对应的方向不可用。 */
   canMove?: (move: SortableMove<Id>) => boolean;
-  /** 读屏播报里的条目名称。 */
   getName: (id: Id) => string;
   orientation?: "vertical" | "horizontal";
   /** 暂时不允许排序（如列表正在按搜索词筛选）：把手禁用，移动动作不可用。 */
@@ -201,7 +199,6 @@ export function SortableItem({ id, render, ...props }: SortableItemProps) {
   return <SortableItemContext.Provider value={sortable}>{element}</SortableItemContext.Provider>;
 }
 
-/** 拖动把手：图标按钮，`label` 写明调整的是哪一项的顺序，如「调整『官方市场』的顺序」。 */
 export function SortableHandle({ label }: { label: string }) {
   const sortable = useContext(SortableItemContext);
   if (!sortable) throw new Error("SortableHandle 必须放在 SortableItem 内");

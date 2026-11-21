@@ -38,9 +38,6 @@ const STATUS_LABEL_KEY: Record<string, string> = {
   missing: "dashboard:episode_status_idea",
 };
 
-/**
- * 侧栏的集卡片：左边是播出位置，中间是集名、状态与进度，右边是实际费用。当前打开的集带底色。
- */
 export function EpisodeCard({
   ep,
   position,

@@ -79,7 +79,6 @@ class AgnesImageBackend:
     SENDS_RATIO = False
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # Agnes 通道不按数量裁剪参考图，全量随请求发出。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(

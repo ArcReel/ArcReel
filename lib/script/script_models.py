@@ -25,7 +25,6 @@ from lib.script.script_skeleton import resolve_declared_kind
 # Structured Outputs 下不太会产出额外字段,产出即 hallucination,拒比静默丢更安全。
 _STRICT_CONFIG = ConfigDict(extra="forbid")
 
-# ============ 枚举类型定义 ============
 
 ShotType = Literal[
     "Extreme Close-up",
@@ -205,7 +204,6 @@ PromptText = SkipJsonSchema[Annotated[str, AfterValidator(_require_non_blank_pro
 #: 只由转换路径写入，不是模型可选的输出形状；空串仍由 ``PromptText`` 拒绝。
 PendingPrompt = SkipJsonSchema[None]
 
-#: 条目级待编写标记的字段名，见各条目模型的 ``pending_authoring``。
 PENDING_AUTHORING_FIELD = "pending_authoring"
 
 
@@ -246,9 +244,6 @@ def get_generated_assets(item: dict) -> dict:
     """
     assets = item.get("generated_assets")
     return assets if isinstance(assets, dict) else {}
-
-
-# ============ 旁白/解说（Narration） ============
 
 
 class NarrationSegment(BaseModel):
@@ -350,7 +345,6 @@ class NarrationEpisodeScript(BaseModel):
 
 
 NewAssetType = Literal["character", "scene", "prop"]
-#: 脚本规划顶层承载本集新增资产清单（``list[PlanNewAsset]``）的字段名。
 NEW_ASSETS_FIELD = "new_assets"
 NewAssetDecision = Literal["register", "merge", "derivative", "skip"]
 
@@ -438,9 +432,6 @@ class NarrationVisualEpisodeScript(BaseModel):
 
     title: str = Field(description="剧集标题")
     segments: list[NarrationVisualSegment] = Field(description="各分镜的视觉层，按 segment_id 一一对齐 script_plan")
-
-
-# ============ 剧情演绎（Drama） ============
 
 
 UtteranceKind = Literal["dialogue", "voiceover"]
@@ -576,15 +567,12 @@ class DramaScene(BaseModel):
     # 视觉改编描述：内容确认转换时由脚本规划透传，作为提示词编写的视觉基底；对 LLM 隐藏。
     # 存量正式脚本无此字段时为空串。
     scene_description: SkipJsonSchema[str] = Field(default="", description="视觉改编描述")
-    # 见 NarrationSegment 同名字段说明。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
     end_frame_image: SkipJsonSchema[str | None] = Field(default=None, description="尾帧快照路径（项目内相对路径）")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
-    # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
-    # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
 
 
@@ -596,11 +584,8 @@ class DramaEpisodeScript(BaseModel):
     """
 
     title: str = Field(description="剧集标题")
-    # 见 NarrationEpisodeScript.content_mode 说明
     content_mode: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="创作类型")
-    # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
-    # 见 NarrationEpisodeScript 同名字段说明。
     hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
     next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
     scenes: list[DramaScene] = Field(description="分镜列表")
@@ -686,9 +671,6 @@ class DramaVisualScript(BaseModel):
     scenes: list[DramaSceneVisual] = Field(description="各分镜视觉层（按 scene_id 对齐 script_plan 内容）")
 
 
-# ============ 广告/短片（Ad） ============
-
-
 class AdShot(BaseModel):
     """广告/短片的分镜——平铺 shots[] 的最小单元。
 
@@ -722,15 +704,12 @@ class AdShot(BaseModel):
     # 由提示词编写补出（见 _fill_pending_prompts 与结构校验）。
     image_prompt: ImagePrompt | PromptText | PendingPrompt = Field(description="分镜图生成提示词")
     video_prompt: VideoPrompt | PromptText | PendingPrompt = Field(description="视频生成提示词")
-    # 见 NarrationSegment 同名字段说明。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注（不参与生成）")
     end_frame_image: SkipJsonSchema[str | None] = Field(default=None, description="尾帧快照路径（项目内相对路径）")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
     )
     needs_replan: SkipJsonSchema[bool] = Field(default=False, description="该单元需要人工重新规划")
-    # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
-    # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
 
 
@@ -761,14 +740,10 @@ class AdEpisodeScript(BaseModel):
     """
 
     title: str = Field(description="短片标题")
-    # 见 NarrationEpisodeScript.content_mode 说明
     content_mode: SkipJsonSchema[Literal["ad"]] = Field(default="ad", description="创作类型")
-    # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
     shots: list[AdShot] = Field(description="分镜列表")
 
-
-# ============ 参考生视频（Reference-to-Video） ============
 
 #: 视频单元编排时长（``ReferenceVideoUnit.duration_seconds``）的结构范围（秒）。
 #: 静态模型只拦非正整数与量级明显失真的值；生成预检再按执行模型能力投影到申请档位并把
@@ -872,7 +847,6 @@ class ReferenceVideoUnit(BaseModel):
         le=REFERENCE_UNIT_DURATION_RANGE[1],
         description="该单元时长（秒）",
     )
-    # note / generated_assets 均为 UI / runtime / 人工字段，对 LLM 隐藏。
     note: SkipJsonSchema[str | None] = Field(default=None, description="用户备注")
     generated_assets: SkipJsonSchema[GeneratedAssets] = Field(
         default_factory=GeneratedAssets, description="生成资源状态"
@@ -881,8 +855,6 @@ class ReferenceVideoUnit(BaseModel):
     # 对应原文：内容确认时从脚本规划单元透传，供创作者对照来源。对 LLM 隐藏，不在 web PATCH
     # 白名单内；Agent 可经批量编辑改写，项目有源文时须是本集源文的逐字子串。手动新增的单元为空。
     source_text: SkipJsonSchema[str] = Field(default="", description="该单元所依据的逐字原文摘录")
-    # 待编写：视觉层尚未补出。不带视觉层的新增条目置位，提示词编写写回或手写齐视觉层时清除；
-    # 对 LLM 隐藏，不在任何 PATCH 白名单内。落盘只在置位时出现。
     pending_authoring: SkipJsonSchema[bool] = Field(default=False, description="该条目待编写")
 
     @model_validator(mode="after")
@@ -913,13 +885,10 @@ class ReferenceVideoScript(BaseModel):
     """
 
     title: str = Field(description="剧集标题")
-    # 对 LLM 隐藏：由 _add_metadata 注入。
     content_mode: SkipJsonSchema[Literal["narration", "drama", "ad"]] = Field(
         default="narration", description="内容类型（narration/drama/ad）"
     )
-    # 见 NarrationEpisodeScript.novel 说明
     novel: SkipJsonSchema[NovelInfo] = Field(default_factory=NovelInfo, description="小说来源信息")
-    # 见 NarrationEpisodeScript 同名字段说明。
     hook: SkipJsonSchema[str | None] = Field(default=None, description="集尾钩子（来自分集账本）")
     next_episode_teaser: SkipJsonSchema[str | None] = Field(default=None, description="下集预告语（来自分集账本）")
     video_units: list[ReferenceVideoUnit] = Field(description="视频单元列表")
@@ -1059,9 +1028,6 @@ class AdReferenceFlatScript(BaseModel):
     new_assets: list[PlanNewAsset] = Field(
         default_factory=list, description="本片引用的、尚未登记的角色 / 场景 / 道具及其处理决定"
     )
-
-
-# ============ duration 枚举硬约束（按视频模型能力动态构造剧本 schema） ============
 
 
 def _coerce_digit_string(value: object) -> object:

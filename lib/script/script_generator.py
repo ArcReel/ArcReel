@@ -301,9 +301,7 @@ class ScriptPlanMaterializationReceipt:
 
     episode: int
     script_filename: str
-    #: 新正式剧本的全部条目 id（均待编写），按脚本规划顺序。
     entry_ids: tuple[str, ...]
-    #: 旧正式剧本里有、新剧本里已不存在的条目 id，按旧剧本顺序。
     removed: tuple[str, ...]
 
 
@@ -376,12 +374,10 @@ class ScriptGenerator:
         self.generator = generator
         self.config_resolver = config_resolver
         self._script_plan_fingerprint: str | None = None
-        #: 加载器读到的脚本规划顶层 ``new_assets``，物化时据此改写引用并登记。
         self._script_plan_new_assets: object = None
         self._artifact_basis: ArtifactBasisDescriptor | None = None
         self._script_plan_input_claim: ArtifactInputClaim | None = None
 
-        # 加载 project.json
         self.project_json = self._load_project_json()
         self.content_mode = self.project_json.get("content_mode", "narration")
 
@@ -651,7 +647,6 @@ class ScriptGenerator:
             script_plan_segments=entries,
             aspect_ratio=self._resolve_aspect_ratio(),
             episode=episode,
-            # 输出语言取项目 source_language，与正式剧本透传的内容字段同一语言（同 drama）
             target_language=self.project_json.get("source_language") or "中文",
             instructions=instructions,
         )
@@ -930,7 +925,7 @@ class ScriptGenerator:
         ``previous`` 是用户认可覆盖的旧正式剧本：以它的指纹为写入基线，旧条目名下的产物随写入撤登记。
         条目编号在落盘时由服务端另发（编号只分配、不复用）。
         """
-        assert self.generator is not None  # generate() 入口已检查
+        assert self.generator is not None
         if previous is None:
             filename, formal_baseline = await asyncio.to_thread(self._formal_script_baseline, episode, output_filename)
         else:
@@ -956,7 +951,6 @@ class ScriptGenerator:
         if not isinstance(items, list) or not items:
             raise AdScriptRejected([f"第 {episode} 集的 AI 生成脚本没有任何条目"])
         registered_project = self._settle_ad_new_assets(script_data, new_assets, id_field)
-        # 发声归属不合规的单元由 needs_replan 承接、照常写入：标记按改写引用后的条目判定。
         script_data = self._add_metadata(script_data, episode)
         structure = validate_script_structure(script_data)
         if not structure.valid:
@@ -1244,7 +1238,7 @@ class ScriptGenerator:
     async def _generate_text(self, request: TextGenerationRequest) -> Any:
         """Call the paid text provider after one shared formal-input recheck."""
 
-        assert self.generator is not None  # generate() 入口已检查
+        assert self.generator is not None
         if self._script_plan_input_claim is not None:
             await asyncio.to_thread(
                 assert_current_artifact_input_claims_usable,
@@ -1267,7 +1261,6 @@ class ScriptGenerator:
         reference_video 另经 ``_load_reference_script_plan``。
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
-        # 按 content_mode 取登记的结构化文件名，脏值兜底 drama。
         script_plan_path = drafts_path / SCRIPT_PLAN_FILENAMES.get(self.content_mode, SCRIPT_PLAN_FILENAMES["drama"])
 
         if not script_plan_path.exists():
@@ -1895,7 +1888,6 @@ class ScriptGenerator:
                 assert_dialogue_preserved(label, str(unit.get("text") or ""), flat_unit.text)
                 validate_unit_text(label, flat_unit.text, self.project_json, max_refs=None)
             except DraftViolation as exc:
-                # 与 ad 整份生成同一放行口径：发声归属类问题由 needs_replan 标记承接，不阻断落盘。
                 blocking = [item for item in violation_items(exc) if item.code not in _AD_UNIT_REPLAN_CODES]
                 if blocking:
                     problems.extend(str(item) for item in blocking)
@@ -2229,10 +2221,8 @@ class ScriptGenerator:
         Returns:
             验证后的剧本数据字典
         """
-        # 清理可能的 markdown 包装
         text = strip_json_code_fences(response_text)
 
-        # 解析 JSON
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
@@ -2254,9 +2244,7 @@ class ScriptGenerator:
             parsed = schema.model_validate(data).model_dump()
         except ValidationError as e:
             logger.warning("数据验证警告: %s", e)
-            # 返回原始数据，允许部分不符合 schema
             return data
-        # 剧本模型不收本集新增资产；它随产出带回，由调用方取走后解析。
         if NEW_ASSETS_FIELD in data:
             parsed[NEW_ASSETS_FIELD] = data[NEW_ASSETS_FIELD]
         return parsed
@@ -2387,7 +2375,6 @@ class ScriptGenerator:
                 try:
                     facts.require(bucket)
                 except VideoRequestFactsError as exc:
-                    # 视频模型配置问题而非正文违约：按问题码陈述原因与出路，Web 视图按问题码本地化。
                     params: dict[str, Any] = exc.params
                     raise DraftViolation(
                         f"unit {s[id_field]}：{translate(exc.code, **params)}（{exc.failure.summary()}）",

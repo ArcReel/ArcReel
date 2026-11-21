@@ -17,7 +17,6 @@ interface EndpointHeaderProps {
   back: EndpointBackTarget | null;
   /** 标题；ComfyUI 端点的名称是可编辑字段，标题显示的是当前值。 */
   title: string;
-  /** 标题后的类型与状态标记。 */
   badges?: ReactNode;
   /** 标题下一行：作者与版本、来源、节点数等。 */
   meta?: ReactNode;
@@ -27,7 +26,6 @@ interface EndpointHeaderProps {
   menu?: ReactNode;
 }
 
-/** 端点详情的页头：返回原供应商、名称与标记、主操作与更多操作菜单。 */
 export function EndpointHeader({ back, title, badges, meta, primary, menu }: EndpointHeaderProps) {
   const { t } = useTranslation("dashboard");
   return (

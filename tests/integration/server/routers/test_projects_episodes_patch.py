@@ -14,9 +14,6 @@ from tests.integration.server.routers.projects_router_support import (
 
 
 class TestProjectsRouter:
-    # Episodes PATCH tests
-    # ---------------------------------------------------------------------------
-
     def test_patch_project_episode_rebinding_forgets_unbound_resource_claims(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -106,7 +103,6 @@ class TestProjectsRouter:
             ep1 = next(e for e in episodes if e["episode"] == 1)
             ep2 = next(e for e in episodes if e["episode"] == 2)
             assert ep1["script_file"] == "scripts/ep1_v2.json"
-            # 第二集不受影响
             assert ep2["script_file"] == "scripts/ep2.json"
 
     def test_patch_project_episodes_has_no_route_field(self, tmp_path, monkeypatch):
@@ -141,7 +137,7 @@ class TestProjectsRouter:
                     "episodes": [
                         {
                             "episode": 1,
-                            "script_file": "scripts/ep1_v2.json",  # 合法白名单字段
+                            "script_file": "scripts/ep1_v2.json",
                             "title": "新标题",  # title 不再可经 PATCH /projects 写入
                             # 以下为项目摘要读时注入的统计字段，不应写入磁盘
                             "item_count": 999,
@@ -157,11 +153,9 @@ class TestProjectsRouter:
             )
             assert resp.status_code == 200
             ep1 = fake_pm.project_data["ready"]["episodes"][0]
-            # 合法字段应被写入
             assert ep1["script_file"] == "scripts/ep1_v2.json"
             # title 不可经此端点改写，保持原值（改名走 PATCH /episodes/{episode}）
             assert ep1["title"] == "原标题"
-            # 计算字段不得写入
             assert "item_count" not in ep1
             assert "scenes_count" not in ep1
             assert "status" not in ep1
@@ -186,9 +180,7 @@ class TestProjectsRouter:
             )
             assert resp.status_code == 200
             episodes = fake_pm.project_data["ready"]["episodes"]
-            # 集数不变
             assert len(episodes) == 2
-            # 已有字段不受影响
             assert episodes[0]["script_file"] == "scripts/ep1.json"
             assert episodes[1]["script_file"] == "scripts/ep2.json"
 
@@ -203,9 +195,7 @@ class TestProjectsRouter:
             resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "  新集名  "})
             assert resp.status_code == 200
             assert resp.json()["episode"]["title"] == "新集名"
-            # 剧本顶层 title 落盘
             assert fake_pm.scripts[("ready", "episode_1.json")]["title"] == "新集名"
-            # project.json 镜像同步
             ep = next(e for e in fake_pm.project_data["ready"]["episodes"] if e["episode"] == 1)
             assert ep["title"] == "新集名"
 

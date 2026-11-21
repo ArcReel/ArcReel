@@ -23,7 +23,6 @@ from lib.db.upgrade_source import SourceRecorder
 register_agent_session_models()
 register_db_models()
 
-# Alembic Config object
 config = context.config
 
 # Set up loggers from alembic.ini (仅 CLI 直接运行 alembic 时生效；
@@ -31,7 +30,6 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Use ORM metadata for autogenerate
 target_metadata = Base.metadata
 
 
@@ -58,7 +56,6 @@ def _compare_type(context, inspected_column, metadata_column, inspected_type, me
             return False
         if isinstance(inspected_type, DateTime) and isinstance(metadata_type, String):
             return False
-    # Return None to let Alembic use its default comparison for all other cases
     return None
 
 

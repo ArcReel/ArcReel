@@ -33,9 +33,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent", tags=["Agent 配置"])
 
 
-# ── Response models ─────────────────────────────────────────────────
-
-
 class PresetProviderResponse(BaseModel):
     id: str
     display_name: str
@@ -54,9 +51,6 @@ class PresetProviderResponse(BaseModel):
 class PresetProvidersResponse(BaseModel):
     providers: list[PresetProviderResponse]
     custom_sentinel_id: str
-
-
-# ── Endpoints ──────────────────────────────────────────────────────
 
 
 @router.get("/preset-providers", response_model=PresetProvidersResponse)
@@ -81,9 +75,6 @@ async def list_preset_providers(_t: Translator) -> PresetProvidersResponse:
         ],
         custom_sentinel_id=CUSTOM_SENTINEL_ID,
     )
-
-
-# ── Credential models ──────────────────────────────────────────────
 
 
 class TierStatusResponse(BaseModel):
@@ -239,9 +230,6 @@ async def _resolve_key_source(
     return provider.api_key, body.base_url or provider.base_url
 
 
-# ── Credential endpoints ───────────────────────────────────────────
-
-
 @router.get("/credentials", response_model=CredentialListResponse)
 async def list_credentials(
     _t: Translator,
@@ -289,7 +277,6 @@ async def create_credential(
         multiplier=body.multiplier,
         tier_bindings={tier: ref for tier, ref in bindings.items() if ref is not None},
     )
-    # 自动 active 策略：activate=True，或 (activate=None 且当前无 active)
     should_activate = body.activate is True
     if body.activate is None:
         existing_active = await repo.get_active()
@@ -380,9 +367,6 @@ async def delete_credential(
     await session.commit()
 
 
-# ── Activate endpoint ──────────────────────────────────────────────
-
-
 class ActivateResponse(BaseModel):
     active_id: int
 
@@ -400,9 +384,6 @@ async def activate_credential(
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found")) from exc
     await session.commit()
     return ActivateResponse(active_id=cred_id)
-
-
-# ── Test connection models + endpoints ────────────────────────────
 
 
 class ProbeResultModel(BaseModel):

@@ -463,9 +463,6 @@ class GenerationBatchResult(BaseModel):
         return not self.failed and not self.blocked
 
 
-# --- selection -------------------------------------------------------------
-
-
 @dataclass(frozen=True, slots=True)
 class GenerationCandidate:
     """One addressable generation unit and the formal artifact it would write."""
@@ -635,9 +632,6 @@ def select_generation_targets(
     )
 
 
-# --- problems --------------------------------------------------------------
-
-
 def problem_from_task_failure(
     error_message: str | None, *, cancelled: bool = False, interrupted: bool = False
 ) -> GenerationProblem:
@@ -756,9 +750,6 @@ def provider_checkpoint_from_task(task: Mapping[str, Any] | None) -> ProviderChe
         provider_id=provider_id if isinstance(provider_id, str) else None,
         provider_job_id=provider_job_id if isinstance(provider_job_id, str) else None,
     )
-
-
-# --- building --------------------------------------------------------------
 
 
 class GenerationResultBuilder:
@@ -1079,8 +1070,6 @@ def record_batch_outcomes(
 def _encode_key(key: ArtifactKey | None) -> str | None:
     return None if key is None else key.encode()
 
-
-# --- rendering -------------------------------------------------------------
 
 _STATE_MARKS: dict[GenerationItemState, str] = {
     GenerationItemState.SUCCEEDED: "✓",

@@ -11,14 +11,12 @@ import { AssetCreateForm } from "./AssetCreateForm";
 import { AssetDetailEditor } from "./AssetDetailEditor";
 import type { GalleryAssetSource } from "./gallery-model";
 
-/** 详情 Sheet 显示的内容：某个资产的详情，或新建一个资产的空白表单。 */
 export type AssetEditorTarget = { mode: "edit"; name: string } | { mode: "create" };
 
 export interface AssetEditorSheetProps {
   projectName: string;
   assetType: AssetSheetType;
   assets: Record<string, GalleryAssetSource>;
-  /** 为 null 时关闭。 */
   target: AssetEditorTarget | null;
   /** 切换、关闭、改名与创建完成都经这里改选中项；有未保存修改时已先经离开拦截放行。 */
   onTargetChange: (target: AssetEditorTarget | null) => void;
@@ -76,7 +74,6 @@ export function AssetEditorSheet({
   const [last, setLast] = useState<{ name: string; asset: GalleryAssetSource } | null>(null);
   if (name !== null && live && (last?.name !== name || last.asset !== live)) setLast({ name, asset: live });
   const [held, setHeld] = useState(false);
-  // 只有 RetainedEditUnit 一个登记方
   const retention = useMemo(() => ({ protect: (_key: string, value: boolean) => setHeld(value) }), []);
   const [submitting, setSubmitting] = useState(false);
 

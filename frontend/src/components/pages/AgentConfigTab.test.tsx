@@ -16,9 +16,6 @@ import type {
   PresetProvider,
 } from "@/types/agent-credential";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeConfigResponse(): GetSystemConfigResponse {
   return {
@@ -110,9 +107,6 @@ function renderSection() {
   return location;
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe("AgentConfigTab", () => {
   beforeEach(() => {
@@ -212,7 +206,6 @@ describe("AgentConfigTab", () => {
         ),
       );
       expect(within(screen.getByRole("listitem", { name: "Haiku 模型" })).queryByRole("button", { name: "选择模型" })).not.toBeInTheDocument();
-      // 面板选中后关闭
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 

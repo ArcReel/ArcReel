@@ -305,7 +305,6 @@ async def execute_reference_video_task(
     if not isinstance(script_file, str) or not script_file:
         raise ValueError("script_file is required for reference_video task")
 
-    # 1. 加载上下文（阻塞 IO，线程池）
     def _load():
         pm = get_project_manager()
         project = pm.load_project(project_name)
@@ -457,15 +456,12 @@ async def execute_reference_video_task(
     reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(
         rendered, audio_paths, reference_audio_per_image=voice_settings.requires_reference_image
     )
-    # 解析派生的降级提示与生成结果同屏可见：与解析预览面板同一批 {key, params} 条目。
     warnings = [*warnings, *rendered.warnings]
 
-    # 5. Worker submissions use immutable task-local inputs.
     provider_refs = constrained_refs
     provider_audio = reference_audio_files or None
     staged_media: tuple[StagedProviderMedia, ...] = ()
     checkpoint_hook: Callable[[], Awaitable[Mapping[str, object] | None]] | None = None
-    # 供应商素材：按实际发出的字节与调用通道的推理凭证选用，结果同时进请求、检查点与记账输入。
     asset_choices: tuple[ReferenceAssetChoice | None, ...] = ()
     if task_id is None:
         asset_choices = await generator.choose_reference_image_assets(

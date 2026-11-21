@@ -87,7 +87,6 @@ describe("reference-video-store", () => {
     await act(async () => {
       first = useReferenceVideoStore.getState().loadUnits("proj", 1);
       second = useReferenceVideoStore.getState().loadUnits("proj", 1);
-      // 后发的先返回（带成片），先发的迟到（无成片）。
       releases[1]([mkUnit("E1U1", { generated_assets: { ...mkUnit("E1U1").generated_assets, video_clip: "v.mp4" } })]);
       releases[0]([mkUnit("E1U1")]);
       await Promise.all([first, second]);

@@ -144,7 +144,6 @@ describe("openSseStream", () => {
     await flushStream();
     expect(fake.connections).toHaveLength(5);
 
-    // 收到事件才算连接可用，退避归零：再断线只等首个延迟。
     fake.latest.emit("entry", { seq: 1 }, "1");
     await flushStream();
     expect(messages).toHaveLength(1);
@@ -248,7 +247,6 @@ describe("openSseStream", () => {
     await flushStream();
     expect(onError).not.toHaveBeenCalled();
 
-    // 关闭后即便流随后结束也不再重连。
     fake.latest.end();
     await flushStream();
     await vi.advanceTimersByTimeAsync(60_000);
@@ -262,7 +260,6 @@ describe("openSseStream", () => {
     await flushStream();
     expect(fake.connections).toHaveLength(1);
 
-    // 连续失败把退避推到 30s 上限：1s → 2s → 4s → 8s → 16s → 30s。
     for (const delay of [1000, 2000, 4000, 8000, 16_000]) {
       await vi.advanceTimersByTimeAsync(delay);
       await flushStream();
@@ -278,10 +275,8 @@ describe("openSseStream", () => {
     await flushStream();
     expect(fake.connections).toHaveLength(7);
 
-    // 被抢占的 30s 定时器不再补发一次连接。
     await vi.advanceTimersByTimeAsync(1000);
     await flushStream();
-    // 退避归零：这次失败只等首个延迟 1s。
     expect(fake.connections).toHaveLength(8);
     handle.close();
   });
@@ -292,7 +287,6 @@ describe("openSseStream", () => {
     await flushStream();
     expect(fake.connections).toHaveLength(1);
 
-    // 已连接：没有待执行的重连，事件不做任何事。
     setVisibility("visible");
     document.dispatchEvent(new Event("visibilitychange"));
     await flushStream();
@@ -301,13 +295,11 @@ describe("openSseStream", () => {
     fake.latest.end();
     await flushStream();
 
-    // 退避等待中但页面仍不可见：不抢占定时器。
     setVisibility("hidden");
     document.dispatchEvent(new Event("visibilitychange"));
     await flushStream();
     expect(fake.connections).toHaveLength(1);
 
-    // 原定时器照常到点重连。
     await vi.advanceTimersByTimeAsync(1000);
     await flushStream();
     expect(fake.connections).toHaveLength(2);

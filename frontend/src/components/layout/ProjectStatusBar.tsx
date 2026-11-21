@@ -42,20 +42,17 @@ const STATUS_REFRESH_DEBOUNCE_MS = 250;
 const SHELL = "inline-flex h-7 items-center overflow-hidden rounded-full border";
 const SHELL_FLAT = cn(SHELL, "border-border bg-card");
 const SHELL_WARM = cn(SHELL, "border-warn/30 bg-warn/10");
-/** 状态条上的一段：原生按钮，交给 PopoverTrigger 的 render 渲染。 */
 const SEGMENT =
   "focus-ring inline-flex h-full items-center gap-1.5 whitespace-nowrap px-3 text-xs transition-colors duration-fast enabled:hover:bg-foreground/5 disabled:cursor-default";
 
 type Open = "episodes" | "next" | null;
 
-/** 当前所在集页的集 ID；不在集页时为 null。 */
 function useCurrentEpisodeId(): number | null {
   const [location] = useLocation();
   const match = /^\/episodes\/(\d+)/.exec(location);
   return match ? Number(match[1]) : null;
 }
 
-/** 项目层的制作状态：随项目快照与本项目任务的变化重新求解。 */
 function useProjectWorkflowStatus(projectName: string, enabled: boolean): WorkflowStatus | null {
   const [status, setStatus] = useState<WorkflowStatus | null>(null);
   const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
@@ -279,7 +276,6 @@ function EpisodeList({
   );
 }
 
-/** 迁移失败：整条变暖色，「重试」直接重跑数据升级链；失败后标题带次数，弹层自动展开原因。 */
 function MigrationBar({ projectName, reason }: { projectName: string; reason: string | null }) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);

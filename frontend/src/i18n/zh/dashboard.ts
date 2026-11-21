@@ -80,7 +80,6 @@ export default {
   'lorebook': '设定集',
   'no_episodes_yet': '暂无剧集',
   'confirm_delete_file': '确定要删除「{{name}}」吗？',
-  // 全局设置侧栏
   'settings_group_generation': '生成',
   'settings_group_agent': 'Agent',
   'settings_group_system': '系统',
@@ -218,10 +217,8 @@ export default {
   'subagent_card_label': '子智能体',
   'subagent_tokens': '{{count}} tokens',
   'task_in_progress_default': '任务进行中',
-  // 故事设定提炼完成后的一次性就地提示
   'overview_handoff_tip': '故事设定已提炼完成。接下来在右侧向 Agent 发送「开始制作」。',
   'overview_handoff_dismiss': '知道了',
-  // 项目概览与空项目欢迎页
   'overview_meta_episodes_one': '{{count}} 集',
   'overview_meta_episodes_other': '{{count}} 集',
   'overview_meta_no_episodes': '还没有集',
@@ -308,7 +305,6 @@ export default {
   'pause_audio_sample': '暂停',
   'delete_audio_sample': '删除音频样本',
 
-  // TTS 生成参考音频样本
   'voice_sample_action': '用 TTS 生成参考音频',
   'voice_sample_not_configured_hint': '请先在设置中配置音频供应商',
   'voice_sample_modal_title': '生成语音参考样本',
@@ -339,7 +335,6 @@ export default {
   'generate_design': '生成资产图',
   'regenerate_design': '重新生成资产图',
 
-  // 图片指令式编辑
   'image_edit_action': '局部修改',
   'image_edit_no_image_hint': '先生成或上传图片后再编辑',
   'image_edit_modal_title': '局部修改',
@@ -420,7 +415,6 @@ export default {
   'text_models': '文本模型',
   'text_models_desc': '按任务档位配置文本模型，留空回退默认模型',
   'no_text_providers_hint': '还没有可生成文本的供应商。',
-  // GlobalHeader
   'mode_badge_drama': '剧情演绎 16:9',
   'mode_badge_narration': '旁白/解说 9:16',
   'project_zip_download_started_with_diagnostics': '项目 ZIP 已开始下载，导出包包含 {{count}} 条诊断',
@@ -487,7 +481,6 @@ export default {
   'episode_status_label_completed': '已完成',
   'episode_status_label_missing': '缺失',
 
-  // CreateProjectModal
   'wizard_steps_label': '创建步骤',
   'wizard_step_done': '（已完成）',
   'wizard_missing': '还需要：{{items}}',
@@ -508,7 +501,6 @@ export default {
   'default_duration_desc': '由 AI 根据内容自动决定时长，或指定固定时长',
   'auto': '自动',
 
-  // ExportScopeDialog
   'export_scope_title': '选择导出范围',
   'export_scope_description': '把项目打包成 ZIP 归档下载。',
   'export_scope_confirm': '导出',
@@ -539,7 +531,6 @@ export default {
   'draft_path_default_mac': '/Users/<你的用户名>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft',
   'draft_path_default_windows': String.raw`C:\Users\<你的用户名>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`,
 
-  // 任务状态与取消流程
   'generating_status': '生成中…',
   'queued_status': '排队中',
   'completed_status': '已完成',
@@ -584,7 +575,6 @@ export default {
   'task_type_render_final_cut': '成片渲染',
   'task_type_render_jianying_draft': '剪映草稿导出',
 
-  // Agent
   'new_session': '新会话',
   'delete_session': '删除会话',
   'generating_queue_hint': 'Agent 正在回复，现在发送的消息会排队等待处理',
@@ -718,7 +708,6 @@ export default {
   'agent_failure_conclusion_subprocess_unsupported': '后端的事件循环不支持创建子进程，无法拉起 Claude Code。Windows 上用 --reload 启动后端会出现这种情况，请去掉 --reload 后重启后端。',
   'agent_failure_conclusion_startup_failed': '启动过程中出错，原始信息见「详情」。',
 
-  // StudioCanvasRouter & Toasts
   'storyboard_task_submitted_toast': '已提交分镜「{{id}}」生成任务',
   'generate_storyboard_failed': '生成分镜失败：{{message}}',
   'video_task_submitted_toast': '已提交视频「{{id}}」生成任务',
@@ -740,11 +729,9 @@ export default {
   'add_to_library_button_label': '加入资产库',
   'loading_placeholder': '加载中…',
 
-  // Form actions
   'cancel': '取消',
   'add': '添加',
 
-  // OverviewCanvas cost & style section
   'estimate': '预估',
   'storyboard': '分镜',
   'video': '视频',
@@ -759,7 +746,6 @@ export default {
 
   'load_failed': '加载失败：{{message}}',
 
-  // AgentConfigTab
   'api_credentials': 'API 凭证',
   'env_anthropic_api_key': '对应环境变量 ANTHROPIC_API_KEY',
   'clear_saved': '清除已保存',
@@ -785,16 +771,12 @@ export default {
   'clear_base_url_input': '清除 Base URL 输入',
   'clear_model_input': '清除模型配置输入',
 
-  // WelcomeCanvas
 
-  // WorkspaceNotificationsDrawer 标题
   'workspace_notifications_title': '工作区通知',
   'notifications_trigger_unread': '工作区通知，未读 {{count}} 条',
 
-  // MediaModelSection
   'save_failed': '保存失败：{{message}}',
 
-  // 顶栏用量入口与悬浮层
   'usage_entry_aria': '使用记录 · 参考费用 {{cost}}',
   'usage_entry_aria_active': '使用记录 · 参考费用 {{cost}} · {{count}} 个任务进行中',
   'usage_close_panel': '关闭使用记录面板',
@@ -805,7 +787,6 @@ export default {
   'usage_popover_empty': '本项目还没有使用记录。开始生成后，这里会显示进行中与已结束的调用。',
   'usage_view_all_records': '查看全部记录',
 
-  // UsageRecordsSection
   'all': '全部',
   'usage_records_title': '使用记录',
   'usage_records_desc': '按项目、供应商、模型查看每次调用的结果与参考费用。',
@@ -969,7 +950,6 @@ export default {
   'usage_attention_consecutive_detail': '{{count}} 次（{{media}}），最近 {{time}}',
   'usage_attention_consecutive_action': '看该分镜',
 
-  // import diagnostics
   'import_auto_fixed': '项目「{{title}}」已导入（自动修复 {{count}} 个问题）',
   'import_success_with_diagnostics': '导入已完成预检查，请查看下方详情',
   'import_diagnostics': '导入诊断',
@@ -977,7 +957,6 @@ export default {
   'import_failure_with_diagnostics': '导入未完成，下方列出了阻塞和警告项',
   'blocking_issues': '阻塞性问题',
   'auto_fixed_issues': '已自动修复的问题',
-  // config-status-store
   'video_provider_not_configured': '未配置支持视频生成的供应商',
   'image_provider_not_configured': '未配置支持图片生成的供应商',
   'text_provider_not_configured': '未配置支持文本生成的供应商',
@@ -992,7 +971,6 @@ export default {
   'recommendation_keep': '保留当前',
   'recommendation_dismiss': '暂不设置',
 
-  // OverviewCanvas / shared aria labels
   'import_project_file_aria': '导入项目 ZIP 文件',
   'import_credential_file_aria': '导入 JSON 凭据文件',
   'upload_asset_file_aria': '上传素材文件',
@@ -1010,7 +988,6 @@ export default {
   'storyboard_count': '{{count}} 分镜',
   'video_unit_count': '{{count}} 视频单元',
 
-  // ProjectSettingsPage
   'project_settings': '项目设置',
   'agent_profile_title': 'Agent 配置',
   'agent_profile_description': '项目内的 Agent 指令会随内置配置安全升级，并保留你的本地定制。',
@@ -1023,7 +1000,6 @@ export default {
   'agent_profile_reset_confirm': '确认重置',
   'agent_profile_resetting': '正在重置…',
   'agent_profile_reset_failed': '重置 Agent 配置失败：{{message}}',
-  // 项目设置：侧栏分页、风格对话框与模型通道来源
   'project_settings_group_project': '项目',
   'project_settings_group_agent': 'Agent',
   'project_settings_tab_basics': '基础',
@@ -1136,7 +1112,6 @@ export default {
   'image_edit_task_failed': '「{{id}}」编辑失败：{{reason}}',
   'script_plan_task_failed': '「{{episode}}」AI 规划脚本失败：{{reason}}',
   'task_failed_provider_reason_suffix': '（供应商拒因：{{reason}}）',
-  // ========== 参考生视频编辑器 ==========
   'reference_editor_view_aria': '编辑器视图',
   'reference_editor_view_script': '文稿',
   'reference_editor_view_parse': '解析预览',
@@ -1242,7 +1217,6 @@ export default {
   'voice_consistency_none_desc': '此模型不支持对白声音，生成的视频不含人声音轨。',
   'text_model_override_desc': '按任务类型覆盖，留空跟随全局默认',
 
-  // ProviderSection
   'status_ready': '已就绪',
   'status_error': '异常',
   'status_unconfigured': '未配置',
@@ -1251,14 +1225,12 @@ export default {
   'select_provider': '请选择供应商',
   'provider_saved_refresh_failed': '已保存，但供应商列表刷新失败，请重新加载页面',
 
-  // ProviderDetail
   'media_type_video': '视频',
   'media_type_audio': '音频',
   'media_type_image': '图片',
   'media_type_text': '文本',
   'advanced_config': '高级配置',
 
-  // CustomProviderSection
   'add_custom_provider': '添加自定义供应商',
   'provider_rail_preset': '预置',
   'provider_rail_custom': '自定义',
@@ -1430,7 +1402,6 @@ export default {
   'pm_multiplier_help': '费用按官方价格乘以倍率计算，例如 0.8 表示八折。',
   'pm_multiplier_help_subscription': '订阅制套餐，默认为 0，不计算费用。',
   'pm_multiplier_save_failed': '高级配置已保存，倍率未保存：{{message}}',
-  // 供应商模型 Sheet
   'pm_sheet_provider_settings': '供应商设置',
   'pm_sheet_model_info': '模型信息',
   'pm_sheet_enabled': '启用',
@@ -1572,7 +1543,6 @@ export default {
   'provider_field_gcs_bucket': 'GCS 存储桶',
   'provider_field_wan3_base_url': 'Wan 3.0 接口地址',
 
-  // CustomProviderForm
   'add_custom_provider_title': '添加自定义供应商',
   'cp_connection_heading': '连接',
   'cp_base_url_label': '接口地址',
@@ -1683,7 +1653,6 @@ export default {
   'cap_override_badge': '已覆盖',
   'cap_override_effective': '生效值：{{effective}}（判定：{{detected}}）',
   'cap_override_on_unavailable': '该接口不下传尾帧，无法强制开启。',
-  // 全局桶引用提示（能力编辑时展示，非阻塞）
   'global_bucket_label_default_video_backend': '默认视频模型',
   'global_bucket_label_default_video_backend_i2v': '图生视频（i2v）',
   'global_bucket_label_default_video_backend_r2v': '参考生视频（r2v）',
@@ -1739,7 +1708,6 @@ export default {
   'cp_provider_multiplier_save_failed': '供应商已保存，供应商倍率未保存：{{message}}',
   'cp_provider_multiplier_create_failed': '供应商已创建，供应商倍率未保存：{{message}}。请在供应商详情里重新填写。',
 
-  // CustomProviderDetail
   'discovery_format_label': '模型发现协议',
   'discovery_format_help': '只用于「获取模型列表」和「测试连接」，不影响调用。',
   'discovery_format_openai': 'OpenAI 兼容',
@@ -1837,14 +1805,12 @@ export default {
   'endpoint_gemini_vertex_interactions_video_display': 'Vertex AI 视频 (Omni)',
   'endpoint_agnes_video_display': 'Agnes（视频）',
   'endpoint_catalog_loading': '加载端点目录…',
-  // Image Capability
   'image_capability_t2i': '文生图',
   'image_capability_i2i': '图生图',
   'image_capability_both': '文生图·图生图',
   'image_model_t2i_label': '文生图模型',
   'image_model_i2i_label': '图生图模型',
 
-  // WorkspaceNotificationsDrawer
   'notifications_count': '{{count}} 条通知',
   'no_notifications': '当前没有通知',
   'notifications_hint': '项目刷新、生成完成和可定位变更会出现在这里',
@@ -1853,7 +1819,6 @@ export default {
   'just_now': '刚刚',
   'minutes_ago': '{{count}} 分钟前',
 
-  // TimelineCanvas
   'select_episode_hint': '请在左侧选择剧集',
   'cost_estimate_short': '预估',
   'cost_actual_short': '实际',
@@ -1939,15 +1904,12 @@ export default {
   'reference_meta_cost': '成本',
   'reference_meta_cost_spent': '已花费',
 
-  // Source file normalization toasts
 
-  // Grid preview
   'grid_batch_count': '{{count}} 组多宫格分镜',
   'generating_grid': '生成中…',
   'generate_grid_btn': '生成多宫格分镜',
   'insufficient_scenes_for_grid': '分镜不足，无法生成多宫格分镜',
 
-  // GridPreviewPanel
   'grid_status_pending': '待处理',
   'grid_status_generating': '生成中',
   'grid_status_completed': '已完成',
@@ -1981,10 +1943,8 @@ export default {
   'grid_upload_success': '联合图已上传，可切分落格',
   'grid_upload_failed': '上传失败：{{message}}',
 
-  // StudioCanvasRouter
   'grid_generation_failed': '多宫格分镜生成失败：{{message}}',
 
-  // CredentialList
   'add_credential': '添加供应商',
   'no_credentials': '还没有密钥。添加密钥后，这个供应商的模型才能使用。',
   'active_label': '使用中',
@@ -2007,14 +1967,12 @@ export default {
   'enter_credentials_required_any_group': '请至少完整填写一组鉴权字段',
   'or_label': '或',
 
-  // ProviderModelSelect
   'select_model_placeholder': '选择模型…',
   'select_model_aria': '选择模型',
   'search_model_placeholder': '搜索模型或供应商…',
   'search_model_aria': '搜索模型或供应商',
   'no_models_match': '未找到匹配模型',
 
-  // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
   'composition_params': '构图参数',
   'shot_label': '镜头',
   'lighting_label': '光线',
@@ -2023,7 +1981,6 @@ export default {
   'ambiance_placeholder': '氛围描述…',
   'camera_motion_section': '运镜与环境音效',
   'camera_motion_label': '镜头运动',
-  // Shot type enum values
   'shot_type_extreme_close_up': '大特写',
   'shot_type_close_up': '特写',
   'shot_type_medium_close_up': '中特写',
@@ -2033,7 +1990,6 @@ export default {
   'shot_type_extreme_long_shot': '大远景',
   'shot_type_over_the_shoulder': '过肩镜头',
   'shot_type_point_of_view': '主观镜头',
-  // Camera motion enum values
   'camera_motion_static': '固定',
   'camera_motion_pan_left': '左摇',
   'camera_motion_pan_right': '右摇',
@@ -2096,7 +2052,6 @@ export default {
   'review_confirm_failed': '确认失败，请重试',
   'review_load_failed': '无法加载脚本规划结果',
   'review_retry': '重试',
-  // 待修复草稿 / Agent 的可编辑草稿（DraftStatus）
   'draft_prompt_authoring_title': '提示词编写草稿待修复',
   'draft_status_invalid': '待修复草稿',
   'draft_violation_count_one': '{{count}} 处违约',
@@ -2186,7 +2141,6 @@ export default {
   'image_prompt_placeholder': '分镜图描述…',
   'video_prompt_placeholder': '视频动作描述…',
 
-  // VersionTimeMachine
   'version_mgmt': '版本',
   'switch_version_failed': '切换版本失败：{{message}}',
   'no_history': '暂无历史版本',
@@ -2212,7 +2166,6 @@ export default {
   'version_moved_to_trash': "v{{version}} 已移入项目回收站，保留 30 天",
   'version_delete_failed': "无法删除 v{{version}}：{{message}}",
 
-  // ProjectCard - more actions
   'more_actions': '更多操作',
   'delete_project': '删除项目',
 
@@ -2373,7 +2326,6 @@ export default {
   'shot_detail_prev': '上一镜',
   'shot_detail_next': '下一镜',
   'eyebrow_segment_refs': '引用',
-  // Agent 工序行（工具调用、子智能体、Skill、后台任务）
   'tool_call_input_label': '参数',
   'tool_call_result_label': '结果',
   'work_status_running': '运行中',
@@ -2413,7 +2365,6 @@ export default {
   // 时间线 typed 条目（interrupt / AskUserQuestion 答复）
   'chat_interrupt_notice': '已停止，这一轮的回复没有完成',
   'chat_compacted_label': '上下文已压缩',
-  // Agent 消息流
   'chat_transcript_label': '对话记录',
   'chat_code_block_label': '代码块',
   'chat_table_label': '表格',
@@ -2856,7 +2807,6 @@ export default {
   'trash_purge_description': "{{name}} 将被彻底删除，无法恢复。",
   'trash_action_failed': "操作失败：{{message}}",
 
-  // ---- 项目大厅 ----
   'lobby_search_placeholder': '搜索项目',
   'lobby_search_kbd': '⌘K',
   'lobby_hero_greeting_morning': '早上好，导演。',
@@ -2919,7 +2869,6 @@ export default {
   'lobby_no_filter_match': '没有匹配的项目',
   'lobby_no_filter_match_hint': '清除筛选或换个关键词试试。',
   'lobby_clear_filters': '清除筛选',
-  // 外部 Agent 接入与访问令牌
   'ext_agent_desc': '外部 Agent 通过公开 skills 与远程 MCP 使用 [[brand]] 的创作能力。按以下三步完成接入。',
   'ext_agent_steps': '接入步骤',
   'ext_agent_step_skills_title': '安装公开 skills',
@@ -3032,7 +2981,6 @@ export default {
   'diagnosis_network': '网络无法访问，检查 URL 与防火墙',
   'diagnosis_timeout': '上游响应超时，服务可达但模型在限定时间内未返回；可直接保存后重试',
   'diagnosis_unknown': '未知错误，请查看原始错误信息',
-  // ==================== 分镜尾帧 ====================
   'end_frame_title': '尾帧',
   'end_frame_description': '视频以分镜图开场、过渡到这张图片收尾。重新生成视频时沿用。',
   'end_frame_choose': '选择图片',
@@ -3071,7 +3019,6 @@ export default {
   'script_edit_commit_failed': '无法安全保存脚本，请重试。',
   'script_edit_rejected': '脚本编辑被拒绝，请检查对应操作后重试。',
 
-  // 自定义调用端点
   'ce_section_title': '调用端点',
   'ce_rail_label': '调用端点列表',
   'ce_rail_mine_empty': '还没有自定义端点。',
@@ -3435,7 +3382,6 @@ export default {
   'ce_download_policy_image': '图片地址与 base64 都配置时，优先取地址。获得图片地址后自动下载，下载地址与接口地址同源时携带密钥，跨源不携带。base64 支持裸串与 data URI 两种形态，解码后直接保存。',
   'cp_no_api_key': '该供应商无需密钥',
   'cp_no_api_key_conflict': '以下模型使用的端点需要密钥：{{models}}。它们的请求将不携带凭证。',
-  // ---- 市场 ----
   'market_section_title': '市场',
   'market_refresh_all': '全部刷新',
   'market_sources_desc': '按列表顺序显示各市场源的条目。停用的市场源保留在列表中，不显示条目。',
@@ -3959,14 +3905,12 @@ export default {
   'edit_transition_radial': '放射',
   'edit_transition_gradient_wipe': '渐变擦除',
   'edit_transition_squeeze': '压缩',
-  // 广告项目概览与「故事设定」tab
   'episode_view_setting': '故事设定',
   'ad_setting_hint': 'AI 生成脚本时会参考这里的设定。保存修改后，已生成的脚本会标为过期。',
   'ad_brief_title': '创作灵感',
   'ad_brief_placeholder': '描述你想要的视频：目标人群、风格调性、重点卖点、行动号召…',
   'ad_products_view_all': '查看全部',
   'ad_products_empty_hint': '添加商品图和卖点，AI 生成脚本时会围绕商品来写。没有商品时，也可以只凭创作灵感生成。',
-  // 共享组件：缩略图的查看大图
   'image_fullscreen_preview': '查看「{{name}}」的大图',
   // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
   'catalog_picker_title': '从模型目录选择',

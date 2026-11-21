@@ -234,10 +234,8 @@ def test_static_code_enumeration_rejects_partially_dynamic_expressions(expr, exp
         ('VideoCapabilityError("video_duration_not_supported")', ["video_duration_not_supported"], 0),
         ('VideoCapabilityError(code="video_duration_not_supported")', ["video_duration_not_supported"], 0),
         ("VideoCapabilityError(code=chosen)", [], 1),
-        # ``**`` 解包里可能藏着 code，静态看不见：不能当「没给 code」而登记默认码。
         ('ReferencePayloadFloorError(**{"code": "new_code"})', [], 1),
         ("VideoCapabilityError(**overrides)", [], 1),
-        # 默认 code 只在真的没给 code 时才算数：给了关键字就按关键字扫。
         ("ReferencePayloadFloorError()", ["ref_payload_floor_exceeded"], 0),
         ('ReferencePayloadFloorError(code="new_code")', ["new_code"], 0),
         ("ReferencePayloadFloorError(code=chosen)", [], 1),
@@ -606,7 +604,6 @@ def test_bound_reason_preserves_scalar_param_types():
     assert isinstance(params["ratio"], float)
     assert params["expired"] is True
     assert params["note"] is None
-    # 超长的那个仍被收窄。
     assert len(params["detail"]) < 3000
 
 
@@ -724,7 +721,6 @@ def test_deep_cascade_chain_keeps_root_cause_renderable():
         lengths.add(len(stored))
         rendered = render_failure(stored, _translator("zh"), make_display_names("zh"))
         assert rendered is not None
-        # 直接依赖与根本原因两项都在，且没有任何机器码碎片漏出。
         assert f"{depth:032d}" in rendered
         assert inner in rendered
         assert "[cascade_blocked_dependency]" not in rendered

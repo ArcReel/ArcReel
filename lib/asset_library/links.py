@@ -61,7 +61,6 @@ LinkState = Literal["pending", "submitting", "processing", "active", "failed", "
 #: 还没有定论、后台仍会推进或查询的状态。
 IN_FLIGHT_STATES: frozenset[str] = frozenset({"pending", "submitting", "processing", "uncertain"})
 
-#: 可以上传到供应商素材库的图片资源类型：资产图与角色衍生图。
 UPLOADABLE_RESOURCE_TYPES: frozenset[str] = frozenset(
     {"characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE}
 )

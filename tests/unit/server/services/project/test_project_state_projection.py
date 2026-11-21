@@ -78,7 +78,6 @@ def _triples(changes: list[dict]) -> list[tuple]:
 def test_asset_lifecycle_follows_the_asset_type_registry(spec):
     empty = ProjectState(project=_project(), scripts={})
     added = ProjectState(project=_project(**{spec.bucket_key: {"甲": {"description": "d"}}}), scripts={})
-    # 任意字段的变化都算更新，包括资产类型表未声明、由系统戳写的字段。
     edited = ProjectState(
         project=_project(**{spec.bucket_key: {"甲": {"description": "d", "system_stamped_at": "t1"}}}),
         scripts={},
@@ -124,7 +123,6 @@ def test_derivatives_are_separate_events_addressed_by_owner_slash_name(spec):
     focus = {"pane": spec.bucket_key, "anchor_type": spec.asset_type, "anchor_id": "甲"}
     label_key = f"named_entity_{spec.asset_type}_derivative"
 
-    # 本体条目比对时排除衍生表：衍生的增删改不连带报本体更新。
     [created] = _diff(bare, added)
     assert _triples([created]) == [(spec.asset_type, "created", "甲/战甲")]
     assert (created["label_key"], created["label_params"], created["focus"]) == (label_key, {"id": "甲/战甲"}, focus)
@@ -154,7 +152,6 @@ def test_script_item_lifecycle_follows_the_skeleton_registry(kind):
     [deleted] = _diff(base, state([]))
     assert (deleted["action"], deleted["focus"]) == ("deleted", None)
 
-    # 条目正文取整条：任意字段的编辑都算更新。
     for field, value in (("note", "备注"), ("needs_replan", True), ("utterances", [{"kind": "voiceover"}])):
         [updated] = _diff(base, state([_item(kind, "X1", **{field: value})]))
         assert (updated["action"], updated["focus"]) == ("updated", focus), field
@@ -168,7 +165,6 @@ def test_script_item_lifecycle_follows_the_skeleton_registry(kind):
     video["generated_assets"]["video_clip"] = "videos/X1.mp4"
     assert _triples(_diff(state([storyboard]), state([video]))) == [(SKELETON_ENTITY_TYPES[kind], "video_ready", "X1")]
 
-    # generated_assets 的其余变化归显式事件，快照差分不报。
     status_only = copy.deepcopy(video)
     status_only["generated_assets"]["status"] = "completed"
     assert _diff(state([video]), state([status_only])) == []
@@ -184,7 +180,6 @@ def test_residual_item_array_of_another_skeleton_does_not_vote():
             project=_project(), scripts={"episode_1.json": _script("shots", [shot], video_units=[unit])}
         )
 
-    # 残留数组的产物回写既不报条目事件，也不当作剧本层字段报集更新；当前骨架照常报就绪。
     changes = _diff(state(None, None), state("videos/E1S01.mp4", "videos/E1U01.mp4"))
 
     assert _triples(changes) == [("shot", "video_ready", "E1S01")]
@@ -225,7 +220,6 @@ def test_episode_entries_are_compared_whole():
     assert _triples([updated]) == [("episode", "updated", "1")]
 
     assert _triples(_diff(state([first, second]), state([first]))) == [("episode", "deleted", "2")]
-    # episodes 为 null 的项目照常成快照
     assert _triples(_diff(state(None), state([first]))) == [("episode", "created", "1")]
 
 
@@ -241,9 +235,7 @@ def test_script_level_changes_report_their_episode_once():
     assert _triples([script_only]) == [("episode", "updated", "1")]
     assert (script_only["script_file"], script_only["episode"]) == ("scripts/episode_1.json", 1)
 
-    # 同一次写入同时改了集条目与剧本层字段：同一集只报一条。
     assert _triples(_diff(state("旧"), state("新", "改名"))) == [("episode", "updated", "1")]
-    # 剧本文件首次生成或被删除，集条目不变：报所属集更新，不逐条报条目增删。
     assert _triples(_diff(state(None), state("新"))) == [("episode", "updated", "1")]
     assert _triples(_diff(state("旧"), state(None))) == [("episode", "updated", "1")]
 

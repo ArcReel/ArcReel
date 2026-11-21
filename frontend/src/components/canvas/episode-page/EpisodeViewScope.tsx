@@ -3,7 +3,6 @@ import { useLocation, useRouter, useSearch } from "wouter";
 
 import { staysInEpisodeView, type EpisodeViewFacts } from "./episode-view";
 
-/** 集页的视图事实，由 `EpisodePage` 提供给画布里的编辑单元。不在集页里时为 null。 */
 const EpisodeViewFactsContext = createContext<EpisodeViewFacts | null>(null);
 
 export const EpisodeViewFactsProvider = EpisodeViewFactsContext.Provider;

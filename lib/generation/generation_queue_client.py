@@ -312,11 +312,6 @@ def enqueue_and_wait_sync(**kwargs) -> dict[str, Any]:
     return _run_sync(enqueue_and_wait(**kwargs))
 
 
-# ---------------------------------------------------------------------------
-# Batch enqueue-and-wait
-# ---------------------------------------------------------------------------
-
-
 # Task types whose prompt is a *video* prompt (string or structured action object);
 # everything else carries an *image* prompt (string or structured scene object), and
 # plain-string-only asset prompts still flow through the image branch (no scene key).
@@ -379,7 +374,6 @@ def _validate_prompt(task_type: str, prompt: str | dict[str, Any] | None) -> Non
             raise TaskSpecValidationError("prompt_scene_empty") from exc
         return
 
-    # String-form storyboard and image-edit prompts: non-empty string.
     if isinstance(prompt, str):
         if not prompt.strip():
             raise TaskSpecValidationError("prompt_text_empty")
@@ -531,7 +525,7 @@ class BatchTaskResult:
 
     resource_id: str
     task_id: str
-    status: str  # "succeeded" | "failed" | "cancelled" | "interrupted"
+    status: str
     result: dict[str, Any] | None = None
     error: str | None = None
     task: dict[str, Any] | None = None
@@ -793,8 +787,6 @@ async def batch_enqueue_and_wait(
         on_enqueued()
     task_ids = {item.unit_id or item.resource_id: item.task_id for item in enqueued}
 
-    # Phase 2 — Parallel wait via asyncio.gather (single event loop), only for
-    # specs that actually reached the queue.
     enqueued_specs = [spec for spec in specs if (spec.unit_id or spec.resource_id) in task_ids]
 
     async def _wait_one(spec: TaskSpec) -> BatchTaskResult:

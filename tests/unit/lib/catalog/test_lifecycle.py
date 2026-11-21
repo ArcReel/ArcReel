@@ -76,9 +76,9 @@ class TestEntryLifecycle:
     @pytest.mark.parametrize(
         ("day", "status"),
         [
-            (date(2026, 11, 23), "retiring"),  # 关停日期在未来
+            (date(2026, 11, 23), "retiring"),
             (SHUTDOWN, "discontinued"),  # 关停当天即下线
-            (date(2026, 11, 25), "discontinued"),  # 关停日期已过
+            (date(2026, 11, 25), "discontinued"),
         ],
     )
     def test_status_follows_the_shutdown_date(self, day, status):
@@ -114,7 +114,6 @@ class TestCrossingTheShutdownDate:
             "model_discontinued",
             {"provider": "acme", "model": "img-lite", "shutdown_date": "2026-11-24", "successor": "acme/img-pro"},
         )
-        # 仍在供应商模型列表里，标明状态
         view = next(v for v in catalog.provider_models("acme") if v.model_id == "img-lite")
         assert (view.lifecycle.status, view.model.hidden, view.model.default) == ("discontinued", True, False)
 

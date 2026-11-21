@@ -211,7 +211,6 @@ def test_add_by_id_infers_media_type_by_name_when_no_entry_matches(models_client
 def test_official_model_cannot_be_removed_and_unsupported_media_type_is_rejected(models_client: TestClient) -> None:
     assert models_client.delete("/api/v1/providers/agnes/models/agnes-3.0-flash").status_code == 422
     assert models_client.delete("/api/v1/providers/agnes/models/nope").status_code == 404
-    # 供应商不提供这类模型
     resp = models_client.post(
         "/api/v1/providers/openai/models", json={"model_id": "mystery-clip", "media_type": "video"}
     )
@@ -265,11 +264,6 @@ async def test_custom_provider_list_and_disable_clears_default(
         row = await CustomProviderRepository(session).get_model_by_ids(provider.id, "anthropic/gemini-3-flash-preview")
     assert row is not None
     assert (row.is_enabled, row.is_default) == (False, False)
-
-
-# ---------------------------------------------------------------------------
-# 供应商模型 Sheet：读取单个、保存供应商设置、移除前查引用
-# ---------------------------------------------------------------------------
 
 
 def _add_user_model(client: TestClient, provider_id: str, model_id: str, media_type: str) -> None:
@@ -346,7 +340,6 @@ def test_user_added_video_model_overrides_take_effect_at_runtime(models_client: 
     assert price is not None
     assert price.multiplier == 0.5
 
-    # 清除覆盖即回到原值
     models_client.patch("/api/v1/providers/ark/models/my-video-ep", json={"capability_overrides": None})
     cleared = catalog.get_model("ark", "my-video-ep", media_type="video")
     assert cleared is not None
@@ -390,7 +383,6 @@ def test_user_added_model_rename(models_client: TestClient) -> None:
     assert (resp.status_code, resp.json()["model"]["model_id"]) == (200, "my-text-ep-v2")
     assert models_client.get("/api/v1/providers/ark/models/my-text-ep").status_code == 404
     assert catalog.get_model("ark", "my-text-ep-v2", media_type="text") is not None
-    # 改成官方收录的模型名被拒绝
     official = next(m for m in _models(models_client, "ark").values() if m["official"])
     resp = models_client.patch(
         "/api/v1/providers/ark/models/my-text-ep-v2", json={"model_id": official["api_model_name"]}
@@ -500,10 +492,6 @@ async def test_custom_model_rename_rewrites_and_remove_clears_references(
     assert models_client.delete(f"/api/v1/providers/{provider_id}/models/spare").status_code == 204
     assert set(_models(models_client, provider_id)) == set()
 
-
-# ---------------------------------------------------------------------------
-# 供应商模型 Sheet：模型信息（用户修改层）
-# ---------------------------------------------------------------------------
 
 _FLASH = {"maker": "google", "name": "gemini-3-flash-preview", "media_type": "text"}
 _FLASH_URL = "/api/v1/providers/gemini-aistudio/models/gemini-3-flash-preview"
@@ -690,13 +678,7 @@ def test_restore_rejects_entries_without_official_data(models_client: TestClient
     )
 
     assert resp.status_code == 404
-    # 没有副本时恢复什么都不做
     assert models_client.post("/api/v1/catalog/entries/restore-official", json=_FLASH).status_code == 204
-
-
-# ---------------------------------------------------------------------------
-# 获取模型与按 ID 添加
-# ---------------------------------------------------------------------------
 
 
 def _model_list(*model_ids: str) -> dict:
@@ -747,7 +729,6 @@ async def test_custom_discovery_matches_entries_and_infers_default_endpoints(
         "acme-video-pro": (False, "video", "openai-video", None),
         "house-chat": (False, "text", "openai-chat", None),
     }
-    # 选了其他媒体类型的「对应模型」时换用的端点
     assert rows["house-chat"]["endpoint_by_media_type"]["video"] == "openai-video"
 
 
@@ -841,7 +822,6 @@ async def test_custom_add_by_id_infers_endpoint_and_takes_default(
 
     assert first.status_code == second.status_code == bound.status_code == 201
     assert (first.json()["model"]["endpoint"], first.json()["model"]["is_default"]) == ("openai-chat", True)
-    # 同一媒体类型已有默认模型
     assert (second.json()["model"]["endpoint"], second.json()["model"]["is_default"]) == ("openai-chat", False)
     # 有条目绑定时在条目的媒体类型内选端点，显示名取条目
     assert (bound.json()["model"]["endpoint"], bound.json()["model"]["media_type"]) == ("openai-images", "image")
@@ -943,9 +923,6 @@ def test_official_builtin_models_have_no_endpoint_setting(models_client: TestCli
     assert resp.status_code == 422
 
 
-# 供应商模型 Sheet：关联其他模型、手动填写模型信息
-# ---------------------------------------------------------------------------
-
 _HOUSE_IMAGE = {"model_id": "house-flux", "display_name": "house-flux", "endpoint": "openai-images", "is_enabled": True}
 _NEW_IMAGE = {
     "maker": "acme",
@@ -1000,7 +977,6 @@ async def test_manual_entry_can_carry_a_price_table(
     assert resp.status_code == 200
     body = resp.json()
     assert body["entry"]["price"] == price
-    # 填了价格，调用费用不再是未定价
     assert body["model"]["flags"] == []
     assert (
         models_client.patch(
@@ -1017,7 +993,6 @@ async def test_manual_entry_is_not_left_behind_when_the_save_is_rejected(
 
     # 同一请求里别的设置被拒：条目也不写入
     assert models_client.patch(url, json={"multiplier": -1, "new_entry": _NEW_IMAGE}).status_code == 422
-    # 媒体类型与模型的调用端点不一致
     wrong = {**_NEW_IMAGE, "media_type": "video", "facts": {"durations": [5]}}
     resp = models_client.patch(url, json={"new_entry": wrong})
     assert resp.status_code == 422
@@ -1072,7 +1047,6 @@ async def test_link_is_validated_against_the_catalog_and_the_media_type(
     assert text_entry is not None
 
     assert models_client.patch(url, json={"entry_binding": "acme/nope"}).status_code == 422
-    # 条目存在，但媒体类型与模型的调用端点不一致
     assert models_client.patch(url, json={"entry_binding": text_entry.key.ref}).status_code == 422
     # 形状不对：说的是这个绑定，而不是调用端点
     malformed = models_client.patch(url, json={"entry_binding": "no-slash"})

@@ -44,7 +44,6 @@ const MOTIFS: Record<DemoPlaceholderMotif, string> = {
     '<circle cx="57" cy="43" r="4.5" fill="none" stroke="var(--pl-line)" stroke-width="1.6"/>',
 };
 
-/** 由资源名派生稳定色相（0–359）：同名同 salt 恒得同色，换名字才换色。 */
 function hashHue(name: string, salt: number): number {
   let hash = salt;
   for (let i = 0; i < name.length; i += 1) {

@@ -46,7 +46,6 @@ function stubUsageApi() {
   });
 }
 
-/** 打开悬浮层并把当前项目的数据灌进 store。 */
 function openPopover(state: {
   summary?: UsageSummary;
   recent?: UsageRecord[];

@@ -173,7 +173,6 @@ _ARTIFACT_BY_STEP: dict[str, str] = {
     "edit": "edit_timelines",
 }
 
-#: 草稿 AI 修复的任务类型；资源 ID 见 :func:`draft_repair_resource_id`。
 TEXT_DRAFT_REPAIR_TASK_TYPE = "text_draft_repair"
 _PROMPT_AUTHORING_DRAFT_DOC_TYPE = "reference_prompt_authoring"
 #: 分集规划的两个占用槽。Agent 的单批规划与 Web 逐窗串联的首窗占前一个；串联时，执行中的窗口
@@ -408,7 +407,6 @@ def build_workflow_plan(
 
     for step_rule in rules:
         artifact_key = _ARTIFACT_BY_STEP.get(step_rule.id)
-        # 走完的工作流没有下一步可挂：完成的「剪辑」一步不带动作。
         owns = step_rule.id == owner and not complete
         step = WorkflowPlanStep(
             id=step_rule.id,
@@ -461,7 +459,6 @@ def build_workflow_plan(
     elif structure_problems:
         next_action = _structure_action(structure_problems, script_revision=script_revision)
     elif active_tasks:
-        # ponytail: fixed five-minute remote observation window; replace with per-task ETA only if providers expose it.
         batch_ids = list(dict.fromkeys(task.batch_id for task in active_tasks if task.batch_id is not None))
         next_action = WorkflowNextAction(
             type=WorkflowActionType.WAIT_FOR_TASK,

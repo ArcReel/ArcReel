@@ -21,7 +21,6 @@ describe("UtteranceListEditor", () => {
     expect(screen.getByDisplayValue("阿离")).toBeInTheDocument();
     expect(screen.getByDisplayValue("三年后。")).toBeInTheDocument();
     expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument();
-    // 仅台词带 speaker 输入框 → 只有一个 speaker 框
     expect(screen.getAllByPlaceholderText("角色")).toHaveLength(1);
   });
 
@@ -53,7 +52,6 @@ describe("UtteranceListEditor", () => {
   it("toggling a voiceover to dialogue opens an empty speaker (kind ⇄ speaker)", () => {
     const onChange = vi.fn();
     render(<UtteranceListEditor utterances={sample} onChange={onChange} />);
-    // 第一条是画外音，其类型按钮文案为「画外音」
     fireEvent.click(screen.getByText("画外音"));
     expect(onChange).toHaveBeenCalledWith([
       { kind: "dialogue", speaker: "", text: "三年后。" },
@@ -92,7 +90,6 @@ describe("UtteranceListEditor", () => {
 
     fireEvent.click(screen.getAllByLabelText("删除发声")[0]);
 
-    // 末行条目仍在、内容不变，且焦点仍停在同一节点（未被前移的节点顶替）。
     const stillLast = screen.getByDisplayValue("末行画外音。");
     expect(stillLast).toHaveFocus();
     expect(screen.queryByDisplayValue("首行画外音。")).not.toBeInTheDocument();
@@ -109,7 +106,6 @@ describe("UtteranceListEditor", () => {
     const lastRow = screen.getByDisplayValue("末行画外音。") as HTMLTextAreaElement;
     lastRow.focus();
 
-    // 上移末行：其内容与焦点应随条目移动，不被相邻行内容顶替。
     fireEvent.click(screen.getAllByLabelText("上移")[2]);
 
     const focused = document.activeElement as HTMLTextAreaElement;

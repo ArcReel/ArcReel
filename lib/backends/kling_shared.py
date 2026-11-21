@@ -35,7 +35,6 @@ KLING_BASE_URL = "https://api-beijing.klingai.com/v1"
 # 新版 API 的调用域名不带版本段，请求路径直接是 /text-to-video/<模型名>、/tasks（官方「接口鉴权」页）。
 KLING_MODEL_PATH_BASE_URL = "https://api-beijing.klingai.com"
 
-# JWT token 寿命与刷新策略。
 _TOKEN_TTL_SECONDS = 1800  # 约 30 分钟过期（官方）。
 _TOKEN_NBF_SKEW_SECONDS = 5  # nbf 略提前，容忍 client/server 轻微时钟偏移。
 _TOKEN_REFRESH_MARGIN_SECONDS = 60  # 距过期 <60s 即重签，避免长任务途中 token 失效。
@@ -145,9 +144,6 @@ def kling_auth_mode(credentials: Mapping[str, str | None]) -> Literal["bearer", 
 def image_to_base64(image_path: Path) -> str:
     """本地图片 → 纯 base64 字符串（可灵 image / image_tail 接受 URL 或 base64，无 data URI 前缀）。"""
     return base64.b64encode(image_path.read_bytes()).decode("ascii")
-
-
-# ── 异步任务响应解析（提交 / 轮询 / 取结果） ──────────────────────────────────────
 
 
 def _as_dict(value: object) -> dict:
@@ -263,8 +259,6 @@ def extract_kling_image_urls(payload: dict) -> list[str]:
     reason = kling_response_error(payload)
     raise RuntimeError(reason or f"Kling 图像任务完成但缺少图片 URL: {payload}")
 
-
-# ── 新版 API（模型名在路径里）的响应解析 ──────────────────────────────────────
 
 # 新版 API 的任务状态：submitted / processing / succeeded / failed。
 KLING_MODEL_PATH_SUCCEEDED = "succeeded"

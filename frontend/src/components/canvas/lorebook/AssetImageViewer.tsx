@@ -28,10 +28,8 @@ export interface AssetImageViewerProps {
   projectName: string;
   /** 可以查看的资产：有资产图的资产，按画廊筛选后的顺序。 */
   assets: readonly GalleryAsset[];
-  /** 正在查看的资产名；为 null 或不在 `assets` 里时关闭。 */
   name: string | null;
   onNameChange: (name: string | null) => void;
-  /** 「编辑」：打开这个资产的详情。只读时不传。 */
   onEdit?: (name: string) => void;
   /** 资产图被占用的资产：任务在跑，或卡片上有上传、版本恢复、删除在途。 */
   busyNames: ReadonlySet<string>;
@@ -43,10 +41,6 @@ type VersionsState =
   | { phase: "ready"; current: number; versions: VersionInfo[] }
   | { phase: "failed"; message: string };
 
-/**
- * 画廊里的图片查看器：←/→ 按画廊筛选后的顺序在有资产图的资产之间切换，底部是这张资产图的版本条。
- * 点旧版本只切换查看；「还原到此版本」经单独确认后才改写资产图。
- */
 export function AssetImageViewer({
   projectName,
   assets,
@@ -115,7 +109,6 @@ export function AssetImageViewer({
   const current = versions?.phase === "ready" ? versions.current : 0;
   const list = versions?.phase === "ready" ? versions.versions : [];
   const viewedInfo = viewing !== null ? list.find((v) => v.version === viewing) : undefined;
-  // 正在看的不是当前版本时，图片换成那个版本的文件
   const oldInfo = viewedInfo !== undefined && !viewedInfo.is_current ? viewedInfo : undefined;
   const shownVersion = viewedInfo?.version ?? (current > 0 ? current : null);
   const src = oldInfo ? (oldInfo.file_url ?? null) : currentUrl;
@@ -154,7 +147,6 @@ export function AssetImageViewer({
       }
       await onRestoreVersion?.();
       setReload((n) => n + 1);
-      // 还原的版本成了当前版本，回到看当前；成功不弹提示
       setViewing(null);
       setConfirming(null);
     } catch (err) {
@@ -308,7 +300,6 @@ export function AssetImageViewer({
   );
 }
 
-/** 底部版本条：每个版本一张缩略图，点选只切换查看。 */
 function VersionStrip({
   state,
   shownVersion,

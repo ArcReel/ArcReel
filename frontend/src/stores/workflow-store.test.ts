@@ -17,7 +17,6 @@ describe("workflow-store", () => {
       store.refreshPlan("proj", 1),
     ]);
     expect(results).toEqual(["success", "success", "success"]);
-    // 首轮 + 合并后的一轮补跑，而不是三轮
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
@@ -61,7 +60,6 @@ describe("workflow-store", () => {
     );
     const store = useWorkflowStore.getState();
 
-    // A::1 是这次会话里第一次发出的请求：planKey 仍是 null。
     const pA = store.refreshPlan("A", 1);
     await Promise.resolve();
 
@@ -69,7 +67,6 @@ describe("workflow-store", () => {
     const pB = store.refreshPlan("B", 1);
     await Promise.resolve();
 
-    // A 的响应姗姗来迟：必须判定为 cancelled，且不得覆盖 store。
     resolveA(planA);
     expect(await pA).toBe("cancelled");
     await Promise.resolve();
@@ -117,7 +114,6 @@ describe("workflow-store", () => {
 
     const store = useWorkflowStore.getState();
 
-    // 1) 建立起点：A::1 已有一次成功的计划。
     const initial = store.refreshPlan("A", 1);
     await flush();
     settle("A", planA);
@@ -145,13 +141,11 @@ describe("workflow-store", () => {
     //    未被误清时，这次请求应合并排队，等步骤 3 那一轮跑完才发出。
     const p3 = store.refreshPlan("B", 1);
     await flush();
-    // 关键断言：步骤 3 的请求尚未结算前，不应该已经多发出一次真实请求。
     expect(spy).toHaveBeenCalledTimes(3);
     expect(pendingByProject.B).toHaveLength(1);
 
     settle("B", planB);
     await flush();
-    // 步骤 3 的请求完结后才为排队的 B 请求补跑一轮，这才是第 4 次真实请求。
     expect(spy).toHaveBeenCalledTimes(4);
     settle("B", planB);
 
@@ -199,11 +193,9 @@ describe("workflow-store", () => {
 
     const store = useWorkflowStore.getState();
 
-    // 1) A 起跑，在途（首次加载，currentTarget=A）。
     const pA = store.refreshPlan("A", 1);
     await flush();
 
-    // 2) 目标切到 B：resetTarget 作废 A 的取消域，起跑接管实例（第 2 次真实请求）。
     const pB1 = store.refreshPlan("B", 1);
     await flush();
 
@@ -221,7 +213,6 @@ describe("workflow-store", () => {
     expect(spy).toHaveBeenCalledTimes(2);
     expect(maxInFlight).toBe(2);
 
-    // 5) 接管实例自己的请求完结，才为排队的 B 请求补跑一轮（第 3 次真实请求）。
     settle("B", planB1);
     await flush();
     expect(spy).toHaveBeenCalledTimes(3);

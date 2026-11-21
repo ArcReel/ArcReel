@@ -41,7 +41,6 @@ export function ManualSplitToolbar({
   const iconCls = cn("size-3.5 shrink-0", tinted === null ? "text-primary" : "text-episode");
   const ref = useRef<HTMLSpanElement>(null);
 
-  // 操作条默认从光标左侧 24px 起；靠近行首或行尾时夹在原文列之内，确认与取消按钮始终可见
   useLayoutEffect(() => {
     const el = ref.current;
     const anchor = el?.parentElement;

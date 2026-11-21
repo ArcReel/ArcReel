@@ -77,14 +77,12 @@ def normalize_block(block: Any) -> dict[str, Any]:
 
     normalized: dict[str, Any] = copy.deepcopy(block)
 
-    # 1. Infer type if missing
     block_type = infer_block_type(normalized)
     if block_type:
         normalized["type"] = block_type
     elif "type" not in normalized:
         normalized["type"] = "text"
 
-    # 2. Ensure default values based on type
     block_type = normalized["type"]
     if block_type == "text":
         normalized.setdefault("text", "")

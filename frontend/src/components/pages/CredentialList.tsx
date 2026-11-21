@@ -72,7 +72,6 @@ interface Props {
   secretFields: CredentialSecretField[];
   /** 凭证「二选一」分组：满足任一组（组内字段全填）即视为凭证完整。单组等价于「全部必填」。 */
   secretFieldGroups: string[][];
-  /** 密钥增删改或切换生效密钥之后调用，供上层刷新状态与目录。 */
   onChanged?: () => void;
 }
 
@@ -215,9 +214,6 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
   );
 }
 
-// ---------------------------------------------------------------------------
-// 列表行
-// ---------------------------------------------------------------------------
 
 interface RowProps {
   cred: ProviderCredential;
@@ -353,12 +349,8 @@ function CredentialRow({ cred, providerId, secretFields, canEdit, onActivate, on
   );
 }
 
-// ---------------------------------------------------------------------------
-// 添加与编辑对话框
-// ---------------------------------------------------------------------------
 
 interface CredentialDialogProps {
-  /** 编辑的密钥；添加时为 null。 */
   cred: ProviderCredential | null;
   providerId: string;
   isVertex: boolean;
@@ -571,9 +563,6 @@ function CredentialDialog({
   );
 }
 
-// ---------------------------------------------------------------------------
-// 删除确认
-// ---------------------------------------------------------------------------
 
 function DeleteCredentialDialog({
   cred,

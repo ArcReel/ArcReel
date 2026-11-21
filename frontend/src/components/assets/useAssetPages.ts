@@ -3,7 +3,6 @@ import { API } from "@/api";
 import { errMsg } from "@/utils/async";
 import type { Asset, AssetListPage, AssetType } from "@/types/asset";
 
-/** 资产库每页条数。 */
 export const ASSET_PAGE_SIZE = 60;
 
 interface AssetQuery {
@@ -48,23 +47,17 @@ function bump(counts: PagesState["counts"], type: AssetType, delta: number): Pag
 }
 
 export interface AssetPages {
-  /** 已加载的条目；首页加载中为空。 */
   items: Asset[];
-  /** 当前类型与搜索词下的匹配总数。 */
   total: number;
   /** 当前搜索词下各类型的匹配数，换搜索词时保留上一次的数字直到新结果到达。 */
   counts: AssetListPage["counts"] | null;
   loading: boolean;
-  /** 首页加载失败的原因。 */
   error: string | null;
   loadingMore: boolean;
-  /** 加载下一页失败的原因。 */
   moreError: string | null;
   hasMore: boolean;
   loadMore: () => void;
-  /** 重新加载首页（首页失败后）或下一页（翻页失败后）。 */
   retry: () => void;
-  /** 本地新建的条目：符合当前类型与搜索词时插到最前，并更新计数。 */
   add: (asset: Asset) => void;
   /** 本地更新的条目：按更新时间排在最前，与后端排序一致。 */
   update: (asset: Asset) => void;

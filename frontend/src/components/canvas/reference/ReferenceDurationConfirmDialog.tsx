@@ -13,7 +13,6 @@ import {
 import type { ReferenceDurationPrecheck } from "@/types";
 import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 
-/** 需确认的单元及其取档结果。 */
 export interface DurationConfirmItem {
   unitId: string;
   precheck: ReferenceDurationPrecheck;
@@ -52,7 +51,6 @@ function DurationRow({
   );
 }
 
-/** 确认模型实际申请的时长档位，并逐个说明对成片时长的影响。 */
 export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCancel }: Props) {
   const { t } = useTranslation("dashboard");
   const durationItems = items.filter((item) => item.precheck.needs_confirmation);

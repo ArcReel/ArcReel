@@ -130,26 +130,22 @@ class TestScriptReviewRouter:
         with client:
             base = "/api/v1/projects/demo/episodes/1/script-review"
 
-            # script_plan 未产出
             got = client.get(base)
             assert got.status_code == 200
             assert got.json()["status"] == "no_script_plan"
 
-            # script_plan 产出 → pending_review，结构化内容可见
             _write_script_plan(pm, _admitted_drama_script_plan())
             got = client.get(base)
             body = got.json()
             assert body["status"] == "pending_review"
             assert body["content"]["scenes"][0]["utterances"][0]["speaker"] == "阿离"
 
-            # 确认前内容确认待审
             from lib.script import script_review
 
             assert (
                 script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "pending_review"
             )
 
-            # 确认 → confirmed，prompt_authoring 放行
             confirmed = client.post(f"{base}/confirm")
             assert confirmed.status_code == 200
             assert confirmed.json()["status"] == "confirmed"
@@ -225,7 +221,6 @@ class TestScriptReviewRouter:
                 "grid_count": 1,
             }
             expected_overwrite["text"] = script_review.render_overwrite_loss_text(expected_overwrite, i18n_message)
-            # 丢失清单列出配音、尾帧与宫格归属；Web 诊断按标题指称条目。
             for lost in ("分镜图 1 张", "视频 1 段", "配音 1 段", "尾帧 1 张", "宫格归属 1 处"):
                 assert lost in expected_overwrite["text"]
 
@@ -366,7 +361,6 @@ class TestReferenceVideoRouter:
                 script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "pending_review"
             )
 
-            # 编辑单元正文 → 重新等待确认
             edited = _rv_script_plan()
             edited["units"][0]["text"] = "@[阿离] 转身离去。"
             put = client.put(f"{base}/content", json=edited)
@@ -899,7 +893,6 @@ class TestReferenceVideoRouter:
             mine = _rv_script_plan()
             resp = client.put(f"{base}/content", params={"base_fingerprint": stale}, json=mine)
             assert resp.status_code == 409
-            # 冲突未覆盖：盘上仍是另一方保存的内容
             assert client.get(base).json()["content"]["units"][0]["text"] == "@[阿离] 转身离开。"
 
             fresh = client.get(base).json()["fingerprint"]

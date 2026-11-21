@@ -104,11 +104,6 @@ def _plan_value(outcome: ToolOutcome[Any]) -> PlanEpisodesResult:
     return outcome.value
 
 
-# ---------------------------------------------------------------------------
-# plan_episodes
-# ---------------------------------------------------------------------------
-
-
 async def test_plan_episodes_reports_each_planned_episode_for_boundary_review(fake_ctx: ToolHarness) -> None:
     captured: dict[str, Any] = {}
     result = PlanResult(
@@ -300,11 +295,6 @@ async def test_remote_plan_episodes_returns_the_generation_batch_handle(tmp_path
     handle = result.structuredContent["generation_batch"]
     assert handle["done"] is False
     assert handle["poll_after_seconds"] is not None
-
-
-# ---------------------------------------------------------------------------
-# reset_episode_planning
-# ---------------------------------------------------------------------------
 
 
 def _fake_reset(result: object, captured: dict[str, Any] | None = None) -> Any:

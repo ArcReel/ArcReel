@@ -79,7 +79,6 @@ def test_existing_overrides_kept_by_dimension_and_cleared_on_comfyui(alembic_cfg
             _insert_model(conn, 3, 1, "ce-7", {"last_frame": True})
             # ComfyUI 协议供应商下的覆盖清除
             _insert_model(conn, 4, 2, "ce-7", {"max_reference_images": 1})
-            # 没有覆盖的行不受影响
             _insert_model(conn, 5, 1, "openai-video", None)
 
         command.upgrade(cfg, _REVISION)

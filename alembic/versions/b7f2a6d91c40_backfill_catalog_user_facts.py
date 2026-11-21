@@ -120,11 +120,7 @@ def _seedance(name: str) -> Facts | None:
     )
 
 
-# ── Gemini Veo、OpenAI Sora、xAI Grok ────────────────────────────────────────
-
-
 def _veo(name: str) -> Facts | None:
-    # normalize_model_name：去命名空间、忽略大小写、点号视同连字符。
     if not name.rpartition("/")[2].lower().replace(".", "-").startswith("veo-3-1-"):
         return None
     return _video(last_frame=True, max_reference_images=3)
@@ -222,8 +218,6 @@ def _dashscope(name: str) -> Facts | None:
     return _DASHSCOPE[key] if key is not None else None
 
 
-# ── Vidu、Agnes、MiniMax ─────────────────────────────────────────────────────
-
 _VIDU_TEXT2VIDEO = frozenset({"viduq3-turbo", "viduq3-pro", "viduq2", "viduq1"})
 _VIDU_IMG2VIDEO = frozenset(
     {
@@ -295,8 +289,6 @@ _VIDEO_RULES: tuple[Callable[[str], Facts | None], ...] = (
     _minimax,
 )
 
-
-# ── 图片 ─────────────────────────────────────────────────────────────────────
 
 _SEEDREAM_5_PRO_FLASH = re.compile(r"seedream-5[-.]0-(?:pro|flash)")
 _GEMINI_14_REFERENCES = frozenset(

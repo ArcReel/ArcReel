@@ -59,7 +59,6 @@ async def test_latest_is_the_most_recently_modified_timeline_with_its_issue_coun
     assert overview.timeline_count == 2
     assert overview.latest is not None
     assert (overview.latest.id, overview.latest.name) == (first, "完整版")
-    # E1U2 还没有视频：它的片段报一条缺视频。
     assert overview.latest.issue_count == 1
 
 

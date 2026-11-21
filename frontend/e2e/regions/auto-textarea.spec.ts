@@ -2,7 +2,6 @@ import type { Locator, Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 自动撑高输入框：借集页空状态「新增第一个分镜」的旁白对话框验证，输入框在弹层里随内容撑高。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const API: ApiOverrides = {
@@ -39,7 +38,6 @@ async function expectAllLinesReachable(field: Locator) {
     expect(box.atMaxHeight, "内容超出时输入框应已撑到上限").toBe(true);
     expect(["auto", "scroll"], "撑到上限后超出部分应能在内部滚动").toContain(box.overflowY);
   }
-  // 多行内容不能只显示第一行。
   expect(box.clientHeight).toBeGreaterThan(80);
 }
 

@@ -22,7 +22,6 @@ interface EpisodesHeaderProps {
   projectName: string;
   view: EpisodesView;
   episodeCount: number;
-  /** 本项目有分集规划在排队或执行。 */
   planning: boolean;
   onUpload: (mode: SourceUploadMode) => void;
   onCreate: () => void;

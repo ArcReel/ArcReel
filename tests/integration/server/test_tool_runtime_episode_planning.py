@@ -55,7 +55,6 @@ class _Generator:
 
     def __init__(self, *, hold: bool = False, max_output_tokens: int = 64000, stuck: bool = False) -> None:
         self.max_output_tokens = max_output_tokens
-        #: 置位时窗口里找不到切分点：一集都不回。
         self.stuck = stuck
         self.prompts: list[str] = []
         self.started = asyncio.Event()

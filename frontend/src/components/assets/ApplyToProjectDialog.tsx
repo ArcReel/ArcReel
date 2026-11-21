@@ -25,7 +25,6 @@ type ConflictPolicy = "skip" | "overwrite" | "rename";
 
 const CONFLICT_POLICIES: readonly ConflictPolicy[] = ["skip", "rename", "overwrite"];
 
-/** 后端按条目返回的失败原因，未知原因落到通用文案。 */
 const FAILURE_KEYS: Record<string, string> = {
   not_found: "apply_failed_not_found",
   image_missing: "apply_failed_image_missing",
@@ -34,9 +33,6 @@ const FAILURE_KEYS: Record<string, string> = {
   project_name_conflict: "apply_failed_name_conflict",
 };
 
-/**
- * 把资产库里的一个资产复制到某个项目。项目里已有同名资产时，按所选方式跳过、另起新名或覆盖。
- */
 export function ApplyToProjectDialog({ asset, onClose }: { asset: Asset | null; onClose: () => void }) {
   const [applying, setApplying] = useState(false);
   const [shown, setShown] = useState(asset);

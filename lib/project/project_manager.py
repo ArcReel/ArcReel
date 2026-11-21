@@ -270,9 +270,6 @@ class EmptySourceError(ValueError):
     """source 目录为空，无法生成概述；与「无可用文本供应商」等配置错误区分，避免路由层误判用户操作。"""
 
 
-# ==================== 数据模型 ====================
-
-
 class ProjectOverview(BaseModel):
     """项目概述数据模型，用于 Gemini Structured Outputs"""
 
@@ -342,7 +339,6 @@ class _AssetReferenceScan:
 class ProjectManager:
     """视频项目管理器"""
 
-    # 项目子目录结构
     SUBDIRS: ClassVar[list[str]] = [
         "source",
         "scripts",
@@ -361,7 +357,6 @@ class ProjectManager:
         "grids",
     ]
 
-    # 项目元数据文件名
     PROJECT_FILE = PROJECT_FILENAME
 
     @staticmethod
@@ -702,7 +697,6 @@ class ProjectManager:
             "current_stage": "empty",
         }
 
-        # 检查各目录内容
         for subdir in self.SUBDIRS:
             subdir_path = project_dir / subdir
             if subdir_path.exists():
@@ -726,7 +720,6 @@ class ProjectManager:
                 elif subdir == "output":
                     status["outputs"] = [f.name for f in files if f.suffix in [".mp4", ".webm"]]
 
-        # 确定当前阶段
         if status["outputs"]:
             status["current_stage"] = "completed"
         elif status["videos"]:
@@ -743,8 +736,6 @@ class ProjectManager:
             status["current_stage"] = "empty"
 
         return status
-
-    # ==================== 分镜剧本操作 ====================
 
     def save_script(
         self,
@@ -1479,8 +1470,6 @@ class ProjectManager:
             name for name in self.list_scripts(project_name) if self.canonical_script_episode(name) is not None
         )
 
-    # ==================== 角色管理 ====================
-
     def update_character_sheet(self, project_name: str, script_filename: str, name: str, sheet_path: str) -> dict:
         """更新角色资产图路径"""
         # 资产回写热路径：只动运行时字段，结构不可能因此变坏，豁免结构校验。
@@ -1491,8 +1480,6 @@ class ProjectManager:
                 raise KeyError(f"角色 '{name}' 不存在")
             script["characters"][key]["character_sheet"] = sheet_path
         return script
-
-    # ==================== 数据结构标准化 ====================
 
     @staticmethod
     def create_generated_assets(content_mode: str = "narration") -> dict:
@@ -1565,7 +1552,6 @@ class ProjectManager:
             duration_seconds=scene.get("duration_seconds", 8),
         )
 
-        # 合并 visual 字段
         if "visual" not in scene:
             scene["visual"] = template["visual"]
         else:
@@ -1573,7 +1559,6 @@ class ProjectManager:
                 if key not in scene["visual"]:
                     scene["visual"][key] = template["visual"][key]
 
-        # 合并 audio 字段
         if "audio" not in scene:
             scene["audio"] = template["audio"]
         else:
@@ -1591,7 +1576,6 @@ class ProjectManager:
                 assets[key] = assets_template[key]
         scene["generated_assets"] = assets
 
-        # 补全其他顶层字段
         top_level_defaults = {
             "segment_break": False,
             "characters_in_scene": [],
@@ -1605,7 +1589,6 @@ class ProjectManager:
             if key not in scene:
                 scene[key] = default_value
 
-        # 更新状态
         self.update_scene_status(scene)
 
         return scene
@@ -1642,8 +1625,6 @@ class ProjectManager:
         assets["status"] = status
         scene["generated_assets"] = assets
         return status
-
-    # ==================== 场景管理 ====================
 
     def update_scene_asset(
         self,
@@ -1901,8 +1882,6 @@ class ProjectManager:
         # 损坏脚本的非 dict 元素直接剔除（镜像 script_editor.new_item_ids 的过滤），UI 不渲染垃圾项。
         return [item for item in items if isinstance(item, dict) and _missing(item)]
 
-    # ==================== 文件路径工具 ====================
-
     def get_source_path(self, project_name: str, filename: str) -> Path:
         """获取源文件路径"""
         return self.get_project_path(project_name) / "source" / filename
@@ -1945,8 +1924,6 @@ class ProjectManager:
 
         # 同 get_pending_scenes：非 dict 元素剔除，镜像 script_editor.new_item_ids。
         return [item for item in items if isinstance(item, dict) and _missing_storyboard(item)]
-
-    # ==================== 项目级元数据管理 ====================
 
     def _get_project_file_path(self, project_name: str) -> Path:
         """获取项目元数据文件路径"""
@@ -2672,7 +2649,6 @@ class ProjectManager:
             DeprecationWarning,
             stacklevel=2,
         )
-        # 仅返回项目数据，不执行任何写入
         return self.load_project(project_name)
 
     # ================ 项目级资产统一 API（character / scene / prop / product） ================
@@ -2816,8 +2792,8 @@ class ProjectManager:
         # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示 Agent。silent drop 仍是设计意图,
         # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知 Agent,避免 LLM 重复尝试。
         cleaned: dict[str, dict[str, Any]] = {}
-        dropped_fields: dict[str, list[str]] = {}  # name → [被白名单丢的字段]
-        dropped_legacy: dict[str, list[str]] = {}  # name → [被 _LEGACY_ASSET_FIELDS 剔除的字段]
+        dropped_fields: dict[str, list[str]] = {}
+        dropped_legacy: dict[str, list[str]] = {}
         for name, attrs in normalized_entries.items():
             legacy_keys = sorted(set(attrs) & self._LEGACY_ASSET_FIELDS)
             if legacy_keys:
@@ -2851,7 +2827,7 @@ class ProjectManager:
 
         def _mutate(project: dict) -> None:
             validator = DataValidator(str(self.projects_dir))
-            before_errors = set(validator.validate_project_payload(project).errors)  # 改前快照
+            before_errors = set(validator.validate_project_payload(project).errors)
             bucket = project.setdefault(spec.bucket_key, {})
             if not isinstance(bucket, dict):
                 # 历史脏数据：bucket_key 已存在却非 dict（如 list/str）。继续会让下方
@@ -2980,7 +2956,6 @@ class ProjectManager:
             ),
         )
 
-    # bucket_key（characters/scenes/props/products）→ 资产类型，从静态 ASSET_SPECS 派生一次。
     _BUCKET_TO_ASSET_TYPE: ClassVar[dict[str, str]] = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
 
     @classmethod
@@ -3676,7 +3651,6 @@ class ProjectManager:
             if dry_run:
                 return report
 
-            # —— 落盘 ——
             state_before = asset_trash.state_before(project_dir)
             for filename, script, before in changed_scripts:
                 self._write_script_unlocked(project_name, script, filename, sync_project=False, before=before)
@@ -3810,8 +3784,6 @@ class ProjectManager:
         """获取资产文件在项目目录下的绝对路径。"""
         spec = ASSET_SPECS[asset_type]
         return self.get_project_path(project_name) / spec.subdir / filename
-
-    # ==================== 项目级角色管理 ====================
 
     def add_project_character(
         self,
@@ -4001,8 +3973,6 @@ class ProjectManager:
         """获取项目级角色定义"""
         return self._get_asset("character", project_name, name)
 
-    # ==================== 场景管理（scene） ====================
-
     def update_scene_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
         """更新场景资产图路径"""
         return self._update_asset_sheet("scene", project_name, name, sheet_path)
@@ -4015,8 +3985,6 @@ class ProjectManager:
         """获取场景资产图路径"""
         return self._get_asset_path("scene", project_name, filename)
 
-    # ==================== 道具管理（prop） ====================
-
     def update_prop_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
         """更新道具资产图路径"""
         return self._update_asset_sheet("prop", project_name, name, sheet_path)
@@ -4028,8 +3996,6 @@ class ProjectManager:
     def get_prop_path(self, project_name: str, filename: str) -> Path:
         """获取道具资产图路径"""
         return self._get_asset_path("prop", project_name, filename)
-
-    # ==================== 商品管理（product） ====================
 
     def update_product_sheet(self, project_name: str, name: str, sheet_path: str) -> dict:
         """更新商品标准参考图（product sheet）路径"""
@@ -4063,8 +4029,6 @@ class ProjectManager:
                 refs.append(ref_path)
 
         return self.update_project(project_name, _mutate)
-
-    # ==================== 项目资产直接写入工具 ====================
 
     @staticmethod
     def _build_asset_entry(asset_type: str, description: str, source: dict | None = None) -> dict:
@@ -4113,8 +4077,6 @@ class ProjectManager:
         }
         return self._add_assets_batch("prop", project_name, entries)
 
-    # ==================== 参考图收集工具 ====================
-
     def collect_reference_images(self, project_name: str, scene: dict) -> list[Path]:
         """
         收集场景所需的所有参考图
@@ -4136,7 +4098,6 @@ class ProjectManager:
         characters = normalize_asset_bucket(project.get("characters"))
         props = normalize_asset_bucket(project.get("props"))
 
-        # 角色参考图
         for char in scene.get("characters_in_scene", []):
             char_data = characters.get(normalize_asset_name(char), {})
             sheet = char_data.get("character_sheet")
@@ -4145,7 +4106,6 @@ class ProjectManager:
                 if sheet_path.exists():
                     refs.append(sheet_path)
 
-        # 道具参考图
         for prop in scene.get("props_in_scene", []):
             prop_data = props.get(normalize_asset_name(prop), {})
             sheet = prop_data.get("prop_sheet")
@@ -4155,8 +4115,6 @@ class ProjectManager:
                     refs.append(sheet_path)
 
         return refs
-
-    # ==================== 项目概述生成 ====================
 
     def _read_source_files(self, project_name: str, max_chars: int = 50000) -> str:
         """
@@ -4214,12 +4172,10 @@ class ProjectManager:
         from lib.backends.text_generator import TextGenerator
         from lib.prompts.prompt_builders_script import build_overview_prompt
 
-        # 读取源文件内容
         source_content = await asyncio.to_thread(self._read_source_files, project_name)
         if not source_content:
             raise EmptySourceError("source 目录为空，无法生成概述")
 
-        # 创建 TextGenerator（自动追踪用量）
         generator = await TextGenerator.create(
             TextTaskType.OVERVIEW, project_name, purpose=CallPurpose.PROJECT_OVERVIEW
         )
@@ -4244,7 +4200,6 @@ class ProjectManager:
         )
         response_text = result.text
 
-        # 解析并验证响应
         overview = ProjectOverview.model_validate_json(response_text)
         overview_dict = overview.model_dump()
         overview_dict["generated_at"] = datetime.now(UTC).isoformat()

@@ -3,7 +3,6 @@ import type { TFunction } from "i18next";
 import type { EpisodeItemRef, EpisodeMeta } from "@/types";
 import { episodeItemKind, findEpisodeItem, isPositionedItemId, type EpisodeItemKind } from "@/utils/episode-item";
 
-/** 项目的全部剧本（`projects-store` 的 `currentScripts`）。 */
 export type ProjectScripts = Readonly<Record<string, unknown>>;
 
 export type EpisodeLedger = readonly Pick<EpisodeMeta, "episode" | "title">[];

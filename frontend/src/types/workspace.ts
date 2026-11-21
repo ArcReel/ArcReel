@@ -60,7 +60,6 @@ export interface ProjectChange {
   label: string;
   /** 条目标签的稳定标识，对应 `events` 命名空间的 `label.*`。 */
   label_key?: string;
-  /** label_key 的插值参数（如 id / episode）。 */
   label_params?: Record<string, string | number>;
   script_file?: string;
   episode?: number;

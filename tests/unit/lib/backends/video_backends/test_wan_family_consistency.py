@@ -21,8 +21,8 @@ from lib.backends.video_backends.dashscope import DashScopeVideoBackend, _profil
 from lib.custom_provider.duration_presets import infer_supported_durations
 from lib.custom_provider.endpoints import infer_endpoint
 
-_PREFIX_SEPS = ["-", "_", ""]  # wan[-_]?<version>
-_MODALITY_SEPS = ["-", "_"]  # <version>[-_]<modality>
+_PREFIX_SEPS = ["-", "_", ""]
+_MODALITY_SEPS = ["-", "_"]
 _CASE_FNS = [str.lower, str.upper, str.title]
 
 
@@ -63,7 +63,7 @@ def test_wan27_alias_routes_and_profiles_consistently(model_id: str, modality: s
 def test_wan27_image_to_video_alias_normalizes_to_i2v(prefix_sep: str, modality_word: str, case_fn: type[str]) -> None:
     model_id = case_fn(f"wan{prefix_sep}2.7-{modality_word}")
     assert infer_endpoint(model_id, "openai") == "dashscope-always-on-video"
-    assert _profile_key_for_model(model_id) == "wan2.7-i2v"  # 与 r2v 档区分
+    assert _profile_key_for_model(model_id) == "wan2.7-i2v"
 
 
 @pytest.mark.parametrize("prefix_sep", _PREFIX_SEPS)
@@ -337,7 +337,7 @@ def test_wan_substring_s2v_excluded_from_minimax_routing_even_without_family_mat
     [
         ("proxy/happyhorse-1.0-r2v", "dashscope-reference-video"),
         ("happyhorse-1.0-r2v-0715", "dashscope-reference-video"),
-        ("myhappyhorse-1.0-r2v", "openai-chat"),  # 标识符边界拒绝：非 happyhorse 家族
+        ("myhappyhorse-1.0-r2v", "openai-chat"),
     ],
 )
 def test_happyhorse_boundary_and_decoration(model_id: str, expected_endpoint: str) -> None:

@@ -31,7 +31,6 @@ describe("AboutSection diagnostics download", () => {
 
     // 先用真实定时器渲染完成，避免 findByRole/waitFor 的内部轮询与 fake timers 相互卡死
     render(<AboutSection />);
-    // 接口被调用时版本信息还在加载，按钮要等加载结束才渲染
     const button = await screen.findByRole("button", { name: "下载诊断日志" });
 
     // 切换到 fake timers 后再点击：click() 是同步调度，异步延续只在微任务

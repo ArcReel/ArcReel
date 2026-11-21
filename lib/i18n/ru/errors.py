@@ -209,7 +209,6 @@ MESSAGES = {
     "scene_task_submitted": "Задача генерации листа материала сцены «{name}» отправлена",
     "prop_task_submitted": "Задача генерации листа материала реквизита «{name}» отправлена",
     "product_task_submitted": "Задача генерации листа материала товара «{name}» отправлена",
-    # Files
     "file_not_found": "Файл не существует: {path}",
     "forbidden_access": "Доступ к файлам вне каталога проекта запрещён",
     "invalid_upload_type": "Недопустимый тип загрузки: {upload_type}",
@@ -315,14 +314,12 @@ MESSAGES = {
     "script_review_quarantine_unreadable": (
         "Черновик, требующий исправлений, повреждён или имеет неверный формат и не читается; отбросьте его и сгенерируйте заново"
     ),
-    # Source loader
     "source_unsupported_format": "Неподдерживаемый формат исходного файла: {ext} (поддерживаются: .txt / .md / .docx / .epub / .pdf)",
     "source_name_reserved": "Имена файлов вида episode_N.txt зарезервированы для файлов с исходным текстом серии; переименуйте файл, прежде чем загружать его как часть полного исходного текста",
     "source_decode_failed": "Не удалось декодировать исходный файл «{filename}» (проверены: {tried})",
     "source_corrupt_file": "Исходный файл «{filename}» не удаётся разобрать: {reason}",
     "source_too_large": "Исходный файл «{filename}» слишком велик ({size_mb} MB > {limit_mb} MB)",
     "source_conflict": "Исходный файл «{existing}» уже существует; предложено новое имя: «{suggested}»",
-    # Providers
     "unknown_provider": "Неизвестный провайдер: {value}",
     "max_workers_must_be_positive_integer": "{field} должно быть положительным целым числом, получено: {value}",
     "credentials_not_found": "Учётные данные не найдены",
@@ -339,7 +336,6 @@ MESSAGES = {
         "Эта отправка смешивает поля из нескольких взаимоисключающих групп учётных данных, поэтому "
         "непонятно, на что переключаться. Заполните только одну группу."
     ),
-    # Assistant
     "assistant_image_too_large": "Каждое исходное изображение должно быть не больше 5 MB",
     "assistant_images_total_too_large": "Суммарный размер изображений не должен превышать 7.5 MB",
     "session_not_found": "Сессия «{session_id}» не существует",
@@ -349,7 +345,6 @@ MESSAGES = {
     "agent_startup_failed_title": "Не удалось запустить агента",
     "interface_offline": "Этот интерфейс отключён, используйте рекомендованный интерфейс",
     "answers_required": "Поле answers не может быть пустым",
-    # Custom Providers
     "model_id_required": "Для включённых моделей нужно указать model_id",
     "duplicate_model_id": "Повторяющийся model_id: {model_id}",
     "default_model_conflict": "У каждого media_type может быть не больше одной модели по умолчанию. Конфликт: {conflict}",
@@ -376,7 +371,6 @@ MESSAGES = {
     "custom_endpoint_not_found": "Эндпоинт не существует",
     "custom_endpoint_definition_invalid": "Определение эндпоинта не прошло проверку. Исправьте указанные проблемы и повторите попытку",
     "custom_endpoint_referenced_by_models": "Эндпоинт указан у моделей (всего: {count}). Удалите эти ссылки, прежде чем удалять эндпоинт",
-    # ---- Market ----
     "market_source_not_found": "Источник маркета не существует",
     "market_source_official_undeletable": "Официальный источник маркета нельзя удалить, но можно отключить",
     "market_source_duplicate": "Этот источник маркета уже добавлен",
@@ -399,7 +393,6 @@ MESSAGES = {
     "market_entry_icon_not_found": "У этой записи маркета нет значка",
     "market_entry_fetch_failed": "Не удалось получить файл записи из источника маркета ({reason})",
     "market_entry_asset_invalid": "Файл записи, предоставленный источником маркета, непригоден ({reason})",
-    # ---- Endpoint tests ----
     "endpoint_test_payload_required": "Нет поля payload: при загрузке материалов поместите JSON запроса в поле формы payload",
     "endpoint_test_payload_invalid": "Не удалось разобрать запрос. Проверьте формат JSON и типы полей",
     "endpoint_test_asset_too_large": "Материал {name} превышает лимит {limit_mb} MB",
@@ -481,7 +474,6 @@ MESSAGES = {
     "path_override_unknown_request": "У эндпоинта модели {model_id} нет запроса {request}, URL которого можно изменить",
     "path_override_invalid_path": "URL запроса {path} модели {model_id} недопустим: путь должен начинаться с /, не содержать пробелов и #, а фигурные скобки — только для подстановок",
     "path_override_placeholder_not_allowed": "В URL запроса {path} модели {model_id} указана подстановка, которой нет в этом запросе; доступны только {allowed}",
-    # Projects
     "unknown_style_template": "Неизвестный шаблон стиля: {template_id}",
     "ad_only_field": "Поле {field} доступно только для проектов «Реклама / короткое видео» (content_mode=ad)",
     "ad_no_default_duration": "Проекты «Реклама / короткое видео» не поддерживают длительность по умолчанию: кадры планируются под целевую длительность",
@@ -492,7 +484,6 @@ MESSAGES = {
     "project_deleted": "Проект «{name}» перемещён в удалённые. Восстановить его можно в течение 30 дней",
     "scene_updated": "Сцена «{scene_id}» обновлена",
     "segment_updated": "Сегмент «{segment_id}» обновлён",
-    # Characters / Scenes / Props
     "character_already_exists": "Персонаж «{name}» уже существует",
     "character_deleted": "Персонаж «{name}» удалён",
     "project_scene_already_exists": "Сцена «{name}» уже существует",
@@ -508,18 +499,13 @@ MESSAGES = {
         "Имя «{name}» для типа «{requested_type}» уже занято: {existing_type} «{existing_name}». "
         "Имена персонажей, сцен, реквизита и товаров в одном проекте должны быть уникальными"
     ),
-    # API Keys
     "jwt_auth_required": "API-ключ не имеет прав на это действие; используйте аутентификацию JWT",
     "api_key_name_exists": "Имя «{name}» уже существует",
     "api_key_not_found": "API-ключ {key_id} не найден",
-    # Agent Chat
     "session_project_mismatch": "Сессия «{session_id}» относится к проекту «{session_project}», а не к запрошенному проекту «{request_project}»",
-    # Cost Estimation
     "cost_estimation_failed": "Не удалось оценить стоимость. Повторите попытку позже",
-    # Validators
     "invalid_backend_format": "Неверный формат выбора модели; используйте provider/model",
     "backend_media_type_mismatch": "Тип модели не совпадает: для этой настройки нужна модель {expected}, а {provider}/{model} — модель {actual}",
-    # Versions
     "unsupported_resource_type": "Неподдерживаемый тип ресурса: {resource_type}",
     "invalid_resource_id": "Недопустимый ID ресурса: {resource_id}",
     "resource_id_required": "ID ресурса не может быть пустым",
@@ -527,7 +513,6 @@ MESSAGES = {
     "end_frame_source_not_found": "Изображение для конечного кадра не найдено: {path}",
     "end_frame_source_too_large": "Изображение конечного кадра превышает лимит размера ({max_mb} MB): {path}",
     "end_frame_reference_video_unsupported": "В режиме «Видео по референсу» нет понятия начального и конечного кадра, поэтому задать конечный кадр нельзя",
-    # Reference Video
     "ref_missing_asset": "Материал «{name}» ({type}) для референса отсутствует в библиотеке проекта. Сначала сгенерируйте его",
     "ref_duration_exceeded": "Сценарий рассчитан на {total} с, что больше максимальной длительности модели {model}; видео сгенерировано на {duration} с, поэтому оно короче сценария",
     "ref_duration_rounded_up": "Сценарий рассчитан на {total} с, но такого значения нет среди вариантов длительности модели {model}; видео сгенерировано на {duration} с, поэтому оно длиннее сценария",
@@ -543,7 +528,6 @@ MESSAGES = {
     "ref_unit_needs_replan": "У этого видеофрагмента проблема с принадлежностью реплик или с миграцией; перепланируйте его перед генерацией",
     "ref_script_missing": "Файл сценария, привязанный к этой серии, не существует",
     "ref_script_rebound": "Привязка сценария к этой серии изменилась. Повторите попытку",
-    # Shot-script parse preview: degradation visibility
     "ref_warn_unregistered_mention": (
         "Упоминание @[{name}] не зарегистрировано как товар, персонаж, сцена или реквизит: референс не будет "
         "прикреплён. Проверьте имя или сначала создайте материал"
@@ -581,18 +565,15 @@ MESSAGES = {
         "не действует; реплики используются только как контекст промпта. Будет ли в готовом "
         "видео звук, зависит от выбранной модели"
     ),
-    # Storyboard scene text mentions that are not bound to a reference image
     "storyboard_warn_mention_unbound": (
         "В тексте сцены видеофрагмента {unit_id} упоминается @[{name}], но это не зарегистрированный материал "
         "или он не указан в полях референсов этой записи: упоминание не получает номер референса и отправляется как обычное имя"
     ),
-    # Episode meta
     "episode_not_found": "Серия (id={episode}) не найдена или у неё ещё нет файла сценария",
     "storyboard_batch_script_invalid": "Официальный сценарий серии {episode} нельзя использовать для пакетной генерации раскадровки: его структура не соответствует режиму генерации проекта или он не привязан к этой серии",
     "episode_source_empty": "Исходный текст серии не может быть пустым",
     "episode_source_derived": "Эта серия вырезана из общего исходного текста: её исходный текст получен при планировании серий и не редактируется здесь",
     "episode_source_symlink": "Файл исходного текста этой серии — символическая ссылка, запись в него невозможна",
-    # Manual episode splitting
     "manual_split_episode_not_found": "Этой серии больше нет в списке серий. Обновите страницу и повторите попытку",
     "manual_split_episode_not_placed": "Исходного текста этой серии нет в общем исходном тексте, поэтому её границы нельзя изменить в исходном тексте",
     "manual_split_source_file_not_found": "Этого файла нет в общем исходном тексте или его нельзя прочитать",
@@ -641,7 +622,6 @@ MESSAGES = {
     "episode_replan_adopt_moved_item": "{name} → серия {new}",
     "episode_replan_delete_heading": "Если установить флажок «Удалить их тоже», следующие серии и их результаты будут перемещены в корзину проекта и сохранятся там 30 дней:",
     "episode_replan_delete_item": "{name}: {items}",
-    # Whole-source file changes
     "source_file_change_source_file_not_found": "Этого файла нет в общем исходном тексте. Обновите страницу и повторите попытку",
     "source_file_change_source_file_unreadable": "Этот файл нельзя прочитать или он не является текстом UTF-8. Его можно только удалить",
     "source_file_change_source_changed": "Этот файл изменён вне ArcReel. Пока реестр серий не обновлён, заменить, отредактировать или переставить его нельзя; удалить его по-прежнему можно",
@@ -669,7 +649,6 @@ MESSAGES = {
     "source_name_not_whole_source": "Файлы с именем, начинающимся с подчёркивания, или вида episode_N.txt нельзя добавить в общий исходный текст; используйте {filename} как исходный текст серии или удалите его",
     "about_update_check_failed": "Не удалось проверить обновления. Повторите попытку позже",
     "about_version_read_failed": "Не удалось прочитать версию приложения",
-    # Image Capability
     "image_endpoint_mismatch_no_i2i": "Модель {model} поддерживает только «текст в изображение» (без /v1/images/edits). Уберите референсы или выберите модель, поддерживающую редактирование изображений",
     "image_endpoint_mismatch_no_t2i": "Модель {model} поддерживает только «изображение в изображение» (нужны референсы). Добавьте референсы или выберите модель, поддерживающую «текст в изображение»",
     "image_seedream_edits_unavailable": "Текущий эндпоинт модели {model} не поддерживает генерацию с референсами. Измените его на «Seedream (1K) / Seedream (2K)» в настройках модели и повторите попытку",
@@ -681,14 +660,12 @@ MESSAGES = {
     "image_aspect_ratio_not_supported": "Модель {model} не поддерживает соотношение сторон {aspect_ratio} (только {supported}); выберите поддерживаемое соотношение сторон",
     "image_reference_images_exceeded": "Модель {model} принимает до {limit} референсов. В запросе {count}. Сверх лимита: {names}. Уменьшите число материалов или упоминаний, разделите сцену либо выберите модель с большим лимитом.",
     "previous_storyboard_limit_hint": "Чтобы не использовать предыдущую раскадровку {previous_storyboard}, сделайте этот кадр разрывом главы.",
-    # Image Edit
     "image_edit_resource_type_invalid": "Тип ресурса «{resource_type}» не поддерживает редактирование изображений",
     "image_edit_instruction_required": "Инструкция для редактирования не может быть пустой",
     "image_edit_script_file_required": "При редактировании изображения раскадровки требуется script_file",
     "image_edit_no_current_image": "У «{id}» нет текущего изображения для редактирования; сначала сгенерируйте или загрузите его",
     "image_edit_i2i_unavailable": "Не настроен ни один провайдер изображений с поддержкой image-to-image (i2i); сначала настройте его в разделе «Настройки → Провайдеры»",
     "image_edit_task_submitted": "Задача редактирования изображения для «{id}» отправлена",
-    # Video Capability
     "video_duration_invalid": "Длительность видео {duration} не является целым числом секунд",
     "video_duration_not_supported": "Длительность видео {duration} с не входит в поддерживаемые этой моделью ({supported})",
     "video_end_frame_durations_incompatible": "При текущих настройках нет доступной длительности видео с конечным кадром. Измените настройки видео или уберите конечный кадр.",
@@ -726,7 +703,6 @@ MESSAGES = {
     "video_prompt_too_long": "{provider}/{model} принимает промпты не длиннее {limit} символов, а получено {count}; провайдер молча обрежет лишнее, поэтому генерация прервана. Сократите промпт",
     "video_request_conflicts_with_active_task": "У видеофрагмента «{resource_id}» уже есть задача на видео с другой подтверждённой длительностью запроса; дождитесь её завершения и повторите попытку (задачу, которая ещё в очереди, можно сначала отменить).",
     "audio_restore_conflicts_with_active_task": "У видеофрагмента «{resource_id}» сейчас генерируется аудио закадрового текста; дождитесь завершения, прежде чем переключать версии аудио (задачу, которая ещё в очереди, можно сначала отменить).",
-    # Agent credentials
     "agent_preset_unknown": "Неизвестный провайдер предустановки: {preset_id}",
     "agent_base_url_required_custom": "Для настраиваемой конфигурации требуется base_url",
     "agent_api_key_required": "Укажите api_key или выберите настраиваемого провайдера для импорта",
@@ -767,7 +743,6 @@ MESSAGES = {
     "project_config_invalid": "Недопустимая конфигурация проекта; проверьте параметры и повторите попытку",
     "invalid_discovery_format": "Неподдерживаемый формат обнаружения моделей: {discovery_format}",
     "request_invalid": "Недопустимый запрос; проверьте данные и повторите попытку",
-    # Agent memory
     "memory_invalid_filename": "Недопустимое имя файла памяти «{filename}»: разрешены только .md-файлы верхнего уровня",
     "memory_file_not_found": "Файл памяти «{filename}» не существует",
     "memory_file_too_large": "Файл памяти «{filename}» превышает лимит размера (максимум {limit_kib} KiB)",
@@ -778,7 +753,6 @@ MESSAGES = {
     "market_entry_already_installed": "Эта запись уже установлена; чтобы обновить её, выберите её эндпоинт",
     "market_endpoint_already_installed": "У этого эндпоинта есть другая запись об установке, перезаписать её нельзя",
     "market_overwrite_target_not_duplicate": "Перезаписать можно только эндпоинт с тем же автором и именем, что у этой записи",
-    # Official service
     "official_service_disabled": "Официальный сервис отключён",
     "official_service_unavailable": "Сейчас не удаётся связаться с официальным сервисом; повторите попытку позже",
     "market_entry_rating_not_installed": "Установите эту запись, чтобы оценить её",
@@ -810,7 +784,6 @@ MESSAGES = {
     "official_service_error_github_unavailable": "Официальный сервис сейчас не может связаться с GitHub; повторите попытку позже",
     "official_service_error_submissions_unconfigured": "Официальный сервис пока не принимает отправки",
     "official_service_error_submission_not_found": "Отправка не найдена",
-    # Edit timeline
     "edit_timeline_not_found": "Монтажный таймлайн «{timeline_id}» не найден",
     "edit_timeline_revision_not_found": "У монтажного таймлайна «{timeline_id}» нет ревизии {revision} (последняя ревизия — {latest_revision})",
     "edit_timeline_name_conflict": "У серии (id={episode}) уже есть монтажный таймлайн с именем «{name}»",
@@ -820,7 +793,6 @@ MESSAGES = {
     "edit_timeline_invalid": "Файл монтажного таймлайна повреждён и не читается: {file}",
     "edit_timeline_revision_unchanged": "Содержимое ревизии {revision} совпадает с последней ревизией, восстанавливать нечего",
     "edit_timeline_render_in_progress": "Для этого монтажного таймлайна в очереди или в работе рендер финального монтажа или черновика Jianying ({task_id}); удаляйте после завершения рендера",
-    # Final cut
     "final_cut_narration_unavailable": "Только проекты с озвучкой TTS могут рендерить финальный монтаж с закадровым текстом",
     "final_cut_presentation_unavailable": "Аудио закадрового текста или субтитры видеофрагмента {unit_id} нельзя использовать в финальном монтаже; проверьте аудио закадрового текста и запустите рендер снова",
     "final_cut_blocked": "В монтажном таймлайне есть проблемы, мешающие рендеру финального монтажа, в видеофрагментах: {units}. Устраните их и отправьте рендер снова",
@@ -831,7 +803,6 @@ MESSAGES = {
     "final_cut_render_failed": "Не удалось отрендерить финальный монтаж; повторите попытку",
     "final_cut_acceptance_failed": "Отрендеренный финальный монтаж не прошёл приёмку; повторите попытку",
     "final_cut_render_in_progress": "Для этого монтажного таймлайна уже есть в очереди или в работе рендер финального монтажа с другими параметрами ({task_id}); отправьте снова после его завершения",
-    # Jianying draft
     "jianying_draft_narration_unavailable": "Только проекты с озвучкой TTS могут экспортировать черновик Jianying с закадровым текстом",
     "jianying_draft_blocked": "В монтажном таймлайне есть проблемы, мешающие экспорту черновика Jianying, в видеофрагментах: {units}. Устраните их и отправьте экспорт снова",
     "jianying_draft_empty": "В монтажном таймлайне нет клипов для экспорта",
@@ -841,7 +812,6 @@ MESSAGES = {
     "jianying_draft_presentation_unavailable": "Медиа видеофрагмента {unit_id} нельзя использовать в черновике Jianying; проверьте видео и аудио закадрового текста и экспортируйте снова",
     "jianying_draft_hold_frame_unavailable": "Не удалось извлечь кадр выхода клипа {clip_id}, поэтому черновик Jianying не экспортирован; повторите попытку",
     "jianying_draft_acceptance_failed": "Сгенерированный черновик Jianying не прошёл приёмку; повторите попытку",
-    # Episode management
     "episode_manage_episode_not_found": "Этой серии больше нет в списке серий. Обновите страницу и повторите попытку",
     "episode_manage_ledger_invalid": "Формат реестра серий нарушен, поэтому изменить серии нельзя",
     "episode_manage_cut_order_locked": "Серии, нарезанные из целого исходного текста, идут в порядке исходного текста; поменять их местами нельзя",

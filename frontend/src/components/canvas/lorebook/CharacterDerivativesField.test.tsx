@@ -313,7 +313,6 @@ describe("角色详情的衍生区块", () => {
     await user.click(within(rowOf(sheet, "战斗装")).getByRole("button", { name: "「战斗装」的更多操作" }));
     await user.click(await screen.findByRole("menuitem", { name: "删除" }));
     const confirm = await screen.findByRole("alertdialog", { name: "删除衍生「战斗装」？" });
-    // 打开确认框之后，角色被 Agent 入队占用
     act(() =>
       useTasksStore.setState({
         tasks: [makeTask({ project_name: "demo", task_type: "character", media_type: "image", resource_id: "林夕", status: "running" })],

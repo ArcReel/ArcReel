@@ -16,7 +16,6 @@ from server.routers import files
 def test_script_plan_filename_by_content_mode():
     assert episode_paths.script_plan_filename("drama") == "script_plan_normalized_script.json"
     assert episode_paths.script_plan_filename("narration") == "script_plan_segments.json"
-    # ad 不走结构化 script_plan
     assert episode_paths.script_plan_filename("ad") is None
     assert episode_paths.script_plan_filename("unknown") is None
 
@@ -50,7 +49,6 @@ def test_new_content_mode_registered_once_covers_gate_and_web(monkeypatch, tmp_p
     """
     monkeypatch.setitem(episode_paths.SCRIPT_PLAN_FILENAMES, "docudrama", "script_plan_docu.json")
 
-    # 内容确认：script_plan_path 指向登记的结构化文件名
     project = {"content_mode": "docudrama", "episodes": [{"episode": 1}]}
     gate_path = script_review.script_plan_path(tmp_path, project, 1)
     assert gate_path is not None

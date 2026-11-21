@@ -155,7 +155,6 @@ const RESTRICT_SCROLLBAR_STYLE = classGuards(
   "禁止在组件里写滚动条样式（scrollbar-none、no-scrollbar、[scrollbar-width:*]、::-webkit-scrollbar 等）：滚动条始终可见，样式只在 index.css 定义。",
 );
 
-// 层级由原语自带的 z-overlay、z-toast、z-onboarding 负责；原语目录豁免。
 const RESTRICT_RAW_Z_INDEX = classGuards(
   String.raw`/(^|[\s:])-?z-(\d+|\[)/`,
   "调用处不写数值层级（z-10、z-[…]）：弹层、提示、引导分别由原语自带的 z-overlay、z-toast、z-onboarding 负责；#app-root 是独立层叠上下文（isolation: isolate），挂在 body 上的 Portal 总在应用之上。应用内吸顶的工具栏用 z-sticky。",
@@ -218,7 +217,6 @@ const RESTRICT_UI_PRIMITIVE_IMPORTS = {
 // 故为这几个原语单列不限类别的契约。新增条目前先确认该原语在 components/ui 中确实不带样式。
 const UNSTYLED_PRIMITIVES = ["Collapsible", "DialogTrigger", "InfoTipTrigger", "PopoverTrigger", "TooltipTrigger"];
 
-// @shadcn/lint 规则：components/ui 内的原语自身负责样式，关闭 restyle、任意值与静态 class 三条（见下方原语块）。
 const SHADCN_RULES = {
   "shadcn/no-restyle": [
     "error",
@@ -257,7 +255,6 @@ const restrictSyntax = (...exempt) => {
 };
 
 export default tseslint.config(
-  // 全局 ignores —— 覆盖 *.config.js 和 *.config.ts（vite.config.ts、vitest.config.ts）
   {
     ignores: [
       "dist/**",
@@ -270,29 +267,23 @@ export default tseslint.config(
     ],
   },
 
-  // 通用 JS recommended
   js.configs.recommended,
 
-  // TypeScript + typed linting（对所有 .ts/.tsx，后面在 src/** 里补 projectService）
   ...tseslint.configs.recommendedTypeChecked,
 
-  // React 19
   {
     ...react.configs.flat.recommended,
     settings: { react: { version: "19" } },
   },
   react.configs.flat["jsx-runtime"],
 
-  // React Hooks recommended
   {
     plugins: { "react-hooks": reactHooks },
     rules: reactHooks.configs.recommended.rules,
   },
 
-  // jsx-a11y recommended（非 strict）
   jsxA11y.flatConfigs.recommended,
 
-  // 源码 typed linting 语言选项
   {
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
@@ -328,7 +319,6 @@ export default tseslint.config(
     },
   },
 
-  // 测试文件：关闭 typed linting
   {
     files: ["**/*.test.{ts,tsx}"],
     ...tseslint.configs.disableTypeChecked,
@@ -374,7 +364,6 @@ export default tseslint.config(
     },
   },
 
-  // API 直调约束。两条纪律：
   // - 入队类 API 方法只能经 src/actions/ 的入队动作层调用——乐观占用打标、去重提示与返回值
   //   归一化由动作层统一封装，组件直调会绕过这些副作用。新增入队类 API 方法时在 api.ts 加
   //   @enqueue 标记并登记进 ENQUEUE_METHODS（由 api.enqueue-methods.test.ts 校验一致）。

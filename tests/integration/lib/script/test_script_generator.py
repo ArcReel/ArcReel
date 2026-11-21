@@ -220,11 +220,11 @@ class TestScriptGenerator:
         _write_script_plan_json(project_path, 1, [_script_plan_seg("E1S01", "第一段原文，逐字保留。", duration=4)])
         await _materialized_script(project_path)
 
-        generator = ScriptGenerator(project_path, config_resolver=_resolver())  # 无 client
+        generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
         assert "E1S01" in prompt
-        assert "第一段原文，逐字保留。" in prompt  # novel_text 作只读上下文渲染
+        assert "第一段原文，逐字保留。" in prompt
         assert "姜月茴" in prompt
 
     async def test_build_prompt_appends_user_instructions(self, tmp_path):
@@ -539,7 +539,6 @@ class TestScriptGenerator:
             [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
             characters={"姜月茴": {}},
         )
-        # 注入非中文 source_language（生成内容语言真相源）
         project_json_path = project_path / "project.json"
         payload = json.loads(project_json_path.read_text(encoding="utf-8"))
         payload["source_language"] = "English"
@@ -905,17 +904,17 @@ class TestScriptGenerator:
         _write_json(project_path / "project.json", {"title": "项目"})
         _write(project_path / "drafts" / "episode_1" / "script_plan_segments.md", "content")
 
-        generator = ScriptGenerator(project_path)  # 无 backend
+        generator = ScriptGenerator(project_path)
         with pytest.raises(RuntimeError, match="TextGenerator 未初始化"):
             await generator.generate(1)
 
     @pytest.mark.parametrize(
         "bad_filename",
         [
-            "subdir/episode_1.json",  # 子目录
-            "../etc/passwd",  # path traversal
-            "/tmp/abs.json",  # 绝对路径
-            "a\\b.json",  # Windows 分隔符
+            "subdir/episode_1.json",
+            "../etc/passwd",
+            "/tmp/abs.json",
+            "a\\b.json",
             "",  # 空字符串:Path("").name == "" 会过前两条校验,带空 filename 到写盘才崩
         ],
     )
@@ -1360,7 +1359,6 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         id_field = SKELETONS[kind].id_field
         out = sg._add_metadata({kind: [{id_field: "E1S01"}]}, episode=2)
 
-        # 数组键 + id 字段经查表：前缀改写为当前集号
         assert out[kind][0][id_field] == "E2S01"
         # 条目数与总时长不落盘：派生值由项目摘要读时计算
         assert "duration_seconds" not in out
@@ -1383,7 +1381,6 @@ class TestScriptGeneratorSkeletonExhaustiveness:
             episode=2,
         )
 
-        # dict 条目前缀改写；非 dict 条目原样保留、不参与改写
         assert out["segments"][0]["segment_id"] == "E2S01"
         assert out["segments"][1] == "junk_not_a_dict"
         assert out["segments"][2]["segment_id"] == "E2S02"
@@ -1651,7 +1648,7 @@ class TestLoadNarrationScriptPlan:
 
     def test_duration_outside_supported_raises(self, tmp_path):
         sg = _bare_generator(tmp_path)
-        self._write(sg, 1, {"segments": [_script_plan_seg("E1S01", "甲", duration=5)]})  # 5 ∉ [4,6,8]
+        self._write(sg, 1, {"segments": [_script_plan_seg("E1S01", "甲", duration=5)]})
         with pytest.raises(ValueError, match="duration"):
             sg._load_narration_script_plan(1, [4, 6, 8])
 
@@ -2108,13 +2105,13 @@ class TestAdQualityProbe:
     def test_drift_above_threshold_warns(self, tmp_path, caplog):
         sg = self._sg(tmp_path, target_duration=30)
         with caplog.at_level("WARNING", logger="lib.script.script_generator"):
-            sg._quality_probe(self._script([4, 4]), episode=1)  # 8 秒 vs 30 秒
+            sg._quality_probe(self._script([4, 4]), episode=1)
         assert any("target_duration drift" in r.message for r in caplog.records)
 
     def test_drift_within_threshold_silent(self, tmp_path, caplog):
         sg = self._sg(tmp_path, target_duration=30)
         with caplog.at_level("WARNING", logger="lib.script.script_generator"):
-            sg._quality_probe(self._script([4, 6, 6, 6, 4, 6]), episode=1)  # 32 秒 vs 30 秒
+            sg._quality_probe(self._script([4, 6, 6, 6, 4, 6]), episode=1)
         assert not any("target_duration drift" in r.message for r in caplog.records)
 
     def test_short_prompt_probe_covers_shots(self, tmp_path, caplog):
@@ -2129,7 +2126,7 @@ class TestAdQualityProbe:
         """偏差超阈值时保存照常成功（探针仅 WARN，不抛、不拒）。"""
         project_path = tmp_path / "projects" / "demo"
         _write_ad_project(project_path)
-        response = {"title": "短片", "shots": [_ad_shot("E1S01", duration=4)]}  # 4 秒 vs 30 秒
+        response = {"title": "短片", "shots": [_ad_shot("E1S01", duration=4)]}
         fake = _FakeTextGenerator(json.dumps(response, ensure_ascii=False))
         generator = ScriptGenerator(project_path, generator=fake)
 

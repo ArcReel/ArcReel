@@ -50,7 +50,6 @@ export interface TourLabels {
   done: string;
   skip: string;
   close: string;
-  /** 进度的无障碍文本，如「第 1 步，共 2 步」 */
   progress: (current: number, total: number) => string;
 }
 
@@ -247,7 +246,6 @@ function observeLayoutChanges(onChange: () => void): () => void {
   };
 }
 
-/** 进度齿孔轨道 —— 装饰，语义由同级的 sr-only 文本承载 */
 function renderProgress(progress: HTMLElement, current: number, total: number, label: string): void {
   progress.replaceChildren();
 
@@ -378,7 +376,6 @@ export function startTour(
     onDestroyStarted: () => finish(),
   });
 
-  /** 下一步：按钮点击与 `ArrowRight` 键共用，保证跨页上报一致。 */
   function handleNext(): void {
     if (instance.isLastStep()) {
       finish();
@@ -399,7 +396,6 @@ export function startTour(
     instance.movePrevious();
   }
 
-  /** 记一次退出并收起。重复调用只记一次。 */
   function finish(): void {
     if (!exited && !disposing) {
       exited = true;
@@ -453,7 +449,6 @@ export function startTour(
   };
 }
 
-/** 「跳过」按钮 —— 最后一步没有可跳过的内容，只留「完成」 */
 function decorateSkip(popover: PopoverDOM, isLastStep: boolean, label: string): void {
   popover.footer.querySelector(".arc-tour-skip-btn")?.remove();
   if (isLastStep) return;

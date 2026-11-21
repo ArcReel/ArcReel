@@ -25,9 +25,7 @@ export function MemoryCreateForm({
 }: {
   scope: AgentMemoryScope;
   entries: MemoryEntry[];
-  /** 目录里一个文件都没有：先说明记忆从哪里来。 */
   empty: boolean;
-  /** 记忆层级的说明；所在页面已有说明时不传。 */
   intro?: string;
   heading: "h2" | "h3";
   /**

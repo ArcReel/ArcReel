@@ -238,7 +238,6 @@ describe("SourceUploadDialog", () => {
 
     const confirm = within(screen.getByRole("alertdialog", { name: "插入「x.txt」" }));
     await waitFor(() => expect(confirm.getByRole("button", { name: "取消" })).toHaveFocus());
-    // 上传对话框与待上传的文件仍在确认框下面
     expect(screen.getByText("x.txt")).toBeInTheDocument();
   });
 

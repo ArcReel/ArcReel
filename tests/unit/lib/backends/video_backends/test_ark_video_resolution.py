@@ -37,7 +37,6 @@ async def test_resolution_none_not_in_create_params(tmp_path):
         await backend._create_task(req)
 
     assert "resolution" not in captured
-    # 其他关键字段仍然透传
     assert captured["ratio"] == "9:16"
     assert captured["duration"] == 5
 

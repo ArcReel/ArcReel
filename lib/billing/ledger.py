@@ -241,7 +241,6 @@ class Ledger:
                 self._emit_recorded(project_name, call_id, CallStatus.CANCELLED)
             raise
         except Exception as exc:
-            # 自动翻 failed（错误信息截断由仓储承担）后原样重抛。
             if await self._finish_failed(call_id, exc):
                 self._emit_recorded(project_name, call_id, CallStatus.FAILED)
             raise

@@ -3,8 +3,6 @@ import { translate } from "@docusaurus/Translate";
 import { BECOME_SPONSOR_URL, getSponsors, type Sponsor } from "../../data/sponsors";
 import styles from "./styles.module.css";
 
-// 导航栏赞助位：头像一排，悬停或聚焦弹出赞助商卡片。
-
 function useLabels() {
   return {
     sponsor: translate({ id: "sponsors.label", message: "赞助商", description: "Label of the navbar sponsors area" }),

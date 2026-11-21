@@ -8,7 +8,6 @@ import { Popover, PopoverContent } from "@/components/ui/popover";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type { SkillInfo } from "@/types";
 
-/** 接口给出的 Lucide 图标名 → 图标组件。 */
 const ICON_MAP: Record<string, LucideIcon> = {
   clapperboard: Clapperboard,
   images: Images,
@@ -25,7 +24,6 @@ function skillLabel(t: TFunction, skillName: string): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/** 按「/」后面的文字筛选技能：匹配技能名、说明或本地化显示名。 */
 export function useSlashCommands(filter: string | null): SkillInfo[] {
   const { t } = useTranslation("dashboard");
   const skills = useAssistantStore((s) => s.skills);
@@ -45,7 +43,6 @@ export function useSlashCommands(filter: string | null): SkillInfo[] {
 interface SlashCommandMenuProps {
   /** 输入框外框：菜单浮在它的上方，与它同宽。 */
   anchor: RefObject<HTMLElement | null>;
-  /** 已筛选的技能；为空时不显示菜单。 */
   skills: SkillInfo[];
   /** 当前高亮的技能名，由输入框的方向键驱动。 */
   active: string | undefined;

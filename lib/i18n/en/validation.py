@@ -1,9 +1,7 @@
 """Validation and archive diagnostic messages (English)."""
 
 MESSAGES = {
-    # ---- passthrough ----
     "val_literal": "{text}",
-    # ---- generic field shape ----
     "val_missing_field": "Missing required field: {field}",
     "val_missing_field_at": "{prefix}: missing required field {field}",
     "val_field_type_string": "Field type error: {field} must be a string",
@@ -24,13 +22,11 @@ MESSAGES = {
     "val_field_bad_timestamp": "{field} is not a valid ISO8601 timestamp: {value}",
     "val_item_must_be_object": "{prefix}: must be an object",
     "val_item_format_object": "{prefix}: malformed data, expected an object",
-    # ---- path references ----
     "val_path_empty": "{field}: path must not be empty",
     "val_path_traversal": "{field}: reference path escapes the project: {path}",
     "val_path_outside_dir": "{field}: reference path must live under {dir}/: {path}",
     "val_path_missing": "{field}: referenced file does not exist: {path}",
     "val_path_must_be_relative": "{field} must be a project-relative path: {path}",
-    # ---- project-level fields ----
     "val_content_mode_invalid": "Invalid content_mode: '{value}', must be one of {allowed}",
     "val_source_kind_invalid": "{prefix}: invalid source_kind '{value}', must be one of {allowed}",
     "val_generation_mode_invalid": "Invalid generation_mode: '{value}', must be one of {allowed}",
@@ -42,7 +38,6 @@ MESSAGES = {
     "val_cannot_load_script": "Cannot load script file: {path}",
     "val_unrecognized_entry": "Unrecognized extra file/directory found: {name}",
     "val_novel_must_be_object": "The novel field must be an object",
-    # ---- episode entries and ledger ----
     "val_ledger_status_type": "{prefix}: ledger_status must be a string, got: {value}",
     "val_source_origin_invalid": "{prefix}: invalid source_origin '{value}', must be one of {allowed}",
     "val_source_range_requires_whole_source": "{prefix}: only an episode cut from the whole source (source_origin whole_source) can have source_range",
@@ -50,7 +45,6 @@ MESSAGES = {
     "val_episode_missing_num_at": "{prefix}: missing required field episode (integer)",
     "val_episode_missing_title_at": "{prefix}: missing required field title (string, may be empty)",
     "val_episode_missing_num": "Missing required field: episode (integer)",
-    # ---- ad / short-film projects ----
     "val_ad_only_field": "{field} is only available for ad/short-film projects (content_mode=ad)",
     "val_ad_missing_target_duration": (
         "Missing required field: target_duration (target total duration in seconds for ad/short-film projects)"
@@ -71,7 +65,6 @@ MESSAGES = {
         "Script total duration {total}s deviates from target_duration {target}s by {delta:.0%}, "
         "beyond the {threshold:.0%} observation threshold (informational only, saving is not blocked)"
     ),
-    # ---- asset catalogs ----
     "val_asset_format_object": "{asset_type} '{name}' has malformed data, expected an object",
     "val_asset_field_must_be_object": "{asset_type} '{name}'.{field} must be an object",
     "val_asset_field_must_be_string": "{asset_type} '{name}'.{field} must be a string, got {actual}",
@@ -82,14 +75,11 @@ MESSAGES = {
         "Duplicate project asset name: {duplicate_type} '{duplicate_name}' conflicts with "
         "{first_type} '{first_name}' after strip + Unicode NFC normalization"
     ),
-    # ---- item-level references ----
     "val_refs_unregistered": "{prefix}: {field} references {asset_type} entries missing from project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: {field} is missing, defaulting to an empty array",
-    # ---- generic item checks ----
     "val_id_format": "{prefix}: invalid {field} format '{value}', expected E{{n}}S{{nn}}",
     "val_missing_duration_default": "{prefix}: duration_seconds is missing, defaulting to {default}",
     "val_duration_invalid": "{prefix}: invalid duration_seconds '{value}', must be a positive integer",
-    # ---- drama utterances ----
     "val_utterance_must_be_object": "{prefix} must be an object",
     "val_utterance_kind_invalid": "{prefix} kind must be dialogue or voiceover",
     "val_utterance_text_invalid": "{prefix} text must be a non-empty string",
@@ -101,7 +91,6 @@ MESSAGES = {
         "{tolerance:.0%} (tolerance ceiling {budget:.1f}s); long dialogue may not fit or may sound rushed "
         "(informational only, saving is not blocked)"
     ),
-    # ---- ad shots ----
     "val_shot_duration_missing_zero": "{prefix}: duration_seconds is missing, counted as 0 toward the total",
     "val_shot_duration_out_of_range": (
         "{prefix}: invalid duration_seconds '{value}', reference_video mode requires an integer "
@@ -110,13 +99,11 @@ MESSAGES = {
     "val_shot_missing_voiceover_text": (
         "{prefix}: missing required field voiceover_text (voiceover copy, may be an empty string)"
     ),
-    # ---- reference-video units ----
     "val_unit_id_missing": "{prefix}: unit_id is missing",
     "val_unit_id_missing_required": "{prefix}: missing required field unit_id",
     "val_unit_id_duplicate": "{prefix}: duplicate unit_id '{value}'",
     "val_video_units_missing": "The reference_video script is missing the video_units array",
     "val_unit_duration_range": "{prefix}: duration_seconds must be an integer between {low} and {high}",
-    # ---- skeleton / route mismatch ----
     "val_skeleton_noun_segments": "segments",
     "val_skeleton_noun_scenes": "scenes",
     "val_skeleton_noun_shots": "shots",
@@ -147,7 +134,6 @@ MESSAGES = {
         "Re-run episode splitting (script_plan) to re-split this episode, then regenerate the script. "
         "The script can still be viewed, edited and exported."
     ),
-    # ---- reference-video duration consolidation migration ----
     "val_unit_duration_clamped": (
         "unit {unit_id} duration {target}s is outside the sensible {low}-{high}s range; clamped to {clamped}s"
     ),
@@ -155,7 +141,6 @@ MESSAGES = {
         "unit {unit_id} duration {duration}s is not one of the model's duration options ({durations}); "
         "snapped to {slot}s"
     ),
-    # ---- archive repair and import/export diagnostics ----
     "arch_source_encoding_unconverted": (
         "Source file encoding could not be detected and was not converted to UTF-8: source/{name} "
         "(episode planning cannot read this file)"
@@ -192,7 +177,6 @@ MESSAGES = {
     "arch_canonical_path_normalized": "{location}: normalized to {path}",
     "arch_current_asset_materialized": "{location}: restored the current file {target} from {source}",
     "arch_current_asset_restored_from_version": "{location}: restored the current file {target} from {source}",
-    # ---- archive import errors ----
     "arch_invalid_conflict_policy": "Invalid conflict policy",
     "arch_conflict_policy_unsupported": "conflict_policy only supports prompt, rename or overwrite; got: {value}",
     "arch_import_validation_failed": "Import package validation failed",
@@ -216,7 +200,6 @@ MESSAGES = {
     "arch_project_name_conflict": (
         "Project ID '{name}' already exists. Choose to overwrite the existing project or import under a new name."
     ),
-    # ---- Custom endpoint definition validation ----
     "val_ce_missing_field": "Missing required field: {field}",
     "val_ce_unknown_field": "Unknown field: {field}",
     "val_ce_removed_field": "Field removed from the format: {field} - {reason}",
@@ -344,7 +327,6 @@ MESSAGES = {
     "val_ce_template_text_variable_null": "Variable {name} is null and cannot be embedded in text",
     "val_ce_each_value_not_list": "$each.in points at {name}, whose runtime value is not a list",
     "val_ce_each_key_duplicate": "Object-form $each produced the key {field}, which another key in the same object already uses, so the request cannot carry every input",
-    # ---- ComfyUI endpoint: node bindings and import routing ----
     "val_ce_comfyui_binding_required": (
         "{binding_key} must be bound to a node before this endpoint can be saved: "
         "the prompt decides what is drawn, the output decides which file is taken"
@@ -380,7 +362,6 @@ MESSAGES = {
     "val_ce_comfyui_ui_format_workflow": (
         "This is a ComfyUI UI-format workflow and cannot be submitted; export it with Export (API) in ComfyUI instead"
     ),
-    # ---- ComfyUI endpoint: node binding inference signals and hints ----
     "val_ce_infer_manual_binding": "A saved node binding; the target the user already confirmed is kept",
     "val_ce_infer_title_marker": "The node title carries an ARCREEL: marker",
     "val_ce_infer_external_node_family": "A {family} parameter node declaring the parameter {parameter}",
@@ -420,7 +401,6 @@ MESSAGES = {
         "{path_expression} uses a wildcard: an object wildcard takes the first member only, "
         "and key order may differ between the preview and the backend"
     ),
-    # ---- market source checks ----
     "val_market_index_unreadable": "Cannot read the index file: {detail}",
     "val_market_unsupported_schema_version": "Index schema_version {version} is newer than the supported {supported}",
     "val_market_missing_field": "Missing required field: {field}",

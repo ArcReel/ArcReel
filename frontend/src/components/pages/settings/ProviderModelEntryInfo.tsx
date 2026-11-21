@@ -69,7 +69,6 @@ interface Props {
   onPendingChange: (next: PendingEntryChange | null) => void;
   /** 需传稳定引用：字段重新挂载时据此清掉上一代的「填写不正确」。 */
   onValidityChange: (key: string, valid: boolean) => void;
-  /** 恢复官方数据之后重新读取 Sheet 内容。 */
   onRestored: () => Promise<void>;
 }
 
@@ -367,7 +366,6 @@ export function FactField({ dimension, value, resolutions, onChange, validityKey
   );
 }
 
-/** 改过的条目在字段下方显示官方值，可以「采用」。 */
 function OfficialValue({ text, label, onAdopt }: { text: string; label: string; onAdopt: () => void }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -388,7 +386,6 @@ function OfficialValue({ text, label, onAdopt }: { text: string; label: string; 
   );
 }
 
-/** 维护说明一行：官方维护 / 我改过（可恢复官方数据）/ 我新建的（官方收录后可改用官方数据）。 */
 function SourceNote({ entry, onRestored }: { entry: ProviderModelEntryInfo; onRestored: () => Promise<void> }) {
   const { t } = useTranslation("dashboard");
   if (entry.source === "official") {
@@ -541,7 +538,6 @@ function BoundNote({
   );
 }
 
-/** 还没保存的条目改动的说明：保存后会发生什么，以及放弃。 */
 function PendingChange({
   pending,
   onEdit,

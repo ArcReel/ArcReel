@@ -8,11 +8,9 @@ export interface AgentMemoryState {
   /** 当前 scope 的目录内容；未加载完成或加载失败时为 null，切换 scope 后立即回到 null。 */
   overview: AgentMemoryOverview | null;
   loading: boolean;
-  /** 当前 scope 的拉取失败说明；成功后清空。 */
   error: string | null;
   /** 记忆目录标识，调用点把它原样传给写类 API，两级因此共用同一批调用。 */
   scope: AgentMemoryScope;
-  /** 重新拉取列表；在途请求作废，卸载时一并取消。 */
   reload: () => Promise<void>;
 }
 

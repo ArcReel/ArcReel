@@ -5,7 +5,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目工作区外壳：顶栏、侧栏、画布区与 Agent 面板的分栏，验证各档视口下的宽度分配、开合与调宽。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const CHARACTERS_PATH = "/app/projects/demo/characters";
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
@@ -111,7 +110,6 @@ async function expectAgentLayout(page: Page, agentWidth: number) {
     return [Math.round(rect.x), Math.round(rect.x + rect.width)];
   };
   if (viewportWidth >= STANDARD_TIER_MIN_WIDTH) {
-    // 画布夹在侧栏与 Agent 面板之间，两侧各有 1px 的分隔线
     await expect.poll(canvasEdges).toEqual([Math.round((await sidebarRight()) + 1), Math.round(agent.x - 1)]);
   } else {
     await expect.poll(canvasEdges).toEqual([Math.round((await sidebarRight()) + 1), viewportWidth]);
@@ -143,7 +141,6 @@ defineRegionScenarios("项目工作区外壳", [
       await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "true");
       await expectAgentLayout(page, AGENT_DEFAULT);
       if (viewport(page).width === 1440) {
-        // 1440 宽：56 + 1 + 画布 + 1 + 420
         expect(await width(canvas(page))).toBeCloseTo(962, 0);
       }
     },
@@ -190,7 +187,6 @@ defineRegionScenarios("项目工作区外壳", [
     ready: episodeReady,
     act: async (page) => {
       await page.setViewportSize({ width: 1100, height: 700 });
-      // 等外壳切到紧凑档：画布伸到 Agent 面板底下
       await expect.poll(() => width(canvas(page))).toBeCloseTo(1100 - SIDEBAR_RAIL - 1, 0);
       await agentInput(page).focus();
       await page.keyboard.press("Escape");
@@ -223,7 +219,6 @@ defineRegionScenarios("项目工作区外壳", [
     api: API,
     ready: shellReady,
     act: async (page) => {
-      // Agent 面板在右侧：向左变宽
       await agentHandle(page).focus();
       await page.keyboard.press("ArrowLeft");
       await expect.poll(() => width(agentPanel(page))).toBeCloseTo(AGENT_DEFAULT + STEP, 0);
@@ -235,7 +230,6 @@ defineRegionScenarios("项目工作区外壳", [
 
       // 紧凑档侧栏收为图标栏，手柄不可用
       if (viewport(page).width < STANDARD_TIER_MIN_WIDTH) return;
-      // 侧栏在左侧：向右变宽
       await sidebarHandle(page).focus();
       await page.keyboard.press("ArrowRight");
       await expect.poll(() => width(sidebar(page))).toBeCloseTo(SIDEBAR_DEFAULT + STEP, 0);

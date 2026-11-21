@@ -34,10 +34,6 @@ function hasDiagnostics(diagnostics: ImportFailureDiagnostics | undefined): diag
   return !!diagnostics && diagnostics.blocking.length + diagnostics.auto_fixable.length + diagnostics.warnings.length > 0;
 }
 
-/**
- * 导入项目 ZIP：选择文件、导入包升级有报告时请用户确认、处理项目编号冲突、展示导入诊断，导入成功后进入项目。
- * `element` 包含隐藏的文件输入与各个对话框，渲染在页面里一次即可。
- */
 export function useProjectImport({ onImported }: { onImported: () => void }): {
   importing: boolean;
   openPicker: () => void;
@@ -128,7 +124,6 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
         return;
       }
       setConflict(null);
-      // 接口总会带回一份诊断，没有任何条目时对话框不显示内容，改用提示说明失败原因。
       if (hasDiagnostics(error.diagnostics)) {
         setDiagnostics({ source: "failure", diagnostics: error.diagnostics });
       } else {

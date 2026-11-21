@@ -152,7 +152,6 @@ def indexed_project_dir(tmp_path: Path) -> Path:
         ("source/snapshots/novel.txt", FileReference(FileRole.DERIVED, FileOwner("source"))),
         ("source/episode_1.txt", FileReference(FileRole.DERIVED, FileOwner("episode", episode=1))),
         ("source/episode_2.txt", FileReference(FileRole.STRUCTURE, FileOwner("episode", episode=2))),
-        # 未纳入整本源文的源文件与它的原始上传件交给分集视图。
         ("source/draft.txt", FileReference(FileRole.UNREFERENCED, FileOwner("source"))),
         ("source/raw/draft.docx", FileReference(FileRole.UNREFERENCED, FileOwner("source"))),
         ("storyboards/scene_E1S09.png", FileReference(FileRole.UNREFERENCED)),
@@ -180,10 +179,8 @@ def test_contains_resource_tracks_project_data(indexed_project_dir: Path) -> Non
     assert index.contains_resource("storyboards", "E1S01")
     assert index.contains_resource("videos", "E1S01")
     assert index.contains_resource("reference_videos", "E2U1")
-    # 视频单元的旁白配音同样按单元 ID 登记。
     assert index.contains_resource("audio", "E2U1")
     assert index.contains_resource("grids", "grid_0123456789ab")
-    # 只剩版本历史的资产、已移除的分镜都不在项目中。
     assert not index.contains_resource("characters", "旧人")
     assert not index.contains_resource("storyboards", "E1S09")
     assert not index.contains_resource("reference_videos", "E1S01")
@@ -210,7 +207,6 @@ def test_pending_grid_record_is_structure_before_any_reference(indexed_project_d
     assert index.reference_of("grids/grid_fedcba987654.json") == FileReference(
         FileRole.STRUCTURE, FileOwner("grid", id="grid_fedcba987654")
     )
-    # 已有剧本引用的宫格仍带所属集。
     assert index.reference_of("grids/grid_0123456789ab.json").owner == FileOwner(
         "grid", id="grid_0123456789ab", episode=1
     )

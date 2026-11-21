@@ -21,7 +21,6 @@ const script = {
       video_prompt: "",
       generated_assets: { storyboard_image: "storyboards/E1S01_v1.png" },
     },
-    // 没有分镜图的分镜不进选项
     { segment_id: "E1S02", novel_text: "", image_prompt: "", video_prompt: "" },
   ],
 } as unknown as EpisodeScript;
@@ -110,7 +109,6 @@ describe("EndFramePicker 项目内通道", () => {
     await findByText("本集分镜切图");
     expect(getByText("本集分镜图")).toBeInTheDocument();
 
-    // 无分镜图的分镜不出现
     expect(queryByRole("button", { name: /^分镜 2$/ })).not.toBeInTheDocument();
 
     // 角色/场景分组已移除：即使 currentProjectData 里有对应素材也不展示

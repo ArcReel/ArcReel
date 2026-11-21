@@ -5,7 +5,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { FIXED_NOW, RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目「分集」视图：页头工具行、集目录与原文、方案栏，以及上传、新建、未登记文件等弹层。
 const PATH = "/app/projects/demo/episodes";
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const API: ApiOverrides = {
@@ -279,7 +278,6 @@ async function expandFailure(panel: Locator) {
   await expect(alert).toContainText(FAILURE_DETAIL);
 }
 
-// ---------------------------------------------------------------------------
 
 const canvas = (page: Page) => page.getByRole("main");
 const outline = (page: Page) => page.getByRole("navigation", { name: "集目录" });

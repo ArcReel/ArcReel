@@ -118,7 +118,7 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
         provider_id=provider.id,
         model_id="gpt-4o",
         display_name="GPT-4o",
-        endpoint="openai-chat",  # text endpoint, not video
+        endpoint="openai-chat",
         is_default=True,
         is_enabled=True,
         capability_overrides={"durations": [5, 10]},
@@ -129,7 +129,6 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
     from lib.custom_provider import make_provider_id
 
     provider_id_str = make_provider_id(provider.id)
-    # project.json 中 video_backend 指向这个 text-only 模型
     project = {"video_backend": f"{provider_id_str}/gpt-4o"}
 
     factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
@@ -148,7 +147,6 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
 @pytest.mark.parametrize(
     ("endpoint", "model_id", "expected_max_refs", "generation_mode"),
     [
-        # 显式 int：直接用 endpoint cap（行为零变化）
         ("openai-video", "vid-model", 1, "storyboard"),
         ("newapi-video", "vid-model", 0, "storyboard"),
         # 未声明（None）：按 model_id 调 backend 纯 caps 函数读上限，不构造 backend

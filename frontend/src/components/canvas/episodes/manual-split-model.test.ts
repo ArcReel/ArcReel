@@ -36,7 +36,6 @@ function file(name: string, length: number, segments: EpisodesViewSegment[]): Ep
   };
 }
 
-// a.txt：第 1 集 [0, 10)、第 2 集 [10, 20)、未切分 [20, 30)；b.txt：未切分 [0, 8)
 const view: EpisodesView = {
   unit: "chars",
   units: 0,
@@ -91,7 +90,6 @@ describe("落点", () => {
   });
 
   it("后一个文件里的切分从前一个文件里未切分的原文接起，新集跨文件", () => {
-    // 全局偏移：a.txt 占 [0, 30)，b.txt 从 30 起
     expect(resolvePointAction(view, { file: 1, offset: 3 })).toEqual({
       kind: "cut",
       file: 1,
@@ -148,7 +146,6 @@ describe("←/→ 微调", () => {
 });
 
 describe("跨文件的集", () => {
-  // a.txt：第 1 集 [0, 10)、第 2 集从 [10, 20) 接到 b.txt 的 [0, 4)；b.txt：第 3 集 [4, 8)
   const crossing: EpisodesView = {
     ...view,
     files: [

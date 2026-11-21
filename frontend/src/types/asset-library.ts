@@ -12,7 +12,6 @@ export interface ObjectStorageConnection {
 /** 新增图片内容版本的保存位置（全局设置，缺省本地）。 */
 export type NewImageTarget = "local" | "object_storage";
 
-/** 对象存储连接及新增图片保存位置。 */
 export interface ObjectStorageSettings {
   connection: ObjectStorageConnection | null;
   new_image_target: NewImageTarget;
@@ -79,7 +78,6 @@ export interface UpdateAssetLibraryAccountPayload {
 export type AssetLibraryCredentialType = "builtin" | "custom";
 export type AssetLibraryBindingStatus = "confirmed" | "needs_confirmation";
 
-/** 一条可绑定素材库的推理凭证及其当前绑定。 */
 export interface AssetLibraryBindableCredential {
   credential_type: AssetLibraryCredentialType;
   credential_id: number;
@@ -118,7 +116,6 @@ export interface ProviderAssetPage {
  */
 export type ProviderAssetLinkState = "pending" | "submitting" | "processing" | "active" | "failed" | "uncertain";
 
-/** 图片某个内容版本在一个素材库范围里的关联或入库任务。 */
 export interface ProviderAssetLink {
   id: number;
   content_version_id: string;
@@ -155,7 +152,6 @@ export interface ProviderAssetLinkAccount {
   project_name: string;
 }
 
-/** 图片当前选中版本的素材库关联面板。 */
 export interface ProviderAssetLinkPanel {
   content_version: { id: string | null; version: number; digest: string | null } | null;
   object_storage_configured: boolean;
@@ -163,7 +159,6 @@ export interface ProviderAssetLinkPanel {
   links: ProviderAssetLink[];
 }
 
-/** 从素材库选择已有图片的结果：保存得到的新版本与它的可用关联。 */
 export interface ProviderAssetImportResult {
   content_version: { id: string; version: number; digest: string | null };
   link: ProviderAssetLink;

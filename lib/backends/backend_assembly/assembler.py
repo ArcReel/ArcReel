@@ -74,7 +74,7 @@ async def assemble_backend(
                 generation_type=generation_type,
                 submitted_job=submitted_job,
             )
-    get_provider_endpoints(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
+    get_provider_endpoints(provider_id, media_type)
     model_id = await _callable_builtin_model(provider_id, media_type, model_id, resolver, submitted_job=submitted_job)
     # 先定下供应商模型挂接的内置调用端点，再由端点构造：供应商给凭证，端点决定请求
     endpoint = builtin_endpoint or builtin_model_endpoint(provider_id, media_type, model_id)
@@ -178,7 +178,6 @@ class OutputLimitFacts:
 
     #: 模型登记的最大输出长度（单位 token）；未登记时 None。
     registered_max_output_tokens: int | None
-    #: 模型由自定义供应商提供。
     custom_model: bool
 
 

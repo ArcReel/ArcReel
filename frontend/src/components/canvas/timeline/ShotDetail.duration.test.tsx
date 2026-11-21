@@ -5,10 +5,6 @@ import { API } from "@/api";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { DramaScene } from "@/types";
 
-/**
- * 逐个分镜时长编辑器：候选取经联动约束收窄后的集合，已保存的越界值不静默改写、
- * 按成因给警告并引导重选。选中的时长进入未保存修改，随分镜一起保存。
- */
 
 const saved = () => vi.fn().mockResolvedValue(true);
 
@@ -81,7 +77,6 @@ describe("ShotDetail 时长候选与越界提示", () => {
     expect(screen.getByRole("button", { name: /4 秒/ })).toBeInTheDocument();
     expect(onUpdatePrompt).not.toHaveBeenCalled();
 
-    // 展开后只有收窄后的 8 秒可选
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
     const radios = screen.getAllByRole("radio");
     expect(radios).toHaveLength(1);

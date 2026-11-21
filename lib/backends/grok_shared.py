@@ -24,9 +24,9 @@ try:
     import grpc
 
     _GRPC_RETRYABLE_CODES = {
-        grpc.StatusCode.UNAVAILABLE,  # 503 — 连接中断 / Socket closed
-        grpc.StatusCode.DEADLINE_EXCEEDED,  # 504 — 超时
-        grpc.StatusCode.RESOURCE_EXHAUSTED,  # 429 — 限流
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
         grpc.StatusCode.ABORTED,  # 冲突重试
     }
     _GRPC_REJECTION_STATUS = {

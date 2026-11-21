@@ -302,7 +302,6 @@ class Services:
     workflow_planner: WorkflowPlanner
     capabilities: ConfigResolver
     queue: GenerationQueue = field(default_factory=get_generation_queue)
-    #: 读写数据库记录（如供应商素材关联）的会话工厂。
     sessions: async_sessionmaker[AsyncSession] = field(default_factory=lambda: async_session_factory)
 
     @classmethod
@@ -3294,7 +3293,6 @@ def _planning_gap(raw: object) -> tuple[str, int] | None:
 
 @dataclass(frozen=True, slots=True)
 class StopEpisodePlanningResult:
-    #: 被取消的排队中窗口。
     cancelled: list[str]
     #: 仍在执行的窗口：执行中的窗口不可取消，会照常完成并提交。
     running: list[str]

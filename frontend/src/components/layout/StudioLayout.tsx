@@ -38,7 +38,6 @@ import {
   useCompactTier,
 } from "./workspace-layout";
 
-// 调宽手柄在文档流里占 1px（分隔线本身）。
 const HANDLE_WIDTH = 1;
 
 interface StudioLayoutProps {
@@ -79,7 +78,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const agentOpen = demoMode || storeOpen;
   const overlay = compact && !demoMode;
 
-  // ---- 侧栏折叠：有自动折叠的原因时默认折叠、可临时展开，原因或页面变化后复位 ----
   const collapseReason = sidebarAutoCollapseReason(location, compact);
   const [userCollapsed, setUserCollapsed] = useState(readSidebarCollapsed);
   const [tempExpanded, setTempExpanded] = useState(false);
@@ -102,7 +100,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     [collapseReason],
   );
 
-  // ---- 面板尺寸：开合与折叠由状态驱动面板库，拖动等用户操作的结果再写回状态 ----
   const shellRef = useRef<HTMLDivElement>(null);
   const agentFrameRef = useRef<HTMLElement>(null);
   const sidebarPanelRef = usePanelRef();
@@ -178,7 +175,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     const agent = agentPanelRef.current;
     const current = latest.current;
     if (meta.isUserInteraction || userResizingRef.current) {
-      // 拖动、键盘或双击让库折叠、展开了面板时，同步回开合状态，并记住调出来的宽度
       if (sidebar) {
         const collapsed = sidebar.isCollapsed();
         if (collapsed !== current.sidebarCollapsed) setSidebarCollapsed(collapsed);

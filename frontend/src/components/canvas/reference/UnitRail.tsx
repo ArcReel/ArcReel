@@ -14,7 +14,6 @@ export interface UnitRailProps {
   className?: string;
 }
 
-/** 工作台较窄时的单元图标栏：每项只有集内编号与状态点，顶部按钮展开完整列表。 */
 export function UnitRail({ units, selectedId, onSelect, onExpand, statusMap, className = "" }: UnitRailProps) {
   const { t } = useTranslation("dashboard");
 

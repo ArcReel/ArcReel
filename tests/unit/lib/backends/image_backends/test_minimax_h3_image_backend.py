@@ -120,7 +120,6 @@ class TestChannelFacts:
 
         declared = PROVIDER_ENDPOINTS[("minimax", "image")]
         assert declared.endpoints == ("minimax-image", "minimax-h3-image")
-        # image-01 仍是默认端点
         assert declared.default == "minimax-image"
         assert PROVIDER_ENDPOINT_SPECS[("minimax", "minimax-h3-image")].registry_backend == "minimax-h3-image"
 

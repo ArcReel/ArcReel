@@ -46,7 +46,6 @@ from server.text_generation import load_novel_source
 
 logger = logging.getLogger(__name__)
 
-#: 各草稿来源的条目数组键名。
 _ITEM_ROOTS: dict[str, str] = {
     QUARANTINE_KIND_SCRIPT_PLAN: "units",
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN: "scenes",
@@ -55,7 +54,6 @@ _ITEM_ROOTS: dict[str, str] = {
 }
 
 
-#: 交给模型的草稿说明，按草稿来源。
 _DOCUMENTS: dict[str, str] = {
     QUARANTINE_KIND_DRAMA_SCRIPT_PLAN: (
         "剧情演绎的脚本规划草稿：`scenes` 是有序分镜，每个分镜含时长档位、出场资产、画面描述、逐字台词与原文锚。"

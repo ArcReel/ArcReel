@@ -19,7 +19,6 @@ from urllib.parse import urlsplit
 
 import httpx
 
-#: 请求名 → 整条替换的路径。
 PathOverrides = Mapping[str, str]
 NO_PATH_OVERRIDES: PathOverrides = MappingProxyType({})
 
@@ -54,11 +53,9 @@ PathProblem = Literal["path_override_invalid_path", "path_override_placeholder_n
 class EndpointRequest:
     """调用端点发出的一条可覆盖路径的请求。"""
 
-    #: 请求名，路径覆盖按它记录，例如声明式定义的 ``submit`` / ``poll`` / ``result``。
     name: str
     #: 前端 i18n key（dashboard ns），端点有多条请求时标在各自的地址条上方。
     display_name_key: str
-    #: 归一化后的 base_url 之后的默认路径，可含占位符。
     default_path: str
     #: 覆盖路径里允许出现的占位符：只限该请求本身已有的值（API 模型名、任务 id 等）。
     placeholders: tuple[str, ...]
@@ -122,7 +119,7 @@ def replaying_base_url(base_url: str | None) -> Generator[None]:
 
 def _path_pattern(prefix: str, default_path: str, placeholder: str) -> re.Pattern[str]:
     """``prefix + default_path`` 的整串匹配式，占位符按 ``placeholder`` 匹配。"""
-    parts = _PLACEHOLDER.split(default_path)  # 字面量与占位符名交替
+    parts = _PLACEHOLDER.split(default_path)
     body = "".join(re.escape(part) if i % 2 == 0 else f"(?P<{part}>{placeholder})" for i, part in enumerate(parts))
     return re.compile(re.escape(prefix) + body)
 

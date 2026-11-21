@@ -45,13 +45,10 @@ class CurrentUserInfo(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-# JWT 签名密钥缓存
 _cached_token_secret: str | None = None
 
-# Token 有效期：7 天
 TOKEN_EXPIRY_SECONDS = 7 * 24 * 3600
 
-# 关闭认证时返回的匿名用户标识
 _ANONYMOUS_USER_SUB = "local"
 
 # 视为"关闭认证"的 env 取值。空串不在内 —— .env 误写 `AUTH_ENABLED=` 应回退到默认（开启），
@@ -84,11 +81,9 @@ def _anonymous_user() -> "CurrentUserInfo":
     return CurrentUserInfo(id=DEFAULT_USER_ID, sub=_ANONYMOUS_USER_SUB, role="admin")
 
 
-# OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
-# 密码哈希
 _password_hash = PasswordHash.recommended()
 _cached_password_hash: str | None = None
 
@@ -212,7 +207,7 @@ def verify_token(token: str) -> dict | None:
     return payload
 
 
-DOWNLOAD_TOKEN_EXPIRY_SECONDS = 300  # 5 分钟
+DOWNLOAD_TOKEN_EXPIRY_SECONDS = 300
 
 
 def create_download_token(username: str, project_name: str) -> str:
@@ -299,11 +294,9 @@ def ensure_auth_password(env_path: str | None = None) -> str:
     if password:
         return password
 
-    # 自动生成密码
     password = generate_password()
     os.environ["AUTH_PASSWORD"] = password
 
-    # 回写到 .env 文件
     if env_path is None:
         env_path = str(PROJECT_ROOT / ".env")
 
@@ -347,12 +340,8 @@ def ensure_auth_password(env_path: str | None = None) -> str:
     return password
 
 
-# ---------------------------------------------------------------------------
-# API Key 认证支持
-# ---------------------------------------------------------------------------
-
 API_KEY_PREFIX = "arc-"
-API_KEY_CACHE_TTL = 300  # 5 分钟
+API_KEY_CACHE_TTL = 300
 
 # LRU 缓存：key_hash → (payload_dict | None, expires_at_timestamp)
 # payload 为 None 表示 key 不存在或已过期（负缓存）
@@ -391,13 +380,11 @@ def _set_api_key_cache(key_hash: str, payload: dict | None, expires_at_ts: float
     避免 key 过期后仍在缓存中通过验证的安全问题。
     """
     if len(_api_key_cache) >= _API_KEY_CACHE_MAX:
-        # 淘汰最久未使用的条目（LRU：OrderedDict 头部）
         _api_key_cache.popitem(last=False)
     ttl = API_KEY_CACHE_TTL
     if payload is not None and expires_at_ts is not None:
         time_to_expiry = expires_at_ts - time.monotonic()
         if time_to_expiry <= 0:
-            # key 已过期，写入负缓存
             _api_key_cache[key_hash] = (None, time.monotonic() + API_KEY_CACHE_TTL)
             return
         ttl = min(ttl, time_to_expiry)
@@ -412,12 +399,10 @@ async def verify_api_key(token: str) -> dict | None:
     """
     key_hash = hash_api_key(token)
 
-    # 缓存查询
     hit, cached_payload = _get_cached_api_key_payload(key_hash)
     if hit:
         return cached_payload
 
-    # 数据库查询
     from lib.db import async_session_factory
     from lib.db.repositories.api_key_repository import ApiKeyRepository
 
@@ -429,7 +414,6 @@ async def verify_api_key(token: str) -> dict | None:
         _set_api_key_cache(key_hash, None)
         return None
 
-    # 检查过期
     expires_at = row.get("expires_at")
     expires_at_monotonic: float | None = None
     if expires_at:
@@ -462,7 +446,7 @@ async def verify_api_key(token: str) -> dict | None:
             logger.exception("更新 API Key last_used_at 失败（非致命）")
 
     _touch_task = asyncio.create_task(_touch())
-    _touch_task.add_done_callback(lambda _: None)  # suppress "never retrieved" warning
+    _touch_task.add_done_callback(lambda _: None)
 
     return payload
 
@@ -490,7 +474,6 @@ async def _verify_and_get_payload_async(token: str) -> dict:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return payload
-    # JWT 路径
     return _verify_and_get_payload(token)
 
 
@@ -522,7 +505,6 @@ async def get_current_user(
     return _payload_to_user(payload)
 
 
-# Type aliases for FastAPI dependency injection
 CurrentUser = Annotated[CurrentUserInfo, Depends(get_current_user)]
 
 #: 内嵌 Agent 调用本地服务所用令牌的 sub（见 ``server/agent_runtime/options_assembler.py``）。

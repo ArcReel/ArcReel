@@ -6,16 +6,13 @@ export interface InlineWarningAction {
   label: string;
   onClick: () => void;
   disabled?: boolean;
-  /** 灰化时的 hover 原因。 */
   title?: string;
 }
 
 export interface InlineWarningProps {
-  /** 警告正文。 */
   message: string;
   /** 一键修正入口；只读上下文等不给入口的场景省略。 */
   action?: InlineWarningAction;
-  /** 外层间距，由使用处的版式决定；排版与配色由本组件固定。 */
   className?: string;
 }
 

@@ -113,9 +113,6 @@ class GrokVideoBackend(EntryBoundCapabilities):
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         self._check_reference_route_resolution(request)
         self._check_classic_first_frame_with_references(request)
-        # The SDK combines submit and provider-side waiting in one opaque call. Once it starts, an exception
-        # cannot prove the provider rejected the request before accepting a paid job, so close MediaGenerator's
-        # reference-payload compression retry window before entering it.
         if request.on_provider_resubmit_unsafe is not None:
             request.on_provider_resubmit_unsafe()
         response = await self._create_video(request)
@@ -137,7 +134,6 @@ class GrokVideoBackend(EntryBoundCapabilities):
                     if rounded > 0:
                         actual_duration = rounded
         except (TypeError, ValueError, OverflowError):
-            # 解析失败属预期内回落（SDK 字段未类型化），保留请求时长即可，无需上抛
             logger.debug("Grok 回报的 duration 无法解析: %r，回落请求时长 %s 秒", raw_duration, actual_duration)
 
         await download_video(video_url, request.output_path, label="Grok")

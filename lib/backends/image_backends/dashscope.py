@@ -201,7 +201,6 @@ class DashScopeImageBackend:
         explicit = (request.image_size or "").strip()
         aspect = request.aspect_ratio
 
-        # qwen-image-2.0 融合系列
         short = resolution_to_short_edge(
             explicit or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT_FUSION
         )

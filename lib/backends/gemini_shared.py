@@ -44,16 +44,13 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-# Vertex AI 服务账号所需 OAuth scopes（共享常量，供 gemini_client / video_backends / providers 复用）
 VERTEX_SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/generative-language",
 ]
 
-# Gemini 专用可重试错误类型（扩展基础集合）
 RETRYABLE_ERRORS: tuple[type[Exception], ...] = BASE_RETRYABLE_ERRORS
 
-# 追加 google.genai 的错误类型；缺包时沿用基础集合
 try:
     from google import genai
 
@@ -79,7 +76,6 @@ class RateLimiter:
         """
         self.limits = limits_dict or {}
         self.request_gap = request_gap
-        # 存储请求时间戳：{model_name: deque([timestamp1, timestamp2, ...])}
         self.request_logs: dict[str, deque] = {}
         self.lock = threading.Lock()
 
@@ -88,7 +84,7 @@ class RateLimiter:
         阻塞直到获得令牌
         """
         if model_name not in self.limits:
-            return  # 该模型无限流配置
+            return
 
         limit = self.limits[model_name]
         if limit <= 0:
@@ -103,30 +99,22 @@ class RateLimiter:
             while True:
                 now = time.time()
 
-                # 清理超过 60 秒的旧记录
                 while log and now - log[0] > 60:
                     log.popleft()
 
-                # 强制增加请求间隔（用户要求 > 3s）
-                # 即使获得了令牌，也要确保距离上一次请求至少 3s
-                # 获取最新的请求时间（可能是其他线程刚刚写入的）
                 min_gap = self.request_gap
                 if log:
                     last_request = log[-1]
                     gap = time.time() - last_request
                     if gap < min_gap:
                         time.sleep(min_gap - gap)
-                        # 更新时间，重新检查
                         continue
 
                 if len(log) < limit:
-                    # 获取令牌成功
                     log.append(time.time())
                     return
 
-                # 达到限制，计算等待时间
-                # 等待直到最早的记录过期
-                wait_time = 60 - (now - log[0]) + 0.1  # 多加 0.1s 缓冲
+                wait_time = 60 - (now - log[0]) + 0.1
                 if wait_time > 0:
                     time.sleep(wait_time)
 
@@ -135,7 +123,7 @@ class RateLimiter:
         异步阻塞直到获得令牌
         """
         if model_name not in self.limits:
-            return  # 该模型无限流配置
+            return
 
         limit = self.limits[model_name]
         if limit <= 0:
@@ -150,7 +138,6 @@ class RateLimiter:
 
                 log = self.request_logs[model_name]
 
-                # 清理超过 60 秒的旧记录
                 while log and now - log[0] > 60:
                     log.popleft()
 
@@ -164,19 +151,16 @@ class RateLimiter:
                         wait_needed = min_gap - gap
 
                 if len(log) >= limit:
-                    # 达到限制，计算等待时间
                     wait_needed = max(wait_needed, 60 - (now - log[0]) + 0.1)
 
                 if wait_needed == 0 and len(log) < limit:
-                    # 获取令牌成功
                     log.append(now)
                     return
 
-            # 在锁外异步等待
             if wait_needed > 0:
                 await asyncio.sleep(wait_needed)
             else:
-                await asyncio.sleep(0.1)  # 短暂让出控制权
+                await asyncio.sleep(0.1)
 
 
 # 共享限流器按模型名记 RPM；调用方没给模型名时，限额记在这两个模型名下。视频 backend 没给模型时也用它。

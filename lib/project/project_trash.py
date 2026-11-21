@@ -145,8 +145,6 @@ class RestoreResult:
         }
 
 
-# ---------------------------------------------------------------- 记录
-
 #: 结构快照收的单个文件：``project.json``、产物清单与版本历史记录。
 _STRUCTURE_FILES = ("project.json", ".arcreel_artifacts.json", "versions/versions.json")
 #: 结构快照收的目录与其中的文件后缀：剧本、规划草稿、剪辑时间线与源文文本。
@@ -282,9 +280,6 @@ def list_records(project_dir: Path) -> list[TrashRecord]:
     return sorted(records, key=lambda record: record.deleted_at, reverse=True)
 
 
-# ---------------------------------------------------------------- 恢复与清理
-
-
 def restore(project_dir: Path, record_id: str) -> RestoreResult:
     """把一条删除记录加回项目，成功后记录消失；失败时项目与记录都保持恢复前的样子。
 
@@ -404,9 +399,6 @@ def purge_expired(project_dir: Path, *, now: datetime | None = None) -> int:
     if expired:
         _notify(project_dir)
     return len(expired)
-
-
-# ---------------------------------------------------------------- 内部
 
 
 def _notify(project_dir: Path) -> None:
