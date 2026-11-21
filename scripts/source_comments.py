@@ -58,7 +58,8 @@ _DOTENV_TOKEN = re.compile(
     rb"""(?:[ \t]*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")[ \t]*(\#[^\r\n]*)?"""
     rb"""|[^\r\n]*?(?:[ \t]+(\#[^\r\n]*))?)[ \t]*(?=\r?$))"""
 )
-_JQ_TOKEN = re.compile(rb'"(?:[^"\\]|\\.)*"|(?P<comment>#[^\r\n]*)', re.DOTALL)
+_JQ_EXPRESSION_TOKEN = re.compile(rb'#[^\r\n]*|["()]')
+_JQ_STRING_TOKEN = re.compile(rb'\\.|"', re.DOTALL)
 _LICENSE = re.compile(
     r"^(?:spdx-(?:license-identifier|filecopyrighttext)\s*:|"
     r"(?:copyright\s+(?:\(c\)\s*)?(?:©\s*)?\d{4}|©\s*\d{4}))",
@@ -216,7 +217,9 @@ def _spans(language: Language, data: bytes, path: str) -> Iterator[_Span]:
         yield from _python_spans(data)
     elif language == "mako":
         yield from _mako_spans(data, path)
-    elif language in {"dotenv", "ignore", "jq"}:
+    elif language == "jq":
+        yield from _jq_spans(data)
+    elif language in {"dotenv", "ignore"}:
         yield from _simple_spans(language, data, path)
     else:
         yield from _tree_spans(language, data, path)
@@ -248,9 +251,30 @@ def _mako_spans(data: bytes, path: str) -> Iterator[_Span]:
         yield from _python_spans(bytes(masked))
 
 
-def _simple_spans(language: Literal["dotenv", "ignore", "jq"], data: bytes, path: str) -> Iterator[_Span]:
+def _jq_spans(data: bytes) -> Iterator[_Span]:
+    closing_tokens: list[bytes] = []
+    offset = 0
+    while offset < len(data):
+        in_string = bool(closing_tokens) and closing_tokens[-1] == b'"'
+        pattern = _JQ_STRING_TOKEN if in_string else _JQ_EXPRESSION_TOKEN
+        match = pattern.search(data, offset)
+        if match is None:
+            return
+        token = match[0]
+        offset = match.end()
+        if closing_tokens and token == closing_tokens[-1]:
+            closing_tokens.pop()
+        elif token == b'"':
+            closing_tokens.append(b'"')
+        elif token == rb"\(" or (token == b"(" and closing_tokens):
+            closing_tokens.append(b")")
+        elif token.startswith(b"#"):
+            yield _Span(match.start(), offset, "jq")
+
+
+def _simple_spans(language: Literal["dotenv", "ignore"], data: bytes, path: str) -> Iterator[_Span]:
     ignore_comment = _GITIGNORE_COMMENT if Path(path).name in {".gitignore", ".prettierignore"} else _IGNORE_COMMENT
-    pattern = {"dotenv": _DOTENV_TOKEN, "ignore": ignore_comment, "jq": _JQ_TOKEN}[language]
+    pattern = _DOTENV_TOKEN if language == "dotenv" else ignore_comment
     for match in pattern.finditer(data):
         if match.lastindex is not None:
             start, end = match.span(match.lastindex)

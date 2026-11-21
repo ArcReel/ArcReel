@@ -157,6 +157,22 @@ def test_embedded_multiline_comment_has_physical_positions_with_unicode_and_crlf
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (r'"value \("#tag")"', []),
+        (r'"outer \("inner \("#tag")") \\( # literal" # trailing comment', ["# trailing comment"]),
+        (
+            '"value \\(\n  # interpolation comment with )\n  (1 + 2)) # literal" # trailing comment\n',
+            ["# interpolation comment with )", "# trailing comment"],
+        ),
+    ],
+    ids=["quoted-hash", "nested-interpolation-and-escape", "comment-in-interpolation"],
+)
+def test_audits_jq_comments_in_code_and_interpolated_expressions(source: str, expected: list[str]) -> None:
+    assert [comment.raw for comment in comment_additions("scripts/example.jq", "", source)] == expected
+
+
+@pytest.mark.parametrize(
     ("path", "source", "expected"),
     [
         (
