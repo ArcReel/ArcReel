@@ -122,6 +122,7 @@ VIDU_Q3_TURBO = ViduEndpoint(
         "/start-end2video": tuple(range(1, 17)),
         "/reference2video": tuple(range(3, 17)),
     },
+    max_reference_prompt_chars=5000,
 )
 VIDU_Q3_FAST = ViduEndpoint("vidu-video-q3-fast", True, {"/img2video": tuple(range(1, 17))})
 VIDU_Q3_REFERENCE = ViduEndpoint("vidu-video-q3-reference", True, {"/reference2video": tuple(range(3, 17))})

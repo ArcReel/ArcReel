@@ -321,7 +321,7 @@ class TestPromptLength:
     def test_reference2video_over_limit_raises(self, video_output_path: Path):
         backend = _profile("viduq3-turbo")(api_key="k", model="viduq3-turbo")
         req = VideoGenerationRequest(
-            prompt="字" * 2001,
+            prompt="字" * 5001,
             output_path=video_output_path,
             duration_seconds=8,
             reference_images=[Path("a.png")],
@@ -333,13 +333,13 @@ class TestPromptLength:
         assert exc.value.params == {
             "provider": PROVIDER_VIDU,
             "model": "viduq3-turbo",
-            "limit": 2000,
-            "count": 2001,
+            "limit": 5000,
+            "count": 5001,
         }
 
     def test_reference2video_at_limit_passes_untruncated(self, video_output_path: Path):
         backend = _profile("viduq3-turbo")(api_key="k", model="viduq3-turbo")
-        prompt = "字" * 2000
+        prompt = "字" * 5000
         ref = video_output_path.with_suffix(".png")
         ref.write_bytes(image_bytes())
         req = VideoGenerationRequest(
@@ -353,7 +353,7 @@ class TestPromptLength:
         assert body["prompt"] == prompt
 
     def test_text2video_allows_longer_than_reference_limit(self, video_output_path: Path):
-        """端点上限按端点各算：t2v 的 5000 不受 /reference2video 的 2000 牵连。"""
+        """文本生视频支持长提示词。"""
         backend = _profile("viduq3-turbo")(api_key="k", model="viduq3-turbo")
         req = VideoGenerationRequest(prompt="字" * 3000, output_path=video_output_path, duration_seconds=8)
         _endpoint, body = backend._build_request(req)
