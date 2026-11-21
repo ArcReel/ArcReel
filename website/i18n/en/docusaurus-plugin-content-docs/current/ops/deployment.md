@@ -342,6 +342,8 @@ After confirming that the Vertex credentials work in Settings, delete `deploy/lo
 
 ArcReel upgrades project data automatically at startup. [Back up the data root and database](#backup-and-restore) before upgrading, and leave space for the migration. A large project may need a full directory copy, and the first startup can take longer.
 
+When a parent directory of the project or temporary archive extraction directory is accessed through a symbolic link, migration still assigns legacy scripts to the correct episodes and preserves their existing media content.
+
 **Review migration results**
 
 - The project message about items adjusted during the upgrade opens a read-only migration report. “Adjusted” lists structural changes and kept copies. “Could not import” lists files preserved in place but left unregistered. Archive imports with these adjustments prompt for confirmation before completing. Cancel to discard that import.

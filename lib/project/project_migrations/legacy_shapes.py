@@ -121,6 +121,10 @@ class _Work:
     project_committed: bool = False
     project_backup: str | None = None
 
+    def __post_init__(self) -> None:
+        project_dir = self.project_dir.absolute()
+        self.project_dir = project_dir.parent.resolve() / project_dir.name
+
     def rel(self, path: Path) -> str:
         return path.relative_to(self.project_dir).as_posix()
 
