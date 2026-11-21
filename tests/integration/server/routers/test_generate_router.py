@@ -270,6 +270,67 @@ class TestGenerateRouter:
         }
         assert fake_queue.calls == []
 
+    @pytest.mark.parametrize("previous_on_disk", [False, True], ids=["pending", "available"])
+    def test_storyboard_counts_one_registered_previous_image_against_limit(
+        self, tmp_path, monkeypatch, previous_on_disk
+    ):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.script["segments"][1]["products_in_shot"] = ["保温杯"]
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
+        fake_queue = _FakeQueue()
+        with _client(monkeypatch, fake_pm, fake_queue) as client:
+            if not previous_on_disk:
+                (project_path / "storyboards" / "scene_E1S01.png").unlink()
+            response = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "雨夜"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["diagnostic"] == {
+            "code": "image_reference_images_exceeded",
+            "params": {
+                "model": "gpt-image-2",
+                "count": 5,
+                "limit": 4,
+                "names": "E1S01",
+                "previous_storyboard": "E1S01",
+            },
+        }
+        assert fake_queue.calls == []
+
+    @pytest.mark.parametrize("previous", ["chapter-break", "unbound", "unregistered", "blocked", "available"])
+    def test_storyboard_admits_four_planned_references(self, tmp_path, monkeypatch, previous):
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        first, target, _ = fake_pm.script["segments"]
+        target["products_in_shot"] = ["保温杯"]
+        previous_path = project_path / "storyboards" / "scene_E1S01.png"
+        if previous == "chapter-break":
+            target["segment_break"] = True
+        elif previous == "unbound":
+            first["generated_assets"] = {}
+        elif previous == "unregistered":
+            previous_path.unlink()
+        elif previous == "available":
+            target["props"] = []
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
+        fake_queue = _FakeQueue()
+        with _client(monkeypatch, fake_pm, fake_queue) as client:
+            if previous in {"chapter-break", "blocked"}:
+                previous_path.unlink()
+            if previous == "blocked":
+                previous_path.mkdir()
+            response = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "雨夜"},
+            )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["task_id"] == "task-1"
+        assert [call["resource_id"] for call in fake_queue.calls] == ["E1S02"]
+
     def test_storyboard_refuses_a_pending_image_prompt_before_enqueue(self, tmp_path, monkeypatch):
         """正式剧本里该分镜的 image_prompt 尚未填写（None）：单条端点 409，不入队。"""
         project_path = _prepare_files(tmp_path)
