@@ -15,6 +15,7 @@ import type {
 } from "@/types/edit-timeline";
 import { stubMediaElementPlayback } from "@/test/media-element";
 
+import { ClipInspector } from "./EditTimelineDetails";
 import { EditTimelineView } from "./EditTimelineView";
 
 function summary(id: string, name: string, updatedAt: string, revision = 1): EditTimelineSummary {
@@ -101,6 +102,37 @@ function renderView(ttsNarration = true) {
     />,
   );
 }
+
+describe("ClipInspector", () => {
+  function renderInspector(transition: EditClip["transition_to_next"]) {
+    render(
+      <ClipInspector
+        projectName="demo"
+        clip={clip({ id: "c1", unit_id: "E1U1", start: 0, duration: 5, transition_to_next: transition })}
+        trimIgnored={false}
+        thumbnail={undefined}
+        positions={new Map()}
+      />,
+    );
+  }
+
+  it("shows the export hint beside the transition type and duration", () => {
+    renderInspector({ type: "fade_white", duration: 0.5 });
+
+    expect(screen.getByText(/^闪白 0\.5.*s$/)).toBeVisible();
+    expect(screen.getByText("转场效果以导出为准")).toBeVisible();
+  });
+
+  it.each([null, { type: "cut", duration: 0.5 }, { type: "none", duration: 0.5 }])(
+    "omits the export hint for %j",
+    (transition) => {
+      renderInspector(transition);
+
+      expect(screen.getByText("转场")).toBeVisible();
+      expect(screen.queryByText("转场效果以导出为准")).not.toBeInTheDocument();
+    },
+  );
+});
 
 describe("EditTimelineView", () => {
   beforeEach(() => {

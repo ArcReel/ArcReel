@@ -3858,6 +3858,7 @@ export default {
   'edit_view_trim_ignored_note': '素材已更新，暂用完整视频',
   'edit_view_video_missing_note': '视频尚未生成，按编排时长占位',
   'edit_view_transition_value': '{{type}} {{duration}}s',
+  'edit_view_transition_export_hint': '转场效果以导出为准',
   'edit_view_transition_none': '硬切',
   'edit_view_hold_value': '末帧定格 {{duration}}s',
   'edit_view_issues_title': '问题（{{count}}）',

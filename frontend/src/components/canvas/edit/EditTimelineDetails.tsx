@@ -22,6 +22,24 @@ const ISSUE_DOT: Record<EditTimelineIssueCode, string> = {
   bgm_missing: "bg-destructive",
 };
 
+function ClipTransitionValue({ transition }: { transition: EditClip["transition_to_next"] }) {
+  const { t } = useTranslation("dashboard");
+  if (!transition) return t("edit_view_transition_none");
+
+  const showHint = transition.duration > 0 && transition.type !== "cut" && transition.type !== "none";
+  return (
+    <>
+      {t("edit_view_transition_value", {
+        type: t(`edit_transition_${transition.type}`, { defaultValue: transition.type }),
+        duration: formatSeconds(transition.duration),
+      })}
+      {showHint && (
+        <span className="block text-muted-foreground">{t("edit_view_transition_export_hint")}</span>
+      )}
+    </>
+  );
+}
+
 interface ClipInspectorProps {
   projectName: string;
   clip: EditClip | undefined;
@@ -37,7 +55,6 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, posit
     return <p className="text-sm text-muted-foreground">{t("edit_view_inspector_empty")}</p>;
   }
   const deleted = clip.status === "unit_deleted";
-  const transition = clip.transition_to_next;
   const sourceLength = clip.source_duration ?? null;
   const trimText = (trim: NonNullable<EditClip["trim"]>) =>
     t("edit_view_trim_value", { in: formatSeconds(trim.source_in), out: formatSeconds(trim.source_out) });
@@ -94,12 +111,7 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, posit
               )}
               <dt className="text-muted-foreground">{t("edit_view_field_transition")}</dt>
               <dd className="text-subtle-foreground">
-                {transition
-                  ? t("edit_view_transition_value", {
-                      type: t(`edit_transition_${transition.type}`, { defaultValue: transition.type }),
-                      duration: formatSeconds(transition.duration),
-                    })
-                  : t("edit_view_transition_none")}
+                <ClipTransitionValue transition={clip.transition_to_next} />
               </dd>
             </>
           )}

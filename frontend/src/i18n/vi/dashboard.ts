@@ -3853,6 +3853,7 @@ export default {
   'edit_view_trim_ignored_note': 'Tư liệu đã cập nhật, tạm dùng toàn bộ video',
   'edit_view_video_missing_note': 'Chưa tạo video, tạm dùng thời lượng dự kiến',
   'edit_view_transition_value': '{{type}} {{duration}}s',
+  'edit_view_transition_export_hint': 'Xem hiệu ứng chuyển cảnh cuối cùng trong video xuất ra',
   'edit_view_transition_none': 'Cắt thẳng',
   'edit_view_hold_value': 'Dừng khung hình cuối {{duration}}s',
   'edit_view_issues_title': 'Vấn đề ({{count}})',

@@ -3978,6 +3978,7 @@ export default {
   'edit_view_trim_ignored_note': 'Видеоматериал обновлён, пока используется полное видео',
   'edit_view_video_missing_note': 'Видео ещё не сгенерировано, используется плановая длительность',
   'edit_view_transition_value': '{{type}} {{duration}} с',
+  'edit_view_transition_export_hint': 'Итоговый эффект перехода виден в экспортированном видео',
   'edit_view_transition_none': 'Жёсткая склейка',
   'edit_view_hold_value': 'Последний кадр замирает на {{duration}} с',
   'edit_view_issues_title': 'Проблемы ({{count}})',

@@ -3848,6 +3848,7 @@ export default {
   'edit_view_trim_ignored_note': 'Footage updated, using the full video for now',
   'edit_view_video_missing_note': 'Video not generated yet, using the planned duration',
   'edit_view_transition_value': '{{type}} {{duration}}s',
+  'edit_view_transition_export_hint': 'Check the exported video for the final transition effect',
   'edit_view_transition_none': 'Hard cut',
   'edit_view_hold_value': 'Freeze last frame for {{duration}}s',
   'edit_view_issues_title': 'Issues ({{count}})',

@@ -211,6 +211,8 @@ Before rendering, check:
 - whether background music is needed;
 - whether adjacent clips need transitions.
 
+Transitions in the preview may differ from the exported video. When you select a clip with a transition, its details remind you to check the exported video for the final effect.
+
 ### 7.2 Export a Jianying draft {#export-jianying-draft}
 
 To keep refining subtitles, audio tracks, transitions, and pacing in Jianying, select **Jianying draft** in the same render dialog. See the [Jianying Draft Export guide](./jianying-export.md) for detailed steps.
