@@ -2759,8 +2759,11 @@ class API {
   }
 
 
-  static async getTask(taskId: string): Promise<TaskItem> {
-    const { task } = await this.request<{ task: TaskItem }>(`/tasks/${encodeURIComponent(taskId)}`);
+  static async getTask(taskId: string, options: { signal?: AbortSignal } = {}): Promise<TaskItem> {
+    const { task } = await this.request<{ task: TaskItem }>(
+      `/tasks/${encodeURIComponent(taskId)}`,
+      { signal: options.signal },
+    );
     return task;
   }
 

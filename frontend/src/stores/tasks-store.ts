@@ -80,6 +80,7 @@ interface TasksState {
    * 自己那一轮。否则两个入口同时刷新会交错写回，先发后到的旧结果盖住新结果。
    */
   refreshTasks: () => Promise<void>;
+  releaseSettledResourceTask: (taskId: string) => void;
   beginOptimisticActive: (
     projectName: string,
     resourceKind: ResourceKind,
@@ -183,8 +184,10 @@ function keepMark(key: string, landed: ReadonlySet<string>): string | null {
 // 按当前 tasks 修剪乐观占用标记（不新增标记，仅扣除已落库的 task_id 并清理已让位者）。
 // 除兑现时机的顺带清理外，也要在每次 setTasks（轮询写回）时执行——真实任务行是经轮询
 // 进入 store 的，标记只能在那一刻发现自己的行已落库。
-function pruneSupersededOptimistic(tasks: TaskItem[], marks: ReadonlySet<string>): Set<string> {
-  const landed = landedTaskIds(tasks);
+function pruneSupersededOptimistic(
+  landed: ReadonlySet<string>,
+  marks: ReadonlySet<string>,
+): Set<string> {
   const next = new Set<string>();
   for (const key of marks) {
     const kept = keepMark(key, landed);
@@ -276,7 +279,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
     const pendingKey = keyOf([]);
     set((s) => {
       // 顺带清理已让位的旧标记，避免 Set 在会话周期内无界增长。
-      const next = pruneSupersededOptimistic(s.tasks, s[field]);
+      const next = pruneSupersededOptimistic(landedTaskIds(s.tasks), s[field]);
       next.add(pendingKey);
       return { [field]: next };
     });
@@ -342,14 +345,19 @@ export const useTasksStore = create<TasksState>((set, get) => {
         // 传函数时按写入那一刻的快照求值：先读 getState() 再传数组，会把这两步之间到达的
         // SSE 更新整份覆盖掉。
         const next = typeof tasks === "function" ? tasks(s.tasks) : tasks;
+        const landed = landedTaskIds(next);
         return {
           tasks: next,
-          optimisticActive: pruneSupersededOptimistic(next, s.optimisticActive),
-          optimisticActiveScriptFile: pruneSupersededOptimistic(next, s.optimisticActiveScriptFile),
+          optimisticActive: pruneSupersededOptimistic(landed, s.optimisticActive),
+          optimisticActiveScriptFile: pruneSupersededOptimistic(landed, s.optimisticActiveScriptFile),
         };
       }),
     setStats: (stats) => set({ stats }),
     setConnected: (connected) => set({ connected }),
+    releaseSettledResourceTask: (taskId) =>
+      set((s) => ({
+        optimisticActive: pruneSupersededOptimistic(new Set([taskId]), s.optimisticActive),
+      })),
     beginOptimisticActive: (projectName, resourceKind, resourceId, pendingTaskType) => {
       const seq = ++optimisticSeq;
       return beginMark("optimisticActive", (taskIds) =>

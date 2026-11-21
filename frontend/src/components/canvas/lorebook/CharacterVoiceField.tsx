@@ -213,7 +213,13 @@ export function CharacterVoiceField({
       {readOnly ? null : (
         <>
           <div>
-            <VoiceSampleButton projectName={projectName} characterName={name} busy={disabled} onSaved={refresh} />
+            <VoiceSampleButton
+              key={JSON.stringify([projectName, name])}
+              projectName={projectName}
+              characterName={name}
+              busy={disabled}
+              onSaved={refresh}
+            />
           </div>
           <input
             ref={inputRef}
