@@ -189,7 +189,12 @@ export async function requestJson<T = unknown>(
     if (isSpeechAdmission(error.detail)) {
       throw new SpeechAdmissionError(error.detail);
     }
-    throw new ApiRequestError(messageFromDetail(error.detail, i18n.t("errors:request_failed")), error.diagnostic, response.status);
+    throw new ApiRequestError(
+      messageFromDetail(error.detail, i18n.t("errors:request_failed")),
+      error.diagnostic,
+      response.status,
+      error.detail,
+    );
   }
 
   if (response.status === 204) {

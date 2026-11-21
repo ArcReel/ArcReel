@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,7 +20,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { isAssetBusy } from "@/components/canvas/lorebook/assetBusyGuard";
 import { errMsg } from "@/utils/async";
-import type { Asset, AssetType } from "@/types/asset";
+import type { AssetIdentity, AssetType } from "@/types/asset";
 import { ASSET_TYPE_ICON } from "./asset-type-icons";
 import { AssetThumb } from "./AssetThumb";
 
@@ -40,6 +40,17 @@ interface Props {
   preview: LibraryImportPreview;
   /** 资源被生成或编辑任务占用：禁用入库，避免把编辑前的旧图复制进全局资产库。 */
   busy?: boolean;
+}
+
+interface AssetLookup {
+  name: string;
+  asset: AssetIdentity | null;
+}
+
+function matchesConflictTarget(value: unknown, type: AssetType, name: string): value is AssetIdentity {
+  if (!value || typeof value !== "object") return false;
+  const asset = value as Partial<AssetIdentity>;
+  return typeof asset.id === "string" && !!asset.id && asset.type === type && asset.name === name.normalize("NFC");
 }
 
 export function AddToLibraryDialog({
@@ -93,7 +104,8 @@ function AddToLibraryForm({
   const nameId = useId();
   // react-doctor-disable-next-line react-doctor/no-derived-useState -- 资源名只作可编辑名称的初值，之后由用户修改；资源变化时调用处按 key 重建表单
   const [name, setName] = useState(resourceId);
-  const [conflict, setConflict] = useState<{ name: string; asset: Asset | null } | null>(null);
+  const [lookup, setLookup] = useState<AssetLookup | null>(null);
+  const [submittedConflict, setSubmittedConflict] = useState<AssetLookup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const trimmedName = name.trim();
   const checkedName = useDebouncedValue(trimmedName, 250);
@@ -106,21 +118,20 @@ function AddToLibraryForm({
   useEffect(() => {
     if (!checkedName) return;
     const controller = new AbortController();
-    API.listAssets({ type: resourceType, q: checkedName }, { signal: controller.signal }).then(
-      (page) => {
+    API.findAssetByName(resourceType, checkedName, controller.signal).then(
+      ({ asset }) => {
         if (controller.signal.aborted) return;
-        setConflict({ name: checkedName, asset: page.items.find((item) => item.name === checkedName) ?? null });
+        setLookup({ name: checkedName, asset });
       },
-      () => {
-        // 查不到重名时照常提交，真有重名由后端拒绝并显示错误。
-      },
+      () => {},
     );
     return () => controller.abort();
   }, [checkedName, resourceType]);
 
+  const conflict = submittedConflict?.name === trimmedName ? submittedConflict : lookup;
   const conflictAsset = conflict?.name === trimmedName ? conflict.asset : null;
 
-  const submit = async (overwrite: boolean) => {
+  const submit = async (target?: AssetIdentity) => {
     if (!trimmedName || submitting) return;
     // 弹窗打开后资源可能经 SSE、其他标签页或 Agent 进入生成或编辑占用态：提交时复核最新占用态，
     // 避免把占用期间的旧图复制进全局资产库。
@@ -136,11 +147,22 @@ function AddToLibraryForm({
         resource_type: resourceType,
         resource_id: resourceId,
         override_name: trimmedName !== resourceId ? trimmedName : undefined,
-        overwrite,
+        overwrite: target !== undefined,
+        overwrite_asset_id: target?.id,
       });
       useAppStore.getState().pushToast(t("add_to_library_success", { name: trimmedName }), "success");
       onDone();
     } catch (err) {
+      if (err instanceof ApiRequestError && err.status === 409 && err.detail
+        && typeof err.detail === "object" && "existing" in err.detail) {
+        const { existing } = err.detail;
+        if (matchesConflictTarget(existing, resourceType, trimmedName)) {
+          setSubmittedConflict({ name: trimmedName, asset: existing });
+          if (!target) return;
+        } else if (existing === null) {
+          setSubmittedConflict({ name: trimmedName, asset: null });
+        }
+      }
       setError(t("add_to_library_failed", { message: errMsg(err) }));
     } finally {
       setSubmitting(false);
@@ -166,7 +188,11 @@ function AddToLibraryForm({
             <Input
               id={nameId}
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setName(event.target.value);
+                setSubmittedConflict(null);
+                setError(null);
+              }}
               autoComplete="off"
               disabled={submitting}
             />
@@ -213,11 +239,11 @@ function AddToLibraryForm({
       <DialogFooter>
         <DialogClose render={<Button variant="outline" disabled={submitting} />}>{t("cancel")}</DialogClose>
         {conflictAsset && (
-          <Button variant="destructive" disabled={submitting} onClick={() => void submit(true)}>
+          <Button variant="destructive" disabled={submitting} onClick={() => void submit(conflictAsset)}>
             {t("overwrite_existing")}
           </Button>
         )}
-        <Button disabled={!trimmedName || submitting || conflictAsset !== null} onClick={() => void submit(false)}>
+        <Button disabled={!trimmedName || submitting || conflictAsset !== null} onClick={() => void submit()}>
           {submitting && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
           {t("confirm_import")}
         </Button>

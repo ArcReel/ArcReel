@@ -1,6 +1,7 @@
 MESSAGES = {
     "asset_not_found": "Tài nguyên '{name}' không tồn tại",
     "asset_already_exists": "Đã tồn tại tài nguyên cùng loại có tên '{name}'",
+    "asset_overwrite_target_changed": "Mục cần ghi đè cho '{name}' đã thay đổi. Hãy chọn lại thao tác.",
     "asset_invalid_type": "Loại tài nguyên phải là character / scene / prop",
     "asset_upload_too_large": "Kích thước ảnh vượt giới hạn (5MB)",
     "asset_unsupported_format": "Chỉ hỗ trợ các định dạng png/jpg/jpeg/webp",

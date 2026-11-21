@@ -1,6 +1,7 @@
 MESSAGES = {
     "asset_not_found": "资产「{name}」不存在",
     "asset_already_exists": "同类型下已有同名资产「{name}」",
+    "asset_overwrite_target_changed": "「{name}」的覆盖目标已变更，请重新选择操作",
     "asset_invalid_type": "资产类型必须为 character / scene / prop",
     "asset_upload_too_large": "图片大小超过限制（5 MB）",
     "asset_unsupported_format": "仅支持 png/jpg/jpeg/webp",

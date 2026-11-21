@@ -1,6 +1,7 @@
 MESSAGES = {
     "asset_not_found": "Материал «{name}» не существует",
     "asset_already_exists": "В этом типе уже есть материал с именем «{name}»",
+    "asset_overwrite_target_changed": "Материал «{name}» для замены изменился. Выберите действие заново.",
     "asset_invalid_type": "Тип материала должен быть character / scene / prop",
     "asset_upload_too_large": "Размер изображения превышает лимит (5MB)",
     "asset_unsupported_format": "Поддерживаются только png/jpg/jpeg/webp",

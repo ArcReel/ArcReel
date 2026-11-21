@@ -1,0 +1,12 @@
+{
+  "method": "GET",
+  "path": "/api/v1/assets/by-name?type=character&name=%E6%9E%97%E5%A4%95",
+  "status": 200,
+  "body": {
+    "asset": {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "type": "character",
+      "name": "林夕"
+    }
+  }
+}

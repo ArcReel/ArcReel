@@ -189,6 +189,87 @@ class TestAssetsCRUD:
 
 
 class TestFromProject:
+    def test_exact_lookup_and_confirmed_overwrite_target_the_same_entry(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "Hero", "project description", "")
+        character = client.post(
+            "/api/v1/assets", data={"type": "character", "name": "Hero", "description": "original"}
+        ).json()["asset"]
+        scene = client.post("/api/v1/assets", data={"type": "scene", "name": "Hero", "description": "scene"}).json()[
+            "asset"
+        ]
+        for i in range(100):
+            response = client.post("/api/v1/assets", data={"type": "character", "name": f"Hero {i}"})
+            assert response.status_code == 200, response.text
+
+        page = client.get("/api/v1/assets", params={"type": "character", "q": "Hero"}).json()
+        assert page["total"] == 101
+        assert all(item["id"] != character["id"] for item in page["items"])
+        lookup = client.get("/api/v1/assets/by-name", params={"type": "character", "name": "Hero"})
+        assert lookup.status_code == 200, lookup.text
+        assert lookup.json()["asset"] == {"id": character["id"], "type": "character", "name": "Hero"}
+
+        request = {"project_name": "demo", "resource_type": "character", "resource_id": "Hero"}
+        conflict = client.post("/api/v1/assets/from-project", json=request)
+        assert conflict.status_code == 409, conflict.text
+        assert conflict.json()["detail"]["existing"] == character
+        assert client.get(f"/api/v1/assets/{character['id']}").json()["asset"] == character
+
+        overwritten = client.post(
+            "/api/v1/assets/from-project",
+            json={**request, "overwrite": True, "overwrite_asset_id": character["id"]},
+        )
+        assert overwritten.status_code == 200, overwritten.text
+        assert overwritten.json()["asset"]["id"] == character["id"]
+        assert client.get(f"/api/v1/assets/{character['id']}").json()["asset"]["description"] == "project description"
+        assert client.get(f"/api/v1/assets/{scene['id']}").json()["asset"] == scene
+
+    def test_overwrite_rejects_a_replacement_with_the_same_name(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "Hero", "project description", "")
+
+        original = client.post("/api/v1/assets", data={"type": "character", "name": "Hero"}).json()["asset"]
+        assert client.delete(f"/api/v1/assets/{original['id']}").status_code == 204
+        replacement = client.post("/api/v1/assets", data={"type": "character", "name": "Hero"}).json()["asset"]
+        response = client.post(
+            "/api/v1/assets/from-project",
+            json={
+                "project_name": "demo",
+                "resource_type": "character",
+                "resource_id": "Hero",
+                "overwrite": True,
+                "overwrite_asset_id": original["id"],
+            },
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["existing"] == replacement
+        assert client.get(f"/api/v1/assets/{replacement['id']}").json()["asset"] == replacement
+
+    def test_cross_type_name_does_not_conflict(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "Hero", "project description", "")
+        scene = client.post("/api/v1/assets", data={"type": "scene", "name": "Hero"}).json()["asset"]
+
+        lookup = client.get("/api/v1/assets/by-name", params={"type": "character", "name": "Hero"})
+        assert lookup.status_code == 200, lookup.text
+        assert lookup.json()["asset"] is None
+        created = client.post(
+            "/api/v1/assets/from-project",
+            json={"project_name": "demo", "resource_type": "character", "resource_id": "Hero"},
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["asset"]["type"] == "character"
+        assert client.get(f"/api/v1/assets/{scene['id']}").json()["asset"] == scene
+
     def test_from_project_copies_image(self, assets_env):
         client = assets_env["client"]
         pm = assets_env["pm"]
