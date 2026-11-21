@@ -117,7 +117,7 @@ describe("AddToLibraryDialog", () => {
         : Response.json({ asset: EXISTING });
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderDialog();
+    const { rerender } = renderDialog();
 
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -127,6 +127,14 @@ describe("AddToLibraryDialog", () => {
       project_name: "demo", resource_type: "character", resource_id: "Hero", overwrite: false,
     }]);
 
+    expect(overwrite).toBeEnabled();
+    rerender(dialogFor(true));
+    expect(overwrite).toBeDisabled();
+    await user.click(overwrite);
+    expect(writes).toHaveLength(1);
+
+    rerender(dialogFor(false));
+    expect(overwrite).toBeEnabled();
     await user.click(overwrite);
     expect(useAppStore.getState().toast?.text).toBe("「Hero」已加入资产库");
     expect(writes[1]).toEqual({

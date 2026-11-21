@@ -53,6 +53,15 @@ function matchesConflictTarget(value: unknown, type: AssetType, name: string): v
   return typeof asset.id === "string" && !!asset.id && asset.type === type && asset.name === name.normalize("NFC");
 }
 
+function getConflictAsset(
+  name: string,
+  lookup: AssetLookup | null,
+  submittedConflict: AssetLookup | null,
+): AssetIdentity | null {
+  if (submittedConflict?.name === name) return submittedConflict.asset;
+  return lookup?.name === name ? lookup.asset : null;
+}
+
 export function AddToLibraryDialog({
   open,
   onOpenChange,
@@ -128,8 +137,7 @@ function AddToLibraryForm({
     return () => controller.abort();
   }, [checkedName, resourceType]);
 
-  const conflict = submittedConflict?.name === trimmedName ? submittedConflict : lookup;
-  const conflictAsset = conflict?.name === trimmedName ? conflict.asset : null;
+  const conflictAsset = getConflictAsset(trimmedName, lookup, submittedConflict);
 
   const submit = async (target?: AssetIdentity) => {
     if (!trimmedName || submitting) return;
@@ -239,7 +247,7 @@ function AddToLibraryForm({
       <DialogFooter>
         <DialogClose render={<Button variant="outline" disabled={submitting} />}>{t("cancel")}</DialogClose>
         {conflictAsset && (
-          <Button variant="destructive" disabled={submitting} onClick={() => void submit(conflictAsset)}>
+          <Button variant="destructive" disabled={busy || submitting} onClick={() => void submit(conflictAsset)}>
             {t("overwrite_existing")}
           </Button>
         )}
