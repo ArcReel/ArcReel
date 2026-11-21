@@ -135,10 +135,17 @@ def _write_enveloped_archive(project_dir: Path, archive_path: Path) -> None:
                 archive.write(path, relative.as_posix())
 
 
-@pytest.mark.parametrize("shape", LEGACY_PROJECT_SHAPES)
+@pytest.mark.parametrize(
+    ("shape", "root_is_alias"),
+    [
+        *(pytest.param(shape, False, id=shape) for shape in LEGACY_PROJECT_SHAPES),
+        pytest.param("crossed-script-bindings", True, id="crossed-script-bindings-root-alias"),
+        pytest.param("shared-item-id", True, id="shared-item-id-root-alias"),
+    ],
+)
 @pytest.mark.parametrize("entry_point", ["in_place", "archive_import"])
 def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, entry_point: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, entry_point: str, root_is_alias: bool
 ) -> None:
     tmp_path = tmp_path.resolve()
     project_dir = LEGACY_PROJECT_SHAPES[shape](tmp_path / "source")
@@ -155,10 +162,19 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
             expected[location] = (project_dir / "characters/refs/Bob.png").read_bytes()
 
     if entry_point == "in_place":
+        if root_is_alias:
+            alias = tmp_path / "project-alias"
+            alias.symlink_to(project_dir.parent, target_is_directory=True)
+            project_dir = alias / project_dir.name
         migrate_project_dir(project_dir)
     else:
-        # 解包也使用当前用例的物理路径，避免系统临时目录的符号链接别名。
-        monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+        extraction_root = tmp_path / "extraction"
+        extraction_root.mkdir()
+        if root_is_alias:
+            alias = tmp_path / "extraction-alias"
+            alias.symlink_to(extraction_root, target_is_directory=True)
+            extraction_root = alias
+        monkeypatch.setattr(tempfile, "tempdir", str(extraction_root))
         archive_path = tmp_path / "legacy.zip"
         _write_enveloped_archive(project_dir, archive_path)
         target = ProjectManager(tmp_path / "imported")
@@ -176,7 +192,13 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
             pytest.fail(f"Archive import failed: {exc.render_errors()}")
         project_dir = target.get_project_path(result.project_name)
 
-    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    project = _read_json(project_dir / "project.json")
+    assert project["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+    if shape == "crossed-script-bindings":
+        expected_bindings = {1: "scripts/episode_1.json", 2: "scripts/episode_2.json"}
+        assert {entry["episode"]: entry["script_file"] for entry in project["episodes"]} == expected_bindings
+        for episode, binding in expected_bindings.items():
+            assert _read_json(project_dir / binding)["episode"] == episode
     # v5→v6 给同名商品加后缀，字段仍属于原来的商品。
     aliases = {("products", "Bob_product"): "Bob"} if shape.startswith("shared-reference") else {}
     after = _media_snapshot(project_dir, asset_aliases=aliases)
