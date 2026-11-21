@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Protocol
@@ -57,7 +58,11 @@ from lib.prompts.prompt_builders import (
     build_scene_prompt,
     render_storyboard_image_prompt,
 )
-from lib.prompts.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, require_reference_image_limit
+from lib.prompts.reference_image_numbering import (
+    PREVIOUS_STORYBOARD_ROLE,
+    ReferenceImageSlot,
+    require_reference_image_limit,
+)
 from lib.references.reference_admission import SHEET_MISSING_CODE, UNREGISTERED_REFERENCE_CODE
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
@@ -129,6 +134,9 @@ class ManifestInputObservation:
         if self._entries is None:
             self._entries = self._manifest.snapshot_entries()
         return self._entries.get(key)
+
+    def is_unblocked(self, artifact_path: str) -> bool:
+        return self._manifest.inspect_artifact(artifact_path).blocker is None
 
 
 def project_input_observation(project_dir: Path) -> ManifestInputObservation:
@@ -312,8 +320,28 @@ class ImageGenerationInput[S: GenerationSemantics]:
             raise ValueError("generation input has gaps; it can only project an expected basis")
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingStoryboardReference:
+    artifact_path: str
+    logical_id: str
+    role: str = dataclass_field(default=PREVIOUS_STORYBOARD_ROLE, init=False)
+    logical_type: str = dataclass_field(default="storyboard", init=False)
+
+
+@dataclass(frozen=True)
 class StoryboardImageInput(ImageGenerationInput[StoryboardImageSemantics]):
     """一张普通分镜图成立的生成输入。"""
+
+    pending_previous_storyboard: _PendingStoryboardReference | None = None
+
+    def require_planned_reference_limit(
+        self, observation: ManifestInputObservation, maximum: int, *, model: str
+    ) -> None:
+        slots: list[ReferenceImageSlot] = [reference.visual for reference in self.references]
+        pending = self.pending_previous_storyboard
+        if pending is not None and observation.is_unblocked(pending.artifact_path):
+            slots.append(pending)
+        require_reference_image_limit(slots, maximum, model=model)
 
 
 class AssetSheetInput(ImageGenerationInput[AssetSheetSemantics]):
@@ -369,8 +397,9 @@ def storyboard_image_input(
         for name in _reference_names(item, field):
             assembly.add_sheet(catalog, asset_type, name)
 
+    pending_previous = None
     if index > 0 and not item.get("segment_break"):
-        assembly.add_previous_storyboard(items[index - 1], id_field=id_field, episode=episode)
+        pending_previous = assembly.add_previous_storyboard(items[index - 1], id_field=id_field, episode=episode)
 
     return StoryboardImageInput(
         semantics=StoryboardImageSemantics(
@@ -383,6 +412,7 @@ def storyboard_image_input(
         canvas_ratio=canvas_ratio,
         references=tuple(assembly.references),
         gaps=tuple(assembly.gaps),
+        pending_previous_storyboard=pending_previous,
     )
 
 
@@ -681,21 +711,27 @@ class _Assembly:
             )
         )
 
-    def add_previous_storyboard(self, previous_item: object, *, id_field: str, episode: int) -> None:
-        """上一分镜图是系统推导的可选输入：不可用只是略去，不产生缺口。"""
+    def add_previous_storyboard(
+        self, previous_item: object, *, id_field: str, episode: int
+    ) -> _PendingStoryboardReference | None:
+        """添加可用的上一分镜图，或返回已绑定且登记一致的待用参考。"""
 
         if not isinstance(previous_item, Mapping):
-            return
+            return None
         previous_id = str(previous_item.get(id_field) or "").strip()
         assets = previous_item.get("generated_assets")
         if not previous_id or not isinstance(assets, Mapping):
-            return
+            return None
         declared = _declared_path(assets, "storyboard_image")
         if declared is None:
-            return
-        available = self._available(ArtifactKey.episode_storyboard(episode, previous_id), declared)
+            return None
+        key = ArtifactKey.episode_storyboard(episode, previous_id)
+        available = self._available(key, declared)
         if available is None:
-            return
+            entry = self._observation.registered(key)
+            if entry is not None and entry.artifact_path == declared and declared not in self._seen_paths:
+                return _PendingStoryboardReference(artifact_path=declared, logical_id=previous_id)
+            return None
         observed, claim = available
         self._append(
             AssembledReference(
@@ -706,6 +742,7 @@ class _Assembly:
                 claim=claim,
             )
         )
+        return None
 
 
 def _declared_path(container: object, field: str) -> str | None:

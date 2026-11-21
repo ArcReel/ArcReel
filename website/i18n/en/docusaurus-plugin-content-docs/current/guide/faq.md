@@ -200,6 +200,8 @@ When generating a storyboard, ArcReel uses the character, scene, and prop asset 
 
 In Storyboard mode, when a shot is not the first shot, is not marked as a new segment, and the previous storyboard has already been generated, ArcReel uses that previous storyboard as a continuity reference. This helps carry over composition, color, and setting, but it cannot guarantee a seamless join between two independently generated videos.
 
+When you submit a single storyboard image for generation, the previous storyboard reference counts toward the image model's limit if it is linked to the previous shot and registered, even if the file is temporarily missing. If you exceed the limit, ArcReel asks you to adjust the references or switch models before it creates a task.
+
 Lock down assets and storyboards before generating video, and keep location, time, clothing, and character descriptions consistent across adjacent shots. For important transitions, use a model that supports end frames or handle them in a post-production tool such as Jianying.
 
 ### How do start and end frames work? {#first-and-last-frame}

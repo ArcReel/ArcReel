@@ -42,7 +42,6 @@ from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, DerivativeSheetS
 from lib.project.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.project.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
 from lib.project.project_manager import get_project_manager, is_reference_video_project
-from lib.prompts.reference_image_numbering import require_reference_image_limit
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import get_generated_assets
 from lib.script.script_skeleton import resolve_script_kind
@@ -157,10 +156,11 @@ async def generate_storyboard(
     if maximum is not None:
 
         def check_limit():
+            observation = project_input_observation(path)
             assembled = storyboard_image_input(
-                project, script, episode=episode, resource_id=segment_id, observation=project_input_observation(path)
+                project, script, episode=episode, resource_id=segment_id, observation=observation
             )
-            require_reference_image_limit([ref.visual for ref in assembled.references], maximum, model=model)
+            assembled.require_planned_reference_limit(observation, maximum, model=model)
 
         try:
             await asyncio.to_thread(check_limit)
