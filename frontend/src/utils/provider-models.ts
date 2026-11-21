@@ -186,9 +186,9 @@ export function lookupResolutions(
   backend: string,
   customProviders?: CustomProviderInfo[],
   endpointToMediaType?: Record<string, MediaType>,
-): { options: string[]; isCustom: boolean } {
+): { options: string[]; isCustom: boolean; isKnown: boolean } {
   const slashIdx = backend.indexOf("/");
-  if (slashIdx === -1) return { options: [], isCustom: false };
+  if (slashIdx === -1) return { options: [], isCustom: false, isKnown: false };
   const providerId = backend.slice(0, slashIdx);
   const modelId = backend.slice(slashIdx + 1);
 
@@ -196,7 +196,7 @@ export function lookupResolutions(
     const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
     const cp = customProviders.find((p) => p.id === dbId);
     const model = cp?.models?.find((m) => m.model_id === modelId);
-    if (!model) return { options: [], isCustom: true };
+    if (!model) return { options: [], isCustom: true, isKnown: false };
     const media = endpointToMediaType?.[model.endpoint];
     const standard =
       media === "image"
@@ -204,12 +204,12 @@ export function lookupResolutions(
         : media === "video"
           ? VIDEO_STANDARD_RESOLUTIONS
           : [];
-    return { options: standard, isCustom: true };
+    return { options: standard, isCustom: true, isKnown: true };
   }
 
   const provider = providers.find((p) => p.id === providerId);
   const model = provider?.models?.[modelId];
-  return { options: model?.resolutions ?? [], isCustom: false };
+  return { options: model?.resolutions ?? [], isCustom: false, isKnown: !!model };
 }
 
 /** 该 (provider, model) 的有效画质可选值，内置与自定义供应商都取模型信息上的 `qualities`。

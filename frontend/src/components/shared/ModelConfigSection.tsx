@@ -420,26 +420,28 @@ export function ModelConfigSection({
     flagStale = false,
   ) => {
     const res = lookupResolutions(providers, backend, customProviders, endpointToMediaType);
-    if (res.options.length === 0) return null;
+    const hasOptions = res.options.length > 0;
+    const stale = flagStale && res.isKnown && !res.isCustom && resolutionStale(resolution, res.options);
+    if (!hasOptions && !stale) return null;
     // 尺寸被 workflow 固定时选择器只展示不接受选择：比例与分辨率对该模型行无效，照收再丢弃
     // 只会让用户以为自己选的档位生效了。
     const constraints = lookupEndpointConstraints(backend, customProviders, endpointConstraints);
     const sizeFixed = constraints?.sizeFixed ?? false;
-    // 失效存值只在下拉形态下提示：输入框形态允许自由填写，候选之外的值是用户有意为之。
-    const stale = flagStale && !res.isCustom && resolutionStale(resolution, res.options);
     return (
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">{label}</span>
-          <ResolutionPicker
-            mode={res.isCustom ? "combobox" : "select"}
-            options={res.options}
-            value={resolution}
-            onChange={onResolutionChange}
-            placeholder={resolutionPlaceholder(constraints, t)}
-            aria-label={label}
-            disabled={sizeFixed}
-          />
+          {hasOptions && (
+            <ResolutionPicker
+              mode={res.isCustom ? "combobox" : "select"}
+              options={res.options}
+              value={resolution}
+              onChange={onResolutionChange}
+              placeholder={resolutionPlaceholder(constraints, t)}
+              aria-label={label}
+              disabled={sizeFixed}
+            />
+          )}
         </div>
         {/* 禁用原因必须有一行可见说明：title 对键盘与触屏不可达。 */}
         {sizeFixed && <p className="text-xs text-muted-foreground">{t("resolution_fixed_hint")}</p>}

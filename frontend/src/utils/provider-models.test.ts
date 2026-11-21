@@ -268,6 +268,7 @@ describe("lookupResolutions", () => {
     expect(lookupResolutions(providers, "openai/gpt-image-legacy")).toEqual({
       options: ["512px", "1K", "2K"],
       isCustom: false,
+      isKnown: true,
     });
   });
 });

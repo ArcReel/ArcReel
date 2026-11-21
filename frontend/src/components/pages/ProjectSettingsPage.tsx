@@ -43,6 +43,7 @@ import {
   isFormTab,
   keepSavedStylePreview,
   pendingStyleUpload,
+  storedImageQuality,
   styleImageUrl,
   tabDirty,
   type GlobalModelDefaults,
@@ -374,11 +375,12 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
   };
 
   const usesReferenceImages = facts.generationRoute === "reference_video";
+  const t2iModel = executingImageModel(value.models, globals, "t2i");
   const modelValue: ModelConfigValue = {
     ...value.models,
     videoResolution: value.models.modelResolutions[executingVideoModel(value.models, globals, usesReferenceImages)] ?? null,
     videoResolutions: value.models.modelResolutions,
-    imageResolution: value.models.modelResolutions[executingImageModel(value.models, globals, "t2i")] ?? null,
+    imageResolution: value.models.modelResolutions[t2iModel] ?? null,
     imageResolutions: value.models.modelResolutions,
   };
 
@@ -404,6 +406,7 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
               imageResolutions,
               ...next
             }) => {
+              const nextT2iModel = executingImageModel(next, globals, "t2i");
               const nextResolutions =
                 videoResolutions !== modelValue.videoResolutions
                   ? videoResolutions
@@ -415,6 +418,7 @@ function LoadedProjectSettings({ projectName, loaded }: { projectName: string; l
                 models: {
                   ...prev.models,
                   ...next,
+                  imageQuality: nextT2iModel === t2iModel ? next.imageQuality : storedImageQuality(prev.modelSettings, nextT2iModel),
                   modelResolutions: nextResolutions ?? prev.models.modelResolutions,
                 },
               }));

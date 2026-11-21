@@ -130,7 +130,8 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function stringOrNull(value: unknown): string | null {
+export function storedImageQuality(settings: Record<string, ModelSettingEntry>, model: string): string | null {
+  const value = settings[model]?.quality;
   return typeof value === "string" ? value : null;
 }
 
@@ -215,7 +216,7 @@ export function deriveForm(
       ...models,
       defaultDuration: finiteOrNull(project.default_duration),
       modelResolutions,
-      imageQuality: executingIb ? stringOrNull(settingEntry(modelSettings[executingIb]).quality) : null,
+      imageQuality: storedImageQuality(modelSettings, executingIb),
       generateAudio: typeof project.video_generate_audio === "boolean" ? project.video_generate_audio : null,
     },
     narration: {

@@ -228,7 +228,7 @@ export function CreateProjectModal() {
       const executingVideo = executingVideoModel(models, globals, generationRoute === "reference_video");
       const executingImage = executingImageModel(models, globals, "t2i");
       const executingImageI2I = executingImageModel(models, globals, "i2i");
-      const t2iResolution = models.imageResolutions?.[executingImage] ?? models.imageResolution;
+      const t2iResolution = models.imageResolutions?.[executingImage] ?? null;
       const i2iResolution = models.imageResolutions?.[executingImageI2I] ?? null;
       const modelSettings: Record<string, ModelSettingEntry> = {};
       if (executingVideo && models.videoResolution) {
