@@ -2,12 +2,13 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { API, ApiRequestError } from "@/api";
+import { API } from "@/api";
 import type { ModelSettingEntry } from "@/types";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { DEFAULT_TEMPLATE_ID } from "@/data/style-templates";
 import { errMsg, voidCall, voidPromise } from "@/utils/async";
+import { styleUploadFailureReason } from "@/utils/style-upload-error";
 import { formatNameList } from "@/utils/list-format";
 import { catalogDisplayNames, catalogDurations } from "@/utils/provider-models";
 import { Button } from "@/components/ui/button";
@@ -80,19 +81,6 @@ async function loadGenerationData(signal: AbortSignal) {
     },
   };
   return { data, narrationDefaults };
-}
-
-/**
- * 风格图上传失败时服务端给出的可操作原因（未设文本默认模型、模型不支持图像输入等，均为 4xx）。
- * 网络错误、5xx 与网关错误、或服务端没给详情只剩传输层兜底文案时返回空串，调用方据此回落到通用提示。
- * 末尾句号去掉，由提示文案自己断句。
- */
-function styleUploadFailureReason(err: unknown, transportFallback: string): string {
-  if (!(err instanceof ApiRequestError) || err.status === undefined || err.status < 400 || err.status >= 500) {
-    return "";
-  }
-  const reason = err.message.trim().replace(/[。．.]+$/u, "");
-  return reason === transportFallback ? "" : reason;
 }
 
 export function CreateProjectModal() {

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router, Route } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import "@/i18n";
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import * as providerModels from "@/utils/provider-models";
 import { useAppStore } from "@/stores/app-store";
 import { ProjectSettingsPage } from "@/components/pages/ProjectSettingsPage";
@@ -259,9 +259,15 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     expect(saveFile).toHaveBeenCalledWith({ level: "project", projectName: "demo" }, "MEMORY.md", "- 新条目\n");
   });
 
-  it("新参考图在项目 PATCH 之后上传；上传失败时如实说明其他修改已保存，并保留未保存修改", async () => {
+  it.each([
+    [new TypeError("Failed to fetch"), "其他修改已保存，风格参考图上传失败。再次保存会重新上传。"],
+    [new ApiRequestError("Bad Gateway", undefined, 502), "其他修改已保存，风格参考图上传失败。再次保存会重新上传。"],
+    [new ApiRequestError("视觉模型不可用。", undefined, 422), "其他修改已保存，风格参考图上传失败：视觉模型不可用。再次保存会重新上传。"],
+  ])("项目 PATCH 后上传失败（%s），显示重试提示并在再次保存时上传原文件", async (error, message) => {
     const updateSpy = mockProject({ style_template_id: "live_premium_drama" });
-    const uploadSpy = vi.spyOn(API, "uploadStyleImage").mockRejectedValue(new Error("视觉模型不可用"));
+    const uploadSpy = vi.spyOn(API, "uploadStyleImage")
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce({ success: true, style_image: "style_reference.png", style_description: "水墨", url: "/style_reference.png" });
     const user = userEvent.setup();
     renderAt("/app/projects/demo/settings?tab=style");
 
@@ -274,12 +280,17 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     expect(await screen.findByText("自定义风格")).toBeInTheDocument();
 
     await user.click(saveButton());
-    expect(await screen.findByRole("alert")).toHaveTextContent(/其他修改已保存，风格参考图上传失败：视觉模型不可用/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(updateSpy).toHaveBeenCalledTimes(1);
     expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("style_template_id");
     expect(uploadSpy).toHaveBeenCalledWith("demo", file);
     expect(updateSpy.mock.invocationCallOrder[0]).toBeLessThan(uploadSpy.mock.invocationCallOrder[0]);
     expect(within(sidebar()).getByRole("link", { name: /^风格.*有未保存的修改/ })).toBeInTheDocument();
+
+    await user.click(saveButton());
+    expect(await screen.findByText("水墨")).toBeInTheDocument();
+    expect(uploadSpy).toHaveBeenNthCalledWith(2, "demo", file);
+    expect(within(sidebar()).getByRole("link", { name: "风格" })).toBeInTheDocument();
   });
 
   it("参考图上传失败后放弃修改，回到 PATCH 已写入的内容，而不是保存前的旧值", async () => {
