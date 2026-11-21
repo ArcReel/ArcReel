@@ -112,6 +112,7 @@ class _Work:
     project_dir: Path
     schema_version: int
     project: dict[str, Any]
+    lexical_project_dir: Path = field(init=False)
     project_changed: bool = False
     #: 已落盘的规整项：重跑发现不了它们，中途失败也要记下。改动 ``project.json`` 的规整项排在最前。
     adjusted: list[MigrationAdjustment] = field(default_factory=list)
@@ -122,6 +123,7 @@ class _Work:
     project_backup: str | None = None
 
     def __post_init__(self) -> None:
+        self.lexical_project_dir = self.project_dir
         project_dir = self.project_dir.absolute()
         self.project_dir = project_dir.parent.resolve() / project_dir.name
 
@@ -880,7 +882,7 @@ def _plan_reference_copy(
     spec = ASSET_SPECS[asset_type]
     if not isinstance(value, str) or not value:
         return None
-    rel = _canonical_reference(work.project_dir, value)
+    rel = _canonical_reference(work.lexical_project_dir, value)
     collided = _planned_target_at(work.project_dir, rel, planned)
     owner = _named_file_owner(work.project, rel)
     # 本资产名下或不归任何资产的路径原本不必复制，只有落点要写入副本时才让位。

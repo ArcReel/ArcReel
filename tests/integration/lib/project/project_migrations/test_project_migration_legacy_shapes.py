@@ -244,6 +244,26 @@ def test_schema_five_shared_references_survive_namespace_renames(tmp_path: Path,
     assert [item.code for item in shown.adjusted] == ["shared_reference_file_copied"] * 3
 
 
+def test_absolute_shared_reference_through_parent_alias_keeps_its_bytes(tmp_path: Path) -> None:
+    project_dir = write_legacy_shared_reference_project(tmp_path / "projects")
+    alias = tmp_path / "alias"
+    alias.symlink_to(project_dir.parent, target_is_directory=True)
+    aliased_project_dir = alias / project_dir.name
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project["characters"]["Bob"]["reference_image"] = str(aliased_project_dir / "characters/refs/Alice.png")
+    project["products"] = {}
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    _migrate(aliased_project_dir)
+
+    migrated = _read_json(project_path)
+    reference = migrated["characters"]["Bob"]["reference_image"]
+    assert reference == "characters/refs/Bob.png"
+    assert (project_dir / reference).read_bytes() == b"image"
+
+
 @pytest.mark.parametrize("fail_commit", [False, True])
 def test_swapped_shared_references_keep_each_original_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_commit: bool
