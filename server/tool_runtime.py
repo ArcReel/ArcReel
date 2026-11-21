@@ -2901,22 +2901,19 @@ def _format_plan(result: PlanResult, project: Mapping[str, Any], *, gap: bool = 
     return "\n".join(lines)
 
 
-#: 请求过停止的执行中窗口（任务 ID）。停止请求可能落在下一窗排入之前：本窗刚被领取，或本窗含结尾、
-#: 要等模型返回本批才知道还要不要排下一窗。这些窗口不再排下一窗。worker 与停止请求同在服务进程内。
 _STOPPED_PLANNING_WINDOWS: set[str] = set()
 
 
 @dataclass(frozen=True, slots=True)
 class _PlanningChain:
-    """Web 逐窗串联中正在执行的那一窗：本批之后还有原文待规划时，把下一窗排进另一个占用槽，
-    依赖本窗成功后才执行。窗口不含结尾时在请求模型之前排入，停止规划即可取消它；停止时还没排入的，
-    本窗不再排。"""
+    """Web 逐窗规划时，后续任务占用另一个槽，依赖当前任务成功。"""
 
     task: Mapping[str, Any]
     services: Services
 
     async def queue_next_window(self) -> None:
-        if str(self.task["task_id"]) in _STOPPED_PLANNING_WINDOWS:
+        task_id = str(self.task["task_id"])
+        if task_id in _STOPPED_PLANNING_WINDOWS:
             return
         slot = (
             EPISODE_PLANNING_NEXT_SLOT
@@ -2924,7 +2921,7 @@ class _PlanningChain:
             else EPISODE_PLANNING_SLOT
         )
         # 下一窗由正在执行的 worker 排入，worker 必然在线
-        await self.services.queue.enqueue_task(
+        next_window = await self.services.queue.enqueue_task(
             project_name=str(self.task["project_name"]),
             task_type=_TEXT_EPISODE_PLAN,
             media_type="text",
@@ -2932,8 +2929,10 @@ class _PlanningChain:
             payload=dict(self.task.get("payload") or {}),
             source=str(self.task.get("source") or "webui"),
             user_id=str(self.task.get("user_id") or DEFAULT_USER_ID),
-            dependency_task_id=str(self.task["task_id"]),
+            dependency_task_id=task_id,
         )
+        if task_id in _STOPPED_PLANNING_WINDOWS and not next_window.get("deduped"):
+            await self.services.queue.cancel_task(str(next_window["task_id"]))
 
 
 async def _execute_plan_episodes(

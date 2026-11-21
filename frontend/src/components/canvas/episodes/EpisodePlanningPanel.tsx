@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Bot, CheckCircle2, Loader2, Sparkles } from "lucide-react";
 
@@ -39,17 +39,6 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
   const tasks = useTasksStore((s) => s.tasks);
   const targetSeconds = useProjectsStore((s) => s.currentProjectData?.episode_target_duration ?? null);
   const failure = useMemo(() => (active ? null : lastPlanningFailure(tasks, projectName)), [active, tasks, projectName]);
-  const queuedWindow = tasks.some(
-    (task) =>
-      task.project_name === projectName &&
-      task.task_type === "text_episode_plan" &&
-      task.status === "queued" &&
-      (EPISODE_PLANNING_SLOTS as readonly string[]).includes(task.resource_id),
-  );
-
-  useEffect(() => {
-    if (active && stopRequested && queuedWindow) void API.stopEpisodePlanning(projectName).catch(() => undefined);
-  }, [active, stopRequested, queuedWindow, projectName]);
   // 规划结束即了结停止请求，下一次规划从头开始
   if (!active && (stopRequested || finishingWindow)) {
     setStopRequested(false);
