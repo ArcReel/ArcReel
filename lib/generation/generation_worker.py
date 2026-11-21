@@ -324,8 +324,16 @@ class SlotTable:
         *,
         pending: bool = False,
     ) -> None:
-        """登记占用；幂等覆盖。bucket 不存在时自动创建。"""
-        self._slots.setdefault((provider, media), {})[task_id] = _Occupant(task=task, pending=pending)
+        """登记占用；幂等覆盖。bucket 不存在时自动创建。
+
+        被覆盖的执行体已结束时不会再经过 ``drain_finished``：这里取走它的异常（已由执行路径落终态并
+        记录），否则 asyncio 会打印「exception was never retrieved」。
+        """
+        bucket = self._slots.setdefault((provider, media), {})
+        previous = bucket.get(task_id)
+        if previous is not None and previous.task.done() and not previous.task.cancelled():
+            previous.task.exception()
+        bucket[task_id] = _Occupant(task=task, pending=pending)
 
     def promote(self, provider: str, media: str, task_id: str) -> None:
         """PENDING→INFLIGHT：sem.acquire 成功后调用，只翻 ``pending`` 标志。
@@ -379,6 +387,14 @@ class SlotTable:
     def active_task_ids(self) -> set[str]:
         """所有占用的 task_id（pending+inflight）：self-active 扫描用。"""
         return {tid for bucket in self._slots.values() for tid in bucket}
+
+    def live_occupant(self, task_id: str) -> asyncio.Future[Any] | None:
+        """该任务还没结束的执行体；执行体已 done、只等主循环 drain 的占用不算。"""
+        for bucket in self._slots.values():
+            occ = bucket.get(task_id)
+            if occ is not None and not occ.task.done():
+                return occ.task
+        return None
 
     def all_active_tasks(self) -> list[asyncio.Future[Any]]:
         """所有占用的执行体（pending+inflight）：shutdown wait 用。"""

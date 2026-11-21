@@ -219,6 +219,9 @@ class FakeWorkerQueue:
     async def list_orphan_tasks_on_start(self):
         return self._orphans
 
+    async def get_task(self, task_id):
+        return next((row for row in self._orphans if row["task_id"] == task_id), None)
+
     async def claim_next_task(self, media_type, **_kwargs) -> dict[str, Any] | None:
         if self.interrupted:
             self.claim_after_interruption.set()
