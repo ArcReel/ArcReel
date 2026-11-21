@@ -329,6 +329,8 @@ Under Settings → Asset Library & Storage, you can link images reviewed by the 
 
 Open Usage Records to inspect the outcome, usage, and reference cost of calls by project, provider, model, or media type. Failed calls can still incur charges. ArcReel reports currencies separately. Check the provider bill for final charges.
 
+The details of a reference-to-video call list reference audio in submission order and show each file's source path within the project.
+
 ArcReel obtains unit prices from the Model Catalog and applies available usage and request details, such as tokens, cache usage, character or image counts, attached reference images, resolution, quality, audio, and video duration. A call shows Unpriced if usage or a matching unit price is missing. For images generated through declarative or ComfyUI endpoints, the catalog's default tier can differ from the output resolution.
 
 - **Generation costs** apply the provider multiplier to the catalog price. A model on a custom provider or one you added to a built-in provider can also have a model multiplier. The two multipliers are multiplied together. If the model has no catalog match, [bind a model or enter model information](#model-settings).

@@ -22,7 +22,7 @@ from lib.generation.media_generator import (
     task_video_staging_path,
 )
 from lib.project import project_trash
-from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition, image_bytes
+from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition, image_bytes, wav_bytes
 from tests.fakes import (
     MP4_BYTES,
     PNG_BYTES,
@@ -2473,3 +2473,89 @@ async def test_staged_video_image_usage_keeps_source_after_cleanup(tmp_path, rol
     assert recorded == "reference.png"
     assert (gen.project_path / recorded).is_file()
     assert not staged.exists()
+
+
+@pytest.mark.parametrize("status", ["success", "failed"])
+async def test_video_usage_records_staged_reference_audio_sources_in_request_order(tmp_path, session_factory, status):
+    from arcreel_market_core.video_backend_contract import (
+        ReferenceAudioMode,
+        VideoCapabilities,
+        VideoGenerationRequest,
+        VideoGenerationResult,
+    )
+    from lib.billing.ledger import Ledger
+    from lib.db.repositories.usage_repo import UsageRepository
+    from lib.script.reference_video.execution_checkpoint import (
+        ProviderMediaInput,
+        cleanup_staged_provider_media,
+        stage_provider_media_for_task,
+        staged_source_paths,
+    )
+
+    project_path = tmp_path / "demo"
+    audio_dir = project_path / "characters" / "refs_audio"
+    audio_dir.mkdir(parents=True)
+    write_generation_targets(project_path, video_units=("E1U1",))
+    expected_sources = ["characters/refs_audio/bob.wav", "characters/refs_audio/alice.wav"]
+    audio_bytes = [wav_bytes(1), wav_bytes(2)]
+    sources = [project_path / path for path in expected_sources]
+    for path, content in zip(sources, audio_bytes, strict=True):
+        path.write_bytes(content)
+    external_audio = tmp_path / "temporary-upload" / "sample.wav"
+    external_audio.parent.mkdir()
+    external_bytes = wav_bytes(0.5)
+    external_audio.write_bytes(external_bytes)
+
+    class AudioVideoBackend:
+        name = "fake-video"
+        model = "video-model"
+        video_capabilities = VideoCapabilities(
+            reference_audio_mode=ReferenceAudioMode.DIRECT, max_reference_audio_count=3
+        )
+
+        async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+            assert request.reference_audio_files == [*staged_paths, external_audio]
+            assert [await asyncio.to_thread(path.read_bytes) for path in request.reference_audio_files] == [
+                *audio_bytes,
+                external_bytes,
+            ]
+            if status == "failed":
+                raise RuntimeError("provider rejected video")
+            await write_backend_output(request.output_path, MP4_BYTES)
+            return VideoGenerationResult(request.output_path, self.name, self.model, request.duration_seconds)
+
+    generator = MediaGenerator(project_path, video_backend=AudioVideoBackend(), video_provider_id="custom-1")
+    generator.ledger = Ledger(session_factory=session_factory)
+    task_id = "usage-audio"
+    media = await stage_provider_media_for_task(
+        project_path,
+        task_id,
+        tuple(ProviderMediaInput(path, "reference_audio", "speaker", path.stem, "voice_reference") for path in sources),
+    )
+    staged_paths = [project_path / item.staged_locator for item in media]
+    outcome = (
+        pytest.raises(RuntimeError, match="provider rejected video") if status == "failed" else contextlib.nullcontext()
+    )
+    try:
+        with outcome:
+            await generator.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U1",
+                task_id=task_id,
+                reference_audio_files=[*staged_paths, external_audio],
+                reference_sources=staged_source_paths(project_path, media),
+            )
+    finally:
+        await asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id)
+
+    assert all(not path.exists() for path in staged_paths)
+    assert all(path.is_file() for path in sources)
+    async with session_factory() as session:
+        repository = UsageRepository(session)
+        page = await repository.list_records()
+        [item] = page["items"]
+        record = await repository.get_record(item["id"])
+    assert record is not None
+    assert record["status"] == status
+    assert record["inputs"]["reference_audio"] == [*expected_sources, "sample.wav"]
