@@ -659,7 +659,8 @@ describe("API", () => {
         .spyOn(API, "request")
         .mockResolvedValue({ success: true } as never);
 
-      await API.getTask("task id");
+      const { signal } = new AbortController();
+      await API.getTask("task id", { signal });
       await API.listTasks({
         projectName: "demo",
         status: "running",
@@ -688,7 +689,7 @@ describe("API", () => {
       await API.listAssistantSkills("demo");
       await API.deleteAssistantSession("demo", "session-1");
 
-      expect(requestSpy).toHaveBeenCalledWith("/tasks/task%20id");
+      expect(requestSpy).toHaveBeenCalledWith("/tasks/task%20id", { signal });
       expect(requestSpy).toHaveBeenCalledWith(
         "/tasks?project_name=demo&status=running&task_type=video&source=webui&page=2&page_size=10",
       );

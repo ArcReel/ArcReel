@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useTasksStore } from "@/stores/tasks-store";
-import type { TaskItem } from "@/types";
+import { isTerminalStatus, type TaskItem } from "@/types";
 import { isAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
 import { errMsg } from "@/utils/async";
@@ -29,6 +29,7 @@ import { errMsg } from "@/utils/async";
  *  此处只作粗护栏挡住整段粘贴——真正的时长判定仍在执行层落盘后做。三语默认文案约 120 字符，
  *  上限取 200 以留出编辑余量。 */
 const VOICE_SAMPLE_TEXT_MAX_LENGTH = 200;
+const VOICE_SAMPLE_TASK_POLL_MS = 2000;
 
 interface VoiceOption {
   id: string;
@@ -76,27 +77,47 @@ export function VoiceSampleButton({
 
   const liveTask = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
 
-  // tasks-store 只保留最新 TASKS_PAGE_SIZE(200) 行快照：任务行可能在到达终态之前就被更多
-  // 新任务挤出快照。把「尚未落地」（generating 该继续按占用处理）与「落地过、还在
-  // running/queued 时被挤出」（同样该继续按占用处理——它很可能仍在服务端跑，只是客户端看
-  // 不到了；一旦在这个状态下放行关闭/编辑/重新生成，会丢失一个仍在计费任务的追踪，或让
-  // 新提交被 dedupe 误合并进这个隐形任务）两者都保守地当作占用中；只有明确观察到过
-  // succeeded/failed 终态后再消失，才不再继续锁定。缓存「最近一次观察到的该 taskId 任务行」
-  // 而非单纯的布尔标记，让这个判断能落到具体状态而不是「有没有出现过」。
-  const [lastSeenTask, setLastSeenTask] = useState<TaskItem | null>(null);
+  const [settledTask, setSettledTask] = useState<TaskItem | null>(null);
   useEffect(() => {
-    if (taskId == null) return;
-    const captureIfPresent = (tasks: TaskItem[]) => {
+    if (!open || taskId === null) return;
+    const controller = new AbortController();
+    const captureTerminalTask = (tasks: TaskItem[]) => {
+      if (controller.signal.aborted) return;
       const found = tasks.find((item) => item.task_id === taskId);
-      if (found) setLastSeenTask(found);
+      if (found && isTerminalStatus(found.status)) setSettledTask(found);
     };
-    // 订阅回调里 setState 是响应外部 store 变化，不是效应体内的同步 setState；首次挂载时
-    // store 里可能已经有这一行，延后到微任务里查一次初始值，避免在订阅建立期间嵌套 dispatch。
-    const unsubscribe = useTasksStore.subscribe((state) => captureIfPresent(state.tasks));
-    void Promise.resolve().then(() => captureIfPresent(useTasksStore.getState().tasks));
-    return unsubscribe;
-  }, [taskId]);
-  const task = liveTask ?? (lastSeenTask?.task_id === taskId ? lastSeenTask : undefined);
+    const unsubscribe = useTasksStore.subscribe((state) => captureTerminalTask(state.tasks));
+    void Promise.resolve().then(() => captureTerminalTask(useTasksStore.getState().tasks));
+    return () => {
+      controller.abort();
+      unsubscribe();
+    };
+  }, [open, taskId]);
+  const task = settledTask?.task_id === taskId ? settledTask : liveTask;
+
+  useEffect(() => {
+    if (!open || taskId === null || task !== undefined) return;
+    const controller = new AbortController();
+    let pending = false;
+    const poll = async () => {
+      if (pending) return;
+      pending = true;
+      const current = await API.getTask(taskId, { signal: controller.signal }).catch(() => null);
+      pending = false;
+      if (controller.signal.aborted) return;
+      if (current && isTerminalStatus(current.status)) {
+        clearInterval(timer);
+        setSettledTask(current);
+        useTasksStore.getState().releaseSettledResourceTask(taskId);
+      }
+    };
+    const timer = setInterval(() => void poll(), VOICE_SAMPLE_TASK_POLL_MS);
+    void poll();
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [open, taskId, task]);
 
   const generating =
     localSubmitting ||
@@ -140,6 +161,7 @@ export function VoiceSampleButton({
     setText(t("voice_sample_text_default"));
     setSelectedVoice("");
     setTaskId(null);
+    setSettledTask(null);
     // 复位播放态：上一次打开期间播放过的样本，其 <audio> 元素随 taskId 清空已卸载，
     // 但 isPreviewPlaying 独立于 taskId,不会跟着卸载自动复位——不重置的话，本次新样本
     // 挂载的全新（未播放）<audio> 元素会因这个陈旧的 true 值渲染成「暂停」图标。
@@ -185,6 +207,7 @@ export function VoiceSampleButton({
     }
     setLocalSubmitting(true);
     setTaskId(null);
+    setSettledTask(null);
     // 上一条预览的 <audio> 元素随 taskId 清空即刻卸载，但 isPreviewPlaying 是独立 state，
     // 不会跟着卸载自动复位——不重置的话，新样本挂载的全新（未播放）<audio> 元素会因这个
     // 陈旧的 true 值渲染成「暂停」图标，点击对一个已暂停的元素调 pause() 不产生新事件，
