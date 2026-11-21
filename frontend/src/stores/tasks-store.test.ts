@@ -2,6 +2,7 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { createDeferred } from "@/test/deferred";
 import {
   defaultTaskStats,
   isActiveStatus,
@@ -1134,6 +1135,63 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
     expect(useTasksStore.getState().tasks).toEqual([]);
   });
 
+  it("discards an old refresh after leaving and returning to the same project", async () => {
+    const fresh = task({ task_id: "fresh" });
+    const stale = task({ task_id: "stale" });
+    const oldList = createDeferred<Awaited<ReturnType<typeof API.listTasks>>>();
+    mockFetch([fresh]).mockReturnValueOnce(oldList.promise);
+    const lookup = vi.spyOn(API, "getTask").mockResolvedValue(
+      task({ task_id: "sample", task_type: "voice_sample", resource_id: "A", status: "succeeded" }),
+    );
+    const { beginOptimisticActive, refreshTasks, setRefreshScope } = useTasksStore.getState();
+    beginOptimisticActive("proj", "character", "A", "voice_sample").settle(["sample"]);
+    const snapshots: string[][] = [];
+    const unsubscribe = useTasksStore.subscribe(({ tasks }, previous) => {
+      if (tasks !== previous.tasks) snapshots.push(tasks.map(({ task_id }) => task_id));
+    });
+
+    setRefreshScope({ projectName: "proj" });
+    const previous = refreshTasks();
+    setRefreshScope({ projectName: "other" });
+    setRefreshScope({ projectName: "proj" });
+    const next = refreshTasks();
+    oldList.resolve({ items: [stale], total: 1, page: 1, page_size: 200 });
+    try {
+      await Promise.all([previous, next]);
+      expect(snapshots.filter((ids) => ids.includes(stale.task_id))).toEqual([]);
+      expect(useTasksStore.getState().tasks).toEqual([fresh]);
+      expect(lookup).toHaveBeenCalledOnce();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("releases a settled voice sample while another lookup is still pending", async () => {
+    mockFetch();
+    const ready = task({ task_id: "ready", task_type: "voice_sample", resource_id: "A", status: "succeeded" });
+    const slow = task({ task_id: "slow", task_type: "voice_sample", resource_id: "B", status: "running" });
+    const pending = createDeferred<TaskItem>();
+    vi.spyOn(API, "getTask").mockImplementation(
+      (taskId) => taskId === ready.task_id ? Promise.resolve(ready) : pending.promise,
+    );
+    const { beginOptimisticActive, refreshTasks, setRefreshScope } = useTasksStore.getState();
+    beginOptimisticActive("proj", "character", "A", "voice_sample").settle([ready.task_id]);
+    beginOptimisticActive("proj", "character", "B", "voice_sample").settle([slow.task_id]);
+    setRefreshScope({ projectName: "proj" });
+
+    vi.useFakeTimers();
+    const refresh = refreshTasks();
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(isResourceBusy("character", "proj", "A")).toBe(false);
+      expect(isResourceBusy("character", "proj", "B")).toBe(true);
+    } finally {
+      pending.resolve(slow);
+      await refresh;
+      vi.useRealTimers();
+    }
+  });
+
   it("请求失败时置 connected=false 并留旧数据", async () => {
     mockFetch([task({ task_id: "t1" })]);
     useTasksStore.getState().setRefreshScope({ projectName: "proj" });
@@ -1144,6 +1202,129 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
 
     expect(useTasksStore.getState().connected).toBe(false);
     expect(useTasksStore.getState().tasks).toHaveLength(1);
+  });
+
+  it("clears snapshot occupancy for ordinary tasks and untracked voice samples when the list empties", async () => {
+    const listSpy = mockFetch([
+      task({ task_id: "image-1", task_type: "character", resource_id: "A", status: "running" }),
+      task({ task_id: "sample-1", task_type: "voice_sample", resource_id: "B", status: "running" }),
+    ]);
+    const lookup = vi.spyOn(API, "getTask");
+    const { beginOptimisticActive, refreshTasks, setRefreshScope } = useTasksStore.getState();
+    beginOptimisticActive("proj", "character", "A", "character").settle(["image-1"]);
+    setRefreshScope({ projectName: "proj" });
+    await refreshTasks();
+    expect(isResourceBusy("character", "proj", "A")).toBe(true);
+    expect(isResourceBusy("character", "proj", "B")).toBe(true);
+
+    listSpy.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+    await refreshTasks();
+    expect(isResourceBusy("character", "proj", "A")).toBe(false);
+    expect(isResourceBusy("character", "proj", "B")).toBe(false);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it.each(["switches projects", "resets the scope"])(
+    "cancels a stalled reconciliation before refreshing the next project when it %s",
+    async (transition) => {
+      const oldSample = task({
+        task_id: "old-sample", task_type: "voice_sample", resource_id: "A", status: "running",
+      });
+      const newTask = task({ task_id: "new-task", project_name: "next", status: "succeeded" });
+      const list = mockFetch();
+      list.mockResolvedValueOnce({ items: [], total: 0, page: 1, page_size: 200 });
+      list.mockResolvedValue({ items: [newTask], total: 1, page: 1, page_size: 200 });
+      const stats = { ...defaultTaskStats, succeeded: 1, total: 1 };
+      vi.mocked(API.getTaskStats).mockResolvedValueOnce({ stats: defaultTaskStats });
+      vi.mocked(API.getTaskStats).mockResolvedValue({ stats });
+      const stalled = createDeferred<TaskItem>();
+      const started = createDeferred<AbortSignal | undefined>();
+      const lookup = vi.spyOn(API, "getTask").mockImplementation((_id, options) => {
+        started.resolve(options?.signal);
+        return stalled.promise;
+      });
+      const { beginOptimisticActive, refreshTasks, setRefreshScope, setTasks, setStats, setConnected } =
+        useTasksStore.getState();
+      beginOptimisticActive("proj", "character", "A", "voice_sample").settle([oldSample.task_id]);
+      setRefreshScope({ projectName: "proj" });
+
+      vi.useFakeTimers();
+      const previous = refreshTasks();
+      let next: Promise<void> | undefined;
+      try {
+        const signal = await started.promise;
+        setRefreshScope({ projectName: "proj" });
+        expect(signal?.aborted).toBe(false);
+        const resetsScope = transition === "resets the scope";
+        if (resetsScope) {
+          setRefreshScope(null);
+          setTasks([]);
+          setStats(defaultTaskStats);
+          setConnected(false);
+        }
+        expect(signal?.aborted).toBe(resetsScope);
+        setRefreshScope({ projectName: "next" });
+        next = refreshTasks();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(signal?.aborted).toBe(true);
+        expect(useTasksStore.getState().tasks).toEqual([newTask]);
+        expect(useTasksStore.getState().stats).toEqual(stats);
+        expect(useTasksStore.getState().connected).toBe(true);
+        await Promise.all([previous, next]);
+        expect(lookup).toHaveBeenCalledOnce();
+
+        stalled.resolve({ ...oldSample, status: "succeeded" });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(isResourceBusy("character", "proj", "A")).toBe(true);
+      } finally {
+        stalled.resolve(oldSample);
+        await Promise.all([previous, next]);
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("continues refreshing after a missing voice sample lookup times out", async () => {
+    const running = task({
+      task_id: "sample-1",
+      task_type: "voice_sample",
+      media_type: "audio",
+      resource_id: "A",
+      status: "running",
+    });
+    const newer = task({ task_id: "newer", status: "succeeded" });
+    const listSpy = mockFetch();
+    listSpy.mockResolvedValueOnce({ items: [], total: 0, page: 1, page_size: 200 });
+    listSpy.mockResolvedValueOnce({ items: [newer], total: 1, page: 1, page_size: 200 });
+    const pending = createDeferred<TaskItem>();
+    const lookup = vi.spyOn(API, "getTask")
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue(running);
+    const { beginOptimisticActive, refreshTasks, setRefreshScope } = useTasksStore.getState();
+    beginOptimisticActive("proj", "character", "A", "voice_sample").settle([running.task_id]);
+    setRefreshScope({ projectName: "proj" });
+
+    vi.useFakeTimers();
+    const first = refreshTasks();
+    const queued = refreshTasks();
+    try {
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(listSpy).toHaveBeenCalledTimes(2);
+      await Promise.all([first, queued]);
+      expect(lookup.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+      expect(lookup.mock.calls.map(([id]) => id)).toEqual([running.task_id, running.task_id]);
+      expect(useTasksStore.getState().tasks).toEqual([newer]);
+      expect(useTasksStore.getState().connected).toBe(true);
+
+      pending.resolve({ ...running, status: "succeeded" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(isResourceBusy("character", "proj", "A")).toBe(true);
+    } finally {
+      pending.resolve(running);
+      await Promise.all([first, queued]);
+      vi.useRealTimers();
+    }
   });
 });
 

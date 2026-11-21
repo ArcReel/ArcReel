@@ -30,6 +30,24 @@ import { errMsg } from "@/utils/async";
  *  上限取 200 以留出编辑余量。 */
 const VOICE_SAMPLE_TEXT_MAX_LENGTH = 200;
 const VOICE_SAMPLE_TASK_POLL_MS = 2000;
+const VOICE_SAMPLE_LOOKUP_TIMEOUT_MS = 10_000;
+
+async function lookupVoiceSampleTask(taskId: string, signal: AbortSignal): Promise<TaskItem | null> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal.addEventListener("abort", abort, { once: true });
+  const aborted = new Promise<null>((resolve) => {
+    controller.signal.addEventListener("abort", () => resolve(null), { once: true });
+  });
+  const deadline = setTimeout(abort, VOICE_SAMPLE_LOOKUP_TIMEOUT_MS);
+  try {
+    const task = await Promise.race([API.getTask(taskId, { signal: controller.signal }).catch(() => null), aborted]);
+    return controller.signal.aborted ? null : task;
+  } finally {
+    clearTimeout(deadline);
+    signal.removeEventListener("abort", abort);
+  }
+}
 
 interface VoiceOption {
   id: string;
@@ -102,13 +120,13 @@ export function VoiceSampleButton({
     const poll = async () => {
       if (pending) return;
       pending = true;
-      const current = await API.getTask(taskId, { signal: controller.signal }).catch(() => null);
+      const current = await lookupVoiceSampleTask(taskId, controller.signal);
       pending = false;
       if (controller.signal.aborted) return;
       if (current && isTerminalStatus(current.status)) {
         clearInterval(timer);
         setSettledTask(current);
-        useTasksStore.getState().releaseSettledResourceTask(taskId);
+        useTasksStore.getState().settleVoiceSample(current);
       }
     };
     const timer = setInterval(() => void poll(), VOICE_SAMPLE_TASK_POLL_MS);

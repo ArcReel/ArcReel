@@ -6,7 +6,7 @@ import { API } from "@/api";
 import * as generationActions from "@/actions/generation";
 import { ApiRequestError } from "@/api/errors";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { defaultTaskStats, useTasksStore } from "@/stores/tasks-store";
 import { createDeferred } from "@/test/deferred";
 import { makeTask } from "@/test/factories";
 import type { TaskItem } from "@/types";
@@ -61,7 +61,7 @@ describe("VoiceSampleButton", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    useTasksStore.setState(useTasksStore.getInitialState(), true);
     useConfigStatusStore.setState({ availableMediaTypes: [] });
   });
 
@@ -496,6 +496,48 @@ describe("VoiceSampleButton", () => {
     expect(screen.queryByRole("button", { name: "确认并保存" })).not.toBeInTheDocument();
   });
 
+  it("retries a timed-out lookup without unlocking until the retry confirms a terminal state", async () => {
+    const { task, generate } = mockVoiceSampleEnqueue();
+    const stalled = createDeferred<TaskItem>();
+    const retry = createDeferred<TaskItem>();
+    const lookup = vi.spyOn(API, "getTask")
+      .mockReturnValueOnce(stalled.promise)
+      .mockReturnValue(retry.promise);
+
+    render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
+    await openSampleModal();
+    await submitAndEvictSample(task);
+
+    const cancel = screen.getByRole("button", { name: "取消" });
+    const signal = lookup.mock.calls[0]?.[1]?.signal;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_999);
+    });
+    expect(lookup).toHaveBeenCalledOnce();
+    expect(signal?.aborted).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_001);
+    });
+    expect(lookup.mock.calls.map(([id]) => id)).toEqual([task.task_id, task.task_id]);
+    expect(signal?.aborted).toBe(true);
+    expect(lookup.mock.calls[1]?.[1]?.signal?.aborted).toBe(false);
+
+    await act(async () => {
+      stalled.resolve({ ...task, status: "failed", error_message: "旧查询结果" });
+    });
+    expect(cancel).toBeDisabled();
+    expect(screen.getByLabelText("试听文案")).toBeDisabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(generate).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      retry.resolve({ ...task, status: "cancelled" });
+    });
+    expect(cancel).toBeEnabled();
+    expect(screen.getByRole("button", { name: "生成" })).toBeEnabled();
+  });
+
   it("aborts an in-flight task lookup when the sample dialog unmounts", async () => {
     const { task } = mockVoiceSampleEnqueue();
     const pending = createDeferred<TaskItem>();
@@ -521,6 +563,111 @@ describe("VoiceSampleButton", () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(lookup).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { history: "never listed", listedBeforeEviction: false },
+    { history: "evicted while running", listedBeforeEviction: true },
+  ])("keeps a missing sample locked after returning until it settles ($history)", async ({ listedBeforeEviction }) => {
+    const { task, generate } = mockVoiceSampleEnqueue(!listedBeforeEviction);
+    const lookup = vi.spyOn(API, "getTask").mockResolvedValue(task);
+    const newerTasks = Array.from({ length: 200 }, (_, index) => makeTask({
+      task_id: `newer-${index}`,
+      project_name: "demo",
+      status: "succeeded",
+    }));
+    let recent = listedBeforeEviction ? [task] : newerTasks;
+    vi.spyOn(API, "listTasks").mockImplementation(async ({ projectName } = {}) => {
+      const items = projectName === "demo" ? recent : [];
+      return { items, total: items === newerTasks ? 201 : items.length, page: 1, page_size: 200 };
+    });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+
+    const { setRefreshScope, refreshTasks } = useTasksStore.getState();
+    setRefreshScope({ projectName: "demo" });
+    const props = { projectName: "demo", characterName: "艾莉", onSaved: vi.fn() };
+    const { unmount } = render(<VoiceSampleButton {...props} />);
+    await openSampleModal();
+    vi.useFakeTimers();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "生成" }));
+    });
+    expect(lookup).toHaveBeenCalledOnce();
+    lookup.mockClear();
+    await act(refreshTasks);
+    expect(useTasksStore.getState().tasks).toEqual(recent);
+    expect(lookup).toHaveBeenCalledTimes(listedBeforeEviction ? 0 : 1);
+    recent = newerTasks;
+    await act(refreshTasks);
+    expect(useTasksStore.getState().tasks).toEqual(newerTasks);
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    unmount();
+    vi.useRealTimers();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    lookup.mockClear();
+
+    setRefreshScope({ projectName: "other" });
+    await refreshTasks();
+    expect(lookup).not.toHaveBeenCalled();
+
+    setRefreshScope({ projectName: "demo" });
+    await refreshTasks();
+    render(<VoiceSampleButton {...props} />);
+    const entry = screen.getByRole("button", { name: /用 TTS 生成参考音频/ });
+    expect(entry).toBeDisabled();
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(task.task_id, { signal: expect.any(AbortSignal) });
+
+    for (const status of [404, 500]) {
+      lookup.mockRejectedValueOnce(new ApiRequestError("查询任务失败", undefined, status));
+      await act(refreshTasks);
+      expect(entry).toBeDisabled();
+      fireEvent.click(entry);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(generate).toHaveBeenCalledOnce();
+    }
+
+    lookup.mockResolvedValue({ ...task, status: "cancelled" });
+    await act(refreshTasks);
+    expect(entry).toBeEnabled();
+    await openSampleModal();
+    expect(screen.getByRole("button", { name: "生成" })).toBeEnabled();
+  });
+
+  it("keeps confirm enabled when a stale running row arrives after a terminal lookup", async () => {
+    const { task } = mockVoiceSampleEnqueue();
+    const succeeded = {
+      ...task, status: "succeeded" as const, result: { file_path: "audio/voice_sample__艾莉__task-1.wav" },
+    };
+    const lookup = createDeferred<TaskItem>();
+    const list = createDeferred<Awaited<ReturnType<typeof API.listTasks>>>();
+    vi.spyOn(API, "getTask").mockReturnValue(lookup.promise);
+    const listTasks = vi.spyOn(API, "listTasks").mockReturnValueOnce(list.promise);
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+    const { refreshTasks, setRefreshScope } = useTasksStore.getState();
+    setRefreshScope({ projectName: "demo" });
+
+    render(<VoiceSampleButton projectName="demo" characterName="艾莉" onSaved={vi.fn()} />);
+    await openSampleModal();
+    await submitAndEvictSample(task);
+    const refresh = refreshTasks();
+    await act(async () => {
+      lookup.resolve(succeeded);
+    });
+    const confirm = screen.getByRole("button", { name: "确认并保存" });
+    await act(async () => {
+      list.resolve({ items: [task], total: 1, page: 1, page_size: 200 });
+      await refresh;
+    });
+
+    expect(confirm).toBeEnabled();
+    expect(useTasksStore.getState().tasks[0]?.status).toBe("succeeded");
+
+    const assetTask = { ...task, task_id: "asset-task", task_type: "character" };
+    listTasks.mockResolvedValueOnce({
+      items: [succeeded, assetTask], total: 2, page: 1, page_size: 200,
+    });
+    await act(refreshTasks);
+    expect(confirm).toBeDisabled();
   });
 
   it("keeps showing confirm from cached data after the succeeded task row is evicted", async () => {
