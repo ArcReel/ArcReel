@@ -117,7 +117,6 @@ def move_out(layout: DataRootLayout, entry_id: str) -> Path:
     while (layout.projects_dir / candidate).exists():
         candidate, suffix = f"{name}-{suffix}", suffix + 1
     target = layout.projects_dir / candidate
-    # shortcut: 查重与改名之间有极短窗口，POSIX 的 rename 会顶替同一瞬间新建出的空项目目录；出现同名并发恢复/新建的报告时改用项目锁串行。
     try:
         source.rename(target)
     except FileNotFoundError as exc:

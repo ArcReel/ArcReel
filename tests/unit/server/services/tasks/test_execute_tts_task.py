@@ -610,7 +610,6 @@ class TestExecuteTtsTask:
         synthesize = gen.generate_audio_async
 
         async def _voice_changed_during_synthesis(**kwargs):
-            # 合成期间用户在项目设置里改了音色
             pm.project["narration_voice"] = "Ada"
             return await synthesize(**kwargs)
 

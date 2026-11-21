@@ -20,9 +20,7 @@ export interface ProblemView {
   unitId?: string | null;
   /** 出问题的字段路径，如 `generation_settings.audio_backend`。 */
   field?: string | null;
-  /** 已本地化的一句话原因。 */
   summary: string;
-  /** 附加度量，如档位对比。 */
   meta?: string | null;
   /** 已本地化的下一步动作陈述；没有对应文案时为空，不编造。 */
   nextStep?: string | null;
@@ -82,7 +80,6 @@ function problemField(problem: AdmissionProblem): string | null {
   return null;
 }
 
-/** 计划里的提示：单元来自 `unit_id`，原因按问题码本地化，没有服务端原文。 */
 export function problemViews(t: Translate, problems: WorkflowProblem[], keyPrefix = "problem"): ProblemView[] {
   return problems.map((problem, index) => ({
     key: `${keyPrefix}-${problem.code}-${index}`,

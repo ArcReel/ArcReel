@@ -87,9 +87,6 @@ def _resolve_request_artifact_episode(
         )
 
 
-# ==================== 请求模型 ====================
-
-
 class GenerateStoryboardRequest(BaseModel):
     prompt: str | dict
     script_file: str
@@ -123,9 +120,6 @@ class EditImageRequest(BaseModel):
     resource_id: str
     instruction: str
     script_file: str | None = None
-
-
-# ==================== 分镜图生成 ====================
 
 
 @router.post("/projects/{project_name}/generate/storyboard/{segment_id}")
@@ -185,7 +179,6 @@ async def generate_storyboard(
         script_file=req.script_file,
     )
 
-    # 入队
     queue = get_generation_queue()
     result = await queue.enqueue_task(
         project_name=project_name,
@@ -204,9 +197,6 @@ async def generate_storyboard(
         "deduped": result.get("deduped", False),
         "message": _t("storyboard_task_submitted", segment_id=segment_id),
     }
-
-
-# ==================== 视频生成 ====================
 
 
 @router.post("/projects/{project_name}/generate/video/{segment_id}")
@@ -336,9 +326,6 @@ async def generate_video(
         "deduped": result.get("deduped", False),
         "message": _t("video_task_submitted", segment_id=segment_id),
     }
-
-
-# ==================== 旁白配音（TTS）生成 ====================
 
 
 async def _require_audio_provider_configured(project: dict) -> str:
@@ -522,8 +509,6 @@ async def generate_tts_batch(
         "message": message,
     }
 
-
-# ==================== 角色参考音频：TTS 试听样本 ====================
 
 # 试听文案长度粗护栏（与前端 VOICE_SAMPLE_TEXT_MAX_LENGTH 同值）。参考音频要求 2-10 秒，
 # 而「多少字合成出几秒」随语种与音色而变、提交前无法精确判定；此处只挡住整段粘贴导致的
@@ -714,9 +699,6 @@ async def confirm_character_voice_sample(
         "path": saved["path"],
         "url": f"/api/v1/files/{project_name}/{saved['path']}",
     }
-
-
-# ==================== 资产图生成（character / scene / prop / product 共用） ====================
 
 
 # i18n key 命名差异：scene 用历史前缀 "project_scene_*"
@@ -913,9 +895,6 @@ async def generate_product(
         user_id=user.id,
         _t=_t,
     )
-
-
-# ==================== 图片指令式编辑（image edit） ====================
 
 
 async def _require_i2i_image_provider_configured(project: dict) -> str:

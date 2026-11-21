@@ -452,7 +452,6 @@ class TestGenerationWorker:
                 '[dispatch_provider_requeue_failed] {"actual_provider_id": "minimax", "claimed_provider_id": "ark"}',
             )
         ]
-        # 终态写入命中 0 行时任务保持原状，不被改判为打断
         assert queue.interrupted == []
 
     @pytest.mark.asyncio
@@ -707,7 +706,7 @@ class TestGenerationWorker:
 
         t = asyncio.create_task(_long())
         t.cancel()
-        await asyncio.gather(t, return_exceptions=True)  # 驱动到 done(cancelled)，吞掉取消结果
+        await asyncio.gather(t, return_exceptions=True)
         assert t.cancelled()
         worker._slots.register("test", "video", "tid", t)
 
@@ -737,7 +736,7 @@ class TestGenerationWorker:
         worker._slots.register("test", "image", "ok", ok_t)
         worker._slots.register("test", "video", "boom", boom_t)
 
-        await worker._drain_finished_tasks()  # 不抛
+        await worker._drain_finished_tasks()
         assert worker._slots.occupied("test", "image") == 0
         assert worker._slots.occupied("test", "video") == 0
         assert queue.interrupted == []
@@ -760,7 +759,7 @@ class TestGenerationWorker:
 
         t = asyncio.create_task(_long())
         t.cancel()
-        await asyncio.gather(t, return_exceptions=True)  # 驱动到 done(cancelled)，吞掉取消结果
+        await asyncio.gather(t, return_exceptions=True)
         assert t.cancelled()
         worker._slots.register("test", "video", "tid", t)
 
@@ -797,7 +796,6 @@ class TestGenerationWorker:
 
         # _process_task 没机会落终态（打断在 try 之前）→ drain 端兜底
         assert queue.interrupted == ["tid"]
-        # 主循环仍存活
         assert worker._main_task is not None
         assert not worker._main_task.done()
 
@@ -817,7 +815,7 @@ class TestGenerationWorker:
 
         async def _block(_task, **_kwargs):
             started.set()
-            await asyncio.sleep(10)  # 模拟长时间运行的生成任务
+            await asyncio.sleep(10)
 
         monkeypatch.setattr(stub_executors, "generation", _block)
 
@@ -901,13 +899,12 @@ class TestGenerationWorker:
             running.append(t)
 
         await worker.start()
-        await all_entered.wait()  # 等三个任务都进入 execute
+        await all_entered.wait()
 
         for t in running:
             t.cancel()
         await asyncio.gather(*running, return_exceptions=True)
 
-        # 主循环存活 + 三个任务都落终态
         assert worker._main_task is not None
         assert not worker._main_task.done()
         assert set(vid_ids) <= set(queue.interrupted)
@@ -918,7 +915,6 @@ class TestGenerationWorker:
         assert queue.new_dispatched is True
         assert "fresh-img" in worker._slots.active_task_ids()
 
-        # 收尾：放行 fresh-img 后正常停机
         release.set()
         await asyncio.wait_for(worker.stop(), timeout=2.0)
         assert queue.released
@@ -1086,7 +1082,6 @@ class TestGenerationWorker:
 
         worker._recovery.dispatch_resumable = _spy_dispatch
 
-        # 本进程正在执行的两条任务：库里同样是 running。
         busy = asyncio.get_running_loop().create_future()
         worker._slots.register("test", "image", "img-busy", busy)
         worker._slots.register("test", "video", "vid-busy", busy)
@@ -1163,12 +1158,8 @@ class TestGenerationWorker:
         assert worker._slots.occupied("ark", "video") == 1
         assert worker._slots.active_task_ids() == {"img1", "vid1"}
 
-        # Wait for tasks to complete
         await asyncio.gather(*worker._slots.all_active_tasks(), return_exceptions=True)
 
-    # ------------------------------------------------------------------
-    # _pool_full_providers
-    # ------------------------------------------------------------------
     def test_pool_full_providers_sources_from_occupancy_with_cap_guard(self):
         """池满黑名单源 = 有占用的 provider；cap==0 守卫短路降级 lane 的在跑占用。
 
@@ -1185,8 +1176,8 @@ class TestGenerationWorker:
             queue=FakeWorkerQueue(),
             capacity=capacity_table(
                 {
-                    "full": {"image": 1, "video": 0},  # cap=1 占 1 → 满
-                    "roomy": {"image": 2, "video": 0},  # cap=2 占 1 → 有空
+                    "full": {"image": 1, "video": 0},
+                    "roomy": {"image": 2, "video": 0},
                     "downgraded": {"image": 0, "video": 0},  # 占 1 但 cap=0（被 reload 降级）
                 }
             ),
@@ -1206,7 +1197,6 @@ class TestGenerationWorker:
         # 守卫一行都不会跑，测试会"假通过"。
         assert "downgraded" not in full_image, "cap==0 守卫必须短路，不让降级 lane 进黑名单"
 
-        # video lane 无任何占用 → 黑名单为空（无占用就不可能"满"）
         assert worker._pool_full_providers("video") == frozenset()
         loop.close()
 
@@ -1467,7 +1457,6 @@ class TestOrphanOnceAndLeaseFlap:
         async def _spy_scan():
             scan_count.append(1)
 
-        # 替换孤儿扫描入口为 spy，便于精确断言扫描次数
         worker._recovery.handle_orphans = _spy_scan
         return worker, queue, scan_count
 
@@ -1477,7 +1466,6 @@ class TestOrphanOnceAndLeaseFlap:
         worker._owns_lease = True
         worker._orphan_handled_once = False
 
-        # 模拟主循环里那段守卫
         if worker._owns_lease and not worker._orphan_handled_once:
             await worker._recovery.handle_orphans()
             worker._orphan_handled_once = True
@@ -1504,22 +1492,18 @@ class TestOrphanOnceAndLeaseFlap:
         worker, _, scan_count = self._build_worker()
         worker.lease_ttl = 10.0
 
-        # 首次获得 lease 扫一次
         worker._owns_lease = True
         await worker._recovery.handle_orphans()
         worker._orphan_handled_once = True
 
-        # 模拟丢 lease 1 秒后又夺回（短 flap）
         import time as _time
 
         worker._lease_lost_monotonic = _time.monotonic() - 1.0
-        # 应用 _run_loop 中的逻辑片段
         lost_duration = _time.monotonic() - worker._lease_lost_monotonic
         if lost_duration > worker.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
             worker._orphan_handled_once = False
         worker._lease_lost_monotonic = None
 
-        # flap 时长远小于 30s，仍是 handled_once
         assert worker._orphan_handled_once is True
         if worker._owns_lease and not worker._orphan_handled_once:
             await worker._recovery.handle_orphans()

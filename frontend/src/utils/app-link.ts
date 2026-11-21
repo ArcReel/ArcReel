@@ -38,7 +38,6 @@ export function parseSeconds(value: string | null): number | null {
   return Number.isFinite(seconds) ? seconds : null;
 }
 
-/** 取集页路径 `/app/projects/{项目名}/...` 里的项目名并解码；解码失败返回 null。 */
 function decodeProjectSegment(pathname: string): string | null {
   const segment = pathname.split("/")[3] ?? "";
   try {
@@ -48,7 +47,6 @@ function decodeProjectSegment(pathname: string): string | null {
   }
 }
 
-/** 同源且在 `/app` 之下的链接才算应用内链接；其余（含协议相对地址、其他域名）返回 null，由调用方按外链处理。 */
 export function parseAppLink(href: string, origin: string): AppLink | null {
   let url: URL;
   try {

@@ -121,15 +121,12 @@ def test_build_reference_units_split_prompt_contains_constraints_and_candidates(
     assert "李明" in prompt
     assert "酒馆" in prompt
     assert "第 2 集" in prompt
-    # 能力约束：档位集合、总时长上限、references 上限、默认偏好
     assert "4, 6, 8" in prompt
     assert "12 秒" in prompt
     assert "不超过 3 个" in prompt
     assert "默认取 4 秒" in prompt
-    # 关键写作纪律
     assert "@[名称]" in prompt
     assert "外貌" in prompt
-    # script_plan 的内容契约三件：原文锚、台词落位、语速下界
     assert "source_text" in prompt
     assert "口播语速约" in prompt
 

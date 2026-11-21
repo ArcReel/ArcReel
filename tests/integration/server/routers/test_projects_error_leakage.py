@@ -189,7 +189,6 @@ class TestUnexpectedErrorsDoNotLeak:
             assert "/Users" not in resp.text
             assert "/var" not in resp.text
             assert "/secret/" not in resp.text
-            # 回传的是翻译后的通用文案，而非裸异常串
             assert payload["overview_error"] == zh_errors.MESSAGES["overview_generation_failed"]
 
     def test_set_project_source_overview_model_not_in_catalog_guides_reselect(self, tmp_path, monkeypatch):
@@ -309,7 +308,6 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_export_project_archive_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_export_archive"
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
-        # download_token 校验先放行，再让归档服务抛 RuntimeError 落到兜底
         monkeypatch.setattr(projects, "verify_download_token", lambda token, name: {"sub": "u"})
         override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
         with client:
@@ -320,7 +318,6 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_import_project_archive_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_import_archive"
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
-        # 上传副本写盘成功后，_sync 调归档服务抛 RuntimeError，落到 JSONResponse(500) 兜底
         override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
         with client:
             resp = client.post(

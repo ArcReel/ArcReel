@@ -18,7 +18,6 @@ class AgentAnthropicCredential(TimestampMixin, Base):
     __tablename__ = "agent_anthropic_credentials"
     __table_args__ = (
         Index("ix_agent_credential_user", "user_id"),
-        # 每个 user 至多一条 is_active=True
         Index(
             "uq_agent_credential_one_active_per_user",
             "user_id",

@@ -117,9 +117,9 @@ async def test_set_and_delete_bgm_change_only_the_named_clip(service: EditTimeli
 @pytest.mark.parametrize(
     ("operation", "field"),
     [
-        ({"start": 0.5}, "start"),  # 与 b1（0–1 秒）重叠
-        ({"start": 3.0}, "start"),  # 起点在时间线末尾之后
-        ({"start": 1.5, "source_in": 1.5, "source_out": 3}, "source_in/source_out"),  # 出点超过 BGM 时长
+        ({"start": 0.5}, "start"),
+        ({"start": 3.0}, "start"),
+        ({"start": 1.5, "source_in": 1.5, "source_out": 3}, "source_in/source_out"),
         ({"start": 1.5, "volume": 1.5}, "volume"),
     ],
 )

@@ -8,8 +8,6 @@ import type {
 } from "@/types/workflow";
 
 
-/** Shared test factory for `TaskItem`. Defaults model a freshly-queued
- *  reference_video task; callers override fields relevant to each scenario. */
 export function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
   return {
     task_id: "t1",
@@ -35,7 +33,6 @@ export function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
   };
 }
 
-/** 一个最小可用的计划步骤；各用例只覆盖自己关心的轴。 */
 export function makeStep(overrides: Partial<WorkflowPlanStep> = {}): WorkflowPlanStep {
   return {
     id: "video",
@@ -52,7 +49,6 @@ export function makeStep(overrides: Partial<WorkflowPlanStep> = {}): WorkflowPla
   };
 }
 
-/** 一集的内容现状；缺省是有集原文、正式脚本 2 条、提示词都已编写、没有草稿与提醒。 */
 export function makeContent(overrides: Partial<WorkflowContent> = {}): WorkflowContent {
   return {
     episode_count: 1,
@@ -115,7 +111,6 @@ export function makePlan(overrides: Partial<WorkflowPlan> = {}): WorkflowPlan {
   };
 }
 
-/** 一条旁白分镜；默认两侧提示词都是文本形态，各用例按需覆盖为结构化或待编写（null）。 */
 export function makeNarrationSegment(overrides: Partial<NarrationSegment> = {}): NarrationSegment {
   return {
     segment_id: "E1S01",
@@ -132,7 +127,6 @@ export function makeNarrationSegment(overrides: Partial<NarrationSegment> = {}):
   };
 }
 
-/** 服务端逐单元定桶结论的共享构造器；缺省是无引用、落 i2v 的单元，各场景按需覆盖。 */
 export function makeReferenceUnitCapability(
   unitId: string,
   overrides: Partial<ReferenceUnitCapability> = {},
@@ -154,7 +148,6 @@ export function makeReferenceUnitCapability(
   };
 }
 
-/** 覆盖清单条目的共享构造器；缺省是名下没有任何产物的条目。 */
 export function makeScriptOverwriteEntry(
   id: string,
   overrides: Partial<ScriptOverwriteEntry> = {},

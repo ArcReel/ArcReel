@@ -118,7 +118,6 @@ def resolve_project_cover(
             if isinstance(sb, str) and sb:
                 return _url(sb)
 
-    # 项目级资产：scene > character（见模块 docstring 的抉择）
     for data in (project.get("scenes") or {}).values():
         sheet = (data or {}).get("scene_sheet")
         if sheet:

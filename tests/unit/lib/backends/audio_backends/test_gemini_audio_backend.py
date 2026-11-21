@@ -65,7 +65,6 @@ async def test_pcm_is_wrapped_as_wav_matching_rate_and_channels(backend, tmp_pat
         assert (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) == (16000, 2, 2)
         assert wav.readframes(wav.getnframes()) == pcm
     assert (result.provider, result.model, result.text) == ("custom-7", "gemini-3.8-flash-tts", "你好，世界")
-    # 按 token 计价：输入 token 与输出音频 token 取自响应的 usage
     assert (result.input_tokens, result.audio_output_tokens) == (7, 120)
 
 

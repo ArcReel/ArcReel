@@ -23,7 +23,6 @@ from typing import Any
 
 from arcreel_market_core.definition_diagnostics import DefinitionErrorCode, DefinitionIssue, join_path
 
-#: ``auth`` 里唯一承载凭证的变量。
 API_KEY_VARIABLE = "api_key"
 
 #: 合法占位符：``{{ 变量名 }}``，变量名允许点号分段（``inputs.first_frame``）。
@@ -37,7 +36,6 @@ _PLACEHOLDER_OPEN = re.compile(r"\{\{")
 #: 字段这类短静态值不命中；误报的代价只是一条不拦保存的 warning。
 _CREDENTIAL_TOKEN = re.compile(r"[A-Za-z0-9+/_=-]{20,}")
 
-#: ``auth`` 节里的两张表。
 _AUTH_GROUPS = ("headers", "query")
 
 

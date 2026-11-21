@@ -72,7 +72,6 @@ export function PresetIcon({ iconKey, size = 20, className }: Props) {
         if (!cancelled) setLoaded({ key: iconKey, component: m.default });
       })
       .catch(() => {
-        /* fall through to monogram */
       });
     return () => {
       cancelled = true;
@@ -99,7 +98,6 @@ export function PresetIcon({ iconKey, size = 20, className }: Props) {
         <Icon size={size} />
       </span>
     );
-  // Monogram fallback
   const letter = (iconKey?.[0] ?? "?").toUpperCase();
   return (
     <span

@@ -95,10 +95,9 @@ describe("ScriptPreviewPanel", () => {
     renderPanel("中景。\n@[张三]：{我来了}\n{那年冬天格外冷}");
     await vi.advanceTimersByTimeAsync(500);
 
-    // 每条 utterance 一行：序号 + 说话人（画外音无名） + 正文
     expect(await screen.findByText("第 1 句")).toBeInTheDocument();
     expect(screen.getByText("第 2 句")).toBeInTheDocument();
-    expect(screen.getAllByText("我来了")).toHaveLength(2); // 本地高亮 + 服务端派生行
+    expect(screen.getAllByText("我来了")).toHaveLength(2);
     expect(screen.getAllByText("那年冬天格外冷")).toHaveLength(2);
   });
 

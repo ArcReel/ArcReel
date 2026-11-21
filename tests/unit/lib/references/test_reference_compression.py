@@ -67,17 +67,11 @@ def _fmt(data: bytes) -> str:
         return (img.format or "").upper()
 
 
-# ── 常量一致性 ──────────────────────────────────────────────────────────────
-
-
 def test_default_constants_match_service():
     from lib.config import service
 
     assert DEFAULT_TOTAL_MAX_BYTES == service.DEFAULT_REFERENCE_TOTAL_MAX_BYTES
     assert DEFAULT_SINGLE_MAX_BYTES == service.DEFAULT_REFERENCE_SINGLE_MAX_BYTES
-
-
-# ── compress_single_at_step ─────────────────────────────────────────────────
 
 
 def test_array_step0_scales_to_2048():
@@ -94,13 +88,13 @@ def test_array_floor_step_scales_to_1024():
 
 
 def test_array_step0_passthrough_small_jpeg():
-    raw = _solid_jpeg_bytes(800, 600)  # 已是 JPEG、小、尺寸合规
+    raw = _solid_jpeg_bytes(800, 600)
     out = compress_single_at_step(raw, RefRole.ARRAY, 0, single_max_bytes=DEFAULT_SINGLE_MAX_BYTES)
-    assert out is raw  # 原样透传，不二压
+    assert out is raw
 
 
 def test_array_step0_png_is_reencoded():
-    raw = _solid_png_bytes(800, 600)  # 重格式 → 不透传
+    raw = _solid_png_bytes(800, 600)
     out = compress_single_at_step(raw, RefRole.ARRAY, 0, single_max_bytes=DEFAULT_SINGLE_MAX_BYTES)
     assert out != raw
     assert _fmt(out) == "JPEG"
@@ -135,9 +129,6 @@ def test_frame_over_single_budget_reencoded_no_resize():
     assert _dims(out) == (2048, 2048)
 
 
-# ── select_ladder_step ──────────────────────────────────────────────────────
-
-
 def test_ladder_fits_at_step0():
     raws = [_solid_jpeg_bytes(512, 512)]
     landed, out = select_ladder_step(raws, [RefRole.ARRAY], PayloadLimits(), start_step=0)
@@ -148,7 +139,6 @@ def test_ladder_fits_at_step0():
 def test_ladder_downgrades_when_over_total():
     raw = _noise_jpeg_bytes(2048, 2048)
     size0 = len(compress_single_at_step(raw, RefRole.ARRAY, 0, single_max_bytes=DEFAULT_SINGLE_MAX_BYTES))
-    # total 卡在 step0 体积之下 → 必须至少降一档
     limits = PayloadLimits(total_max_bytes=size0 - 1, single_max_bytes=DEFAULT_SINGLE_MAX_BYTES)
     landed, out = select_ladder_step([raw], [RefRole.ARRAY], limits, start_step=0)
     assert landed >= 1
@@ -170,7 +160,6 @@ def test_ladder_floor_error_has_code():
 
 def test_ladder_single_over_budget_raises_floor():
     raw = _noise_jpeg_bytes(2048, 2048)
-    # total 充裕但 single=1 → effective_single=1，floor 仍超 → 抛 floor
     limits = PayloadLimits(total_max_bytes=DEFAULT_TOTAL_MAX_BYTES, single_max_bytes=1)
     with pytest.raises(ReferencePayloadFloorError):
         select_ladder_step([raw], [RefRole.ARRAY], limits, start_step=0)
@@ -180,12 +169,12 @@ def test_ladder_frame_over_single_does_not_floor():
     # 单张大 FRAME 超 single 预算但仍 ≤ total：FRAME 不参与 single 硬门控 → 不在 provider
     # 被调前 floor 掉（交被动 413 兜底），只要不超 total 就放行（会重编码但不缩尺寸、不抛）。
     raw = _noise_jpeg_bytes(2048, 2048)
-    single = len(raw) - 1  # 强制超 single → FRAME 会重编码（但不 floor）
+    single = len(raw) - 1
     limits = PayloadLimits(total_max_bytes=DEFAULT_TOTAL_MAX_BYTES, single_max_bytes=single)
     landed, out = select_ladder_step([raw], [RefRole.FRAME], limits, start_step=0)
     assert landed == 0
     assert len(out) == 1
-    assert _dims(out[0]) == (2048, 2048)  # 永不缩尺寸
+    assert _dims(out[0]) == (2048, 2048)
 
 
 def test_ladder_frame_over_total_still_floors():
@@ -200,16 +189,13 @@ def test_ladder_start_step_respected():
     raws = [_solid_jpeg_bytes(512, 512)]
     landed, _ = select_ladder_step(raws, [RefRole.ARRAY], PayloadLimits(), start_step=2)
     assert landed >= 2
-    assert landed == 2  # 小图在 prompt_authoring 即满足，不再下压
+    assert landed == 2
 
 
 def test_ladder_empty_input():
     landed, out = select_ladder_step([], [], PayloadLimits(), start_step=3)
     assert landed == 3
     assert out == []
-
-
-# ── compressed_reference_payload ────────────────────────────────────────────
 
 
 def _write(tmp_path: Path, name: str, data: bytes) -> Path:
@@ -233,10 +219,8 @@ def test_payload_writes_and_cleans_tempfiles(tmp_path: Path):
         for r in refs:
             assert r.path.exists()
             written.append(r.path)
-    # 退出后临时文件清理
     for p in written:
         assert not p.exists()
-    # 源文件未被改动
     assert a.exists()
     assert b.exists()
 
@@ -266,7 +250,6 @@ def test_payload_passthrough_non_local_source_no_raise(tmp_path: Path):
         assert len(refs) == 2
         # 透传项保留原路径、序位不变（[图N] 对齐）
         assert refs[1].path == missing
-        # 可压缩项写成临时文件
         assert refs[0].path != real
         assert refs[0].path.exists()
 
@@ -312,8 +295,8 @@ def test_payload_reencoded_tempfile_preserves_source_stem(tmp_path: Path):
     src = _write(tmp_path, "张三.png", _solid_png_bytes(800, 600))
     specs = [ReferenceSpec(source=src, role=RefRole.ARRAY)]
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (_landed, refs):
-        assert refs[0].path != src  # 是临时副本
-        assert refs[0].path.stem == "张三"  # 但保留源 stem
+        assert refs[0].path != src
+        assert refs[0].path.stem == "张三"
         assert refs[0].path.suffix == ".jpg"
 
 
@@ -340,4 +323,4 @@ def test_payload_truncated_image_passthrough_no_raise(tmp_path: Path):
     src = _write(tmp_path, "truncated.jpg", truncated)
     specs = [ReferenceSpec(source=src, role=RefRole.ARRAY)]
     with compressed_reference_payload(specs, limits=PayloadLimits()) as (_landed, refs):
-        assert refs[0].path == src  # 透传，不 raise
+        assert refs[0].path == src

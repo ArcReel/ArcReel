@@ -74,7 +74,6 @@ class ProtectedWriteRule:
     #: hook 层谓词：``(target, bases) -> 是否命中``。target 由 caller 分别以「逻辑目标」与
     #: 「resolve 后目标」各调一次，bases 为 raw + resolved 两种形式的 project_cwd。
     matches: Callable[[Path, list[Path]], bool]
-    #: hook 层拒绝文案（须指明改用哪条合法通道）。
     deny_message: str
     #: sandbox denyWrite 投影：相对 project_cwd base 的子路径（目录即整子树 deny）。
     sandbox_subpaths: tuple[str, ...]
@@ -107,7 +106,6 @@ class AgentAccessPolicy:
     agent_profile_root: Path
     # False 表示内核沙箱不支持当前平台（目前仅 Windows）——Bash 走代码白名单回退。
     sandbox_enabled: bool = True
-    # SandboxSettings.enableWeakerNestedSandbox 标志。
     in_docker: bool = False
     # SDK 存放 per-project 会话数据的基准目录（tool-results 读放行例外的基准）。
     claude_projects_dir: Path = field(default_factory=_default_claude_projects_dir)
@@ -256,7 +254,6 @@ class AgentAccessPolicy:
         except (ValueError, OSError):
             return False, "访问被拒绝：无效的文件路径"
 
-        # 规则 0: 敏感文件强制拒绝
         if self.is_sensitive_path(resolved):
             return False, f"访问被拒绝：敏感文件不可访问 ({resolved})"
 
@@ -641,17 +638,14 @@ class AgentAccessPolicy:
         # SDK 后台任务输出例外（前缀计算见 _sdk_tmp_prefixes，实例内缓存一次）。
         if str(resolved).startswith(self._sdk_tmp_prefixes) and "tasks" in resolved.parts:
             return True, None
-        # 数据根内：当前项目与当前用户的记忆已在上面放行，其余一律拒
         if self._is_within_for_compare(resolved, self._layout.projects_dir):
             return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
         if self._is_within_for_compare(resolved, self.data_root):
             return False, (f"访问被拒绝：数据根内只能读取当前项目与你的记忆 ({resolved})")
         if is_search and self._is_within_for_compare(self.data_root, resolved):
             return False, (f"访问被拒绝：搜索范围包含数据根，请缩小到当前项目或具体的参考资料目录 ({resolved})")
-        # 仓库根内的参考资料（lib/docs/agent_runtime_profile 等）放行
         if resolved.is_relative_to(self.project_root):
             return True, None
-        # 其余路径（host 文件系统：~/.ssh、/etc 等）默认拒
         return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
 
     def _check_write_access(

@@ -21,7 +21,6 @@ interface PendingConfirmation {
   changed: boolean;
 }
 
-/** 清单里有会标 stale、退下或移除的集时按危险操作确认。 */
 function isDanger(impact: SourceFileImpact | undefined): boolean {
   if (!impact) return false;
   return impact.changed_with_products.length + impact.retired.length + impact.removed.length > 0;

@@ -23,7 +23,6 @@ from arcreel_market_core.validation_messages import Translator, ValidationMessag
 #: 诊断消息键的统一前缀：``code`` 与消息键一一对应，新增码必须同步三种语言的消息。
 MESSAGE_KEY_PREFIX = "val_ce_"
 
-#: 定义内的根路径。
 ROOT_PATH = "$"
 
 
@@ -35,7 +34,6 @@ class DefinitionErrorCode(StrEnum):
     的交叉判定）。结构层与占位符作用域两段由两种 kind 共用。warning 码单列在末尾。
     """
 
-    # ---- 结构层 ----
     MISSING_FIELD = "missing_field"
     UNKNOWN_FIELD = "unknown_field"
     REMOVED_FIELD = "removed_field"
@@ -44,7 +42,6 @@ class DefinitionErrorCode(StrEnum):
     INVALID_VALUE = "invalid_value"
     SCHEMA_VIOLATION = "schema_violation"
 
-    # ---- 占位符作用域 ----
     MALFORMED_PLACEHOLDER = "malformed_placeholder"
     UNDECLARED_VARIABLE = "undeclared_variable"
     API_KEY_OUTSIDE_AUTH = "api_key_outside_auth"
@@ -57,7 +54,6 @@ class DefinitionErrorCode(StrEnum):
     RESULT_ID_OUT_OF_SCOPE = "result_id_out_of_scope"
     RESULT_ID_WITHOUT_EXTRACT = "result_id_without_extract"
 
-    # ---- 素材与展开构造 ----
     INPUT_OUT_OF_SCOPE = "input_out_of_scope"
     LIST_INPUT_REQUIRES_EACH = "list_input_requires_each"
     EACH_IN_NOT_LIST_INPUT = "each_in_not_list_input"
@@ -67,7 +63,6 @@ class DefinitionErrorCode(StrEnum):
     WHEN_UNKNOWN_INPUT = "when_unknown_input"
     INPUT_NOT_REFERENCED = "input_not_referenced"
 
-    # ---- 字典与能力 ----
     ENUM_MAP_VARIABLE_NOT_ALLOWED = "enum_map_variable_not_allowed"
     DEFAULT_VARIABLE_NOT_ALLOWED = "default_variable_not_allowed"
     DEFAULT_VALUE_TYPE_INVALID = "default_value_type_invalid"
@@ -78,11 +73,9 @@ class DefinitionErrorCode(StrEnum):
     CAPABILITY_INCOHERENT = "capability_incoherent"
     CAPABILITY_NOT_DECLARED = "capability_not_declared"
 
-    # ---- 媒体类型 ----
     MEDIA_TYPE_FIELD_NOT_ALLOWED = "media_type_field_not_allowed"
     ARTIFACT_EXTRACT_MISSING = "artifact_extract_missing"
 
-    # ---- JSONPath 子集 ----
     JSONPATH_NOT_A_STRING = "jsonpath_not_a_string"
     JSONPATH_SURROUNDING_WHITESPACE = "jsonpath_surrounding_whitespace"
     JSONPATH_MISSING_ROOT = "jsonpath_missing_root"
@@ -96,7 +89,6 @@ class DefinitionErrorCode(StrEnum):
     JSONPATH_SYNTAX = "jsonpath_syntax"
     JSONPATH_EVALUATION_FAILED = "jsonpath_evaluation_failed"
 
-    # ---- 渲染期（端点测试按同一份诊断结构下发）----
     TEMPLATE_RENDER_FAILED = "template_render_failed"
     TEMPLATE_URL_NOT_STRING = "template_url_not_string"
     UNKNOWN_ASSET_ENCODING = "unknown_asset_encoding"
@@ -105,7 +97,6 @@ class DefinitionErrorCode(StrEnum):
     EACH_VALUE_NOT_LIST = "each_value_not_list"
     EACH_KEY_DUPLICATE = "each_key_duplicate"
 
-    # ---- ComfyUI 节点绑定 ----
     COMFYUI_BINDING_REQUIRED = "comfyui_binding_required"
     COMFYUI_BINDING_KEY_NOT_ALLOWED = "comfyui_binding_key_not_allowed"
     COMFYUI_NODE_NOT_FOUND = "comfyui_node_not_found"
@@ -116,10 +107,8 @@ class DefinitionErrorCode(StrEnum):
     COMFYUI_CONSUMER_NOT_FED = "comfyui_consumer_not_fed"
     COMFYUI_FPS_CONFLICT = "comfyui_fps_conflict"
 
-    # ---- ComfyUI 导入分流 ----
     COMFYUI_UI_FORMAT_WORKFLOW = "comfyui_ui_format_workflow"
 
-    # ---- warning ----
     POLL_WITHOUT_TASK_ID = "poll_without_task_id"
     JSONPATH_WILDCARD_ORDER = "jsonpath_wildcard_order"
     AUTH_LITERAL_CREDENTIAL = "auth_literal_credential"

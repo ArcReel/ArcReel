@@ -288,7 +288,6 @@ OWNER_REPO=$(gh api 'repos/{owner}/{repo}' --jq .full_name 2>"$WORKDIR/gh_repo_v
 
 SNAPSHOT_FILE=$(snapshot_file_for "$OWNER_REPO" "$PR")
 
-# REST PR metadata; with the list endpoints below it is reshaped into main.json.
 gh api "repos/${OWNER_REPO}/pulls/${PR}" > "$WORKDIR/pr.json" 2>"$WORKDIR/gh_pr.err" || {
   echo "POLL_ERROR: REST PR $PR fetch failed" >&2
   cat "$WORKDIR/gh_pr.err" >&2
@@ -341,7 +340,6 @@ done < <(
     | .id' "$WORKDIR/sub_a.json"
 )
 
-# Sub-query C — REST inline review comments on the PR diff (severity tags live here).
 rest_pages "repos/${OWNER_REPO}/pulls/${PR}/comments" > "$WORKDIR/sub_c.json" 2>"$WORKDIR/gh_pr_comments.err" || {
   echo "POLL_ERROR: REST PR review comments fetch failed" >&2
   cat "$WORKDIR/gh_pr_comments.err" >&2
@@ -396,8 +394,6 @@ jq -n --slurpfile pr "$WORKDIR/pr.json" --slurpfile reviews "$WORKDIR/sub_c2.jso
 
 GENERATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Seen ledger (PITFALL 6). Stage the previous poll's ledger for pass 1; a missing or
-# unparsable ledger stages as null, which switches fresh() to the timestamp-only rule.
 SEEN_FILE="${SNAPSHOT_FILE%.json}.seen.json"
 if [[ -f "$SEEN_FILE" ]] && jq -e -s 'length == 1 and (.[0] | type == "array")' "$SEEN_FILE" >/dev/null 2>&1; then
   cp "$SEEN_FILE" "$WORKDIR/seen.json"
@@ -405,9 +401,6 @@ else
   printf 'null' > "$WORKDIR/seen.json"
 fi
 
-# Round ledger (PITFALL 8). A missing ledger is the pre-first-mark norm (0 rounds, no
-# watermark); an unreadable or empty one is not — the count is the convergence budget, so a
-# corrupt ledger fails loudly (`jq -e` exits 4 on empty input) instead of resetting it.
 ROUNDS_FILE="${SNAPSHOT_FILE%.json}.rounds.json"
 ROUNDS=0
 LAST_MARKED_AT=""

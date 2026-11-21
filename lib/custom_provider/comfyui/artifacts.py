@@ -48,11 +48,9 @@ ARTIFACT_CONTAINERS_BY_MEDIA_TYPE: Mapping[str, frozenset[str]] = {
 #: history 条目里可能挂产物的三个键。只读这三个，且只读 ``output`` 绑定的那个节点。
 _ARTIFACT_KEYS = ("images", "gifs", "audio")
 
-#: ``status.messages`` 里表示这次执行没能出片的两个事件名。
 _EXECUTION_ERROR_EVENT = "execution_error"
 _EXECUTION_INTERRUPTED_EVENT = "execution_interrupted"
 
-#: 认不出出错节点时 ``comfyui_execution_error`` 的 ``node`` 占位值。
 _UNKNOWN_NODE = "-"
 
 

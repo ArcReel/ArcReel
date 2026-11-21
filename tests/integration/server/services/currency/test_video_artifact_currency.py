@@ -106,7 +106,6 @@ async def test_shared_video_completion_returns_nonselected_paid_history_without_
 
     assert result["selected_current"] is False
     assert (project_path / str(result["file_path"])).read_bytes() == b"paid"
-    # 分镜视频没有提示时，结果不带 warnings 这一键。
     assert "warnings" not in result
     finalize.assert_not_awaited()
     completed.assert_called_once_with()

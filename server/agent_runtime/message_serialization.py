@@ -11,7 +11,6 @@ from uuid import uuid4
 
 from server.agent_runtime.models import SessionStatus
 
-# SDK message class name to type mapping
 MESSAGE_TYPE_MAP = {
     "UserMessage": "user",
     "AssistantMessage": "assistant",
@@ -24,7 +23,6 @@ MESSAGE_TYPE_MAP = {
     "ConversationResetMessage": "conversation_reset",
 }
 
-# Typed task message subtypes for precise classification
 TASK_MESSAGE_SUBTYPES = {
     "TaskStartedMessage": "task_started",
     "TaskProgressMessage": "task_progress",
@@ -52,11 +50,9 @@ def serialize_value(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
 
-    # Dataclasses or objects with __dict__
     if hasattr(value, "__dict__"):
         return {k: serialize_value(v) for k, v in value.__dict__.items() if not k.startswith("_")}
 
-    # Fallback: convert to string
     return str(value)
 
 
@@ -85,13 +81,11 @@ def message_to_dict(message: Any) -> dict[str, Any]:
     """Convert SDK message to dict for JSON serialization."""
     msg_dict = serialize_value(message)
 
-    # Infer and add message type if not present
     if isinstance(msg_dict, dict) and "type" not in msg_dict:
         msg_type = infer_message_type(message)
         if msg_type:
             msg_dict["type"] = msg_type
 
-    # Inject precise subtype for typed task messages
     if isinstance(msg_dict, dict):
         class_name = type(message).__name__
         subtype = TASK_MESSAGE_SUBTYPES.get(class_name)

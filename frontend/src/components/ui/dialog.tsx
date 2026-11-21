@@ -91,14 +91,12 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      // 不随 Body 滚动；右侧给关闭按钮留位
       className={cn("flex shrink-0 flex-col gap-1.5 border-b px-5 py-4 pr-12", className)}
       {...props}
     />
   )
 }
 
-// 本地新增：弹层里唯一的滚动区，内容超高时只有它滚动
 function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div

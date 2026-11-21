@@ -208,7 +208,6 @@ export function DeletedProjectsDialog({ open, onClose, onRestored }: DeletedProj
   );
 }
 
-/** 彻底删除已删除项目的二次确认：不可恢复。`project` 为 null 时关闭。 */
 function PurgeDeletedProjectDialog({
   project,
   title,

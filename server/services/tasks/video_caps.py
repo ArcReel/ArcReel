@@ -286,7 +286,6 @@ async def resolve_audio_switch_conflict(project: dict, generation_type: VideoGen
 
     判据读指定桶的视频请求事实。解析失败仍放行，由其他能力预检处理。
     """
-    # 模块级绑定在导入时就固化了 factory；这里延迟到调用时从 lib.db 取，测试才能替换它。
     from lib.db import async_session_factory
 
     resolver = ConfigResolver(async_session_factory)

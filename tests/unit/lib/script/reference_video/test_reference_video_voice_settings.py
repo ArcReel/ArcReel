@@ -44,10 +44,10 @@ def test_from_caps_degrades_to_soft_on_unresolvable_capabilities():
 @pytest.mark.parametrize(
     ("voice_consistency", "requested_generate_audio", "expected"),
     [
-        ("none", True, True),  # 模型不产音
-        ("native", False, True),  # 本集关闭音频
+        ("none", True, True),
+        ("native", False, True),
         ("soft", False, True),  # 软约束档同样受本集开关支配
-        ("none", False, True),  # 两条路径叠加
+        ("none", False, True),
         ("native", True, False),
         ("soft", True, False),
     ],

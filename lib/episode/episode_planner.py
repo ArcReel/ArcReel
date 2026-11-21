@@ -171,7 +171,7 @@ class LedgerStats:
     """
 
     total_episodes: int
-    smallest: list[tuple[int, int]]  # (集号, 体量) 体量最小的最多 5 集，按体量升序
+    smallest: list[tuple[int, int]]
     median_units: int | None
     target_volume: EpisodeTargetVolume | None
 
@@ -285,23 +285,23 @@ class _DraftRejected(Exception):
 # 全/半角标点折叠表：把同一标点的全角 / 表意形态映射到半角规范形，仅供匹配时构造
 # 折叠副本用，绝不落库。逐字符 1:1 映射（长度不变），折叠坐标即 NFC 精确坐标。
 _PUNCT_FOLD: dict[str, str] = {
-    "。": ".",  # U+3002 表意句号
-    "．": ".",  # U+FF0E 全角句点
-    "，": ",",  # U+FF0C 全角逗号
-    "！": "!",  # U+FF01 全角叹号
-    "？": "?",  # U+FF1F 全角问号
-    "：": ":",  # U+FF1A 全角冒号
-    "；": ";",  # U+FF1B 全角分号
-    "（": "(",  # U+FF08 全角左括号
-    "）": ")",  # U+FF09 全角右括号
-    "～": "~",  # U+FF5E 全角波浪号
+    "。": ".",
+    "．": ".",
+    "，": ",",
+    "！": "!",
+    "？": "?",
+    "：": ":",
+    "；": ";",
+    "（": "(",
+    "）": ")",
+    "～": "~",
     "〜": "~",  # U+301C CJK 波浪号（与 U+FF5E 同族，一并折向半角 ~）
-    "“": '"',  # U+201C 左弯双引号
-    "”": '"',  # U+201D 右弯双引号
-    "‘": "'",  # U+2018 左弯单引号
-    "’": "'",  # U+2019 右弯单引号
-    "＂": '"',  # U+FF02 全角直双引号
-    "＇": "'",  # U+FF07 全角直单引号
+    "“": '"',
+    "”": '"',
+    "‘": "'",
+    "’": "'",
+    "＂": '"',
+    "＇": "'",
 }
 # 折叠值必须是单字符：_fold_for_match 的逐字符 1:1 等长依赖于此。一旦某条映射折成多字符，
 # 折叠串偏移就相对 NFC 原文漂移，end = start + len(anchor) 会算出错误切点。导入期即拦截违例。
@@ -368,10 +368,10 @@ def _resolve_boundaries(
     ends: list[int] = []
     pos = 0
     ordering_valid = True
-    folded_window: str | None = None  # 懒构造：仅在精确匹配落空时折叠一次
+    folded_window: str | None = None
     for idx, ep in enumerate(drafts, start=1):
         anchor = ep.end_anchor
-        match_len = len(anchor)  # 精确命中：跨度即原 anchor 长度（与 window 逐字节一致）
+        match_len = len(anchor)
         starts = _find_all_overlapping(window, anchor)
         matched_by_fold = False
         if not starts:
@@ -524,8 +524,6 @@ class EpisodePlanner:
         generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name, purpose=CallPurpose.EPISODE_PLANNING)
         return await asyncio.to_thread(cls, project_path, generator)
 
-    # ---------------------------------------------------------------- plan
-
     async def plan(
         self,
         instructions: str | None = None,
@@ -581,7 +579,6 @@ class EpisodePlanner:
         text = next(doc.text for doc in pre_call_sources if doc.rel_path == source_rel)
         if start > len(text):
             raise EpisodePlanningError(f"规划起点越界：{source_rel} 长度 {len(text)}，起点 {start}；请检查账本")
-        # 规划在当前文件里的终点：规划空段时是空段结尾，否则是文件末尾
         limit = len(text) if gap is None else gap[1]
         while not text[start:limit].strip():
             next_rel = None if gap is not None else _next_source_rel(source_order, source_rel)
@@ -612,7 +609,7 @@ class EpisodePlanner:
         context_entries = (
             _context_entries(project) if gap is None else _gap_context_entries(project, pre_call_sources, start_ref)
         )
-        pre_call_sources = []  # 之后只需 used_fingerprints（摘要）与本批实际使用的 text，显式释放原文引用
+        pre_call_sources = []
 
         window = _Window(
             source_rel=source_rel,
@@ -739,8 +736,6 @@ class EpisodePlanner:
             ledger_stats=await asyncio.to_thread(self._compute_ledger_stats, final_project) if exhausted else None,
         )
 
-    # ------------------------------------------------------------ candidate
-
     async def plan_candidate(
         self,
         candidate_id: str,
@@ -791,7 +786,7 @@ class EpisodePlanner:
             {"episode": index, "title": entry.get("title"), "hook": entry.get("hook")}
             for index, entry in enumerate([*before, *drafted], start=1)
         ]
-        sources = []  # 之后只需本批实际使用的 text，显式释放原文引用
+        sources = []
 
         window = _Window(
             source_rel=source_rel,
@@ -929,8 +924,6 @@ class EpisodePlanner:
         if on_more_to_plan is not None and window_reaches_end and window_text[ends[-1] :].strip():
             await on_more_to_plan()
         return drafts, ends
-
-    # ------------------------------------------------------------- helpers
 
     async def _request_validated_drafts(
         self,

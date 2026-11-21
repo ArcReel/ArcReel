@@ -339,7 +339,6 @@ function SwitchRow({ label, checked, onChange }: { label: string; checked: boole
   );
 }
 
-// ---- 条件标签 ----
 
 interface ConditionTagProps {
   meter: PriceMeter;
@@ -488,7 +487,6 @@ function parseDimensionText(kind: "label" | "tier" | "seconds", text: string): D
   return kind === "tier" ? (parsed >= 0 ? parsed : null) : parsed > 0 ? parsed : null;
 }
 
-// ---- 数字输入 ----
 
 interface NumberFieldProps {
   value: number | null;

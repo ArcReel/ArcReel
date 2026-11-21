@@ -4,14 +4,12 @@ import { API, ApiRequestError } from "@/api";
 import type { ScriptOverwrite, ScriptReviewState } from "@/types";
 import { useAppStore } from "@/stores/app-store";
 
-/** 面板可编辑的草稿：`ScriptReviewState.content` 的某个变体。 */
 type ScriptReviewContent = NonNullable<ScriptReviewState["content"]>;
 
 function scriptReviewErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : "";
 }
 
-/** 确认被拒是因为该集已有正式脚本、未认可覆盖时，取出服务端列出的覆盖后果。 */
 function overwriteFromError(err: unknown): ScriptOverwrite | null {
   if (!(err instanceof ApiRequestError) || err.status !== 409) return null;
   const diagnostic = err.diagnostic;
@@ -20,7 +18,6 @@ function overwriteFromError(err: unknown): ScriptOverwrite | null {
   return overwrite != null && typeof overwrite === "object" ? (overwrite as ScriptOverwrite) : null;
 }
 
-/** 保存被拒是因为脚本规划已确认、只读。 */
 function isScriptPlanConfirmedError(err: unknown): boolean {
   if (!(err instanceof ApiRequestError) || err.status !== 409) return false;
   const diagnostic = err.diagnostic;
@@ -55,11 +52,9 @@ interface ScriptReviewDraftOptions<TDraft extends ScriptReviewContent> {
 }
 
 interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
-  /** 最近一次拉取到的服务端审核态；尚未拿到任何响应时为 null。 */
   state: ScriptReviewState | null;
   draft: TDraft | null;
   setDraft: React.Dispatch<React.SetStateAction<TDraft | null>>;
-  /** 草稿与其所基于的服务端内容不一致，即有未保存编辑。 */
   dirty: boolean;
   loading: boolean;
   loadError: { message: string } | null;
@@ -68,7 +63,6 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
   /** 保存 / 确认请求在途：调用方据此锁住编辑控件，避免回显覆盖请求发出后的新编辑。 */
   busy: boolean;
   retry: () => void;
-  /** 静默重新拉取服务端审核态（草稿被采用或丢弃后，正式内容与草稿信息都已变化）。 */
   refresh: () => void;
   save: () => Promise<void>;
   /**
@@ -79,11 +73,6 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
   confirm: (options?: { overwriteRevision?: string }) => Promise<boolean>;
 }
 
-/**
- * script_plan → prompt_authoring 内容确认面板的草稿状态机：拉取 / 外部刷新 / 脏标记 / 采纳 / 保存 / 确认。
- * `ScriptReviewGate`（drama、narration）与 `ReferenceScriptPlanPreviewPanel`（reference_video）
- * 共用，面板只保留各自的呈现与专属交互。
- */
 export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   projectName,
   episode,
@@ -116,7 +105,6 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     dirtyRef.current = dirty;
   }, [dirty]);
 
-  // 在途拉取的 controller 与在途标记，供 adopt 作废与补拉判定。
   const loadControllerRef = useRef<AbortController | null>(null);
   const loadInFlightRef = useRef(false);
 
@@ -155,7 +143,6 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     const { signal } = controller;
     loadControllerRef.current = controller;
     loadInFlightRef.current = true;
-    // 已拿到过任一响应（空态或内容态）后，revision 触发的重新拉取静默刷新、不闪加载态；
     const hadResponse = state != null;
     // 屏上有真实内容可保留时，刷新失败静默保留、不破坏用户视图；无内容（首屏，或空态）时失败才进错误态。
     const hasContent = draft != null;
@@ -176,8 +163,6 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       })
       .catch((err: unknown) => {
         if (signal.aborted) return;
-        // 屏上无真实内容（首屏失败，或空态后 revision 刷新失败）→ 错误态（区别于空态）+ 重试；
-        // 已有内容的静默刷新失败则保留现有内容，不破坏用户视图。
         if (!hasContent) setLoadError({ message: scriptReviewErrorMessage(err) });
       })
       .finally(() => {
@@ -200,7 +185,6 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       adopt(await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint));
       pushToast(t("dashboard:review_saved"), "success");
     } catch (err) {
-      // 编辑期间该集已被确认：重新拉取，面板随之转为只读。
       if (isScriptPlanConfirmedError(err)) setReloadNonce((n) => n + 1);
       pushToast(scriptReviewErrorMessage(err) || t("dashboard:save_failed", { message: "" }), "error");
     } finally {

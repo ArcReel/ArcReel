@@ -36,7 +36,7 @@ class _EpubFormatError(Exception):
 
 @dataclass(frozen=True)
 class _ManifestItem:
-    path: str  # zip 内的规范化路径
+    path: str
     media_type: str
     properties: frozenset[str]
 

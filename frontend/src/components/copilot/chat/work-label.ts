@@ -32,7 +32,6 @@ export type ToolInput = Record<string, unknown>;
 /** 成功不加标记；运行中与已停止只在会话仍在跑或已终结时区分。 */
 export type WorkStatus = "running" | "ok" | "error" | "stopped";
 
-/** 工序块：一轮回复里连续的工序排成紧凑的一列，正文之间才留段距。 */
 export function isWorkBlock(block: ContentBlock): boolean {
   return (
     block.type === "tool_use" ||
@@ -45,11 +44,9 @@ export function isWorkBlock(block: ContentBlock): boolean {
 
 export interface BlockSegment {
   work: boolean;
-  /** 段内的块与它在原内容里的位置。 */
   items: Array<{ block: ContentBlock; index: number }>;
 }
 
-/** 按工序分段：连续的工序合成一段，其余块各自成段。 */
 export function segmentWorkBlocks(blocks: ContentBlock[]): BlockSegment[] {
   const segments: BlockSegment[] = [];
   blocks.forEach((block, index) => {
@@ -89,17 +86,14 @@ function fileName(path: string): string {
 /** 摘要片段的格式化工具，按当前语言与项目的集清单生成。 */
 export interface SummaryFormat {
   text: (value: unknown) => string;
-  /** 路径只留最后两段。 */
   path: (value: unknown) => string;
   /** 集 ID → 集名（标题，没有标题时是播出位置）。 */
   episode: (value: unknown) => string;
   /** 剧本文件名 → 所属集的集名；不在集清单里时显示文件名。 */
   script: (value: unknown) => string;
-  /** 条目 ID → 「集名 · S01」。 */
   item: (value: unknown) => string;
   /** 一组条目 ID：同一集时写「集名 · S01、S02」，超过三个只列前三个。 */
   items: (value: unknown) => string;
-  /** 一组名称，超过三个只列前三个。 */
   list: (value: unknown) => string;
   assetType: (value: unknown) => string;
   quote: (value: unknown) => string;
@@ -109,7 +103,6 @@ export interface SummaryFormat {
   count: (key: "tool_summary_grids" | "tool_summary_operations", value: unknown) => string;
   projectFields: (input: ToolInput) => string;
   record: (value: unknown) => Record<string, unknown>;
-  /** 数组里每个对象的某个字段。 */
   field: (value: unknown, key: string) => unknown[];
   join: (...parts: string[]) => string;
 }
@@ -145,7 +138,6 @@ export function createSummaryFormat(t: TFunction, episodes: EpisodeRefs, scripts
       const ids = strings(value);
       if (ids.length === 0) return "";
       const labels = ids.map((id) => episodeItemLabel(id, scripts, episodes, t));
-      // 同一集的条目只写一次集名：「第 1 集 · 1、2」
       const prefixes = new Set(labels.map((label) => label.split(SUMMARY_JOINER)[0]));
       if (prefixes.size === 1 && labels.every((label) => label.includes(SUMMARY_JOINER))) {
         const [prefix] = prefixes;

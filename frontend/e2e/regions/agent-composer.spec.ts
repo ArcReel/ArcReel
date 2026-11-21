@@ -66,7 +66,6 @@ function buildEntries(): Entry[] {
   return entries;
 }
 
-// Agent 的提问：一道单选、一道多选，选项带长说明。
 const QUESTION = {
   question_id: "q-opening",
   questions: [

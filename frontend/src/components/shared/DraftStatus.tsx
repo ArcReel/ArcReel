@@ -34,7 +34,6 @@ export interface DraftItemJump {
 }
 
 interface InvalidDraftBarProps {
-  /** 标题；缺省为「待修复草稿」。 */
   title?: string;
   violationCount: number;
   itemJumps: DraftItemJump[];
@@ -51,10 +50,8 @@ interface InvalidDraftBarProps {
   onSave: () => void;
   onReloadLatest: () => void;
   onHandToAgent: () => void;
-  /** AI 修复已保存的草稿；返回 `true` 时收起弹窗。 */
   onRepair: (instructions: string) => Promise<boolean>;
   onDiscard: () => void;
-  /** 「重新规划」入口；草稿没有对应的重新生成动作时省略。 */
   regenerateAction?: ReactNode;
 }
 
@@ -311,7 +308,6 @@ export function DraftEpisodeViolations({
   );
 }
 
-/** 逐条违约（红）。 */
 export function DraftViolationList({ violations, position }: { violations: ScriptReviewViolation[]; position?: number | null }) {
   const { t } = useTranslation();
   if (violations.length === 0) return null;
@@ -347,16 +343,13 @@ export function DraftSoftViolationList({ softViolations, position }: { softViola
 
 interface DiscardDraftDialogProps {
   open: boolean;
-  /** Agent 的可编辑草稿用「丢弃这份修改」的措辞。 */
   agentOwned: boolean;
-  /** 丢弃后回到哪份内容的说明。 */
   fallbackText: string;
   loading: boolean;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }
 
-/** 丢弃草稿的确认：写明丢弃后回到哪份内容。丢弃中忽略关闭请求。 */
 export function DiscardDraftDialog({ open, agentOwned, fallbackText, loading, onConfirm, onCancel }: DiscardDraftDialogProps) {
   const { t } = useTranslation("dashboard");
   const confirmLabel = agentOwned ? t("draft_agent_discard") : t("draft_discard_action");

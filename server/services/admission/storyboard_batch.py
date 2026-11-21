@@ -101,9 +101,7 @@ class BatchSkipReason(StrEnum):
     MISSING_PROMPT = "missing_prompt"
     MISSING_STORYBOARD = "missing_storyboard"
     GENERATING = "generating"
-    #: 引用未登记，或引用的资产还没有可用的资产图。
     REFERENCE_UNAVAILABLE = "reference_unavailable"
-    #: 产物清单读不出，或条目本身不成立。
     UNAVAILABLE = "unavailable"
 
 
@@ -133,7 +131,6 @@ class EpisodeStoryboardScript:
     project_path: Path
     script: dict[str, Any]
     script_file: str
-    #: 产物清单里这一集的集号。
     episode: int
 
 
@@ -192,9 +189,6 @@ async def _active_resource_ids(
         queue=queue,
     )
     return frozenset(str(task["resource_id"]) for task in tasks if task.get("resource_id"))
-
-
-# --- 分镜图 -------------------------------------------------------------------
 
 
 def storyboard_image_prompt(segment: dict[str, Any], style: str, style_description: str, id_field: str) -> str:
@@ -470,9 +464,6 @@ async def submit_storyboard_image_batch(
         user_id=user_id,
         queue=queue,
     )
-
-
-# --- 分镜视频 -----------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)

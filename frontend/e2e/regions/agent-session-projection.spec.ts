@@ -135,7 +135,6 @@ const FAILURE_API = sessionApi("session-failure", "重新生成 shot_04", FAILUR
 
 const agentPanel = (page: Page) => page.getByRole("complementary", { name: "Agent 面板" });
 const transcript = (page: Page) => page.getByRole("region", { name: "对话记录" });
-// 打开会话时已有的失败只显示、不播报，卡片是以标题命名的区域
 const failureCard = (page: Page) => page.getByRole("region", { name: "这一轮没有完成" });
 
 /** 等消息渲染落定：Markdown 渲染器按需加载，离屏项按最终内容排版一次（同 agent-messages.spec.ts）。 */
@@ -164,7 +163,6 @@ defineRegionScenarios("Agent 会话投影", [
     ready: continuedReady,
     act: async (page) => {
       const card = page.getByRole("button", { name: /审片：核对第 8 集 shot_01 到 shot_06/ });
-      // 工序行成功不加标记：完成的子智能体既不是「已停止」，也不是「运行中」
       await expect(card).not.toContainText("已停止");
       await expect(card).not.toContainText("运行中");
     },

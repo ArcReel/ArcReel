@@ -34,7 +34,6 @@ DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com"
 # （4xx 含 404 一律 fail-fast）。HTTPStatusError 一律按 response.status_code 显式闸门判定，状态码
 # 语义也因此被保留，供咽喉层识别 413 做降档兜底。
 
-# 任务状态机（图像/视频异步两步式）
 DASHSCOPE_STATUS_PENDING = "PENDING"
 DASHSCOPE_STATUS_RUNNING = "RUNNING"
 DASHSCOPE_STATUS_SUCCEEDED = "SUCCEEDED"
@@ -109,9 +108,6 @@ def dashscope_headers(api_key: str, *, async_mode: bool = False) -> dict[str, st
 def image_to_data_uri(image_path: Path) -> str:
     """本地图片 → base64 data URI（百炼 media/image 接受 URL 或 data URI）。"""
     return _image_to_data_uri(image_path, _IMAGE_MIME_TYPES)
-
-
-# ── 视频异步任务状态工具 ──────────────────────────────────────────────────────
 
 
 def _as_dict(value: object) -> dict:
@@ -197,9 +193,6 @@ def extract_billing_duration(payload: dict) -> int | None:
     return value if value > 0 else None
 
 
-# ── 同步图像响应工具 ──────────────────────────────────────────────────────────
-
-
 def extract_image_url(payload: dict) -> str:
     """从同步图像响应 output.choices[0].message.content[*].image 提取首个 URL。"""
     choices = _as_dict(payload.get("output")).get("choices")
@@ -217,9 +210,6 @@ def extract_image_url(payload: dict) -> str:
     raise RuntimeError(f"DashScope 图像响应 content 无 image 字段: {payload}")
 
 
-# ── 同步音频响应工具 ──────────────────────────────────────────────────────────
-
-
 def extract_audio_url(payload: dict) -> str:
     """从同步语音合成响应 output.audio.url 提取音频文件 URL（wav，24h 有效）。"""
     url = _as_dict(_as_dict(payload.get("output")).get("audio")).get("url")
@@ -228,8 +218,6 @@ def extract_audio_url(payload: dict) -> str:
         raise RuntimeError(reason or f"DashScope 语音合成响应缺少 audio.url: {payload}")
     return url
 
-
-# ── 日志脱敏 ──────────────────────────────────────────────────────────────────
 
 # 仅允许进日志的标量字段白名单；其余（含 base64 image / media url）一律不入日志。
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(

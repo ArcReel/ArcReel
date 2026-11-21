@@ -14,7 +14,6 @@ import sqlalchemy as sa
 
 from alembic import op
 
-# revision identifiers, used by Alembic.
 revision: str = "8b1e8a1290ca"
 down_revision: str | Sequence[str] | None = "4c643f3ff5b9"
 branch_labels: str | Sequence[str] | None = None
@@ -61,7 +60,6 @@ def upgrade() -> None:
             postgresql_where=sa.text("is_active"),
         )
 
-    # ── 数据迁移：旧 system_setting 中 anthropic_* → 一条 __custom__ active 记录 ──
     bind = op.get_bind()
     # PG 在事务中遇到 ProgrammingError 会把事务标记为 aborted，后续操作全部失败。
     # 用 SAVEPOINT 包裹数据迁移块，失败时回滚到 savepoint，不污染外层 alembic 事务。

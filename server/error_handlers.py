@@ -145,7 +145,6 @@ def register_error_handlers(
 
     @app.exception_handler(ScriptEditError)
     async def _handle_script_edit_error(request: Request, exc: ScriptEditError) -> JSONResponse:
-        # 脏脚本（分镜数组键损坏等）→ 4xx 客户端错误
         _t = get_translator(request)
         detail = await present_request_diagnostics(script_edit_detail(exc, _t), request, _t)
         return JSONResponse(status_code=400, content={"detail": detail})

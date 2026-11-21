@@ -150,11 +150,6 @@ class _Change:
     kind_change: tuple[str, SourceKind] | None = None
 
 
-# ---------------------------------------------------------------------------
-# 读取
-# ---------------------------------------------------------------------------
-
-
 def _filename_rel(project: Mapping[str, Any], filename: str) -> str:
     rel = f"source/{filename}"
     if "/" in filename or "\\" in filename or rel not in whole_source_files(project):
@@ -200,11 +195,6 @@ def _require_text(text: str) -> str:
     if not normalized.strip():
         raise SourceFileChangeError("source_text_empty", "源文件不能为空；要去掉这个文件请删除它")
     return normalized
-
-
-# ---------------------------------------------------------------------------
-# 受影响集
-# ---------------------------------------------------------------------------
 
 
 def _order_after(
@@ -283,11 +273,6 @@ def _impact(
 def _revision(operation: Mapping[str, Any], impact: SourceFileImpact) -> str:
     payload = json.dumps({"operation": operation, "impact": impact.to_dict()}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
-
-
-# ---------------------------------------------------------------------------
-# 提交
-# ---------------------------------------------------------------------------
 
 
 def _restore_file(path: Path, content: bytes | None) -> None:
@@ -405,11 +390,6 @@ def _run(
         _apply(project_dir, project, entries, change, impact, order, undo)
     logger.info("整本源文文件已改动：项目 %s，%s，受影响 %s", project_name, dict(operation), impact.to_dict())
     return SourceFileChangeOutcome(applied=True, impact=impact, revision=current)
-
-
-# ---------------------------------------------------------------------------
-# 命令
-# ---------------------------------------------------------------------------
 
 
 def _text_digest(text: str) -> str:
@@ -650,10 +630,6 @@ def insert_whole_source_file(
     outcome = _run(pm, project_name, operation, plan, revision=revision)
     return outcome, written.get("rel")
 
-
-# ---------------------------------------------------------------------------
-# 确认清单
-# ---------------------------------------------------------------------------
 
 _IMPACT_LINES = (
     ("shifted", "source_file_impact_shifted"),

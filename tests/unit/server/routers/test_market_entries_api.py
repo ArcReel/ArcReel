@@ -114,11 +114,6 @@ def _png() -> bytes:
     return buffer.getvalue()
 
 
-# ---------------------------------------------------------------------------
-# 列表与详情
-# ---------------------------------------------------------------------------
-
-
 def test_entries_merge_enabled_sources_in_source_then_name_order(entries_client: TestClient, catalog: None) -> None:
     with capture_http() as http:
         response = entries_client.get("/api/v1/market/entries", params={"type": "endpoint"})
@@ -197,11 +192,6 @@ def test_entry_detail_not_found(entries_client: TestClient, catalog: None, url: 
     assert response.json()["detail"] == detail
 
 
-# ---------------------------------------------------------------------------
-# 定义原文
-# ---------------------------------------------------------------------------
-
-
 def test_definition_is_returned_verbatim(entries_client: TestClient, catalog: None) -> None:
     definition = {"schema_version": "1.1.0", "meta": {"name": "Alpha"}, "auth": {"type": "bearer"}}
     with capture_http() as http:
@@ -236,11 +226,6 @@ def test_definition_of_disabled_source_is_conflict(entries_client: TestClient, c
         assert http.calls.call_count == 0
 
     assert response.status_code == 409
-
-
-# ---------------------------------------------------------------------------
-# icon
-# ---------------------------------------------------------------------------
 
 
 def test_icon_is_proxied_with_cache_headers(entries_client: TestClient, catalog: None) -> None:

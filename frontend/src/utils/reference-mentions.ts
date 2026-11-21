@@ -91,10 +91,8 @@ export interface SpeechMark {
 // eslint-disable-next-line no-control-regex -- 须显式匹配 U+001F，对齐 Python str.isspace()
 const INLINE_SPACE_RE = /[\s\x1f]/u;
 
-/** 说话人 mention 与 `{` 之间允许出现的分隔冒号（中英各一），只允许一个。 */
 const SPEAKER_SEPARATORS = "：:";
 
-/** `splitSpeechLine` 的一段：字符串是画面描述，对象是发声记号。 */
 export type SpeechPart = string | SpeechMark;
 
 export function isSpeechMark(part: SpeechPart): part is SpeechMark {
@@ -181,7 +179,6 @@ export function splitSpeechLine(line: string): SpeechPart[] {
   return parts;
 }
 
-/** 一行里按出现顺序排列的发声记号。 */
 export function lineSpeechMarks(line: string): SpeechMark[] {
   return splitSpeechLine(line).filter(isSpeechMark);
 }
@@ -305,15 +302,12 @@ export function buildMentionLookup(project: ProjectBuckets | null | undefined): 
   return lookup;
 }
 
-/** 一个角色形态：本体，或它名下的一个衍生。`asset` 是该形态自己的条目（资产图与描述都取自它）。 */
 export interface CharacterForm {
   /** 引用名：本体名，或 `本体名/衍生名`。写进 `@[…]` 与 `characters_in_*` 的就是它。 */
   name: string;
   /** 承载该形态的角色条目名。衍生下与 `name` 分叉，本体下相等。 */
   ownerName: string;
-  /** 衍生名；本体形态为空串。 */
   derivativeName: string;
-  /** 该形态自己的登记条目：本体是角色条目，衍生是 `derivatives` 表里的那条。 */
   asset: Character | CharacterDerivative;
 }
 
@@ -352,7 +346,6 @@ export function resolveCharacterForm(
   return characterReferenceForms(characters).find((form) => normalizeAssetName(form.name) === key);
 }
 
-/** 引用名的展示形态：衍生显示为 `本体 / 衍生`，本体原样。 */
 export function formatReferenceName(name: string): string {
   const [owner, derivative] = splitDerivativeReference(name);
   return derivative ? `${owner} / ${derivative}` : name;

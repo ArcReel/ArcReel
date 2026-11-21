@@ -23,9 +23,7 @@ export interface MentionPickerProps {
   candidates: Partial<Record<AssetKind, MentionCandidate[]>>;
   onSelect: (ref: { type: AssetKind; name: string }) => void;
   onClose: () => void;
-  /** Project used to construct asset thumbnail URLs via API.getFileUrl. */
   projectName?: string;
-  /** Optional extra className forwarded to the listbox root. */
   className?: string;
   /** Stable DOM id for the listbox; used by combobox aria-controls. Default: "reference-editor-picker". */
   listboxId?: string;
@@ -36,9 +34,6 @@ export interface MentionPickerProps {
 }
 
 function optionId(kind: AssetKind, name: string): string {
-  // 安全化：把 CSS 不友好字符替换，避免选择器查询出错。
-  // CJK 范围用 `一-鿿` unicode escape，与 utils/reference-mentions.ts
-  // 的 MENTION_RE 保持字面一致，便于 grep。
   const safe = name.replace(/[^A-Za-z0-9_一-鿿-]/g, "_");
   return `reference-option-${kind}-${safe}`;
 }
@@ -96,7 +91,6 @@ export function MentionPicker({
 
   const filtered = useMemo(() => {
     if (activeTab === "all") return filteredByQuery;
-    // 单 tab：保留选中 kind，其余置空数组（下游 filtered[kind] 读取契约不变）。
     return {
       product: activeTab === "product" ? filteredByQuery.product : [],
       character: activeTab === "character" ? filteredByQuery.character : [],
@@ -127,7 +121,6 @@ export function MentionPicker({
     return out;
   }, [filtered]);
 
-  // Map "<kind>:<name>" -> globalIndex for O(1) lookup during render.
   const indexByKey = useMemo(() => {
     const m = new Map<string, number>();
     for (const f of flat) {
@@ -239,7 +232,6 @@ export function MentionPicker({
               const items = filtered[kind];
               if (items.length === 0) return null;
               const palette = assetColor(kind);
-              // activeTab==="all" 时保留分组小标题；选中单 tab 时把小标题去掉避免视觉重复。
               const showGroupHeader = activeTab === "all";
               const groupLabel = t(`reference_picker_group_${kind}`);
               return (

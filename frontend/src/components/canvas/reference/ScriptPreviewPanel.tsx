@@ -14,7 +14,6 @@ const DEBOUNCE_MS = 400;
 export interface ScriptPreviewPanelProps {
   projectName: string;
   episode: number;
-  /** 当前单元正文（草稿优先），与编辑器同一个值。 */
   text: string;
   /** 资产名 → 类型，供 mention 着色；调用侧须 memo 化。 */
   lookup: MentionLookup;

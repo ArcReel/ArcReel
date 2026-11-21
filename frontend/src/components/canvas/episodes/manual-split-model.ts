@@ -1,10 +1,5 @@
 import type { EpisodesView } from "@/types";
 
-/**
- * 手工切分的落点：整本源文清单里第 `file` 个文件、文件内第 `offset` 个码位之前。
- *
- * 偏移与后端 `source_range` 同一坐标系（规范化文本的 Unicode 码位），不是 JS 字符串的 UTF-16 下标。
- */
 export interface ManuscriptPoint {
   file: number;
   offset: number;
@@ -15,11 +10,9 @@ export interface ManuscriptPoint {
  * 是整本源文里的全局码位偏移（前面各文件的码位数之和加文件内偏移），一集的原文可以跨文件。
  */
 export type PointAction =
-  /** 在未切分的原文上切分：`[start, end)` 成为新的一集。 */
   | { kind: "cut"; file: number; offset: number; start: number; end: number }
   /** 在切出集内拆分：`[start, at)` 保留集 ID，`[at, end)` 是新的一集。 */
   | { kind: "split"; file: number; offset: number; episode: number; start: number; at: number; end: number }
-  /** 把 `left` 与 `right` 的分界从 `boundary` 移到 `at`。 */
   | {
       kind: "move";
       file: number;
@@ -47,7 +40,6 @@ function codePointsBefore(text: string, index: number): number {
   return count;
 }
 
-/** 一行原文：在文件内的码位起点与文字。 */
 export interface TextRun {
   start: number;
   text: string;
@@ -82,7 +74,6 @@ function bases(view: EpisodesView): number[] {
   return result;
 }
 
-/** 落点在整本源文里的全局偏移：前面各文件的码位数之和加文件内偏移。 */
 export function toGlobal(view: EpisodesView, point: ManuscriptPoint): number {
   return bases(view)[point.file] + point.offset;
 }
@@ -109,7 +100,6 @@ interface Span {
   end: number;
 }
 
-/** 落位的切出集在整本源文里的全局范围，按起点排序；跨文件的集合成一段。 */
 function episodeSpans(view: EpisodesView): Span[] {
   const base = bases(view);
   const spans = new Map<number, Span>();
@@ -173,7 +163,6 @@ export function adjacentBoundaries(view: EpisodesView): { left: number; right: n
   });
 }
 
-/** 插入光标取哪一集的集色：拆分取这一集，切分与移动分界取品牌色（null）。 */
 export function caretEpisode(action: PointAction): number | null {
   return action.kind === "split" ? action.episode : null;
 }
@@ -270,7 +259,6 @@ export function stepPoint(
 const ZH_UNIT = /[\u3400-\u9fff\uf900-\ufaff\u3000-\u303f\uff00-\uffef\u{20000}-\u{323af}]/gu;
 const WORD_UNIT = /[\p{L}\p{N}_]+/gu;
 
-/** 整本源文里全局范围 `[start, end)` 的阅读单位数，供操作条预览两侧体量。 */
 export function rangeUnits(view: EpisodesView, start: number, end: number): number {
   const pattern = view.unit === "words" ? WORD_UNIT : ZH_UNIT;
   const base = bases(view);

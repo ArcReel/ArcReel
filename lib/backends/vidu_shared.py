@@ -110,7 +110,6 @@ def assert_vidu_body_size(body: dict) -> None:
         )
 
 
-# 终态状态枚举
 _DONE_STATE = "success"
 _FAILED_STATE = "failed"
 
@@ -144,9 +143,6 @@ def extract_vidu_url(payload: dict) -> str:
     return url
 
 
-# ---------------------------------------------------------------------------
-# 连接测试（fork-only，原住在 server/routers/providers.py，抽出以降低 router 侵入）
-# ---------------------------------------------------------------------------
 def test_vidu_connection(config: dict[str, str]) -> None:
     """通过查询不存在的 task id 验证 Vidu API Key。
 

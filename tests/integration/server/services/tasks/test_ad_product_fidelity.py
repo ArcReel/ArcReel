@@ -42,7 +42,6 @@ class TestAdProductFidelityStoryboard:
         # 商品参考全量注入且排首位：sheet 在前、原图压阵，先于角色/场景 sheet
         assert [path.name for path in paths[:2]] == ["0000-保温杯.png", "0001-保温杯_1.jpg"]
         assert generator.image_reference_bytes[0][:2] == [b"png", b"jpg"]
-        # 既有装配照常跟在商品参考之后（角色/场景 sheet）
         assert [path.name for path in paths[2:]] == ["0002-Alice.png", "0003-祠堂.png"]
         # 商品参考在声明行里按序位点名并附完全一致约束，参考图本身不带任何标签
         prompt = generator.image_calls[0]["prompt"]

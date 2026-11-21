@@ -71,7 +71,7 @@ class ProbeResult:
     success: bool
     status_code: int | None
     latency_ms: int | None
-    error: str | None  # 截断到 200 字符
+    error: str | None
 
 
 async def _post(
@@ -179,7 +179,6 @@ def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
             return DiagnosisCode.MODEL_REQUIRED
         return DiagnosisCode.MODEL_NOT_FOUND
     if code is not None and 200 <= code < 300:
-        # 2xx 但 probe 判失败 = 协议不匹配（OpenAI 兼容响应冒充 anthropic）
         return DiagnosisCode.OPENAI_COMPAT_ONLY
     if code is None:
         if (result.error or "").startswith(_TIMEOUT_ERROR_PREFIX):

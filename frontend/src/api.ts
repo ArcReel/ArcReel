@@ -1,9 +1,3 @@
-/**
- * API 调用封装 (TypeScript)
- *
- * Typed API layer for all backend endpoints.
- * Import: import { API } from '@/api';
- */
 
 import type {
   CharacterDerivativeStatus,
@@ -292,7 +286,6 @@ export type {
 } from "./api/types";
 export { setApiReadOnly } from "./api/transport";
 
-// ==================== Endpoint helpers ====================
 
 /** 项目文件缩略图的可选宽度，与服务端 `?w=` 的档位一致；其它宽度服务端会向上取档。 */
 export type FileUrlWidth = 160 | 320 | 640 | 1280;
@@ -423,12 +416,8 @@ function agentMemoryBase(scope: AgentMemoryScope): string {
     : `/projects/${encodeURIComponent(scope.projectName)}/agent-memory`;
 }
 
-// ==================== API class ====================
 
 class API {
-  /**
-   * 通用请求方法
-   */
   static async request<T = unknown>(
     endpoint: string,
     options: RequestInit = {}
@@ -436,7 +425,6 @@ class API {
     return requestJson<T>(endpoint, options);
   }
 
-  // ==================== 系统配置 ====================
 
   static async getSystemConfig(options: { signal?: AbortSignal } = {}): Promise<GetSystemConfigResponse> {
     return this.request("/system/config", { signal: options.signal });
@@ -496,7 +484,6 @@ class API {
     return this.request("/system/version");
   }
 
-  // ==================== 提示词模版 ====================
 
   static async listPromptTemplates(
     options: { signal?: AbortSignal } = {}
@@ -522,7 +509,6 @@ class API {
     return this.request(`/prompt-templates/partials/${path}`, { signal: options.signal });
   }
 
-  // ==================== 首次使用引导 ====================
 
   static async getOnboardingStatus(
     options: { signal?: AbortSignal } = {}
@@ -556,7 +542,6 @@ class API {
     });
   }
 
-  // ==================== 项目管理 ====================
 
   static async listProjects(options: { signal?: AbortSignal } = {}): Promise<{ projects: ProjectSummary[] }> {
     return this.request("/projects", { signal: options.signal });
@@ -608,9 +593,7 @@ class API {
     });
   }
 
-  // ==================== Agent 记忆 ====================
 
-  // ==================== 文件视图 ====================
 
   /** 列出项目目录（`path` 为空串时是项目根）的直接子项，大目录按需逐级展开。 */
   static async getFileView(
@@ -641,7 +624,6 @@ class API {
     return this.request(`/projects/${encodeURIComponent(projectName)}/file-view?${query}`, { method: "DELETE" });
   }
 
-  // ==================== 项目回收站 ====================
 
   static async getTrash(projectName: string, options: { signal?: AbortSignal } = {}): Promise<TrashListing> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/trash`, { signal: options.signal });
@@ -802,7 +784,6 @@ class API {
     return `${API_BASE}/projects/${encodeURIComponent(projectName)}/export?download_token=${encodeURIComponent(downloadToken)}&scope=${encodeURIComponent(scope)}`;
   }
 
-  // ==================== 剪辑时间线与出片 ====================
 
   /** 按当前脚本机械新建一条剪辑时间线（整段使用、全部硬切）；显示名在集内重名时 409，本集没有可用视频时 422。 */
   static async createEditTimeline(projectName: string, episode: number, name: string): Promise<EditTimelineReadout> {
@@ -927,7 +908,6 @@ class API {
     );
   }
 
-  /** 剪辑时间线最新修订的读取结果。 */
   static async getEditTimeline(
     projectName: string,
     timelineId: string,
@@ -1045,7 +1025,6 @@ class API {
     };
   }
 
-  // ==================== 角色管理 ====================
 
   static async addCharacter(
     projectName: string,
@@ -1080,7 +1059,6 @@ class API {
     );
   }
 
-  // ==================== 角色衍生管理 ====================
 
   /**
    * 衍生是挂在角色下的子身份（换装、变身、易容），名字只在该角色内唯一，脚本中写作
@@ -1188,7 +1166,6 @@ class API {
     );
   }
 
-  // ==================== 资产图状态与批量生成 ====================
 
   /** 项目里每张资产图（含衍生）按产物清单判定的状态与是否缺描述。 */
   static async getAssetSheetStatus(
@@ -1269,7 +1246,6 @@ class API {
     );
   }
 
-  // ==================== 项目场景管理 ====================
 
   static async addProjectScene(
     projectName: string,
@@ -1299,7 +1275,6 @@ class API {
     );
   }
 
-  // ==================== 项目道具管理 ====================
 
   static async addProjectProp(
     projectName: string,
@@ -1329,7 +1304,6 @@ class API {
     );
   }
 
-  // ==================== 项目商品管理 ====================
 
   static async addProjectProduct(
     projectName: string,
@@ -1366,7 +1340,6 @@ class API {
     );
   }
 
-  // ==================== 项目资产重命名 ====================
 
   /**
    * 级联重命名项目内资产。`dryRun: true` 只返回影响预览（将更新的集数/引用处数/文件数），
@@ -1441,7 +1414,6 @@ class API {
     );
   }
 
-  // ==================== 场景管理 ====================
 
   static async getScript(
     projectName: string,
@@ -1550,7 +1522,6 @@ class API {
     );
   }
 
-  // ==================== script_plan → prompt_authoring 内容确认 ====================
 
   /** 读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。 */
   static async getScriptReview(
@@ -1678,9 +1649,7 @@ class API {
     );
   }
 
-  // ==================== 草稿（待修复草稿 / Agent 的可编辑草稿） ====================
 
-  /** 本集在场的草稿摘要。 */
   static async listEpisodeDrafts(
     projectName: string,
     episode: number,
@@ -1757,7 +1726,6 @@ class API {
     );
   }
 
-  // ==================== 分镜管理（旁白/解说） ====================
 
   /**
    * 旁白/解说分镜 PATCH（剧情演绎分镜走 {@link API.updateScene}）。`updates` 必带
@@ -1781,7 +1749,6 @@ class API {
     );
   }
 
-  // ==================== 分镜管理（广告/短片） ====================
 
   /** 更新 ad 剧本中的单个分镜（口播文案 / section / 时长 / 引用列表等白名单字段）。 */
   static async updateShot(
@@ -1857,7 +1824,6 @@ class API {
     );
   }
 
-  // ==================== 文件管理 ====================
 
   static async uploadFile(
     projectName: string,
@@ -1888,7 +1854,6 @@ class API {
     revision?: string;
     url?: string;
     filename?: string;
-    /** role=episode：新登记的集 ID。 */
     episode?: number;
     normalized?: boolean;
     original_kept?: boolean;
@@ -1963,7 +1928,6 @@ class API {
     };
   }
 
-  /** 单文件 multipart 上传 POST，返回 JSON 响应体。 */
   private static async postFileUpload<T>(url: string, file: File): Promise<T> {
     const formData = new FormData();
     formData.append("file", file);
@@ -1992,7 +1956,6 @@ class API {
   // end_frames/scene_{id}.png（原地覆盖），清除删快照并置空字段。返回的
   // end_frame_image 是项目内相对路径；换图后路径不变，靠资产指纹 cache-bust。
 
-  /** 上传任意图片作为该分镜的尾帧。 */
   static async uploadEndFrame(
     projectName: string,
     shotId: string,
@@ -2021,7 +1984,6 @@ class API {
     });
   }
 
-  /** 清除该分镜的尾帧。 */
   static async clearEndFrame(
     projectName: string,
     shotId: string,
@@ -2033,7 +1995,6 @@ class API {
     return this.request(url, { method: "DELETE" });
   }
 
-  /** 上传视频单元的成片视频。 */
   static async uploadReferenceUnitVideo(
     projectName: string,
     episode: number,
@@ -2146,11 +2107,7 @@ class API {
     return params.length ? `${base}?${params.join("&")}` : base;
   }
 
-  // ==================== Source 文件管理 ====================
 
-  /**
-   * 获取 source 文件内容
-   */
   static async getSourceContent(
     projectName: string,
     filename: string,
@@ -2408,9 +2365,6 @@ class API {
     );
   }
 
-  /**
-   * 删除 source 文件
-   */
   static async deleteSourceFile(
     projectName: string,
     filename: string
@@ -2439,11 +2393,7 @@ class API {
     );
   }
 
-  // ==================== 草稿文件管理 ====================
 
-  /**
-   * 获取草稿内容
-   */
   static async getDraftContent(
     projectName: string,
     episode: number,
@@ -2458,9 +2408,6 @@ class API {
     return response.text();
   }
 
-  /**
-   * 保存草稿内容
-   */
   static async saveDraft(
     projectName: string,
     episode: number,
@@ -2480,9 +2427,6 @@ class API {
     return response.json() as Promise<SuccessResponse>;
   }
 
-  /**
-   * 删除草稿
-   */
   static async deleteDraft(
     projectName: string,
     episode: number,
@@ -2494,11 +2438,7 @@ class API {
     );
   }
 
-  // ==================== 项目概述管理 ====================
 
-  /**
-   * 使用 AI 生成项目概述
-   */
   static async generateOverview(
     projectName: string
   ): Promise<{ success: boolean; overview: ProjectOverview }> {
@@ -2510,9 +2450,6 @@ class API {
     );
   }
 
-  /**
-   * 更新项目概述（手动编辑）
-   */
   static async updateOverview(
     projectName: string,
     updates: Partial<ProjectOverview>
@@ -2526,7 +2463,6 @@ class API {
     );
   }
 
-  // ==================== 生成 API ====================
 
   /**
    * 生成分镜图
@@ -2822,7 +2758,6 @@ class API {
     );
   }
 
-  // ==================== 任务队列 API ====================
 
   static async getTask(taskId: string): Promise<TaskItem> {
     const { task } = await this.request<{ task: TaskItem }>(`/tasks/${encodeURIComponent(taskId)}`);
@@ -2868,7 +2803,6 @@ class API {
     return this.request(`/tasks/stats${query ? "?" + query : ""}`);
   }
 
-  // ==================== 任务取消 API ====================
 
   static async cancelPreview(
     taskId: string,
@@ -2953,14 +2887,7 @@ class API {
     });
   }
 
-  // ==================== 版本管理 API ====================
 
-  /**
-   * 获取资源版本列表
-   * @param projectName - 项目名称
-   * @param resourceType - 资源类型 (storyboards, videos, characters, scenes, props)
-   * @param resourceId - 资源 ID
-   */
   static async getVersions(
     projectName: string,
     resourceType: string,
@@ -2975,13 +2902,6 @@ class API {
     return this.request(versionsResourcePath(projectName, resourceType, resourceId), { signal: options?.signal });
   }
 
-  /**
-   * 还原到指定版本
-   * @param projectName - 项目名称
-   * @param resourceType - 资源类型
-   * @param resourceId - 资源 ID
-   * @param version - 要还原的版本号
-   */
   static async restoreVersion(
     projectName: string,
     resourceType: string,
@@ -2996,7 +2916,6 @@ class API {
     );
   }
 
-  // ==================== 风格参考图 API ====================
 
   /**
    * 上传风格参考图
@@ -3030,9 +2949,7 @@ class API {
     return response.json() as Promise<{ success: boolean; style_image: string; style_description: string; url: string }>;
   }
 
-  // ==================== Agent 会话 API ====================
 
-  /** Build the project-scoped assistant base path. */
   private static assistantBase(projectName: string): string {
     return `/projects/${encodeURIComponent(projectName)}/assistant`;
   }
@@ -3239,7 +3156,6 @@ class API {
     );
   }
 
-  // ==================== 使用记录读接口 ====================
 
   /**
    * 获取使用记录的一页（keyset 分页，按 started_at 倒序）。
@@ -3328,7 +3244,6 @@ class API {
     });
   }
 
-  // ==================== API Key 管理 API ====================
 
   /** 列出所有 API Key（不含完整 key）。 */
   static async listApiKeys(options: { signal?: AbortSignal } = {}): Promise<ApiKeyInfo[]> {
@@ -3343,12 +3258,10 @@ class API {
     });
   }
 
-  /** 删除（吊销）指定 API Key。 */
   static async deleteApiKey(keyId: number): Promise<void> {
     return this.request(`/api-keys/${keyId}`, { method: "DELETE" });
   }
 
-  // ==================== 模型目录 API ====================
 
   /** 按名称与媒体类型搜索模型目录中的条目；名称留空列出全部。 */
   static async searchCatalogEntries(
@@ -3376,16 +3289,13 @@ class API {
     return this.request("/catalog/entries", { method: "POST", body: JSON.stringify(entry) });
   }
 
-  // ==================== Provider 管理 API ====================
 
-  /** 获取所有 provider 列表及状态。 */
   static async getProviders(
     options: { signal?: AbortSignal } = {}
   ): Promise<{ providers: ProviderInfo[] }> {
     return this.request("/providers", { signal: options.signal });
   }
 
-  /** 获取指定 provider 的配置详情（含字段列表）。 */
   static async getProviderConfig(
     id: string,
     options: { signal?: AbortSignal } = {}
@@ -3393,7 +3303,6 @@ class API {
     return this.request(`/providers/${encodeURIComponent(id)}/config`, { signal: options.signal });
   }
 
-  /** 更新指定 provider 的配置字段。 */
   static async patchProviderConfig(
     id: string,
     patch: Record<string, string | null>
@@ -3498,7 +3407,6 @@ class API {
     return this.request(`/providers/${encodeURIComponent(id)}/model-references?${params}`, { signal: options.signal });
   }
 
-  /** 测试指定 provider 的连接。 */
   static async checkProviderConnectivity(id: string, credentialId?: number): Promise<ConnectivityCheckResult> {
     const params = credentialId != null ? `?credential_id=${credentialId}` : "";
     return this.request(`/providers/${encodeURIComponent(id)}/test${params}`, {
@@ -3506,7 +3414,6 @@ class API {
     });
   }
 
-  // ==================== 对象存储与供应商素材库 ====================
 
   static async getObjectStorageConnection(options: { signal?: AbortSignal } = {}): Promise<ObjectStorageSettings> {
     return this.request("/object-storage/connection", { signal: options.signal });
@@ -3626,7 +3533,6 @@ class API {
     });
   }
 
-  // ==================== Provider 凭证管理 API ====================
 
   static async listCredentials(providerId: string, options: { signal?: AbortSignal } = {}): Promise<{ credentials: ProviderCredential[] }> {
     return this.request(`/providers/${encodeURIComponent(providerId)}/credentials`, { signal: options.signal });
@@ -3679,7 +3585,6 @@ class API {
     return response.json() as Promise<ProviderCredential>;
   }
 
-  // ==================== Agent 配置 / 凭证 API ====================
 
   static async listAgentPresetProviders(options: { signal?: AbortSignal } = {}): Promise<PresetProvidersResponse> {
     return this.request("/agent/preset-providers", { signal: options.signal });
@@ -3746,7 +3651,6 @@ class API {
     });
   }
 
-  // ==================== 自定义供应商 API ====================
 
   static async listCustomProviders(
     options: { signal?: AbortSignal } = {}
@@ -3808,7 +3712,6 @@ class API {
     });
   }
 
-  // ==================== 市场 API ====================
 
   static async listMarketSources(
     options: { signal?: AbortSignal } = {},
@@ -4080,12 +3983,7 @@ class API {
     });
   }
 
-  // ==================== 费用估算 API ====================
 
-  /**
-   * 获取项目费用估算。
-   * @param projectName - 项目名称
-   */
   static async getCostEstimate(
     projectName: string,
     options: { signal?: AbortSignal } = {}
@@ -4095,7 +3993,6 @@ class API {
     });
   }
 
-  // ==================== Grid 图生视频 API ====================
 
   /**
    * 生成 Grid 图像（多场景网格）
@@ -4128,10 +4025,6 @@ class API {
     );
   }
 
-  /**
-   * 列出项目所有 Grid 记录
-   * @param projectName - 项目名称
-   */
   static async listGrids(
     projectName: string,
     options: { signal?: AbortSignal } = {}
@@ -4155,11 +4048,6 @@ class API {
     });
   }
 
-  /**
-   * 获取单个 Grid 详情
-   * @param projectName - 项目名称
-   * @param gridId - Grid ID
-   */
   static async getGrid(
     projectName: string,
     gridId: string,
@@ -4222,7 +4110,6 @@ class API {
     return API.postFileUpload(url, file);
   }
 
-  // ==================== Global Asset Library ====================
 
   static async listAssets(
     params: { type?: AssetType; q?: string; limit?: number; offset?: number } = {},
@@ -4325,9 +4212,7 @@ class API {
     return `${API_BASE}/global-assets/${type}/${filename}${qs}`;
   }
 
-  // ==================== Reference-to-Video API ====================
 
-  /** List video units for an episode on the reference-to-video path. */
   static async listReferenceVideoUnits(
     projectName: string,
     episode: number,
@@ -4337,7 +4222,6 @@ class API {
     );
   }
 
-  /** Create a new video unit on the reference-to-video path. */
   static async addReferenceVideoUnit(
     projectName: string,
     episode: number,
@@ -4355,7 +4239,6 @@ class API {
     );
   }
 
-  /** Patch body/duration/note on an existing unit. */
   static async patchReferenceVideoUnit(
     projectName: string,
     episode: number,

@@ -134,7 +134,7 @@ async def test_repeated_cancellation_waits_for_cleanup_to_finish(tmp_path: Path)
     task.cancel()
     await proc.terminate_requested.wait()
     task.cancel()
-    await asyncio.sleep(0)  # 取消经一次回调送达任务
+    await asyncio.sleep(0)
 
     assert not task.done()
     assert partial.exists()

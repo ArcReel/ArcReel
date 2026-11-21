@@ -149,7 +149,6 @@ def _changes(batches: list[dict]) -> list[tuple[str, str, str]]:
     return [(c["entity_type"], c["action"], c["entity_id"]) for batch in batches for c in batch["changes"]]
 
 
-#: 应用依赖替换：键是依赖函数，值是返回替身的工厂。
 _Overrides = dict[Callable[..., Any], Callable[[], Any]]
 
 
@@ -237,9 +236,6 @@ async def _draft_revision(env: _Env) -> str:
     return response.json()["revision"]
 
 
-# ---------------------------------------------------------------- files.py
-
-
 async def test_creating_an_unregistered_source_file_broadcasts_as_webui(env: _Env) -> None:
     with env.reads_held():
         response = await env.client.put(
@@ -309,9 +305,6 @@ async def test_saving_a_reference_plan_broadcasts_as_webui(env: _Env) -> None:
     assert _sources(batches) == {"webui"}
 
 
-# ---------------------------------------------------------------- episode_drafts.py
-
-
 async def test_saving_an_episode_draft_that_stays_a_draft_broadcasts_as_webui(env: _Env) -> None:
     _write_narration_draft(env.project_path, {**_SEGMENT, "characters_in_segment": ["王五"]})
     await env.batches_until(_is("draft", "created"))
@@ -368,8 +361,6 @@ async def test_discarding_an_episode_draft_broadcasts_as_webui(env: _Env) -> Non
     assert ("trash", "updated", "trash") in _changes(batches)
     assert _sources(batches) == {"webui"}
 
-
-# ---------------------------------------------------------------- reference_videos.py
 
 _UNITS = "/projects/demo/reference-videos/episodes/1/units"
 
@@ -430,8 +421,6 @@ async def test_moving_a_reference_unit_broadcasts_nothing(reference_env: _Env) -
 
     assert await reference_env.batches_after_barrier() == []
 
-
-# ---------------------------------------------------------------- edit_timelines.py
 
 _TIMELINES = "/projects/demo/edit-timelines"
 
@@ -525,9 +514,6 @@ async def test_managing_an_edit_timeline_broadcasts_as_webui(
     assert _sources(batches) == {"webui"}
 
 
-# ---------------------------------------------------------------- project_migration.py
-
-
 async def test_retrying_a_migration_broadcasts_its_changes_as_webui(tmp_path: Path, open_env) -> None:
     """升级链改写 project.json 与剧本时不发 hint；重试入口补发，这些变更按 webui 广播。"""
     _old_project(tmp_path)
@@ -563,9 +549,6 @@ async def test_acknowledging_a_migration_report_broadcasts_nothing_as_an_outside
     assert response.json()["acknowledged"] is True
 
     assert await env.batches_after_barrier() == []
-
-
-# ---------------------------------------------------------------- Agent 的同类写入
 
 
 @pytest.mark.parametrize("source", ["filesystem", "worker"])

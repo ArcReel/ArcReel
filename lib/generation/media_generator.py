@@ -134,7 +134,6 @@ def _is_413(exc: BaseException) -> bool:
     状态码提取口径一致）。状态码缺失时退回短语匹配，但不用裸 "413" 子串——避免被字节数 /
     请求 ID（如 "41300 bytes"）误命中。
     """
-    # 产物取件失败不能通过压缩输入恢复，更不能重提已受理的付费生成。
     if getattr(getattr(exc, "request", None), "method", None) in {"GET", "HEAD"}:
         return False
     status = (
@@ -319,7 +318,6 @@ class MediaGenerator:
         self._audio_provider_id = audio_provider_id
         self.versions = VersionManager(project_path)
 
-        # 初始化记账账本（使用全局 async session factory）
         self.ledger = Ledger()
 
     @staticmethod
@@ -1263,7 +1261,6 @@ class MediaGenerator:
             before_formal_commit=before_formal_commit,
         )
 
-        # 5. 记录新版本
         committed = await self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,

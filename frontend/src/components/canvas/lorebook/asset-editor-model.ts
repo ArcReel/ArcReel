@@ -30,7 +30,6 @@ export function assetFieldsOf(type: AssetSheetType, asset: GalleryAssetSource): 
   };
 }
 
-/** 卖点文本按行拆开，去掉空行与两端空白。 */
 export function parseSellingPoints(text: string): string[] {
   return text
     .split("\n")

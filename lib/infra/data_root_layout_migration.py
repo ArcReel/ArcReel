@@ -494,7 +494,6 @@ async def _move_vertex_credentials_into_data_root(context: DataRootMigrationCont
         logger.info("数据根布局迁移：%d 条 Vertex 凭证记录、%d 个旧目录凭证文件移入数据根", len(placed), moved)
 
 
-#: 按执行顺序排列的迁移步骤。
 _STEPS: tuple[MigrationStep, ...] = (
     # 项目搬迁排在系统条目各步之前：users、runtime 等是合法项目名，同名旧项目先搬走，
     # 同一次迁移里的后续步骤才能就位。

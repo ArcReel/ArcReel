@@ -166,6 +166,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 2
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -181,6 +182,16 @@ jobs:
 
       - name: Repository conventions (audit_conventions --check)
         run: uv run python scripts/audit_conventions.py --check
+
+      - name: Source comment ratchet (ARC001)
+        env:
+          COMMENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        if: env.COMMENT_BASE != '' && env.COMMENT_BASE != '0000000000000000000000000000000000000000'
+        run: |
+          if ! git cat-file -e "${COMMENT_BASE}^{commit}"; then
+            git fetch --no-tags --depth=1 origin "$COMMENT_BASE"
+          fi
+          uv run python -m scripts.audit_comments --base "$COMMENT_BASE"
 
   test-lint:
     # 测试卫生闸门：scripts/audit_tests.py --check（零第三方依赖，纯 stdlib ast）。
@@ -348,10 +359,10 @@ jobs:
       - name: Validate alembic migrations (upgrade / idempotent / downgrade / re-upgrade)
         run: |
           set -e
-          uv run alembic upgrade head           # 1. 正向迁移
+          uv run alembic upgrade head
           uv run alembic upgrade head           # 2. 幂等性：第二次应该 no-op
-          uv run alembic downgrade base         # 3. 反向回到空 schema
-          uv run alembic upgrade head           # 4. 再次正向，验证 downgrade 真清掉了
+          uv run alembic downgrade base
+          uv run alembic upgrade head
 
       - name: Run dialect-sensitive tests against Postgres
         # 4 worker + loadfile：独立 schema 用例可并行，共用 public schema 的 async_session
@@ -550,7 +561,6 @@ jobs:
         run: node e2e/record-fixtures.ts --check
 
   website-checks:
-    # 先跑与本地闸门相同的检查，再构建中英文站点以校验链接和锚点。
     needs: changes
     if: needs.changes.outputs.website == 'true'
     runs-on: ubuntu-latest

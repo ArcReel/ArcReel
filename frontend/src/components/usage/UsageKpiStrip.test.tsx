@@ -40,7 +40,6 @@ describe("UsageKpiStrip", () => {
   });
 
   it("renders the range subline as dates in the current language", async () => {
-    // 原样直出的 `2026-02-14 – 2026-03-15` 三语一个样，这里逐语言各挂一次。
     for (const [language, expected] of [
       ["zh", "2026年2月14日 – 2026年3月15日"],
       ["en", "Feb 14, 2026 – Mar 15, 2026"],

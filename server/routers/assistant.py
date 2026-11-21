@@ -140,7 +140,6 @@ class SendRequest(ImageRequest):
 
 
 class RewriteRequest(ImageRequest):
-    # 锚点：被改写的那条用户消息在事件日志里的条目 uuid。
     anchor_entry_uuid: str = Field(min_length=1, max_length=256)
     content: str = ""
     client_key: str | None = Field(default=None, max_length=128)
@@ -511,7 +510,6 @@ async def answer_question(
     except FileNotFoundError as exc:
         raise NotFoundError("session_not_found", session_id=session_id) from exc
     except ValueError as exc:
-        # 会话未运行或无待回答问题
         logger.warning("会话回答请求非法: %s", exc)
         raise BadRequestError("session_question_unavailable") from exc
     except Exception as exc:

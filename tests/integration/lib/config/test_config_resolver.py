@@ -321,7 +321,6 @@ class TestSessionReuse:
         resolver = ConfigResolver(db_factory)
         fake_backend = ("gemini-aistudio", "test-model")
 
-        # 不使用 session()：每次调用创建新 session
         call_count = 0
         with (
             patch.object(resolver, "_session_factory", side_effect=counting_factory),
@@ -332,7 +331,6 @@ class TestSessionReuse:
             await resolver.default_image_backend()
         assert call_count == 2, f"不使用 session() 应创建 2 个 session，实际 {call_count}"
 
-        # 使用 session()：只创建 1 个 session
         call_count = 0
         with patch.object(resolver, "_session_factory", side_effect=counting_factory):
             async with resolver.session() as r:
@@ -344,7 +342,6 @@ class TestSessionReuse:
                     await r.default_video_backend()
                     await r.default_image_backend()
                     await r.video_generate_audio()
-        # session() 自身创建 1 个，内部调用复用 bound session 不再创建
         assert call_count == 1, f"使用 session() 应只创建 1 个 session，实际 {call_count}"
 
     async def test_bound_resolver_shares_session_object(self, db_factory):
@@ -523,7 +520,6 @@ class TestVideoCapabilities:
                     "default_duration": 9,
                 }
             )
-            # 关键断言：load_project 一次都不能被调到
             mock_pm.return_value.load_project.assert_not_called()
         assert caps["provider_id"] == "grok"
         assert caps["max_duration"] == 15
@@ -1070,7 +1066,7 @@ class TestResolveImageBackend:
         """半截 payload（已知 provider 但缺 model）→ 不按目录推荐补模型，回退配置层，不带空 model 到执行层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_image_backend_t2i": "grok/grok-2-image"})
-        payload = {"image_provider": "openai"}  # 只有 provider，无 image_model
+        payload = {"image_provider": "openai"}
         resolved = await resolver._resolve_image_provider_model(fake_svc, db_session, {}, payload, "t2i")
         assert (resolved.provider_id, resolved.model_id) == ("grok", "grok-2-image")
 
@@ -1126,7 +1122,7 @@ class TestLayeredBackendSkeleton:
         elif g_def:
             assert result == ("g-def", "m")
         else:
-            assert result == ("custom-1", "m")  # 全层缺失 → 最后一层（自定义供应商默认模型）
+            assert result == ("custom-1", "m")
 
     async def test_none_keys_skip_that_level(self):
         """键位为 None 的层直接跳过——项目默认层未声明时项目里的同名字段不生效。"""
@@ -1502,8 +1498,8 @@ def test_parse_int_variants():
     assert _parse_int("100", 7) == 100
     assert _parse_int("", 7) == 7
     assert _parse_int("abc", 7) == 7
-    assert _parse_int("0", 7) == 7  # 非正回 default
-    assert _parse_int("-5", 7) == 7  # "-5".isdigit() == False
+    assert _parse_int("0", 7) == 7
+    assert _parse_int("-5", 7) == 7
     assert _parse_int(None, 7) == 7
     assert _parse_int(50, 7) == 50
     assert _parse_int(True, 7) == 7  # bool 显式排除（避免 True→1）
@@ -1513,7 +1509,6 @@ class TestReferencePayloadLimits:
     """验证 reference_payload_limits 的默认、per-provider 覆盖、容错与 None 短路。"""
 
     async def test_none_provider_returns_default_without_db(self):
-        # 无需 DB：provider_id=None 直接返回保守通用默认
         resolver = ConfigResolver.__new__(ConfigResolver)
         total, single = await resolver.reference_payload_limits(None)
         from lib.config.service import (
@@ -1568,14 +1563,14 @@ class TestReferencePayloadLimits:
             await session.commit()
         resolver = ConfigResolver(db_factory)
         total, single = await resolver.reference_payload_limits("gemini-aistudio")
-        assert total == DEFAULT_REFERENCE_TOTAL_MAX_BYTES  # 非数字回退
+        assert total == DEFAULT_REFERENCE_TOTAL_MAX_BYTES
         assert single == DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
 
 class TestTextBackendTierResolution:
     """文本档位五级解析链：项目档位 > 项目默认 > 全局档位 > 全局默认 > 自动推断。"""
 
-    _AUTO = ("custom-1", "m")  # 全层缺失时的最后一层（自定义供应商默认模型），由用例替换
+    _AUTO = ("custom-1", "m")
 
     @pytest.mark.parametrize("p_tier", [False, True])
     @pytest.mark.parametrize("p_def", [False, True])

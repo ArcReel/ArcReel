@@ -147,7 +147,6 @@ def _rename(
     # 快照是删除时的整个项目：新编号当时可能属于另一个条目，它的历史不随这条记录回来，先从临时项目摘掉。
     staged_versions.detach_resources((resource_type, new_id) for resource_type in ENTRY_MEDIA_RESOURCE_TYPES)
     for resource_type in ENTRY_MEDIA_RESOURCE_TYPES:
-        # 在临时项目里改名：快照文件与版本记录一起换成新编号，随后整段加回。
         staged_versions.rename_resource(resource_type, old_id, new_id)
     renamed = dict(zip(entry_media_paths(old_id), entry_media_paths(new_id), strict=True))
     new_files, _history = entry_files(staged, episode, new_id)

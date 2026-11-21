@@ -1,7 +1,6 @@
 """Chinese translations for provider registry metadata."""
 
 MESSAGES: dict[str, str] = {
-    # Provider display names
     "provider_name_gemini-aistudio": "AI Studio",
     "provider_name_gemini-vertex": "Vertex AI",
     "provider_name_ark": "火山方舟",
@@ -30,7 +29,6 @@ MESSAGES: dict[str, str] = {
     "provider_desc_minimax": "上海人工智能公司 MiniMax（稀宇科技）的开放平台，提供其多模态模型与海螺视频生成服务。默认连接国内站，海外可将 base_url 切换到国际站。",
     "provider_desc_kling": "快手推出的生成式 AI 服务可灵的开放平台。API Key 鉴权适用于全部模型；Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。",
     "provider_desc_agnes": "Agnes AI 的多模态 AI 平台，通过统一的 API 提供其生成式 AI 模型。",
-    # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
     "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",
     "preset_notes_ark_coding_plan": "火山方舟 Coding Plan 套餐；不提供模型列表接口，请从建议模型中选择已在控制台开通的模型",

@@ -70,11 +70,9 @@ describe("MediaModelSection", () => {
     for (const name of ["默认视频模型", "默认图片模型", "默认模型"]) {
       expect(await screen.findByRole("combobox", { name })).toBeInTheDocument();
     }
-    // video / image / text 三处折叠区，初始收起
     const sections = screen.getAllByRole("button", { name: /按用途指定模型/ });
     expect(sections).toHaveLength(3);
     expect(sections.every((d) => d.getAttribute("aria-expanded") === "false")).toBe(true);
-    // 界面文案不出现内部术语
     expect(container).not.toHaveTextContent(/能力桶|任务类型桶|capability bucket/i);
   });
 
@@ -96,7 +94,6 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
 
     expect(await screen.findByText("ark 现在推荐 seedance，当前使用 veo-3")).toBeInTheDocument();
-    // 只提示，不替用户改：没有经保存栏改动全局默认模型
     expect(patch).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "切换到 seedance" }));
 
@@ -117,7 +114,6 @@ describe("MediaModelSection", () => {
     vi.spyOn(API, "getRecommendationChanges")
       .mockResolvedValueOnce({ changes: [change] })
       .mockResolvedValue({ changes: [] });
-    // 切换由服务端写入全局默认：之后重取的配置带着新的图片默认模型
     vi.spyOn(API, "acknowledgeRecommendation").mockImplementation(async () => {
       mockConfig({ default_image_backend: change.recommended });
     });
@@ -202,7 +198,6 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
     const i2v = await screen.findByRole("combobox", { name: "图生视频" });
     expect(i2v).toHaveTextContent("seedance");
-    // 未配置的细分项没有候选可选，仍不渲染
     expect(screen.queryByRole("combobox", { name: "参考生视频" })).not.toBeInTheDocument();
   });
 
@@ -212,7 +207,7 @@ describe("MediaModelSection", () => {
     render(<MediaModelSection />);
     await screen.findByRole("combobox", { name: "默认视频模型" });
     const alerts = await screen.findAllByRole("alert");
-    expect(alerts.length).toBeGreaterThanOrEqual(2); // video + image 两处折叠区
+    expect(alerts.length).toBeGreaterThanOrEqual(2);
     for (const alert of alerts) {
       expect(alert).toHaveTextContent(/模型列表加载失败/);
     }
@@ -291,7 +286,6 @@ describe("MediaModelSection", () => {
     expect(screen.getByRole("combobox", { name: "默认图片模型" })).toHaveTextContent(
       "自动选择（当前：gemini · nano-banana）",
     );
-    // 自动推断按用途过滤：图生图选不出模型时如实说没有可用供应商
     await user.click(screen.getAllByText("按用途指定模型")[1]);
     expect(screen.getByRole("combobox", { name: "图生图" })).toHaveTextContent("自动选择（没有可用的供应商）");
   });
@@ -625,7 +619,6 @@ describe("MediaModelSection – 语言切换", () => {
     expect(timeout).toHaveValue("7200");
 
     await user.click(trigger);
-    // 选项行主行为译名，model id 仍在行内可辨识
     expect(await screen.findByRole("option", { name: /Veo 3/ })).toHaveTextContent("veo-3");
   });
 });
@@ -669,7 +662,6 @@ describe("MediaModelSection – 引用处的下线提示", () => {
 
     const notices = await screen.findAllByText("即将下线（2026-11-24），官方建议改用 Veo 4");
     expect(notices).toHaveLength(2);
-    // 只有默认层有切换入口
     expect(screen.getAllByRole("button", { name: "切换到 Veo 4" })).toHaveLength(1);
 
     await user.click(screen.getByRole("button", { name: "切换到 Veo 4" }));

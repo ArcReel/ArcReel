@@ -12,14 +12,12 @@ import {
 
 // 价目表的界面文字：计费项名称、单位、选择维度与条件。计费项名称与使用记录共用同一批 key。
 
-/** 使用记录里已有的计费项名称（输入、缓存命中、输出）。 */
 const USAGE_NAME_KEY: Partial<Record<MeterKey, string>> = {
   uncached_input_tokens: "usage_field_input_tokens",
   cache_read_tokens: "usage_field_cache_read_tokens",
   output_tokens: "usage_field_output_tokens",
 };
 
-/** 日常说法的计费项名称。 */
 const PLAIN_NAME_KEY: Partial<Record<MeterKey, string>> = {
   output_images: "pm_pe_meter_output_images",
   input_images: "pm_pe_meter_input_images",
@@ -30,7 +28,6 @@ const PLAIN_NAME_KEY: Partial<Record<MeterKey, string>> = {
   requests: "pm_pe_meter_requests",
 };
 
-/** 在使用记录的名称后加限定词的计费项，如「输入（图片）」「缓存写入（5 分钟）」。 */
 const QUALIFIED_NAME: Partial<Record<MeterKey, { base: string; qualifier: string }>> = {
   cache_write_5m_tokens: { base: "usage_field_cache_write_tokens", qualifier: "usage_field_cache_write_5m_tokens" },
   cache_write_1h_tokens: { base: "usage_field_cache_write_tokens", qualifier: "usage_field_cache_write_1h_tokens" },
@@ -42,7 +39,6 @@ const QUALIFIED_NAME: Partial<Record<MeterKey, { base: string; qualifier: string
   audio_output_tokens: { base: "usage_field_output_tokens", qualifier: "pm_pe_qualifier_audio" },
 };
 
-/** 计费项的界面名；词表里没有的计费项原样显示键。 */
 export function meterName(t: TFunction, key: string): string {
   if (!isKnownMeter(key)) return key;
   const usage = USAGE_NAME_KEY[key];
@@ -54,7 +50,6 @@ export function meterName(t: TFunction, key: string): string {
   return key;
 }
 
-/** 单价对应的计价单位，如「/百万 token」「/秒」。 */
 export function meterUnit(t: TFunction, key: string): string {
   if (!isKnownMeter(key)) return "";
   if (key === "characters") return t("pm_pe_unit_per_10k_characters");
@@ -121,21 +116,18 @@ export function conditionValueText(t: TFunction, dim: string, value: DimValue | 
   }
 }
 
-/** 条件标签的文字：布尔维度直接写取值（「有声」），其余写成「维度：取值」。 */
 export function conditionText(t: TFunction, dim: string, value: DimValue | undefined, meter: PriceMeter): string {
   const text = conditionValueText(t, dim, value, meter);
   if (isKnownDimension(dim) && DIMENSIONS[dim].kind === "flag" && value !== undefined) return text;
   return t("pm_pe_condition_pair", { dimension: dimensionName(t, dim), value: text });
 }
 
-/** 一档的条件文字，如「分辨率：720p，有声」；不分条件的计费项为空串。 */
 export function rowConditionText(t: TFunction, meter: PriceMeter, when: Record<string, DimValue>): string {
   return meter.dims.map((dim) => conditionText(t, dim, when[dim], meter)).join(t("pm_price_separator"));
 }
 
 const PRICE_DIGITS = { minimumFractionDigits: 0, maximumFractionDigits: 6 };
 
-/** 价目表的文字概览（官方价格对比用），如「输入 $2/百万 token（≤ 200,000 token）；输出 $12/百万 token」。 */
 export function priceTableText(t: TFunction, table: PriceTable): string {
   const symbol = currencySymbol(t, table.currency);
   return table.meters

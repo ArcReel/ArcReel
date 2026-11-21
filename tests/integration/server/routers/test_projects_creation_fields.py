@@ -275,7 +275,7 @@ class TestProjectsRouter:
                     "generation_mode": "storyboard",
                     "title": "Bad Backend",
                     "name": "bad-bk",
-                    "video_backend": "garbage",  # 无 "/"，且不在 PROVIDER_REGISTRY
+                    "video_backend": "garbage",
                 },
             )
             assert resp.status_code == 400
@@ -290,14 +290,12 @@ class TestProjectsRouter:
             )
             assert missing.status_code == 422
 
-            # 旧三值 grid 不再是合法创建值
             legacy_grid = client.post(
                 "/api/v1/projects",
                 json={"name": "old-grid", "title": "X", "content_mode": "narration", "generation_mode": "grid"},
             )
             assert legacy_grid.status_code == 422
 
-            # 两种生成模式均可创建
             for mode in ("storyboard", "reference_video"):
                 created = client.post(
                     "/api/v1/projects",
@@ -309,7 +307,6 @@ class TestProjectsRouter:
     def test_create_persists_grid_storyboard(self, tmp_path, monkeypatch):
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
-            # 缺省 false 也落盘为显式值
             default_off = client.post(
                 "/api/v1/projects",
                 json={"name": "grid-off", "title": "X", "generation_mode": "storyboard"},

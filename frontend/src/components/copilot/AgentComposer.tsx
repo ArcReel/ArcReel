@@ -29,7 +29,6 @@ import { QueuedMessageTray } from "./QueuedMessageTray";
 import { SlashCommandMenu, useSlashCommands } from "./SlashCommandMenu";
 
 export interface AgentComposerHandle {
-  /** 把输入框里的内容再发一次（启动失败后的「重试」）。 */
   send: () => void;
 }
 
@@ -39,7 +38,6 @@ interface AgentComposerProps {
   disabled: boolean;
   /** 运行中且输入为空：发送按钮换成「停止」；有内容时仍是发送。 */
   running: boolean;
-  /** 发送请求在途：发送按钮转圈。 */
   sending: boolean;
   placeholder: string;
   /** 提问占用输入框位置时隐藏输入框；仍保持挂载，已输入的文字与附件不丢。排队消息托盘照常显示。 */
@@ -49,9 +47,7 @@ interface AgentComposerProps {
   onInterrupt: () => void;
   /** 编辑或删除一条排队消息；编辑撤回成功时内容经 store 的 composerAppends 退回输入框。 */
   onWithdrawQueued: (id: string, intent: QueuedMessageWithdrawal) => Promise<void>;
-  /** 重新发送一条「未发送」消息。 */
   onResendQueued: (id: string) => Promise<void>;
-  /** 立即发送一条排队消息。 */
   onSendQueuedNow: (id: string) => Promise<void>;
 }
 
@@ -74,11 +70,6 @@ function withoutSubmittedText(current: string, submitted: string): string {
   return rest.trim() ? rest.trimStart() : "";
 }
 
-// ---------------------------------------------------------------------------
-// AgentComposer — Agent 面板底部的输入框。
-// 排队消息托盘在输入框正上方；图片附件在输入框顶行，可逐个移除；输入「/」时
-// 技能菜单浮在输入框上方。回复进行中也可以发送，发送与停止共用一个按钮。
-// ---------------------------------------------------------------------------
 
 export function AgentComposer({
   ref,
@@ -199,7 +190,6 @@ export function AgentComposer({
   );
 
   const moveSlashActive = (step: number) => {
-    // 还没移动过时菜单高亮的是第一项
     const from = Math.max(0, slashSkills.findIndex((skill) => skill.name === slashActive));
     setSlashActive(slashSkills[(from + step + slashSkills.length) % slashSkills.length].name);
   };
@@ -282,7 +272,6 @@ export function AgentComposer({
             {tooManyImages ? t("composer_too_many_images_hint", { count: MAX_ATTACHED_IMAGES }) : attachError}
           </p>
         )}
-        {/* 拖入图片时整个输入框高亮；高亮画在外层，不改输入框原语的样式 */}
         <div
           className={cn("rounded-lg transition-shadow duration-fast", isDragOver && "ring-2 ring-primary")}
           onDragOver={handleDragOver}
@@ -318,7 +307,6 @@ export function AgentComposer({
                 </AttachmentGroup>
               </InputGroupAddon>
             )}
-            {/* 随内容撑高，上限是 Agent 面板高度的 40%，超出后在框内滚动 */}
             <InputGroupTextarea
               ref={textareaRef}
               role="combobox"

@@ -24,15 +24,12 @@ describe("TextTierFields", () => {
         defaultLabel="自动选择"
       />,
     );
-    // 默认模型主下拉常驻
     expect(screen.getByRole("combobox", { name: "默认模型" })).toBeInTheDocument();
-    // Agent 供应商边界说明在折叠区之外常驻
     expect(screen.getByText(/Agent 供应商/)).toBeInTheDocument();
 
     await expandTiers(user);
     expect(screen.getByRole("combobox", { name: "简单任务" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "复杂任务" })).toBeInTheDocument();
-    // 简单档 caption 注明需图像输入，复杂档 caption 列出覆盖调用点
     expect(screen.getByText(/图像输入/)).toBeInTheDocument();
     expect(screen.getByText(/脚本生成/)).toBeInTheDocument();
   });

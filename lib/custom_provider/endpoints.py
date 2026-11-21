@@ -126,9 +126,6 @@ if TYPE_CHECKING:
 CUSTOM_ENDPOINT_FAMILY = "custom"
 
 
-# ── EndpointSpec 数据类型 ───────────────────────────────────────────
-
-
 class BackendBuilder(Protocol):
     """endpoint 的 backend 构造闭包。
 
@@ -145,18 +142,18 @@ class BackendBuilder(Protocol):
 class EndpointSpec:
     """单条 endpoint 的元数据 + backend 构造闭包。"""
 
-    key: str  # "openai-chat"
-    media_type: str  # "text" | "image" | "video" | "audio"
-    family: str  # "openai" | "google" | "newapi"
+    key: str
+    media_type: str
+    family: str
     # 前端 i18n key（dashboard ns）。声明式端点（随版与用户自定义）的显示名写在定义的 meta.name
     # 里、不进 i18n 目录，此键置空串，取名走 display_name。
     display_name_key: str
-    request_method: str  # "POST"
+    request_method: str
     request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
     build_backend: BackendBuilder
     # 端点来源：内置（随版发布，不可编辑删除）或用户自定义（落 custom_endpoint 表）。
     source: Literal["builtin", "custom"] = "builtin"
-    image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
+    image_capabilities: frozenset[ImageCapability] | None = None
     # 单次参考生视频调用的参考图上限；仅 video 类有意义。
     # 显式 int：原样下传作为硬约束（0 表示不接受参考图，executor 据此将 references 裁剪为 0 张）。
     # None：未声明 —— 一个 endpoint 多 model、容量不同时 endpoint 维度给不出准数，由 resolver
@@ -281,9 +278,6 @@ class EndpointSpec:
     def display_name(self) -> str | None:
         """声明式端点的显示名（取 ``meta.name``）；Python 内置为 None，按 display_name_key 取文案。"""
         return None if self.definition is None else declarative_display_name(self.definition)
-
-
-# ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
 
 
 def _build_openai_chat(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomTextBackend:
@@ -867,9 +861,6 @@ def _build_kling_model_path_video(
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-# ── ENDPOINT_REGISTRY 注册表 ───────────────────────────────────────
-
-
 ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
     "openai-chat": EndpointSpec(
         key="openai-chat",
@@ -1012,7 +1003,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             metering_backend=backend_class,
             video_caps_for_model=backend_class.video_capabilities_for_model,
             end_image_capable=True,
-            # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
             reference_audio_capable=True,
         )
         for key, backend_class in SEEDANCE_BACKENDS.items()
@@ -1024,7 +1014,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             family="ark",
             display_name_key=f"endpoint_{key.replace('-', '_')}_display",
             request_method="POST",
-            # 文生图与带参考图生成同走 /images/generations，参考图按方舟格式放进 JSON 的 image 字段
             request_path_template="/api/v3/images/generations",
             image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
             build_backend=partial(_build_ark_seedream, endpoint=key),
@@ -1114,7 +1103,6 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         metering_backend=GeminiVideoBackend,
         # 参考图上限、音轨形态按 model 读 backend 纯 caps 函数（不构造 client）
         video_caps_for_model=GeminiVideoBackend.video_capabilities_for_model,
-        # generate() 把 end_image 下传为 config.last_frame
         end_image_capable=True,
     ),
     "gemini-interactions-video": EndpointSpec(
@@ -1424,7 +1412,6 @@ def declarative_endpoint_spec(
         key=key,
         media_type=media_type,
         family=CUSTOM_ENDPOINT_FAMILY if source == "custom" else declarative_family(key),
-        # 声明式端点的显示名取 meta.name，不进 i18n 目录（见 EndpointSpec.display_name）。
         display_name_key="",
         source=source,
         request_method=definition["submit"]["method"],
@@ -1514,7 +1501,6 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         key=key,
         media_type=media_type,
         family=CUSTOM_ENDPOINT_FAMILY,
-        # 显示名取 meta.name，与声明式端点同处理（见 EndpointSpec.display_name）。
         display_name_key="",
         source="custom",
         # 提交形态固定：一份 workflow 整体 POST 给 /prompt，没有随模型变化的路径段，也没有
@@ -1575,9 +1561,6 @@ def _validate_builtin_provider_endpoints() -> None:
 
 
 _validate_builtin_provider_endpoints()
-
-
-# ── 工具函数 ───────────────────────────────────────────────────────
 
 
 def get_endpoint_spec(endpoint: str) -> EndpointSpec:
@@ -1670,9 +1653,6 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     return data
 
 
-# ── 启发式：从 model_id + discovery_format 推默认 endpoint ─────────
-
-
 _IMAGE_PATTERN = re.compile(r"image|dall|img|imagen|flux|seedream|jimeng|viduq[12](?:[-_].*)?", re.IGNORECASE)
 _VIDEO_PATTERN = re.compile(
     r"video|sora|kling|wan|seedance|cog|mochi|veo|pika|runway|"
@@ -1706,7 +1686,6 @@ _MINIMAX_S2V_MODELS = frozenset({"s2v-01", "minimax-s2v-01"})
 _FAMILY_ENDPOINTS: tuple[tuple[str, Mapping[str, str]], ...] = (
     ("kling", {"image": "kling-image", "video": "kling-video-pro-silent"}),
     ("gemini", {"text": "gemini-generate", "image": "gemini-image", "audio": "gemini-tts"}),
-    # Seedance 的代际按名字再细分，见 _seedance_endpoint
     ("seedance", {"video": "ark-seedance-1"}),
     ("seedream", {"image": "ark-seedream-4"}),
     ("viduq", {"video": "vidu-video-q3-turbo"}),
@@ -1860,7 +1839,6 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     # 端点，避免本后端收到无法正确构造的请求。
     wan_unsupported_modality = is_wan_family and not classification.has_known_modality
 
-    # 阿里百炼视频先于通用 is_video 拦截到原生异步端点
     if classification.family == "happyhorse":
         from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
 

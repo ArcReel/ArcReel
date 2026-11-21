@@ -28,7 +28,7 @@ _GPT_OLD = _entry("openai", "gpt-4o-2024-05-13", "text")
 _CLAUDE = _entry("anthropic", "claude-sonnet-4.5", "text")
 _THINKING = _entry("deepseek", "deepseek-v3.1-thinking", "text")
 _PLAIN = _entry("deepseek", "deepseek-v3.1", "text")
-_MIXED = _entry("acme", "Omni-V3", "text")  # 官方名带大小写
+_MIXED = _entry("acme", "Omni-V3", "text")
 _OMNI_VIDEO = _entry("kling", "kling-v3-omni", "video")
 _OMNI_IMAGE = _entry("kling", "kling-v3-omni", "image")
 _ALIAS_OWNER = _entry("acme", "alpha", "text", "beta")
@@ -52,10 +52,8 @@ _ALL = (
 @pytest.mark.parametrize(
     ("model_name", "media_type", "expected"),
     [
-        # 精确命中官方模型名与模型别名
         ("gpt-4o", None, _GPT),
         ("gpt-4o-2024-08-06", None, _GPT),
-        # 忽略大小写
         ("GPT-4O", None, _GPT),
         ("omni-v3", None, _MIXED),
         # 去掉最后一个 / 及之前的命名空间，多层命名空间也只留最后一段
@@ -80,7 +78,6 @@ _ALL = (
         # 同等命中时官方模型名优先于模型别名：beta 既是 _ALIAS_OWNER 的别名，又是 _NAME_OWNER 的官方名
         ("beta", None, _NAME_OWNER),
         ("BETA", None, _NAME_OWNER),
-        # 完全不相关
         ("", None, None),
         ("unknown-model", None, None),
         # 两栖模型：媒体类型一致的那一条；不给媒体类型则无法选择
@@ -97,7 +94,7 @@ def test_match_entry_by_name(model_name: str, media_type: str | None, expected: 
 
 
 def test_exact_hit_beats_normalized_hit_even_when_listed_later() -> None:
-    dotted = _entry("acme", "m-1", "text")  # 归一化后与 "M.1" 相同
+    dotted = _entry("acme", "m-1", "text")
     exact = _entry("acme", "M.1", "text")
     assert match_entry((dotted, exact), "M.1") is exact
     assert match_entry((exact, dotted), "M.1") is exact
@@ -117,7 +114,7 @@ def test_official_name_beats_alias_at_the_same_rank_regardless_of_order() -> Non
 
 
 def test_amphibious_with_better_rank_on_one_side_is_not_ambiguous() -> None:
-    image = replace(_OMNI_IMAGE, name="Kling-V3-Omni")  # 只与视频条目精确命中的情形
+    image = replace(_OMNI_IMAGE, name="Kling-V3-Omni")
     assert match_entry((_OMNI_VIDEO, image), "kling-v3-omni") is _OMNI_VIDEO
 
 

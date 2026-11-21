@@ -343,8 +343,6 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             audio=cls.endpoint.v25,
         )
 
-    # ── request building ────────────────────────────────────────────────
-
     def _build_payload(self, request: VideoGenerationRequest) -> dict:
         """按端点声明构造 v2.0 或 2.5 请求。"""
         if self.endpoint.v25:
@@ -469,8 +467,6 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     @staticmethod
     def _valid_paths(values: list[Path] | None) -> list[Path]:
         return [Path(value or "") for value in values or []]
-
-    # ── HTTP submit / poll / download ───────────────────────────────────
 
     @with_retry_async(
         max_attempts=DEFAULT_MAX_ATTEMPTS,

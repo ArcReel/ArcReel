@@ -70,7 +70,6 @@ logger = logging.getLogger(__name__)
 #: 结果目录的存活时长。清理时机是进程启动与每次新建，不挂定时器。
 TRIAL_RUN_TTL_SECONDS = 24 * 3600
 
-#: 结果体里保留的轮询响应条数。
 MAX_POLL_RESPONSES = 20
 
 #: 结果体给出的四段状态点：前三段是运行时留痕的三个阶段，第四段是产物落盘。
@@ -82,7 +81,6 @@ _RESULT_FILE = "result.json"
 #: 在同一个结果目录里也要分得开。
 _ARTIFACT_FILE_BY_MEDIA_TYPE: Mapping[str, str] = {"video": "artifact.mp4", "image": "artifact.png"}
 
-#: ``start`` 生成的 run_id 形状（``uuid4().hex``）。
 _RUN_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
 
 
@@ -111,8 +109,6 @@ class TrialRunTarget:
     model: str
     build_backend: Callable[[], Awaitable[Any]]
     definition: Mapping[str, Any] | None = None
-    #: 这个端点产的是视频还是图像：决定构造哪种生成请求、记哪种 call_type、产物落成哪个文件名。
-    #: 声明式与 ComfyUI 端点都由定义自己声明，经 ``definition_media_type`` 读取。
     media_type: str = "video"
     #: 提交前跑不跑生产那道能力闸。付费通道一律跑（声明的违约在付费前拒绝）；ComfyUI 端点费用
     #: 固定 0，且能力由节点绑定推导而内联定义这条入口拿不到推导结果，跑闸只会把「绑定漏了首帧」
@@ -155,7 +151,6 @@ class TrialRun:
     provider: str
     model: str
     created_at: float
-    #: 这一笔产的是视频还是图像。读侧据此决定产物按播放器还是按图展示。
     media_type: str = "video"
     finished_at: float | None = None
     api_call_id: int | None = None
@@ -273,9 +268,9 @@ class TrialRunManager:
         self._read_poll_timeout = read_poll_timeout
         self._runs: dict[str, TrialRun] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        self._owners: dict[str, str] = {}  # run_id -> user_id
-        self._staging: dict[str, Path] = {}  # run_id -> 素材临时目录
-        self._response_writes: dict[str, set[asyncio.Task[None]]] = {}  # run_id -> 在途诊断写入
+        self._owners: dict[str, str] = {}
+        self._staging: dict[str, Path] = {}
+        self._response_writes: dict[str, set[asyncio.Task[None]]] = {}
         self._settling: set[str] = set()  # 已拿到结局、正在收尾的 run，取消不再打断它们
 
     @property
@@ -372,7 +367,6 @@ class TrialRunManager:
             return None
         path = self.root / run_id / _RESULT_FILE
         try:
-            # 反序列化与读盘同属一条受控失败路径：读不出一个可用的 run 一律 None。
             return TrialRun.from_payload(json.loads(path.read_text(encoding="utf-8")))
         except (OSError, KeyError, TypeError, ValueError):
             return None
@@ -515,7 +509,6 @@ class TrialRunManager:
                 self._settling.add(run.id)
                 call.success(result)
                 run.provider_job_id = getattr(result, "task_id", None)
-                # 产物在供应商那儿的地址：两类结果各叫一个名字，落进同一格。
                 run.video_url = getattr(result, "video_uri", None) or getattr(result, "image_uri", None)
                 run.duration_seconds = getattr(result, "duration_seconds", None)
                 run.has_artifact = await run_noninterruptible_sync(_artifact_file(run_dir, target.media_type).is_file)

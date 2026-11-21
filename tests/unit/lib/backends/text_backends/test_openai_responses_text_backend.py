@@ -124,7 +124,6 @@ async def test_schema_violating_output_falls_back_to_prompt_injection():
 
     assert route.call_count == 2
     fallback_body = request_json(route.calls[1].request)
-    # 降级仍走 Responses，不再带 text.format，schema 改写进 prompt
     assert "text" not in fallback_body
     assert '"episode_count"' in fallback_body["input"][0]["content"]
     assert json.loads(result.text) == {"title": "雪夜", "episode_count": 3}

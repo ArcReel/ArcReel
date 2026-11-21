@@ -84,7 +84,6 @@ from lib.script import script_review
 
 logger = logging.getLogger(__name__)
 
-#: ``project.json`` 里存放候选的键。
 REPLAN_CANDIDATE_KEY = "episode_replan"
 
 #: 生成中途停止的原因：AI 在窗口里找不到切分点、模型或其他错误。创作者主动停止不记原因。
@@ -97,11 +96,6 @@ class ReplanError(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
         self.code = code
-
-
-# ---------------------------------------------------------------------------
-# 候选的读取
-# ---------------------------------------------------------------------------
 
 
 def replan_candidate(project: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -159,11 +153,6 @@ def candidate_staleness(project: Mapping[str, Any], candidate: Mapping[str, Any]
     if candidate.get("source_fingerprints") != compute_source_fingerprints(docs):
         return "source_changed"
     return None
-
-
-# ---------------------------------------------------------------------------
-# 发起与放弃
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -342,11 +331,6 @@ def _require_candidate(project: Mapping[str, Any], candidate_id: str) -> dict[st
     if candidate is None or candidate.get("id") != candidate_id:
         raise ReplanError("candidate_not_found", "这份新的分集方案已经不在了")
     return candidate
-
-
-# ---------------------------------------------------------------------------
-# 采纳的推演
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -568,11 +552,6 @@ class _StaleConfirmation(Exception):
         self.impact = impact
 
 
-# ---------------------------------------------------------------------------
-# 采纳
-# ---------------------------------------------------------------------------
-
-
 def _write_new_episode_file(project_dir: Path, episode: int, text: str) -> None:
     path = episode_source_path(project_dir, episode)
     if path.exists() or path.is_symlink():
@@ -712,11 +691,6 @@ def _delete_retired(pm: ProjectManager, project_name: str, episodes: Iterable[in
         if not isinstance(outcome, EpisodeDeletionConfirmationRequired):
             deleted.append(episode)
     return deleted
-
-
-# ---------------------------------------------------------------------------
-# 摘要与确认文本
-# ---------------------------------------------------------------------------
 
 
 def replan_candidate_summary(project_dir: Path, project: Mapping[str, Any]) -> dict[str, Any] | None:

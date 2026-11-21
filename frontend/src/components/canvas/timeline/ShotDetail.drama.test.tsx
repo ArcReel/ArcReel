@@ -27,7 +27,6 @@ function makeScene(overrides: Partial<DramaScene> = {}): DramaScene {
   };
 }
 
-// 统一构造 ShotDetail 元素，供首渲染与 rerender 共用，避免重复整段 props 列表。
 function detailElement(scene: DramaScene, props: Partial<Parameters<typeof ShotDetail>[0]> = {}) {
   return (
     <ShotDetail
@@ -57,7 +56,6 @@ describe("ShotDetail 剧情演绎", () => {
     expect(screen.getByDisplayValue("三年后。")).toBeInTheDocument();
     expect(screen.getByDisplayValue("阿离")).toBeInTheDocument();
     expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument();
-    // drama 不再渲染扁平对白编辑器的空态占位
     expect(screen.queryByText("（暂无对话）")).not.toBeInTheDocument();
   });
 
@@ -124,10 +122,8 @@ describe("ShotDetail 剧情演绎", () => {
     // 存量画外音只有 kind/text、缺 speaker 键（类型允许 speaker?: null）
     const scene = makeScene({ utterances: [{ kind: "voiceover", text: "三年后。" }] });
     render(detailElement(scene, { onUpdatePrompt: vi.fn() }));
-    // 初始干净：保存栏不渲染
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
 
-    // 切到台词：真实变更 → 变脏 → 保存栏出现
     fireEvent.click(screen.getByRole("button", { name: "画外音" }));
     expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
     // 切回画外音（speaker 归 null，文本不变）：归一化后与上游等价 → 复归干净 → 保存栏消失

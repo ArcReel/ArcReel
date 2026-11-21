@@ -684,8 +684,6 @@ class CostEstimationService:
             try:
                 raw_segments, id_key, _, _, _ = get_storyboard_items(script)
             except ScriptEditError as exc:
-                # 单集脏脚本(segments/scenes 键损坏)不应让整个项目费用估算 5xx;降级把该集
-                # 估算为 0(raw_segments=[]) + warning 让运维知道,UI 仍能展示其他正常集的估算。
                 logger.warning("费用估算跳过脏脚本 %s: %s", script_file, exc)
                 raw_segments, id_key = [], "segment_id"
 
@@ -785,8 +783,6 @@ class CostEstimationService:
                 narration_text = novel_text.strip() if isinstance(novel_text, str) else ""
                 narration_chars = len(narration_text)
                 if narration_chars and tts_settings is not None:
-                    # 与结算同一个目录查询与计算器：字符数按价目表的「汉字计 2」统计；按 token 计价的模型没有
-                    # 估算函数，记为未定价。自定义供应商的模型按所对应条目的价目表计价。
                     audio_requests = (Usage(text=narration_text),)
                     audio_cost = (
                         audio_price.price(
@@ -899,7 +895,6 @@ class CostEstimationService:
         meta_order = {ep_meta.get("episode"): i for i, ep_meta in enumerate(episodes_meta)}
         episodes_result.sort(key=lambda ep: meta_order.get(ep["episode"], len(meta_order)))
 
-        # Project-level actual costs (characters/scenes/props/products 资产图—— segment_id is null)
         async with self._session_factory() as session:
             usage_repo = UsageRepository(session)
             project_image_by_type = await usage_repo.get_project_image_costs_by_asset_type(project_name)
@@ -1195,7 +1190,6 @@ async def _quote_image_lane(
                 multiplier=await get_provider_multiplier(session, provider),
                 image_size=resolution,
                 aspect_ratio=aspect_ratio,
-                # 图生图只知道走参考图，不知道几张：需要参考图张数的价目表记为未定价。
                 reference_count=0 if lane == "t2i" else None,
                 stored_quality=project_image_quality(project, provider, model),
             )

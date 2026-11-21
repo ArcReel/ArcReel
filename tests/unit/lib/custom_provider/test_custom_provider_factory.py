@@ -27,7 +27,6 @@ from lib.custom_provider.backends import (
 )
 from lib.custom_provider.factory import create_custom_backend
 
-# endpoints 模块里被 build_backend 闭包直接构造的全部后端类。
 _ENDPOINT_BACKEND_CLASSES = (
     "AnthropicTextBackend",
     "DeclarativeVideoBackend",
@@ -58,7 +57,6 @@ def _endpoint_backends() -> Generator[list[dict[str, Any]]]:
     with ExitStack() as stack:
         for cls_name in _ENDPOINT_BACKEND_CLASSES:
             stack.enter_context(patch(f"lib.custom_provider.endpoints.{cls_name}", _recorder(cls_name)))
-        # Seedance 各代端点按端点名取调用通道类
         seedance = {key: _recorder(backend.__name__) for key, backend in SEEDANCE_BACKENDS.items()}
         stack.enter_context(patch("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", seedance))
         for mapping_name, backends in (
@@ -107,7 +105,6 @@ def _built(provider: MagicMock, model_id: str, endpoint: str, **kwargs: Any) -> 
 
 class TestEndpointDispatch:
     def test_openai_chat(self):
-        # host-only base_url：openai 端点补 /v1 的接线在此覆盖
         provider = _make_provider(base_url="https://api.example.com")
         result, built = _built(provider, "gpt-4o", "openai-chat")
         assert isinstance(result, CustomTextBackend)
@@ -263,7 +260,6 @@ class TestEndpointDispatch:
         provider = _make_provider(base_url="https://relay.example.com")
         result, built = _built(provider, "viduq3-turbo", "vidu-video-q3-turbo")
         assert isinstance(result, CustomVideoBackend)
-        # 仅 host → 补全 vidu 协议挂载路径 /ent/v2
         assert built == {
             "backend": "ViduVideoBackend",
             "kwargs": {
@@ -340,7 +336,6 @@ class TestEndpointDispatch:
     def test_kling_image_host_only_mounts_v1(self):
         provider = _make_provider(base_url="https://relay.example.com")
         _result, built = _built(provider, "kling-image-o1", "kling-image")
-        # 仅 host → 补全可灵协议挂载路径 /v1
         assert built["kwargs"]["base_url"] == "https://relay.example.com/v1"
 
     def test_kling_video(self):
@@ -362,7 +357,6 @@ class TestEndpointDispatch:
     def test_kling_video_host_only_mounts_v1(self):
         provider = _make_provider(base_url="relay.example.com")
         _result, built = _built(provider, "kling-v3", "kling-video-pro-silent")
-        # 纯域名（无 scheme）→ 补 https:// 再挂载 /v1
         assert built["kwargs"]["base_url"] == "https://relay.example.com/v1"
 
     def test_openai_images_generations(self):

@@ -36,7 +36,6 @@ from lib.config.resolver import (
 #: 视频路线：分镜（首帧驱动）与参考生视频。问题码按路线分族，已记录的码不改名。
 VideoRoute = Literal["storyboard", "reference_video"]
 
-#: 求值失败的修复指引：都指向视频模型配置。
 CONFIGURE_VIDEO_MODEL_ACTION = "configure_video_model"
 
 #: 时长这一维由端点固定的模型行，在剧本规划里借用的档位。

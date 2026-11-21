@@ -398,7 +398,6 @@ def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
                 project[TTS_BACKEND_FIELD] = validate_tts_backend(req.audio_backend)
             else:
                 project.pop(TTS_BACKEND_FIELD, None)
-        # 音色是照供应商文档填的字符串 id；空串 = 清除
         if TTS_VOICE_FIELD in fields:
             voice = (req.narration_voice or "").strip()
             if voice:
@@ -546,7 +545,6 @@ async def export_project_archive(
     if scope not in ("full", "current"):
         raise HTTPException(status_code=422, detail=_t("scope_invalid"))
 
-    # 验证 download_token
     import jwt as pyjwt
 
     try:
@@ -606,7 +604,6 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
         last_activity: dict[str, datetime] = {}
         for name in manager.list_projects():
             try:
-                # 列举之后被删除的项目不再列出
                 if manager.project_exists(name):
                     project = manager.load_project(name)
                     # 一次性预加载每集剧本，喂给 cover + status 两路下游，去除重复 JSON I/O。
@@ -671,7 +668,6 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                         }
                     )
             except Exception as e:
-                # 出错时返回基本信息
                 logger.warning("加载项目 '%s' 元数据失败: %s", name, e)
                 projects.append(
                     {"name": name, "title": "", "style": "", "thumbnail": None, "status": {}, "last_activity_at": None}
@@ -738,7 +734,6 @@ async def create_project(
                 if req.brief is not None:
                     raise HTTPException(status_code=400, detail=_t("ad_only_field", field="brief"))
 
-            # 与 update 路径对称：校验所有 backend 字段
             for field_name in _PROJECT_BACKEND_FIELDS:
                 value = getattr(req, field_name)
                 if value:
@@ -765,8 +760,6 @@ async def create_project(
             extras = {field: value for field in _PROJECT_BACKEND_FIELDS if (value := getattr(req, field))}
             if req.model_settings is not None:
                 extras["model_settings"] = req.model_settings
-            # 生成模式与宫格开关并入 extras 一次性写入，避免 create 后再 load-save 的额外 RMW；
-            # 两字段恒写显式值（grid_storyboard 默认 false 也落盘），新项目即 v5 完整形态
             extras["generation_mode"] = req.generation_mode
             extras["grid_storyboard"] = req.grid_storyboard
             if speech_rate is not None:
@@ -917,7 +910,6 @@ async def get_episode_next_steps(name: str, _t: Translator):
         manager = get_project_manager()
         steps = await asyncio.to_thread(WorkflowStateService(manager).get_episode_next_steps, name)
         if not steps:
-            # 项目整体不可用时没有逐集下一步，也不再读一次项目。
             return EpisodeNextSteps(episodes=[])
         project = await asyncio.to_thread(manager.load_project, name)
     except FileNotFoundError as exc:
@@ -964,7 +956,6 @@ async def get_project(
 
             project = manager.load_project(name)
 
-            # 阶段、产物计数与每集明细一律来自项目摘要投影（读时计算，不写入 JSON）
             summary = summaries.get_project_summary(name)
             project = _merge_episode_summaries(project, summary)
             project["status"] = _project_status_payload(summary, project, _t)
@@ -988,7 +979,6 @@ async def get_project(
             # 判定只是在同一份数据上多扫一遍。
             project = annotate_derivative_references(project, scripts.values())
 
-            # 计算媒体文件指纹（用于前端内容寻址缓存）
             project_path = manager.get_project_path(name)
             fingerprints = compute_asset_fingerprints(project_path)
 
@@ -1086,7 +1076,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project.pop("video_generate_audio", None)
                     else:
                         project["video_generate_audio"] = req.video_generate_audio
-                # 角色声音绑定方式：枚举，null / 空串 = 清除、回落默认（提示词软约束）
                 if "character_voice_binding" in req.model_fields_set:
                     binding = (req.character_voice_binding or "").strip()
                     if not binding:
@@ -1096,7 +1085,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     else:
                         raise HTTPException(status_code=422, detail=_t("character_voice_binding_invalid"))
                 _apply_narration_patch(project, req)
-                # 口播语速估算（阅读单位 / 秒）：宽松硬区间，null = 清除、回退语言默认
                 if "speech_rate_units_per_second" in req.model_fields_set:
                     if req.speech_rate_units_per_second is None:
                         project.pop(SPEECH_RATE_FIELD, None)
@@ -1119,7 +1107,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     else:
                         project["default_duration"] = req.default_duration
                 if "episode_target_duration" in req.model_fields_set:
-                    # 与 default_duration 同口径：ad 项目对字段出现本身即拒绝（含 null）
                     if is_ad:
                         raise HTTPException(status_code=400, detail=_t("ad_no_episode_target_duration"))
                     if req.episode_target_duration is None:
@@ -1152,7 +1139,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                             )
                         project["style_template_id"] = req.style_template_id
                         project["style"] = resolve_template_prompt(req.style_template_id)
-                        # 强互斥:模版与参考图二选一
                         project.pop("style_image", None)
                         project.pop("style_description", None)
 
@@ -1177,7 +1163,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     existing_list = project.get("episodes", [])
                     patch_map: dict[int, EpisodePatch] = {}
                     for ep in req.episodes:
-                        patch_map[ep.episode] = ep  # 重复编号：后者覆盖前者
+                        patch_map[ep.episode] = ep
 
                     new_episodes: list[dict] = []
                     for existing_ep in existing_list:
@@ -1687,7 +1673,6 @@ class UpdateShotRequest(BaseModel):
     updates: dict
 
 
-# ad 分镜 PATCH 白名单：shot_id（定位键）与 generated_assets（运行时状态）不可改写。
 _SHOT_UPDATABLE_FIELDS = (
     "section",
     "voiceover_text",
@@ -1711,7 +1696,6 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
     if script.get("content_mode") != "ad" or "shots" not in script:
         raise HTTPException(status_code=400, detail=_t("ad_mode_required"))
     shots = script.get("shots")
-    # 非法形状 fail loud，ValueError 由路由统一转 422。
     if not isinstance(shots, list):
         raise ValueError("ad script field 'shots' must be a list")
     if not all(isinstance(s, dict) for s in shots):
@@ -1938,7 +1922,6 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                 except FileNotFoundError as exc:
                     if not manager.project_exists(name):
                         raise NotFoundError("project_not_found", name=name) from exc
-                    # 这一集还没有剧本：标题记在账本条目上
                     manager.update_project(name, _retitle_ledger_entry)
                 except EpisodeScriptReboundError as exc:
                     logger.info("episode script rebound during title update: %s", exc)
@@ -2000,9 +1983,6 @@ async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourc
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-# ==================== 源文件管理 ====================
-
-
 @router.post("/projects/{name}/source", dependencies=[Depends(require_project_migration_ok)])
 async def set_project_source(
     name: Annotated[str, FastAPIPath(pattern=r"^[a-zA-Z0-9_-]+$")],
@@ -2031,7 +2011,6 @@ async def set_project_source(
     try:
         manager = get_project_manager()
 
-        # 异步读取上传文件
         raw: bytes | None = None
         original_name: str = "novel.txt"
         if file:
@@ -2044,7 +2023,6 @@ async def set_project_source(
             raw = await file.read()
         text_content: str = content or ""
 
-        # 同步文件 I/O 在线程中执行
         def _sync_write():
             if not manager.project_exists(name):
                 raise HTTPException(status_code=404, detail=_t("project_not_found", name=name))
@@ -2105,9 +2083,6 @@ async def set_project_source(
     finally:
         if file:
             await file.close()
-
-
-# ==================== 项目概述管理 ====================
 
 
 @router.post("/projects/{name}/generate-overview", dependencies=[Depends(require_project_migration_ok)])
@@ -2174,7 +2149,6 @@ async def generate_overview(name: str, _t: Translator):
         logger.exception("生成概述失败：项目数据损坏 name=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
     except (HTTPException, ApiError, ModelNotInCatalogError):
-        # ModelNotInCatalogError：项目引用的文本模型已不在供应商清单中，交 app 级 handler 返回要求重新选择模型的 400
         raise
     except Exception as exc:
         logger.exception("请求处理失败")

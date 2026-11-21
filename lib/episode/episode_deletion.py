@@ -58,7 +58,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: 删除记录的对象类型；对象描述 ``{"kind": "episode", "id": 集 ID, "title": 标题}``。
 EPISODE_KIND = "episode"
 
 #: 条目媒体所在目录：文件名带条目 ID（``scene_E3S01.png``、``E3U1.mp4``）。
@@ -95,7 +94,6 @@ class EpisodeDeletionImpact:
     #: 切出集按源文位置前后相邻的切出集（集 ID）；不是落位的切出集时都为 None。
     cut_before: int | None
     cut_after: int | None
-    #: 切出集落在整本源文里。
     placed: bool
 
     @property
@@ -236,22 +234,15 @@ def _language(project: Mapping[str, Any]) -> str | None:
     return language if isinstance(language, str) else None
 
 
-# ---------------------------------------------------------------------------
-# 删除
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class EpisodeContent:
     """一集在项目里的全部内容。"""
 
-    #: 进删除记录的普通文件（项目内相对 POSIX 路径）。
     files: list[str]
     #: 这一集资源的版本记录（按资源类型分桶）；快照文件在 ``files`` 里。
     versions: dict[str, dict[str, Any]]
     #: 锁与隐藏文件：基础设施，删集时直接删除。
     leftovers: list[Path] = field(default_factory=list)
-    #: 按集分的目录：文件移走后清掉空目录。
     dirs: list[Path] = field(default_factory=list)
 
 
@@ -341,7 +332,6 @@ def delete_episode(
         try:
             snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
         except ArtifactManifestError:
-            # 清单读不出时不可能有本集的有效登记，删除照常进行
             snapshot = {}
         committed["expected"] = {key: entry for key, entry in snapshot.items() if key.episode_number == episode}
         committed["project"] = p
@@ -416,10 +406,6 @@ def _versioned_resources(project_dir: Path, episode: int, grid_ids: Iterable[str
         if item_id_episode(resource_id) == episode or (resource_type == "grids" and resource_id in grids)
     ]
 
-
-# ---------------------------------------------------------------------------
-# 确认文本
-# ---------------------------------------------------------------------------
 
 #: 丢失清单的汇总项：（计数字段，文案 key）。计数为 0 的项不出现。
 _LOSS_COUNTS: tuple[tuple[str, str], ...] = (

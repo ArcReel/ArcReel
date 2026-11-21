@@ -22,12 +22,6 @@ import { ProjectStatusBar } from "./ProjectStatusBar";
 import { useProjectExport } from "./useProjectExport";
 import { WorkspaceNotifications } from "./WorkspaceNotificationsDrawer";
 
-/**
- * 工作区顶栏，三段：
- * - 左：回到项目大厅 + 项目切换器（演示项目另带「演示 · 只读」徽标）
- * - 中：ProjectStatusBar（集进度与项目层的下一步；数据升级失败时是迁移重试）
- * - 右：通知 / 使用记录 / 导出 / 资产库 / 全局设置 / Agent 面板开关
- */
 export function GlobalHeader() {
   const { t } = useTranslation(["dashboard", "common", "assets", "onboarding"]);
   const [location, setLocation] = useLocation();
@@ -68,7 +62,6 @@ export function GlobalHeader() {
     closeExport();
   }, [currentProjectName, demoMode, closeExport]);
 
-  // 入口的数据随项目走：切到别的项目或演示项目时清空上一项目的用量，并收起悬浮层。
   useEffect(() => {
     void useUsageHeaderStore.getState().setProject(usageProjectName);
     if (usageProjectName === null) setUsagePanelOpen(false);

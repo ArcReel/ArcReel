@@ -123,7 +123,6 @@ class _Edit:
 
     #: 改动原文范围（有新集或范围变了）时为 True；只移除切分时为 False。
     touches_source: bool = False
-    #: 已有切出集的新原文范围。
     ranges: dict[int, tuple[int, int]] = field(default_factory=dict)
     #: 新的一集：原文范围、标题，以及插在第几个条目之前（下标指改动前的 ``episodes``）。
     new_range: tuple[int, int] | None = None
@@ -139,11 +138,6 @@ class _NeedsConfirmation(Exception):
     def __init__(self, impact: ManualSplitImpact):
         super().__init__("manual split needs confirmation")
         self.impact = impact
-
-
-# ---------------------------------------------------------------------------
-# 落位
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -287,7 +281,6 @@ def _plan_cut(layout: _Layout, *, source_file: str, end: int, title: str) -> _Ed
     spans = [layout.span(p) for p in layout.ordered()]
     if any(low < at < high for low, high in spans):
         raise ManualSplitError("inside_episode", "这个位置在一集的原文里，应当拆分这一集")
-    # 从前面最近的切出集结尾（没有时从整本源文开头）切起，不跨过源文件类型的切换处
     start = max([high for _low, high in spans if high <= at] + [wall for wall in layout.kind_walls if wall < at] + [0])
     _require_text(layout, start, at)
     insert_before = cut_insert_index(layout.entries, layout.placements, (index, end))
@@ -365,11 +358,6 @@ def _plan_clear_after(layout: _Layout, *, episode: int) -> _Edit:
     return _Edit(
         dropped=[num for entry in layout.entries if (num := parse_positive_episode_num(entry.get("episode"))) in after]
     )
-
-
-# ---------------------------------------------------------------------------
-# 提交
-# ---------------------------------------------------------------------------
 
 
 def _impact(project_dir: Path, layout: _Layout, edit: _Edit) -> ManualSplitImpact:
@@ -639,10 +627,6 @@ def clear_cuts_after(
         dry_run=dry_run,
     )
 
-
-# ---------------------------------------------------------------------------
-# 确认清单
-# ---------------------------------------------------------------------------
 
 _IMPACT_LINES = (
     ("restaled", "manual_split_impact_restaled"),

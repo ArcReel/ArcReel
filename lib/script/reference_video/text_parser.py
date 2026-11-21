@@ -126,7 +126,6 @@ class SpeechMark:
     speaker: str
     text: str
     raw: str
-    #: 说话人位写下的衍生名；裸本体名与画外音为空串。
     derivative: str = ""
 
     @property

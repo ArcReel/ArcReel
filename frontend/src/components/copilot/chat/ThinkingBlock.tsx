@@ -10,7 +10,6 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 
 interface ThinkingBlockProps {
   thinking?: string;
-  /** 该块正在流式生成（属于草稿的末尾块）。 */
   streaming?: boolean;
 }
 

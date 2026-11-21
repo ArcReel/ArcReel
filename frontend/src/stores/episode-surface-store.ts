@@ -27,7 +27,6 @@ export const useEpisodeSurfaceStore = create<EpisodeSurfaceState>((set) => ({
   show: (request) => set({ request: { ...request } }),
 }));
 
-/** 画布订阅：点名本项目、本集、这块区域时调用 `onShow`。 */
 export function useEpisodeSurfaceRequest(
   projectName: string,
   episode: number,

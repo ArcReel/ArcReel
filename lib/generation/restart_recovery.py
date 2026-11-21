@@ -79,8 +79,6 @@ class RestartRecovery:
         self._provider_projection = provider_projection
         self._resume = resume
         self._settle_interrupted_calls = settle_interrupted_calls
-        # Orphan dispatcher 句柄持久化：shutdown 时 await 它跑完；lease 切换重夺时
-        # 第二次进 handle_orphans，旧句柄未 done 不能直接覆盖。
         self.orphan_dispatcher_task: asyncio.Task | None = None
         # 「重试下载」的派发是即发即忘的：不持强引用的话，事件循环之外无人引用该 task，
         # 它可能在挂起点被 GC 静默回收。完成即从集合摘除。
@@ -255,8 +253,6 @@ class RestartRecovery:
                 await cleanup_video_staging(task)
                 continue
 
-            # 收集到 provider 桶，交给后台 dispatcher 受 pool 容量约束分批处理。
-            # 顺便把 resolve 出的 provider_id 写回 task dict，dispatcher 路由用。
             task["provider_id"] = provider_id
             resumable_by_provider.setdefault(provider_id, []).append(task)
 
@@ -270,15 +266,6 @@ class RestartRecovery:
                 "孤儿扫描 fast path 完成：%d 个可 resume video 任务交后台分批 dispatch",
                 total,
             )
-            # lease 重夺时旧 dispatcher 可能还在跑（典型场景：resume_video 内 poll provider
-            # 需要几分钟到 10+ 分钟）。本轮**不 await 不 cancel** 直接覆盖句柄：
-            # - 不 await：避免阻塞主循环 → liveness 问题（无法续 lease 心跳/无法响应 cancel API）
-            # - 不 cancel：cancel 会让旧 dispatcher 的 _run_one 抛 CancelledError，进入
-            #   进程级打断的兜底路径，把仍在接续的 in-flight resume 错误标为 cancelled，
-            #   且让 provider 端已扣费 job 失去归属
-            # - 直接覆盖：旧 dispatcher_task 的 sub-task 仍由占用台账（SlotTable）持有引用
-            #   + asyncio.gather 内部 callback 链持有，旧 task 不会被 GC detached
-            # - shutdown 仍能感知：worker 关停经 _slots.all_active_tasks() 等到旧 sub-task
             if self.orphan_dispatcher_task is not None and not self.orphan_dispatcher_task.done():
                 logger.warning(
                     "旧 orphan dispatcher 仍在运行，本轮直接覆盖句柄不等待——"

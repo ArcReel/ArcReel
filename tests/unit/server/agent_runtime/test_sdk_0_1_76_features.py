@@ -140,7 +140,7 @@ class TestCanUseToolDecisionReason:
             meta_store=SessionMetaStore(),
         )
         callback = await sm._build_can_use_tool_callback(session_id="sess-y")
-        ctx = SimpleNamespace()  # no decision_reason
+        ctx = SimpleNamespace()
         result = await callback("Bash", {"command": "echo hi"}, ctx)
         assert hasattr(result, "message")
         assert "未授权的工具调用" in result.message

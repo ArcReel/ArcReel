@@ -29,19 +29,14 @@ def response_schema_models() -> list[type[BaseModel]]:
     )
 
     models: list[type[BaseModel]] = [
-        # 分集规划
         NarrationPlanDraft,
         DramaPlanDraft,
-        # 分镜拆分（旁白）与提示词编写（参考生视频）
         NarrationScriptPlanDraft,
         ReferencePromptAuthoringFlatScript,
-        # 提示词编写视觉层
         NarrationVisualEpisodeScript,
         DramaVisualScript,
         AdVisualScript,
-        # 广告剧本（参考生视频）
         AdReferenceFlatScript,
-        # 项目概述
         ProjectOverview,
     ]
     for durations in ([4, 6, 8], [8]):

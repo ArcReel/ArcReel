@@ -409,7 +409,6 @@ def model_facing_response_model[M: BaseModel](model: type[M]) -> type[M]:
     """
 
     def model_json_schema(cls: type[M], *args: Any, **kwargs: Any) -> dict[str, Any]:
-        # 子类不增改字段，schema 即 model 的 schema；类 docstring 由生成器剥除
         kwargs.setdefault("schema_generator", _ModelFacingJsonSchema)
         return model.model_json_schema(*args, **kwargs)
 
@@ -538,7 +537,7 @@ async def prompt_json_fallback(
     错误重试），收到的请求 ``response_schema`` 已置空；它仍是一次结构化输出尝试，截断须按
     结构化口径处理。校验通过后返回规范化 JSON（model_dump_json），下游解析必定成功。
     """
-    assert request.response_schema is not None  # 调用方（generate 复验分支）保证
+    assert request.response_schema is not None
     schema_dict = resolve_schema(request.response_schema)
     schema_model = request.response_schema if isinstance(request.response_schema, type) else None
 

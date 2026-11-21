@@ -67,11 +67,6 @@ DefinitionBody = Annotated[Any, Body()]
 ImportMediaType = Literal["image", "video"]
 
 
-# ---------------------------------------------------------------------------
-# Pydantic 模型
-# ---------------------------------------------------------------------------
-
-
 class CustomEndpointResponse(BaseModel):
     """一条自定义调用端点。``definition`` 即导出内容，客户端直接存成文件。"""
 
@@ -140,11 +135,6 @@ class EndpointReferenceDescriptor(BaseModel):
     provider_display_name: str
     model_id: str
     model_display_name: str
-
-
-# ---------------------------------------------------------------------------
-# 辅助函数
-# ---------------------------------------------------------------------------
 
 
 def endpoint_response(
@@ -288,11 +278,6 @@ async def _invalidate_backend_cache() -> None:
     from server.services.tasks.generation_context import invalidate_backend_cache
 
     invalidate_backend_cache()
-
-
-# ---------------------------------------------------------------------------
-# CRUD
-# ---------------------------------------------------------------------------
 
 
 @router.post("", status_code=201)

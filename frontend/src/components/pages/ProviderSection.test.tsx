@@ -133,7 +133,6 @@ function customProvider(id: number, displayName: string): CustomProviderInfo {
   };
 }
 
-/** 在「新建自定义供应商」表单里填满必填项并保存。 */
 function saveNewCustomProvider() {
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的中转站" } });
   fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://api.example.invalid" } });

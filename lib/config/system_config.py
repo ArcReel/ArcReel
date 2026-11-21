@@ -164,10 +164,6 @@ class SystemConfigManager:
         )
         self._lock = threading.Lock()
 
-    # ------------------------------------------------------------------
-    # IO helpers
-    # ------------------------------------------------------------------
-
     def _load_file(self) -> tuple[dict[str, Any], bool]:
         """Return (data, migrated)."""
         if not self.paths.config_path.exists():
@@ -177,8 +173,6 @@ class SystemConfigManager:
             raw = self.paths.config_path.read_text(encoding="utf-8")
             data = json.loads(raw)
         except (OSError, json.JSONDecodeError) as exc:
-            # TODO(multi-user): JSONDecodeError 可能在消息中包含 config 文件片段（含 API key），
-            # 多用户场景需 sanitize 日志内容。
             logger.warning("Failed to read system config, using empty overrides: %s", exc)
             return {"version": 1, "updated_at": None, "overrides": {}}, False
 
@@ -190,7 +184,6 @@ class SystemConfigManager:
             overrides = {}
 
         migrated = False
-        # Migration: gemini_backend -> image_backend/video_backend
         legacy_backend = overrides.get("gemini_backend")
         if isinstance(legacy_backend, str) and legacy_backend.strip():
             if "image_backend" not in overrides:
@@ -200,7 +193,6 @@ class SystemConfigManager:
             overrides.pop("gemini_backend", None)
             migrated = True
 
-        # Migration: storyboard_max_workers -> image_max_workers
         legacy_workers = overrides.get("storyboard_max_workers")
         if legacy_workers is not None:
             if "image_max_workers" not in overrides:
@@ -258,10 +250,6 @@ class SystemConfigManager:
                     exc,
                     exc_info=True,
                 )
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def read_overrides(self) -> dict[str, Any]:
         with self._lock:

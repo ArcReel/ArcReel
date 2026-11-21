@@ -14,7 +14,6 @@ interface UsageActiveRowProps {
   view: UsageRecordView;
   /** 有任务代表的行才可能可取消；无任务的 pending 调用为 null。 */
   task: TaskItem | null;
-  /** 供应商 id → 显示名，查不到回退 id。 */
   providerLabel: (provider: string | null) => string;
   onCancel?: (taskId: string) => void;
   cancelling?: boolean;

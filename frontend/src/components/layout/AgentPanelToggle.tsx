@@ -18,10 +18,6 @@ function useAgentAttention(): "waiting" | "running" | null {
   return null;
 }
 
-/**
- * 顶栏右端常驻的「Agent」开关：按下态表示面板展开。面板收起时，开关上的状态点提示
- * Agent 正在运行（呼吸点）或在等你回答（琥珀点）。演示工作台的面板不可收起，不显示开关。
- */
 export function AgentPanelToggle() {
   const { t } = useTranslation("dashboard");
   const open = useAppStore((s) => s.assistantPanelOpen);

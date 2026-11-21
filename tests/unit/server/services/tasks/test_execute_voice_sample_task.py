@@ -98,7 +98,6 @@ class TestExecuteCharacterVoiceSampleTask:
                 "task_id": "task-1",
             }
         ]
-        # 试听样本归属角色：角色被删时样本进回收站，而不是按样本自身的资源 ID 复核。
         assert gen.target_resource == ("characters", "艾莉")
         assert result["resource_type"] == "audio"
         assert result["resource_id"] == "voice_sample__艾莉__task-1"
@@ -197,7 +196,6 @@ class TestExecuteCharacterVoiceSampleTask:
             )
 
     async def test_character_deleted_after_enqueue_raises(self, voice_sample_env):
-        # 入队后、worker 取到任务前角色被删除：不应再花钱调用合成 API 产出孤儿预览。
         pm, gen = voice_sample_env
         del pm.project["characters"]["艾莉"]
         with pytest.raises(ValueError, match="character not found"):

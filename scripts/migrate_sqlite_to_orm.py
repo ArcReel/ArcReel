@@ -22,12 +22,10 @@ import sqlite3
 import sys
 from pathlib import Path
 
-# Ensure project root is on sys.path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 # Import lib.db submodules directly to avoid triggering lib/__init__.py
-# which pulls in GeminiClient → PIL and other heavy dependencies.
 import types
 
 # Create a minimal lib package stub so sub-imports resolve correctly
@@ -78,7 +76,6 @@ def _read_old_sessions(conn: sqlite3.Connection) -> list:
 async def _migrate(dry_run: bool) -> dict[str, int]:
     stats: dict[str, int] = {}
 
-    # --- Read old data ---
     tasks, leases = [], []
     if OLD_TASK_DB.exists():
         with sqlite3.connect(OLD_TASK_DB) as conn:
@@ -112,11 +109,9 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
             "sessions": len(sessions),
         }
 
-    # --- Ensure new DB tables exist ---
     await init_db()
 
     async with async_session_factory() as session:
-        # Tasks
         for row in tasks:
             session.add(
                 Task(
@@ -141,7 +136,6 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
                 )
             )
 
-        # Worker leases
         for row in leases:
             session.add(
                 WorkerLease(
@@ -152,7 +146,6 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
                 )
             )
 
-        # API calls
         for row in api_calls:
             session.add(
                 ApiCall(
@@ -176,7 +169,6 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
                 )
             )
 
-        # Agent sessions
         for row in sessions:
             session.add(
                 AgentSession(
@@ -199,7 +191,6 @@ async def _migrate(dry_run: bool) -> dict[str, int]:
         "agent_sessions": len(sessions),
     }
 
-    # --- Rename old files to .bak ---
     for old_path in [OLD_TASK_DB, OLD_USAGE_DB, OLD_SESSIONS_DB]:
         if old_path.exists():
             bak_path = old_path.with_suffix(".db.bak")

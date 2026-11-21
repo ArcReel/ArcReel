@@ -208,7 +208,7 @@ async def test_resume_success_flips_pending_apicall_by_call_id(tmp_path):
 @pytest.mark.asyncio
 async def test_resume_idempotent_when_finalize_returns_zero(tmp_path, caplog):
     gen = _build_generator(tmp_path)
-    gen.ledger._resume_affected = 0  # 模拟「已 success」幂等场景
+    gen.ledger._resume_affected = 0
 
     output_path, version, _, _ = await gen.resume_video_async(
         job_id="provider-job-1",
@@ -219,7 +219,6 @@ async def test_resume_idempotent_when_finalize_returns_zero(tmp_path, caplog):
 
     assert output_path.exists()
     assert version == 1
-    # 0 rows 不应抛异常，应当 logger.info 记录
     assert len(gen.ledger.resumed) == 1
 
 
@@ -412,7 +411,6 @@ async def test_resume_handles_float_string_duration(tmp_path):
     assert add_call["duration_seconds"] == 10
     assert isinstance(add_call["duration_seconds"], int)
 
-    # provider 请求里的 duration_seconds 也应是 int(10)
     backend = gen._video_backend
     assert len(backend.calls) == 1
     _, request = backend.calls[0]
@@ -429,7 +427,7 @@ async def test_resume_passes_usage_tokens_to_finalize(tmp_path):
     class _ArkLikeResult:
         def __init__(self) -> None:
             self.video_uri = "video-uri-resume"
-            self.usage_tokens = 12345  # 模拟 Ark 返回的 completion_tokens
+            self.usage_tokens = 12345
             self.generate_audio = True
             self.duration_seconds = 8
             self.seed = None
@@ -538,7 +536,6 @@ async def test_resume_success_propagates_finalize_exception(tmp_path):
             task_id="T-1",
         )
 
-    # finalize 被调过一次（看到异常上抛前的入参）
     assert len(gen.ledger.resumed) == 1
 
 
@@ -574,7 +571,6 @@ async def test_resume_expired_propagates_finalize_exception(tmp_path):
     gen._video_backend = _FakeVideoBackend(raises=ResumeExpiredError(job_id="provider-job-1", provider="openai"))
     gen.ledger = _FailingResumeLedger(exc=RuntimeError("db down"))
 
-    # finalize 抛 RuntimeError 应该覆盖原本要抛的 ResumeExpiredError 上抛
     with pytest.raises(RuntimeError, match="db down"):
         await gen.resume_video_async(
             job_id="provider-job-1",

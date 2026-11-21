@@ -251,5 +251,5 @@ def _link_or_copy(source: str, target: str) -> None:
             os.link(source, target)
             return
         except OSError:
-            pass  # 文件系统不支持硬链接：退回复制
+            pass
     shutil.copy2(source, target)

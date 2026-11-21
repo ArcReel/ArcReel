@@ -32,7 +32,6 @@ export interface CredentialForm {
   setPreset: (id: string) => void;
   /** 与 initial 比对，判断是否有可保存的变更（apiKey 任意非空即视为脏）。 */
   isDirty: (initial: Partial<CreateAgentCredentialRequest> | undefined) => boolean;
-  /** 拼装提交 payload。 */
   buildRequest: () => CreateAgentCredentialRequest;
 }
 

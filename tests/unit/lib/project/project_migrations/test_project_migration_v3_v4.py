@@ -32,7 +32,6 @@ class TestMigrateProjectDict:
             ("gemini-aistudio/a", None, "gemini-aistudio/a"),
             (None, "gemini-aistudio/b", "gemini-aistudio/b"),
             ("gemini-aistudio/a", "gemini-aistudio/a", "gemini-aistudio/a"),
-            # 两者不同：取 style 的值（保 vision）
             ("gemini-aistudio/a", "gemini-aistudio/b", "gemini-aistudio/b"),
         ],
     )

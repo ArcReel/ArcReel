@@ -71,7 +71,6 @@ function persistAssistantPanelOpen(open: boolean): void {
 }
 
 interface AppState {
-  // Scroll targeting (Agent-triggered)
   scrollTarget: WorkspaceFocusTarget | null;
   triggerScrollTo: (target: WorkspaceFocusTargetInput) => void;
   clearScrollTarget: (requestId?: string) => void;
@@ -105,11 +104,9 @@ interface AppState {
   assistantPanelWidth: number;
   setAssistantPanelWidth: (width: number) => void;
   persistAssistantPanelWidth: () => void;
-  /** 顶栏用量悬浮层的开合；画布侧也从这里打开面板。 */
   usagePanelOpen: boolean;
   setUsagePanelOpen: (open: boolean) => void;
 
-  // Grid list invalidation signal (incremented on grid_ready SSE events)
   gridsRevision: number;
   invalidateGrids: () => void;
 
@@ -123,7 +120,6 @@ interface AppState {
   referenceVideoUnitsRevision: number;
   invalidateReferenceVideoUnits: () => void;
 
-  // Entity-scoped invalidation signal for cache-busted asset URLs
   entityRevisions: Record<string, number>;
   invalidateEntities: (keys: string[]) => void;
   invalidateAllEntities: () => void;

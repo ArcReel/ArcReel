@@ -52,7 +52,6 @@ class ResumeEndpointChangedError(RuntimeError):
         )
 
 
-# 图片后缀 → MIME 类型映射（多个后端共用）
 IMAGE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -328,8 +327,8 @@ class VideoGenerationRequest:
     duration_seconds: int = 5
     resolution: str | None = None
     start_image: Path | None = None
-    end_image: Path | None = None  # For first_last mode
-    reference_images: list[Path] | None = None  # For multi-reference mode
+    end_image: Path | None = None
+    reference_images: list[Path] | None = None
     # 与 ``reference_images`` 等长同序：第 i 项非 None 时，第 i 张参考图以这个供应商素材引用
     # （如 ``asset://<id>``）代替图片内容发出，位置与提示词里的图片编号不变。只有对参考图槽位声明了
     # 素材引用能力的 backend 会收到非 None 项；其余 backend 不读此字段。
@@ -355,9 +354,6 @@ class VideoGenerationRequest:
     # 非 worker 路径（grid / 直生 / 测试）保持 None，统一点据此跳过持久化。
     task_id: str | None = None
 
-    # MediaGenerator uses this one-way signal to close its compression-retry window. Resumable backends signal
-    # after the provider job handle is durable; an opaque submit-and-wait backend must signal before entering a
-    # call whose failure cannot prove that the provider rejected the request before accepting a paid job.
     on_provider_resubmit_unsafe: Callable[[], None] | None = None
 
     # 收到供应商 JSON 响应时携阶段写入诊断留痕。非账本调用保持 None。

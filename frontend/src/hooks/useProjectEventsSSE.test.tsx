@@ -30,7 +30,6 @@ function mockProjectEventStream() {
     get options() {
       return capturedOptions;
     },
-    /** 最近一次建立的连接；断言 close 次数时用它的 `close`。 */
     get source() {
       return FakeSseStream.instances[FakeSseStream.instances.length - 1];
     },
@@ -858,7 +857,6 @@ describe("useProjectEventsSSE", () => {
 
     renderHarness("/");
 
-    // 建立初始 fingerprint 基线（首次 onSnapshot 不触发刷新）。
     act(() => {
       stream.options?.onSnapshot?.(
         { project_name: "demo", fingerprint: "fp-a", generated_at: "2026-03-01T00:00:00Z" },
@@ -866,7 +864,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(getProjectSpy).not.toHaveBeenCalled();
 
-    // fingerprint 变化触发一次不带聚焦目标的刷新，getProject 卡在在途（d1 未 resolve）。
     act(() => {
       stream.options?.onSnapshot?.(
         { project_name: "demo", fingerprint: "fp-b", generated_at: "2026-03-01T00:00:01Z" },
@@ -874,7 +871,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
 
-    // 在途期间，一批带真实聚焦目标的 onChanges 到达并排队。
     act(() => {
       stream.options?.onChanges?.(
         {
@@ -896,10 +892,8 @@ describe("useProjectEventsSSE", () => {
         },
       );
     });
-    // 在途合并：这批只是排队，不会立即多发一次请求。
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
 
-    // onSnapshot 那一轮落定：不应提前导航到 onChanges 排队的目标（/characters）。
     await act(async () => {
       d1.resolve(makeGetProjectResult("R1"));
       await Promise.resolve();
@@ -907,7 +901,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/");
 
-    // onChanges 排队的那一轮落定：导航到它真正的目标，且只补发了这一次请求。
     await act(async () => {
       d2.resolve(makeGetProjectResult("R2"));
       await Promise.resolve();
@@ -934,7 +927,6 @@ describe("useProjectEventsSSE", () => {
 
     renderHarness("/");
 
-    // 第一批:聚焦角色 hero → /characters。发起后 getProject 卡在在途(d1 未 resolve)。
     act(() => {
       stream.options?.onChanges?.(
         {
@@ -958,7 +950,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
 
-    // 第二批在第一批仍在途时到达:聚焦场景 酒馆 → /scenes，覆盖 queuedFocusRef。
     act(() => {
       stream.options?.onChanges?.(
         {
@@ -980,10 +971,8 @@ describe("useProjectEventsSSE", () => {
         },
       );
     });
-    // 在途合并:第二批只是排队，不会立即多发一次请求。
     expect(getProjectSpy).toHaveBeenCalledTimes(1);
 
-    // 第一轮落定：不应提前导航到已被取代的第一批目标（/characters）。
     await act(async () => {
       d1.resolve(makeGetProjectResult("R1"));
       await Promise.resolve();
@@ -991,7 +980,6 @@ describe("useProjectEventsSSE", () => {
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/");
 
-    // 排队轮（第二批）落定：导航到第二批真正的目标（/scenes），且只发了这一次补充请求。
     await act(async () => {
       d2.resolve(makeGetProjectResult("R2"));
       await Promise.resolve();

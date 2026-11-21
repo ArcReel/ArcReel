@@ -13,9 +13,6 @@ import {
   useImageAttachments,
 } from "@/hooks/useImageAttachments";
 
-// ---------------------------------------------------------------------------
-// MessageEditor — 已发送的用户消息原地变成编辑器，仍是同一位置、同一外形的气泡。
-// ---------------------------------------------------------------------------
 
 interface MessageEditorProps {
   initialText: string;
@@ -51,7 +48,6 @@ export function MessageEditor({
   // 部分输入法在组合确认的那次 keydown 上不置 isComposing，靠组合事件补齐
   const isComposingRef = useRef(false);
 
-  // 进入编辑态即聚焦，光标置于末尾
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;

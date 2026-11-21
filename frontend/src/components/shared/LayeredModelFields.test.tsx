@@ -21,7 +21,6 @@ function subField(overrides: Partial<LayeredSubField> = {}): LayeredSubField {
   };
 }
 
-/** 「按用途指定模型」折叠区的开关按钮。 */
 function disclosure() {
   return screen.queryByRole("button", { name: /按用途指定模型/ });
 }
@@ -62,7 +61,6 @@ describe("LayeredModelFields", () => {
     renderFields();
     expect(screen.getByRole("combobox", { name: "默认视频模型" })).toBeInTheDocument();
     expect(disclosure()).toHaveAttribute("aria-expanded", "false");
-    // 收起态没有计数徽标，因为无任何细分项被指定
     expect(screen.queryByText(/已指定/)).not.toBeInTheDocument();
   });
 

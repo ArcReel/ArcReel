@@ -27,9 +27,6 @@ router = APIRouter()
 public_router = APIRouter()
 
 
-# ==================== 响应模型 ====================
-
-
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
@@ -42,9 +39,6 @@ class VerifyResponse(BaseModel):
 
 class AuthStatusResponse(BaseModel):
     enabled: bool
-
-
-# ==================== 路由 ====================
 
 
 @public_router.get("/auth/status", response_model=AuthStatusResponse)

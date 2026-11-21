@@ -82,11 +82,6 @@ _ORDER_ERROR_KEYS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Pydantic 模型
-# ---------------------------------------------------------------------------
-
-
 class MarketIndexSummary(BaseModel):
     name: str
     description: str | None = None
@@ -139,7 +134,6 @@ class MarketEntryResponse(BaseModel):
 
 class MarketEntryListResponse(BaseModel):
     entries: list[MarketEntryResponse]
-    #: 当前应用版本；读不到时为 null。
     app_version: str | None
 
 
@@ -295,11 +289,6 @@ async def _require_source(repo: MarketSourceRepository, source_id: int) -> Marke
     if source is None:
         raise NotFoundError("market_source_not_found")
     return source
-
-
-# ---------------------------------------------------------------------------
-# 路由
-# ---------------------------------------------------------------------------
 
 
 @router.get("/sources", response_model=MarketSourceListResponse)

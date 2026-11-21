@@ -37,7 +37,6 @@ class CreateEpisodeRequest(BaseModel):
     after: int | None = None
     title: Annotated[str, Field(max_length=200)] = ""
     hook: Annotated[str, Field(max_length=2000)] = ""
-    #: 集原文；空白视同没有原文。
     source_text: str | None = None
     #: 集原文的源文件类型，只对剧情演绎项目生效；缺省为小说。
     source_kind: SourceKind | None = None

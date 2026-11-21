@@ -13,7 +13,6 @@ export interface EditTimelineAuthor {
   user_id: string | null;
 }
 
-/** 剪辑时间线的指称：ID 与集内不重名的显示名。 */
 export interface EditTimelineRef {
   id: string;
   name: string;
@@ -131,7 +130,6 @@ export interface EditPreviewCue {
   text: string;
 }
 
-/** 旁白配音 current 文件的项目内路径与版本号。 */
 export interface EditPreviewNarrationAudio {
   path: string;
   version: number;

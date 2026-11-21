@@ -6,7 +6,6 @@ import { createPortal } from "react-dom";
  */
 const EpisodeHeaderSlotContext = createContext<HTMLElement | null | undefined>(undefined);
 
-/** 集页提供插槽节点：挂载前为 null。 */
 export function EpisodeHeaderSlotProvider({ value, children }: { value: HTMLElement | null; children: ReactNode }) {
   return <EpisodeHeaderSlotContext.Provider value={value}>{children}</EpisodeHeaderSlotContext.Provider>;
 }

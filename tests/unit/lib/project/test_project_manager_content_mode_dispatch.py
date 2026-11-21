@@ -47,7 +47,6 @@ class TestNarrationDataUnderScenesFallback:
         pm = _pm(tmp_path)
         pm.save_script("demo", _narration_script_with_data_under_scenes(), "episode_1.json", validate=False)
 
-        # 不应抛 KeyError；应命中 scenes 下的 E1S01 并回写
         pm.update_scene_asset("demo", "episode_1.json", "E1S01", "storyboard_image", "storyboards/scene_E1S01.png")
 
         saved = pm.load_script("demo", "episode_1.json")

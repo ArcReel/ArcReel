@@ -384,7 +384,6 @@ probe_once() {
     mv "$WORKDIR/commit.json" "$WORKDIR/commit-${head_sha}.json"
   fi
 
-  # Required check names from the base branch rulesets, read once per run.
   if [[ ! -s "$WORKDIR/required.json" ]]; then
     local base_ref
     base_ref=$(jq -r -s '.[0].base.ref // ""' "$WORKDIR/pr.json")

@@ -97,7 +97,6 @@ async def test_no_active_credential_falls_back_to_system_settings(monkeypatch: p
     assert result["ANTHROPIC_API_KEY"] == "legacy-sk"
     assert result["ANTHROPIC_BASE_URL"] == "https://legacy.anthropic.com"
     assert result["ANTHROPIC_MODEL"] == "claude-legacy-model"
-    # 未在 settings 中的 key 仍返回空串
     assert result["CLAUDE_CODE_SUBAGENT_MODEL"] == ""
 
 

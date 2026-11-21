@@ -56,10 +56,8 @@ export interface ProviderAssetBrowserDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectName: string;
-  /** 版本历史里的资源类型，如 `characters`。 */
   resourceType: string;
   resourceId: string;
-  /** 导入成功后调用，用于刷新资产图；对话框随后关闭。 */
   onImported: (result: ProviderAssetImportResult) => Promise<RefreshProjectResult>;
   checkBusy: () => boolean;
   onImportingChange: (importing: boolean) => void;
@@ -215,7 +213,6 @@ function BrowserBody({
         }
         return;
       }
-      // 导入失败时原选中版本不变，错误留在对话框里，可以换一张素材重试
       setImportError(error);
       setImportingId(null);
       return;

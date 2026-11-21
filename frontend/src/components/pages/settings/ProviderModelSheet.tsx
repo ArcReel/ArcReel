@@ -63,10 +63,8 @@ export interface OpenProviderModel {
 }
 
 interface Props {
-  /** 内置供应商 ID，或自定义供应商的 `custom-<id>`。 */
   providerId: string;
   providerName: string;
-  /** 为 null 时 Sheet 关闭。 */
   open: OpenProviderModel | null;
   custom?: CustomProviderContext;
   onClose: () => void;
@@ -229,7 +227,6 @@ function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** 草稿是否相同：模型信息按 {@link sameEntryDraft} 比，其余字段按 JSON。 */
 function sameDraft(a: Draft, b: Draft): boolean {
   return sameJson({ ...a, entry: null }, { ...b, entry: null }) && sameEntryDraft(a.entry, b.entry);
 }
@@ -641,7 +638,6 @@ function Subsection({ title, hint, children }: { title: string; hint?: string; c
   );
 }
 
-/** 「从『X』移除」：先确认；有设置或项目在用这个模型时在确认框里列出。 */
 function RemoveModel({
   providerId,
   providerName,

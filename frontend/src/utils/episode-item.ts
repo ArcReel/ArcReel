@@ -5,16 +5,13 @@
  * 位置每次按剧本现算，插入、删除、改序之后自然跟着变。
  */
 
-/** 分镜（segment / scene / shot）或参考生视频的视频单元。 */
 export type EpisodeItemKind = "shot" | "unit";
 
 export interface EpisodeItemFacts {
   itemId: string;
   episodeId: number;
   kind: EpisodeItemKind;
-  /** 本集数组里的当前位置，从 1 起。 */
   position: number;
-  /** 本集条目总数。 */
   total: number;
   /** 正文前十几个字，供列表之外指认条目。 */
   excerpt: string;
@@ -22,7 +19,6 @@ export interface EpisodeItemFacts {
   thumbnail: string | null;
 }
 
-/** 剧本条目数组与它的 ID 字段，四种骨架各一。 */
 const ITEM_ARRAYS = [
   ["segments", "segment_id"],
   ["scenes", "scene_id"],
@@ -74,7 +70,6 @@ export function isPositionedItemId(itemId: string): boolean {
   return /^E\d+[SU]\d/.test(itemId);
 }
 
-/** 条目 ID 的种类：`E3U2` 是视频单元，`E3S05` 是分镜。 */
 export function episodeItemKind(itemId: string): EpisodeItemKind {
   return /^E\d+U\d/.test(itemId) ? "unit" : "shot";
 }

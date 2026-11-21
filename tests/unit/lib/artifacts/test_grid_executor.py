@@ -195,7 +195,6 @@ class TestGroupBySegmentBreak:
         script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         items = script["segments"]
         groups = group_scenes_by_segment_break(items, "segment_id")
-        # E1S03 has segment_break=True, so groups: [E1S01,E1S02] and [E1S03,E1S04,E1S05,E1S06]
         assert len(groups) == 2
         assert len(groups[0]) == 2
         assert len(groups[1]) == 4
@@ -219,7 +218,6 @@ class TestGroupBySegmentBreak:
 
         items = [{"id": "a", "segment_break": True}, {"id": "b"}, {"id": "c"}]
         groups = group_scenes_by_segment_break(items, "id")
-        # segment_break on first item: current is empty so no split, all in one group
         assert len(groups) == 1
         assert len(groups[0]) == 3
 
@@ -253,7 +251,6 @@ class TestExecuteGridTask:
 
         grid = grid_json
 
-        # Create a fake 400x400 grid image (2x2, each cell 200x200)
         fake_grid_image = Image.new("RGB", (400, 400), color=(128, 200, 100))
         grid_image_path = project_with_script / "grids" / f"{grid.id}.png"
         fake_grid_image.save(grid_image_path, format="PNG")
@@ -290,13 +287,10 @@ class TestExecuteGridTask:
         assert result["resource_type"] == "grids"
         assert result["resource_id"] == grid.id
         assert result["version"] == 1
-        # created_at 取选中版本的创建时间
         assert result["created_at"] == "2026-01-01T00:00:00Z"
         assert "grids/" in result["file_path"]
-        # 没有参考图被裁剪就没有 warning：结果不带该键
         assert "warnings" not in result
 
-        # Verify grid status was updated
         import json as json_mod
 
         updated_grid_data = json_mod.loads(
@@ -965,11 +959,9 @@ class TestExecuteGridTask:
                 user_id="test-user",
             )
 
-        # 已有分镜格字节不变，未预置的分镜格不产生
         assert existing.read_bytes() == b"pre-existing-bytes"
         for sid in ("E1S02", "E1S03"):
             assert not (storyboards_dir / f"scene_{sid}.png").exists()
-        # 不回写剧本、不登记分镜版本
         assert not mock_pm.batch_update_scene_assets.called
         assert mock_generator.versions.committed == [("grids", grid.id)]
 
@@ -1090,7 +1082,6 @@ class TestGridMetadataT2II2ISlotSelection:
 
     async def test_uses_i2i_slot_when_reference_images_present(self, project_with_script, grid_with_empty_metadata):
         """有 character sheet 且 segment 引用了角色 → reference_images 非空 → 写 I2I 槽配置"""
-        # 给 project + script 注入已登记的 character sheet，让宫格参考图集非空
         project_data = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         project_data["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
         (project_with_script / "project.json").write_text(json.dumps(project_data))

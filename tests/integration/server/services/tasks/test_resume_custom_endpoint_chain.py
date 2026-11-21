@@ -371,7 +371,6 @@ async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_proje
     assert row.status == "failed"
     assert row.error_message is not None
     assert "resume_endpoint_changed" in row.error_message
-    # 无产物落盘。
     assert not (chain_project / "versions" / "videos").exists()
 
 

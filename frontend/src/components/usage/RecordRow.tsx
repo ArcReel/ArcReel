@@ -24,9 +24,7 @@ export interface RecordRowProps {
   record: UsageRecordView;
   /** `table` 是设置页记录表的一行；`compact` 供顶栏悬浮层复用，两行排布且不显示项目。 */
   layout: "table" | "compact";
-  /** 供应商 id → 显示名，查不到回退 id。 */
   providerLabel: (provider: string | null) => string;
-  /** 记录的项目显示名；只有表格布局在显示项目列时用到。 */
   projectLabel?: (record: UsageRecordView) => string;
   /** 筛选已固定某个项目时隐藏项目列，避免整列重复同一个值。 */
   showProject?: boolean;

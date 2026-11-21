@@ -72,7 +72,6 @@ const ASSET_ROUTES: [keyof ProjectData, string][] = [
   ["products", WORKSPACE_ROUTE_PRODUCTS],
 ];
 
-/** 资产名（衍生为「本体/衍生」）所在类型的画廊路由。 */
 function assetRouteIn(project: ProjectData | null, name: string): string | null {
   if (!project) return null;
   const owner = name.split("/", 1)[0];
@@ -126,9 +125,7 @@ interface PendingDiscard {
 interface Props {
   projectName: string;
   episode: number | null;
-  /** 跳到画布上的该单元。 */
   onViewUnit?: (unitId: string) => void;
-  /** 显式重生某一步的指定单元。 */
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
   /** 打开范围为全部待编写的「编写提示词」；本集还没有正式脚本时不传。 */
   onAuthorPrompts?: () => void;
@@ -405,7 +402,6 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
     }
   };
 
-  // 计划没能投影成步骤清单（项目整体不可用、目标集绑定损坏）时，只复述后端给的下一步。
   const headline = view
     ? view.summary
     : shown

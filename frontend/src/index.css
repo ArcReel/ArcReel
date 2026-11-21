@@ -99,7 +99,6 @@
     /* 动效时长：界面动效一律短于 300ms。fast 用于悬停、淡入淡出，base 用于弹层进出与换图交叉淡入。 */
     --duration-fast: 150ms;
     --duration-base: 200ms;
-    /* 进场缓动：快起慢停 */
     --easing-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -151,7 +150,6 @@
     --asset-scene: oklch(0.85 0.14 165);
     --asset-prop: oklch(0.88 0.15 92);
 
-    /* sidebar 取页面底色渐变的第二色 */
     --sidebar: oklch(0.148 0.009 260);
     --sidebar-foreground: var(--foreground);
     --sidebar-primary: var(--primary);
@@ -180,7 +178,6 @@
     --font-sans: "Inter Variable", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     --font-display: "Inter Variable", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    /* 衬线 — 仅项目大厅 (Darkroom) 用于编辑式电影感大标题 */
     --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
 
     /* 运行中状态点的透明度呼吸，只用于小状态点；减少动态效果时由下方全局规则停住 */
@@ -200,7 +197,6 @@
 }
 
 @theme inline {
-    /* Nova 派生圆角刻度：sm 6px、md 8px、lg 10px、xl 14px、2xl 18px */
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -257,7 +253,6 @@
     /* 剪辑视图轨道上视频单元的片段色与旁白色：色相按视频单元取，由调用处经 style 写入 --unit-hue（unitHue）。 */
     --color-unit-clip: oklch(0.42 0.07 var(--unit-hue, 0));
     --color-unit-narration: oklch(0.5 0.08 var(--unit-hue, 0) / 0.75);
-    /* 剪辑视图 BGM 轨的片段色 */
     --color-bgm: oklch(0.45 0.09 300);
 
     --shadow-overlay: 0 16px 40px -12px color-mix(in oklab, var(--shadow-ink) 60%, transparent);
@@ -285,7 +280,6 @@
     isolation: isolate;
 }
 
-/* 全局 body 背景 — radial+linear 复合梯度 */
 
 body {
     background:
@@ -330,13 +324,11 @@ body {
     }
 }
 
-/* 数字字符（mono + tabular nums） */
 .num {
     font-family: var(--font-mono);
     font-feature-settings: "tnum" 1;
 }
 
-/* 衬线 display 大标题 */
 .display-serif {
     font-family: var(--font-display);
 }
@@ -402,7 +394,6 @@ body {
     }
 }
 
-/* 统一焦点指示（a11y） */
 @utility focus-ring {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
 }

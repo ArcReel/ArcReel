@@ -47,7 +47,6 @@ export interface FileViewListing {
 export interface TrashRecord {
   id: string;
   object: { kind: string; path?: string; [key: string]: unknown };
-  /** 被删文件删除前的项目内相对路径。 */
   files: string[];
   schema_version: number;
   /** 带时区偏移的 UTC ISO 8601。 */
@@ -76,7 +75,6 @@ export interface DeletedProject {
   deleted_at: string;
   /** 到期自动清除的时间，同为 UTC ISO 8601。 */
   expires_at: string;
-  /** 项目目录占用的字节数。 */
   size: number;
 }
 
@@ -98,6 +96,5 @@ export interface RestoreResult {
   restored: RestoredFile[];
   /** 为真时对象无法按原结构恢复，只加回了其中的文件。 */
   degraded: boolean;
-  /** 留在记录里、只能下载的结构文件。 */
   download_only: string[];
 }

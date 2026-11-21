@@ -26,7 +26,6 @@ from lib.script.script_skeleton import (
 
 class TestRegistrySelfConsistency:
     def test_four_kinds_complete(self):
-        # 键即条目数组键，四骨架齐全。
         assert set(SKELETONS) == {"segments", "scenes", "shots", "video_units"}
 
     def test_id_fields(self):
@@ -87,7 +86,6 @@ class TestDeclaredResolver:
     @pytest.mark.parametrize("content_mode", [None, "", "reference_video", "unknown"])
     @pytest.mark.parametrize("generation_mode", [None, "reference_video"])
     def test_unknown_or_missing_content_mode_raises(self, content_mode, generation_mode):
-        # fail-loud：不静默落 drama/narration。
         with pytest.raises(ValueError, match=r"未知或缺失 content_mode"):
             resolve_declared_kind(content_mode, generation_mode)
 
@@ -96,7 +94,6 @@ class TestScriptResolver:
     """取证解析阶梯逐台阶（判别顺序 1→4 + 终兜底）。"""
 
     def test_script_plan_video_units_alone(self):
-        # video_units 在场且 segments/scenes/shots 都不在 → reference。
         assert resolve_script_kind({"video_units": []}) == "video_units"
 
     def test_script_plan_floating_video_units_does_not_hijack_storyboard(self):
@@ -178,7 +175,6 @@ class TestRouteSkeletonGate:
             ensure_route_skeleton(script, "narration", "storyboard")
         assert exc.value.expected == "segments"
         assert exc.value.actual == "video_units"
-        # 结构报错 + 重拆指引，并说明查看/编辑/导出不受影响。
         assert "骨架" in str(exc.value)
         assert "重新拆分" in str(exc.value)
         assert "查看" in str(exc.value)
@@ -248,7 +244,6 @@ class TestKindItemsAccessor:
         assert items == [{"unit_id": "E1U01"}]
 
     def test_id_field_per_kind(self):
-        # 四骨架各自的条目身份不被通用化。
         for kind, expected in (
             ("segments", "segment_id"),
             ("scenes", "scene_id"),

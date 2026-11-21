@@ -86,7 +86,6 @@ export default {
   'source_corrupt_file': 'Source file "{{filename}}" cannot be parsed: {{reason}}',
   'source_too_large': 'Source file "{{filename}}" is too large ({{size_mb}} MB > {{limit_mb}} MB)',
   'source_conflict': 'Source file "{{existing}}" already exists',
-  // Image Capability
   'image_endpoint_mismatch_no_i2i': 'Model {{model}} only supports text-to-image (no /v1/images/edits); remove reference images or pick a model that supports image edits',
   'image_endpoint_mismatch_no_t2i': 'Model {{model}} only supports image-to-image (reference images required); supply reference images or pick a model that supports text-to-image',
   // Fallback messages for the API layer and event streams (when the server gives no reason)

@@ -10,7 +10,6 @@ export const ASSET_TYPE_ICON: Record<AssetType, LucideIcon> = {
   prop: Package,
 };
 
-/** 资产图的四类：资产库三类加商品。 */
 export const ASSET_SHEET_TYPE_ICON: Record<AssetSheetType, LucideIcon> = {
   ...ASSET_TYPE_ICON,
   product: ShoppingBag,

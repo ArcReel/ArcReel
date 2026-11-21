@@ -38,7 +38,6 @@ interface Props {
   capabilities: ProviderModelCapabilities;
   value: CapabilityOverrides;
   onChange: (next: CapabilityOverrides) => void;
-  /** 某个维度的输入是否可以保存；输入不合法时保存栏拦下保存。 */
   onValidityChange: (key: string, valid: boolean) => void;
 }
 
@@ -65,7 +64,6 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
     onChange(draft);
   };
 
-  // 时长联动约束按分辨率填写：分辨率取修改后的值，没有约束时取约束里已有的分辨率
   const effectiveResolutions = (() => {
     const resolutions = "resolutions" in value ? value.resolutions : capabilities.base.resolutions;
     if (Array.isArray(resolutions)) return resolutions as string[];

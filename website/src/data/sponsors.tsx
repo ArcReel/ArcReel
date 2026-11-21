@@ -3,7 +3,6 @@ import { translate } from "@docusaurus/Translate";
 
 export interface Sponsor {
   name: string;
-  // 内联 SVG 组件，用 currentColor 跟随明暗主题的文字色。
   Logo: ComponentType<SVGProps<SVGSVGElement>>;
   url: string;
   description: string;

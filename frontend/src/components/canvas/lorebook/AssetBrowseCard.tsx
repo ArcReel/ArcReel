@@ -54,9 +54,7 @@ export interface AssetBrowseCardProps {
   /** 产物清单对这张资产图的判定；未取到时按条目上是否登记了资产图展示。 */
   sheetStatus: AssetSheetStatusRow | undefined;
   marker: GalleryMarker;
-  /** 资产图任务占用中（生成或局部修改）。 */
   generating: boolean;
-  /** 本体或衍生文件被任务占用。 */
   busy?: boolean;
   /** 只读展示（引导演示项目）：菜单只保留查看大图，没有删除。 */
   readOnly: boolean;
@@ -115,7 +113,6 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
       : null;
   const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
 
-  // 资产图被生成、局部修改、上传或版本恢复占用，或资产正在删除时，兄弟操作一起禁用。
   const busy = externalBusy || generating || uploading || importing || restoring || deleting;
   const writing = uploading || importing || restoring || deleting;
   useEffect(() => {
@@ -360,7 +357,6 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   );
 });
 
-/** 卡片底部的计数：衍生、别名与商品原图，只列非零项。 */
 function CardCounts({ asset }: { asset: GalleryAsset }) {
   const { t } = useTranslation("assets");
   const items = [

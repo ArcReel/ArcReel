@@ -38,7 +38,6 @@ from .errors import EndpointTestDefinitionError
 #: 可验证的三节。``result`` 只有定义声明了二次取件节时才存在。
 STAGES = ("submit", "poll", "result")
 
-#: 媒体类型 → 运行时判读响应的函数。
 _STATE_READERS: dict[str, StateReader[Any]] = {
     "video": extract_provider_state,
     "image": extract_image_state,

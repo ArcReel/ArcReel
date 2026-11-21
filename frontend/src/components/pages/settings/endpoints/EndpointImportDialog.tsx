@@ -52,15 +52,12 @@ export function EndpointImportDialog({
   onCancel,
 }: {
   open: boolean;
-  /** 载荷来自哪个文件；粘贴进来的没有文件名。 */
   fileName: string;
   definition: AnyEndpointDefinition | null;
   validation: EndpointValidateResponse | null;
-  /** 推断或落盘请求在途。 */
   busy: boolean;
   /** 落盘请求在途：已经发出就收不回，期间不能取消。 */
   saving: boolean;
-  /** 交出去的那份载荷正在校验。 */
   pending: boolean;
   /** 交出一份载荷：上传的文件带文件名，粘贴的不带。 */
   onSource: (text: string, fileName: string) => void;
@@ -231,7 +228,6 @@ export function EndpointImportDialog({
                   value={[mediaType]}
                   disabled={busy}
                   onValueChange={(next: string[]) => {
-                    // 单选：再次点击已选项不取消选择
                     const picked = MEDIA_TYPES.find((media) => media === next[0]);
                     if (picked) onMediaTypeChange(picked);
                   }}

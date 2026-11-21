@@ -3,7 +3,6 @@
  * 限制的最大等比尺寸。见 https://platform.claude.com/docs/en/build-with-claude/vision-coordinates
  */
 
-/** 视觉 token 数：每 28×28 像素一块，一块 1 个 token。 */
 function countImageTokens(width: number, height: number): number {
   return Math.ceil(width / 28) * Math.ceil(height / 28);
 }
@@ -19,11 +18,6 @@ function roundTiesToEven(value: number): number {
   return floor % 2 === 0 ? floor : floor + 1;
 }
 
-/**
- * 模型缩放（补边之前）后的像素尺寸，返回 `[width, height]`。
- *
- * 默认参数是标准分辨率档。已经落在两条限制内的图片原样返回。
- */
 export function resizedSize(
   width: number,
   height: number,

@@ -20,7 +20,6 @@ export interface WizardBasicsValue {
   gridStoryboard: boolean;
 }
 
-/** 选择卡的呈现顺序：剧情演绎在前。 */
 const CONTENT_MODES: readonly { mode: ContentMode; labelKey: string; descKey: string }[] = [
   { mode: "drama", labelKey: "drama_animation", descKey: "content_mode_drama_desc" },
   { mode: "narration", labelKey: "narration_visuals", descKey: "content_mode_narration_desc" },
@@ -32,7 +31,6 @@ const ASPECT_RATIOS = [
   { ratio: "16:9", labelKey: "landscape_16_9", glyph: "h-2 w-3.5" },
 ] as const;
 
-/** 整块可点的单选卡：选中项用品牌色描边与浅底。 */
 function choiceClass(selected: boolean): string {
   return cn(
     "relative flex cursor-pointer rounded-lg border transition-colors has-focus-visible:ring-3 has-focus-visible:ring-ring/50",

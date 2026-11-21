@@ -84,11 +84,8 @@ _LEGACY_PLANLESS_SCRIPT_BASIS_KIND = "structured-content/episode-script-without-
 @dataclass
 class _EpisodeWork:
     episode: int
-    #: 剧本在盘上的项目内相对路径，恒为该集规范路径。
     script_rel: str
-    #: 改写后的剧本；None 表示剧本不需要改写。
     script: dict[str, Any] | None = None
-    #: 本集是新转出的正式脚本。
     materialized: bool = False
 
 
@@ -96,7 +93,6 @@ class _EpisodeWork:
 class _Plan:
     project: dict[str, Any]
     works: list[_EpisodeWork] = field(default_factory=list)
-    #: 集号 → 该集参与清单改写的剧本路径与改写前的脚本规划内容（无规划为 None）。
     registrations: dict[int, tuple[str, object | None]] = field(default_factory=dict)
     skipped: list[MigrationSkippedArtifact] = field(default_factory=list)
 

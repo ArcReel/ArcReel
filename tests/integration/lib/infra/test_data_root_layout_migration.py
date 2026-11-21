@@ -297,7 +297,6 @@ async def test_second_migration_run_does_nothing(
 ) -> None:
     _write_legacy_project(data_root, "demo")
     await _migrate_data_root(data_root, session_factory, sdk_config_dir)
-    # 迁移完成之后数据根下再出现的旧布局形态目录不再被搬动。
     _write_legacy_project(data_root, "late")
 
     await _migrate_data_root(data_root, session_factory, sdk_config_dir)
@@ -389,7 +388,7 @@ async def test_project_left_mid_schema_swap_moves_with_its_rollback_dir(
     await _migrate_data_root(data_root, session_factory, sdk_config_dir)
     projects_dir = DataRootLayout(data_root).projects_dir
     run_project_migrations(projects_dir)
-    assert not (projects_dir / "demo").exists()  # 强杀遗留不自动恢复
+    assert not (projects_dir / "demo").exists()
     # 部署文档给出的人工恢复：把 rollback 目录改回项目名。
     (projects_dir / rollback_name).rename(projects_dir / "demo")
     run_project_migrations(projects_dir)

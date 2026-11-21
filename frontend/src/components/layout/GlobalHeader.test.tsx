@@ -16,7 +16,6 @@ vi.mock("@/components/usage/UsageHeaderEntry", () => ({
   ),
 }));
 
-/** 打开「导出项目」弹窗并选择归档范围。 */
 async function openExportScope(option: "current" | "full") {
   screen.getByRole("button", { name: "导出项目归档" }).click();
   const name = option === "current" ? /仅当前版本/ : /全部数据/;

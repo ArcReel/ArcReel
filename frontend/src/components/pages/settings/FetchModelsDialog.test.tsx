@@ -101,7 +101,6 @@ describe("FetchModelsDialog", () => {
     await user.click(await screen.findByRole("button", { name: "为 relay-mystery 选择对应模型" }));
     await user.click(await screen.findByRole("option", { name: /GPT Image 2/ }));
 
-    // 选了对应模型的行随之勾选，媒体类型取对应模型的
     expect(screen.getByRole("checkbox", { name: /relay-mystery/ })).toBeChecked();
     await user.click(screen.getByRole("button", { name: "添加 2 个模型" }));
 

@@ -99,8 +99,6 @@ class _Parser:
         self._source = source
         self._pos = 0
 
-    # ---- 游标 ----
-
     def _eof(self) -> bool:
         return self._pos >= len(self._source)
 
@@ -114,8 +112,6 @@ class _Parser:
 
     def _fail(self, code: DefinitionErrorCode) -> JsonPathSubsetError:
         return JsonPathSubsetError(code, self._pos + 1, self._source)
-
-    # ---- 顶层 ----
 
     def parse(self) -> ParsedJsonPath:
         if self._peek() != "$":
@@ -185,8 +181,6 @@ class _Parser:
             if self._peek() == "-" or _is_ascii_digit(self._peek()):
                 raise self._fail(DefinitionErrorCode.JSONPATH_SLICE_STEP)
         return PathSegment(SegmentKind.SLICE)
-
-    # ---- 词法 ----
 
     def _read_shorthand(self) -> None:
         if self._eof() or not _is_name_start(self._peek()):
@@ -273,8 +267,6 @@ class _Parser:
             raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
         while not self._eof() and _is_ascii_digit(self._peek()):
             self._pos += 1
-
-    # ---- 过滤器 ----
 
     def _parse_filter(self) -> PathSegment:
         self._parse_or()

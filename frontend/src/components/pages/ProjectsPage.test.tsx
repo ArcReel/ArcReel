@@ -170,7 +170,6 @@ describe("ProjectsPage", () => {
 
     renderPage();
     await projectList();
-    // 已有项目时网格里不放「新建项目」卡，入口只在顶栏
     const [create] = screen.getAllByRole("button", { name: "新建项目" });
     expect(screen.getAllByRole("button", { name: "新建项目" })).toHaveLength(1);
     fireEvent.click(create);
@@ -535,7 +534,6 @@ describe("ProjectsPage", () => {
 
     await waitFor(() => expect(API.requestExportToken).toHaveBeenCalledWith("second", "full"));
     expect(download).toHaveBeenCalled();
-    // 导出顺利开始时不提示
     expect(useAppStore.getState().toast).toBeNull();
   });
 
@@ -703,7 +701,6 @@ describe("ProjectsPage", () => {
   });
 
   describe("when the user has left the lobby before the import finishes", () => {
-    /** 选好文件后让导入请求悬起，卸载页面（离开大厅），再返回收尾导入请求的 resolve / reject。 */
     async function leaveWhileImporting() {
       vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
       let resolve!: (value: Awaited<ReturnType<typeof API.importProject>>) => void;

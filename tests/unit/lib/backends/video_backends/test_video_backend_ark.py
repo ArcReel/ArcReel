@@ -367,7 +367,6 @@ class TestArkRetryBehavior:
         get_success.seed = None
         get_success.usage = None
 
-        # 第一次轮询抛 ConnectionError，第二次成功
         ark_backend._client.content_generation.tasks.get = MagicMock(
             side_effect=[ConnectionError("connection reset"), get_success]
         )
@@ -383,7 +382,6 @@ class TestArkRetryBehavior:
         assert result.task_id == "cgt-retry-test"
         # 关键断言：任务只创建了一次
         assert ark_backend._client.content_generation.tasks.create.call_count == 1
-        # 轮询调用了两次（一次失败 + 一次成功）
         assert ark_backend._client.content_generation.tasks.get.call_count == 2
 
     async def test_create_retries_on_transient_error(self, ark_backend, tmp_path):
@@ -392,7 +390,6 @@ class TestArkRetryBehavior:
 
         create_result = MagicMock()
         create_result.id = "cgt-create-retry"
-        # 第一次创建抛 ConnectionError，第二次成功
         ark_backend._client.content_generation.tasks.create = MagicMock(
             side_effect=[ConnectionError("connection reset"), create_result]
         )
@@ -416,7 +413,6 @@ class TestArkRetryBehavior:
             patcher.stop()
 
         assert result.task_id == "cgt-create-retry"
-        # 创建调用了两次（一次失败 + 一次成功）
         assert ark_backend._client.content_generation.tasks.create.call_count == 2
 
     async def test_poll_non_retryable_error_propagates(self, ark_backend, tmp_path):
@@ -433,7 +429,6 @@ class TestArkRetryBehavior:
         with pytest.raises(ValueError, match="invalid response"), bounded_poll_clock():
             await ark_backend.generate(request)
 
-        # 创建只调用一次，轮询只尝试一次就抛出
         assert ark_backend._client.content_generation.tasks.create.call_count == 1
         assert ark_backend._client.content_generation.tasks.get.call_count == 1
 

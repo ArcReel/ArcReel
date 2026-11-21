@@ -67,15 +67,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024  # 1 MiB
+MAX_VERTEX_CREDENTIALS_BYTES = 1024 * 1024
 
 router = APIRouter(prefix="/providers", tags=["Providers"])
 
 _CREDENTIAL_KEYS = frozenset({"api_key", "credentials_path", "base_url", "access_key", "secret_key"})
 
-# ---------------------------------------------------------------------------
-# 字段元数据映射（key → label/type/placeholder）
-# ---------------------------------------------------------------------------
 
 _FIELD_META: dict[str, dict[str, str]] = {
     "api_key": {"label": "API Key", "type": "secret"},
@@ -92,11 +89,6 @@ _FIELD_META: dict[str, dict[str, str]] = {
     "video_max_workers": {"label": "Video Max Workers", "type": "number"},
     "audio_max_workers": {"label": "Audio Max Workers", "type": "number"},
 }
-
-
-# ---------------------------------------------------------------------------
-# Pydantic 模型
-# ---------------------------------------------------------------------------
 
 
 class ModelInfoResponse(BaseModel):
@@ -135,7 +127,6 @@ class ProviderSummary(BaseModel):
     status: str
     media_types: list[str]
     capabilities: list[str]
-    # 凭证（界面称「密钥」）条数；没有凭证时为 0。
     credential_count: int
     models: dict[str, ModelInfoResponse]
 
@@ -252,11 +243,6 @@ class UpdateCredentialRequest(BaseModel):
     base_url: _StrippedOptStr = None
     access_key: _StrippedOptStr = None
     secret_key: _StrippedOptStr = None
-
-
-# ---------------------------------------------------------------------------
-# 辅助函数
-# ---------------------------------------------------------------------------
 
 
 def _validate_provider(provider_id: str, _t: Callable[..., str]) -> None:
@@ -387,11 +373,6 @@ def _build_field(
             field["value"] = ""
 
     return FieldInfo(**field)
-
-
-# ---------------------------------------------------------------------------
-# 端点
-# ---------------------------------------------------------------------------
 
 
 def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
@@ -536,12 +517,10 @@ async def get_provider_config(
     svc = ConfigService(session)
     db_values = await svc.get_provider_config_masked(provider_id)
 
-    # 计算状态：基于凭证表是否有生效凭证
     cred_repo = CredentialRepository(session)
     has_active = await cred_repo.has_active_credential(provider_id)
     status = "ready" if has_active else "unconfigured"
 
-    # 构建字段列表：先必填，再可选，跳过凭证字段
     fields: list[FieldInfo] = []
     fields.extend(
         _build_field(key, required=True, db_entry=db_values.get(key))
@@ -555,9 +534,6 @@ async def get_provider_config(
         if key not in _CREDENTIAL_KEYS and (not key.endswith("_max_workers") or key in supported_workers)
     )
 
-    # 凭证表单的 secret 输入字段：required ∩ secret ∩ 凭证键，保留 required_keys 顺序。
-    # 单 secret provider → [api_key]（见 ADR 0037）；可灵 → [api_key, access_key, secret_key]，
-    # 二选一分组见下方 secret_field_groups。
     secret_keys = set(meta.secret_keys)
     secret_fields = [
         CredentialSecretField(key=key, label=_FIELD_META.get(key, {"label": key})["label"])
@@ -605,7 +581,6 @@ async def patch_provider_config(
             try:
                 await svc.set_provider_config(provider_id, key, value, flush=False)
             except ProviderConfigValueError as exc:
-                # 错误文案中的字段名换成 UI 同款 label（如 Image Max Workers），与表单展示一致
                 params = dict(exc.params)
                 meta = _FIELD_META.get(exc.key)
                 if meta is not None:
@@ -614,15 +589,9 @@ async def patch_provider_config(
 
     await session.commit()
 
-    # 配置变更后刷新缓存和并发池
     await _invalidate_caches(request)
 
     return Response(status_code=204)
-
-
-# ---------------------------------------------------------------------------
-# 供应商倍率
-# ---------------------------------------------------------------------------
 
 
 async def _validate_priced_provider(provider_id: str, session: AsyncSession, _t: Callable[..., str]) -> None:
@@ -667,11 +636,6 @@ async def put_provider_multiplier_setting(
         multiplier=await get_provider_multiplier(session, provider_id),
         default=await get_default_provider_multiplier(session, provider_id),
     )
-
-
-# ---------------------------------------------------------------------------
-# 凭证 CRUD 端点
-# ---------------------------------------------------------------------------
 
 
 @router.get("/{provider_id}/credentials", response_model=CredentialListResponse)
@@ -862,11 +826,7 @@ async def upload_vertex_credential(
     return await asyncio.to_thread(_cred_to_response, cred)
 
 
-# ---------------------------------------------------------------------------
-# 连通性检查：各供应商实现
-# ---------------------------------------------------------------------------
-
-_CONNECTIVITY_CHECK_TIMEOUT = 15  # 秒
+_CONNECTIVITY_CHECK_TIMEOUT = 15
 
 
 def _check_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
@@ -939,7 +899,6 @@ def _extract_gemini_models(pager) -> list[str]:
         name = m.name or ""
         if not any(k in name.lower() for k in keywords):
             continue
-        # 去掉 "models/" 或 "publishers/google/models/" 前缀
         short = name.rsplit("/", 1)[-1]
         models.add(short)
     return sorted(models)

@@ -93,8 +93,6 @@ router = APIRouter(
     tags=["reference-videos"],
 )
 
-# ============ 请求模型 ============
-
 
 class ScriptPreviewRequest(BaseModel):
     prompt: str = ""
@@ -134,9 +132,6 @@ class GenerateUnitsBatchRequest(BaseModel):
 
     unit_ids: list[str] | None = None
     confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
-
-
-# ============ 辅助 ============
 
 
 def _load_episode_script(
@@ -270,9 +265,6 @@ def _require_unit_ready(unit: dict, *, ignore_marker: bool = False, allow_blank_
         raise HTTPException(status_code=409, detail=admission.to_dict())
 
 
-# ============ 端点：列出 + 新建 ============
-
-
 async def _unit_capabilities(
     project_name: str,
     project: dict,
@@ -351,9 +343,6 @@ async def add_unit(
         "unit_capability": await _unit_capability(project_name, project, inserted, request_facts),
         "edit_result": result.model_dump(mode="json"),
     }
-
-
-# ============ 端点：PATCH + DELETE ============
 
 
 class PatchUnitRequest(BaseModel):
@@ -594,7 +583,7 @@ async def generate_unit(
     req: GenerateUnitRequest | None = None,
 ) -> dict[str, Any]:
     project, script, script_file = await _read_episode_script(project_name, episode, _t)
-    unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
+    unit = _find_unit(script, unit_id, _t)
     _require_unit_ready(unit)
     guard_prompt = str(unit.get("text") or "")
     request_options = (req or GenerateUnitRequest()).projection_options()
@@ -824,7 +813,7 @@ async def upload_unit_video(
 
         def _validate_unit() -> tuple[Path, VersionManager, str]:
             project, script, script_file = _load_episode_script(project_name, episode, _t)
-            _find_unit_for_project(project, script, unit_id, _t)  # raises 404 if missing
+            _find_unit_for_project(project, script, unit_id, _t)
             project_path = get_project_manager().get_project_path(project_name)
             # 路径遍历防护：unit_id 拼出的绝对路径不得逃出项目目录（与 versions.py 对齐）
             try:

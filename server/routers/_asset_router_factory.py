@@ -270,7 +270,6 @@ def build_asset_router(
                 if not ok:
                     raise HTTPException(status_code=409, detail=_t(keys["exists"], name=name))
                 data = manager.load_project(project_name)
-                # 回收站里有同名的删除记录时告诉前端，提示创作者可以把之前的资产图找回来。
                 trash_record = asset_trash.deleted_asset_record(
                     manager.get_project_path(project_name), asset_type, name
                 )
@@ -322,7 +321,6 @@ def build_asset_router(
                             # 存量过渡横幅感知不到变化，或已关闭后不再重现。
                             if field == "reference_audio" and req[field] != entry.get("reference_audio"):
                                 entry["voice_updated_at"] = datetime.now(UTC).isoformat()
-                            # 别名按名称判等规范化：去空白、去重、去掉与资产同名的一项。
                             if field == ALIASES_FIELD:
                                 entry[field] = []
                                 record_asset_aliases(entry, req[field], asset_name=entry_name)

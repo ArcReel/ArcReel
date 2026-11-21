@@ -354,7 +354,6 @@ def test_activation_registers_a_derivative_whose_owner_sheet_lost_its_original(t
     assert _absent(resolve_current_artifact_basis(project_dir, owner)) == [
         {"code": "asset_original_missing", "type": "character", "id": "张三"}
     ]
-    # 本体资产图已登记可用，衍生的生成输入完整。
     assert _absent(resolve_current_artifact_basis(project_dir, derivative)) == []
 
 

@@ -146,7 +146,6 @@ class TestPlanGridChunks:
         scenes = [f"S{i:02d}" for i in range(1, 13)]
         plans = plan_grid_chunks(scenes, "9:16", allow_large_grid=False)
         assert [(len(chunk), layout.grid_size) for chunk, layout in plans] == [(9, "grid_9"), (3, "grid_4")]
-        # 各块不重叠、并集等于整组、顺序保持
         assert [s for chunk, _ in plans for s in chunk] == scenes
 
     def test_remainder_chunk_falls_to_smaller_tier_with_placeholders(self):
@@ -216,7 +215,6 @@ class TestGridLayoutPixelDimensions:
         width, height = layout.pixel_dimensions()
         assert width > 0
         assert height > 0
-        # 16:9 ratio
         assert abs(width / height - 16 / 9) < 0.01
 
     def test_9_16_pixel_dimensions(self):
@@ -225,7 +223,6 @@ class TestGridLayoutPixelDimensions:
         width, height = layout.pixel_dimensions()
         assert width > 0
         assert height > 0
-        # 9:16 ratio
         assert abs(width / height - 9 / 16) < 0.01
 
 

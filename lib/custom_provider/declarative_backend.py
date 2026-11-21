@@ -143,9 +143,7 @@ def _headers_with_auth_masked(headers: Mapping[str, str], auth: Mapping[str, Any
     return {name: "***" if name.lower() in auth_names else value for name, value in headers.items()}
 
 
-#: 定义里会渲染出 URL 的三节。
 REQUEST_SECTIONS = ("submit", "poll", "result")
-#: 直接以 base_url + 显式版本段起头的 URL 模板。
 _VERSIONED_BASE_URL = re.compile(r"^\s*\{\{\s*base_url\s*\}\}/v\d")
 
 
@@ -183,7 +181,6 @@ def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any])
     return stripped
 
 
-#: 有覆盖的节在模板里引用的域名变量：供应商填写的原样 base_url。
 OVERRIDE_BASE_URL = "override_base_url"
 
 
@@ -345,9 +342,7 @@ class StateReader[StateT: JobState](Protocol):
     ) -> StateT: ...
 
 
-#: 一次请求地址的源：``(scheme, host, port)``，见 :func:`url_origin`。
 Origin = tuple[str, str, int | None]
-#: 模板素材输入：单个文件、文件列表或缺席。
 AssetPaths = Path | list[Path] | None
 
 
@@ -357,7 +352,6 @@ class JobCall:
 
     poll_timeout_seconds: float
     on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None
-    #: 留痕写入失败时日志里的调用标识。
     label: str | None
 
 
@@ -481,7 +475,6 @@ class DeclarativeJobEngine[StateT: JobState]:
             return build_context(
                 {
                     "api_key": self._api_key,
-                    # 续跑回放提交时的域名（提交路径恒 None）：域名是连接维度，不是协议维度。
                     "base_url": (
                         normalize_declarative_base_url(submitted_base_url, self._source_definition)
                         if submitted_base_url
@@ -682,10 +675,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         async def fetch_result() -> object:
             return await fetch(self._definition["result"], result_context, stage="result", expire_on_404=False)
 
-        # 走到这里供应商任务已经成功、钱已经花了，二次取件与产物下载同属「任务已建成后的
-        # 幂等取件」：共用同一份预算，别让一次 429 / 5xx / 尚未收敛的 404 直接废掉成品。
-        # 预算耗尽同样落 artifact_download_failed——「重试下载」走 resume 会重跑轮询与二次
-        # 取件，恢复路径与下载失败完全一致，不必重新提交。
         try:
             result_body = await with_artifact_retry(
                 fetch_result,
@@ -774,7 +763,6 @@ class DeclarativeJobEngine[StateT: JobState]:
                 max_wait=max_wait,
             )
         except NonRetryableError:
-            # 目的地不合规、超出体积上限：重新取件结果不会变，不落可重试下载
             raise
         except Exception as exc:
             raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
@@ -931,7 +919,6 @@ def declarative_video_usage(
     分辨率取请求档位，请求没给时取定义的 ``defaults.resolution``（与模板上下文同一个补缺规则）；是否有声按定义
     声明的音轨形态判定，开关可控时取请求值。
     """
-    # 延迟导入理由同 DeclarativeVideoBackend.video_capabilities。
     from lib.custom_provider.capabilities import video_capabilities_from_definition
 
     defaults = definition.get("defaults")

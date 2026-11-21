@@ -75,7 +75,6 @@ ASSET_DERIVATIVE_KIND = "asset_derivative"
 _VERSIONS_FILE = "versions/versions.json"
 #: 删除资产在同一临界区里改写的结构文件：资产条目、版本记录与清单登记。
 _STATE_FILES = ("project.json", _VERSIONS_FILE, MANIFEST_FILENAME)
-#: 换名时最多试的后缀数。
 _MAX_SUFFIX = 1000
 _NAME_TAKEN = (
     AssetRenameConflictError,
@@ -83,9 +82,6 @@ _NAME_TAKEN = (
     AssetRenameHistoryCollisionError,
     ProjectAssetNameConflictError,
 )
-
-
-# ---------------------------------------------------------------- 删除
 
 
 def state_paths(project_dir: Path) -> tuple[Path, ...]:
@@ -180,9 +176,6 @@ def deleted_asset_record(project_dir: Path, asset_type: str, name: str) -> str |
         ),
         None,
     )
-
-
-# ---------------------------------------------------------------- 恢复
 
 
 def take_asset(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
@@ -346,7 +339,7 @@ def _land_name(
             try:
                 rename(current, candidate)
             except _NAME_TAKEN:
-                continue  # 临时项目里删除时就有这个名字（或它的残留历史）
+                continue
             current = candidate
         if all(landing.free(rel) for rel in files(current)):
             return current

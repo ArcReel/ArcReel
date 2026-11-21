@@ -341,7 +341,6 @@ describe("MessageRow", () => {
     );
     fireEvent.change(screen.getByLabelText("改写消息内容"), { target: { value: "写到一半的草稿" } });
 
-    // 会话在编辑期间开跑：草稿留着，重新发送锁住
     rerender(<MessageRow turn={userTurn} editable={false} editing onSubmitEdit={onSubmitEdit} />);
 
     expect(screen.getByLabelText("改写消息内容")).toHaveValue("写到一半的草稿");

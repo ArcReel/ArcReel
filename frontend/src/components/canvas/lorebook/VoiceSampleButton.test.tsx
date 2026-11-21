@@ -54,7 +54,6 @@ describe("VoiceSampleButton", () => {
     await waitFor(() => {
       expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
-    // 默认文案按界面语言预填，且可编辑
     expect(screen.getByDisplayValue(/这是一段声音示例/)).toBeInTheDocument();
   });
 
@@ -115,13 +114,11 @@ describe("VoiceSampleButton", () => {
       expect(screen.getByRole("combobox", { name: "音色" })).toHaveValue("Cherry");
     });
 
-    // 点击「生成」提交样本 A，taskId 落定为 task-1。
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
     await waitFor(() => {
       expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
     });
 
-    // 样本 A 成功，播放它——isPreviewPlaying 置 true。
     useTasksStore.setState({
       tasks: [
         {
@@ -382,7 +379,6 @@ describe("VoiceSampleButton", () => {
       expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
     });
 
-    // 任务行先落地为 running。
     useTasksStore.setState({
       tasks: [
         {

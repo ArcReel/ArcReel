@@ -276,7 +276,6 @@ async def test_edit_images_skips_missing_current_image(fake_ctx: ToolHarness) ->
     fake_ctx.pm.mirror_to_disk()
     enqueue = AsyncMock(return_value=([], []))
 
-    # 李四 没有 character_sheet
     out = await run_declared_tool(
         "edit_images",
         fake_ctx,
@@ -304,11 +303,11 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolHarness) -> None:
         {
             "resource_type": "character",
             "edits": [
-                {"id": " ", "instruction": "x"},  # 空白 id
-                {"id": "张三", "instruction": "改发型"},  # 合法，唯一入队的一条
-                {"id": "张三", "instruction": "again"},  # 重复 id
-                {"id": "李四", "instruction": ""},  # 缺指令
-                {"id": "王五", "instruction": "改"},  # 资源不存在
+                {"id": " ", "instruction": "x"},
+                {"id": "张三", "instruction": "改发型"},
+                {"id": "张三", "instruction": "again"},
+                {"id": "李四", "instruction": ""},
+                {"id": "王五", "instruction": "改"},
             ],
         },
         batch_waiter=_succeed_every_spec,

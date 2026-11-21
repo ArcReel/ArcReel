@@ -159,7 +159,6 @@ class TestGenerateTtsSingle:
             assert call["script_file"] == "episode_1.json"
             assert call["payload"]["script_file"] == "episode_1.json"
             assert call["source"] == "webui"
-            # 入队的供应商取自项目的 TTS 快照
             assert call["provider_id"] == "dashscope"
 
     def test_regenerate_allowed_when_audio_exists(self, tmp_path, monkeypatch):

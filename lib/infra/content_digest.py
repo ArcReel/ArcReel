@@ -108,7 +108,6 @@ FILE_DIGEST_RACY_WINDOW_NS = 3_000_000_000
 # stat 时这些错误码说明路径上没有可读的常规文件（与 ``Path.is_file`` 忽略的错误码一致）。
 _ABSENT_PATH_ERRNOS = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
 
-#: 文件的 stat 标识：(st_dev, st_ino, st_size, st_mtime_ns)。
 FileIdentity = tuple[int, int, int, int]
 
 

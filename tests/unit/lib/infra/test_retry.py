@@ -266,7 +266,7 @@ class TestWithRetryAsync:
         @with_retry_async(
             max_attempts=3,
             backoff_seconds=(0, 0, 0),
-            retry_if=lambda e: False,  # 始终不重试
+            retry_if=lambda e: False,
             clock=clock,
             jitter=_no_jitter,
         )

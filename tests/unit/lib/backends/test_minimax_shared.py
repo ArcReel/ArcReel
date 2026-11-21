@@ -37,7 +37,6 @@ class TestBaseUrlDerivation:
         assert minimax_text_base_url(MINIMAX_INTL_BASE_URL) == "https://api.minimax.io/v1"
 
     def test_host_only_gets_v1_suffix(self):
-        # 用户只填 host，派生时补 /v1
         assert minimax_text_base_url("https://api.minimax.io") == "https://api.minimax.io/v1"
 
     def test_full_v1_base_is_idempotent(self):
@@ -146,7 +145,6 @@ class TestSafeBodyForLog:
             "subject_reference": [{"type": "character", "image_file": "data:image/png;base64,AAAA"}],
         }
         view = safe_body_for_log(body)
-        # 白名单标量保留
         assert view["model"] == "image-01"
         assert view["width"] == 1152
         assert view["height"] == 2048
@@ -154,7 +152,6 @@ class TestSafeBodyForLog:
         assert view["n"] == 1
         assert view["prompt_optimizer"] is False
         assert view["seed"] == 7
-        # prompt 仅长度、subject_reference 仅计数；base64/URL 不出现
         assert view["prompt_len"] == len(body["prompt"])
         assert "prompt" not in view
         assert view["subject_reference"] == "<1 ref>"
@@ -173,7 +170,6 @@ class TestSafeBodyForLog:
 
 class TestVideoBaseUrl:
     def test_shares_v1_base_with_text(self):
-        # 视频原生端点与文本同走单 /v1 base
         assert minimax_video_base_url(None) == MINIMAX_BASE_URL
         assert minimax_video_base_url(MINIMAX_INTL_BASE_URL) == "https://api.minimax.io/v1"
         assert minimax_video_base_url("https://api.minimax.io") == "https://api.minimax.io/v1"

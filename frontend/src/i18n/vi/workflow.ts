@@ -1,7 +1,6 @@
 import type enWorkflow from "@/i18n/en/workflow";
 
 export default {
-  // ---- Khung bảng ----
   'panel_title': 'Tiến độ sản xuất',
   'panel_blocker_count_one': '{{count}} mục cần sửa',
   'panel_blocker_count_other': '{{count}} mục cần sửa',
@@ -14,7 +13,6 @@ export default {
   'technical_detail': 'Chi tiết kỹ thuật',
   'next_step': 'Tiếp theo: {{step}}',
 
-  // ---- Danh sách bước ----
   'next_label': 'Tiếp theo',
   'alternatives_lead': 'hoặc',
   'summary_row': '{{title}}: {{status}}',
@@ -196,7 +194,6 @@ export default {
   'stale_regenerate_all_one': 'Tạo lại {{count}} kết quả',
   'stale_regenerate_all_other': 'Tạo lại cả {{count}} kết quả',
 
-  // ---- Tác vụ và checkpoint nhà cung cấp ----
   'tasks_title_one': '{{count}} lần thử đang chạy',
   'tasks_title_other': '{{count}} lần thử đang chạy',
   'task_type_storyboard': 'Ảnh phân cảnh',
@@ -224,7 +221,6 @@ export default {
   'task_status_interrupted': 'đã gián đoạn',
   'checkpoint_submitted': 'Đã gửi tới nhà cung cấp — thử lại có thể bị tính phí lần nữa.',
 
-  // ---- Xét duyệt hàng loạt ----
   'admission_blocked_intro': 'Lô này không tạo tác vụ nào và không phát sinh chi phí. Sửa các mục bên dưới rồi gửi lại.',
   'admission_withheld_title_one': '{{count}} đơn vị không có lỗi nhưng bị giữ lại cùng lô:',
   'admission_withheld_title_other': '{{count}} đơn vị không có lỗi nhưng bị giữ lại cùng lô:',
@@ -244,7 +240,6 @@ export default {
   'duration_seconds': '{{value}} giây',
   'unit_request_tier': 'yêu cầu {{request}}',
 
-  // ---- Cụm từ bước tiếp theo ----
   'action_unknown': 'làm theo hướng dẫn của Agent',
   'action_none': 'chưa cần thao tác',
   'action_retry': 'thử lại sau ít phút',
@@ -281,7 +276,6 @@ export default {
   'action_create_edit_timeline': 'tạo dòng thời gian dựng và giao cho Agent dựng',
   'action_retry_project_migration': 'sửa các tệp dự án được báo cáo rồi thử lại việc nâng cấp dữ liệu',
 
-  // ---- Tóm tắt vấn đề ----
   'problem_generation_unit_not_found': 'Đơn vị này không còn trong kịch bản.',
   'problem_generation_unit_input_unusable': 'Đơn vị này thiếu dữ liệu đầu vào cần thiết.',
   'problem_generation_unit_request_invalid': 'Yêu cầu của đơn vị này không hợp lệ.',

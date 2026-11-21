@@ -307,8 +307,6 @@ async def submit_post(
     try:
         resp = await post_fn()
     except httpx.RequestError as exc:
-        # 请求确定未送达——连接建立失败（瞬态、可重试）或本地/协议错误（确定性、快速失败）——
-        # 均无重复建任务 / 重复计费风险，原样抛出交 should_retry_submit 分流；不套歧义态。
         if isinstance(exc, (*_NOT_SENT_TRANSPORT_ERRORS, *_NON_RETRYABLE_LOCAL_ERRORS)):
             raise
         raise AmbiguousSubmitError(provider=provider) from exc
@@ -468,7 +466,6 @@ async def poll_with_retry[T](
         remaining = max_wait - (active_clock.monotonic() - start)
         if remaining <= 0:
             raise TimeoutError(f"{prefix}任务超时（{max_wait:.0f}秒）")
-        # 等待不越过剩余预算：下一次轮询必定发在 max_wait 截止时刻或之前。
         await active_clock.sleep(min(wait_time, remaining))
 
 

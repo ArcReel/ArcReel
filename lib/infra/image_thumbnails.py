@@ -30,9 +30,7 @@ from lib.infra.image_utils import MAX_UPLOAD_PIXELS
 
 logger = logging.getLogger(__name__)
 
-#: 允许的缩略图宽度档位（升序）
 THUMBNAIL_WIDTHS: tuple[int, ...] = (160, 320, 640, 1280)
-#: 可生成缩略图的源文件扩展名（小写）
 THUMBNAIL_SOURCE_EXTENSIONS: frozenset[str] = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 
 _WEBP_QUALITY = 80

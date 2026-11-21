@@ -208,7 +208,6 @@ defineRegionScenarios("Agent 工序行", [
       await expect(row(page, /读取文件.*失败/)).toHaveAttribute("aria-expanded", "false");
       await expect(row(page, /生成视频.*第一集 · 3.*运行中/)).toBeVisible();
       await expect(row(page, /修改剪辑时间线.*压低开场原声/)).toBeVisible();
-      // 原始英文工具名不出现在界面上
       await expect(transcript(page).getByText(/mcp__arcreel__/)).toHaveCount(0);
     },
     screenshot: { name: "agent-work-rows-collapsed", target: agentPanel },

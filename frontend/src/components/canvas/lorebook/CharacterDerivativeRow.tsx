@@ -63,7 +63,6 @@ import { GenerateButton } from "./GenerateButton";
 import { useTrackWrite } from "./useAssetWrites";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 
-/** 脚本正文里引用衍生的记号。 */
 function derivativeToken(characterName: string, derivativeName: string): string {
   return `@[${characterName}/${derivativeName}]`;
 }
@@ -75,17 +74,14 @@ export interface CharacterDerivativeRowProps {
   characterName: string;
   name: string;
   derivative: CharacterDerivative;
-  /** 衍生图与过期标记；还没取到时为 undefined。 */
   status: CharacterDerivativeStatus | undefined;
   /** 本体是否已有资产图。生成的衍生图是对它的一次编辑，没有本体图就不能生成，但可以上传。 */
   ownerHasSheet: boolean;
   readOnly: boolean;
-  /** 详情里其他写入或本体生成占用中：本条的写入入口一起禁用。 */
   busy: boolean;
   onView: (image: { src: string; alt: string; title: string }) => void;
   /** 改名已提交、项目数据刷新之前调用，让这一行沿用原来的编辑单元。 */
   onRenamed: (from: string, to: string) => void;
-  /** 衍生图或登记变化后重新读取衍生图状态。 */
   onSheetsChanged: () => void;
 }
 
@@ -146,7 +142,6 @@ export function CharacterDerivativeRow({
     leaveTitle: t("assets:edit_leave_title", { name: qualified }),
   });
   const saving = unit.status === "saving";
-  // 本条的生成、版本恢复、导入、改名或删除在途，或详情里别处在写：兄弟入口一起禁用
   const rowBusy = busy || generating || restoring || importing || pending;
 
   // 从供应商素材库导入在对话框里进行：在途期间计入详情的写入占用，与上传、删除等写入同口径
@@ -173,7 +168,6 @@ export function CharacterDerivativeRow({
       : "missing";
   const sheetPath = artifactStatus === "missing" ? "" : (status?.character_sheet ?? derivative.character_sheet ?? "");
   const sheetFp = useProjectsStore((s) => (sheetPath ? s.getAssetFingerprint(sheetPath) : null));
-  // 行内缩略图取 640 宽的缩略图，查看大图仍用原图
   const sheetUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, sheetFp) : null;
   const thumbUrl = sheetPath ? API.getFileUrl(projectName, sheetPath, sheetFp, { width: 640 }) : null;
   const imageUrl = sheetUrl && thumbUrl !== failedUrl ? sheetUrl : null;
@@ -189,7 +183,6 @@ export function CharacterDerivativeRow({
           ? "current"
           : "missing";
 
-  /** 提交时刻复核：队列里本体与这条衍生的占用，加上详情里的本地在途写入。 */
   const rejectIfBusy = () => {
     if (rowBusy) {
       useAppStore.getState().pushToast(t("assets:derivative_busy_hint"), "info");
@@ -248,7 +241,6 @@ export function CharacterDerivativeRow({
     });
   };
 
-  /** 跑一次立即执行的写入；失败时弹出原因并返回 false。 */
   const run = async (work: () => Promise<unknown>): Promise<boolean> => {
     if (rejectIfBusy()) return false;
     setPending(true);
@@ -311,7 +303,6 @@ export function CharacterDerivativeRow({
     );
   };
 
-  // 打开会写这条衍生的对话框前复核占用态
   const openGuarded = (key: RowDialog) => {
     if (!rejectIfBusy()) setDialog(key);
   };
@@ -494,7 +485,6 @@ export function CharacterDerivativeRow({
               title={t("assets:prompt_preview_title", { name: qualified })}
               beforeOpen={unit.save}
               saveFirst={unit.dirty}
-              // 保存在途时不再并发第二次保存
               disabled={saving}
               load={(signal) =>
                 API.previewAssetPrompt(projectName, "character", characterName, unit.value, {
@@ -569,7 +559,6 @@ export function CharacterDerivativeRow({
           <AlertDialog
             open={dialog === "delete"}
             onOpenChange={(open) => {
-              // 删除在途时忽略关闭
               if (!open && !pending) setDialog(null);
             }}
           >

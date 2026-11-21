@@ -93,7 +93,6 @@ const API: ApiOverrides = {
   [`POST ${UNITS_API}/E1U2/move`]: { status: 200, body: { units: movedUnits("E1U2", null) } },
 };
 
-// 文稿编辑器的高度下限（12rem）。
 const EDITOR_MIN_HEIGHT = 192;
 
 const workbench = (page: Page) => page.getByRole("tabpanel", { name: "视频单元" });
@@ -106,7 +105,6 @@ async function workbenchReady(page: Page) {
   await editor(page).waitFor();
 }
 
-/** 紧凑档 Agent 面板盖在画布右侧：先收起再点画布右侧的控件。 */
 
 /** 窄画布下只有图标栏；单元的预览叠在编辑器同一格，经「视频」子页签切换。 */
 async function showPreview(page: Page) {
@@ -180,7 +178,6 @@ defineRegionScenarios("参考视频工作台", [
     api: API,
     ready: workbenchReady,
     act: async (page) => {
-      // 窄画布下列表收成图标栏，从图标栏展开完整列表再排序
       const handle = page.getByRole("button", { name: "调整「视频单元 2」的顺序" });
       if (!(await handle.isVisible())) {
         await clearAgentOverlay(page);

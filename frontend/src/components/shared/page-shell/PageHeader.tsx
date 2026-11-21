@@ -9,9 +9,7 @@ interface PageHeaderProps {
   back?: { label: string; onClick: () => void };
   title?: string;
   subtitle?: string;
-  /** 标题组之后的自定义内容，如项目大厅的品牌与搜索。 */
   children?: ReactNode;
-  /** 靠右的页面级动作。 */
   actions?: ReactNode;
 }
 

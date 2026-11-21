@@ -61,7 +61,6 @@ describe("ShotDetail 提示词形态切换", () => {
     fireEvent.click(imageToText);
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith("demo", "E1S01", "episode_1.json"));
-    // 结构化编辑器让位给纯文本框，框里就是后端渲染的最终提示词
     expect(await screen.findByDisplayValue(/Scene: 雨夜街道/)).toBeInTheDocument();
     expect(screen.queryByDisplayValue("雨夜街道")).not.toBeInTheDocument();
 

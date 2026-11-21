@@ -91,11 +91,6 @@ async def _store(market_sessions: async_sessionmaker[AsyncSession], *sources: Ma
         await session.commit()
 
 
-# ---------------------------------------------------------------------------
-# 合并与路径解析
-# ---------------------------------------------------------------------------
-
-
 def test_merge_keeps_source_order_sorts_by_name_and_skips_disabled_and_unknown_types() -> None:
     first = _source(1, _entry("zeta", "Zeta"), _entry("alpha", "alpha"), {"type": "prompt-template", "slug": "x"})
     disabled = _source(2, _entry("hidden"), enabled=False)
@@ -140,11 +135,6 @@ def test_merge_with_other_entry_type_is_empty() -> None:
 )
 def test_entry_asset_url_resolves_against_index_directory(index_url: str, relative: str, expected: str) -> None:
     assert entry_asset_url(index_url, relative) == expected
-
-
-# ---------------------------------------------------------------------------
-# 定义原文
-# ---------------------------------------------------------------------------
 
 
 async def test_definition_is_fetched_and_returned_as_is(
@@ -227,11 +217,6 @@ async def test_disabled_source_is_not_fetched(
         with pytest.raises(MarketSourceDisabledError):
             await entry_service.fetch_icon(1, "demo")
         assert http.calls.call_count == 0
-
-
-# ---------------------------------------------------------------------------
-# icon
-# ---------------------------------------------------------------------------
 
 
 async def test_icon_is_served_with_media_type_and_cached_per_version(

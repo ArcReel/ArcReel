@@ -108,9 +108,7 @@ interface Props {
   instruction: string;
   onInstructionChange: (value: string) => void;
   onRun: (act: StepAct) => void;
-  /** 跳到画布上的该单元。 */
   onViewUnit?: (unitId: string) => void;
-  /** 显式重生这一步的指定单元（分镜图、视频）。 */
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
   onConfirmDurations?: (durations: Record<string, number>) => void;
   busy: boolean;
@@ -168,7 +166,6 @@ function StepDetails({ step, onViewUnit, onRegenerate, onConfirmDurations, busy 
   );
 }
 
-/** 一行内容：现状一句话、提醒、常驻入口；下一步属于这一行时就地展开，行首加强调色竖条。 */
 export function StepListRow({ row, next, instruction, onInstructionChange, onRun, onViewUnit, onRegenerate, onConfirmDurations, busy }: Props) {
   const owns = next !== null;
   return (

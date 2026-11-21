@@ -8,12 +8,9 @@ from server.services.tasks import video_caps
 @pytest.mark.parametrize(
     ("caps", "expected"),
     [
-        # 有音轨且本集开着音频：有声
         ({"voice_consistency": "soft", "requested_generate_audio": True}, False),
         ({"voice_consistency": "native", "requested_generate_audio": True}, False),
-        # C 类模型不产音
         ({"voice_consistency": "none", "requested_generate_audio": True}, True),
-        # 本集关闭音频：模型有音轨也听不到声音
         ({"voice_consistency": "soft", "requested_generate_audio": False}, True),
         # 能力解析失败：档位缺失退化为 soft，无声开关由 project_video_caps 独立解析后写入
         ({"requested_generate_audio": False}, True),

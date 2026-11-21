@@ -11,9 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-#: 值是供应商 ID 的参数名。
 PROVIDER_PARAMS = ("provider", "provider_id", "claimed_provider_id", "actual_provider_id")
-#: 值是模型 ID 的参数名。
 MODEL_PARAM = "model"
 #: 值是条目引用（「模型厂商/官方模型名」）的参数名：已下线模型的官方后继。
 SUCCESSOR_PARAM = "successor"

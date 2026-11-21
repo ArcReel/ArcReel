@@ -76,14 +76,11 @@ export interface AssetDetailEditorProps {
   asset: GalleryAssetSource;
   /** 产物清单对这张资产图的判定；未取到时按条目上是否登记了资产图展示。 */
   sheetStatus: AssetSheetStatusRow | undefined;
-  /** 资产图任务占用中。 */
   generating: boolean;
   writing?: boolean;
   readOnly: boolean;
   onGenerate: (name: string) => unknown;
-  /** 改名已提交时调用。 */
   onRenamed: (from: string, to: string) => void;
-  /** 头部右侧的上一个与下一个。 */
   navigation?: ReactNode;
 }
 

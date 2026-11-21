@@ -82,7 +82,6 @@ function CreateEpisodeForm({
   const episodes = project?.episodes ?? [];
   const withSourceKind = project?.content_mode === "drama";
 
-  // 位置：null 放在末尾，数字为插在这一集之后
   const [after, setAfter] = useState<number | null>(
     initialAfter !== null && episodes.some((ep) => ep.episode === initialAfter) ? initialAfter : null,
   );
@@ -114,7 +113,6 @@ function CreateEpisodeForm({
         source_text: hasSource ? sourceText : null,
         source_kind: hasSource && withSourceKind ? sourceKind : null,
       });
-      // 刷新没成功时新集不在项目数据里，不定位过去
       onCreated((await refreshAfterWrite(projectName, t)) === "success" ? episode : null);
     } catch (err) {
       setError(t("dashboard:episode_create_failed", { message: errMsg(err) }));

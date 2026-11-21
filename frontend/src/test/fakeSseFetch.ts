@@ -66,12 +66,10 @@ export class FakeSseConnection {
     this.write(`${lines.join("\n")}\n\n`);
   }
 
-  /** 服务端正常关流。 */
   end(): void {
     this.controller.close();
   }
 
-  /** 传输层中断。 */
   fail(error: unknown = new TypeError("network error")): void {
     this.controller.error(error);
   }
@@ -80,7 +78,6 @@ export class FakeSseConnection {
 export interface FakeSseFetch {
   connections: FakeSseConnection[];
   fetchMock: ReturnType<typeof vi.fn>;
-  /** 最近一次建立的连接。 */
   readonly latest: FakeSseConnection;
 }
 

@@ -126,7 +126,7 @@ def test_validator_rejects_non_string_unit_text(tmp_path: Path):
 def test_validator_rejects_invalid_unit_duration(tmp_path: Path):
     project = _reference_project()
     script = _valid_reference_script()
-    script["video_units"][0]["duration_seconds"] = 9999  # 超出结构合理性区间
+    script["video_units"][0]["duration_seconds"] = 9999
     _write(tmp_path, "project.json", project)
     _write(tmp_path, "scripts/episode_1.json", script)
 

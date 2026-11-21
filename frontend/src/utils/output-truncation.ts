@@ -34,7 +34,6 @@ export function outputTruncationOfError(err: unknown): OutputTruncation | null {
   return truncationFromProblem(code, params as Record<string, unknown>);
 }
 
-/** 自定义供应商模型在设置页的位置：打开这个供应商的编辑表单并定位到这个模型。内置供应商返回 null。 */
 export function customModelSettingsPath(providerId: string, model: string): string | null {
   if (!providerId.startsWith(CUSTOM_PROVIDER_PREFIX)) return null;
   const id = providerId.slice(CUSTOM_PROVIDER_PREFIX.length);

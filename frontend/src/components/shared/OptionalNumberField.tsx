@@ -2,23 +2,18 @@ import { useId, type ReactNode } from "react";
 import { Input } from "@/components/ui/input";
 
 export interface OptionalNumberFieldProps {
-  /** 已翻译的字段名。 */
   label: string;
   /** null = 未填，是合法取值。 */
   value: number | null;
   onChange: (next: number | null) => void;
-  /** 输入框右侧的量纲。 */
   unit: ReactNode;
-  /** 值合法时的行内说明。 */
   hint: ReactNode;
-  /** 值越界时的行内提示，替代 hint 呈现。 */
   errorMessage: string;
   /**
    * 是否越界。判据留在调用方：各字段的硬区间与整数性要求不同，且提交前的 gating 读的是同一个
    * 判据函数，壳内另算一份会造出两套真相。
    */
   invalid: boolean;
-  /** 拼进 input id 的字段名，令同页多个字段的 label 各自绑定。 */
   idSuffix: string;
   inputMode: "numeric" | "decimal";
   max: number;

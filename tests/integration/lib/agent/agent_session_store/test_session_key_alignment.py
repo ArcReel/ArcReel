@@ -121,7 +121,6 @@ async def test_moved_data_root_sessions_resume_under_the_new_key(tmp_path, sessi
         assert materialized is not None
         await materialized.cleanup()
 
-    # 再次启动：键已一致，不发任何写语句
     counter = _WriteCounter(session_factory)
     try:
         again = await align_session_keys(

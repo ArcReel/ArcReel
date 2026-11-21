@@ -38,7 +38,6 @@ from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
 
-# 默认图片模型
 DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
 _GEMINI_IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"})
 
@@ -133,7 +132,6 @@ class GeminiImageBackend:
     @with_retry_async(max_attempts=5, backoff_seconds=(2, 4, 8, 16, 32))
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """异步生成图片。"""
-        # 1. 限流
         if self._rate_limiter:
             await self._rate_limiter.acquire_async(self._image_model)
 
@@ -151,7 +149,6 @@ class GeminiImageBackend:
             image_config=self._types.ImageConfig(**image_config_kwargs),
         )
 
-        # 4. 调用异步 API
         logger.info(
             "调用 %s 图片 SDK payload=%s",
             self.name,

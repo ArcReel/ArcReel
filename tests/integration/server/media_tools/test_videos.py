@@ -156,11 +156,6 @@ def _refused_problems(refused: list[Any]) -> dict[str, tuple[str, str]]:
     return {ticket.unit_id: (problem.code, problem.action.value) for ticket in refused for problem in ticket.problems}
 
 
-# ---------------------------------------------------------------------------
-# generate_videos：请求校验
-# ---------------------------------------------------------------------------
-
-
 _VALID_REQUEST: dict[str, Any] = {
     "script": "episode_1.json",
     "target": _EPISODE_1,
@@ -254,11 +249,6 @@ async def test_generate_videos_refuses_an_episode_target_that_is_not_the_scripts
     assert out.problem is not None
     assert "不一致" in out.problem.detail
     enqueue.assert_not_awaited()
-
-
-# ---------------------------------------------------------------------------
-# generate_videos：分镜图生视频
-# ---------------------------------------------------------------------------
 
 
 async def test_generate_videos_episode_scope_happy(fake_ctx: ToolHarness) -> None:
@@ -631,8 +621,8 @@ async def test_generate_videos_scene_scope_missing(fake_ctx: ToolHarness) -> Non
     "storyboard_value",
     [
         123,  # 剧本 JSON 里的脏数据（非字符串）须可读失败而非未处理 TypeError
-        "/etc/passwd",  # 绝对路径：越权引用项目外文件
-        "../../outside.png",  # `..` 穿越出项目目录
+        "/etc/passwd",
+        "../../outside.png",
     ],
 )
 async def test_generate_videos_scene_scope_rejects_invalid_storyboard_image(
@@ -685,11 +675,6 @@ async def test_generate_videos_selected_scope_no_match(fake_ctx: ToolHarness) ->
     out = await run_generate_videos(fake_ctx, _selected("NO_SUCH"), force=True)
 
     assert _is_error(out)
-
-
-# ---------------------------------------------------------------------------
-# generate_videos：参考生视频
-# ---------------------------------------------------------------------------
 
 
 async def test_generate_reference_video_rejects_unbound_active_script_before_generation(
@@ -1169,9 +1154,9 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
 @pytest.mark.parametrize(
     "storyboard_value",
     [
-        123,  # 剧本 JSON 里的脏数据（非字符串）
-        "/etc/passwd",  # 绝对路径
-        "../../outside.png",  # `..` 穿越出项目目录
+        123,
+        "/etc/passwd",
+        "../../outside.png",
     ],
 )
 def test_build_video_specs_skips_invalid_storyboard_image_without_aborting_batch(
@@ -1442,8 +1427,8 @@ def test_screening_keeps_bad_unit_ids_out_of_spec_building(tmp_path) -> None:
     from server.services.admission.video_batch_admission import screen_script_entries
 
     entries = [
-        {"unit_id": "", "text": "@张三 推门"},  # 空串
-        {"text": "@王五 起身"},  # 缺 unit_id 键
+        {"unit_id": "", "text": "@张三 推门"},
+        {"text": "@王五 起身"},
         {"unit_id": "E1U2", "text": "@李四 转身"},
     ]
     units, tickets = screen_script_entries(entries, requested_ids=None)
@@ -1747,11 +1732,6 @@ async def test_generate_videos_episode_scope_rejects_mismatched_storyboard_scrip
 
     assert out.problem is not None
     assert "generate_script_plan" in out.problem.detail
-
-
-# ---------------------------------------------------------------------------
-# generate_videos：预检（只报价、不入队）
-# ---------------------------------------------------------------------------
 
 
 def _video_quote(out: ToolOutcome[Any]) -> dict[str, Any]:

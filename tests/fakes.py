@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 
 _NO_SDK_MESSAGES: tuple[dict[str, Any], ...] = ()
-# close_stream 注入的流终止标记：读到它之后原始帧流结束，再次读取也立即结束
 _STREAM_EOF = object()
 
 #: 带真实文件头的产物替身字节。取件路径按文件头判容器（见
@@ -235,7 +234,6 @@ class FakeTextGenerator:
     def __init__(self, *responses: str | BaseException):
         self._responses = list(responses)
         self.requests: list[Any] = []
-        #: 每次调用传入的 ``require_complete``，与 ``requests`` 一一对应。
         self.require_complete: list[bool] = []
 
     async def create(self, _task_type: object, _project_name: str | None = None, **_kwargs: Any) -> FakeTextGenerator:

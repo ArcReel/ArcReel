@@ -4,9 +4,6 @@ import { clearAgentOverlay, waitForEntrance } from "../support/region-helpers.ts
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 资产详情 Sheet：点浏览卡打开的右侧编辑器，四类资产共用。头部改名与上一个、下一个，正文按类型
-// 开关字段区块，底部是未保存修改的内联提示条；「添加」在同一个 Sheet 里打开空白表单。
-// 角色的「衍生」区块逐条列出衍生，每条的外观变化在行内保存。
 
 const CHARACTERS_PATH = "/app/projects/demo/characters";
 const PRODUCTS_PATH = "/app/projects/demo/products";
@@ -75,7 +72,6 @@ function statusRows(type: string, names: string[]) {
   };
 }
 
-/** 衍生图状态接口的响应：按项目数据里的衍生登记，`stale` 列出已过期的衍生。 */
 function derivativeSheets(derivatives: Record<string, Asset>, stale: string[] = []) {
   return {
     status: 200,
@@ -88,7 +84,6 @@ function derivativeSheets(derivatives: Record<string, Asset>, stale: string[] = 
   };
 }
 
-// 压力变体：多条衍生，名称与外观变化很长，有的已过期、有的还没有衍生图。
 const MANY_DERIVATIVES: Record<string, Asset> = Object.fromEntries(
   Array.from({ length: 8 }, (_, i) => [
     i === 0 ? "雨夜里披着蓑衣赶往码头接应走私船的夜行装束" : `外观 ${i + 1}`,
@@ -128,7 +123,6 @@ const PRODUCT_API: ApiOverrides = {
   "GET /api/v1/projects/demo/asset-sheets/status": statusRows("product", Object.keys(PRODUCTS)),
 };
 
-// 压力变体：名字与描述很长、别名很多，项目用参考音频绑定声音。
 const LONG_API: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo": projectWith({
@@ -182,12 +176,10 @@ async function openSheet(page: Page, name: string): Promise<Locator> {
   return sheet;
 }
 
-/** 角色详情里的「衍生」区块。 */
 function derivativesSection(sheet: Locator): Locator {
   return sheet.locator("section").filter({ has: sheet.page().getByRole("heading", { name: "衍生", exact: true }) });
 }
 
-/** 滚到某条衍生并返回这一行。 */
 async function derivativeRow(sheet: Locator, name: string): Promise<Locator> {
   const row = derivativesSection(sheet).getByRole("listitem").filter({ has: sheet.page().getByRole("heading", { name, exact: true }) });
   await row.scrollIntoViewIfNeeded();

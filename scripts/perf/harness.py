@@ -29,9 +29,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "demo"
 API = "/api/v1"
-# 合成项目里角色 / 场景 / 道具的比例（12:10:8）。
 ASSET_MIX = (12, 10, 8)
-# 被测聚合接口；名字同时是 --only 的取值。
 ENDPOINTS = ("project", "cost", "wf_status", "wf_plan", "units")
 # 「同一份聚合计算同时在算的份数」按真正做计算的函数计数，与请求是否合流无关。
 # 只有项目详情与费用估算会合流；其余接口一次请求就是一份计算，按在途请求数统计。
@@ -75,7 +73,6 @@ def project_path() -> Path:
     return data_root() / "projects" / PROJECT
 
 
-# ---------------------------------------------------------------- 合成项目
 def _unit_text(rnd: random.Random, chars: list[str], scenes: list[str], props: list[str]) -> str:
     c1, c2, s, p = rnd.choice(chars), rnd.choice(chars), rnd.choice(scenes), rnd.choice(props)
     return (
@@ -360,7 +357,6 @@ def clear_caches() -> None:
     reset_manifest_read_cache_for_tests()
 
 
-# ---------------------------------------------------------------- 应用
 def build_app():
     """按生产注册方式挂载被测路由（真实鉴权依赖），不跑应用的 lifespan。"""
 
@@ -403,7 +399,6 @@ def pct(xs: list[float], p: float) -> float:
     return xs[min(len(xs) - 1, int(p / 100 * len(xs)))]
 
 
-# ---------------------------------------------------------------- 计数探针
 REQ: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("perf_req", default=None)
 
 
@@ -415,7 +410,7 @@ class Probe:
         self.computing: dict[str, int] = defaultdict(int)
         self.computing_max: dict[str, int] = defaultdict(int)
         self.lock_fail = 0
-        self.media_bytes: dict[str, int] = defaultdict(int)  # 每次打开一个键：<路径>#<序号>
+        self.media_bytes: dict[str, int] = defaultdict(int)
         self._media_fds: dict[int, str] = {}
 
     def reset_media(self) -> None:
@@ -433,7 +428,6 @@ class Probe:
         with self.lock:
             self.computing_max = defaultdict(int, self.computing)
 
-    # -- 安装
     def install(self) -> None:
         self._install_to_thread()
         self._install_manifest_lock()

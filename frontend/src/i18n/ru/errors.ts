@@ -87,7 +87,6 @@ export default {
   'source_corrupt_file': 'Не удалось разобрать исходный файл «{{filename}}»: {{reason}}',
   'source_too_large': 'Исходный файл «{{filename}}» слишком большой ({{size_mb}} MB > {{limit_mb}} MB)',
   'source_conflict': 'Исходный файл «{{existing}}» уже существует',
-  // Image Capability
   'image_endpoint_mismatch_no_i2i': 'Модель {{model}} поддерживает только «текст в изображение» (без /v1/images/edits). Уберите референсы или выберите модель, поддерживающую редактирование изображений',
   'image_endpoint_mismatch_no_t2i': 'Модель {{model}} поддерживает только «изображение в изображение» (нужны референсы). Добавьте референсы или выберите модель, поддерживающую «текст в изображение»',
   // Fallback messages for the API layer and event streams (when the server gives no reason)

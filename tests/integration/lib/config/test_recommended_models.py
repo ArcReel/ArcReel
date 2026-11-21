@@ -170,7 +170,6 @@ class TestSeedProviderRecommendations:
         await _seed(session_factory, "ark")
 
         settings = await _settings(session_factory)
-        # 已有设置不覆盖，空的媒体类型写入推荐；ark 没有音频推荐，音频不写
         assert settings["default_image_backend"] == "openai/gpt-image-2"
         assert settings["default_text_backend"] == f"ark/{_recommended('ark', 'text')}"
         assert settings["default_video_backend"] == f"ark/{_recommended('ark', 'video')}"
@@ -343,7 +342,7 @@ class TestFreezeEffectiveDefaults:
         # 新版本号先于数据装入：目录查询按装入的数据重建索引，用的就是新版本号
         monkeypatch.setattr(catalog, "app_version", lambda: "0.37.0")
         install_synced_catalog(request, data)
-        assert catalog.default_model("ark", "image") is not None  # 新版本里 ark 的推荐可用
+        assert catalog.default_model("ark", "image") is not None
         await _configure(session_factory, "ark")
         await _configure(session_factory, "dashscope")
 
@@ -351,7 +350,6 @@ class TestFreezeEffectiveDefaults:
 
         resolved = await ConfigResolver(session_factory).resolve_image_backend(None, None, generation_type="t2i")
         assert resolved == ProviderModel("dashscope", _recommended("dashscope", "image"))
-        # ark 的其余推荐旧版可用，照常固化
         assert (await _settings(session_factory))["default_video_backend"] == f"ark/{_recommended('ark', 'video')}"
 
     async def test_the_old_factory_snapshot_is_used_when_no_newer_data_was_synced(

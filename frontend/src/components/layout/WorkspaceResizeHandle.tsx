@@ -4,11 +4,9 @@ import { ResizableHandle } from "@/components/ui/resizable";
 import { RESIZE_KEYBOARD_STEP } from "./workspace-layout";
 
 interface WorkspaceResizeHandleProps {
-  /** 手柄调整的面板，用来读取当前宽度。 */
   panelRef: RefObject<PanelImperativeHandle | null>;
   /** 面板在手柄的哪一侧：`before` 是左侧的侧栏，向右拖变宽；`after` 是右侧的 Agent 面板，向左拖变宽。 */
   panelSide: "before" | "after";
-  /** 按方向键后面板应调到的宽度，由调用方落到面板上并记住。 */
   onKeyboardResize: (width: number) => void;
   label: string;
   disabled?: boolean;

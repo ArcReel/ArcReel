@@ -16,12 +16,9 @@ import {
 
 export interface ImpactConfirmRequest {
   title: string;
-  /** 正文，通常是服务端成文的受影响集清单。 */
   body: ReactNode;
   confirmLabel: string;
-  /** 提交中的按钮文案；缺省沿用 `confirmLabel`。 */
   runningLabel?: string;
-  /** 会丢失产物或无法恢复：确认按钮按危险操作显示。 */
   destructive: boolean;
   /** 正文里有输入框等可聚焦元素：正文不再单独进入 Tab 顺序。 */
   interactiveBody?: boolean;

@@ -182,7 +182,6 @@ class TestOpenAITextBackend:
 
         assert result.text == "I see a cat"
         call_kwargs = mock_client.chat.completions.create.call_args[1]
-        # 本地图片内联为 data URI 的 image_url part，文本 part 排在图片之后
         data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode()
         assert call_kwargs["messages"] == [
             {
@@ -390,7 +389,6 @@ class TestInstructorFallback:
         instructor_completion.usage.completion_tokens = 20
 
         mock_client = AsyncMock()
-        # 原生调用返回 200 + markdown 文本（无异常）
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(markdown_text, 100, 60))
 
         mock_patched = _make_instructor_client()
@@ -417,7 +415,6 @@ class TestInstructorFallback:
         assert result.input_tokens == 150
         assert result.output_tokens == 80
         mock_client.chat.completions.create.assert_awaited_once()
-        # 降级复用同一个客户端、从 TOOLS 档起步，并把原生调用的 model / messages 原样交给 Instructor
         from_openai.assert_called_once_with(mock_client, mode=Mode.TOOLS)
         fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
         assert fallback_kwargs["model"] == "gpt-5.4-mini"
@@ -426,7 +423,6 @@ class TestInstructorFallback:
 
     async def test_schema_violating_json_triggers_instructor_fallback_pydantic(self):
         """原生返回 200 + 合法 JSON 但违反 response_schema（代理接受却不强制 schema），应降级到 Instructor。"""
-        # 代理返回合法 JSON，但 age 是中文字符串、违反 Pydantic int 约束
         violating_json = json.dumps({"name": "Alice", "age": "三十"}, ensure_ascii=False)
         instructor_result = _PersonSchema(name="Alice", age=30)
         instructor_completion = MagicMock()
@@ -455,7 +451,6 @@ class TestInstructorFallback:
             )
             result = await backend.generate(request)
 
-        # 不再把违例 JSON 直接放行，而是返回经 Instructor 校验后的结果
         assert result.text == instructor_result.model_dump_json()
         # 先原生再降级：原生调用恰发生一次，其计费 token（100/60）并入 Instructor 结果（80/30）
         mock_client.chat.completions.create.assert_awaited_once()
@@ -503,7 +498,6 @@ class TestInstructorFallback:
 
     async def test_missing_required_field_json_triggers_instructor_fallback(self):
         """原生返回缺必填字段的合法 JSON（如 age 缺失），应降级到 Instructor 而非直接放行。"""
-        # 缺 age 必填字段
         violating_json = json.dumps({"name": "Bob"})
         instructor_result = _PersonSchema(name="Bob", age=25)
         instructor_completion = MagicMock()
@@ -596,7 +590,6 @@ class TestInstructorFallback:
         assert result.provider == PROVIDER_OPENAI
         assert result.input_tokens == 20
         assert result.output_tokens == 10
-        # 降级复用同一个客户端、从 TOOLS 档起步，并把原生调用的 model / messages 原样交给 Instructor
         from_openai.assert_called_once_with(mock_client, mode=Mode.TOOLS)
         fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
         assert fallback_kwargs["model"] == "gpt-5.4-mini"
@@ -662,8 +655,6 @@ class TestInstructorFallback:
     async def test_bad_request_error_with_dict_schema_falls_back_to_plain(self):
         """原生 response_format 抛 BadRequestError 且 schema 为 dict 时，降级为无结构化输出的普通调用。"""
         mock_client = AsyncMock()
-        # 第一次调用（带 response_format）抛错
-        # 第二次调用（不带 response_format）返回正常结果
         fallback_json = json.dumps({"name": "Charlie", "age": 35})
         mock_client.chat.completions.create = AsyncMock(
             side_effect=[_make_bad_request_error(), _make_mock_response(fallback_json, 12, 6)]
@@ -685,7 +676,6 @@ class TestInstructorFallback:
         assert result.text == fallback_json
         assert result.input_tokens == 12
         assert result.output_tokens == 6
-        # 验证第二次调用使用 json_object 模式（而非原生 json_schema）
         second_call_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
         assert second_call_kwargs.get("response_format") == {"type": "json_object"}
 
@@ -730,7 +720,6 @@ class TestInstructorFallback:
             with pytest.raises(ConnectionError):
                 await backend.generate(request)
 
-        # 原生 200 调用只发生一次；降级层自身重试 4 次穷尽
         mock_client.chat.completions.create.assert_awaited_once()
         assert mock_instructor.await_count == 4
 

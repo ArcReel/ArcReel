@@ -8,7 +8,6 @@ interface ModelIdFieldProps {
   id: string;
   value: string;
   onChange: (value: string) => void;
-  /** 候选模型 ID；输入时按包含关系筛选。 */
   options: string[];
   placeholder?: string;
   disabled?: boolean;

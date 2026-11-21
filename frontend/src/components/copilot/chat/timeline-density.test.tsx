@@ -6,9 +6,6 @@ import { SubagentCard } from "./SubagentCard";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ContentBlockRenderer } from "./ContentBlockRenderer";
 
-// ---------------------------------------------------------------------------
-// 主时间线的单行条目：工序行（工具调用、Skill、子智能体、后台任务）与思考块
-// ---------------------------------------------------------------------------
 
 beforeEach(() => {
   useAssistantStore.getState().setSessionStatus("running");

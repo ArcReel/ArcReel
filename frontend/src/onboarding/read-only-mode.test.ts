@@ -98,7 +98,6 @@ describe("read-only demo mode", () => {
   });
 
   it("blocks task enqueueing", async () => {
-    // 入队端点一律是 POST，所以闸门对它们的覆盖和对普通写操作一样
     await expect(
       API.request(`/projects/${DEMO_PROJECT_NAME}/generate/storyboard/E1S1`, {
         method: "POST",

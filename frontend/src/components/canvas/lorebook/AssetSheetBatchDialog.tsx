@@ -26,7 +26,6 @@ function refLabel(ref: AssetSheetRef): string {
 }
 
 function ownerOf(unitId: string): string {
-  // `<类型>/<本体>`：去掉类型段即本体名。
   return unitId.slice(unitId.indexOf("/") + 1);
 }
 
@@ -157,7 +156,6 @@ export function AssetSheetBatchDialog({
     <Dialog
       open
       onOpenChange={(next) => {
-        // 提交在途时忽略 Esc 与遮罩点击
         if (!next && !submitting) onClose();
       }}
     >

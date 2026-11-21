@@ -32,4 +32,4 @@ class CustomEndpoint(TimestampMixin, Base):
     schema_version: Mapped[str] = mapped_column(String(32), nullable=False)
     # 取自定义里的 media_type；声明式定义不写时为 "video"
     media_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    display_name: Mapped[str] = mapped_column(String(128), nullable=False)  # ← definition.meta.name
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)

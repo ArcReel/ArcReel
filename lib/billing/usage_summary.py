@@ -15,15 +15,11 @@ from datetime import UTC, date, datetime, timedelta, tzinfo
 
 from lib.backends.providers import CallStatus
 
-# 构成表每维最多列出的行数，余量并入列表外的 other。
 MAX_BREAKDOWN_ROWS = 50
-# 需要关注列表的总条数上限。
 MAX_ATTENTION_ITEMS = 20
-# 进入需要关注所需的最少失败次数（两类异常同一门槛）。
 MIN_ATTENTION_FAILED = 2
 # 95% 双侧置信区间的标准正态分位点。
 WILSON_Z_95 = 1.959963984540054
-# 日桶里按媒体类型分列参考费用的固定键集。
 MEDIA_TYPES = ("image", "video", "text", "audio")
 # 一次响应最多铺的日桶数（约十年）。窗口由调用方的 since / until 决定，不设上界时一对
 # 跨越数千年的时刻会让服务端同步构造几百万个桶；「全部」范围的 since 取最早记录日，不受此限。

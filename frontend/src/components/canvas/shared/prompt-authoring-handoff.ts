@@ -1,7 +1,6 @@
 import type { TFunction } from "i18next";
 
 interface PromptAuthoringHandoff {
-  /** 集名连同集 ID 的指称（`episodeAgentRef`）。 */
   episodeRef: string;
   /** 已成文的范围：「全部待编写的 N 条」或逐条 ID。 */
   scopeLabel: string;

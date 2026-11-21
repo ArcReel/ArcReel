@@ -39,7 +39,6 @@ const NAME_MAX_LENGTH = 40;
 
 interface EditTimelineMenuProps {
   projectName: string;
-  /** 菜单作用的剪辑时间线，即当前选中的标签。 */
   timeline: EditTimelineSummary;
   onRenamed: () => void;
   onDeleted: () => void;

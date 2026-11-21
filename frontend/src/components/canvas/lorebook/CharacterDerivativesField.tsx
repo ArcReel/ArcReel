@@ -25,14 +25,9 @@ interface CharacterDerivativesFieldProps {
   /** 本体资产图路径；没有时衍生不能生成。 */
   ownerSheet?: string;
   readOnly: boolean;
-  /** 详情里其他写入或本体生成占用中。 */
   busy: boolean;
 }
 
-/**
- * 角色详情的「衍生」区块：逐条列出衍生，区块头有「新增衍生」。新增、改名、删除立即执行；
- * 每条的外观变化是独立的编辑单元，在所在行保存。写请求经详情编辑器的写入登记计入占用态。
- */
 export function CharacterDerivativesField({
   projectName,
   characterName,
@@ -129,7 +124,6 @@ export function CharacterDerivativesField({
   );
 }
 
-/** 保留结束或原本无修改的移除行从区块登记中清退。 */
 function RemovedRow({ rowKey, onRemoved }: { rowKey: string; onRemoved: (key: string) => void }) {
   useEffect(() => onRemoved(rowKey), [rowKey, onRemoved]);
   return null;

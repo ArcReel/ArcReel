@@ -6,7 +6,6 @@ import { waitForEntrance } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目概览：单列限宽的设定页（页头、资产完成度与费用两行、故事设定），以及空项目的欢迎页。
 const OVERVIEW_PATH = "/app/projects/demo";
 const PROJECT = "GET /api/v1/projects/demo";
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
@@ -148,7 +147,6 @@ defineRegionScenarios("项目概览", [
     act: async (page) => {
       await expect(page.getByRole("heading", { level: 1, name: "演示项目" })).toBeVisible();
       await expect(storySetting(page).getByRole("textbox", { name: "梗概" })).toHaveValue("");
-      // 限宽档：内容列最宽 760px，紧贴画布左侧的内边距，宽窗口多出的空白留在右侧
       await collapseAgentPanel(page);
       const canvas = await box(page.getByRole("main"));
       const column = await box(storySetting(page));
@@ -157,7 +155,6 @@ defineRegionScenarios("项目概览", [
       expect(column.width).toBeLessThanOrEqual(760);
       if ((page.viewportSize()?.width ?? 0) >= 2560) expect(column.width).toBe(760);
     },
-    // 内容列：页头、资产与费用两行、故事设定
     screenshot: { name: "overview-column", target: (page) => storySetting(page).locator("xpath=..") },
   },
   {

@@ -68,7 +68,6 @@ def test_store_uses_session_factory_seam(monkeypatch, tmp_path):
 
     store = sm._build_session_store()
     assert isinstance(store, DbSessionStore)
-    # Test the user_id seam took effect
     assert store._user_id == "test-user"
 
 

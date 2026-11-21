@@ -41,7 +41,7 @@ class TestIsAuthEnabled:
             ("no", False),
             ("off", False),
             ("", True),  # 空串视为未配置 → 回退默认（开启），fail-closed
-            ("  ", True),  # 仅空白同上
+            ("  ", True),
             ("  false  ", False),
         ],
     )

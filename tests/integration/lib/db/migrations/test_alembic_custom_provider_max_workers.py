@@ -95,7 +95,6 @@ def test_upgrade_rejects_non_positive_workers(
                     "'2026-06-29 00:00:00', '2026-06-29 00:00:00')"
                 )
             )
-        # ≥1 合法
         with engine.begin() as conn:
             conn.execute(
                 sa.text(

@@ -27,8 +27,6 @@ def get_locale(request: Request) -> str:
     if not accept_lang:
         return DEFAULT_LOCALE
 
-    # Simple parser for Accept-Language header
-    # e.g., "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7"
     for lang_range in accept_lang.split(","):
         lang = lang_range.split(";")[0].split("-")[0].strip().lower()
         if lang in SUPPORTED_LOCALES:
@@ -91,5 +89,4 @@ async def request_display_names(request: Request) -> DisplayNames:
         return _builtin_display_names(locale)
 
 
-#: 失败文案渲染所需的显示名目录：供应商与模型 ID 按请求语言换成名称。
 DisplayNamesCatalog = Annotated[DisplayNames, Depends(get_display_names)]

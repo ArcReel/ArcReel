@@ -34,7 +34,6 @@ from arcreel_market_core.validation_messages import ValidationMessage
 from lib.script.reference_video.duration_slots import resolve_duration_slot
 from lib.script.script_models import REFERENCE_UNIT_DURATION_RANGE
 
-#: 迁移会剥掉的镜头级字段与 unit 级退役字段。
 _LEGACY_SHOT_FIELD = "duration"
 _LEGACY_UNIT_FIELD = "duration_override"
 

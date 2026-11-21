@@ -10,7 +10,7 @@ from io import BytesIO
 
 from PIL import Image, ImageOps
 
-_COMPRESS_THRESHOLD = 2 * 1024 * 1024  # 2 MB
+_COMPRESS_THRESHOLD = 2 * 1024 * 1024
 _MAX_LONG_EDGE = 2048
 # 解码后的像素总数上限（8192×8192）。字节上限拦不住这一层：低熵 PNG 能把上亿像素压进
 # 30MB 以内；PIL 自带的 MAX_IMAGE_PIXELS 也只在超过其两倍时才抛 DecompressionBombError，

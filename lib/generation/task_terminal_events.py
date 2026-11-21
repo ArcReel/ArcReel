@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 #: 任务生命周期末端状态。与前端 ``isTerminalStatus`` 同口径。
 TERMINAL_TASK_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled"})
 
-#: 任务终态变更的 entity_type，与项目实体变更区分开。
 TASK_ENTITY_TYPE = "task"
 
 _STATUS_ACTIONS: dict[str, str] = {

@@ -11,11 +11,9 @@ export interface PlanAssetDicts {
 export interface PlanReferenceCandidates extends PlanAssetDicts {
   /** 本集新增、确认时登记的名字（与已登记资产同名、会自动归并的项不在其列）。 */
   newNames: NamesByType;
-  /** 本集新增里选了「不登记」的名字。 */
   skippedNames: NamesByType;
 }
 
-/** 新增项类型对应的项目资产字典。 */
 export const NEW_ASSET_BUCKET = { character: "characters", scene: "scenes", prop: "props" } as const;
 
 /** 新增项的处理方式，按界面顺序。 */

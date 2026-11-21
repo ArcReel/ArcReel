@@ -25,7 +25,6 @@ describe("AvatarStack (read-only)", () => {
         projectName="demo"
       />,
     );
-    // chips render as initial-letter spans (no character_sheet provided)
     expect(screen.getByText("H")).toBeInTheDocument();
     expect(screen.getByText("V")).toBeInTheDocument();
   });
@@ -82,7 +81,6 @@ describe("AvatarStack (read-only)", () => {
         projectName="demo"
       />,
     );
-    // No buttons of any kind should be inside the stack
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

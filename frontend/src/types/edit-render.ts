@@ -9,10 +9,8 @@ import type { EditTimelineIssue, TimelineNarration } from "./edit-timeline";
 /** 产物相对于剪辑时间线的时效；stale 仍可下载。 */
 export type RenderArtifactStatus = "current" | "stale" | "missing" | "blocked";
 
-/** 出片的两种交付物。 */
 export type RenderKind = "final_cut" | "jianying_draft";
 
-/** 成片是否把字幕烧入画面。 */
 export type SubtitleMode = "burned_subtitles" | "no_subtitles";
 
 /** 出片选项：旁白版本两种交付物都有，烧入字幕只有成片。 */

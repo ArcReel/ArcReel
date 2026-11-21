@@ -12,9 +12,7 @@ import { composeAllTurns } from "./utils";
 export interface DisplayItem {
   /** 渲染与滚动定位用的身份。一轮回复的身份取自它前面那一项，流式草稿落库前后保持不变。 */
   key: string;
-  /** 合并后的 turn：一轮回复的内容块按时间顺序拼接，时间取最后一段。 */
   turn: Turn;
-  /** 这一项包含流式草稿，末尾块仍在生成。 */
   streaming: boolean;
 }
 

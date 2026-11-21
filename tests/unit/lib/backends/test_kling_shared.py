@@ -55,7 +55,6 @@ class TestKlingJWTManager:
         assert claims["iss"] == "ak-123"
         assert claims["exp"] == int(clock.now) + 1800
         assert claims["nbf"] == int(clock.now) - 5
-        # header 声明 HS256 / JWT
         header = jwt.get_unverified_header(token)
         assert header["alg"] == "HS256"
         assert header["typ"] == "JWT"
@@ -65,7 +64,7 @@ class TestKlingJWTManager:
         mgr = KlingJWTManager("ak", "s" * 40, clock=clock)
         first = mgr.token()
         clock.advance(100)  # 距过期仍有约 1700s（>60s），复用缓存
-        assert mgr.token() == first  # 复用缓存
+        assert mgr.token() == first
 
     def test_resigns_when_within_refresh_margin(self):
         clock = _Clock()

@@ -49,7 +49,6 @@ export interface ProviderInfo {
   status: "ready" | "unconfigured" | "error";
   media_types: string[];
   capabilities: string[];
-  /** 凭证（界面称「密钥」）条数；没有凭证时为 0。 */
   credential_count: number;
   models: Record<string, ModelInfoResponse>;
 }
@@ -81,7 +80,6 @@ export interface ProviderConfigDetail {
   fields: ProviderField[];
   // 凭证是否支持自定义 base_url（后端按 optional_keys 派生，单一真相源）
   supports_base_url: boolean;
-  // 凭证表单应渲染的 secret 字段（有序）
   secret_fields: CredentialSecretField[];
   // 凭证「二选一」分组：满足任一组（组内字段全填）即视为凭证完整；单组场景（绝大多数
   // provider）等价于「全部 secret_fields 必填」的旧语义。可灵为 [["api_key"], ["access_key", "secret_key"]]。
@@ -136,14 +134,12 @@ export type ProviderModelFlag = "discontinued" | "retiring" | "unpriced" | "modi
  */
 export interface ProviderModelLifecycle {
   status: "available" | "retiring" | "discontinued";
-  /** ISO 日期（YYYY-MM-DD）。 */
   shutdown_date: string | null;
   successor: string | null;
 }
 
 /** 供应商详情模型列表的一行（GET /providers/{id}/models），内置与自定义供应商共用。 */
 export interface ProviderModelItem {
-  /** 设置与项目里引用这个模型的模型键。 */
   model_id: string;
   api_model_name: string;
   /** 没有显示名时界面显示模型 ID。 */
@@ -168,7 +164,6 @@ export interface ProviderModelItem {
   min_app_version_satisfied: boolean;
 }
 
-/** 供应商模型列表（GET /providers/{id}/models）；`discoverable` 为真时可以「获取模型」。 */
 export interface ProviderModelsResponse {
   models: ProviderModelItem[];
   discoverable: boolean;
@@ -214,7 +209,6 @@ export interface AddProviderModelResponse {
   official: boolean;
 }
 
-/** 能力覆盖的维度键。 */
 export type CapabilityKey = keyof CapabilityOverrides;
 
 /**
@@ -296,7 +290,6 @@ export interface NewCatalogEntry extends CatalogEntryKey {
   price?: CatalogPriceTable;
 }
 
-/** 供应商模型 Sheet 的内容。 */
 export interface ProviderModelDetail {
   model: ProviderModelItem;
   /** 供应商模型倍率；官方收录的模型为 null（界面不显示）。 */
@@ -341,7 +334,6 @@ export interface ProviderModelSettingsUpdate {
   new_entry?: NewCatalogEntry;
 }
 
-/** 引用某个供应商模型的全局设置键与项目。 */
 export interface ProviderModelReferences {
   settings: string[];
   projects: { name: string; title: string | null }[];

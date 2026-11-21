@@ -25,16 +25,11 @@ from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.factories import make_translator
 from tests.http_capture import capture_http, only_request
 
-# ---------------------------------------------------------------------------
-# 测试应用工厂
-# ---------------------------------------------------------------------------
-
 
 def _make_app(mock_svc: ConfigService) -> FastAPI:
     """创建绑定 mock ConfigService 的最小 FastAPI 应用。"""
     app = FastAPI()
 
-    # 覆盖 get_config_service，直接注入 mock 服务
     app.dependency_overrides[get_config_service] = lambda: mock_svc
 
     override_auth(app)
@@ -44,11 +39,6 @@ def _make_app(mock_svc: ConfigService) -> FastAPI:
 
 def _make_client(mock_svc: ConfigService) -> TestClient:
     return TestClient(_make_app(mock_svc))
-
-
-# ---------------------------------------------------------------------------
-# GET /providers — 供应商列表
-# ---------------------------------------------------------------------------
 
 
 class TestListProviders:
@@ -353,11 +343,6 @@ class TestListProviders:
         assert model["voice_consistency"] == "soft"
 
 
-# ---------------------------------------------------------------------------
-# GET /providers/{id}/config — 单个供应商配置
-# ---------------------------------------------------------------------------
-
-
 def _make_session_app() -> tuple[FastAPI, AsyncMock]:
     """创建只覆盖 session 依赖的基础应用，供需要进一步 patch 的测试使用。"""
     app = FastAPI()
@@ -528,7 +513,6 @@ class TestGetProviderConfig:
         secret_fields = resp.json()["secret_fields"]
         assert [f["key"] for f in secret_fields] == ["api_key", "access_key", "secret_key"]
         assert [f["label"] for f in secret_fields] == ["API Key", "Access Key", "Secret Key"]
-        # 三 secret 走凭证表单，不进 advanced fields
         field_keys = {f["key"] for f in resp.json()["fields"]}
         assert "api_key" not in field_keys
         assert "access_key" not in field_keys
@@ -574,11 +558,6 @@ class TestGetProviderConfig:
         assert resp.status_code == 200
         assert resp.json()["secret_fields"] == []
         assert resp.json()["secret_field_groups"] == []
-
-
-# ---------------------------------------------------------------------------
-# PATCH /providers/{id}/config — 更新配置
-# ---------------------------------------------------------------------------
 
 
 def _make_mock_svc() -> ConfigService:
@@ -744,11 +723,6 @@ class TestPatchProviderConfigMaxWorkersValidation:
         assert resp.status_code == 204
 
 
-# ---------------------------------------------------------------------------
-# POST /providers/{id}/test — 连接测试
-# ---------------------------------------------------------------------------
-
-
 class TestTestProviderConnection:
     def _fake_cred(self):
         cred = MagicMock()
@@ -903,10 +877,8 @@ class TestTestProviderConnection:
             resp = providers._check_dashscope(
                 {"api_key": "sk", "base_url": "https://dashscope.aliyuncs.com"}, lambda k, **kw: k
             )
-        # host → compatible-mode base（OpenAI 协议），api_key 透传
         assert captured["base_url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1"
         assert captured["api_key"] == "sk"
-        # 仅暴露 qwen/wan 模型，过滤掉 embedding 等
         assert resp.available_models == ["qwen-plus", "wan2.7-image"]
         assert resp.success is True
 
@@ -937,10 +909,8 @@ class TestTestProviderConnection:
 
         with patch("openai.OpenAI", _FakeOpenAI):
             resp = providers._check_minimax({"api_key": "sk", "base_url": "https://api.minimax.io"}, lambda k, **kw: k)
-        # host → {host}/v1（OpenAI 协议），api_key 透传
         assert captured["base_url"] == "https://api.minimax.io/v1"
         assert captured["api_key"] == "sk"
-        # 仅暴露 minimax/abab 模型，过滤掉 embedding 等
         assert resp.available_models == ["MiniMax-M2.7", "abab6.5s-chat"]
         assert resp.success is True
 
@@ -990,7 +960,7 @@ class TestTestProviderConnection:
         assert resp.success is True
         auth = captured["headers"]["Authorization"]
         assert auth.startswith("Bearer ")
-        assert auth.removeprefix("Bearer ").count(".") == 2  # JWT: header.payload.signature
+        assert auth.removeprefix("Bearer ").count(".") == 2
 
     def test_kling_test_fn_api_key_takes_priority_when_both_set(self):
         """两者都填时 api_key 优先，与 _build_kling 分派顺序一致。"""

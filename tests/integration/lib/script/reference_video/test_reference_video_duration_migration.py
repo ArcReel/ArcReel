@@ -88,7 +88,7 @@ class TestMigrateUnitDurations:
     def test_tolerates_dirty_shapes(self):
         units = ["not a dict", {"unit_id": "E1U1", "shots": "bad", "duration_override": False}]
         changed, _warnings = migrate_unit_durations(units)
-        assert changed is True  # duration_override 被剥离
+        assert changed is True
         assert migrate_unit_durations("not a list") == (False, [])
 
     def test_does_not_invent_duration_when_no_source(self):

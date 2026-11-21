@@ -128,7 +128,6 @@ function ToastClose({
 function ToastIcon({ type }: { type: string | undefined }) {
   let icon: React.ReactNode = null
 
-  // 图标按语义着色：成功 good、警告 warn、错误 destructive
   if (type === "success") {
     icon = (
       <CircleCheckIcon className="text-good" aria-hidden="true" />

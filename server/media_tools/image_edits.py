@@ -257,7 +257,6 @@ async def edit_images(
             resolver = active_artifact_currency_resolver(project_path, project)
             return script, project, project_path, artifact_episode, resolver
 
-        # 读剧本与项目、建产物时效判定器都是同步文件读写
         script, project, project_path, artifact_episode, resolver = await run_sync_transaction(load_inputs)
 
         warnings: list[str] = []

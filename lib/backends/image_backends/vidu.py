@@ -117,7 +117,6 @@ class ViduImageBackend:
                 ]
             )
 
-        # aspect_ratio 白名单兜底
         if request.aspect_ratio:
             ar_allowed = _ASPECT_RATIO_WHITELIST.get(self._model)
             if ar_allowed and request.aspect_ratio in ar_allowed:

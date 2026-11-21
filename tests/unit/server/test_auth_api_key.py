@@ -95,7 +95,6 @@ class TestApiKeyCache:
         key = "arc-cached-key"
         key_hash = auth_module.hash_api_key(key)
         auth_module._set_api_key_cache(key_hash, {"sub": "apikey:cached", "via": "apikey"})
-        # 若命中缓存则返回缓存值；True means hit
         hit, payload = auth_module._get_cached_api_key_payload(key_hash)
         assert hit
         assert payload["sub"] == "apikey:cached"

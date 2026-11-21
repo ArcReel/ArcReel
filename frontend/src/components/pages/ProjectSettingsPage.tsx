@@ -204,7 +204,6 @@ function ProjectSettingsView({ projectName }: { projectName: string }) {
   );
 }
 
-/** 外壳：顶栏「返回」回到项目工作台，侧栏分页记在 `?tab=`。 */
 function SettingsShell({
   projectName,
   title,
@@ -212,7 +211,6 @@ function SettingsShell({
   children,
 }: {
   projectName: string;
-  /** 项目显示名，加载完成前不显示。 */
   title?: string;
   badges?: Partial<Record<ProjectSettingsTab, ReactNode>>;
   children: ReactNode;

@@ -1,10 +1,8 @@
 import type { JsonSchemaNode } from "@/types";
 
-/** 输出结构的一行：字段路径 / 类型或枚举 / 说明。 */
 export interface OutputSchemaRow {
   /** 点分路径，数组元素写作 `field[]`。 */
   path: string;
-  /** `string`、`list[object]`、`enum` 一类的类型提示。 */
   type: string;
   enumValues: string[];
   nullable: boolean;
@@ -20,7 +18,6 @@ interface Resolved {
   refs: string[];
 }
 
-/** 把 pydantic 导出的 JSON schema 摊平成按字段路径排列的行。 */
 export function flattenOutputSchema(schema: JsonSchemaNode): OutputSchemaRow[] {
   const defs = schema.$defs ?? {};
   const rows: OutputSchemaRow[] = [];

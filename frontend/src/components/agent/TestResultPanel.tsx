@@ -9,7 +9,6 @@ interface Props {
   result: TestConnectionResponse;
 }
 
-/** Agent 供应商连接测试的结果：结论、诊断建议、实际请求的地址与响应，失败时可展开原始报错。 */
 export function TestResultPanel({ result }: Props) {
   const { t } = useTranslation("dashboard");
   const { overall, messages_probe, diagnosis, messages_url } = result;

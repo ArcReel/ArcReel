@@ -13,7 +13,6 @@ import {
   usageProjectLabel,
 } from "./usage-record-format";
 
-/** 取当前语言的 dashboard 取词器，行为与组件里的 `useTranslation("dashboard")` 一致。 */
 function dashboardT() {
   return i18n.getFixedT(null, "dashboard");
 }
@@ -117,7 +116,6 @@ describe("usageProjectLabel", () => {
     const t = dashboardT();
     expect(usageProjectLabel("rain-detective", t, "zh", "雨夜侦探")).toBe("雨夜侦探");
     expect(usageProjectLabel("rain-detective", t, "zh", null)).toBe("rain-detective");
-    // 已删除的项目读不到标题，回退到原名与删除日期。
     expect(usageProjectLabel("demo#deleted-20261002T120000Z", t, "zh", null)).toBe("demo（2026年10月2日删除）");
   });
 });

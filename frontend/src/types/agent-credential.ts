@@ -65,7 +65,6 @@ export interface CreateAgentCredentialRequest {
   preset_id: string;
   display_name?: string | null;
   base_url?: string | null;
-  /** 与 from_custom_provider_id 二选一。 */
   api_key?: string;
   /** 给出时由服务端从该自定义供应商复制密钥（请求中不得再带 api_key）。 */
   from_custom_provider_id?: number;

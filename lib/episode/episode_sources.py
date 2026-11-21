@@ -39,7 +39,6 @@ from lib.episode.episode_paths import episode_source_relpath
 
 logger = logging.getLogger(__name__)
 
-#: 账本条目字段：集原文的来源。
 SOURCE_ORIGIN_FIELD = "source_origin"
 
 #: ``project.json`` 顶层字段：整本源文的文件清单，元素形如 ``{"source_file": "source/novel.txt"}``。
@@ -61,7 +60,6 @@ class SourceOrigin(StrEnum):
     WHOLE_SOURCE = "whole_source"
     #: 创作者逐集上传或直接填写的一份原文，集文件就是该集的源文。
     OWN = "own"
-    #: 没有原文。
     NONE = "none"
 
 
@@ -131,11 +129,6 @@ def is_episode_source_file(project: Mapping[str, Any], rel: str) -> bool:
 def _entries(project: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
     raw = project.get("episodes")
     return [entry for entry in raw if isinstance(entry, Mapping)] if isinstance(raw, list) else []
-
-
-# ---------------------------------------------------------------------------
-# 整本源文的文件清单
-# ---------------------------------------------------------------------------
 
 
 def is_whole_source_file_path(value: object) -> TypeGuard[str]:
@@ -227,11 +220,6 @@ def discover_sources(project_dir: Path, project: Mapping[str, Any]) -> list[Sour
         if text is not None:
             docs.append(SourceDoc(rel_path=rel, text=normalize_source_text(text)))
     return docs
-
-
-# ---------------------------------------------------------------------------
-# 由账本推导的规划起点
-# ---------------------------------------------------------------------------
 
 
 def planning_start(project: Mapping[str, Any], docs: list[SourceDoc]) -> tuple[str, int] | None:
@@ -494,11 +482,6 @@ def archive_episode_file_path(path: Path) -> Path:
         candidate = path.with_name(f"{base}.{index}.bak")
         index += 1
     return candidate
-
-
-# ---------------------------------------------------------------------------
-# 规范化文本快照
-# ---------------------------------------------------------------------------
 
 
 def source_snapshot_path(project_dir: Path, rel: str) -> Path:

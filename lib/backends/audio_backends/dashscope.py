@@ -96,7 +96,6 @@ class _EmptyDownloadError(RuntimeError):
 class DashScopeAudioBackend:
     """阿里百炼语音合成后端（同步 multimodal 端点）。"""
 
-    #: 合成请求相对 ``{host}/api/v1`` 的路径。
     _endpoint_path = _TTS_ENDPOINT
 
     def __init__(
@@ -148,7 +147,6 @@ class DashScopeAudioBackend:
         # 合成（计费）与下载分两段独立重试：下载瞬时失败只重试 GET，绝不回头重跑会再次计费的
         # 合成 POST（与 lib.infra.retry.DOWNLOAD_* 注释「下载失败不浪费生成额度」一致）。
         response = await self._request_synthesis(request)
-        # 用量在下载之前取出：下载失败时整次调用失败、不落账，取用量的位置不影响计费口径。
         input_tokens, audio_output_tokens = self._usage_tokens(response)
         await self._download_audio(extract_audio_url(response), request.output_path)
 
@@ -192,7 +190,6 @@ class DashScopeAudioBackend:
                 include_provider_reason=False,
             )
             body = resp.json()
-            # 缺 URL 的响应（含顶层业务错误）在计费段内抛出。
             extract_audio_url(body)
             return body
 
@@ -232,6 +229,5 @@ class DashScopeAudioBackend:
                 )
             content = await read_body_capped(resp, max_bytes=AUDIO_ARTIFACT_MAX_BYTES)
         if not content:
-            # 200 但空体：不写 0 字节 wav
             raise _EmptyDownloadError(f"DashScope 音频下载返回空内容: {safe_url}")
         return content

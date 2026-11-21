@@ -49,11 +49,6 @@ def _view_filter(view: UsageView) -> bool:
 _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
 
 
-# ---------------------------------------------------------------------------
-# 使用记录读接口；响应形状由 Pydantic 模型声明。
-# ---------------------------------------------------------------------------
-
-
 class EpisodeItemRef(BaseModel):
     """条目所属集的标题与播出位置、条目在本集里的当前位置；界面据此显示「标题 · 5」，不显示条目 ID。"""
 
@@ -91,7 +86,6 @@ class UsageRecord(BaseModel):
     duration_ms: int | None = None
     # None 表示未定价；0 是定价为零。
     cost_amount: float | None
-    # 未定价的原因码（``lib.billing.metering.UnpricedReason``）；已定价的记录为 None。
     unpriced_reason: str | None = None
     currency: str
     # input_tokens 是总输入，含缓存读写；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
@@ -258,15 +252,12 @@ class UsageAgentSession(BaseModel):
     """一个 Agent 会话在会话列表里的一行；合计只含落在筛选内的记录。"""
 
     session_id: str
-    # 会话标题取自会话元数据；元数据已删除时为 None（``session_deleted`` 同时为真），空串表示尚未命名。
     title: str | None
     session_deleted: bool
     project_name: str
     project_title: str | None = None
-    # 会话里用到的模型，按首次出现的先后。
     models: list[str]
     calls: int
-    # input_tokens 是总输入，含缓存读写。
     input_tokens: int
     output_tokens: int
     # 已定价记录的费用，按币种分别合计；未定价（NULL）的记录不计入，数量见 unpriced_calls。
@@ -290,11 +281,9 @@ class UsageAgentSessionRecord(BaseModel):
     id: int
     started_at: str
     status: str
-    # 这一轮的用户消息，超长时截断。
     prompt: str | None = None
     provider: str
     model: str
-    # input_tokens 是总输入，含缓存读写；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
     input_tokens: int | None = None
     output_tokens: int | None = None
     cache_read_tokens: int | None = None
@@ -396,7 +385,6 @@ class UsageProjectRow(UsageStats):
 
 
 class UsageProviderRow(UsageStats):
-    # Agent 记录合并成一项：``agent`` 为真，``provider`` 为空。
     provider: str
     agent: bool = False
 
@@ -468,7 +456,6 @@ class UsageModelOption(BaseModel):
 
 class UsageFilterOptionsResponse(BaseModel):
     projects: list[str]
-    # 候选项目里读得到标题的那部分：项目名 → 标题。构成表与需要关注里的项目名同样在候选范围内。
     project_titles: dict[str, str] = Field(default_factory=dict)
     providers: list[UsageProviderOption]
     models: list[UsageModelOption]

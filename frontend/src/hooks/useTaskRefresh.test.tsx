@@ -71,7 +71,6 @@ describe("useTaskRefresh", () => {
     expect(useTasksStore.getState().stats).toEqual(stats);
     expect(useTasksStore.getState().connected).toBe(true);
 
-    // Advance to next poll interval (3s)
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
@@ -93,7 +92,6 @@ describe("useTaskRefresh", () => {
 
     expect(useTasksStore.getState().connected).toBe(false);
 
-    // Recover on next poll
     listSpy.mockResolvedValueOnce({ items: [], total: 0, page: 1, page_size: 200 });
     vi.spyOn(API, "getTaskStats").mockResolvedValueOnce({ stats: { queued: 0, running: 0, succeeded: 0, failed: 0, total: 0 } } as any);
 

@@ -96,10 +96,6 @@ async def test_migrate_noop_if_no_file(db_session: AsyncSession, tmp_path: Path)
     assert await SystemSettingRepository(db_session).get_all() == {}
 
 
-# ---------------------------------------------------------------------------
-# 旧任务级文本键 → 档位键迁移
-# ---------------------------------------------------------------------------
-
 from lib.config.migration import migrate_text_tier_settings
 
 
@@ -122,11 +118,8 @@ async def test_tier_migration_script_to_complex(db_session: AsyncSession):
 @pytest.mark.parametrize(
     ("overview", "style", "expected_simple"),
     [
-        # 仅 overview
         ("gemini-aistudio/a", "", "gemini-aistudio/a"),
-        # 仅 style
         ("", "gemini-aistudio/b", "gemini-aistudio/b"),
-        # 两者相同
         ("gemini-aistudio/a", "gemini-aistudio/a", "gemini-aistudio/a"),
         # 两者不同：取 style 的值（保 vision）
         ("gemini-aistudio/a", "gemini-aistudio/b", "gemini-aistudio/b"),
@@ -162,7 +155,6 @@ async def test_tier_migration_idempotent_on_rerun(db_session: AsyncSession):
     repo = SystemSettingRepository(db_session)
     await repo.set("text_backend_script", "gemini-aistudio/x")
     await migrate_text_tier_settings(db_session)
-    # 第二次启动：旧键已删除，不再改写
     await repo.set("text_backend_complex", "gemini-aistudio/user-changed")
     await migrate_text_tier_settings(db_session)
     assert await repo.get("text_backend_complex") == "gemini-aistudio/user-changed"

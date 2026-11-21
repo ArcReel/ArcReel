@@ -61,12 +61,6 @@ interface AgentQuestionnaireProps {
   onSubmit: (questionId: string, answers: Record<string, string>) => void;
 }
 
-// ---------------------------------------------------------------------------
-// AgentQuestionnaire — Agent 提问时占用输入框的位置。
-// 头部与底部按钮固定，只有题目区滚动；高度上限是 Agent 面板高度的 70%，
-// 下方有排队消息托盘时与托盘分用这部分高度，问卷降到 50%；展开的待办清单再占去空间时继续压缩题目区。
-// 数字键选择选项，「其他」写在每题末尾的输入框里。
-// ---------------------------------------------------------------------------
 
 export function AgentQuestionnaire({ pendingQuestion, answering, error, onSubmit }: AgentQuestionnaireProps) {
   const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
@@ -118,7 +112,6 @@ export function AgentQuestionnaire({ pendingQuestion, answering, error, onSubmit
           />
         </div>
 
-        {/* 只有题目区滚动，头部与按钮始终可见 */}
         <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {questions.map((question, index) => (
             <QuestionnaireItem key={itemName(index)} name={itemName(index)} multiple={question.multiSelect} required>

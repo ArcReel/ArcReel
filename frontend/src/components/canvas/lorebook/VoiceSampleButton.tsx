@@ -38,7 +38,6 @@ interface VoiceOption {
 interface VoiceSampleButtonProps {
   projectName: string;
   characterName: string;
-  /** 详情编辑器里其它生成/写入占用中：禁用入口 */
   busy?: boolean;
   /** 确认保存成功后触发，供调用方重新加载角色资产 */
   onSaved: () => Promise<unknown> | void;
@@ -145,7 +144,6 @@ export function VoiceSampleButton({
     // 但 isPreviewPlaying 独立于 taskId,不会跟着卸载自动复位——不重置的话，本次新样本
     // 挂载的全新（未播放）<audio> 元素会因这个陈旧的 true 值渲染成「暂停」图标。
     setIsPreviewPlaying(false);
-    // 弹窗打开这一事件处理器内同步置位（非 effect 内），紧随其后的 effect 据此拉取音色列表。
     setVoicesLoading(true);
     setOpen(true);
   };

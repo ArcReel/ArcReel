@@ -1,4 +1,3 @@
-// 空闲 Agent 会话的接口替换：冷读的时间线，加上打开会话后建立的常驻 entry 流。
 import type { ApiOverrides } from "./test.ts";
 
 /**

@@ -18,7 +18,6 @@ import {
 // 节点绑定，并算出保存门控的原因。校验的唯一职责在服务端，这里只复现它会拒绝的那几条硬闸门，
 // 让用户在点保存之前就看到原因。
 
-/** 语义键顺序即绑定表的行顺序；图像端点没有首尾帧与时间轴那四个。 */
 export function bindingKeysFor(mediaType: ComfyuiMediaType): readonly ComfyuiBindingKey[] {
   return mediaType === "image" ? COMFYUI_IMAGE_BINDING_KEYS : COMFYUI_VIDEO_BINDING_KEYS;
 }
@@ -42,7 +41,6 @@ export function isMultiTargetBindingKey(key: ComfyuiBindingKey): boolean {
   return key === "aspect_ratio" || key === "width" || key === "height" || key === "frames" || key === "fps";
 }
 
-/** 无序多落点键的勾选与取消：在场即移除，不在场即追加，其余落点原样留着。 */
 export function toggleSetTarget(
   current: ComfyuiBindingTarget[],
   target: ComfyuiBindingTarget,
@@ -61,9 +59,6 @@ export type ComfyuiRowStatus =
   | "unsupported"
   | "required_unbound";
 
-// ---------------------------------------------------------------------------
-// workflow
-// ---------------------------------------------------------------------------
 
 export interface ComfyuiNodeEntry {
   id: string;
@@ -72,7 +67,6 @@ export interface ComfyuiNodeEntry {
   inputs: Record<string, unknown>;
 }
 
-/** 节点 id 在 ComfyUI 里是数字串，按数值排序；非数字的排在其后按字典序。 */
 function nodeOrder(id: string): [number, string] {
   const digits = /^(\d+)/.exec(id);
   return digits ? [Number(digits[1]), id] : [Number.MAX_SAFE_INTEGER, id];
@@ -90,7 +84,6 @@ function asNode(value: unknown): ComfyuiWorkflowNode | null {
   return typeof node.class_type === "string" ? node : null;
 }
 
-/** 读出 workflow 的全部节点，按节点 id 升序——绑定表与手选下拉共用这一个顺序。 */
 export function workflowNodes(workflow: Record<string, unknown>): ComfyuiNodeEntry[] {
   const entries: ComfyuiNodeEntry[] = [];
   for (const [id, raw] of Object.entries(workflow)) {
@@ -106,7 +99,6 @@ export function workflowNodes(workflow: Record<string, unknown>): ComfyuiNodeEnt
   return entries.sort((a, b) => compareNodeIds(a.id, b.id));
 }
 
-/** 每个 `class_type` 在 workflow 里出现了几次，按出现次数降序、同次数按名称排序。 */
 export function classTypeCounts(nodes: ComfyuiNodeEntry[]): { classType: string; count: number }[] {
   const counts = new Map<string, number>();
   for (const node of nodes) counts.set(node.classType, (counts.get(node.classType) ?? 0) + 1);
@@ -141,7 +133,6 @@ function unwrapValue(value: unknown): unknown {
   return isWrappedValue(value) ? value.__value__ : value;
 }
 
-/** 该输入当前的字面值，供手选下拉展示；连线与缺席都得不到值。 */
 export function literalInputText(node: ComfyuiNodeEntry, input: string): string {
   const value = unwrapValue(node.inputs[input]);
   if (value === undefined) return "";
@@ -196,7 +187,6 @@ export function toggleListTarget(
     .map((item) => item.entry);
 }
 
-/** 两条目标指向同一个落点：产物比节点，其余比节点加字段。 */
 export function sameTarget(a: ComfyuiBindingTarget, b: ComfyuiBindingTarget): boolean {
   return a.node === b.node && (a.input ?? null) === (b.input ?? null);
 }
@@ -207,9 +197,6 @@ function targetLanding(target: ComfyuiBindingTarget): string | null {
   return target.input === undefined ? `#${target.node}` : `#${target.node}.${target.input}`;
 }
 
-// ---------------------------------------------------------------------------
-// 推断结果 → 待保存的节点绑定
-// ---------------------------------------------------------------------------
 
 /**
  * 推断结果的落盘形态：只有「唯一最高分」的键会自动带上条目，歧义与待确认一条也不带——
@@ -244,7 +231,6 @@ export function pruneBindings(bindings: ComfyuiBindings, mediaType: ComfyuiMedia
   return next;
 }
 
-/** 该键当前选中的条目在候选列表里的下标集合。 */
 export function selectedCandidateIndexes(
   candidates: ComfyuiBindingCandidate[],
   targets: ComfyuiBindingTarget[] | undefined,
@@ -280,7 +266,6 @@ export function rowStatus(
   return origins.length > 0 && origins.every((origin) => origin === "inferred") ? "auto" : "manual";
 }
 
-/** 这一行的条目各自是怎么来的；手选进来、不在候选列表里的条目不在其中。 */
 function boundOrigins(
   candidates: ComfyuiBindingCandidate[],
   targets: ComfyuiBindingTarget[],
@@ -304,7 +289,6 @@ export function rowOrigin(
   return origins.length > 0 && origins.every((origin) => origin === "kept") ? "kept" : null;
 }
 
-/** 表头右侧的四类计数。 */
 export function statusTally(statuses: ComfyuiRowStatus[]): {
   bound: number;
   ambiguous: number;
@@ -319,23 +303,13 @@ export function statusTally(statuses: ComfyuiRowStatus[]): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// 保存门控
-// ---------------------------------------------------------------------------
 
-/** 一条挡住保存的原因：`key` 用来渲染语义键名，`code` 决定说哪一句。 */
 export interface ComfyuiSaveBlocker {
   code: "required_unbound" | "needs_choice" | "needs_binding" | "target_taken" | "placeholder_name" | "aspect_mapping";
   key?: ComfyuiBindingKey;
-  /** `target_taken` 专属：撞在同一格子上的另一个语义键。 */
   otherKey?: ComfyuiBindingKey;
 }
 
-/**
- * 保存门控的原因清单，空表即可以保存。三条都是服务端校验器的硬闸门：提示词与产物必须有着落、
- * 并列候选必须有人来定、两个语义键不能写同一个字段；另加一条改名——自动包装的 `meta` 是占位值，
- * 两份不相干的 workflow 会因同作者同名被判成重复。
- */
 export function saveBlockers(
   bindings: ComfyuiBindings,
   inference: ComfyuiInferResponse,

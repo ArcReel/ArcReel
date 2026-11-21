@@ -86,7 +86,6 @@ class TestProjectsRouter:
         nfd_cafe = unicodedata.normalize("NFD", "Café")
 
         with client:
-            # 写入新引用列表
             patched = client.patch(
                 "/api/v1/projects/ready/segments/E1S01",
                 json={
@@ -102,7 +101,6 @@ class TestProjectsRouter:
             assert seg["scenes"] == ["Castle"]
             assert seg["props"] == []
 
-            # 不传字段时不应改动现有值
             untouched = client.patch(
                 "/api/v1/projects/ready/segments/E1S01",
                 json={"script_file": "narration.json", "duration_seconds": 7},
@@ -470,7 +468,6 @@ class TestProjectsRouter:
             assert shot["section"] == "demo"
             assert shot["duration_seconds"] == 6
             assert shot["products_in_shot"] == ["速干杯"]
-            # 持久化落到脚本存储
             saved = fake_pm.scripts[("ad-ready", "episode_1.json")]["shots"][0]
             assert saved["voiceover_text"] == "新口播"
 

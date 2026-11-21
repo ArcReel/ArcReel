@@ -38,8 +38,8 @@ if TYPE_CHECKING:
 class ProviderSpec:
     """内置供应商经一个内置调用端点调用时的 backend 构造规格：供应商给凭证，端点决定请求。"""
 
-    provider_id: str  # registry / config provider id，如 "ark"
-    media_type: str  # "image" | "video" | "audio" | "text"
+    provider_id: str
+    media_type: str
     registry_backend: str  # 映射到哪个 media backend registry 名（合并两份 PROVIDER_ID_TO_BACKEND）
     # model_id 为 None 只在模型目录没有给该供应商该媒体类型指定默认模型时出现，由 backend 自行处理
     build_backend: Callable[[LoadedConfig, str | None], Any]
@@ -606,7 +606,6 @@ PROVIDER_ONLY_ENDPOINTS: Mapping[str, str] = {
     "ark-agent-plan-tts": "audio",
 }
 
-#: 简单族的 image/video/audio：(provider_id, media_type) → 端点名。
 _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
     ("grok", "image"): "grok-image",
     ("openai", "image"): "openai-images",
@@ -617,7 +616,6 @@ _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
     ("grok", "audio"): "grok-tts",
 }
 
-# gemini 两个 provider_id → backend_type，每个 × image/video/audio 登记一行。
 _GEMINI_BACKEND_TYPES: dict[str, str] = {"gemini-aistudio": "aistudio", "gemini-vertex": "vertex"}
 
 #: MiniMax 视频的四个声明式端点，各是一份随版定义（一种请求形状 + 一组能力）；海螺 2.3 为默认端点。
@@ -774,7 +772,6 @@ _specs += [
     _text_openai_compat_spec("minimax", derive_base_url=_minimax_text_base_url, provider_name="minimax"),
 ]
 
-#: (provider_id, 端点名) → 该供应商经这个端点调用时的构造规格。
 PROVIDER_ENDPOINT_SPECS: dict[tuple[str, str], ProviderSpec] = {
     (spec.provider_id, spec.endpoint): spec for spec in _specs
 }
@@ -821,7 +818,6 @@ PROVIDER_ENDPOINTS: dict[tuple[str, str], ProviderEndpoints] = {
     for spec in PROVIDER_ENDPOINT_SPECS.values()
 }
 
-#: (provider_id, media_type) → 默认端点的构造规格，即该媒体类型下没有另行指定端点时的装配。
 PROVIDER_SPEC_REGISTRY: dict[tuple[str, str], ProviderSpec] = {
     key: PROVIDER_ENDPOINT_SPECS[(declared.provider_id, declared.default)]
     for key, declared in PROVIDER_ENDPOINTS.items()

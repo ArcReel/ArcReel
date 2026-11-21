@@ -8,7 +8,6 @@ const SOURCE_KINDS: readonly SourceKind[] = ["novel", "screenplay"];
 interface SourceKindSelectProps {
   value: SourceKind;
   onChange: (value: SourceKind) => void;
-  /** 无障碍名称，写明是哪份原文的类型。 */
   label: string;
   disabled?: boolean;
 }

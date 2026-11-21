@@ -519,7 +519,6 @@ class TestTextSimpleSpec:
         }
 
     def test_agnes_falls_back_to_registry_default_base_url(self):
-        # agnes 走简单文本族（registry_backend = provider_id），无用户 base_url 时回落 registry default。
         spec = get_provider_spec("agnes", "text")
         assert spec.registry_backend == "agnes"
         config = _loaded(credentials={"api_key": "ag-key"}, provider_id="agnes")
@@ -618,7 +617,7 @@ class TestTextOpenAICompatSpec:
 class TestRegistryShape:
     def test_unknown_provider_media_fails_loud(self):
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):
-            get_provider_spec("ark", "audio")  # ark 无 audio backend，未登记
+            get_provider_spec("ark", "audio")
 
     def test_audio_registered(self):
         audio_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "audio"}
@@ -637,7 +636,6 @@ class TestRegistryShape:
             assert (provider, "video") in PROVIDER_SPEC_REGISTRY
 
     def test_text_family_complete(self):
-        # 文本九对：七 provider + gemini 两 id（aistudio/vertex）
         text_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "text"}
         assert text_keys == {
             ("ark", "text"),
@@ -660,7 +658,7 @@ class TestValidateProviderSpecs:
     """import 期不变式：build 可调用、键与 spec 字段一致、media_type 合法。misconfig fail-fast。"""
 
     def test_passes_on_real_registry(self):
-        _validate_provider_specs()  # 真表不抛
+        _validate_provider_specs()
         assert PROVIDER_SPEC_REGISTRY  # 空表也不抛，校验须建立在真表非空之上
 
     def test_non_callable_build_rejected(self, monkeypatch: pytest.MonkeyPatch):

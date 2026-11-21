@@ -320,7 +320,6 @@ class TestSnapshotDecoupling:
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         before = snapshot.read_bytes()
 
-        # 源图重生成为 v2，再回滚到 v1
         _write_source_image(pm, source_rel, _img_bytes("PNG", size=(24, 24), color=(0, 0, 255)))
         vm.add_version("storyboards", "E1S02", "v2", source_file=source_abs)
         vm.restore_version("storyboards", "E1S02", 1, source_abs)
@@ -336,7 +335,6 @@ class TestSnapshotDecoupling:
         assert _segment(pm, 0)["end_frame_image"] == "end_frames/scene_E1S01.png"
         assert _segment(pm, 1)["end_frame_image"] == "end_frames/scene_E1S02.png"
 
-        # 清一个不影响另一个
         _delete(c, shot_id="E1S01")
         assert _segment(pm, 0)["end_frame_image"] is None
         assert _segment(pm, 1)["end_frame_image"] == "end_frames/scene_E1S02.png"
@@ -858,7 +856,6 @@ class TestReferenceVideoRejection:
         assert pm.load_script("demo", "episode_1.json")["shots"][0].get("end_frame_image") is None
 
     def test_ad_storyboard_route_allows_end_frame(self, tmp_path, monkeypatch):
-        # 分镜图生视频的 ad 项目照常放行。
         c, _pm = _client_with_project(
             tmp_path,
             monkeypatch,
@@ -869,7 +866,6 @@ class TestReferenceVideoRejection:
         assert _upload(c, _img_bytes("PNG"), shot_id="E1S01").status_code == 200
 
     def test_drama_reference_video_script_rejected(self, tmp_path, monkeypatch):
-        # drama/narration 的参考生视频剧本同样落到这条拒绝上。
         script = {
             "episode": 1,
             "title": "E1",
@@ -883,7 +879,6 @@ class TestReferenceVideoRejection:
         _assert_reference_video_rejected(_upload(c, _img_bytes("PNG"), shot_id="E1S01"))
 
     def test_grid_mode_no_regression(self, tmp_path, monkeypatch):
-        # 常规宫格分镜路径（storyboard + grid_storyboard）不受影响，尾帧设置照常放行。
         script = {
             "episode": 1,
             "title": "E1",

@@ -9,13 +9,9 @@ import { API } from "@/api";
 import type { SettingsSection } from "@/app-routes";
 import { useEndpointCatalogStore } from "./endpoint-catalog-store";
 
-// ---------------------------------------------------------------------------
-// ConfigIssue
-// ---------------------------------------------------------------------------
 
 export interface ConfigIssue {
   key: string;
-  /** 问题所属的全局设置分区。 */
   section: SettingsSection;
   label: string;
   /** 补充说明的 i18n 键：后果与处理方式。 */
@@ -37,7 +33,6 @@ async function getConfigStatus(): Promise<{
     API.getAutoBackends().catch(() => null),
   ]);
 
-  // Check any provider supports each required media type.
   const readyProviders = providers.filter((p) => p.status === "ready");
 
   // 自定义 provider 的 endpoint→mediaType 映射要从 catalog 派生：仅在有自定义 provider 时
@@ -48,11 +43,9 @@ async function getConfigStatus(): Promise<{
   const endpointToMediaType = useEndpointCatalogStore.getState().endpointToMediaType;
 
   const hasMediaType = (type: string) => {
-    // Check preset providers
     const hasPresetProvider = readyProviders.some((p) => p.media_types.includes(type));
     if (hasPresetProvider) return true;
 
-    // Check custom providers for enabled models of this media type
     return customProviders.some((cp) =>
       cp.models.some((m) => endpointToMediaType[m.endpoint] === type && m.is_enabled)
     );
@@ -104,7 +97,6 @@ async function getConfigStatus(): Promise<{
   const isSet = (value: string | undefined) => !!value?.includes("/");
   for (const { type, layers, auto } of defaultModels) {
     const [base, ...subs] = layers;
-    // 每个细分项都要有着落：自己设了、默认层设了，或自动选择选得出
     const covered = subs.every((sub, index) => isSet(sub) || isSet(base) || !!auto[index]);
     if (autoBackends && hasMediaType(type) && !covered) {
       issues.push({
@@ -127,9 +119,6 @@ async function getConfigStatus(): Promise<{
   };
 }
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
 
 interface ConfigStatusState {
   issues: ConfigIssue[];
@@ -139,7 +128,6 @@ interface ConfigStatusState {
   isComplete: boolean;
   loading: boolean;
   initialized: boolean;
-  /** 进行中刷新期间又收到 refresh() 时置位,本轮完成后补跑一次,避免丢掉最后一次请求的数据。 */
   pendingRefresh: boolean;
   /** 是否有就绪供应商支持该媒体类型（如 hasMediaType("audio")）。 */
   hasMediaType: (type: string) => boolean;
@@ -192,7 +180,6 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
 
     fetch: async () => {
       if (get().initialized) return;
-      // 已有刷新在途:等它,而不是另起一轮;无在途则发起一次。
       await (inflight ?? get().refresh());
     },
 

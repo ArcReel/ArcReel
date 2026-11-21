@@ -22,7 +22,6 @@ export function DeleteAssetDialog({
   onClose,
   onDeleted,
 }: {
-  /** 为 null 时关闭。 */
   asset: Asset | null;
   onClose: () => void;
   onDeleted: (asset: Asset) => void;

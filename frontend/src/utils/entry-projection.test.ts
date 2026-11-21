@@ -85,7 +85,6 @@ describe("projectEntriesToTurns", () => {
     const toolUse = turns[0].content[0];
     expect(toolUse.result).toBe("迟到的结果");
     expect(toolUse.is_error).toBe(false);
-    // 已回填锚点，不再另开孤儿 tool_result 块
     expect(turns.flatMap((t) => t.content).filter((b) => b.type === "tool_result")).toHaveLength(0);
   });
 
@@ -267,12 +266,10 @@ describe("projectEntriesToTurns", () => {
       entry({ type: "assistant", content: [{ type: "text", text: "好的，继续" }], uuid: "a-2" }),
     ]);
     expect(turns.map((t) => t.type)).toEqual(["assistant", "user", "assistant"]);
-    // 提问的 tool_use 块获得结果回填（状态不再悬挂）
     const toolUse = turns[0].content[0];
     expect(toolUse.result).toContain("answered");
     expect(toolUse.is_error).toBe(false);
     expect(toolUse.answers).toEqual({ "继续吗?": "继续" });
-    // 答复自成用户侧条目
     expect(turns[1].content[0].type).toBe("question_answer");
     expect(turns[1].content[0].answers).toEqual({ "继续吗?": "继续" });
   });
@@ -362,7 +359,6 @@ describe("projectEntriesToTurns", () => {
       }),
     ]);
     expect(turns).toHaveLength(1);
-    // 芯片渲染锚点是 Skill tool_use 块本身，条目不产生第二个块
     expect(turns[0].content).toHaveLength(1);
     expect(turns[0].content[0].type).toBe("tool_use");
   });
@@ -425,13 +421,11 @@ describe("projectEntriesToTurns", () => {
       entry({ type: "tool_result", tool_use_id: "tu-agent", content: "报告", is_error: false, uuid: "tr-1" }),
       entry({ type: "assistant", content: [{ type: "text", text: "主线总结" }], uuid: "a-3" }),
     ]);
-    // 主时间线：单一 assistant turn（卡片锚点 + 主线文本），无平铺的 subagent 消息
     expect(turns).toHaveLength(1);
     const [anchor, summary] = turns[0].content;
     expect(anchor.type).toBe("tool_use");
     expect(anchor.result).toBe("报告");
     expect(summary.text).toBe("主线总结");
-    // 子时间线完整、内部按序
     expect(anchor.sub_turns?.map((t) => t.type)).toEqual(["user", "assistant"]);
     expect(anchor.sub_turns?.[1].content[0].text).toBe("subagent 回复");
   });
@@ -514,7 +508,6 @@ describe("projectEntriesToTurns", () => {
         parent_tool_use_id: "tu-inner",
       }),
     ]);
-    // 主时间线只有外层卡片，内层锚点在外层的子时间线内部，不重复出现在顶层
     expect(turns).toHaveLength(1);
     const outerAnchor = turns[0].content[0];
     expect(outerAnchor.id).toBe("tu-outer");
@@ -559,7 +552,6 @@ describe("projectEntriesToTurns", () => {
     ]);
     const outerAnchor = turns[0].content[0];
     const subTimeline = outerAnchor.sub_turns?.[0];
-    // 子时间线内部的进度同样折叠进锚点，不留下独立 task_progress 行
     expect(subTimeline?.content.filter((b) => b.type === "task_progress")).toHaveLength(0);
     const nestedAnchor = subTimeline?.content[0];
     expect(nestedAnchor?.task_info?.usage?.total_tokens).toBe(7);
@@ -590,7 +582,6 @@ describe("projectEntriesToTurns", () => {
       }),
     ]);
     expect(turns).toHaveLength(1);
-    // 进度不再渲染独立行，折叠进卡片锚点
     expect(turns[0].content.filter((b) => b.type === "task_progress")).toHaveLength(0);
     const anchor = turns[0].content[0];
     expect(anchor.task_info?.status).toBe("task_progress");
@@ -720,7 +711,6 @@ describe("collectCommittedMessageIds", () => {
       { seq: 1, type: "assistant", message_id: "m1", content: [{ type: "text", text: "a" }] },
       { seq: 2, type: "assistant", message_id: "m2", content: [{ type: "text", text: "b" }] },
       { seq: 3, type: "tool_result", tool_use_id: "tu", content: "r" },
-      // assistant 条目缺 message_id 时不计入
       { seq: 4, type: "assistant", content: [{ type: "text", text: "c" }] },
     ]);
     expect(ids).toBeInstanceOf(Set);
@@ -857,7 +847,6 @@ describe("createTimelineProjector", () => {
       e({ type: "tool_result", tool_use_id: "tu-1", content: "回填", is_error: false, uuid: "tr-1" }),
     ];
     const second = projector.project(withResult);
-    // 第一次产出的 tool_use 块不应被第二次折叠回填污染
     expect(first[0].content[0].result).toBeUndefined();
     expect(second[0].content[0].result).toBe("回填");
     expect(first[0].content[0]).not.toBe(second[0].content[0]);
@@ -879,15 +868,12 @@ describe("createTimelineProjector", () => {
     try {
       projector.project(entries);
       expect(cloneCalls).toBeGreaterThan(0);
-      // 稳定重投影：老条目的块已缓存 → 不再深拷贝
       cloneCalls = 0;
       projector.project(entries);
       expect(cloneCalls).toBe(0);
-      // 追加新条目重投影：老 image 块仍复用缓存，深拷贝只作用于新条目而非 2KB 图像
       const next = [...entries, e({ type: "assistant", content: [{ type: "text", text: "hi" }], uuid: "a-1" })];
       cloneCalls = 0;
       projector.project(next);
-      // 新增的是纯文本块（浅结构，无 base64），旧 image 块 0 次重拷 → 总深拷贝 ≤ 1
       expect(cloneCalls).toBeLessThanOrEqual(1);
     } finally {
       globalThis.structuredClone = original;
@@ -898,7 +884,6 @@ describe("createTimelineProjector", () => {
     const projector = createTimelineProjector();
     const first = [e({ type: "user", content: [{ type: "text", text: "旧会话" }], uuid: "u-1" })];
     projector.project(first);
-    // 切换会话：全新 entries，旧 seq 不再出现
     const second = [e({ type: "assistant", content: [{ type: "text", text: "新会话" }], uuid: "a-9" })];
     const out = projector.project(second);
     expect(out).toEqual(projectEntriesToTurns(second));
@@ -917,12 +902,9 @@ describe("createTimelineProjector", () => {
     // 嵌套 subagent、task 折叠、跨 turn question_answer 回填。
     const stream: TimelineEntry[] = [
       e({ type: "user", content: [{ type: "text", text: "开始" }], uuid: "u-1" }),
-      // 孤儿子时间线：锚点尚不存在 → 合成卡片
       e({ type: "assistant", content: [{ type: "text", text: "孤儿" }], uuid: "sa-1", parent_tool_use_id: "tu-late" }),
-      // 锚点补到 → 合成卡片应并回主时间线
       e({ type: "assistant", content: [{ type: "tool_use", id: "tu-late", name: "Agent", input: {} }], uuid: "a-1" }),
       e({ type: "system", subtype: "task_started", task_id: "t1", tool_use_id: "tu-late", description: "外层", uuid: "s-1" }),
-      // 嵌套 subagent：内层锚点在外层子时间线内
       e({
         type: "assistant",
         content: [{ type: "tool_use", id: "tu-inner", name: "Agent", input: {} }],
@@ -930,7 +912,6 @@ describe("createTimelineProjector", () => {
         parent_tool_use_id: "tu-late",
       }),
       e({ type: "assistant", content: [{ type: "text", text: "内层回复" }], uuid: "sa-3", parent_tool_use_id: "tu-inner" }),
-      // 提问 → 中断把 turn 提前 flush → 答复跨 turn 回填
       e({
         type: "assistant",
         content: [{ type: "tool_use", id: "tu-q", name: "AskUserQuestion", input: {} }],
@@ -999,10 +980,6 @@ describe("createTimelineProjector", () => {
   });
 
   it("keeps compose()'s pending-group scan bounded to currently-unanchored groups, not total historical subagent count", () => {
-    // 一批 subagent 组全部锚定完成后，projector.size 之外还应有一个可观测
-    // 信号证明 compose() 不再对已锚定完成的历史组做全表扫描：直接量 size
-    // 属性只反映 entries 数，这里改为验证锚定后继续追加主时间线消息时输出
-    // 仍与全量重放一致（锚定组已完成不应再出现在顶层合成卡片里）。
     const entries: TimelineEntry[] = [];
     const projector = createTimelineProjector();
     for (let i = 0; i < 50; i++) {
@@ -1014,15 +991,10 @@ describe("createTimelineProjector", () => {
     entries.push(e({ type: "assistant", content: [{ type: "text", text: "主时间线消息" }], uuid: "a-final" }));
     const turns = projector.project(entries);
     expect(turns).toEqual(projectEntriesToTurns(entries));
-    // 全部 50 个 subagent 组都已锚定在各自 tool_use 块上，顶层不应再出现
-    // 任何合成卡片（system + subagent-* uuid）。
     expect(turns.filter((t) => typeof t.uuid === "string" && t.uuid.startsWith("subagent-"))).toHaveLength(0);
   });
 });
 
-// ---------------------------------------------------------------------------
-// 随机条目流生成器 — 线性同余伪随机（种子可复现），覆盖各条目类型组合。
-// ---------------------------------------------------------------------------
 
 function generateEntryStream(seed: number, length: number): TimelineEntry[] {
   let state = seed >>> 0;
@@ -1085,7 +1057,6 @@ function generateEntryStream(seed: number, length: number): TimelineEntry[] {
           uuid: `sk-${seq}`,
         };
       } else if (sub < 0.4) {
-        // 未知子类型：投影应忽略
         entry = { seq, type: "system", subtype: "noise", uuid: `n-${seq}` };
       } else {
         const started = taskIds.length === 0 || chance(0.4);
@@ -1118,7 +1089,6 @@ function generateEntryStream(seed: number, length: number): TimelineEntry[] {
     } else {
       entry = { seq, type: "user", uuid: `u-${seq}`, content: [{ type: "text", text: `用户${seq}` }] };
     }
-    // 30% 概率归入某已存在锚点的子时间线，偶发 ghost 组
     if (toolIds.length > 0 && chance(0.3)) entry.parent_tool_use_id = pick(toolIds);
     else if (chance(0.05)) entry.parent_tool_use_id = `ghost-${Math.floor(rng() * 3)}`;
     entries.push(entry);

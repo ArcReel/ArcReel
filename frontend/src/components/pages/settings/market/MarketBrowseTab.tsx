@@ -39,10 +39,8 @@ export function MarketBrowseTab({
   onOpen,
   onOpenEndpoint,
 }: {
-  /** 媒体类型筛选的初始值，来自地址的 `media` 参数；null 表示「全部」。 */
   initialMedia: MarketMediaType | null;
   sources: MarketSourceInfo[];
-  /** null 表示还在加载。 */
   entries: MarketEntry[] | null;
   aggregates: ReadonlyMap<string, MarketEntryAggregate>;
   refreshingIds: ReadonlySet<number>;

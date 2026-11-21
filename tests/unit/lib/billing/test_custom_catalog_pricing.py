@@ -73,7 +73,6 @@ def test_a_video_call_on_a_custom_channel_is_charged_per_second_at_the_sent_reso
         model_multiplier=1.0,
     )
 
-    # 可灵 2.6：1080p 无声 0.5 CNY/秒 × 5 秒
     assert cost == Priced(pytest.approx(2.5), "CNY")
 
 

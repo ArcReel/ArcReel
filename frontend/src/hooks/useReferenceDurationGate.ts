@@ -23,9 +23,7 @@ interface Options {
 type CanEnqueue = (unitId: string) => boolean;
 
 interface PendingConfirm {
-  /** 需要确认申请时长的单元 */
   items: DurationConfirmItem[];
-  /** 通过确认的全部单元（含无需确认的），确认后按原顺序入队 */
   unitIds: string[];
 }
 
@@ -180,7 +178,6 @@ export function useReferenceDurationGate({ projectName, episode, onEditReference
 
   return {
     run,
-    /** 直接摊给 ReferenceDurationConfirmDialog */
     dialogProps: {
       open: pending !== null,
       items: pending?.items ?? [],

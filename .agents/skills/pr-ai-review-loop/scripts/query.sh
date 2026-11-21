@@ -65,7 +65,6 @@ if [[ ! -f "$SNAPSHOT_FILE" ]]; then
   exit 4
 fi
 
-# Provenance to stderr on every call.
 jq -r '"QUERY_SNAPSHOT: repo=\(.repo) pr=\(.pr) head=\(.head) generated_at=\(.generated_at)"' "$SNAPSHOT_FILE" >&2
 
 # Bots that appear in inline_comments_by_user. Keep in sync with poll.sh's bot-login regex.

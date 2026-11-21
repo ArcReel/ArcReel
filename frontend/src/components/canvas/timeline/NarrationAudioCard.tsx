@@ -19,15 +19,10 @@ interface NarrationAudioCardProps {
   novelText: string;
   /** narration_audio 相对路径，如 audio/segment_E1S01.wav */
   assetPath: string | null;
-  /** 进行中状态 */
   generating?: boolean;
-  /** 生成按钮是否禁用 */
   generateDisabled?: boolean;
-  /** 自定义禁用 tooltip */
   generateDisabledHint?: string;
-  /** 估算费用（按币种 breakdown） */
   estimatedCost?: CostBreakdown;
-  /** 触发生成 */
   onGenerate?: () => void;
   /** 生成按钮文案，缺省按有无产物写「生成」或「重新生成」；有未保存修改时传「保存并生成」。 */
   generateLabel?: string;
@@ -83,7 +78,6 @@ export function NarrationAudioCard({
         </div>
       </div>
 
-      {/* 只读原文 + 播放器 */}
       <div className="rounded-lg border border-border/50 border-l-2 border-l-primary/25 bg-muted/30 px-3 py-2.5">
         <p className="display-serif max-w-[40em] text-sm leading-relaxed whitespace-pre-wrap text-foreground">
           {hasNovelText ? novelText : t("no_original_text")}

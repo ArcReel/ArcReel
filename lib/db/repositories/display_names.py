@@ -78,8 +78,8 @@ def build_display_names(
     已隐藏的模型同样收录，旧失败记录仍可能引用它们。条目名按条目引用收录，两栖条目各媒体类型的显示名不同时不收。``agent_providers`` 是 ``agent-<凭证 id>`` 到
     Agent 凭证显示名的映射。
     """
-    from lib.catalog import query as catalog  # 同 _builtin_provider_name
-    from lib.config.registry import PROVIDER_REGISTRY  # 同 _builtin_provider_name
+    from lib.catalog import query as catalog
+    from lib.config.registry import PROVIDER_REGISTRY
 
     providers: dict[str, str] = dict(_LEGACY_PROVIDER_DISPLAY_NAMES)
     models: dict[tuple[str, str], str] = {}

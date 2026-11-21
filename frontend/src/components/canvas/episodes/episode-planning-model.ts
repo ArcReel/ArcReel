@@ -14,15 +14,12 @@ export function remainingUnits(view: EpisodesView): number {
   );
 }
 
-/** 上一次分集规划停在失败上时的原因。 */
 export interface PlanningFailure {
   code: string | null;
   params: Record<string, unknown>;
-  /** 按界面语言渲染的原因。 */
   message: string;
   /** 服务端原文；原因已本地化时才有。 */
   detail: string | null;
-  /** 输出被截断时的模型。 */
   truncated: OutputTruncation | null;
 }
 
@@ -61,7 +58,6 @@ export function lastPlanningFailure(tasks: TaskItem[], projectName: string): Pla
   return failureOf(root);
 }
 
-/** 整本源文分集后的体量统计：集数、中位体量与中位朗读时长。 */
 export interface WholeSourceStats {
   count: number;
   medianUnits: number;

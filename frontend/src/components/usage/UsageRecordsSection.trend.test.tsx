@@ -49,7 +49,6 @@ describe("UsageRecordsSection trend", () => {
       mockSummary({ daily: makeUsageDaily(1, "2026-03-14", () => ({ success: 12_340 })) });
       const { unmount } = renderUsageRecordsSection();
 
-      // 成功列与合计列各一个：两处都是同一个格式器的输出。
       expect(await screen.findAllByText(expected)).toHaveLength(2);
       unmount();
     }
@@ -69,7 +68,6 @@ describe("UsageRecordsSection trend", () => {
 
     const table = screen.getByRole("table", { name: CALLS_NAME });
     const rows = within(table).getAllByRole("row");
-    // 表头 + 两个日桶。
     expect(rows).toHaveLength(3);
     expect(within(rows[1]).getByRole("rowheader")).toHaveTextContent("3/14");
     expect(within(rows[1]).getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
@@ -111,7 +109,6 @@ describe("UsageRecordsSection trend", () => {
 
     const table = await screen.findByRole("table", { name: "按周合并堆叠的调用次数" });
     expect(screen.getByText("按周合并")).toBeInTheDocument();
-    // 95 天并成 14 桶，表头 + 14 行。
     expect(within(table).getAllByRole("row")).toHaveLength(15);
     expect(within(table).getAllByRole("rowheader")[0]).toHaveTextContent("3/1 – 3/4 · 4 天合并");
   });

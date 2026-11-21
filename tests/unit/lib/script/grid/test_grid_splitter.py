@@ -13,7 +13,7 @@ class TestCenterCropToRatio:
         assert result is img
 
     def test_crop_2_1_to_16_9(self):
-        img = Image.new("RGB", (200, 100))  # 2:1 → 16:9
+        img = Image.new("RGB", (200, 100))
         result = center_crop_to_ratio(img, "16:9")
         expected_w = int(100 * 16 / 9)
         assert result.size == (expected_w, 100)

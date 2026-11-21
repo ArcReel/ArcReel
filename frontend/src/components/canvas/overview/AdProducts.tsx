@@ -121,7 +121,6 @@ export function AdProducts({
   );
 }
 
-/** 一个商品一行：资产图（没有时用第一张原图）、名称与描述，整行打开详情。 */
 function ProductRow({
   projectName,
   name,

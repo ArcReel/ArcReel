@@ -41,7 +41,6 @@ from lib.infra.validation_messages import default_translate
 
 from .inference_rules import ConsumerPort, InferenceRules, load_inference_rules
 
-#: 推断消息的键前缀：信号说明与提示各有一条，与诊断码共用 ``val_ce_`` 命名空间。
 MESSAGE_KEY_PREFIX = "val_ce_infer_"
 
 #: 标题约定的前缀，大小写不敏感，截到首个空白。
@@ -53,7 +52,6 @@ READ_ONLY_BINDING_KEYS = frozenset({"fps"})
 #: 候选即有序格子、并列不算歧义的语义键。
 LIST_BINDING_KEYS = frozenset({"reference_images", "reference_audio"})
 
-#: 条目上记着 ``consumer``（这张图接到了谁的哪个入口）的语义键。
 CONSUMER_BINDING_KEYS = frozenset({"reference_images", "reference_audio"})
 
 #: 取值要由用户逐项填写的语义键：推断只列候选不选中。缺了取值过不了校验，自动选中会让原本能保存的
@@ -115,7 +113,6 @@ class InferenceNote(StrEnum):
 class BindingState(StrEnum):
     """一个语义键的推断结果状态。"""
 
-    #: 唯一最高分，已按它选好。
     AUTO_SELECTED = "auto_selected"
     #: 最高分并列，不自动选，全部候选按分排序交用户挑。
     AMBIGUOUS = "ambiguous"
@@ -269,7 +266,6 @@ class BindingInference:
         }
 
 
-#: 某个语义键根本没出现在结果里时的占位：它的 ``selected_targets`` 为空，与「没绑上」同义。
 _MISSING = KeyInference(BindingState.NOT_FOUND, ())
 
 
@@ -508,8 +504,6 @@ class _Engine:
         self.polarity = _polarity_by_node(workflow, rules)
         self.output_chain = self._output_chain()
 
-    # -- 对外入口 ---------------------------------------------------------
-
     def infer_key(self, key: str) -> KeyInference:
         if key == "output":
             return self._select("output", self._output_candidates(), ())
@@ -539,8 +533,6 @@ class _Engine:
                 if manual.class_type == class_type
             )
         return tuple(notes)
-
-    # -- 候选生成 ---------------------------------------------------------
 
     def _candidates_for(self, key: str) -> tuple[list[Candidate], tuple[Note, ...]]:
         builder = _Collector()
@@ -821,8 +813,6 @@ class _Engine:
             return frozenset()
         node = candidates[best[0]].node
         return ancestors(self.workflow, node) | {node}
-
-    # -- 组装 -------------------------------------------------------------
 
     def _target(
         self, key: str, node_id: str, input_name: str | None, carrier: str, *, consumer: Consumer | None = None

@@ -208,7 +208,6 @@ const PROGRESS_STRESS: ApiOverrides = {
   },
 };
 
-// 录制的集还没有脚本规划，脚本规划视图显示空态。
 const NO_SCRIPT_PLAN: ApiOverrides = {
   ...API,
   "GET /api/v1/projects/demo/episodes/1/script-review": {
@@ -243,7 +242,6 @@ const OWN_SOURCE: ApiOverrides = {
   "GET /api/v1/projects/demo/source/episode_1.txt": { status: 200, body: LONG_SOURCE },
 };
 
-// 两行页头：44px 与 40px 两行加 1px 底边。
 const HEADER_HEIGHT = 85;
 
 const viewTabs = (page: Page) => page.getByRole("tablist", { name: "集视图" });
@@ -282,7 +280,6 @@ defineRegionScenarios("集页页头", [
       await expect(page.getByRole("button", { name: "补齐分镜图 · 34" })).toBeEnabled();
       await expect(page.getByRole("button", { name: "视频已齐" })).toBeDisabled();
       await expect(page.getByRole("button", { name: "补齐旁白配音 · 148" })).toBeEnabled();
-      // 批量动作不在 tab 列表里
       await expect(viewTabs(page).getByRole("button")).toHaveCount(0);
     },
     screenshot: { name: "episode-page-header", target: header },
@@ -338,7 +335,6 @@ defineRegionScenarios("集页页头", [
       await expect(boards.getByText("已提交给供应商，重试可能再次计费。")).toBeVisible();
       await expect(popover.getByText(/0f3c9a7e/)).toHaveCount(0);
       await expect(popover.getByText(LONG_MESSAGE)).toHaveCount(1);
-      // 弹层不超出视口
       const rect = await box(popover);
       expect(rect.width).toBeLessThanOrEqual(560);
       expect(rect.height).toBeLessThanOrEqual(640);
@@ -389,7 +385,6 @@ defineRegionScenarios("集页页头", [
     act: async (page) => {
       await expect(viewTabs(page).getByRole("tab", { name: "脚本规划" })).toHaveAttribute("aria-selected", "true");
       await expect(page.getByRole("tabpanel", { name: "脚本规划" })).toBeVisible();
-      // 脚本规划视图没有分镜的批量动作
       await expect(page.getByRole("button", { name: /^补齐|已齐$/ })).toHaveCount(0);
     },
   },

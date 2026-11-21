@@ -92,7 +92,6 @@ function changedFields(fields: MediaModelFields, saved: MediaModelFields): Syste
   return patch;
 }
 
-/** 一个通道一张卡片：标题、可选说明，然后是字段。 */
 function ChannelCard({
   title,
   description,
@@ -113,7 +112,6 @@ function ChannelCard({
   );
 }
 
-/** 通道没有可选模型时的空状态，链接到「供应商」去配置。 */
 function NoProviders({ message }: { message: string }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -463,8 +461,6 @@ export function MediaModelSection() {
               const raw = e.target.value;
               setPollTimeoutInput(raw);
               const next = Number(raw);
-              // 显示以原始字符串为准（「60.」等中间态与清空保真）；有效数值同步进未保存修改，
-              // 空串或非数值不写入——清空不会产生 0 这类假值。
               if (raw.trim() !== "" && Number.isFinite(next)) {
                 setFields((prev) => ({ ...prev, video_poll_timeout_seconds: next }));
               }

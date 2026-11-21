@@ -24,12 +24,10 @@ interface Props {
    * 需确认、受阻，以及入队中断后哪几个单元没排上（一个都没排上时另说一句）。
    */
   admission: ReferenceBatchAdmission | null;
-  /** 按 confirmation.tiers 的档位重发批量请求 */
   onConfirm: () => void;
   onClose: () => void;
 }
 
-/** 要陈述的四种结局各自的标题。`queued` 不开弹窗，不在表内。 */
 const TITLE_KEYS: Record<Exclude<ReferenceBatchOutcome, "queued">, string> = {
   confirm: "reference_batch_confirm_title",
   blocked: "reference_batch_blocked_title",

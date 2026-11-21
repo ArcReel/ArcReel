@@ -10,10 +10,6 @@ interface PreviewableImageFrameProps {
   children: ReactNode;
 }
 
-/**
- * 给缩略图加「查看大图」：右上角的放大按钮在悬停或聚焦时出现（触屏上常显），点开后用占满视口的
- * 查看器显示原图。
- */
 export function PreviewableImageFrame({ src, alt, children }: PreviewableImageFrameProps) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);

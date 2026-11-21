@@ -14,10 +14,6 @@ const INSTALL_COMMAND = "npx skills add ArcReel/skills";
 const SETUP_SKILL = "setup-arcreel-skills";
 const INSTALL_GUIDE_URL = `${window.location.origin}/agent-installation-guide.md`;
 
-/**
- * 全局设置「外部 Agent 接入」：按安装公开 skills、配置远程 MCP、准备访问令牌三步展示，
- * 之后给出把提示词交给 AI Agent 代为接入的做法。第三步就地创建访问令牌；令牌列表只在「访问令牌」分区管理。
- */
 export function ExternalAgentSection() {
   const { t } = useTranslation("dashboard");
   const [createOpen, setCreateOpen] = useState(false);

@@ -12,7 +12,6 @@ interface PlanDurationSelectProps {
   endpointFixed?: boolean;
 }
 
-/** 脚本规划条目的时长下拉，内容确认页三种规划共用。 */
 export function PlanDurationSelect({
   seconds,
   options,

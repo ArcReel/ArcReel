@@ -318,8 +318,8 @@ async def test_remote_upload_survives_cache_cleanup_and_coexists_with_local_vers
 
     assert _cleanup(api)["removed"] == 1
     assert not formal.exists()
-    assert (project_dir / local_record["file"]).is_file()  # 本地版本的持久快照不受清理影响
-    assert bucket.stored_keys() == [key_b]  # 清理不删除正式对象
+    assert (project_dir / local_record["file"]).is_file()
+    assert bucket.stored_keys() == [key_b]
 
     preview = api.get("/api/v1/files/demo/characters/Alice.png")
     assert preview.status_code == 200
@@ -478,7 +478,7 @@ async def test_fetch_failure_and_tampered_object_give_explicit_errors(api, sessi
     tampered = api.get("/api/v1/files/demo/characters/Alice.png")
     assert tampered.status_code == 502
     assert not formal.exists()
-    assert not list(formal.parent.glob(".*fetch"))  # 校验失败不留下临时文件
+    assert not list(formal.parent.glob(".*fetch"))
 
 
 @pytest.mark.parametrize("target", ["local", "object_storage"])
@@ -1235,7 +1235,7 @@ async def test_trashed_remote_version_keeps_its_object_until_the_record_is_purge
     assert restored.status_code == 200, restored.text
     back = _history(project)["versions"][-1]
     assert (back["content_version_id"], back["storage"]) == (record_b["content_version_id"], record_b["storage"])
-    assert bucket.calls.count(("put", record_b["storage"]["key"])) == puts  # 加回的是原对象，不重新上传
+    assert bucket.calls.count(("put", record_b["storage"]["key"])) == puts
 
     _cleanup(api)
     history = api.get(f"/api/v1/files/demo/{back['file']}")
@@ -1265,13 +1265,13 @@ def _file_view_entries(api: TestClient, path: str) -> dict[str, dict[str, Any]]:
 async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(api, sessions, project, bucket):
     """清理缓存后：文件视图按版本记录列出远端版本且不下载；删除历史版本先取回内容再移进回收站，对象按引用保留。"""
     image_a = solid_png_bytes((30, 30, 200), size=(64, 64))
-    assert _upload(api, image_a).status_code == 200  # 本地版本 A
+    assert _upload(api, image_a).status_code == 200
     await _remote(sessions)
     image_b, image_c = solid_png_bytes((30, 200, 30), size=(64, 64)), solid_png_bytes((200, 30, 30), size=(64, 64))
     assert _upload(api, image_b).status_code == 200
     assert _upload(api, image_c).status_code == 200
     record_a, record_b, record_c = _history(project)["versions"]
-    assert _cleanup(api)["removed"] == 3  # B、C 的快照与 C 的正式文件
+    assert _cleanup(api)["removed"] == 3
     project_dir = project.get_project_path("demo")
     snapshot_dir = str(Path(record_b["file"]).parent)
     assert not (project_dir / record_b["file"]).exists()
@@ -1283,13 +1283,13 @@ async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(a
     remote_b = entries[record_b["file"]]
     assert (remote_b["role"], remote_b.get("remote_only"), remote_b["size"]) == ("history", True, len(image_b))
     assert entries[record_c["file"]]["is_current"] is True
-    assert "remote_only" not in entries[record_a["file"]]  # 本地版本照旧按盘上文件列出
+    assert "remote_only" not in entries[record_a["file"]]
     assert entries[record_a["file"]]["size"] == (project_dir / record_a["file"]).stat().st_size
     [sheet] = [entry for path, entry in _file_view_entries(api, "characters").items() if path.endswith("Alice.png")]
     assert (sheet["role"], sheet.get("remote_only"), sheet["size"]) == ("referenced", True, len(image_c))
     parent = _file_view_entries(api, str(Path(snapshot_dir).parent))[snapshot_dir]
     assert parent["size"] == entries[record_a["file"]]["size"] + len(image_b) + len(image_c)
-    assert bucket.calls[calls:] == []  # 列出不触发下载
+    assert bucket.calls[calls:] == []
     assert not (project_dir / record_b["file"]).exists()
 
     deleted = api.delete("/api/v1/projects/demo/file-view", params={"path": record_b["file"]})
@@ -1308,7 +1308,6 @@ async def test_evicted_remote_history_is_listed_and_deleted_from_the_file_view(a
     back = _history(project)["versions"][-1]
     assert (back["content_version_id"], back["storage"]) == (record_b["content_version_id"], record_b["storage"])
 
-    # 本地版本 A 的删除不经对象存储
     calls = len(bucket.calls)
     assert api.delete("/api/v1/projects/demo/file-view", params={"path": record_a["file"]}).status_code == 200
     assert bucket.calls[calls:] == []
@@ -1583,7 +1582,7 @@ async def test_remote_upload_published_while_the_project_is_being_deleted_is_ref
     api, sessions, project, bucket, monkeypatch
 ):
     """项目删除补齐引用之后、目录移走之前，同项目的远端上传在上传前失败：墓碑里不会出现没被引用持有的远端版本。"""
-    assert _upload(api, solid_png_bytes((200, 10, 10), size=(64, 64))).status_code == 200  # 本地版本
+    assert _upload(api, solid_png_bytes((200, 10, 10), size=(64, 64))).status_code == 200
     await _remote(sessions)
     filled, allow_retire = asyncio.Event(), asyncio.Event()
     settling, allow_finish = asyncio.Event(), asyncio.Event()
@@ -1713,8 +1712,6 @@ async def test_connection_moved_before_the_first_object_is_registered_fails_the_
     assert [row.bucket for row in await _objects(sessions)] == ["replacement-bucket"]
 
 
-# ---- 远端图片参与时效判定、生成与编辑 ---------------------------------------------------------------
-
 ALICE_RGB = (200, 10, 10)
 
 
@@ -1831,7 +1828,7 @@ async def test_image_edit_of_evicted_remote_sheet_edits_the_fetched_image_and_sa
     assert _remote_saved(project_dir, _history(project), bucket, "characters/Alice.png") == edited
 
     edited_state = await asyncio.to_thread(_alice_sheet_state, project)
-    assert _cleanup(api)["removed"] == 2  # 新版本的快照与正式文件
+    assert _cleanup(api)["removed"] == 2
     assert await asyncio.to_thread(_alice_sheet_state, project) == edited_state
 
 
@@ -1851,9 +1848,6 @@ async def test_video_reference_staging_fetches_the_evicted_remote_sheet(api, ses
 
     assert staged.sha256 == record["content_digest"]
     assert hashlib.sha256((project_dir / staged.staged_locator).read_bytes()).hexdigest() == record["content_digest"]
-
-
-# ── 手动上传分镜图、角色衍生图与宫格图 ───────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -2082,7 +2076,7 @@ async def test_settings_enable_remote_storage_and_switch_back_only_affect_new_ve
         await session.commit()
     async with sessions() as session:
         assert len(list((await session.execute(select(RelayObject))).scalars())) == 1
-    assert _cleanup(api)["removed"] == 1  # B 的快照工作文件
+    assert _cleanup(api)["removed"] == 1
     async with sessions() as session:
         assert len(list((await session.execute(select(RelayObject))).scalars())) == 1
     assert bucket.stored_keys() == [record_b["storage"]["key"]]
@@ -2118,4 +2112,4 @@ async def test_end_frame_picked_from_an_evicted_remote_image_fetches_it_and_stay
     assert resp.status_code == 200, resp.text
     assert bucket.calls.count(("get", key)) == 1
     assert (project_dir / resp.json()["end_frame_image"]).is_file()
-    assert bucket.stored_keys() == [key]  # 尾帧快照不写对象存储
+    assert bucket.stored_keys() == [key]

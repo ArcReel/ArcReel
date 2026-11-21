@@ -242,7 +242,6 @@ class TestGenerate:
 
         latent = request_json(only_request(submit))["prompt"]["5"]["inputs"]
         assert latent["width"] == latent["height"]
-        # 1k 档的短边比 workflow 字面的 832×480 大，选档确实生效了。
         assert latent["width"] > 832
 
     async def test_the_credentials_ride_every_route(self, tmp_path: Path):

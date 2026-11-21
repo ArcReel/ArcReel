@@ -18,9 +18,7 @@ interface AssetAliasesFieldProps {
   name: string;
   assetType: AliasAssetType;
   aliases: string[];
-  /** 只读展示（引导演示项目）：只列出别名，不渲染增删入口。 */
   readOnly?: boolean;
-  /** 详情里其它写入占用中：增删入口一起禁用。 */
   busy?: boolean;
 }
 

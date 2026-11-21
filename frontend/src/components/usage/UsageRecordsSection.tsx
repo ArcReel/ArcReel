@@ -46,7 +46,6 @@ function taskMatchesFilters(task: TaskItem, filters: UsageRecordsFilters): boole
   if (filters.project !== null && task.project_name !== filters.project) return false;
   if (filters.mediaType !== null && task.media_type !== filters.mediaType) return false;
   if (filters.provider !== null && task.provider_id !== filters.provider) return false;
-  // 任务的分镜就是它的资源 id；生成图片、视频、配音的任务都以分镜为目标。
   if (filters.segment !== null && task.resource_id !== filters.segment) return false;
   // 排队中的任务还没解析出模型（model 为 null），按模型筛选时算不匹配。
   if (filters.model !== null && task.model !== filters.model) return false;
@@ -264,7 +263,6 @@ export function UsageRecordsSection() {
 
       <UsageTrendCard summary={summary} />
 
-      {/* 构成与需要关注在内容列够宽时并排，窄时上下叠放；没有需要关注时构成占满整行 */}
       <div className="grid grid-cols-1 gap-4 @4xl/page:grid-cols-12">
         <div className={cn("flex min-w-0 flex-col", hasAttention ? "@4xl/page:col-span-7" : "@4xl/page:col-span-12")}>
           <UsageBreakdownCard summary={summary} filters={filters} onChange={onFiltersChange} />

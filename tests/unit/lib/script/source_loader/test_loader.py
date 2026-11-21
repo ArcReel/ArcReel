@@ -172,7 +172,7 @@ def test_load_rolls_back_normalized_when_raw_backup_fails(tmp_path: Path, monkey
     project_source = tmp_path / "source"
     project_source.mkdir()
     src = tmp_path / "old.txt"
-    src.write_bytes(("第一章\n" * 30).encode("gbk"))  # 触发 raw 备份分支
+    src.write_bytes(("第一章\n" * 30).encode("gbk"))
 
     import lib.script.source_loader.loader as loader_mod
 
@@ -184,6 +184,5 @@ def test_load_rolls_back_normalized_when_raw_backup_fails(tmp_path: Path, monkey
     with pytest.raises(OSError, match=r"simulated disk full"):
         SourceLoader.load(src, project_source, original_filename="old.txt")
 
-    # 原子性：normalized .txt 应已回滚，raw/ 也空
     assert not (project_source / "old.txt").exists()
     assert not (project_source / "raw" / "old.txt").exists()

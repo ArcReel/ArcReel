@@ -84,17 +84,14 @@ export interface RecommendationChangesResponse {
   changes: RecommendationChange[];
 }
 
-/** 任务类型桶滤掉模型时不满足的能力维度，键与能力接口同名。 */
 export type BucketDimension = "text_to_image" | "image_to_image" | "max_reference_images" | "first_frame";
 
-/** 默认层里有、某个任务类型桶因能力不满足而没有列出的模型。 */
 export interface FilteredCandidate {
   option: string;
   /** 不满足的能力维度；为空表示判定不出（调用端点已下线、调用通道没有声明能力）。 */
   unmet: BucketDimension[];
 }
 
-/** 单一 media_type 的候选：默认层全量 + 各任务类型桶按能力过滤后的子集，以及各桶滤掉的模型与原因。 */
 export interface MediaCandidates {
   default: string[];
   buckets: Partial<Record<GenerationTypeBucket, string[]>>;
@@ -126,9 +123,7 @@ export interface ModelLifecycleNotice {
 export interface ModelCandidatesResponse {
   image: MediaCandidates;
   video: MediaCandidates;
-  /** 供应商 id → 按 Accept-Language 成文的名字；内置与自定义同一口径。 */
   provider_names: Record<string, string>;
-  /** "provider_id/model_id" → 按 Accept-Language 成文的模型名；覆盖全部媒体类型的候选。 */
   model_names: Record<string, string>;
   /**
    * "provider_id/model_id" → 下线提示；收即将下线与已下线的模型（含不在候选里的），以及设置与项目里引用的

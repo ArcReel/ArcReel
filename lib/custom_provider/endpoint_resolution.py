@@ -42,7 +42,6 @@ class MirrorColumns:
     display_name: str
 
 
-#: ``kind`` → 把定义投影成 spec 的实现。
 _SPEC_BY_KIND: Mapping[str, Callable[[str, Mapping[str, Any]], EndpointSpec]] = {
     DECLARATIVE_KIND: lambda key, definition: declarative_endpoint_spec(key, definition, source="custom"),
     COMFYUI_KIND: comfyui_endpoint_spec,

@@ -99,21 +99,18 @@ describe("projects-store refreshProject", () => {
       .mockReturnValueOnce(d2.promise);
 
     const store = useProjectsStore.getState();
-    const p1 = store.refreshProject("demo"); // owner：发起第一轮
+    const p1 = store.refreshProject("demo");
     const p2 = store.refreshProject("demo"); // 在途 → 合并
-    const p3 = store.refreshProject("demo"); // 在途 → 合并
-    // 合并期间只发起了第一轮请求
+    const p3 = store.refreshProject("demo");
     expect(spy).toHaveBeenCalledTimes(1);
 
     d1.resolve(makeResult("R1"));
     await flush();
-    // 排队请求收敛为「结束后再跑一轮」，此刻第二轮已发起
     expect(spy).toHaveBeenCalledTimes(2);
 
     d2.resolve(makeResult("R2"));
     const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
     expect([r1, r2, r3]).toEqual(["success", "success", "success"]);
-    // 3 个刷新意图合并为 2 次请求，store 落定在最新一轮
     expect(spy).toHaveBeenCalledTimes(2);
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("R2");
   });
@@ -126,11 +123,10 @@ describe("projects-store refreshProject", () => {
 
     const store = useProjectsStore.getState();
     const p1 = store.refreshProject("demo");
-    const p2 = store.refreshProject("demo"); // 合并 → 结束后再跑一轮
+    const p2 = store.refreshProject("demo");
 
     d1.reject(new Error("first fail"));
     await flush();
-    // 第一轮失败：留旧
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("旧");
 
     d2.resolve(makeResult("新"));
@@ -155,7 +151,6 @@ describe("projects-store refreshProject", () => {
 
     d1.resolve(makeResult("重排后"));
     await flush();
-    // 首轮已成功写入
     expect(useProjectsStore.getState().currentProjectData?.title).toBe("重排后");
 
     d2.reject(new Error("sse round fail"));
@@ -173,9 +168,9 @@ describe("projects-store refreshProject", () => {
     vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise).mockReturnValueOnce(dC.promise);
 
     const store = useProjectsStore.getState();
-    const pA = store.refreshProject("A"); // 发起中
-    const pB = store.refreshProject("B"); // 排队 → queuedName = B
-    const pC = store.refreshProject("C"); // 排队期间到达不同项目：B 被 C 取代
+    const pA = store.refreshProject("A");
+    const pB = store.refreshProject("B");
+    const pC = store.refreshProject("C");
 
     // B 的调用方无需等 A / C 落定，在被取代的一刻就立即收到 cancelled——
     // 它请求的项目从未被真正拉取过，不能被并入 C 的结果。
@@ -206,7 +201,7 @@ describe("projects-store refreshProject", () => {
 
     const store = useProjectsStore.getState();
     const pA = store.refreshProject("A");
-    const pB = store.refreshProject("B"); // 合并 → 排队到不同名称
+    const pB = store.refreshProject("B");
 
     dA.resolve(makeResult("A-数据"));
     await flush();
@@ -230,8 +225,8 @@ describe("projects-store refreshProject", () => {
     const onError2 = vi.fn();
 
     const store = useProjectsStore.getState();
-    const p1 = store.refreshProject("demo"); // 首轮无 onError
-    const p2 = store.refreshProject("demo", { onError: onError2 }); // 排队轮带 onError
+    const p1 = store.refreshProject("demo");
+    const p2 = store.refreshProject("demo", { onError: onError2 });
 
     d1.resolve(makeResult("R1"));
     await flush();
@@ -293,7 +288,6 @@ describe("projects-store refreshProject", () => {
     const store = useProjectsStore.getState();
     const pA = store.refreshProject("A");
 
-    // 路由切到 B：cleanup 清空当前项目，随后写入 B 的数据。
     store.setCurrentProject(null, null);
     store.setCurrentProject("B", makeProject("B-数据"), {}, {});
 
@@ -312,12 +306,12 @@ describe("projects-store refreshProject", () => {
     // 的域，且 currentProjectName 恰为 null——不能被「无当前项目，放行」豁免，否则
     // A 的数据会在 B 落地前抢先写回。
     useProjectsStore.getState().setCurrentProject("A", makeProject("A-数据"), {}, {});
-    useProjectsStore.getState().setCurrentProject(null, null); // 路由 cleanup：清空但尚未加载 B
+    useProjectsStore.getState().setCurrentProject(null, null);
 
     const dA = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(dA.promise);
 
-    const pA = useProjectsStore.getState().refreshProject("A"); // 在 null 窗口内发起
+    const pA = useProjectsStore.getState().refreshProject("A");
     dA.resolve(makeResult("A-迟到数据"));
     const ok = await pA;
 
@@ -325,7 +319,6 @@ describe("projects-store refreshProject", () => {
     expect(useProjectsStore.getState().currentProjectName).toBe(null);
     expect(useProjectsStore.getState().currentProjectData).toBe(null);
 
-    // B 随后落地：不受上面被拦截的 A 写入影响。
     useProjectsStore.getState().setCurrentProject("B", makeProject("B-数据"), {}, {});
     expect(useProjectsStore.getState().currentProjectName).toBe("B");
   });
@@ -336,15 +329,15 @@ describe("projects-store refreshProject", () => {
     // A），curName="C" 不等于它，会被误判成「无当前项目，可放行」重新写回。真正的
     // 判据应是「store 是否已经建立过任何真实项目」，不分具体是哪一个。
     const store = useProjectsStore.getState();
-    store.setCurrentProject("C", makeProject("C-数据"), {}, {}); // 建立 C
-    store.setCurrentProject(null, null); // 路由 cleanup：离开 C
-    store.setCurrentProject("A", makeProject("A-数据"), {}, {}); // A 落地
-    store.setCurrentProject(null, null); // 路由 cleanup：离开 A，尚未加载 B
+    store.setCurrentProject("C", makeProject("C-数据"), {}, {});
+    store.setCurrentProject(null, null);
+    store.setCurrentProject("A", makeProject("A-数据"), {}, {});
+    store.setCurrentProject(null, null);
 
     const dC = createDeferred<GetProjectResult>();
     vi.spyOn(API, "getProject").mockReturnValueOnce(dC.promise);
 
-    const pC = useProjectsStore.getState().refreshProject("C"); // 在第二次 null 窗口内发起
+    const pC = useProjectsStore.getState().refreshProject("C");
     dC.resolve(makeResult("C-迟到数据"));
     const ok = await pC;
 
@@ -387,12 +380,11 @@ describe("projects-store refreshProject", () => {
 
     const store = useProjectsStore.getState();
     const p1 = store.refreshProject("A");
-    const p2 = store.refreshProject("A"); // 在途 → 合并排队
+    const p2 = store.refreshProject("A");
 
     store.setCurrentProject("B", makeProject("B-数据"), {}, {});
     d1.resolve(makeResult("A-首轮迟到"));
     await flush();
-    // 首轮 abort，排队轮已发起第二次请求
     d2.resolve(makeResult("A-排队轮迟到"));
 
     const [ok1, ok2] = await Promise.all([p1, p2]);
@@ -463,8 +455,8 @@ describe("projects-store refreshProject", () => {
     );
 
     const store = useProjectsStore.getState();
-    const pB = store.refreshProject("B"); // 当前项目 B 的首屏轮，在途
-    const pStale = store.refreshProject("A"); // 持旧项目名的调用方排队
+    const pB = store.refreshProject("B");
+    const pStale = store.refreshProject("A");
 
     dB.resolve(makeResult("B-数据"));
     expect(await pB).toBe("success");
@@ -489,9 +481,9 @@ describe("projects-store refreshProject", () => {
     );
 
     const store = useProjectsStore.getState();
-    const pSseA = store.refreshProject("A"); // A 页面上的 SSE 刷新，在途
-    store.setCurrentProject("B", null); // 路由切到 B：先落名，取消域随之轮换
-    const pFirstScreenB = store.refreshProject("B"); // B 的首屏刷新 → 排队
+    const pSseA = store.refreshProject("A");
+    store.setCurrentProject("B", null);
+    const pFirstScreenB = store.refreshProject("B");
     const pStaleA = store.refreshProject("A"); // 持旧项目名的调用方，不该挤掉 B
 
     dSseA.resolve(makeResult("A-迟到数据"));

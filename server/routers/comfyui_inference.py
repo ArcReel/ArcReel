@@ -73,7 +73,6 @@ class InferResponse(BaseModel):
     savable: bool
     bindings: dict[str, KeyInferencePayload]
     notes: list[NotePayload]
-    # 这份载荷被当成什么收的。
     import_shape: ImportShape
     # 原始 API workflow 的包装结果；载荷本就是定义时为 null，客户端继续用手上那份。
     wrapped_definition: dict[str, Any] | None = None

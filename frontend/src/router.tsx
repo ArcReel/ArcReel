@@ -1,4 +1,3 @@
-// router.tsx — Route definitions for the studio layout
 
 import { useEffect, useRef } from "react";
 import { Route, Switch, Redirect, useParams } from "wouter";
@@ -65,9 +64,6 @@ function OnboardingChunkPreloader() {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// ConfigStatusLoader — 登录后集中拉取一次配置完整性状态
-// ---------------------------------------------------------------------------
 
 /**
  * 配置完整性（红点 / 必需设置提醒）的单点加载器，始终挂载在路由根，跨页面导航存活。
@@ -101,9 +97,6 @@ function ConfigStatusLoader() {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// AuthGuard — redirects to /login when not authenticated
-// ---------------------------------------------------------------------------
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
@@ -125,9 +118,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// ---------------------------------------------------------------------------
-// StudioWorkspace — loads project data and renders three-column layout
-// ---------------------------------------------------------------------------
 
 function StudioWorkspace() {
   const params = useParams<{ projectName: string }>();
@@ -165,7 +155,6 @@ function StudioWorkspace() {
       };
     }
 
-    // 进真实项目一律解锁，不让上一次演示的闸门残留下来
     setApiReadOnly(false);
     setProjectDetailLoading(true);
     // 先落地项目名（数据置空）：refreshProject 的写入门槛要求 currentProjectName 已等于
@@ -191,7 +180,6 @@ function StudioWorkspace() {
     };
   }, [projectName, setCurrentProject, setProjectDetailLoading]);
 
-  // 演示数据随界面语言走：`t` 换身份时重灌一遍常量，只影响演示项目
   useEffect(() => {
     if (!projectName || !isDemoProject(projectName)) return;
     setCurrentProject(projectName, buildDemoProjectData(t), buildDemoScripts(t));
@@ -204,9 +192,6 @@ function StudioWorkspace() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Top-level route tree
-// ---------------------------------------------------------------------------
 
 export function AppRoutes() {
   // 离开拦截包住全部路由：未保存修改在任何应用内跳转前先询问
@@ -221,34 +206,28 @@ export function AppRoutes() {
       {/* 懒加载页面的 chunk 未到达时显示整页加载占位、最终失败时显示整页失败提示；工作区画布另有局部边界，不会退到这里 */}
       <LazyBoundary variant="screen">
         <Switch>
-          {/* Login page */}
           <Route path="/login" component={LoginPage} />
 
-          {/* Root redirects to projects list */}
           <Route path="/">
             <Redirect to="/app/projects" />
           </Route>
 
-          {/* /app and /app/ also redirect to projects list */}
           <Route path={ROUTE_APP}>
             <Redirect to={ROUTE_APP_PROJECTS} />
           </Route>
 
-          {/* Projects list */}
           <Route path={ROUTE_APP_PROJECTS}>
             <AuthGuard>
               <ProjectsPage />
             </AuthGuard>
           </Route>
 
-          {/* System settings */}
           <Route path={ROUTE_APP_SETTINGS}>
             <AuthGuard>
               <SystemConfigPage />
             </AuthGuard>
           </Route>
 
-          {/* Asset library */}
           <Route path={ROUTE_APP_ASSETS}>
             <AuthGuard>
               <AssetLibraryPage />
@@ -276,7 +255,6 @@ export function AppRoutes() {
             </AuthGuard>
           </Route>
 
-          {/* 404 */}
           <Route>
             <NotFoundPage />
           </Route>

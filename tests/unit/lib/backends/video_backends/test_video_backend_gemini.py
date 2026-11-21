@@ -96,13 +96,9 @@ def gemini_backend(mock_rate_limiter):
         yield b
 
 
-# ── 属性测试 ──────────────────────────────────────────────
-
-
 class TestGeminiVideoBackendProperties:
     def test_name(self, gemini_backend):
         assert gemini_backend.name == "gemini-aistudio"
-        # aistudio 模式：api_key 原样交给 genai.Client，未给 base_url 则不带 http_options
         gemini_backend._test_genai.Client.assert_called_once_with(api_key="test-key", http_options=None)
 
     def test_video_capabilities_aistudio(self, gemini_backend):
@@ -110,11 +106,9 @@ class TestGeminiVideoBackendProperties:
         assert caps.last_frame is True
         # 通道实现了参考图且不设上限；Veo 各型号的上限（Lite 为 0）来自条目
         assert caps.max_reference_images is None
-        # 未传 video_model 时落到默认视频型号
         assert gemini_backend.model == GEMINI_DEFAULT_VIDEO_MODEL
 
     def test_vertex_backend_constructs_from_credentials_file(self, mock_rate_limiter, tmp_path):
-        # 准备 mock vertex 凭证文件
         creds_file = tmp_path / "vertex_credentials.json"
         creds_file.write_text('{"project_id": "test-project"}')
 
@@ -142,9 +136,6 @@ class TestGeminiVideoBackendProperties:
                 location="global",
                 credentials=from_service_account_file.return_value,
             )
-
-
-# ── 生成测试 ──────────────────────────────────────────────
 
 
 def _make_done_operation(video_uri="gs://bucket/video.mp4"):
@@ -231,9 +222,7 @@ class TestGeminiVideoBackendGenerate:
         # aistudio 模式的成片恒带音轨
         assert result.generate_audio is True
 
-        # 确认调用了 API
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
-        # 成片经 files.download(destination=...) 流式落盘，最终产物在 output_path，不留 .part
         assert output.read_bytes() == b"aistudio-bytes"
         assert not output.with_name("out.mp4.part").exists()
         gemini_backend._client.files.download.assert_called_once()
@@ -281,7 +270,6 @@ class TestGeminiVideoBackendGenerate:
             result = await gemini_backend.generate(request)
 
         assert result.provider == "gemini"
-        # 轮询以 submit 返回的 operation 对象查询状态
         gemini_backend._client.aio.operations.get.assert_awaited_once_with(pending_op)
 
     async def test_generate_empty_result_raises(self, gemini_backend, tmp_path):
@@ -320,7 +308,6 @@ class TestGeminiVideoBackendGenerate:
             output_path=output,
         )
 
-        # 错误消息携带 operation.error 的内容，与空结果分支的文案区分开
         with pytest.raises(RuntimeError, match="视频生成失败: Something went wrong"):
             await gemini_backend.generate(request)
 
@@ -370,7 +357,6 @@ class TestGeminiRetryBehavior:
         done_op = _make_done_operation()
 
         gemini_backend._client.aio.models.generate_videos = AsyncMock(return_value=pending_op)
-        # 第一次轮询抛 ConnectionError，第二次返回完成
         gemini_backend._client.aio.operations.get = AsyncMock(
             side_effect=[ConnectionError("connection reset"), done_op]
         )
@@ -380,9 +366,7 @@ class TestGeminiRetryBehavior:
             result = await gemini_backend.generate(request)
 
         assert result.provider == "gemini"
-        # 关键断言：任务只创建了一次
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
-        # 轮询调用了两次（一次失败 + 一次成功）
         assert gemini_backend._client.aio.operations.get.await_count == 2
 
     async def test_create_retries_on_transient_error(self, gemini_backend, tmp_path):
@@ -390,7 +374,6 @@ class TestGeminiRetryBehavior:
         output = tmp_path / "out.mp4"
 
         done_op = _make_done_operation()
-        # 第一次创建抛 ConnectionError，第二次成功
         gemini_backend._client.aio.models.generate_videos = AsyncMock(
             side_effect=[ConnectionError("connection reset"), done_op]
         )
@@ -402,7 +385,6 @@ class TestGeminiRetryBehavior:
             result = await gemini_backend.generate(request)
 
         assert result.provider == "gemini"
-        # 创建调用了两次（一次失败 + 一次成功）
         assert gemini_backend._client.aio.models.generate_videos.await_count == 2
 
     async def test_poll_non_retryable_error_propagates(self, gemini_backend, tmp_path):
@@ -419,13 +401,9 @@ class TestGeminiRetryBehavior:
         with pytest.raises(ValueError, match="invalid response"), bounded_poll_clock():
             await gemini_backend.generate(request)
 
-        # 创建只调用一次
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
         # 轮询只尝试一次就抛出
         assert gemini_backend._client.aio.operations.get.await_count == 1
-
-
-# ── _prepare_image_param 测试 ─────────────────────────────
 
 
 class TestDownloadVideo:
@@ -635,7 +613,7 @@ class TestDownloadVideo:
         gemini_backend._backend_type = "vertex"
         output = tmp_path / "video.mp4"
 
-        mock_ref = MagicMock(spec=[])  # no attributes
+        mock_ref = MagicMock(spec=[])
 
         with pytest.raises(RuntimeError, match="无法获取视频数据"):
             gemini_backend._download_video(mock_ref, output, deadline=_far_deadline())
@@ -717,7 +695,6 @@ class TestGeminiResumeVideo:
             await gemini_backend.resume_video("op-not-found", request)
 
         assert ei.value.provider == "gemini"
-        # 用 job_id 重建未完成的 operation，再以重建对象向远端查询
         gemini_backend._types.GenerateVideosOperation.model_validate.assert_called_once_with(
             {"name": "op-not-found", "done": False}
         )
@@ -758,7 +735,6 @@ class TestGeminiResumeVideo:
         assert not isinstance(ei.value, ResumeExpiredError)
 
     async def test_vertex_artifact_404_propagates_as_download_failure(self, gemini_backend, tmp_path):
-        # 远端任务已成功（operation 完成且带成片 URI），取件时产物 URL 返回 404
         gemini_backend._backend_type = "vertex"
         video_uri = "https://storage.googleapis.com/bucket/video.mp4"
         done_op = _make_done_operation(video_uri=video_uri)

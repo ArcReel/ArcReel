@@ -76,7 +76,6 @@ function mockIdleSession(entries: TimelineEntry[] = []) {
 describe("useAssistantSession", () => {
   let openStreamSpy: MockInstance<typeof API.openAssistantEntriesStream>;
 
-  /** 第 index 次建流时传给 `API.openAssistantEntriesStream` 的参数（会话与冷订阅游标）。 */
   function streamOptions(index: number) {
     return openStreamSpy.mock.calls[index][0];
   }
@@ -160,7 +159,6 @@ describe("useAssistantSession", () => {
     });
     expect(queuedIds()).toEqual(["u-0", "u-1"]);
 
-    // Agent 接纳第一条：条目先到，随后移出托盘
     act(() => {
       stream.emit("entry", userEntry(0, "先改第 3 镜"));
       stream.emit("queue_remove", { session_id: "session-1", id: "u-0" });
@@ -327,7 +325,6 @@ describe("useAssistantSession", () => {
         queued_message: queuedMessage("u-2", "再加一段旁白"),
       });
       await act(async () => { await result.current.sendMessage("再加一段旁白"); });
-      // Agent 最终没有处理它：按编辑退回输入框
       act(() => {
         stream.emit("queue_remove", {
           session_id: "session-1",
@@ -433,7 +430,6 @@ describe("useAssistantSession", () => {
     expect(queuedIds()).toEqual(["u-1"]);
     expect(useAssistantStore.getState().sessionStatus).toBe("running");
 
-    // 第二条的响应迟到：流上它已被接纳、离开排队
     let sent: Promise<boolean> = Promise.resolve(false);
     act(() => {
       sent = result.current.sendMessage("第 5 镜删掉");
@@ -553,7 +549,6 @@ describe("useAssistantSession", () => {
     });
     const stream = FakeSseStream.instances[0];
 
-    // 开场与上一轮收尾下发的终态 status
     act(() => {
       stream.emit("status", { status: "completed" });
     });
@@ -799,11 +794,9 @@ describe("useAssistantSession", () => {
       { type: "user", content: [{ type: "text", text: "hello" }], uuid: "u-0", timestamp: undefined },
     ]);
     expect(useAssistantStore.getState().sessionStatus).toBe("running");
-    // 发送复用打开会话时建立的那条流
     expect(FakeSseStream.instances).toHaveLength(1);
     expect(streamOptions(0)).toMatchObject({ projectName: "demo", sessionId: "session-1" });
     expect(FakeSseStream.instances[0].close).not.toHaveBeenCalled();
-    // client_key 随请求发送
     expect(sendSpy.mock.calls[0][4]).toEqual(expect.any(String));
   });
 
@@ -907,7 +900,7 @@ describe("useAssistantSession", () => {
     mockIdleSession();
     const sendSpy = vi
       .spyOn(API, "sendAssistantMessage")
-      .mockRejectedValueOnce(new Error("发送失败")) // 项目 A：失败并缓存 clientKey
+      .mockRejectedValueOnce(new Error("发送失败"))
       .mockResolvedValueOnce({ session_id: "session-1", status: "accepted", entry: userEntry(0, "hello"), queued_message: null });
 
     const { result, rerender } = renderHook(({ p }) => useAssistantSession(p), {
@@ -932,7 +925,6 @@ describe("useAssistantSession", () => {
     });
 
     expect(sendSpy).toHaveBeenCalledTimes(2);
-    // 跨项目同内容重发：签名含项目维度 → 生成新键，不复用旧项目缓存的 clientKey
     expect(sendSpy.mock.calls[1][4]).not.toBe(sendSpy.mock.calls[0][4]);
   });
 
@@ -1091,7 +1083,6 @@ describe("useAssistantSession", () => {
       initialProps: { projectName: "project-a" as string | null },
     });
 
-    // 项目 A：running 会话冷订阅建流，灌入残留条目
     await waitFor(() => {
       expect(FakeSseStream.instances).toHaveLength(1);
     });
@@ -1106,7 +1097,6 @@ describe("useAssistantSession", () => {
     });
     expect(useAssistantStore.getState().entries.map((e) => e.seq)).toEqual([0, 1]);
 
-    // 切到项目 B（其会话亦为 running）
     rerender({ projectName: "project-b" });
 
     await waitFor(() => {
@@ -1119,7 +1109,6 @@ describe("useAssistantSession", () => {
     // 冷订阅游标由重置后的空 entries 推导（after=-1，等效从头订阅），
     // 不被 A 的残留最大 seq 污染
     expect(streamOptions(1).after).toBe(-1);
-    // 时间线不含 A 的条目
     expect(useAssistantStore.getState().entries).toEqual([]);
     expect(useAssistantStore.getState().turns).toEqual([]);
   });
@@ -1137,7 +1126,6 @@ describe("useAssistantSession", () => {
       initialProps: { projectName: "project-a" as string | null },
     });
 
-    // 项目 A：idle 会话冷读出一条历史条目
     await waitFor(() => {
       expect(useAssistantStore.getState().turns).toHaveLength(1);
     });
@@ -1164,7 +1152,6 @@ describe("useAssistantSession", () => {
     await waitFor(() => {
       expect(FakeSseStream.instances).toHaveLength(1);
     });
-    // 首帧冷订阅从头开始（entries 为空）
     expect(streamOptions(0).after).toBe(-1);
 
     act(() => {
@@ -1218,12 +1205,10 @@ describe("useAssistantSession", () => {
       initialProps: { projectName: "project-a" as string | null },
     });
 
-    // 项目 A：loadSession 卡在 getAssistantSession（deferredA 未 resolve）
     await waitFor(() => {
       expect(useAssistantStore.getState().currentSessionId).toBe("session-a");
     });
 
-    // 切到项目 B（其 idle 会话冷读一条条目）
     rerender({ projectName: "project-b" });
     await waitFor(() => {
       expect(useAssistantStore.getState().currentSessionId).toBe("session-b");
@@ -1236,7 +1221,6 @@ describe("useAssistantSession", () => {
       await deferredA.promise;
     });
 
-    // 不为已离开的项目 A 建 SSE 连接；状态与时间线保持项目 B
     expect(openStreamSpy.mock.calls.map(([options]) => options.projectName)).toEqual(["project-b"]);
     expect(useAssistantStore.getState().currentSessionId).toBe("session-b");
     expect(useAssistantStore.getState().sessionStatus).toBe("idle");
@@ -1272,7 +1256,6 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
     });
 
-    // 切到 session-2：冷读挂起；随即切到 session-3：正常完成
     act(() => {
       void result.current.switchSession("session-2");
     });
@@ -1283,7 +1266,6 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().turns).toHaveLength(1);
     expect(useAssistantStore.getState().messagesLoading).toBe(false);
 
-    // 迟到：session-2 的冷读此刻才返回，不得覆盖 session-3 的时间线
     await act(async () => {
       deferred2.resolve(makeEntriesResponse({ session_id: "session-2", entries: [userEntry(0, "S2-0")] }));
       await deferred2.promise;
@@ -1457,7 +1439,6 @@ describe("useAssistantSession", () => {
       await deferredEntries.promise;
     });
 
-    // running 状态与已发送的条目保留，不被冷读前捕获的旧 idle 快照回退
     expect(useAssistantStore.getState().sessionStatus).toBe("running");
     expect(useAssistantStore.getState().entries.map((e) => e.seq)).toEqual([0]);
   });
@@ -1514,16 +1495,13 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
     expect(useAssistantStore.getState().sessionStatus).toBe("idle");
 
-    // 离开项目：projectName 置空，currentSessionId 不受影响，仍是 "session-2"
     rerender({ projectName: null });
 
-    // 迟到：switchSession 发起的 getAssistantSession 此刻才返回 running
     await act(async () => {
       deferredSwitch.resolve({ session: makeSession("session-2", "running") });
       await deferredSwitch.promise;
     });
 
-    // 只有离开前打开的 session-1 建过流，且已随离开项目关闭
     expect(openStreamSpy.mock.calls.map(([options]) => options.sessionId)).toEqual(["session-1"]);
     expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
@@ -1549,7 +1527,6 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().isDraftSession).toBe(true);
     expect(useAssistantStore.getState().messagesLoading).toBe(false);
 
-    // 迟到：init 的会话列表此刻才返回，携带一个 running 会话
     await act(async () => {
       deferredSessions.resolve({ sessions: [makeSession("session-1", "running")] });
       await deferredSessions.promise;
@@ -1579,13 +1556,11 @@ describe("useAssistantSession", () => {
     });
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
 
-    // 迟到：init 的会话列表此刻才返回，携带一个 running 会话
     await act(async () => {
       deferredSessions.resolve({ sessions: [makeSession("session-1", "running")] });
       await deferredSessions.promise;
     });
 
-    // 不覆盖用户已切到的会话，不为已放弃的会话建 SSE 连接
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
     expect(openStreamSpy.mock.calls.map(([options]) => options.sessionId)).toEqual(["session-2"]);
   });
@@ -1600,7 +1575,6 @@ describe("useAssistantSession", () => {
 
     const { result } = renderHook(() => useAssistantSession("demo"));
 
-    // 模拟用户此前已选中会话（挂起期间 store 中已有当前会话可删）
     act(() => {
       useAssistantStore.getState().setCurrentSessionId("session-1");
       useAssistantStore.getState().setSessions([makeSession("session-1", "idle")]);
@@ -1612,13 +1586,11 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().currentSessionId).toBeNull();
     expect(useAssistantStore.getState().messagesLoading).toBe(false);
 
-    // 迟到：init 的会话列表此刻才返回，携带一个 running 会话
     await act(async () => {
       deferredSessions.resolve({ sessions: [makeSession("session-1", "running")] });
       await deferredSessions.promise;
     });
 
-    // 不覆盖用户的删除操作，不为已删除的会话建 SSE 连接
     expect(useAssistantStore.getState().currentSessionId).toBeNull();
     expect(FakeSseStream.instances).toHaveLength(0);
   });
@@ -1649,13 +1621,11 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().currentSessionId).toBe("session-new");
     expect(FakeSseStream.instances).toHaveLength(1);
 
-    // 迟到：init 的会话列表此刻才返回
     await act(async () => {
       deferredSessions.resolve({ sessions: [makeSession("session-1", "running")] });
       await deferredSessions.promise;
     });
 
-    // 不覆盖发送建立的新会话，不为列表里的旧会话另建 SSE 连接
     expect(useAssistantStore.getState().currentSessionId).toBe("session-new");
     expect(getSessionSpy).not.toHaveBeenCalled();
     expect(FakeSseStream.instances).toHaveLength(1);
@@ -1680,7 +1650,6 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
     });
 
-    // 技能响应挂起期间发生会话操作
     await act(async () => {
       await result.current.switchSession("session-2");
     });
@@ -1722,7 +1691,6 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().currentSessionId).toBe("session-a1");
     });
 
-    // 切到项目 B：其会话列表挂起；点击残留的 A 会话项（在 B 上 404 静默失败）
     rerender({ projectName: "project-b" });
     await act(async () => {
       await result.current.switchSession("session-a2");
@@ -1733,7 +1701,6 @@ describe("useAssistantSession", () => {
       await deferredB.promise;
     });
 
-    // B 的会话列表照常落地，供用户重新选择；不为 B 的任何会话建 SSE 连接，A 的流已随切项目关闭
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-b1"]);
     expect(openStreamSpy.mock.calls.map(([options]) => options.sessionId)).toEqual(["session-a1"]);
     expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
@@ -1757,13 +1724,11 @@ describe("useAssistantSession", () => {
       initialProps: { projectName: "project-a" as string | null },
     });
 
-    // 切到项目 B：其会话列表正常落地
     rerender({ projectName: "project-b" });
     await waitFor(() => {
       expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-b1"]);
     });
 
-    // 迟到：A 的会话列表此刻才返回，signal 已 abort，不得覆盖 B 的列表
     await act(async () => {
       deferredA.resolve({ sessions: [makeSession("session-a1", "idle")] });
       await deferredA.promise;
@@ -1796,7 +1761,6 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().skills.map((s) => s.name)).toEqual(["b-skill"]);
     });
 
-    // 迟到：A 的技能列表此刻才返回，不得覆盖 B 的技能列表
     await act(async () => {
       deferredA.resolve({ skills: [{ name: "a-skill", description: "d", scope: "project", path: "/p" }] });
       await deferredA.promise;
@@ -1834,18 +1798,15 @@ describe("useAssistantSession", () => {
       expect(FakeSseStream.instances).toHaveLength(1);
     });
 
-    // running 会话终态：触发刷新，挂起在 deferredRefresh
     act(() => {
       FakeSseStream.instances[0].emit("status", { status: "completed" });
     });
 
-    // 切到项目 B：其会话列表正常落地
     rerender({ projectName: "project-b" });
     await waitFor(() => {
       expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-b1"]);
     });
 
-    // 迟到：A 的终态刷新此刻才返回，signal 已 abort，不得覆盖 B 的列表
     await act(async () => {
       deferredRefresh.resolve({ sessions: [makeSession("session-a-refreshed", "idle")] });
       await deferredRefresh.promise;
@@ -1888,7 +1849,6 @@ describe("useAssistantSession", () => {
 
     expect(useAssistantStore.getState().messagesLoading).toBe(false);
 
-    // 迟到的 getAssistantSession 不再产生任何写入（signal 已 abort）
     await act(async () => {
       deferredEntry.resolve({ session: makeSession("session-2", "idle") });
       await deferredEntry.promise;
@@ -1944,7 +1904,6 @@ describe("useAssistantSession", () => {
     expect(FakeSseStream.instances).toHaveLength(2);
     expect(FakeSseStream.instances[0].close).toHaveBeenCalled();
     expect(streamOptions(1)).toMatchObject({ sessionId: "session-2", after: -1 });
-    // 刷新后仍停在新分支
     expect(JSON.parse(localStorage.getItem("arcreel:lastSessionByProject") ?? "{}")).toEqual({ demo: "session-2" });
   });
 
@@ -2084,7 +2043,6 @@ describe("useAssistantSession", () => {
     });
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-2"]);
 
-    // 补拉这才返回，带回的是分叉前的列表——已被本地权威写入取代，不得写回
     await act(async () => {
       listDeferred.resolve({ sessions: [makeSession("session-1", "idle")] });
       await listDeferred.promise;
@@ -2105,7 +2063,6 @@ describe("useAssistantSession", () => {
 
     const { result } = renderHook(() => useAssistantSession("demo"));
 
-    // 初始列表还在途，此间已有本地权威写入（删除会话）
     act(() => {
       useAssistantStore.getState().setSessions([makeSession("session-1", "idle")]);
       useAssistantStore.getState().setCurrentSessionId("session-9");
@@ -2141,7 +2098,6 @@ describe("useAssistantSession", () => {
     act(() => {
       useAssistantStore.getState().setSessions([makeSession("session-1", "idle"), makeSession("session-2", "idle")]);
     });
-    // 删的不是当前会话（此刻还没有当前会话）
     await act(async () => {
       await result.current.deleteSession("session-1");
     });
@@ -2184,7 +2140,6 @@ describe("useAssistantSession", () => {
     let listCalls = 0;
     vi.spyOn(API, "listAssistantSessions").mockImplementation(() => {
       listCalls += 1;
-      // 补拉一旦发生，拿到的就是服务端已分叉后的列表
       if (listCalls === 1) return Promise.resolve({ sessions: [makeSession("session-1", "idle")] });
       return Promise.resolve({ sessions: [makeSession("session-2", "idle")] });
     });
@@ -2270,7 +2225,6 @@ describe("useAssistantSession", () => {
     let deletingCurrent!: Promise<boolean>;
     await act(async () => {
       deletingCurrent = result.current.deleteSession("session-1");
-      // 另一条会话的删除整轮走完，其收尾不涉及当前会话的保护
       await result.current.deleteSession("session-3");
       rewriteDeferred.resolve({
         status: "accepted",
@@ -2306,7 +2260,6 @@ describe("useAssistantSession", () => {
     vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
       makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
     );
-    // session-1 的删除一直挂着
     vi.spyOn(API, "deleteAssistantSession").mockReturnValue(createDeferred<void>().promise as never);
     const rewriteDeferred = createDeferred<AcceptedMessageResponse & { origin_session_id: string | null }>();
     vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
@@ -2357,7 +2310,6 @@ describe("useAssistantSession", () => {
     vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
       makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
     );
-    // 项目 A 的删除一直挂着，模拟慢请求
     vi.spyOn(API, "deleteAssistantSession").mockReturnValue(createDeferred<void>().promise as never);
     const rewriteDeferred = createDeferred<AcceptedMessageResponse & { origin_session_id: string | null }>();
     vi.spyOn(API, "rewriteAssistantMessage").mockReturnValue(rewriteDeferred.promise);
@@ -2424,7 +2376,6 @@ describe("useAssistantSession", () => {
       deleting = result.current.deleteSession("project-a-s1");
     });
 
-    // DELETE 在途期间切到项目 B
     rerender({ projectName: "project-b" });
     await waitFor(() => {
       expect(useAssistantStore.getState().currentSessionId).toBe("project-b-s1");
@@ -2477,7 +2428,6 @@ describe("useAssistantSession", () => {
       expect(await result.current.sendMessage("hello")).toBe(true);
     });
 
-    // 只留本项目的新会话，A 的会话不混进来
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["b-new"]);
   });
 
@@ -2511,7 +2461,6 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().sending).toBe(true);
     });
 
-    // 切走使本轮作废，随后改写以网络错误告终
     await act(async () => {
       await result.current.switchSession("session-2");
       rewriteDeferred.reject(new Error("network down"));
@@ -2588,7 +2537,6 @@ describe("useAssistantSession", () => {
       await waitFor(() => expect(FakeSseStream.instances).toHaveLength(1));
 
       await act(async () => { await result.current.interrupt(); });
-      // 同一会话内错误照常显示
       expect(useAssistantStore.getState().error).toBe("中断请求失败");
 
       if (navigation === "project") {
@@ -2598,7 +2546,6 @@ describe("useAssistantSession", () => {
       } else {
         await act(async () => { await result.current.deleteSession("session-1"); });
       }
-      // 切项目后新项目的会话载入完成（接上新流）；新建与删光后落在无会话状态
       await waitFor(() => expect(FakeSseStream.instances).toHaveLength(navigation === "project" ? 2 : 1));
       expect(useAssistantStore.getState().currentSessionId).toBe(navigation === "project" ? "session-1" : null);
       expect(useAssistantStore.getState().error).toBeNull();
@@ -2669,7 +2616,6 @@ describe("useAssistantSession", () => {
       await deleting;
     });
 
-    // 迟到的受理不得把用户装到一个分支上
     expect(useAssistantStore.getState().currentSessionId).not.toBe("session-2");
     expect(useAssistantStore.getState().sessions.map((s) => s.id)).not.toContain("session-2");
   });
@@ -2784,7 +2730,6 @@ describe("useAssistantSession", () => {
     });
     expect(useAssistantStore.getState().sending).toBe(false);
 
-    // 服务端此刻已经取代 session-1、开出分支 session-2
     listSessions.mockResolvedValue({
       sessions: [makeSession("session-2", "running"), makeSession("session-3", "idle")],
     });
@@ -2800,7 +2745,6 @@ describe("useAssistantSession", () => {
       await deferred.promise;
     });
 
-    // 迟到的受理不得把用户从他已切去的会话拽到分支
     expect(useAssistantStore.getState().currentSessionId).toBe("session-3");
     expect(openStreamSpy.mock.calls.map(([options]) => options.sessionId)).toEqual(["session-1", "session-3"]);
     // 但服务端的分叉已经发生，列表补拉一次：已消失的 session-1 让位给 session-2

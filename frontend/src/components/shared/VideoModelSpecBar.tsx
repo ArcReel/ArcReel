@@ -22,7 +22,6 @@ const TIER_CLASS: Record<VoiceConsistencyTier, string> = {
   none: "border-border bg-foreground/5 text-muted-foreground",
 };
 
-/** 声音一致性档位徽章：图标 + 文案 + 悬停说明。 */
 export function VoiceConsistencyBadge({ tier }: { tier: VoiceConsistencyTier }) {
   const { t } = useTranslation("dashboard");
   const Icon = TIER_ICON[tier];
@@ -50,7 +49,6 @@ export interface VideoModelSpecBarProps {
   tier: VoiceConsistencyTier | null;
 }
 
-/** 选择器下方的规格条：时长 / 分辨率 / 音轨 / 声音一致性，四格集中展示当前选中模型的能力。 */
 export function VideoModelSpecBar({ durations, resolutions, tier }: VideoModelSpecBarProps) {
   const { t } = useTranslation("dashboard");
 

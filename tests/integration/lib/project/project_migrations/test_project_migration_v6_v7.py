@@ -231,7 +231,6 @@ def test_nonempty_zero_duration_unit_remains_readable_and_requires_replan(tmp_pa
     unit = migrated["video_units"][0]
     assert unit["duration_seconds"] == 1
     assert unit["needs_replan"] is True
-    # 两个成员镜头的画面文本都留在同一段正文里。
     assert unit["text"].count("演员端起咖啡") == 2
 
 

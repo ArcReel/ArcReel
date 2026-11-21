@@ -57,7 +57,6 @@ def test_upgrade_makes_cost_nullable_and_adds_columns_without_backfill(
 
         after = _column_info(engine)
         assert after.keys() >= _NEW_COLUMNS
-        # 费用可空，服务端默认不变；新列全部可空且没有默认。
         assert after["cost_amount"][0] is False
         assert after["cost_amount"][1] in ("0.0", "'0.0'")
         assert all(after[name] == (False, None) for name in _NEW_COLUMNS)

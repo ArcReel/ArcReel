@@ -57,16 +57,10 @@ _SKILL_INJECTION_PREFIXES = ("Base directory for this skill:", "Skill content:")
 # 写入点统一归一化为 parent_tool_use_id。
 _PARENT_KEY_VARIANTS = ("parent_tool_use_id", "parentToolUseID", "parentToolUseId")
 
-# CLI 注入的中断回显前缀。具体措辞是 CLI 内部实现细节（非稳定 API），
-# 只在写入点做一次前缀识别，定型后读取端不再嗅探。
 _INTERRUPT_ECHO_PREFIX = "[Request interrupted"
 
-# 上下文压缩后 CLI 注入的续接摘要。transcript 载荷带结构化标记 isCompactSummary
-# （适配器回填为 is_compact_summary）；live 消息的解析结果不携带该标记，只能按
-# 摘要开头的固定措辞识别。措辞是 CLI 内部实现细节，只在写入点识别一次。
 _COMPACT_SUMMARY_PREFIX = "This session is being continued from a previous conversation"
 
-# 推断出的子代理描述合并为一行后截到这个长度。
 _SUBAGENT_DESCRIPTION_MAX_CHARS = 200
 
 # SDK 以用户消息形态注入的后台任务通知 XML。
@@ -277,7 +271,6 @@ class SdkMessageNormalizer:
         # 同一上下文可能并发发起多个 Skill 调用（同一 assistant 消息内多个
         # tool_use 块），按调用顺序逐一消费，避免后一个覆盖前一个。
         self._pending_skills: dict[str | None, list[dict[str, Any]]] = {}
-        # 已登记但尚未收到答复的 AskUserQuestion tool_use_id。
         self.question_tool_use_ids: set[str] = set()
         # 主线与多个 subagent 的消息会交错到达；按 parent 上下文分别等待
         # 各自的 result，禁止把两个执行上下文的故障对象拼成虚假观测。

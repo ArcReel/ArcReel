@@ -169,7 +169,6 @@ def project_script_plan_prompt_inputs(
             }
         )
 
-    # 源文件类型按集取（只有剧情演绎有），无原文的集按小说。
     source_kind = episode_source_kind(project, episode) or DEFAULT_SOURCE_KIND
     if variant == "drama":
         inputs.update(

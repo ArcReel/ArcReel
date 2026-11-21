@@ -134,7 +134,6 @@ async def test_stale_base_still_applies_when_its_clips_were_untouched(service: E
     assert [(item.number, item.author) for item in result.concurrent_revisions] == [(2, AGENT)]
     assert "已有他人写入修订 2" in result.message
     readout = await service.read("demo", timeline_id)
-    # 期间他人的改动保留，本批在最新修订上应用
     assert [(clip.source_volume, clip.hold) for clip in readout.clips] == [(1.0, 0.5), (0.3, 0.0), (0.4, 0.0)]
 
 
@@ -142,11 +141,8 @@ async def test_stale_base_still_applies_when_its_clips_were_untouched(service: E
 @pytest.mark.parametrize(
     ("concurrent", "mine", "conflicting"),
     [
-        # 他人改过的片段正是本批要改的片段
         ({"op": "set_volume", "clip": "c2", "volume": 0.4}, {"op": "set_hold", "clip": "c2", "hold": 1}, ["c2"]),
-        # 他人删掉了本批用作锚点的片段
         ({"op": "delete", "clip": "c2"}, {"op": "insert", "unit_id": "E1U3", "after": "c2"}, ["c2"]),
-        # 他人挪动了本批要改的片段
         ({"op": "move", "clip": "c3", "after": None}, {"op": "set_reason", "clip": "c3", "reason": "收尾"}, ["c3"]),
         # 本批会顺带清掉 c1 上的转场，而他人刚改过这个转场
         (

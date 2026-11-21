@@ -1,6 +1,3 @@
-# ============================================================
-# Stage 1: 构建前端
-# ============================================================
 FROM node:24-slim AS frontend-builder
 
 WORKDIR /build/frontend
@@ -15,13 +12,9 @@ RUN corepack enable
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# 复制前端源码并构建
 COPY frontend/ ./
 RUN pnpm build
 
-# ============================================================
-# Stage 2: 生产镜像
-# ============================================================
 FROM python:3.12-slim AS production
 
 # 安装系统依赖，并把基础镜像预装的系统包升级到当前仓库版本。
@@ -44,12 +37,10 @@ RUN echo "apt refresh: ${APT_REFRESH}" \
 # 但 python:3.12-slim 自带的旧 pip 会被镜像扫描器报 CVE，升级以清除这些告警
 RUN python -m pip install --no-cache-dir --upgrade pip
 
-# 安装 uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# 禁用 Python 输出缓冲，确保日志实时输出到 Docker logs
 ENV PYTHONUNBUFFERED=1
 
 # 默认时区，可由 docker-compose / 运行时 -e TZ=... 覆盖
@@ -60,7 +51,6 @@ COPY pyproject.toml uv.lock README.md ./
 COPY packages/ packages/
 RUN uv sync --no-dev --no-install-project
 
-# 复制应用代码
 COPY lib/ lib/
 COPY server/ server/
 COPY alembic/ alembic/
@@ -72,19 +62,15 @@ COPY public/ public/
 COPY LICENSE NOTICE ./
 COPY LICENSES/ LICENSES/
 
-# 复制前端构建产物
 COPY --from=frontend-builder /build/frontend/dist/ frontend/dist/
 
 # 构建 commit 由 CI 传入，/health 据此返回运行版本；放在最后，值每次变化也不影响前面的层缓存
 ARG BUILD_COMMIT=
 ENV ARCREEL_BUILD_COMMIT=${BUILD_COMMIT}
 
-# 暴露端口
 EXPOSE 1241
 
-# 健康检查
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:1241/health || exit 1
 
-# 启动命令
 CMD ["uv", "run", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "1241"]

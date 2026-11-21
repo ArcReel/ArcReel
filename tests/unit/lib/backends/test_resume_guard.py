@@ -55,7 +55,6 @@ def test_equivalent_protocols_resume(submitted: str | None, current: str) -> Non
         (builtin_endpoint_guard("gemini-interactions-video"), builtin_endpoint_guard("gemini-video")),
         (builtin_endpoint_guard("gemini-vertex-video"), builtin_endpoint_guard("gemini-vertex-interactions-video")),
         (builtin_endpoint_guard("gemini-vertex-interactions-video"), builtin_endpoint_guard("gemini-vertex-video")),
-        # 换了协议
         ("ark-seedance", "openai-video"),
         # 后继之间互换仍是换了端点
         ("ark-seedance-1", "ark-seedance-2"),
@@ -63,7 +62,6 @@ def test_equivalent_protocols_resume(submitted: str | None, current: str) -> Non
         (builtin_endpoint_guard("agnes-video-2"), builtin_endpoint_guard("agnes-video-2-5")),
         # 内置供应商下用户添加的模型提交后换了端点
         (builtin_endpoint_guard("ark-seedance-2"), builtin_endpoint_guard("ark-seedance-1")),
-        # 路径覆盖变了
         (endpoint_guard("ark-seedance", _PATHS), "ark-seedance-2"),
         # 内置与自定义之间切换，即使端点同名
         ("ark-seedance", builtin_endpoint_guard("ark-seedance-2")),

@@ -55,7 +55,7 @@ def _files(data: CatalogData) -> tuple[bytes, bytes]:
             pid: {
                 "models": [{"api_model_name": m.api_model_name, "entry": m.entry} for m in listing.models],
                 "defaults": dict(listing.defaults),
-                "some_future_field": True,  # 不认识的字段忽略
+                "some_future_field": True,
             }
             for pid, listing in data.builtin_providers.items()
         },
@@ -188,7 +188,6 @@ async def test_hash_mismatch_and_network_failure_are_recorded_silently(db_factor
     assert official_sync.sync_status().last_error == "HTTP 503"
     assert catalog.official_data() is SNAPSHOT
 
-    # 下一轮成功后清掉失败原因
     await _sync(db_factory, http_client, UPSTREAM)
     assert official_sync.sync_status().last_error is None
 

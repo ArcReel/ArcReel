@@ -5,17 +5,14 @@ import type { EndpointInstallation } from "./market";
 // endpoint_definition/schema.json 与 comfyui/schema.json，最终判定以 POST /custom-endpoints/validate 为准，
 // 这里只描述 UI 需要读写的形状。
 
-/** 素材在 ArcReel 侧的来源槽位。 */
 export type EndpointInputSource =
   | "start_image"
   | "end_image"
   | "reference_images"
   | "reference_audio_files";
 
-/** 素材发送到供应商时的编码形态。 */
 export type EndpointInputEncoding = "data_uri" | "base64";
 
-/** 标准状态四档，与后端 ProviderJobStatus 同名。 */
 export type EndpointStandardStatus = "queued" | "running" | "succeeded" | "failed";
 
 export interface EndpointInputSpec {
@@ -172,7 +169,6 @@ export const COMFYUI_IMAGE_BINDING_KEYS: readonly ComfyuiBindingKey[] = [
 /** 两种媒体类型都必须绑定的语义键：没有提示词无从下笔，没有产物取不到成片。 */
 export const COMFYUI_REQUIRED_BINDING_KEYS: readonly ComfyuiBindingKey[] = ["prompt", "output"];
 
-/** 一份 ComfyUI workflow 产出图像还是视频。 */
 export type ComfyuiMediaType = "image" | "video";
 
 /** 一条节点绑定指向的读图节点接到谁的哪个入口；张数少于格子数时据此改图。 */
@@ -229,9 +225,6 @@ export interface ComfyuiWorkflowNode {
   _meta?: { title?: string };
 }
 
-// ---------------------------------------------------------------------------
-// 节点绑定推断（POST /custom-endpoints/comfyui/infer）
-// ---------------------------------------------------------------------------
 
 /**
  * 一个语义键的推断状态。`needs_confirmation` 是重导入专属：既有条目有丢失的，该键重跑了
@@ -288,12 +281,8 @@ export interface ComfyuiInferResponse {
   wrapped_definition: ComfyuiEndpointDefinition | null;
 }
 
-/** 导入、校验与保存这条路上流过的定义：两种 kind 都可能。 */
 export type AnyEndpointDefinition = EndpointDefinition | ComfyuiEndpointDefinition;
 
-// ---------------------------------------------------------------------------
-// CRUD / validate
-// ---------------------------------------------------------------------------
 
 export interface CustomEndpointInfo {
   installation: EndpointInstallation | null;
@@ -369,9 +358,6 @@ export interface EndpointValidateResponse {
   wrapped_definition: ComfyuiEndpointDefinition | null;
 }
 
-// ---------------------------------------------------------------------------
-// 端点测试三模式
-// ---------------------------------------------------------------------------
 
 export interface EndpointTestParameters {
   model: string;
@@ -417,7 +403,6 @@ export interface ComfyuiRequestConversions {
   frames: number | null;
   seed: number | null;
   negative_prompt: string;
-  /** 这次按参考图张数改图删掉的节点。 */
   dropped_nodes: string[];
 }
 
@@ -462,7 +447,6 @@ export interface EndpointStageReport {
 
 export type TrialRunStatus = "queued" | "running" | "succeeded" | "failed";
 
-/** 测试连接的四段：提交、轮询、取得结果、取回产物。 */
 export const TRIAL_RUN_STAGES = ["submit", "poll", "result", "artifact"] as const;
 
 export type TrialRunStage = (typeof TRIAL_RUN_STAGES)[number];
@@ -475,7 +459,6 @@ export interface TrialRunInfo {
   status: TrialRunStatus;
   provider: string;
   model: string;
-  /** 这一笔产的是视频还是图像；产物按哪种形态展示读它。 */
   media_type: ComfyuiMediaType;
   /** epoch 秒。 */
   created_at: number;

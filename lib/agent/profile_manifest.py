@@ -41,7 +41,6 @@ MANIFEST_SCHEMA_VERSION = 1
 EXPECTED_PROFILE_ID = "arcreel/builtin"
 LOCK_TIMEOUT_SECONDS = 10
 
-# profile 端要物化的两个根：``.claude/**`` 目录树 + 顶层 ``CLAUDE.md``
 _PROFILE_TREE_ROOT = ".claude"
 _PROFILE_TOP_FILE = "CLAUDE.md"
 
@@ -60,9 +59,6 @@ class ProfileMisconfiguredError(RuntimeError):
 
 ContentMode = Literal["narration", "drama", "ad"]
 VALID_CONTENT_MODES: frozenset[str] = frozenset({"narration", "drama", "ad"})
-
-
-# ---------- 基础工具 ----------
 
 
 def _is_skippable_dest(rel: str) -> bool:
@@ -132,7 +128,6 @@ def resolve_profile_files_for_mode(
 
     profile_files = enumerate_profile_files(profile_dir)
 
-    # variants[logical_rel][mode] = source_rel
     variants: dict[str, dict[str, str]] = {}
     commons: dict[str, str] = {}
     for src in profile_files:
@@ -142,7 +137,6 @@ def resolve_profile_files_for_mode(
         else:
             variants.setdefault(logical, {})[mode] = src
 
-    # 校验 1：通用 + 变体互斥
     collisions = set(commons) & set(variants)
     if collisions:
         sample = sorted(collisions)[0]
@@ -150,7 +144,6 @@ def resolve_profile_files_for_mode(
             f"profile has both common and variant for {sample!r}; remove one. all collisions: {sorted(collisions)}"
         )
 
-    # 校验 2：变体配对完整
     for logical, by_mode in variants.items():
         missing = VALID_CONTENT_MODES - set(by_mode)
         if missing:
@@ -273,9 +266,6 @@ def _enumerate_dest_symlinks(project_dir: Path) -> set[str]:
             if path.is_symlink():
                 links.add(path.relative_to(project_dir).as_posix())
     return links
-
-
-# ---------- Manifest 数据类 ----------
 
 
 @dataclasses.dataclass
@@ -423,9 +413,6 @@ def save_manifest(
     return True
 
 
-# ---------- entry / 时间戳工具 ----------
-
-
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
@@ -478,7 +465,6 @@ def _new_stats() -> dict:
         "repaired": 0,
         "skipped": 0,
         "errors": 0,
-        # 新增 stat
         "upgraded": 0,
         "user_modified": 0,
         "user_only": 0,
@@ -490,9 +476,6 @@ def _new_stats() -> dict:
         "collision": 0,
         "migrated_total": 0,
     }
-
-
-# ---------- 首次迁移分支 ----------
 
 
 def _trash_discarded_files(profile_dir: Path, project_dir: Path, mapping: dict[str, str]) -> None:
@@ -679,8 +662,6 @@ def _apply_decision(
             stats["tombstoned"] += 1
             stats["skipped"] += 1
         case (False, False, "active"):
-            # #14 双方同轮删 → 转 tombstone（隐含假设：D 缺=用户主动删，
-            # 卷切换 / 故障导致 D 临时空时需 force_resync_profile 清 tombstone）
             manifest.entries[rel] = _tombstone_entry()
             stats["pruned"] += 1
             stats["repaired"] += 1
@@ -694,9 +675,6 @@ def _apply_decision(
             stats["skipped"] += 1
         case _:
             raise NotImplementedError(f"unreachable case: {p_exists=} {d_exists=} {m_kind=}")
-
-
-# ---------- 公开 API ----------
 
 
 def sync_profile_to_project(

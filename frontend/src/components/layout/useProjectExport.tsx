@@ -15,13 +15,11 @@ interface ProjectExportOptions {
 }
 
 interface ProjectExport {
-  /** 打开导出范围对话框，选定范围后导出 `projectName`。 */
   open: (projectName: string) => void;
   /** 关闭尚未选定范围的对话框，如切到别的项目或演示项目时。 */
   close: () => void;
   /** 正在为哪个项目请求导出；下载开始后复位。 */
   exporting: string | null;
-  /** 导出范围对话框与诊断对话框，渲染在调用方组件树里。 */
   element: ReactNode;
 }
 

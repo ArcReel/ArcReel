@@ -391,7 +391,6 @@ describe("AssetGallery", () => {
       });
       renderGallery();
 
-      // 保留方「书房」的卡片上正在上传资产图
       const target = screen.getByRole("article", { name: "书房" });
       const file = new File(["sheet"], "scene.png", { type: "image/png" });
       fireEvent.change(within(target).getByLabelText("上传资产图", { selector: "input" }), { target: { files: [file] } });

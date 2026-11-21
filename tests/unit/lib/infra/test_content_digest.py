@@ -157,9 +157,6 @@ def test_text_mode_digest_folds_across_chunk_boundaries(chunks: tuple[bytes, ...
     assert digest.hexdigest() == hashlib.sha256(_text_mode_view(content)).hexdigest()
 
 
-# --- 文件摘要缓存：键为 (st_dev, st_ino, st_size, st_mtime_ns) ---
-
-
 @pytest.fixture(autouse=True)
 def fresh_digest_cache() -> None:
     reset_file_digest_cache_for_tests()
@@ -268,7 +265,7 @@ def test_cache_is_bounded_and_evicts_the_least_recently_used(tmp_path: Path, has
 
     sha256_file(files[0])
     sha256_file(files[-1])
-    assert len(hashed_files) == hashed_before  # 最近用过的两个仍命中
+    assert len(hashed_files) == hashed_before
 
     sha256_file(files[1])
     assert len(hashed_files) == hashed_before + 1  # 最久未用的被淘汰，缓存没有无界增长

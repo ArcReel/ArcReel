@@ -106,7 +106,6 @@ def _client(monkeypatch, **patches):
 
 
 def test_generate_grid_unexpected_error_no_leak(monkeypatch):
-    # generate_grid 末端 catch-all：load_project 抛非预期异常时不泄露内部细节
     client = _client(
         monkeypatch,
         get_project_manager=lambda: (_ for _ in ()).throw(RuntimeError("LEAK_generate")),
@@ -121,7 +120,6 @@ def test_generate_grid_unexpected_error_no_leak(monkeypatch):
 
 
 def test_list_grids_unexpected_error_no_leak(monkeypatch):
-    # list_grids 末端 catch-all：get_project_path 抛非预期异常时不泄露内部细节
     client = _client(
         monkeypatch,
         get_project_manager=lambda: (_ for _ in ()).throw(RuntimeError("LEAK_list")),
@@ -133,7 +131,6 @@ def test_list_grids_unexpected_error_no_leak(monkeypatch):
 
 
 def test_get_grid_unexpected_error_no_leak(monkeypatch):
-    # get_grid 末端 catch-all：get_project_path 抛非预期异常时不泄露内部细节
     client = _client(
         monkeypatch,
         get_project_manager=lambda: (_ for _ in ()).throw(RuntimeError("LEAK_get")),
@@ -145,7 +142,6 @@ def test_get_grid_unexpected_error_no_leak(monkeypatch):
 
 
 def test_regenerate_grid_unexpected_error_no_leak(monkeypatch):
-    # regenerate_grid 末端 catch-all：load_project 抛非预期异常时不泄露内部细节
     client = _client(
         monkeypatch,
         get_project_manager=lambda: (_ for _ in ()).throw(RuntimeError("LEAK_regen")),
@@ -230,7 +226,6 @@ def test_regenerate_grid_rejected_when_switch_off(monkeypatch, fake_pm):
 
 
 def test_get_grid_not_found(monkeypatch):
-    # gm.get() 返回 None 时：raise NotFoundError("grid_not_found", ...) -> 404
     client = _client(
         monkeypatch,
         get_project_manager=_FakePMPathOnly,
@@ -242,7 +237,6 @@ def test_get_grid_not_found(monkeypatch):
 
 
 def test_regenerate_grid_not_found(monkeypatch):
-    # ad 项目校验通过后 gm.get() 返回 None：raise NotFoundError("grid_not_found", ...) -> 404
     client = _client(
         monkeypatch,
         get_project_manager=_FakePMNarration,
@@ -453,7 +447,6 @@ def test_generate_grid_rejects_an_episode_path_that_mismatches_the_bound_script(
 
 
 def test_generate_grid_success(monkeypatch, tmp_path):
-    # 完整走一遍分组 -> 布局 -> prompt -> 入队，断言 200 且每组产出一个 grid_id/task_id
     fake_queue = _FakeQueue()
     client = _client(
         monkeypatch,
@@ -471,7 +464,6 @@ def test_generate_grid_success(monkeypatch, tmp_path):
         assert len(body["grid_ids"]) == 1
         assert len(body["task_ids"]) == 1
         assert body["deduped"] is False
-        # message 走 i18n（默认中文），不再硬编码
         assert body["message"] == "已提交 1 个多宫格分镜生成任务"
     assert len(fake_queue.calls) == 1
     saved = json.loads((tmp_path / "grids" / f"{body['grid_ids'][0]}.json").read_text(encoding="utf-8"))
@@ -560,7 +552,6 @@ def test_generate_grid_blocks_a_character_without_an_asset_sheet(monkeypatch, tm
 
 
 def test_generate_grid_success_message_localized_en(monkeypatch, tmp_path):
-    # Accept-Language=en 时 message 按英文渲染，验证成功文案已接入 Translator
     fake_queue = _FakeQueue()
     client = _client(
         monkeypatch,
@@ -1211,9 +1202,6 @@ def test_regenerate_grid_backfills_missing_aspect_ratio(monkeypatch, tmp_path):
     assert payload["video_aspect_ratio"] == "9:16"
 
 
-# ==================== 切分端点 ====================
-
-
 def _make_completed_grid(tmp_path, *, with_image: bool = True) -> GridGeneration:
     _materialize_project(tmp_path, _FakePMRegenerate(tmp_path).load_project("demo"))
     grid = GridGeneration.create(
@@ -1338,9 +1326,6 @@ def test_split_grid_not_found(monkeypatch, tmp_path):
         assert resp.status_code == 404
 
 
-# ==================== 联合图上传 ====================
-
-
 def _png_bytes(size=(64, 64), color=(1, 2, 3)) -> bytes:
     from io import BytesIO
 
@@ -1387,7 +1372,6 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
         assert body["path"] == f"grids/{grid.id}.png"
         assert body["asset_fingerprints"] == {f"grids/{grid.id}.png": 123}
 
-    # 落盘为合法 PNG
     from io import BytesIO
 
     from PIL import Image
@@ -1396,7 +1380,6 @@ def test_upload_grid_image_normalizes_to_png_and_versions(monkeypatch, tmp_path)
     with Image.open(BytesIO(saved_bytes)) as img:
         assert img.format == "PNG"
 
-    # 旧联合图补登 + 新版本登记（source=upload）
     versions = VersionManager(tmp_path).get_versions("grids", grid.id)
     assert len(versions["versions"]) >= 2
 

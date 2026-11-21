@@ -2,8 +2,6 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 全局设置的「外部 Agent 接入」与「访问令牌」：步骤页、创建令牌对话框（含一次性展示的完整令牌）、
-// 多条长名称令牌的列表与吊销确认。
 
 const EXTERNAL_AGENT = "/app/settings?section=external-agent";
 const ACCESS_TOKENS = "/app/settings?section=access-tokens";
@@ -48,7 +46,6 @@ const CREATED_TOKEN: ApiOverrides = {
   },
 };
 
-// 吊销失败的原因很长：说明在只读的对话框正文里折行，超出可用高度后由正文滚动。
 const REVOKE_FAILED: ApiOverrides = {
   ...MANY_TOKENS,
   "DELETE /api/v1/api-keys/2": {
@@ -91,7 +88,6 @@ defineRegionScenarios("外部 Agent 接入与访问令牌", [
       await openCreateDialog(page);
       const dialog = page.getByRole("dialog", { name: "创建访问令牌" });
       await expect(dialog).toBeInViewport({ ratio: 1 });
-      // 打开时焦点落在名称输入框，回车即可提交
       await expect(dialog.getByRole("textbox", { name: "名称" })).toBeFocused();
     },
     screenshot: { name: "access-token-create", target: (page) => page.getByRole("dialog") },

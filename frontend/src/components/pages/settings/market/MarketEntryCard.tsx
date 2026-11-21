@@ -27,7 +27,6 @@ function useEntryIconUrl(entry: MarketEntry): string | null {
         setUrl(objectUrl);
       })
       .catch(() => {
-        // icon 不可用不影响浏览：保持首字占位。
       });
     return () => {
       controller.abort();

@@ -10,7 +10,6 @@ const GENERATE_SCRIPT_OPERATION = "generate_script";
 export interface AdScriptEntry {
   /** 本集的脚本文本任务在排队或生成中（整份生成与提示词编写共用一个占用槽）。 */
   busy: boolean;
-  /** 本集最近一次脚本文本任务；没有时为 undefined。 */
   latestTask: TaskItem | undefined;
   /**
    * 缺创作灵感与商品时的置灰原因，「AI 生成脚本」与「重新生成脚本」共用；

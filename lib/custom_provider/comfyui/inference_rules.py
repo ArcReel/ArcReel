@@ -27,7 +27,6 @@ from arcreel_market_core.comfyui.bindings import BINDING_KEYS_BY_MEDIA_TYPE
 
 RULES_SCHEMA_PATH = Path(__file__).parent / "inference_rules.schema.json"
 
-#: 媒体类型 → 该媒体类型的规则文件。
 RULES_PATHS: Mapping[str, Path] = {
     "image": Path(__file__).parent / "inference_rules.image.json",
     "video": Path(__file__).parent / "inference_rules.video.json",
@@ -38,11 +37,8 @@ RULES_PATHS: Mapping[str, Path] = {
 class SemanticKeyRules:
     """认出一个语义键的字段级线索。"""
 
-    #: 该语义键的 input 名别名。
     input_names: tuple[str, ...]
-    #: 承载该语义键的原生节点白名单。
     class_types: frozenset[str]
-    #: 条件规则：某个 input 名只在这些节点上算本键。
     input_name_class_types: Mapping[str, frozenset[str]]
     #: 标题里的次级线索，大小写不敏感子串匹配。
     title_keywords: tuple[str, ...]

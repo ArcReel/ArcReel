@@ -112,7 +112,6 @@ OPEN_DRAFT_TOOL_NAME = "open_draft"
 #: 草稿。已确认的脚本规划只读，编辑副本的修改与晋升按它拒绝；Web 只展示可编辑草稿的状态、不展示内容。
 FORMAL_EDIT_META_KEY = "formal_edit"
 
-#: 草稿的处置方：``user`` 为待修复草稿（创作者可直接改），``agent`` 为 Agent 的可编辑草稿。
 DRAFT_OWNER_USER = "user"
 DRAFT_OWNER_AGENT = "agent"
 

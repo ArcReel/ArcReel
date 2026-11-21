@@ -39,7 +39,6 @@ export function useAssetSheetStatus(projectName: string, enabled = true): AssetS
 
 const NO_ROWS: AssetSheetStatusRow[] = [];
 
-/** 某一类资产本体的状态行，按资产名索引。 */
 export function useSheetStatusByName(
   rows: AssetSheetStatusRow[],
   assetType: AssetSheetType,

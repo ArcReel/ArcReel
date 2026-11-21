@@ -133,7 +133,6 @@ function cardNames(): string[] {
   return screen.queryAllByRole("article").map((card) => within(card).getByRole("heading").textContent ?? "");
 }
 
-/** 市场源列表里的顺序，按每行拖动把手的名称读出。 */
 function sourceOrder(): string[] {
   return screen
     .getAllByRole("button", { name: /^调整「.+」的顺序$/ })
@@ -684,7 +683,6 @@ describe("MarketSection", () => {
       await waitFor(() => expect(confirm).not.toBeInTheDocument());
       expect(sourceOrder()).toContain("团队市场");
 
-      // 再次打开同一个源时不残留上一次的错误。
       await chooseSourceAction("团队市场", "删除");
       expect(within(await screen.findByRole("alertdialog")).queryByRole("alert")).not.toBeInTheDocument();
     });

@@ -48,8 +48,6 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple, TypeGuard
 
-# ---------------------------------------------------------------- 常量表
-
 MOCK_FACTORIES = {
     "MagicMock",
     "AsyncMock",
@@ -252,9 +250,6 @@ def monkeypatch_context_aliases(tree: ast.Module) -> dict[str, list[tuple[int, i
     return aliases
 
 
-# ---------------------------------------------------------------- 数据结构
-
-
 @dataclass
 class DoubleOnlyTest:
     path: str
@@ -300,9 +295,6 @@ class FileStat:
     no_assertion: int = 0
     private_patches: int = 0
     integration_self_patches: int = 0
-
-
-# ---------------------------------------------------------------- 工具函数
 
 
 def dotted(node: ast.expr | None) -> str | None:
@@ -690,9 +682,6 @@ def _is_empty_container(node: ast.expr) -> bool:
     return False
 
 
-# ---------------------------------------------------------------- 模块别名解析
-
-
 def alias_map_from(node: ast.AST) -> dict[str, str]:
     """收集一个 AST 子树里的 import 别名 -> 点分模块映射。"""
     out: dict[str, str] = {}
@@ -764,9 +753,6 @@ class AliasIndex:
         return None
 
 
-# ---------------------------------------------------------------- 类 1 识别
-
-
 class TestFunctionAnalyzer:
     """在单个 test 函数体内识别替身绑定并给断言分类。"""
 
@@ -778,8 +764,6 @@ class TestFunctionAnalyzer:
         self.doubles: set[str] = set()
         self.recorders: set[str] = set()
         self._collect_doubles()
-
-    # -- 替身绑定 ------------------------------------------------
 
     def _collect_doubles(self) -> None:
         injected = 0
@@ -859,8 +843,6 @@ class TestFunctionAnalyzer:
                     and inner.target.id in containers
                 ):
                     self.recorders.add(inner.target.id)
-
-    # -- 断言分类 ------------------------------------------------
 
     def classify(self) -> tuple[int, int, list[str], list[str]]:
         """返回 (替身断言数, 实质断言数, 替身断言证据, 被断言的替身主体)。"""
@@ -951,9 +933,6 @@ class TestFunctionAnalyzer:
             if owner and owner.split(".")[0] in double_names:
                 owners.add(owner)
         return owners
-
-
-# ---------------------------------------------------------------- 类 2 识别
 
 
 def classify_motive(target: str) -> str:
@@ -1083,9 +1062,6 @@ class ProductionIndex:
         return self.ORIGIN_DEFINED if rest.split(".")[0] in members else self.ORIGIN_UNKNOWN
 
 
-# ---------------------------------------------------------------- 主扫描
-
-
 class FileScanner:
     def __init__(self, path: Path, root: Path, tests_dir: Path, prod: ProductionIndex) -> None:
         self.path = path
@@ -1163,8 +1139,6 @@ class FileScanner:
                     subjects=subjects,
                 )
             )
-
-    # -- patch 站点 ----------------------------------------------
 
     def _enclosing_map(self) -> dict[int, tuple[str, list[str], dict[str, str]]]:
         """行号 -> (所属函数限定名, 生效的 marks, 该函数内的 import 别名覆盖)。
@@ -1258,8 +1232,6 @@ class FileScanner:
                 return f"{base}.{attr}", "monkeypatch.setattr"
         return None, None
 
-
-# ---------------------------------------------------------------- 类 3：共享设施结构
 
 DUPLICATE_FIXTURE_THRESHOLD = 3
 
@@ -1537,8 +1509,6 @@ def scan_shared_symbol_usage(root: Path, parsed: Sequence[tuple[Path, ast.Module
     return findings
 
 
-# ---------------------------------------------------------------- 类 4：文件形态
-
 SPLIT_SUFFIX_RE = re.compile(r"_(more|full|coverage|extra|additional)$")
 FILE_LINE_LIMIT = 3000
 FRONTEND_TESTS_DIR = "__tests__"
@@ -1611,8 +1581,6 @@ def scan_frontend_layout(root: Path, paths: list[Path]) -> list[StructureFinding
         if FRONTEND_TESTS_DIR in path.parts
     ]
 
-
-# ---------------------------------------------------------------- 类 5：重复用例
 
 PARAMETRIZE_NAME = "parametrize"
 
@@ -1918,9 +1886,6 @@ def scan_module_duplicates(rel: str, tree: ast.Module, scope: CollectionScope) -
                 )
             )
     return findings
-
-
-# ---------------------------------------------------------------- 汇总输出
 
 
 def run(root: Path, tests_dir: Path | Sequence[Path], top: int, frontend_src: Path | None = None) -> dict[str, object]:

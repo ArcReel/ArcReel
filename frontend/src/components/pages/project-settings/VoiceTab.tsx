@@ -34,7 +34,6 @@ interface VoiceTabProps {
   audioBackends: string[];
   providerNames: Record<string, string>;
   modelNames: Record<string, string>;
-  /** 下线提示（候选接口的 `lifecycle`）。 */
   lifecycle?: ModelLifecycleNotices;
 }
 

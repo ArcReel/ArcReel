@@ -47,7 +47,6 @@ async def test_schema_18_project_records_the_highest_number_without_renaming_any
 
     assert _read_json(project_dir / "project.json") == {
         **legacy,
-        # 剧本到 E1S2，版本历史到 E1S5，删除记录到 E1S7，剪辑时间线的片段到 E1S9
         "episodes": [{**entry, "item_id_high_water": 9} for entry in legacy["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
@@ -75,8 +74,6 @@ def test_rerunning_the_step_keeps_the_recorded_number(tmp_path: Path) -> None:
 
     assert (project_dir / "project.json").read_bytes() == migrated
 
-
-# —— 分镜图与宫格的依据不再记资产名 ——
 
 _GRID = ArtifactKey.episode_grid(1, "grid_123456789abc")
 _GRID_MEMBERS = (ArtifactKey.episode_storyboard(1, "E1S01"), ArtifactKey.episode_storyboard(1, "E1S02"))

@@ -24,7 +24,6 @@ class EndpointTestMode(StrEnum):
     TRIAL_RUN = "trial-run"
 
 
-#: ``kind`` → 该 kind 支持的模式。名录外的 kind 一种模式都不支持。
 _MODES_BY_KIND: Mapping[str, frozenset[EndpointTestMode]] = {
     DECLARATIVE_KIND: frozenset(EndpointTestMode),
     # ComfyUI 端点没有「验证响应」：产物提取读的是 ``output`` 绑定那个节点的固定三个键，没有

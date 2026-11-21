@@ -33,7 +33,6 @@ OWNER_RIGHT_RGB = (30, 60, 220)
 #: 供应商回图的内容，与本体图刻意不同，便于区分「送进去的」和「收回来的」。
 RESULT_IMAGE_RGB = (20, 200, 90)
 
-#: DashScope 多模态生成端点与它回给的产物地址（respx 在 transport 层应答这两条）。
 GENERATION_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
 RESULT_URL = "https://dashscope.example/out.png"
 

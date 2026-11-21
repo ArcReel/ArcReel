@@ -24,7 +24,6 @@ describe("WorkspaceNotifications", () => {
     expect(bell()).toHaveAccessibleName("工作区通知");
     expect(within(panel).getByText(/新通知/)).toBeInTheDocument();
 
-    // 面板开着时新到的通知同样不再计入角标，也一并高亮
     act(() => useAppStore.getState().pushWorkspaceNotification({ text: "第 2 集分镜已生成" }));
     expect(bell()).toHaveAccessibleName("工作区通知");
     expect(within(panel).getAllByText(/新通知/)).toHaveLength(2);

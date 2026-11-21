@@ -23,12 +23,10 @@ const PASSWORD = "e2e-password";
 const DEMO_PROJECT = "demo";
 
 interface Recording {
-  /** 替身文件名（不含扩展名）。 */
   file: string;
   method: "GET" | "POST" | "DELETE";
   /** 页面实际请求的路径；带查询串时写全，参数顺序不限。查询串不同的请求分别录制。 */
   path: string;
-  /** 不带令牌请求。 */
   anonymous?: boolean;
   form?: Record<string, string>;
   json?: unknown;
@@ -109,7 +107,6 @@ const RECORDINGS: Recording[] = [
   },
   // 全局设置「调用端点」：自定义端点列表（录制环境为空，多条目由场景替换）与各端点的分享提交（决定是否提供分享入口）；官方服务开关见上。
   { file: "custom-endpoints", method: "GET", path: "/api/v1/custom-endpoints" },
-  // 内置端点详情的只读定义。
   {
     file: "custom-providers-endpoint-newapi-video-definition",
     method: "GET",
@@ -338,7 +335,6 @@ async function record(perturb: boolean): Promise<Map<string, string>> {
   }
 }
 
-/** 两份录制的差异：逐个文件给出第一处不同的行及其前后几行。 */
 function describeDrift(baseline: Map<string, string>, perturbed: Map<string, string>): string[] {
   const report: string[] = [];
   for (const [file, expected] of baseline) {

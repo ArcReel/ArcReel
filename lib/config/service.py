@@ -51,7 +51,6 @@ class ProviderConfigValueError(ValueError):
         self.params: dict[str, str] = {"field": key, "value": value}
 
 
-# DB setting key → environment variable name
 _ANTHROPIC_ENV_MAP: dict[str, str] = {
     "anthropic_api_key": "ANTHROPIC_API_KEY",
     "anthropic_base_url": "ANTHROPIC_BASE_URL",
@@ -61,13 +60,11 @@ _ANTHROPIC_ENV_MAP: dict[str, str] = {
     "anthropic_default_sonnet_model": "ANTHROPIC_DEFAULT_SONNET_MODEL",
     "claude_code_subagent_model": "CLAUDE_CODE_SUBAGENT_MODEL",
 }
-# 一致性守护：env 名单与 ANTHROPIC_ENV_KEYS 必须对齐。
 assert set(_ANTHROPIC_ENV_MAP.values()) == set(ANTHROPIC_ENV_KEYS), (
     "_ANTHROPIC_ENV_MAP 与 lib.config.env_keys.ANTHROPIC_ENV_KEYS 漂移"
 )
 
 
-# 档位 → 环境变量名。
 _TIER_ENV_KEYS: dict[Tier, str] = {
     "model": "ANTHROPIC_MODEL",
     "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL",

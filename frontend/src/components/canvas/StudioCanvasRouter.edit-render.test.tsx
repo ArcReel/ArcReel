@@ -174,7 +174,6 @@ describe("StudioCanvasRouter edit view mounts", () => {
 
     const renderButton = await screen.findByRole("button", { name: "出片" });
     expect(renderButton).toBeDisabled();
-    // 本集唯一的分镜 E1S03 以位置称呼
     expect(renderButton.parentElement).toHaveAttribute(
       "title",
       "当前剪辑时间线有 1 个问题阻断出片，涉及 分镜 1，处理后才能出片",

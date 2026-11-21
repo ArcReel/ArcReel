@@ -15,7 +15,6 @@ import { useParams } from "wouter";
 import { useProjectsStore } from "@/stores/projects-store";
 import { isDemoProject } from "./demo-project";
 
-/** 当前工作台是否处在只读的演示态。 */
 export function useDemoWorkbench(): boolean {
   const routeProjectName = useParams<{ projectName?: string }>().projectName;
   const storeDemoMode = useProjectsStore((s) => isDemoProject(s.currentProjectName));

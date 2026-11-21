@@ -14,24 +14,6 @@ import { TaskProgressBlock } from "./TaskProgressBlock";
 import { AgentFailureCard } from "./AgentFailureCard";
 import { CompactionMarker } from "./CompactionMarker";
 
-// ---------------------------------------------------------------------------
-// ContentBlockRenderer – dispatches a single ContentBlock to the appropriate
-// specialised renderer.
-//
-// Block types:
-//   text             -> TextBlock (markdown)
-//   tool_use         -> SubagentCard (Agent/Task) / SkillChip (Skill)
-//                       / ToolCallWithResult，三者都是单行工序（WorkRow）
-//   tool_result      -> StandaloneToolResult（孤立结果，很少见）
-//   thinking         -> ThinkingBlock (single line; streaming or summary)
-//   skill_invocation -> SkillChip (standalone, no anchoring tool_use)
-//   task_progress    -> TaskProgressBlock (in-place updated task state)
-//   interrupt_notice -> 分隔线「已停止，这一轮的回复没有完成」
-//   question_answer  -> QuestionAnswerBlock (AskUserQuestion answer)
-//   agent_failure    -> AgentFailureCard（一句话结论，原始信息折叠在「详情」里）
-//   compact_summary  -> CompactionMarker（「上下文已压缩」分隔线，点开看摘要）
-//   image            -> ChatImage（点开看原图）
-// ---------------------------------------------------------------------------
 
 interface ContentBlockRendererProps {
   block: ContentBlock;
@@ -57,7 +39,6 @@ export function ContentBlockRenderer({ block, index, streaming, announce }: Cont
       return <TextBlock key={block.id ?? `block-${index}`} text={block.text} />;
 
     case "tool_use":
-      // subagent 锚点（Agent/Task tool_use 或挂有子时间线）→ 单一折叠卡片
       if (block.name === "Agent" || block.name === "Task" || block.sub_turns) {
         return <SubagentCard key={block.id ?? `block-${index}`} block={block} />;
       }
@@ -183,8 +164,6 @@ function InterruptNoticeBlock() {
   );
 }
 
-// AskUserQuestion 答复：结构化答案逐条呈现（问题、所选选项），
-// 无结构化答案时回退展示原始结果文本。
 function QuestionAnswerBlock({ block }: Readonly<{ block: ContentBlock }>) {
   const answers =
     block.answers && Object.keys(block.answers).length > 0 ? block.answers : null;

@@ -21,7 +21,6 @@ __all__ = [
     "get_registered_backends",
     "register_backend",
 ]
-# Backend auto-registration
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.providers import PROVIDER_ARK, PROVIDER_ARK_AGENT_PLAN, PROVIDER_GEMINI
 

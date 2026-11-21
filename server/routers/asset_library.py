@@ -132,9 +132,6 @@ async def _get_account_or_404(repo: AssetLibraryRepository, account_id: int) -> 
     return account
 
 
-# ── 账号 ──────────────────────────────────────────────────────────
-
-
 @router.get("/accounts", response_model=AccountListResponse)
 async def list_accounts(session: AsyncSession = Depends(get_async_session)) -> AccountListResponse:
     accounts = await AssetLibraryRepository(session).list_accounts()
@@ -195,9 +192,6 @@ async def delete_account(account_id: int, session: AsyncSession = Depends(get_as
     return Response(status_code=204)
 
 
-# ── 绑定 ──────────────────────────────────────────────────────────
-
-
 @router.get("/bindings", response_model=BindingListResponse)
 async def list_bindings(session: AsyncSession = Depends(get_async_session)) -> BindingListResponse:
     """全部可绑定的推理凭证及其当前绑定状态。"""
@@ -247,9 +241,6 @@ async def delete_binding(
     await repo.delete_binding(binding)
     await session.commit()
     return Response(status_code=204)
-
-
-# ── 浏览 ──────────────────────────────────────────────────────────
 
 
 @router.get("/accounts/{account_id}/assets", response_model=ProviderAssetListResponse)

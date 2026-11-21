@@ -14,7 +14,6 @@ import json
 import sys
 from pathlib import Path
 
-# 添加仓库根目录到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
@@ -33,7 +32,6 @@ def migrate_project(project_dir: Path, dry_run: bool = False) -> dict:
     """
     stats = {"project_cleaned": False, "scripts_cleaned": 0, "fields_removed": []}
 
-    # 清理 project.json
     project_file = project_dir / "project.json"
     if project_file.exists():
         with open(project_file, encoding="utf-8") as f:
@@ -47,7 +45,6 @@ def migrate_project(project_dir: Path, dry_run: bool = False) -> dict:
             if not dry_run:
                 project.pop("status", None)
 
-        # 移除 episodes 中的计算字段
         for ep in project.get("episodes", []):
             if "scenes_count" in ep:
                 stats["fields_removed"].append(f"project.json: episodes[{ep.get('episode')}].scenes_count")
@@ -64,7 +61,6 @@ def migrate_project(project_dir: Path, dry_run: bool = False) -> dict:
                 with open(project_file, "w", encoding="utf-8") as f:
                     json.dump(project, f, ensure_ascii=False, indent=2)
 
-    # 清理 scripts/*.json
     scripts_dir = project_dir / "scripts"
     if scripts_dir.exists():
         for script_file in scripts_dir.glob("*.json"):
@@ -74,7 +70,6 @@ def migrate_project(project_dir: Path, dry_run: bool = False) -> dict:
             original = json.dumps(script)
             script_name = script_file.name
 
-            # 移除冗余字段
             if "characters_in_episode" in script:
                 stats["fields_removed"].append(f"{script_name}: characters_in_episode")
                 if not dry_run:

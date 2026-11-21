@@ -1,5 +1,3 @@
-// 文档脚本共用的 Markdown 路径遍历和标题扫描。扫描时跳过围栏代码块。
-
 import { existsSync, readdirSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
 

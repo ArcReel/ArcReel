@@ -97,7 +97,6 @@ describe("GridPreviewPanel regenerate", () => {
     });
   });
 
-  /** 对第 1 张联合图发起重新生成，请求在途时切到第 2 张（已完成），返回结算请求的句柄。 */
   async function regenerateThenSwitch() {
     useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
     vi.spyOn(API, "getGrid").mockImplementation((_project, id) =>
@@ -206,7 +205,6 @@ describe("GridPreviewPanel occupancy", () => {
       expect(pushToast).toHaveBeenCalledWith("该多宫格分镜正在生成中，请稍后再试", "error");
     });
     expect(regenerateSpy).not.toHaveBeenCalled();
-    // 拒绝提示不得替换面板内容：宫格图与重新生成按钮仍在
     expect(screen.getByText("重新生成")).toBeInTheDocument();
   });
 });
@@ -234,7 +232,6 @@ describe("GridPreviewPanel split", () => {
       // 单槽 toast：有跳过分镜时警示后发、留在最终态；只报数量，不露出条目 ID
       expect(useAppStore.getState().toast?.text).toBe("2 个分镜已不在脚本中，已跳过");
     });
-    // 切分完成后「未切分」提示消失
     expect(screen.queryByText("未切分")).not.toBeInTheDocument();
   });
 

@@ -1,6 +1,5 @@
 
 export default {
-  // Tour steps
   'welcome_title': 'Welcome to [[brand]]',
   'welcome_body': '[[brand]] turns a novel or script into short videos. Production is carried out by the agent, and every step can be adjusted by hand. This tour covers the main interface and the basic workflow.',
   'lobby_create_title': 'Create a project',
@@ -26,7 +25,6 @@ export default {
   'finish_title': 'Start your first project',
   'finish_body': 'Create a project and upload a novel or script, then let the agent start production. You can replay this tour any time under Settings → General.',
 
-  // Tour controls
   'next': 'Next',
   'prev': 'Back',
   'done': 'Done',
@@ -34,13 +32,11 @@ export default {
   'close': 'Close the tour',
   'progress': 'Step {{current}} of {{total}}',
 
-  // "Sample project" section in the lobby during the tour
   'demo_section_title': 'Sample project',
   'demo_section_note': 'Shown during the tour only',
   'demo_project_title': "Alice's Adventures in Wonderland",
   'demo_project_style': 'Watercolour storybook',
 
-  // Read-only demo workbench: badge next to the project title in the top bar
   'demo_badge': 'Demo · Read-only',
   'demo_badge_hint': 'You are viewing a sample project. Editing, generating, uploading, and exporting are unavailable in the demo.',
   'demo_action_unavailable': 'Unavailable in the demo',
@@ -50,13 +46,11 @@ export default {
   'demo_chat_user_start': 'Start production',
   'demo_chat_agent_progress': 'Character images and scene images are done. Next I\'ll generate storyboard images and videos episode by episode and report progress here.',
 
-  // Demo project overview
   'demo_overview_synopsis': 'On a hot afternoon Alice follows a waistcoated rabbit with a pocket watch down a hole, and lands somewhere size, manners and logic all stop counting. She grows and shrinks her way past a caterpillar, a hatter and a queen, then tips the whole card court over at an absurd trial.',
   'demo_overview_genre': 'Fairy tale · Fantasy adventure',
   'demo_overview_theme': 'The absurdity of order, and a child who refuses to play along',
   'demo_overview_world': 'A Victorian riverbank afternoon opens into Wonderland: a hall of locked doors under the rabbit hole, a garden stuck at teatime, a court of playing cards ruled by croquet and beheadings. Watercolour storybook texture, visible paper grain, bleeding edges.',
 
-  // Demo episode titles
   'demo_episode_1_title': 'Down the Rabbit-Hole',
   'demo_episode_2_title': 'The Pool of Tears',
   'demo_episode_3_title': "The Caterpillar's Advice",
@@ -66,7 +60,6 @@ export default {
   'demo_episode_7_title': "The Mock Turtle's Story",
   'demo_episode_8_title': 'Who Stole the Tarts?',
 
-  // Demo characters
   'demo_character_1_name': 'Alice',
   'demo_character_1_desc': 'A seven-year-old English girl in a blue dress and white pinafore, fair hair held back by a black band. More curious than careful: she argues with nonsense first, then walks on regardless.',
   'demo_character_1_voice': "Bright child's voice, quick tempo, curious rather than frightened",
@@ -80,7 +73,6 @@ export default {
   'demo_character_4_desc': 'Ruler of the card court, in a heart-patterned gown of red and black, sceptre in hand. Her verdict is one line: off with her head.',
   'demo_character_4_voice': "Loud, impatient woman's voice; every sentence is an order",
 
-  // Demo scenes
   'demo_scene_1_name': 'The Riverbank',
   'demo_scene_1_desc': 'A hot afternoon on a grassy bank under willows, the water slow and bright, a book lying open with neither pictures nor conversations in it.',
   'demo_scene_2_name': 'The Hall of Doors',
@@ -88,7 +80,6 @@ export default {
   'demo_scene_3_name': 'The Mad Tea-Party Garden',
   'demo_scene_3_desc': 'A long table under a great tree, cups and saucers crowded to the far end, more chairs than anyone sits in. Every clock stopped at six; the tea is always just poured.',
 
-  // Demo props
   'demo_prop_1_name': "The White Rabbit's Pocket Watch",
   'demo_prop_1_desc': 'A brass pocket watch on a worn chain, an inscription inside the lid. Its hands run faster than any clock, and the Rabbit shouts about being late the whole way.',
   'demo_prop_2_name': 'The DRINK ME Bottle',
@@ -96,7 +87,6 @@ export default {
   'demo_prop_3_name': 'The Flamingo Mallet',
   'demo_prop_3_desc': 'A flamingo tucked under one arm and used as a croquet mallet. Straighten its neck and it twists back; every stroke has to be negotiated first.',
 
-  // Demo shots — episode 1
   'demo_shot_1_text': 'The afternoon was hot. Alice sat on the riverbank beside her sister, whose book had no pictures and no conversations in it, and she began to feel very sleepy.',
   'demo_shot_1_image': 'A summer riverbank; Alice in a blue dress and white pinafore dozes on the grassy slope while her sister reads beside her, willow branches trailing in the water. Watercolour storybook texture, soft bleeding edges, visible paper grain.',
   'demo_shot_1_lighting': 'Late afternoon backlight, dappled tree shadows on the grass',
@@ -134,7 +124,6 @@ export default {
   'demo_shot_6_video': 'The camera pulls back as she shrinks; the dress collapses and the angle tilts from eye level up toward the little door.',
   'demo_shot_6_audio': 'A single swallow, cloth sliding, the empty bottle set down',
 
-  // Settings → General entry
   'replay_title': 'Product tour',
   'replay_desc': 'Replay the first-run tour covering the main interface and the basic workflow.',
   'replay_action': 'Replay tour',

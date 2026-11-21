@@ -159,14 +159,10 @@ class TestDashScopeAudioBackend:
         body = request_json(submitted)
         assert body["model"] == "qwen3-tts-flash"
         assert body["input"] == {"text": "你好世界", "voice": "Cherry", "language_type": "Chinese"}
-        # 同步 TTS 不带 async 头
         assert submitted.headers["Authorization"] == "Bearer sk"
         assert "X-DashScope-Async" not in submitted.headers
-        # 端点：host 派生 /api/v1 + 多模态生成路径
         assert submitted.url.path == "/api/v1/services/aigc/multimodal-generation/generation"
-        # 下载 URL 命中响应里的 audio.url
         assert str(only_request(routes.download).url) == _AUDIO_URL
-        # 字节落盘 + 结果字段
         assert out.read_bytes() == b"RIFFwavbytes"
         assert result.provider == PROVIDER_DASHSCOPE
         assert result.model == "qwen3-tts-flash"
@@ -196,7 +192,6 @@ class TestDashScopeAudioBackend:
             with pytest.raises(httpx.HTTPStatusError) as excinfo:
                 await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
 
-        # 4xx 按 status_code fail-fast：计费的合成 POST 只发一次、不连带触发下载
         assert type(excinfo.value) is httpx.HTTPStatusError
         assert "bad request" not in str(excinfo.value)
         assert routes.synthesize.call_count == 1
@@ -234,7 +229,6 @@ class TestDashScopeAudioBackend:
             out = tmp_path / "d.wav"
             await b.synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
 
-        # 合成 POST 只发一次（未被下载重试连带重跑 → 不重复计费），下载 GET 重试到第 2 次成功
         assert routes.synthesize.call_count == 1
         assert routes.download.call_count == 2
         assert out.read_bytes() == b"ok"
@@ -256,7 +250,6 @@ class TestDashScopeAudioBackend:
         assert not out.exists()
 
     async def test_empty_download_transient_recovers(self, tmp_path: Path, poll_clock):
-        # 空体一次后恢复：重试拿到字节落盘，合成 POST 不被重跑
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 
         with _dashscope_audio_routes(
@@ -373,9 +366,7 @@ class TestOpenAIAudioBackend:
         assert kwargs["model"] == "tts-1"
         assert kwargs["input"] == "你好世界"
         assert kwargs["voice"] == "alloy"
-        # 输出格式跟随落盘扩展名（资源路径约定 .wav）
         assert kwargs["response_format"] == "wav"
-        # 字节落盘 + 结果字段
         assert out.read_bytes() == b"RIFFwavbytes"
         assert result.model == "tts-1"
         assert result.text == "你好世界"
@@ -405,11 +396,9 @@ class TestOpenAIAudioBackend:
             b = OpenAIAudioBackend(api_key="sk", model="gpt-4o-mini-tts")
             assert b.name == PROVIDER_OPENAI
             assert b.model == "gpt-4o-mini-tts"
-            # 语速随请求传给 /v1/audio/speech，设置页据此放开配音语速输入
             assert b.capabilities == {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def test_provider_name_override(self):
-        # 包装层（自定义供应商）可用真实 provider 记账
         with captured_openai_clients():
             from lib.backends.audio_backends.openai import OpenAIAudioBackend
 

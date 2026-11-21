@@ -33,7 +33,6 @@ function SettingsBlock({
 }: {
   title: string;
   description?: string;
-  /** 区块内的控件需要 aria-describedby 指向说明时传入。 */
   descriptionId?: string;
   children: ReactNode;
 }) {

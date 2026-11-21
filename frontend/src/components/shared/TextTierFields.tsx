@@ -9,7 +9,6 @@ export interface TextTierValue {
   complex: string;
 }
 
-/** 折叠区内的细分档位；「默认模型」是默认层、不在其中。 */
 const SUB_TIERS = [
   { key: "simple", labelKey: "text_tier_simple_label", captionKey: "text_tier_simple_caption" },
   { key: "complex", labelKey: "text_tier_complex_label", captionKey: "text_tier_complex_caption" },
@@ -24,7 +23,6 @@ export interface TextTierFieldsProps {
   modelNames?: Record<string, string>;
   /** 默认档空选项的标签：全局设置为「自动选择」，项目/向导为「使用全局默认」。 */
   defaultLabel: string;
-  /** 默认档空选项旁的次要提示（如全局设置的「自动」）。 */
   defaultHint?: string;
   /**
    * 各档留空时的实际生效值（按项目优先解析链算好后传入，格式 provider/model）。

@@ -238,7 +238,6 @@ describe("ProviderDetail", () => {
     expect(input).toHaveValue("0.8");
     expect(patch).not.toHaveBeenCalled();
 
-    // 清空即恢复默认值
     fireEvent.change(input, { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(setMultiplier).toHaveBeenLastCalledWith("gemini-aistudio", null));

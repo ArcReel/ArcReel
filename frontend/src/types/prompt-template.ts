@@ -10,12 +10,10 @@ export interface PromptTemplateMeta {
   category: string;
   title: string;
   description: string;
-  /** 所属制作步骤。 */
   stage: string;
   invoked_by: PromptTemplateTrigger;
   /** 轴名 → 适用的轴值；变体族按这里的轴值展开。 */
   applies_to: Record<string, string[]>;
-  /** 槽位名 → 说明。 */
   slots: Record<string, string>;
   protected: boolean;
   /** `module:Class`，无结构化输出时为 null。 */

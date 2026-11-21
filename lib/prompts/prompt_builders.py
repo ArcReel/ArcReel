@@ -62,11 +62,6 @@ def build_product_prompt(name: str, description: str, style: str = "", style_des
     return _asset_prompt("product", name, description, style, style_description)
 
 
-# ---------------------------------------------------------------------------
-# 分镜图提示词渲染出口
-# ---------------------------------------------------------------------------
-
-
 def render_storyboard_image_prompt(
     image_prompt: object,
     *,

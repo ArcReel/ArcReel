@@ -229,7 +229,6 @@ describe("ProjectStatusBar", () => {
       "请为整本源文规划分集，一直规划到源文结尾。\n附加指令：每集 90 秒",
     );
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
-    // 只预填不发送
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

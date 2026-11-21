@@ -303,7 +303,6 @@ def test_described_reference_videos_stay_current_in_workflow_and_player(
         assert _status(project_dir, key) == "current"
         record = versions["reference_videos"][resource_id]["versions"][0]
         frozen = parse_typed_media_version_target("reference_videos", record).basis
-        # 播放器的「最新 / 比当前内容旧」标签按冻结依据与当前依据是否一致判断。
         current = build_current_video_artifact_basis(
             project_path=project_dir,
             project=project,

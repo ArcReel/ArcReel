@@ -49,11 +49,6 @@ def _cwd(policy: AgentAccessPolicy) -> Path:
     return _projects_dir(policy) / "selfproj"
 
 
-# ============================================================
-# 构造纯度：假根路径可构造，不 import SDK
-# ============================================================
-
-
 def test_pure_construction_with_fake_roots() -> None:
     """假根路径（磁盘上不存在）+ sandbox_enabled 即可纯构造，裁决照常工作。"""
     fake = Path("/nonexistent/fake-root")
@@ -79,11 +74,6 @@ def test_policy_module_does_not_import_sdk_types() -> None:
     module = sys.modules[AgentAccessPolicy.__module__]
     source = Path(module.__file__).read_text(encoding="utf-8")
     assert "claude_agent_sdk" not in source
-
-
-# ============================================================
-# 路径读写裁决（原 test_path_isolation_hook.py 断言搬家）
-# ============================================================
 
 
 def test_read_cwd_internal_passes(policy: AgentAccessPolicy) -> None:
@@ -380,7 +370,6 @@ def test_write_protected_with_symlinked_project_cwd_denied(
     """project_cwd 本身是个 symlink 指向真实项目目录时(macOS /var↔/private/var、Linux
     symlinked 项目根),`_is_protected_project_json` 要把 base 也按 resolve 一次再拼接 protected
     路径,避免 resolved target 与 raw base 字符串不等 → bypass。"""
-    # 真实项目目录在 tmp 根的另一处,通过 symlink 暴露
     real_root = tmp_path / "real_data"
     (real_root / "projects" / "selfproj").mkdir(parents=True)
     link_cwd = _projects_dir(policy) / "selfproj_link"
@@ -431,7 +420,6 @@ def test_normalize_path_for_protected_compare_strips_windows_extended_prefix() -
     norm = AgentAccessPolicy._normalize_path_for_protected_compare
     assert norm("\\\\?\\C:\\data\\projects\\demo") == norm("C:\\data\\projects\\demo")
     assert norm("\\\\?\\UNC\\server\\share\\proj") == norm("\\\\server\\share\\proj")
-    # 常规路径不受影响
     assert norm("/data/projects/demo") == norm("/data/projects/demo")
 
 
@@ -479,7 +467,6 @@ def test_agent_profile_settings_denied(policy: AgentAccessPolicy, tool: str) -> 
 def test_read_host_file_outside_project_root_denied(policy: AgentAccessPolicy, tmp_path: Path) -> None:
     """project_root 外的 host 文件（~/.ssh、/etc 等）不允许 Read/Glob/Grep。"""
     cwd = _cwd(policy)
-    # tmp_path 在 policy.project_root 之外（project_root = tmp_path / "repo"）
     outside = tmp_path / "host_fake_ssh"
     outside.mkdir()
     (outside / "id_rsa").write_text("secret", encoding="utf-8")
@@ -521,11 +508,6 @@ def test_read_of_data_root_outside_current_project_and_memory_denied(policy: Age
             allowed, reason = policy.check_path_access(str(target), tool, _cwd(policy), user_id=_USER_ID)
             assert not allowed, f"{tool} {target} 应被拒"
             assert reason
-
-
-# ============================================================
-# 内核 settings 编译投影（原 sandbox settings 测试断言搬家）
-# ============================================================
 
 
 def test_build_sandbox_settings_disabled_returns_only_enabled_false(tmp_path: Path) -> None:
@@ -670,16 +652,11 @@ def test_filter_allowed_tools_strips_bash_family_when_sandbox_disabled(tmp_path:
     assert disabled.filter_allowed_tools(base) == ["Skill", "Read"]
 
 
-# ============================================================
-# Bash 密钥剥离（env scrub）纯变换
-# ============================================================
-
-
 def test_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """unset 清单除了固定名单还要动态命中 *_API_KEY / *_AUTH_TOKEN 等模式。"""
     monkeypatch.setenv("GEMINI_CLI_IDE_AUTH_TOKEN", "abc")
     monkeypatch.setenv("RANDOM_VENDOR_API_KEY", "def")
-    monkeypatch.setenv("PATH", "/usr/bin")  # 不应命中
+    monkeypatch.setenv("PATH", "/usr/bin")
 
     AgentAccessPolicy._collect_env_keys_to_scrub.cache_clear()
     AgentAccessPolicy._env_scrub_wrap_prefix.cache_clear()
@@ -688,7 +665,6 @@ def test_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch
         assert "GEMINI_CLI_IDE_AUTH_TOKEN" in keys
         assert "RANDOM_VENDOR_API_KEY" in keys
         assert "PATH" not in keys
-        # 固定清单
         assert "ANTHROPIC_API_KEY" in keys
         assert "ARK_API_KEY" in keys
     finally:
@@ -704,10 +680,8 @@ def test_wrap_bash_command_unsets_provider_keys(tmp_path: Path) -> None:
     wrapped = policy.wrap_bash_command_for_env_scrub("env | grep ANTHROPIC")
 
     assert wrapped is not None
-    # 每个 ANTHROPIC_* key 都被 unset
     for key in ANTHROPIC_ENV_KEYS:
         assert f"-u {key}" in wrapped
-    # 原命令被 shlex.quote 包到 sh -c 内
     assert "sh -c " in wrapped
     assert "'env | grep ANTHROPIC'" in wrapped
 
@@ -778,14 +752,11 @@ def test_protected_write_rules_project_new_rule_in_both_layers(
     )
 
     cwd = _cwd(policy)
-    # hook 层：新规则立即生效
     allowed, reason = policy.check_path_access(str(cwd / "meta.lock"), "Write", cwd, user_id=_USER_ID)
     assert not allowed
     assert reason == synthetic.deny_message
-    # sandbox 层：denyWrite 投影同表同步
     deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
     assert str(cwd / "meta.lock") in deny_write
-    # 既有规则不受影响
     assert str(cwd / "project.json") in deny_write
     assert str(cwd / "scripts") in deny_write
     assert str(cwd / "drafts") in deny_write
@@ -889,16 +860,10 @@ def test_build_sandbox_settings_gives_bash_no_access_to_user_memory(tmp_path: Pa
 
     assert "allowWrite" not in filesystem
     assert str(layout.users_dir) in filesystem["denyRead"]
-    # 内置工具照常读写用户记忆
     memory_file = layout.user_memory_dir(_USER_ID) / "MEMORY.md"
     for tool in ("Read", "Write", "Edit", "Glob", "Grep"):
         allowed, reason = policy.check_path_access(str(memory_file), tool, cwd, user_id=_USER_ID)
         assert allowed, f"{tool} 访问用户记忆应放行：{reason}"
-
-
-# ============================================================
-# 数据根默认拒读：大小写变体与包含数据根的搜索根
-# ============================================================
 
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep"])

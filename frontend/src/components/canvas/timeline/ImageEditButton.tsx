@@ -33,15 +33,10 @@ interface ImageEditTarget {
   resourceId: string;
   /** 分镜编辑必带的剧集文件；其余资产类型忽略 */
   scriptFile?: string | null;
-  /** 是否存在可编辑的当前图；无图时禁用并提示先生成/上传 */
   hasImage: boolean;
-  /** 资源被生成/编辑任务占用：禁用编辑入口 */
   busy?: boolean;
 }
 
-/**
- * 图片卡片上的图标式「局部修改」入口：图标按钮 + 指令对话框。
- */
 export function ImageEditButton(props: ImageEditTarget) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);

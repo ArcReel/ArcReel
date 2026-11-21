@@ -228,9 +228,6 @@ class TestRestartRecovery:
         assert resumed[0]["provider_id"] == "ark"
         assert queue.failed == []
 
-    # ------------------------------------------------------------------
-    # handle_orphans：分流补全
-    # ------------------------------------------------------------------
     @pytest.mark.asyncio
     async def test_handle_orphan_image_running_marks_restart_lost(self, worker_db):
         """image 孤儿无 resume 入口 → [restart_lost]，绝不主动 requeue（避免重复扣费）。"""
@@ -454,7 +451,6 @@ class TestRestartRecovery:
 
         monkeypatch.setattr(stub_executors, "resume", _capture_resume)
         await worker._recovery.handle_orphans()
-        # 等后台 dispatcher（含 orphan-dispatcher + provider 桶 sub-task）完成
         for _ in range(50):
             await asyncio.sleep(0)
             if dispatched:
@@ -514,7 +510,6 @@ class TestRestartRecovery:
             resume_executor=stub_executors.execute_resume,
         )
 
-        # 用 controlled event 让 resume 任务可控完成；同时记录每次 dispatch 时的占用
         snapshots: list[int] = []
         entered: list[str] = []
         gates: dict[str, asyncio.Event] = {f"orphan-{i}": asyncio.Event() for i in range(4)}
@@ -531,7 +526,6 @@ class TestRestartRecovery:
         monkeypatch.setattr(stub_executors, "resume", _gated)
 
         await worker._recovery.handle_orphans()
-        # 让 dispatcher 把前 2 个 promote 进 INFLIGHT（其余 2 个 PENDING 排队）
         for _ in range(20):
             await asyncio.sleep(0)
             if _inflight() >= 2:
@@ -548,18 +542,15 @@ class TestRestartRecovery:
             await asyncio.sleep(0)
             if _inflight() >= 2:
                 break
-        # 任一时刻 inflight 都不超过容量 2
         assert _inflight() <= 2
         # 每次 promote 进 VideoResumeRunner.run 时的 inflight 快照都 ≤ 容量（核心回归点）
         assert snapshots, "未采集到 inflight 快照"
         assert all(s <= 2 for s in snapshots), f"inflight 快照越过容量上限: {snapshots}"
 
-        # 收尾：释放所有 gate，等 dispatcher 结束
         for gate in gates.values():
             gate.set()
         for _ in range(50):
             await asyncio.sleep(0)
-        # 清理可能的残余
         for t in list(asyncio.all_tasks()):
             name = t.get_name()
             if name.startswith(("orphan-", "resume-video-")) and not t.done():
@@ -592,13 +583,10 @@ class TestRestartRecovery:
         monkeypatch.setattr(stub_executors, "resume", _maybe_block)
 
         await worker._recovery.handle_orphans()
-        # 等第一个 orphan 进 inflight
         await asyncio.wait_for(first_dispatched.wait(), timeout=1.0)
         assert dispatched_count == 1
-        # 触发停机
         worker._stop_event.set()
         block_gate.set()
-        # 让 dispatcher 看到 stop_event 退出（不再 dispatch 剩余 2 个）
         for _ in range(50):
             await asyncio.sleep(0)
             if dispatched_count == 1 and not any(
@@ -747,15 +735,12 @@ class TestDispatcherFailFastAndPendingTracking:
         tasks = [storyboard_resume_task(f"orphan-{i}", job_id=f"job-{i}") for i in range(2)]
         dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks))
 
-        # 等第 1 个 task 进入 VideoResumeRunner.run（占住 sem），第 2 个还在 sem 排队
         await asyncio.wait_for(first_started.wait(), timeout=1.0)
         _inflight, pending = _phase_ids(worker._slots, "ark", "video")
         assert "orphan-1" in pending
 
-        # 打断 sem 排队中的 orphan-1
         _active_task_named(worker._slots, "resume-video-orphan-1").cancel()
 
-        # 让 dispatcher 跑完
         gate.set()
         await dispatcher
 
@@ -804,11 +789,9 @@ class TestDispatcherFailFastAndPendingTracking:
         # 现在 task 在 acquired=True（已 promote 为 INFLIGHT）状态，但内部还没接管终态
         _active_task_named(worker._slots, "resume-video-orphan-pre-try").cancel()
 
-        # gate 放开（CancelledError 已经在路上）
         pre_try_gate.set()
         await dispatcher
 
-        # 必须落终态，不能停在 running
         assert queue.interrupted == ["orphan-pre-try"]
 
     @pytest.mark.asyncio
@@ -869,7 +852,6 @@ class TestOrphanScanSelfPreemption:
         assert worker._recovery.orphan_dispatcher_task is None
         # 不应被标 [restart_lost] —— 本进程还在跑
         assert "img-active" not in {tid for tid, _ in queue.failed}
-        # 清理
         fut.set_result(None)
 
     @pytest.mark.asyncio
@@ -928,7 +910,6 @@ class TestOrphanScanSelfPreemption:
         await worker._recovery.handle_orphans()
 
         assert "vid-pending" not in {tid for tid, _ in queue.failed}
-        # dispatcher 句柄不应被设置（无 resumable 任务进 dispatcher）
         assert worker._recovery.orphan_dispatcher_task is None
         fut.set_result(None)
 
@@ -957,7 +938,6 @@ class TestOrphanDispatcherNonBlockingOverride:
 
         monkeypatch.setattr(stub_executors, "resume", _gated)
 
-        # 第 1 次扫描：启动旧 dispatcher
         await worker._recovery.handle_orphans()
         old_dispatcher = worker._recovery.orphan_dispatcher_task
         assert old_dispatcher is not None
@@ -974,7 +954,6 @@ class TestOrphanDispatcherNonBlockingOverride:
         assert not old_dispatcher.cancelled()
         assert not old_dispatcher.done()
 
-        # 清理：放开 gate 让 dispatcher 完成
         block.set()
         new_dispatcher = worker._recovery.orphan_dispatcher_task
         assert new_dispatcher is not None

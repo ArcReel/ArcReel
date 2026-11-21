@@ -103,7 +103,6 @@ from server.services.project.script_review import ScriptReviewError, ScriptRevie
 
 router = APIRouter()
 
-#: 上传源文时的登记方式：整本源文的文件，或一集自带原文的集。
 SourceUploadRole = Literal["whole_source", "episode"]
 
 _IMAGE_EXTS: tuple[str, ...] = IMAGE_FILE_EXTENSIONS
@@ -135,12 +134,8 @@ PUBLIC_MEDIA_DIRS: frozenset[str] = frozenset(
     }
 )
 PUBLIC_VERSIONS_DIR = "versions"
-# 项目根目录下唯一的媒体文件：风格参考图（仅图片扩展名）
 PUBLIC_ROOT_MEDIA_STEM = "style_reference"
-# 扩展名：仅图片 / 视频 / 音频，不区分大小写；同目录下的 .json 等元数据文件不在其列。
-# 目录名与根文件名区分大小写。
 PUBLIC_MEDIA_EXTENSIONS: frozenset[str] = frozenset({*_IMAGE_EXTS, ".mp4", ".wav", ".mp3", ".m4a"})
-# 公开端点的所有文件响应都禁止浏览器按内容嗅探 MIME
 _PUBLIC_FILE_HEADERS: dict[str, str] = {"X-Content-Type-Options": "nosniff"}
 
 
@@ -207,7 +202,6 @@ class UploadSpec:
     naming: Naming
     content_check: ContentCheck
     unsupported_ext_key: str = "unsupported_image_type"
-    # 请求体上限，None 表示不限；对所有类型生效，与 content_check 无关
     max_bytes: int | None = None
     metadata_setter: MetadataSetter | None = None
     # 非空表示文件挂在宿主资产的字段下、该字段是文件的唯一指针：宿主不存在就拒收
@@ -476,7 +470,6 @@ async def upload_file(
 
     original_filename = _require_filename(file, _t)
 
-    # 检查文件扩展名
     ext = Path(original_filename).suffix.lower()
     if ext not in spec.allowed_exts:
         raise HTTPException(
@@ -492,7 +485,6 @@ async def upload_file(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name)) from exc
 
-    # Source 分支早返 — 走 SourceLoader 规范化
     if upload_type == "source":
         # 源文登记写的是当前 schema 的字段；迁移没完成的项目先写进去，重试迁移时会把旧整本源文漏登
         await asyncio.to_thread(assert_project_migration_ok, project_name)
@@ -606,7 +598,6 @@ async def upload_file(
                     with open(target_path, "wb") as f:
                         f.write(content)
 
-                    # 更新元数据
                     if spec.metadata_setter is not None and name:
                         try:
                             with project_change_source("webui"):
@@ -953,7 +944,6 @@ async def list_project_files(project_name: str, _t: Translator):
                 subdir_path = project_dir / subdir
                 if not subdir_path.exists():
                     continue
-                # source 子目录额外列出 raw 备份映射
                 raw_by_stem: dict[str, str] = {}
                 if subdir == "source":
                     raw_dir = subdir_path / "raw"
@@ -994,7 +984,6 @@ async def get_source_file(project_name: str, filename: str, _t: Translator):
         def _sync():
             project_dir = get_project_manager().get_project_path(project_name)
 
-            # 安全检查：确保路径在项目目录内
             try:
                 source_path = safe_join(project_dir, "source", filename)
             except PathTraversalError as exc:
@@ -1072,7 +1061,6 @@ async def update_source_file(
                 return {"success": outcome.applied, **payload, "path": f"source/{filename}"}
 
             with manager.locked_source_registration(project_name) as (_source_dir, project, _undo):
-                # 安全检查：确保路径在项目目录内（文件尚不存在也要能通过，此处允许新建）
                 try:
                     source_path = safe_join(project_dir, "source", filename)
                 except PathTraversalError as exc:
@@ -1126,7 +1114,6 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
                 return {"success": outcome.applied, **source_file_change_payload(outcome, project, _t)}
 
             with manager.locked_source_registration(project_name) as (_source_dir, project, undo):
-                # 安全检查：确保路径在项目目录内
                 try:
                     source_path = safe_join(project_dir, "source", filename)
                 except PathTraversalError as exc:
@@ -1154,8 +1141,6 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
-
-# ==================== 草稿文件管理 ====================
 
 #: 草稿端点的阶段路径段。目前只有脚本规划一段走草稿读写；提示词编写没有可直编的中间态。
 _SCRIPT_PLAN_STAGE = "script_plan"
@@ -1415,9 +1400,6 @@ async def delete_draft(project_name: str, episode: int, stage: str, _t: Translat
         raise NotFoundError("project_not_found", name=project_name) from exc
 
 
-# ==================== 风格参考图管理 ====================
-
-
 @router.post("/projects/{project_name}/style-image")
 async def upload_style_image(project_name: str, _t: Translator, file: UploadFile = File(...)):
     """
@@ -1429,7 +1411,6 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
     """
     original_filename = _require_filename(file, _t)
 
-    # 检查文件类型
     ext = Path(original_filename).suffix.lower()
     if ext not in [".png", ".jpg", ".jpeg", ".webp"]:
         raise HTTPException(
@@ -1452,7 +1433,6 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
 
         output_path, style_filename, content_norm = await asyncio.to_thread(_sync_prepare)
 
-        # 调用 TextGenerator 分析风格（自动追踪用量）
         from lib.backends.providers import CallPurpose
         from lib.backends.text_backends.base import ImageInput, TextGenerationRequest, TextTaskType
         from lib.backends.text_generator import TextGenerator

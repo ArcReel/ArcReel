@@ -22,7 +22,6 @@ def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -
         name,
         {
             "name": name,
-            # 生产项目一律处于当前 schema：剧本保存会把产物登记进清单。
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [],
             "metadata": {"created_at": "2025-01-01", "updated_at": "2025-01-01"},
@@ -43,7 +42,7 @@ def _seed_reference_video_project(pm: ProjectManager, name: str, n_units: int) -
             for i in range(1, n_units + 1)
         ],
     }
-    pm.save_script(name, script, "episode_1.json", validate=False)  # 测并发 RMW 用简化替身 unit
+    pm.save_script(name, script, "episode_1.json", validate=False)
 
 
 class TestReferenceVideoConcurrentRMW:
@@ -54,7 +53,7 @@ class TestReferenceVideoConcurrentRMW:
         n_existing = 12
         _seed_reference_video_project(pm, name, n_existing)
 
-        appenders = 12  # 追加 E1U13..E1U24
+        appenders = 12
         total = n_existing + appenders
         barrier = threading.Barrier(total)
 
@@ -92,12 +91,10 @@ class TestReferenceVideoConcurrentRMW:
         loaded = pm.load_script(name, "episode_1.json")
         units = {u["unit_id"]: u for u in loaded["video_units"]}
 
-        # 所有追加的 unit 都在
         assert len(units) == total, f"期望 {total} 个 unit，实际 {sorted(units)}"
         for i in range(n_existing + 1, total + 1):
             assert f"E1U{i}" in units, f"追加的 E1U{i} 丢失"
 
-        # 所有已有 unit 的资产回写都生效
         for i in range(1, n_existing + 1):
             ga = units[f"E1U{i}"].get("generated_assets") or {}
             assert ga.get("video_clip") == f"reference_videos/E1U{i}.mp4", f"E1U{i} 资产回写丢失：{ga}"

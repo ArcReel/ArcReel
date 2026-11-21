@@ -48,7 +48,6 @@ describe("UsageRecordsSection detail", () => {
 
     renderUsageRecordsSection("section=usage&record=42");
 
-    // 标题以位置角标开头，后接集名与正文摘录，不露条目 ID。
     const dialog = await screen.findByRole("dialog", { name: /第 1 集 · 推门而入/ });
     expect(within(dialog).getByRole("img", { name: "分镜 3" })).toBeInTheDocument();
     expect(dialog).not.toHaveAccessibleName(/S10/);
@@ -284,7 +283,6 @@ describe("UsageRecordsSection detail", () => {
     renderUsageRecordsSection("section=usage&record=42");
     await screen.findByRole("dialog");
 
-    // 输入与产出两组都无数据：显示「无记录」而不是消失或报错。
     expect(screen.getAllByText("无记录")).toHaveLength(2);
   });
 

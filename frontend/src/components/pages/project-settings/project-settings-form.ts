@@ -34,15 +34,11 @@ export type ProjectStyle =
   | { kind: "template"; templateId: string }
   | {
       kind: "image";
-      /** 已保存的参考图地址，或待上传文件的 blob: 地址。 */
       preview: string;
-      /** 服务端分析出的风格描述；待上传时为空。 */
       description: string;
-      /** 待上传的新参考图；null 表示参考图已保存。 */
       file: File | null;
     };
 
-/** 项目设置四个表单分页（基础、风格、模型、配音）共用的一个编辑单元。 */
 export interface ProjectSettingsForm {
   aspectRatio: string;
   gridStoryboard: boolean;
@@ -63,7 +59,6 @@ export interface ProjectSettingsForm {
   modelSettings: Record<string, ModelSettingEntry>;
 }
 
-/** 属于各表单分页的字段，用于在侧栏标出有修改的分页。 */
 export const FORM_TAB_FIELDS = {
   basics: ["aspectRatio", "gridStoryboard", "speechRate", "episodeTargetDuration", "adTargetDuration"],
   style: ["style"],
@@ -242,7 +237,6 @@ export function gridToggleVisible(facts: ProjectFacts): boolean {
 
 type ProjectPatch = Partial<ProjectData> & { clear_style_image?: boolean };
 
-/** 表单值对应的全部 PATCH 键；风格键只在与已保存风格不同时出现。 */
 function fullProjectPatch(
   value: ProjectSettingsForm,
   saved: ProjectSettingsForm,
@@ -348,7 +342,6 @@ export function buildProjectPatch(
   return patch;
 }
 
-/** 是否有待上传的新参考图。 */
 export function pendingStyleUpload(value: ProjectSettingsForm, saved: ProjectSettingsForm): File | null {
   return value.style.kind === "image" && value.style.file && !sameStyle(value.style, saved.style)
     ? value.style.file

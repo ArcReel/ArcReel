@@ -39,20 +39,10 @@ def _example_template_definition() -> dict[str, Any]:
     return json.loads(_EXAMPLE_TEMPLATE_PATH.read_text(encoding="utf-8"))
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def custom_providers_client(custom_providers_app) -> Generator[TestClient, None, None]:
     with TestClient(custom_providers_app) as c:
         yield c
-
-
-# ---------------------------------------------------------------------------
-# Provider CRUD
-# ---------------------------------------------------------------------------
 
 
 class TestCreateProvider:
@@ -110,7 +100,6 @@ class TestCreateProvider:
         assert body["display_name"] == "Test Provider"
         assert body["discovery_format"] == "openai"
         assert body["base_url"] == "https://api.example.com/v1"
-        # api_key must be masked
         assert "sk-test-key-12345678" not in body["api_key_masked"]
         assert body["api_key_masked"].startswith("sk-t")
         assert len(body["models"]) == 1
@@ -165,7 +154,6 @@ class TestListProviders:
         assert resp.json() == {"providers": []}
 
     def test_lists_created_providers(self, custom_providers_client: TestClient):
-        # Create two providers
         custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
@@ -466,18 +454,12 @@ class TestDeleteProvider:
         resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 204
 
-        # Verify it's gone
         get_resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         assert get_resp.status_code == 404
 
     def test_returns_404_for_nonexistent(self, custom_providers_client: TestClient):
         resp = custom_providers_client.delete("/api/v1/custom-providers/9999")
         assert resp.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Discover models (mock)
-# ---------------------------------------------------------------------------
 
 
 class TestDiscoverModels:
@@ -548,7 +530,6 @@ class TestDiscoverModels:
             )
         assert resp.status_code == 200
         assert resp.json()["models"][0]["model_id"] == "gemini-2.0-flash"
-        # 确认 discovery_format 透传
         assert mock_discover.call_args.kwargs["discovery_format"] == "google"
 
     def test_discover_rejects_credential_bearing_base_url(self, custom_providers_client: TestClient):
@@ -680,11 +661,6 @@ class TestDiscoverModelsByStoredProvider:
         assert resp.status_code == 502
 
 
-# ---------------------------------------------------------------------------
-# Connection test (mock)
-# ---------------------------------------------------------------------------
-
-
 def _openai_models_page(count: int) -> dict[str, object]:
     """OpenAI ``GET /models`` 的响应体形状。"""
     return {"object": "list", "data": [{"id": f"m{i}", "object": "model"} for i in range(count)]}
@@ -778,10 +754,6 @@ class TestConnectionTest:
         assert "Connection error" in body["message"]
 
 
-# ---------------------------------------------------------------------------
-# 供应商整表写入、删除与引用清理
-# ---------------------------------------------------------------------------
-
 _PROVIDER_PAYLOAD = {
     "display_name": "Regression Test",
     "discovery_format": "openai",
@@ -812,27 +784,23 @@ class TestDeleteProviderCleansGlobalSettings:
     async def test_global_settings_cleaned_on_delete(
         self, custom_providers_client: TestClient, db_session: AsyncSession
     ):
-        # 创建供应商
         resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = resp.json()["id"]
 
-        # 模拟全局配置引用该供应商
         svc = ConfigService(db_session)
         await svc.set_setting("default_text_backend", f"custom-{pid}/gpt-4o")
         await svc.set_setting("default_image_backend", f"custom-{pid}/dall-e-3")
         await svc.set_setting("default_audio_backend", f"custom-{pid}/tts-1")
-        await svc.set_setting("default_video_backend", "gemini-aistudio/veo-3")  # 不应被清理
+        await svc.set_setting("default_video_backend", "gemini-aistudio/veo-3")
         await db_session.commit()
 
         # 项目级清理走真实实现，隔离数据根下项目列表为空 → 只剩全局设置的清理
         del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert del_resp.status_code == 204
 
-        # 验证引用被清理
         assert await svc.get_setting("default_text_backend", "") == ""
         assert await svc.get_setting("default_image_backend", "") == ""
         assert await svc.get_setting("default_audio_backend", "") == ""
-        # 不相关的设置应保留
         assert await svc.get_setting("default_video_backend", "") == "gemini-aistudio/veo-3"
 
 
@@ -844,7 +812,6 @@ class TestDeleteProviderCleansProjectRefs:
         pid = resp.json()["id"]
         prefix = f"custom-{pid}/"
 
-        # 模拟 ProjectManager
         mock_pm = MagicMock()
         mock_pm.list_projects.return_value = ["project-a"]
         project_data = {"text_backend_complex": f"{prefix}gpt-4o", "title": "Test"}
@@ -854,7 +821,6 @@ class TestDeleteProviderCleansProjectRefs:
         del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert del_resp.status_code == 204
 
-        # 验证 update_project 被调用来清理引用
         mock_pm.update_project.assert_called_once()
         call_args = mock_pm.update_project.call_args
         assert call_args[0][0] == "project-a"
@@ -865,7 +831,7 @@ class TestDeleteProviderCleansProjectRefs:
             "default_text_backend": f"{prefix}gpt-4o-mini",
             "video_backend": f"{prefix}sora-2",
             "audio_backend": f"{prefix}tts-1",
-            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",  # 非本 provider，保留
+            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",
             "title": "Test",
         }
         mutate_fn(test_proj)
@@ -873,8 +839,8 @@ class TestDeleteProviderCleansProjectRefs:
         assert "default_text_backend" not in test_proj
         assert "video_backend" not in test_proj
         assert "audio_backend" not in test_proj
-        assert test_proj["image_provider_t2i"].startswith("gemini-aistudio/")  # 其他供应商引用保留
-        assert test_proj["title"] == "Test"  # 无关字段保留
+        assert test_proj["image_provider_t2i"].startswith("gemini-aistudio/")
+        assert test_proj["title"] == "Test"
 
 
 class TestFullUpdateCleansStaleModelRefs:
@@ -895,7 +861,6 @@ class TestFullUpdateCleansStaleModelRefs:
         await svc.set_setting("default_video_backend_i2v", f"custom-{pid}/gpt-4o")
         await db_session.commit()
 
-        # 保存时移除 gpt-4o，保留 dall-e-3
         resp = custom_providers_client.put(
             f"/api/v1/custom-providers/{pid}",
             json={
@@ -1367,7 +1332,6 @@ class TestResolutionField:
         assert resp.status_code == 201
         pid = resp.json()["id"]
 
-        # 读取，确认 resolution 返回
         resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 200
         models = resp.json()["models"]
@@ -1402,7 +1366,6 @@ class TestResolutionField:
 
     def test_full_update_clears_resolution_to_null(self, custom_providers_client: TestClient):
         """PUT /{provider_id} 整表保存时省略 resolution 即清为 null。"""
-        # 先创建带 resolution 的 provider
         resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
@@ -1442,15 +1405,9 @@ class TestResolutionField:
         )
         assert resp.status_code == 200
 
-        # 读取验证为 null
         resp = custom_providers_client.get(f"/api/v1/custom-providers/{pid}")
         assert resp.status_code == 200
         assert resp.json()["models"][0]["resolution"] is None
-
-
-# ---------------------------------------------------------------------------
-# 新增 422 校验用例
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -1464,7 +1421,7 @@ async def test_create_provider_with_unknown_endpoint_returns_422(custom_provider
             {
                 "model_id": "claude-4",
                 "display_name": "Claude 4",
-                "endpoint": "acme-unknown",  # 非法
+                "endpoint": "acme-unknown",
                 "is_default": False,
                 "is_enabled": True,
             }
@@ -1479,7 +1436,7 @@ async def test_create_provider_with_unknown_endpoint_returns_422(custom_provider
 async def test_create_provider_unknown_discovery_format_returns_422(custom_providers_client):
     payload = {
         "display_name": "X",
-        "discovery_format": "newapi",  # 已被剔除
+        "discovery_format": "newapi",
         "base_url": "https://x",
         "api_key": "k",
         "models": [],
@@ -1510,7 +1467,7 @@ async def test_default_conflict_grouped_by_endpoint_media(custom_providers_clien
                 "endpoint": "gemini-generate",
                 "is_default": True,
                 "is_enabled": True,
-            },  # 都是 text → 冲突
+            },
         ],
     }
     resp = custom_providers_client.post("/api/v1/custom-providers", json=payload)
@@ -1721,11 +1678,6 @@ def test_check_unique_defaults_text_still_media_type_exclusive():
         _check_unique_defaults(models, _builtin_specs(models), t)
 
 
-# ---------------------------------------------------------------------------
-# Anthropic discovery (Agent 配置专用)
-# ---------------------------------------------------------------------------
-
-
 class TestDiscoverAnthropic:
     def test_explicit_credentials(self, custom_providers_client: TestClient):
         """显式传入 base_url + api_key，调用 _run_discover('anthropic', ...)。"""
@@ -1836,7 +1788,6 @@ class TestDiscoverAnthropic:
         """请求未带 api_key 且 DB 也没有 → 400。"""
         resp = custom_providers_client.post("/api/v1/custom-providers/discover-anthropic", json={})
         assert resp.status_code == 400
-        # i18n 默认 zh
         assert "API Key" in resp.json()["detail"]
 
     async def test_whitespace_only_api_key_falls_back_to_stored(

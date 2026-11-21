@@ -65,9 +65,6 @@ def _reference(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-# ------------------------------------------------- 计划是步骤适用性的唯一真相源
-
-
 @pytest.mark.parametrize("filename", WORKFLOW_VARIANTS)
 def test_variants_route_through_the_registered_plan_tool(filename: str) -> None:
     content = _skill(filename)
@@ -111,9 +108,6 @@ def test_plan_reference_documents_every_target_field() -> None:
 
     for field in WorkflowTarget.model_fields:
         assert f"`{field}`" in content
-
-
-# ------------------------------------------------------------------- 旁白交付
 
 
 def test_profile_no_longer_routes_a_per_request_delivery_choice() -> None:
@@ -171,9 +165,6 @@ def test_profile_names_no_retired_narrated_video_code() -> None:
         assert code not in content, f"档案仍提到已删除的问题码 {code}"
 
 
-# ------------------------------------------------------------------- 整批准入判定
-
-
 def test_plan_reference_covers_every_admission_decision() -> None:
     content = _reference(WORKFLOW_PLAN_REFERENCE)
 
@@ -191,9 +182,6 @@ def test_video_skill_names_the_duration_confirmation_code() -> None:
     assert DURATION_CONFIRMATION_CODE in VIDEO_SKILL.read_text(encoding="utf-8")
 
 
-# ----------------------------------------------------------------- 产物状态轴
-
-
 def test_generation_results_reference_covers_every_item_state() -> None:
     content = _reference(GENERATION_RESULTS_REFERENCE)
 
@@ -207,9 +195,6 @@ def test_variants_name_the_per_id_outcome_states(filename: str) -> None:
 
     for state in (GenerationItemState.SUCCEEDED, GenerationItemState.FAILED, GenerationItemState.BLOCKED):
         assert state.value in content
-
-
-# ---------------------------------------------------- 各变体落点的工具名覆盖
 
 
 @pytest.mark.parametrize("filename", EPISODIC_VARIANTS)
@@ -257,9 +242,6 @@ def test_profile_has_no_retired_video_tools_or_batch_resume_guidance() -> None:
         assert retired not in content
     assert "--resume" not in content
     assert ".checkpoint_" not in content
-
-
-# ------------------------------------ Profile 物化：每个模式都拿到工作流 skill
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CONTENT_MODES))

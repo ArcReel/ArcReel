@@ -10,9 +10,7 @@ export interface SecondaryRailItem {
   /** 在整个二级栏内唯一，与 `activeId` 比较。 */
   id: string;
   label: string;
-  /** 第二行：状态或数量，如「已配置 2 个密钥」「3 个模型」。 */
   description?: string;
-  /** 标准档放在名称左侧，紧凑档是唯一可见的内容。尺寸由调用方给（`size-4`）。 */
   icon: ReactNode;
   /** 选中这一项的地址。选中项记在地址里，切换经路由，离开拦截因此覆盖切换。 */
   href: string;
@@ -25,12 +23,10 @@ export interface SecondaryRailGroup {
   items: SecondaryRailItem[];
   /** 组末尾的动作条目，如「添加自定义供应商」。不计入 Tab 上的数量。 */
   action?: SecondaryRailItem;
-  /** 组内没有条目时的说明，只在标准档显示。 */
   emptyText?: string;
 }
 
 interface SecondaryRailProps {
-  /** 导航区的可访问名称，如「供应商列表」。 */
   label: string;
   groups: SecondaryRailGroup[];
   activeId: string | null;
@@ -171,7 +167,6 @@ function CompactItem({ item, active, replace }: { item: SecondaryRailItem; activ
         <span aria-hidden className="flex">
           {item.icon}
         </span>
-        {/* 图标栏只显示图标，名称与第二行留给读屏 */}
         <span className="sr-only">{item.label}</span>
         {item.description && <span className="sr-only"> {item.description}</span>}
       </TooltipTrigger>

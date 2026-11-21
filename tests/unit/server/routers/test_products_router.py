@@ -111,7 +111,6 @@ class TestProductsRouter:
                     json={"selling_points": bad},
                 )
                 assert resp.status_code == 422, bad
-            # entry 未被污染
             assert fake_pm.projects["demo"]["products"]["保温杯"]["selling_points"] == []
 
     def test_create_rejects_invalid_string_field(self, monkeypatch):

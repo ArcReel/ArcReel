@@ -156,8 +156,6 @@ class CatalogReader:
     def flag(self, path: str, code: str, detail: str) -> None:
         self.strict.append(CatalogIssue(path, code, detail))
 
-    # ---- 基础取值 ----
-
     def obj(self, value: object, path: str) -> dict[str, object]:
         if isinstance(value, dict):
             return cast(dict[str, object], value)
@@ -272,8 +270,6 @@ class CatalogReader:
             else:
                 self.reject(f"{path}[{index}]", "invalid_positive_int", "应为正整数秒")
         return tuple(result)
-
-    # ---- 目录数据 ----
 
     def catalog(self, raw: object) -> CatalogData:
         data = self.obj(raw, "")
@@ -483,8 +479,6 @@ class CatalogReader:
         if any(value not in durations for value in values):
             self.flag(path, "constraint_outside_facts", "约束中的时长不在可选时长内")
 
-    # ---- 价目表 ----
-
     def price_table(self, raw: object, media_type: MediaType, path: str) -> PriceTable:
         data = self.obj(raw, path)
         self.known_fields(data, path, _PRICE_FIELDS)
@@ -609,8 +603,6 @@ class CatalogReader:
             elif dim in DIMENSIONS and not is_valid_dimension_value(dim, value):
                 self.flag(_at(path, dim), "invalid_dimension_value", "选择维度的取值不合法")
 
-    # ---- 内置供应商清单 ----
-
     def listing(self, raw: object, path: str) -> BuiltinProviderListing:
         data = self.obj(raw, path)
         self.known_fields(data, path, _LISTING_FIELDS)
@@ -644,8 +636,6 @@ class CatalogReader:
             min_app_version=min_app_version,
             endpoint=self.optional_text(data, "endpoint", path),
         )
-
-    # ---- 跨条目的构建侧检查 ----
 
     def check_entry_identities(self, entries: tuple[CatalogEntry, ...]) -> None:
         """条目身份唯一；同一媒体类型内，官方模型名与模型别名归一化后只能属于一个条目。"""
@@ -773,9 +763,6 @@ def _overlaps(a: Mapping[str, object], b: Mapping[str, object]) -> bool:
 
 def _same_value(a: object, b: object) -> bool:
     return type(a) is type(b) and a == b
-
-
-# ---- 公开入口 ----
 
 
 def parse_catalog(raw: object) -> CatalogData:

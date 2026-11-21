@@ -147,7 +147,6 @@ class TestTextToImage:
             from lib.backends.image_backends.dashscope import DashScopeWanImageBackend
 
             b = DashScopeWanImageBackend(api_key="sk", model="wan2.7-image")
-            # 1K 档（短边 1024）按比例精确算
             await b.generate(
                 ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="16:9", image_size="1K")
             )
@@ -162,7 +161,6 @@ class TestTextToImage:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
             await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png", aspect_ratio="16:9"))
 
-        # 16:9 精确，受 2048² 预算夹取 → 2560*1440
         assert _sent_size(route) == "2560*1440"
 
     async def test_qwen_fusion_custom_pixel_strips_embedded_ratio(self, tmp_path: Path):
@@ -372,7 +370,6 @@ class TestErrorResponse:
             b = DashScopeImageBackend(api_key="sk", model="qwen-image-2.0")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        # raise_for_status 透出保留状态码：4xx fail-fast
         assert ei.value.response.status_code == 400
         assert route.call_count == 1
         download.assert_not_called()

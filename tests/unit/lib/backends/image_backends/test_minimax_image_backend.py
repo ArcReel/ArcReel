@@ -122,7 +122,6 @@ class TestTextToImage:
         assert result.model == "image-01"
         assert result.image_uri == "https://x/out.png"
         assert result.image_path == tmp_path / "o.png"
-        # 响应里的 URL 与请求的 output_path 原样交给下载器
         download.assert_called_once_with("https://x/out.png", tmp_path / "o.png")
 
     async def test_default_endpoint_is_domestic(self, tmp_path: Path):
@@ -202,7 +201,7 @@ class TestDimensions:
         w, h = await self._dims(tmp_path, aspect_ratio="16:9", image_size="320*180")
         assert w >= 512
         assert h >= 512
-        assert w > h  # 横屏未退化成 1:1
+        assert w > h
         assert abs(w / h - 16 / 9) < 0.1
 
 
@@ -308,7 +307,6 @@ class TestResponseHandling:
             result = await b.generate(ImageGenerationRequest(prompt="x", output_path=out))
 
         assert out.read_bytes() == raw
-        # base64 路径无远端 URL
         assert result.image_uri is None
         download.assert_not_called()
 
@@ -333,7 +331,6 @@ class TestResponseHandling:
             with pytest.raises(RuntimeError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
         assert "1004" in str(ei.value)
-        # 业务错误不重试、不下载
         assert route.call_count == 1
         download.assert_not_called()
 

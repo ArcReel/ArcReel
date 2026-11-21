@@ -108,7 +108,6 @@ def factory_snapshot() -> CatalogData:
     )
 
 
-# 官方同步取回的数据：由官方同步装入，见 install_synced_data。单元素列表当信箱。
 _synced: list[CatalogData | None] = [None]
 
 # 按（出厂快照, 同步数据）对象缓存的官方数据；同步数据换上新的一份时重建。
@@ -393,13 +392,11 @@ def _build_index(
     return index
 
 
-# 内置供应商下用户添加的模型：由内置供应商模型表装入，见 install_user_added_models。单元素列表当信箱。
 _user_added: list[tuple[UserAddedModel, ...]] = [()]
 
 # 按快照对象缓存的索引：快照每进程只加载一次，索引随之只建一次；用户添加的模型变化时清空重建。
 _index_cache: list[tuple[CatalogData, dict[str, _ProviderIndex]]] = []
 
-# 用户修改的条目副本：由用户条目表装入，见 install_user_entries。单元素列表当信箱。
 _user_entries: list[tuple[tuple[CatalogEntry, ...], frozenset[EntryKey]]] = [((), frozenset())]
 
 # 按官方数据对象缓存的合成结果；用户副本变化时清空重建。

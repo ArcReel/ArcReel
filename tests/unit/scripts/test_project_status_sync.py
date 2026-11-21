@@ -19,7 +19,6 @@ from scripts.project_status_sync import derive_status
         ("OPEN", {"ready-for-agent", "ready-for-human"}, False, False, "Ready · agent"),
         ("OPEN", {"ready-for-human", "needs-info"}, False, False, "Ready · human"),
         ("OPEN", {"needs-info", "needs-triage"}, False, False, "Needs info"),
-        # needs-triage 与无标签一律兜底 Inbox
         ("OPEN", {"needs-triage"}, False, False, "Inbox"),
         ("OPEN", set(), False, False, "Inbox"),
     ],

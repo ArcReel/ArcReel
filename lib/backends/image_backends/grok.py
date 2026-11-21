@@ -112,7 +112,6 @@ class GrokImageBackend:
             # xai-sdk 的 convert_image_resolution_to_pb 只接受小写 "1k"/"2k"，目录取值为 "1K"/"2K"
             generate_kwargs["resolution"] = request.image_size.lower()
 
-        # I2I：将所有参考图转为 base64 data URI 列表
         reference_count = 0
         if request.reference_images:
             data_uris = await asyncio.to_thread(
@@ -128,11 +127,9 @@ class GrokImageBackend:
         logger.info("调用 %s 图片 SDK kwargs=%s", self.name, format_kwargs_for_log(generate_kwargs))
         response = await self._client.image.sample(**generate_kwargs)
 
-        # 审核检查
         if not response.respect_moderation:
             raise RuntimeError("Grok 图片生成被内容审核拒绝")
 
-        # 下载图片到本地
         await download_image_to_path(response.url, request.output_path)
 
         logger.info("Grok 图片下载完成: %s", request.output_path)

@@ -26,6 +26,5 @@ async def test_a_slow_earlier_read_does_not_overwrite_a_later_one() -> None:
     await first
 
     assert installed == ["new"]
-    # 之后再开始的重读照常装入
     await order.reload(slow_old_read, installed.append)
     assert installed == ["new", "old"]

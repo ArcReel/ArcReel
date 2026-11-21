@@ -96,7 +96,6 @@ export function makeUsageSummary(overrides: Partial<UsageSummary> = {}): UsageSu
   };
 }
 
-/** 从 `from` 起连续 `days` 天的日桶；`fill` 决定每天的计数与分媒体费用。 */
 export function makeUsageDaily(
   days: number,
   from = "2026-03-01",

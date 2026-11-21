@@ -92,7 +92,6 @@ class TestAssistantRoutes:
             "session_status": "interrupted",
         }
 
-        # Mock get_session for ownership validation
         session_meta = make_session_meta(id="session-1", project_name=PROJECT)
         with (
             patch.object(

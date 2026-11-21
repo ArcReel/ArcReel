@@ -1,8 +1,5 @@
 #!/usr/bin/env node
 
-// Finishes `pnpm write-translations --locale en`: drops the footer copyright snapshot and reports
-// every English UI message still carrying Chinese text.
-
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 

@@ -185,7 +185,6 @@ def user_added_models(acme_catalog):
             catalog.UserAddedModel("acme", "chat-pro", "text", multiplier=0.5),
             catalog.UserAddedModel("acme", "vendor/chat", "text", multiplier=2.0),
             catalog.UserAddedModel("acme", "clip-x", "video", fallback_durations=(4, 8)),
-            # 官方清单里已有同一模型键：换成官方版本
             catalog.UserAddedModel("acme", "img-new", "image", multiplier=3.0),
         ]
     )

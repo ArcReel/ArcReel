@@ -163,7 +163,6 @@ async def sync_once(
         content = await _fetch(http_client(), CATALOG_URL, _CATALOG_MAX_BYTES, proxy_prefix)
         data, stored = await asyncio.to_thread(_with_retained, manifest, content, current)
     except (MarketTransportError, MarketPayloadTooLargeError, ValueError) as exc:
-        # CatalogFormatError 是 ValueError 的子类：整份数据无法解析时拒收这一次
         logger.info("官方同步检查失败，等下一轮：%s", exc)
         await _record(session_factory, error=str(exc)[:_ERROR_MAX_CHARS] or type(exc).__name__)
         return

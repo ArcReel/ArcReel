@@ -20,7 +20,6 @@ __all__ = [
     "register_backend",
 ]
 
-# Backend auto-registration
 from lib.backends.audio_backends.ark_agent_plan import ArkAgentPlanAudioBackend
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 from lib.backends.audio_backends.dashscope_speech_synthesizer import DashScopeSpeechSynthesizerBackend

@@ -4,16 +4,8 @@ import { API } from "@/api";
 import { isDemoProject } from "@/onboarding/demo-project";
 import { useAppStore } from "./app-store";
 
-/**
- * {@link ProjectsState.refreshProject} 的结算结果：
- * - `success` — store 已同步为最新数据
- * - `failed` — 请求本身出错（网络 / 服务端错误），`onError` 会被调用
- * - `cancelled` — 未同步但不代表出错：项目切换取消域轮换、被更晚的排队请求取代等。
- *   调用方应静默处理，不弹错误提示
- */
 export type RefreshProjectResult = "success" | "failed" | "cancelled";
 
-/** {@link ProjectsState.refreshProject} 的可选行为。 */
 interface RefreshProjectOptions {
   /** 刷新成功后要失效的实体版本 key（沿用 StudioCanvasRouter 旧变体语义）。 */
   invalidateKeys?: string[];
@@ -22,11 +14,9 @@ interface RefreshProjectOptions {
 }
 
 interface ProjectsState {
-  // List
   projects: ProjectSummary[];
   projectsLoading: boolean;
 
-  // Current project detail
   currentProjectName: string | null;
   currentProjectData: ProjectData | null;
   currentScripts: Record<string, EpisodeScript>;
@@ -35,7 +25,6 @@ interface ProjectsState {
   // project.json + 剧本规范快照按项目递增的修订号。
   projectSnapshotRevisions: Record<string, number>;
 
-  // Create modal
   showCreateModal: boolean;
   creatingProject: boolean;
 
@@ -49,7 +38,6 @@ interface ProjectsState {
    */
   hasLoadedAnyProject: boolean;
 
-  // Actions
   setProjects: (projects: ProjectSummary[]) => void;
   setProjectsLoading: (loading: boolean) => void;
   /**
@@ -68,18 +56,6 @@ interface ProjectsState {
   setCreatingProject: (creating: boolean) => void;
   updateAssetFingerprints: (fps: Record<string, number>) => void;
   getAssetFingerprint: (path: string) => number | null;
-  /**
-   * 刷新当前项目数据到 store，返回结果判别式联合（见 {@link RefreshProjectResult}）。
-   *
-   * 单一入口收敛此前各调用点分散的刷新语义，消除「两入口同时刷新时后完成者盖住
-   * 先完成者」的竞态：
-   * - **在途合并**：同一时刻只允许一个 getProject 在途；在途期间到达的刷新请求
-   *   合并为「结束后再跑一轮」，取最新一次请求的 name / invalidateKeys。
-   * - **失败留旧**：getProject 失败时不覆盖 currentProjectData，返回 `"failed"` 交
-   *   调用方决定是否提示（onError 亦会被调用）。
-   * - **项目级取消域**：请求挂在随当前项目轮换的 AbortSignal 上，切换项目即作废前一个
-   *   项目的在途与迟到刷新，返回 `"cancelled"`，不视为失败（不触发 onError）。
-   */
   refreshProject: (name: string, options?: RefreshProjectOptions) => Promise<RefreshProjectResult>;
 }
 
@@ -163,8 +139,6 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
           }
           result = "success";
         }
-        // 未写入但也未出错（superseded / aborted / 非当前项目）：结算为 "cancelled"，
-        // 调用方据此静默，不与真正的请求失败混淆。
       } catch (err) {
         // 取消域轮换导致的 abort 是项目切换的正常结果，不是刷新失败：结算为
         // "cancelled"，不触发 onError，否则每次切项目都会弹一条同步失败提示。
@@ -247,23 +221,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => {
       const invalidateKeys = options?.invalidateKeys ?? [];
       return new Promise<RefreshProjectResult>((resolve) => {
         if (refreshRunning) {
-          // 已有刷新在途：合并为「结束后再跑一轮」，取最新 name，累积 invalidateKeys /
-          // onError / resolve——排队轮次结束时需各自通知全部合并进来的调用方，
-          // 而非共享首轮或末轮的单一结果。
-          //
-          // 排队期间到达的请求若指向和当前排队目标不同的项目，说明上一批排队请求
-          // 即将被本次覆盖——设计上只保留「结束后再跑一轮」这一个名额，取最新
-          // name，不会再为被覆盖的项目单独多跑一轮。因此上一批排队的调用方注定不会
-          // 被接下来实际执行的那一轮命中；不提前结算就会被并入并共享本次这个新项目
-          // 的结果，即便它们请求的从来不是这个项目（例如 B 排队后 C 覆盖，B 的调用方
-          // 会在 C 成功后错误地收到 true，但 store 从未同步过 B 的数据）。按「未同步」
-          // 立即结算为 "cancelled"，不视为请求出错，因此不触发 onError。
           if (refreshQueued && queuedName !== null && queuedName !== name) {
-            // 名额上已经是当前项目的刷新（通常就是路由切换后的首屏加载），而本次带来的
-            // 是别的项目名——调用方持有的是切走前的旧项目名。这一轮就算跑起来也过不了
-            // 当前项目核对，写不进任何东西：立即结算为 "cancelled"，不占用名额。否则
-            // 当前项目自己的刷新会被挤掉，而设计上只保留一个名额、不会为它补跑，当前
-            // 项目的数据一轮都不会被拉取（首屏则永远停在加载态）。
             const { currentProjectName } = get();
             if (currentProjectName !== null && queuedName === currentProjectName && name !== currentProjectName) {
               resolve("cancelled");

@@ -1,9 +1,7 @@
 """Validation and archive diagnostic messages (Russian)."""
 
 MESSAGES = {
-    # ---- passthrough ----
     "val_literal": "{text}",
-    # ---- generic field shape ----
     "val_missing_field": "Не указано обязательное поле: {field}",
     "val_missing_field_at": "{prefix}: не указано обязательное поле {field}",
     "val_field_type_string": "Ошибка типа поля: {field} должно быть строкой",
@@ -24,13 +22,11 @@ MESSAGES = {
     "val_field_bad_timestamp": "{field} не является допустимой отметкой времени ISO8601: {value}",
     "val_item_must_be_object": "{prefix}: должно быть объектом",
     "val_item_format_object": "{prefix}: неверный формат данных, ожидается объект",
-    # ---- path references ----
     "val_path_empty": "{field}: путь не может быть пустым",
     "val_path_traversal": "{field}: путь ссылки выходит за пределы проекта: {path}",
     "val_path_outside_dir": "{field}: путь ссылки должен находиться в {dir}/: {path}",
     "val_path_missing": "{field}: файл по ссылке не существует: {path}",
     "val_path_must_be_relative": "{field} должно быть относительным путём внутри проекта: {path}",
-    # ---- project-level fields ----
     "val_content_mode_invalid": "Недопустимое значение content_mode: «{value}», должно быть одним из {allowed}",
     "val_source_kind_invalid": "{prefix}: недопустимое значение source_kind «{value}», должно быть одним из {allowed}",
     "val_generation_mode_invalid": "Недопустимое значение generation_mode: «{value}», должно быть одним из {allowed}",
@@ -42,7 +38,6 @@ MESSAGES = {
     "val_cannot_load_script": "Не удалось загрузить файл сценария: {path}",
     "val_unrecognized_entry": "Обнаружен нераспознанный дополнительный файл или каталог: {name}",
     "val_novel_must_be_object": "Поле novel должно быть объектом",
-    # ---- episode entries and ledger ----
     "val_ledger_status_type": "{prefix}: ledger_status должно быть строкой, получено: {value}",
     "val_source_origin_invalid": "{prefix}: недопустимое значение source_origin «{value}», должно быть одним из {allowed}",
     "val_source_range_requires_whole_source": "{prefix}: source_range может быть только у серии, вырезанной из всего исходного текста (source_origin — whole_source)",
@@ -50,7 +45,6 @@ MESSAGES = {
     "val_episode_missing_num_at": "{prefix}: не указано обязательное поле episode (целое число)",
     "val_episode_missing_title_at": "{prefix}: не указано обязательное поле title (строка, может быть пустой)",
     "val_episode_missing_num": "Не указано обязательное поле: episode (целое число)",
-    # ---- ad / short-film projects ----
     "val_ad_only_field": "{field} доступно только для рекламных проектов и короткометражек (content_mode=ad)",
     "val_ad_missing_target_duration": (
         "Не указано обязательное поле: target_duration (целевая общая длительность в секундах для рекламных проектов и короткометражек)"
@@ -71,7 +65,6 @@ MESSAGES = {
         "Общая длительность сценария {total} с отличается от target_duration {target} с на {delta:.0%}, "
         "что превышает порог наблюдения {threshold:.0%} (только информационно, сохранение не блокируется)"
     ),
-    # ---- asset catalogs ----
     "val_asset_format_object": "{asset_type} «{name}»: неверный формат данных, ожидается объект",
     "val_asset_field_must_be_object": "{asset_type} «{name}».{field} должно быть объектом",
     "val_asset_field_must_be_string": "{asset_type} «{name}».{field} должно быть строкой, получено {actual}",
@@ -82,14 +75,11 @@ MESSAGES = {
         "Повторяющееся имя материала проекта: {duplicate_type} «{duplicate_name}» конфликтует с "
         "{first_type} «{first_name}» после strip + нормализации Unicode NFC"
     ),
-    # ---- item-level references ----
     "val_refs_unregistered": "{prefix}: {field} ссылается на отсутствующие в project.json материалы ({asset_type}): {names}",
     "val_missing_defaults_empty_array": "{prefix}: {field} отсутствует, используется пустой массив по умолчанию",
-    # ---- generic item checks ----
     "val_id_format": "{prefix}: недопустимый формат {field} «{value}», ожидается E{{n}}S{{nn}}",
     "val_missing_duration_default": "{prefix}: duration_seconds отсутствует, используется значение по умолчанию {default}",
     "val_duration_invalid": "{prefix}: недопустимое значение duration_seconds «{value}», должно быть целым положительным числом",
-    # ---- drama utterances ----
     "val_utterance_must_be_object": "{prefix} должно быть объектом",
     "val_utterance_kind_invalid": "{prefix}: kind должен быть dialogue или voiceover",
     "val_utterance_text_invalid": "{prefix}: text должен быть непустой строкой",
@@ -101,7 +91,6 @@ MESSAGES = {
         "{tolerance:.0%} (предел допуска {budget:.1f} с); длинный диалог может не уместиться или звучать слишком быстро "
         "(только информационно, сохранение не блокируется)"
     ),
-    # ---- ad shots ----
     "val_shot_duration_missing_zero": "{prefix}: duration_seconds отсутствует, в общую длительность засчитан 0",
     "val_shot_duration_out_of_range": (
         "{prefix}: недопустимое значение duration_seconds «{value}»; режим reference_video требует целого числа "
@@ -110,13 +99,11 @@ MESSAGES = {
     "val_shot_missing_voiceover_text": (
         "{prefix}: не указано обязательное поле voiceover_text (текст закадровой озвучки, может быть пустой строкой)"
     ),
-    # ---- reference-video units ----
     "val_unit_id_missing": "{prefix}: unit_id отсутствует",
     "val_unit_id_missing_required": "{prefix}: не указано обязательное поле unit_id",
     "val_unit_id_duplicate": "{prefix}: повторяющийся unit_id «{value}»",
     "val_video_units_missing": "В сценарии reference_video нет массива video_units",
     "val_unit_duration_range": "{prefix}: duration_seconds должно быть целым числом от {low} до {high}",
-    # ---- skeleton / route mismatch ----
     "val_skeleton_noun_segments": "сегменты",
     "val_skeleton_noun_scenes": "сцены",
     "val_skeleton_noun_shots": "кадры",
@@ -147,7 +134,6 @@ MESSAGES = {
         "Запустите разбиение на серии (script_plan) заново, затем сгенерируйте сценарий заново. "
         "Сценарий по-прежнему можно просматривать, редактировать и экспортировать."
     ),
-    # ---- reference-video duration consolidation migration ----
     "val_unit_duration_clamped": (
         "Видеофрагмент {unit_id}: длительность {target} с выходит за разумный диапазон {low}–{high} с; приведена к {clamped} с"
     ),
@@ -155,7 +141,6 @@ MESSAGES = {
         "Видеофрагмент {unit_id}: длительность {duration} с не входит в варианты длительности модели ({durations}); "
         "округлена до {slot} с"
     ),
-    # ---- archive repair and import/export diagnostics ----
     "arch_source_encoding_unconverted": (
         "Не удалось определить кодировку исходного файла, файл не преобразован в UTF-8: source/{name} "
         "(планирование серий не может прочитать этот файл)"
@@ -188,7 +173,6 @@ MESSAGES = {
     "arch_canonical_path_normalized": "{location}: нормализовано к {path}",
     "arch_current_asset_materialized": "{location}: текущий файл {target} восстановлен из {source}",
     "arch_current_asset_restored_from_version": "{location}: текущий файл {target} восстановлен из {source}",
-    # ---- archive import errors ----
     "arch_invalid_conflict_policy": "Недопустимая политика конфликтов",
     "arch_conflict_policy_unsupported": "conflict_policy поддерживает только prompt, rename или overwrite; получено: {value}",
     "arch_import_validation_failed": "Проверка пакета для импорта не пройдена",
@@ -212,7 +196,6 @@ MESSAGES = {
     "arch_project_name_conflict": (
         "ID проекта «{name}» уже существует. Выберите: перезаписать существующий проект или импортировать под новым именем."
     ),
-    # ---- Custom endpoint definition validation ----
     "val_ce_missing_field": "Не указано обязательное поле: {field}",
     "val_ce_unknown_field": "Неизвестное поле: {field}",
     "val_ce_removed_field": "Поле удалено из формата: {field} — {reason}",
@@ -338,7 +321,6 @@ MESSAGES = {
     "val_ce_template_text_variable_null": "Переменная {name} равна null, её нельзя вставить в текст",
     "val_ce_each_value_not_list": "$each.in указывает на {name}, значение которого во время выполнения не является списком",
     "val_ce_each_key_duplicate": "Объектная форма $each повторно создала ключ {field} в том же объекте, поэтому запрос не может передать все материалы",
-    # ---- ComfyUI endpoint: node bindings and import routing ----
     "val_ce_comfyui_binding_required": (
         "{binding_key} должен быть привязан к узлу, иначе эндпоинт не сохранить: "
         "промпт определяет, что рисуется, а вывод — какой файл берётся"
@@ -374,7 +356,6 @@ MESSAGES = {
     "val_ce_comfyui_ui_format_workflow": (
         "Это workflow в формате UI ComfyUI, его нельзя отправить; экспортируйте его в ComfyUI через «Export (API)»"
     ),
-    # ---- ComfyUI endpoint: node binding inference signals and hints ----
     "val_ce_infer_manual_binding": "Сохранённая привязка узла; используется цель, которую пользователь уже подтвердил",
     "val_ce_infer_title_marker": "В заголовке узла есть метка ARCREEL:",
     "val_ce_infer_external_node_family": "Параметрический узел {family}, в котором объявлен параметр {parameter}",
@@ -414,7 +395,6 @@ MESSAGES = {
         "{path_expression} содержит подстановочный знак: для объекта берётся только первый элемент, "
         "а порядок ключей в предпросмотре и на сервере может различаться"
     ),
-    # ---- market source checks ----
     "val_market_index_unreadable": "Не удалось прочитать файл индекса: {detail}",
     "val_market_unsupported_schema_version": "Версия схемы индекса schema_version {version} новее поддерживаемой {supported}",
     "val_market_missing_field": "Отсутствует обязательное поле: {field}",

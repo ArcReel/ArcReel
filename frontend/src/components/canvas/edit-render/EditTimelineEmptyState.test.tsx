@@ -10,7 +10,6 @@ import { makePlan, makeStatus } from "@/test/factories";
 import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
 import { EditTimelineEmptyState } from "./EditTimelineEmptyState";
 
-/** 制作状态里本集「新建剪辑时间线」的准入不成立：还没有可用视频。 */
 function refuseCreate(projectName: string, episode: number) {
   const status = makeStatus({ operations: { create_edit_timeline: { state: "refused", reason: "no_available_video" } } });
   useWorkflowStore.setState({ plan: makePlan({ status }), planKey: `${projectName}::${episode}` });
@@ -72,7 +71,6 @@ describe("EditTimelineEmptyState", () => {
     expect(create).toHaveBeenCalledWith("demo", 2, "完整版");
     expect(useProjectsStore.getState().refreshProject).toHaveBeenCalledWith("demo", undefined);
     expect(useAppStore.getState().assistantPanelOpen).toBe(false);
-    // 新建的剪辑时间线随即成为选中的标签，不另弹提示
     expect(useAppStore.getState().toast).toBeNull();
   });
 

@@ -79,7 +79,6 @@ export default {
   'lorebook': 'Lorebook',
   'no_episodes_yet': 'No episodes yet',
   'confirm_delete_file': 'Are you sure you want to delete "{{name}}"?',
-  // 全局设置侧栏
   'settings_group_generation': 'Generation',
   'settings_group_agent': 'Agent',
   'settings_group_system': 'System',
@@ -217,10 +216,8 @@ export default {
   'subagent_card_label': 'Subagent',
   'subagent_tokens': '{{count}} tokens',
   'task_in_progress_default': 'In progress',
-  // One-time inline tip after the story setting is extracted
   'overview_handoff_tip': 'The story setting has been extracted. Next, send "Start production" to the agent on the right.',
   'overview_handoff_dismiss': 'Got it',
-  // Project overview and the empty-project welcome page
   'overview_meta_episodes_one': '{{count}} episode',
   'overview_meta_episodes_other': '{{count}} episodes',
   'overview_meta_no_episodes': 'No episodes yet',
@@ -307,7 +304,6 @@ export default {
   'pause_audio_sample': 'Pause',
   'delete_audio_sample': 'Delete audio sample',
 
-  // TTS-generated reference audio sample
   'voice_sample_action': 'Generate with TTS',
   'voice_sample_not_configured_hint': 'Configure an audio provider in settings first',
   'voice_sample_modal_title': 'Generate voice reference sample',
@@ -339,7 +335,6 @@ export default {
   'generate_design': 'Generate Asset Sheet',
   'regenerate_design': 'Regenerate Asset Sheet',
 
-  // Instruction-based image editing
   'image_edit_action': 'Edit region',
   'image_edit_no_image_hint': 'Generate or upload an image first, then edit',
   'image_edit_modal_title': 'Edit region',
@@ -420,7 +415,6 @@ export default {
   'text_models': 'Text Models',
   'text_models_desc': 'Configure text models by task tier; leave empty to fall back to the default model.',
   'no_text_providers_hint': 'No provider can generate text yet.',
-  // GlobalHeader
   'mode_badge_drama': 'Drama 16:9',
   'mode_badge_narration': 'Narration/Commentary 9:16',
   'project_zip_download_started_with_diagnostics': 'Project ZIP download started, export contains {{count}} diagnostics',
@@ -487,7 +481,6 @@ export default {
   'episode_status_label_completed': 'Completed',
   'episode_status_label_missing': 'Missing',
 
-  // CreateProjectModal
   'wizard_steps_label': 'Steps',
   'wizard_step_done': ' (done)',
   'wizard_missing': 'Still needed: {{items}}',
@@ -508,7 +501,6 @@ export default {
   'default_duration_desc': 'Let AI decide duration based on content, or specify a fixed duration',
   'auto': 'Auto',
 
-  // ExportScopeDialog
   'export_scope_title': 'Select Export Scope',
   'export_scope_description': 'Download the project as a ZIP archive.',
   'export_scope_confirm': 'Export',
@@ -539,7 +531,6 @@ export default {
   'draft_path_default_mac': '/Users/<YourUsername>/Movies/JianyingPro/User Data/Projects/com.lveditor.draft',
   'draft_path_default_windows': String.raw`C:\Users\<YourUsername>\AppData\Local\JianyingPro\User Data\Projects\com.lveditor.draft`,
 
-  // Task status & cancellation flow
   'generating_status': 'Generating...',
   'queued_status': 'Queued',
   'completed_status': 'Completed',
@@ -585,7 +576,6 @@ export default {
   'task_type_render_final_cut': 'Final cut render',
   'task_type_render_jianying_draft': 'Jianying draft export',
 
-  // Agent
   'new_session': 'New Session',
   'delete_session': 'Delete Session',
   'generating_queue_hint': 'Agent is replying. Messages you send now will be queued',
@@ -719,7 +709,6 @@ export default {
   'agent_failure_conclusion_subprocess_unsupported': "The backend's event loop can't create subprocesses, so Claude Code couldn't be launched. This happens on Windows when the backend is started with --reload; restart the backend without --reload.",
   'agent_failure_conclusion_startup_failed': 'An error occurred during startup. The raw information is under Details.',
 
-  // StudioCanvasRouter & Toasts
   'storyboard_task_submitted_toast': 'Storyboard generation task for "{{id}}" submitted',
   'generate_storyboard_failed': 'Failed to generate storyboard: {{message}}',
   'video_task_submitted_toast': 'Video generation task for "{{id}}" submitted',
@@ -741,11 +730,9 @@ export default {
   'add_to_library_button_label': 'Add to Library',
   'loading_placeholder': 'Loading...',
 
-  // Form actions
   'cancel': 'Cancel',
   'add': 'Add',
 
-  // OverviewCanvas cost & style section
   'estimate': 'Est.',
   'storyboard': 'Storyboard',
   'video': 'Video',
@@ -760,7 +747,6 @@ export default {
 
   'load_failed': 'Failed to load: {{message}}',
 
-  // AgentConfigTab
   'api_credentials': 'API Credentials',
   'env_anthropic_api_key': 'Maps to environment variable ANTHROPIC_API_KEY',
   'clear_saved': 'Clear saved',
@@ -786,16 +772,12 @@ export default {
   'clear_base_url_input': 'Clear Base URL input',
   'clear_model_input': 'Clear model configuration input',
 
-  // WelcomeCanvas
 
-  // WorkspaceNotificationsDrawer title
   'workspace_notifications_title': 'Workspace Notifications',
   'notifications_trigger_unread': 'Workspace notifications, {{count}} unread',
 
-  // MediaModelSection
   'save_failed': 'Failed to save: {{message}}',
 
-  // Usage header entry & popover
   'usage_entry_aria': 'Usage records · reference cost {{cost}}',
   'usage_entry_aria_active': 'Usage records · reference cost {{cost}} · {{count}} tasks in progress',
   'usage_close_panel': 'Close usage records panel',
@@ -806,7 +788,6 @@ export default {
   'usage_popover_empty': 'This project has no usage records yet. Calls appear here once generation starts.',
   'usage_view_all_records': 'View all records',
 
-  // UsageRecordsSection
   'all': 'All',
   'usage_records_title': 'Usage Records',
   'usage_records_desc': 'Review each call\'s outcome and reference cost by project, provider, and model.',
@@ -970,7 +951,6 @@ export default {
   'usage_attention_consecutive_detail': '{{count}} times ({{media}}), last at {{time}}',
   'usage_attention_consecutive_action': 'View this shot',
 
-  // import diagnostics
   'import_auto_fixed': 'Project "{{title}}" imported ({{count}} issue(s) auto-fixed)',
   'import_success_with_diagnostics': 'Import completed with diagnostics — review the details below',
   'import_diagnostics': 'Import Diagnostics',
@@ -978,7 +958,6 @@ export default {
   'import_failure_with_diagnostics': 'Import did not complete. Blocking and warning items are listed below.',
   'blocking_issues': 'Blocking Issues',
   'auto_fixed_issues': 'Auto-fixed Issues',
-  // config-status-store
   'video_provider_not_configured': 'No provider configured for video generation',
   'image_provider_not_configured': 'No provider configured for image generation',
   'text_provider_not_configured': 'No provider configured for text generation',
@@ -993,7 +972,6 @@ export default {
   'recommendation_keep': 'Keep current',
   'recommendation_dismiss': 'Not now',
 
-  // OverviewCanvas / shared aria labels
   'import_project_file_aria': 'Import project ZIP file',
   'import_credential_file_aria': 'Import JSON credential file',
   'upload_asset_file_aria': 'Upload asset file',
@@ -1011,7 +989,6 @@ export default {
   'storyboard_count': '{{count}} shots',
   'video_unit_count': '{{count}} video units',
 
-  // ProjectSettingsPage
   'project_settings': 'Project Settings',
   'agent_profile_title': 'Agent profile',
   'agent_profile_description': 'Project Agent instructions upgrade safely with built-ins while preserving local customizations.',
@@ -1024,7 +1001,6 @@ export default {
   'agent_profile_reset_confirm': 'Confirm reset',
   'agent_profile_resetting': 'Resetting…',
   'agent_profile_reset_failed': 'Could not reset Agent profile: {{message}}',
-  // 项目设置：侧栏分页、风格对话框与模型通道来源
   'project_settings_group_project': 'Project',
   'project_settings_group_agent': 'Agent',
   'project_settings_tab_basics': 'Basics',
@@ -1117,7 +1093,6 @@ export default {
   'reference_units_count': '{{count}} units',
   'reference_needs_replan': 'This unit needs replanning before it can be generated.',
   'reference_preview_video_aria': 'Preview video for unit {{id}}',
-  // Reference video unit UI status labels — derived from task queue state.
   'reference_status_pending': 'Pending',
   'reference_status_running': 'Running',
   'reference_status_ready': 'Ready',
@@ -1137,7 +1112,6 @@ export default {
   'image_edit_task_failed': 'Edit for "{{id}}" failed: {{reason}}',
   'script_plan_task_failed': 'AI script planning for "{{episode}}" failed: {{reason}}',
   'task_failed_provider_reason_suffix': ' (Provider reason: {{reason}})',
-  // ========== reference-to-video editor ==========
   'reference_editor_view_aria': 'Editor view',
   'reference_editor_view_script': 'Script',
   'reference_editor_view_parse': 'Parse preview',
@@ -1243,7 +1217,6 @@ export default {
   'voice_consistency_none_desc': 'This model doesn’t support spoken dialogue — generated videos have no voice track.',
   'text_model_override_desc': 'Override by task type; leave empty to follow global default',
 
-  // ProviderSection
   'status_ready': 'Ready',
   'status_error': 'Error',
   'status_unconfigured': 'Unconfigured',
@@ -1252,14 +1225,12 @@ export default {
   'select_provider': 'Please select a provider',
   'provider_saved_refresh_failed': 'Saved, but the provider list failed to refresh. Please reload the page.',
 
-  // ProviderDetail
   'media_type_video': 'Video',
   'media_type_audio': 'Audio',
   'media_type_image': 'Image',
   'media_type_text': 'Text',
   'advanced_config': 'Advanced Configuration',
 
-  // CustomProviderSection
   'add_custom_provider': 'Add Custom Provider',
   'provider_rail_preset': 'Built-in',
   'provider_rail_custom': 'Custom',
@@ -1431,7 +1402,6 @@ export default {
   'pm_multiplier_help': 'Costs are the official price times this multiplier. For example, 0.8 means 20% off.',
   'pm_multiplier_help_subscription': 'Subscription plan. Defaults to 0, so no cost is recorded.',
   'pm_multiplier_save_failed': "Advanced configuration saved, but the multiplier wasn't: {{message}}",
-  // 供应商模型 Sheet
   'pm_sheet_provider_settings': 'Provider settings',
   'pm_sheet_model_info': 'Model info',
   'pm_sheet_enabled': 'Enabled',
@@ -1573,7 +1543,6 @@ export default {
   'provider_field_gcs_bucket': 'GCS bucket',
   'provider_field_wan3_base_url': 'Wan 3.0 base URL',
 
-  // CustomProviderForm
   'add_custom_provider_title': 'Add Custom Provider',
   'cp_connection_heading': 'Connection',
   'cp_base_url_label': 'Base URL',
@@ -1669,7 +1638,6 @@ export default {
   'supported_durations_err_range_too_large': "Segment '{{seg}}' range is too large (>{{max_span}})",
   'supported_durations_err_range_inverted': "Segment '{{seg}}': range upper bound must be ≥ lower bound",
   'supported_durations_err_unparseable': "Cannot parse segment '{{seg}}'",
-  // Capability overrides (tri-state control inside a model row; last_frame only for now)
   'cap_override_last_frame_label': 'End frame',
   'cap_override_group_label': 'End frame capability override',
   'cap_override_follow': 'Follow detection',
@@ -1684,7 +1652,6 @@ export default {
   'cap_override_badge': 'Overridden',
   'cap_override_effective': 'In effect: {{effective}} (detected: {{detected}})',
   'cap_override_on_unavailable': 'This endpoint does not send end frames, so it cannot be forced on.',
-  // Global bucket reference hint (shown while editing capabilities; non-blocking)
   'global_bucket_label_default_video_backend': 'Default video model',
   'global_bucket_label_default_video_backend_i2v': 'Image-to-video (i2v)',
   'global_bucket_label_default_video_backend_r2v': 'Reference-to-video (r2v)',
@@ -1740,7 +1707,6 @@ export default {
   'cp_provider_multiplier_save_failed': 'The provider was saved, but the provider multiplier was not: {{message}}',
   'cp_provider_multiplier_create_failed': 'The provider was created, but the provider multiplier was not saved: {{message}}. Enter it again in the provider details.',
 
-  // CustomProviderDetail
   'discovery_format_label': 'Model Discovery Protocol',
   'discovery_format_help': 'Only used for "Fetch model list" and "Test connection"; does not affect runtime calls.',
   'discovery_format_openai': 'OpenAI Compatible',
@@ -1838,14 +1804,12 @@ export default {
   'endpoint_gemini_vertex_interactions_video_display': 'Vertex AI Video (Omni)',
   'endpoint_agnes_video_display': 'Agnes (Video)',
   'endpoint_catalog_loading': 'Loading endpoint catalog…',
-  // Image Capability
   'image_capability_t2i': 'T2I',
   'image_capability_i2i': 'I2I',
   'image_capability_both': 'T2I · I2I',
   'image_model_t2i_label': 'Text-to-Image Model',
   'image_model_i2i_label': 'Image-to-Image Model',
 
-  // WorkspaceNotificationsDrawer
   'notifications_count': '{{count}} notifications',
   'no_notifications': 'No notifications',
   'notifications_hint': 'Project refreshes, generation completions, and navigable changes will appear here',
@@ -1854,7 +1818,6 @@ export default {
   'just_now': 'Just now',
   'minutes_ago': '{{count}} min ago',
 
-  // TimelineCanvas
   'select_episode_hint': 'Please select an episode from the sidebar',
   'cost_estimate_short': 'Est.',
   'cost_actual_short': 'Actual',
@@ -1874,7 +1837,6 @@ export default {
   'reference_tab_preview': 'Video',
   'reference_tab_aria': 'Switch between editor and preview',
 
-  // ArcReel Workbench v3 — Reference-to-Video
   'no_episode_search_results': 'No matching episodes',
   'episode_collapsed_button_label': '{{position}} · {{title}}',
   'reference_batch_nothing_to_do': 'All units are already generated or in flight',
@@ -1940,15 +1902,12 @@ export default {
   'reference_meta_cost': 'Cost',
   'reference_meta_cost_spent': 'spent',
 
-  // Source file normalization toasts
 
-  // Grid preview
   'grid_batch_count': '{{count}} multi-grid storyboards',
   'generating_grid': 'Generating...',
   'generate_grid_btn': 'Generate Multi-grid Storyboard',
   'insufficient_scenes_for_grid': 'Not enough scenes to generate a multi-grid storyboard',
 
-  // GridPreviewPanel
   'grid_status_pending': 'Pending',
   'grid_status_generating': 'Generating',
   'grid_status_completed': 'Completed',
@@ -1982,10 +1941,8 @@ export default {
   'grid_upload_success': 'Composite image uploaded; ready to split into cells',
   'grid_upload_failed': 'Upload failed: {{message}}',
 
-  // StudioCanvasRouter
   'grid_generation_failed': 'Multi-grid storyboard generation failed: {{message}}',
 
-  // CredentialList
   'add_credential': 'Add Provider',
   'no_credentials': 'No keys yet. Add a key to use this provider\'s models.',
   'active_label': 'In use',
@@ -2008,14 +1965,12 @@ export default {
   'enter_credentials_required_any_group': 'Please fully fill in at least one credential group',
   'or_label': 'or',
 
-  // ProviderModelSelect
   'select_model_placeholder': 'Select model...',
   'select_model_aria': 'Select model',
   'search_model_placeholder': 'Search models or providers...',
   'search_model_aria': 'Search models or providers',
   'no_models_match': 'No matching models',
 
-  // ImagePromptEditor / VideoPromptEditor / DialogueListEditor
   'composition_params': 'Composition',
   'shot_label': 'Shot',
   'lighting_label': 'Lighting',
@@ -2024,7 +1979,6 @@ export default {
   'ambiance_placeholder': 'Ambiance description...',
   'camera_motion_section': 'Camera and ambient audio',
   'camera_motion_label': 'Camera Motion',
-  // Shot type enum values
   'shot_type_extreme_close_up': 'Extreme Close-up',
   'shot_type_close_up': 'Close-up',
   'shot_type_medium_close_up': 'Medium Close-up',
@@ -2034,7 +1988,6 @@ export default {
   'shot_type_extreme_long_shot': 'Extreme Long Shot',
   'shot_type_over_the_shoulder': 'Over-the-shoulder',
   'shot_type_point_of_view': 'Point-of-view',
-  // Camera motion enum values
   'camera_motion_static': 'Static',
   'camera_motion_pan_left': 'Pan Left',
   'camera_motion_pan_right': 'Pan Right',
@@ -2057,7 +2010,6 @@ export default {
   'line_placeholder': 'Line',
   'add_dialogue': 'Add Dialogue',
   'dialogue_remove': 'Remove dialogue',
-  // script_plan → prompt_authoring content confirmation
   'utterance_kind_dialogue': 'Dialogue',
   'utterance_kind_voiceover': 'Voiceover',
   'utterance_toggle_kind': 'Switch between dialogue and voiceover',
@@ -2097,7 +2049,6 @@ export default {
   'review_confirm_failed': 'Could not confirm, please try again',
   'review_load_failed': "Couldn't load script plan results",
   'review_retry': 'Retry',
-  // Drafts needing fixes / Agent editable drafts (DraftStatus)
   'draft_prompt_authoring_title': 'Prompt authoring draft needs fixes',
   'draft_status_invalid': 'Draft needs fixes',
   'draft_violation_count_one': '{{count}} violation',
@@ -2154,7 +2105,6 @@ export default {
   'review_structure_hint': 'After confirming, you can add, remove, and reorder shots on the timeline',
   'review_video_model_unresolved_action': 'Open project settings',
 
-  // ReferenceScriptPlanPreviewPanel (reference_video variant script_plan per-episode preview)
   'reference_script_plan_source_text_label': 'Source text',
   'reference_script_plan_source_anchor_broken': 'Not a verbatim substring of the source',
   'reference_script_plan_edit_text': 'Edit script',
@@ -2187,7 +2137,6 @@ export default {
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 
-  // VersionTimeMachine
   'version_mgmt': 'Versions',
   'switch_version_failed': 'Failed to switch version: {{message}}',
   'no_history': 'No history versions yet',
@@ -2213,11 +2162,9 @@ export default {
   'version_moved_to_trash': "v{{version}} moved to the project trash and kept for 30 days",
   'version_delete_failed': "Could not delete v{{version}}: {{message}}",
 
-  // ProjectCard - more actions
   'more_actions': 'More Actions',
   'delete_project': 'Delete Project',
 
-  // ---- Workbench v3 ----
   'project_switcher_current': 'Current project',
   'project_switcher_new': 'New project…',
   'project_switcher_label': 'Switch project (current: {{name}})',
@@ -2374,7 +2321,6 @@ export default {
   'shot_detail_prev': 'Previous',
   'shot_detail_next': 'Next',
   'eyebrow_segment_refs': 'References',
-  // Agent work rows (tool calls, subagents, skills, background tasks)
   'tool_call_input_label': 'Parameters',
   'tool_call_result_label': 'Result',
   'work_status_running': 'Running',
@@ -2410,15 +2356,11 @@ export default {
   'tool_summary_operations_other': '{{count}} changes',
   'tool_summary_project_overview': 'Project overview',
   'tool_summary_project_settings': 'Project settings',
-  // ToolCallWithResult
-  // Timeline typed entries (interrupt / AskUserQuestion answer)
   'chat_interrupt_notice': 'Stopped. This reply was not finished',
   'chat_compacted_label': 'Context compacted',
-  // Agent message stream
   'chat_transcript_label': 'Conversation',
   'chat_code_block_label': 'Code block',
   'chat_table_label': 'Table',
-  // Toolbar labels for code blocks, tables, diagrams and links in Markdown (Streamdown translations)
   'chat_md_close': 'Close',
   'chat_md_copied': 'Copied',
   'chat_md_copy_code': 'Copy code',
@@ -2508,7 +2450,6 @@ export default {
   'tool_name_merge_asset': 'Merge assets',
   'tool_name_retry_project_migration': 'Retry data upgrade',
 
-  // Header status bar (ProjectStatusBar): episode progress, project-level next step, failed data upgrade
   'guide_hand_to_agent': 'Hand to Agent',
   'guide_alt_create_episode': 'Create an episode',
   'guide_alt_agent': 'Hand to Agent: {{step}}',
@@ -2563,7 +2504,6 @@ export default {
   'migration_repair_title': 'This project needs repair',
   'migration_repair_body': 'The data upgrade did not finish, so generation is turned off for now. Existing scripts and visuals remain viewable. Click "Retry" to run the data upgrade again.',
   'migration_repair_prefill': "This project's data upgrade failed. Walk me through the failure details one by one — which episode, which file, what was violated — then repair them with patch_project / patch_episode_meta / rename_asset and call retry_project_migration.",
-  // Data upgrade report: the one-time notice on the project page and the confirmation before an import
   'migration_report_notice_one': 'This upgrade changed {{count}} item',
   'migration_report_notice_other': 'This upgrade changed {{count}} items',
   'migration_report_dismiss': 'Dismiss the upgrade notice',
@@ -2857,7 +2797,6 @@ export default {
   'trash_purge_description': "{{name}} will be permanently deleted and cannot be restored.",
   'trash_action_failed': "Action failed: {{message}}",
 
-  // ---- Projects lobby · Darkroom ----
   'lobby_search_placeholder': 'Search projects',
   'lobby_search_kbd': '⌘K',
   'lobby_hero_greeting_morning': 'Good morning, director.',
@@ -2920,7 +2859,6 @@ export default {
   'lobby_no_filter_match': 'No matching projects',
   'lobby_no_filter_match_hint': 'Try clearing filters or a different keyword.',
   'lobby_clear_filters': 'Clear filters',
-  // 外部 Agent 接入与访问令牌
   'ext_agent_desc': 'External agents use [[brand]]\'s creative tools through public skills and remote MCP. Complete the three steps below to connect.',
   'ext_agent_steps': 'Setup steps',
   'ext_agent_step_skills_title': 'Install public skills',
@@ -3033,7 +2971,6 @@ export default {
   'diagnosis_network': 'Network unreachable. Check URL and firewall.',
   'diagnosis_timeout': 'Upstream timed out. The endpoint is reachable but the model did not answer in time; you can save and retry.',
   'diagnosis_unknown': 'Unknown error. See raw response.',
-  // ==================== Shot end frame ====================
   'end_frame_title': 'End frame',
   'end_frame_description': 'The video opens on the storyboard image and ends on this one. Regenerating the video keeps it.',
   'end_frame_choose': 'Choose image',
@@ -3072,7 +3009,6 @@ export default {
   'script_edit_commit_failed': 'The script could not be saved safely. Retry the edit.',
   'script_edit_rejected': 'The script edit was rejected. Review the affected operation and retry.',
 
-  // 自定义调用端点
   'ce_section_title': 'Endpoints',
   'ce_rail_label': 'Endpoint list',
   'ce_rail_mine_empty': 'No custom endpoints yet.',
@@ -3436,7 +3372,6 @@ export default {
   'ce_download_policy_image': 'When both the image URL and base64 are configured, the URL is used first. The image URL is downloaded automatically, carrying the key when it is on the same host as the base URL and no credentials otherwise. Base64 is accepted as a bare string or a data URI and saved after decoding.',
   'cp_no_api_key': 'This provider needs no key',
   'cp_no_api_key_conflict': 'These models use endpoints that require a key: {{models}}. Their requests will go out without credentials.',
-  // ---- 市场 ----
   'market_section_title': 'Market',
   'market_refresh_all': 'Refresh all',
   'market_sources_desc': 'Entries are shown in the order of this list. Disabled market sources stay in the list but their entries are hidden.',
@@ -3960,14 +3895,12 @@ export default {
   'edit_transition_radial': 'Radial wipe',
   'edit_transition_gradient_wipe': 'Gradient wipe',
   'edit_transition_squeeze': 'Squeeze',
-  // Ad project overview and the "Story setting" tab
   'episode_view_setting': 'Story setting',
   'ad_setting_hint': 'AI script generation draws on these settings. After you save changes, a script that was already generated is marked outdated.',
   'ad_brief_title': 'Creative brief',
   'ad_brief_placeholder': 'Describe the video you want: audience, tone, key selling points, call to action...',
   'ad_products_view_all': 'View all',
   'ad_products_empty_hint': 'Add product photos and selling points, and AI script generation will build around the product. Without a product, you can still generate from the creative brief alone.',
-  // 共享组件：缩略图的查看大图
   'image_fullscreen_preview': 'View full-size image of {{name}}',
   // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
   'catalog_picker_title': 'Choose from model catalog',

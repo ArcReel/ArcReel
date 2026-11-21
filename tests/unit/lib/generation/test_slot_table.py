@@ -29,7 +29,6 @@ class TestSlotTable:
         assert st.occupied("p", "image") == 1
         assert st.has_room("p", "image", 2) is True
         assert st.has_room("p", "image", 1) is False
-        # capacity<=0 → 永远无空位（容量无关，纯按传入值判定）
         assert st.has_room("p", "image", 0) is False
 
     async def test_pending_counts_toward_capacity(self):
@@ -45,13 +44,11 @@ class TestSlotTable:
         f1 = _pending_future()
         f2 = _pending_future()
         st.register("p", "image", "t1", f1)
-        st.register("p", "image", "t1", f2)  # 同 id 覆盖
+        st.register("p", "image", "t1", f2)
         assert st.occupied("p", "image") == 1
         assert st.all_active_tasks() == [f2]
-        # release 不存在 → no-op
         st.release("p", "image", "ghost")
         assert st.occupied("p", "image") == 1
-        # release 两次 → 幂等
         st.release("p", "image", "t1")
         st.release("p", "image", "t1")
         assert st.occupied("p", "image") == 0
@@ -63,7 +60,6 @@ class TestSlotTable:
         for i in range(3):
             st.register("p", "video", f"t{i}", _pending_future())
         assert st.has_room("p", "video", 3) is False
-        # 容量 3→5 只是换一个 int 实参，占用记账纹丝不动
         assert st.has_room("p", "video", 5) is True
         assert st.occupied("p", "video") == 3
 
@@ -81,16 +77,13 @@ class TestSlotTable:
         st = SlotTable()
         done = _done_future()
         st.register("p", "video", "t1", done, pending=True)
-        # promote 前：done 的 PENDING 不被 drain
         assert st.drain_finished() == []
         assert st.occupied("p", "video") == 1
         st.promote("p", "video", "t1")
-        assert st.occupied("p", "video") == 1  # 只翻标志，数量不变
-        # promote 后：done 的 INFLIGHT 被 drain
+        assert st.occupied("p", "video") == 1
         drained = st.drain_finished()
         assert [tid for tid, _ in drained] == ["t1"]
         assert st.occupied("p", "video") == 0
-        # promote 不存在 → no-op
         st.promote("p", "video", "ghost")
 
     async def test_drain_finished_only_done_inflight(self):
@@ -105,7 +98,6 @@ class TestSlotTable:
 
         drained = dict(st.drain_finished())
         assert set(drained) == {"done"}
-        # 未完成的 inflight 与 done 但仍是 PENDING 的占用都保留
         assert st.active_task_ids() == {"running", "queued"}
         assert set(st.all_active_tasks()) == {running_inflight, done_pending}
         running_inflight.cancel()
@@ -137,11 +129,9 @@ class TestSlotTable:
         st.register("p-both", "image", "i2", _pending_future())
         st.register("p-both", "video", "v2", _pending_future())
 
-        # 按 media_type 分隔：image 占用不出现在 video 集合
         assert st.occupied_providers("image") == {"p-img", "p-both"}
         assert st.occupied_providers("video") == {"p-vid", "p-both"}
 
-        # release 掉 p-vid 的最后一个 video 占用 → 该 provider 不再出现（空 bucket 剪除）
         st.release("p-vid", "video", "v1")
         assert st.occupied_providers("video") == {"p-both"}
 
@@ -150,5 +140,4 @@ class TestSlotTable:
         st.register("p-both", "video", "v3", _done_future())
         st.drain_finished()
         assert "p-both" not in st.occupied_providers("video")
-        # image lane 不受影响
         assert st.occupied_providers("image") == {"p-img", "p-both"}

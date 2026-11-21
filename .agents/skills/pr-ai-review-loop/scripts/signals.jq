@@ -14,7 +14,6 @@ def cr_rate_limited_body:
   (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->");
 
 def cr_skip_marker_body:
-  # CodeRabbit marks every skipped review with a dedicated HTML marker.
   (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*skip review by coderabbit\\.ai\\s*-->");
 
 def cr_no_reviewable_changes_body:

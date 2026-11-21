@@ -18,7 +18,7 @@ CUSTOM_SENTINEL_ID = "__custom__"
 class PresetProvider:
     id: str
     display_name: str
-    icon_key: str  # @lobehub/icons 子组件名 (如 "DeepSeek")
+    icon_key: str
     messages_url: str
     discovery_url: str | None
     default_model: str

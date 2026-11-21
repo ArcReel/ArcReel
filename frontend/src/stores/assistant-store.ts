@@ -30,7 +30,6 @@ export type SessionResumeSignal =
   | { kind: "resync"; projectName: string };
 
 interface AssistantState {
-  // Sessions
   sessions: SessionMeta[];
   currentSessionId: string | null;
   sessionsLoading: boolean;
@@ -52,7 +51,6 @@ interface AssistantState {
   /** 排队消息托盘：已发出、Agent 尚未接纳的消息，按发送顺序排列；不进时间线。 */
   queuedMessages: QueuedMessage[];
 
-  // Input
   input: string;
   /** 待追加到输入框末尾的消息内容（编辑排队消息时退回），由输入框取走。 */
   composerAppends: ContentBlock[][];
@@ -67,15 +65,12 @@ interface AssistantState {
    */
   startupFailureOrigin: StartupFailureOrigin | null;
 
-  // Session status
   sessionStatus: SessionStatus | null;
   sessionStatusDetail: string | null;
 
-  // Questions
   pendingQuestion: PendingQuestion | null;
   answeringQuestion: boolean;
 
-  // Skills
   skills: SkillInfo[];
   skillsLoading: boolean;
 
@@ -85,7 +80,6 @@ interface AssistantState {
    */
   editingTurnUuid: string | null;
 
-  // Scope
   currentProject: string | null;
 
   // Draft session (lazy creation)
@@ -98,7 +92,6 @@ interface AssistantState {
    */
   sessionResumeSignals: SessionResumeSignal[];
 
-  // Actions
   setSessions: (sessions: SessionMeta[]) => void;
   setCurrentSessionId: (id: string | null) => void;
   setSessionsLoading: (loading: boolean) => void;
@@ -111,7 +104,6 @@ interface AssistantState {
   /** 应用一条流式 delta；rev 未超过门槛时忽略。 */
   applyDelta: (payload: DraftDeltaPayload) => void;
   clearDraft: () => void;
-  /** 清空时间线（项目切换 / 新会话）。 */
   resetTimeline: () => void;
   setMessagesLoading: (loading: boolean) => void;
   /** 开始载入会话历史：此后到达的条目都算历史，直到 settleHistory。 */
@@ -122,14 +114,10 @@ interface AssistantState {
   setQueuedMessages: (messages: QueuedMessage[]) => void;
   /** 加入或更新一条排队消息；已离开排队的消息不再加回。 */
   upsertQueuedMessage: (message: QueuedMessage) => void;
-  /** 移出一条排队消息（已被接纳或已被丢弃）。 */
   removeQueuedMessage: (id: string) => void;
-  /** 这条消息是否已经离开排队（被接纳或被丢弃）。 */
   hasLeftQueue: (id: string) => boolean;
   setInput: (input: string) => void;
-  /** 把一条消息的内容交给输入框，追加在已有内容之后。 */
   appendToComposer: (content: ContentBlock[]) => void;
-  /** 输入框取走待追加的内容。 */
   takeComposerAppends: () => ContentBlock[][];
   setSending: (sending: boolean) => void;
   setInterrupting: (interrupting: boolean) => void;
@@ -146,7 +134,6 @@ interface AssistantState {
   setIsDraftSession: (draft: boolean) => void;
   notifySessionResumed: (projectName: string, sessionId: string) => void;
   requestSessionResync: (projectName: string) => void;
-  /** 取走并清空待处理的恢复信号。 */
   takeSessionResumeSignals: () => SessionResumeSignal[];
 }
 

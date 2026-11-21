@@ -31,7 +31,6 @@ from server.agent_runtime.turn_schema import normalize_block
 
 logger = logging.getLogger(__name__)
 
-# 落库瞬时失败（SQLite busy / 连接抖动）的有界重试；重试耗尽才放弃该条目。
 _APPEND_ATTEMPTS = 3
 _APPEND_RETRY_BASE_S = 0.05
 
@@ -67,7 +66,6 @@ class DraftAccumulator:
         self._parent_tool_use_id: str | None = None
         self._blocks: dict[int, dict[str, Any]] = {}
         self._tool_input_json: dict[int, str] = {}
-        # 跨消息单调递增：快照携带的 rev 是重连客户端的 delta 过滤门槛。
         self._rev = 0
 
     @property
@@ -99,9 +97,6 @@ class DraftAccumulator:
             return None
 
         if (message.get("parent_tool_use_id") or None) != self._parent_tool_use_id:
-            # 并行流式（多 subagent）交错：预览态是单槽结构，取最近一次
-            # message_start 的消息；其它流的增量按 parent 归属过滤丢弃，
-            # 避免拼进错误消息的草稿。被丢弃流的完整内容随权威条目落库。
             return None
 
         if event_type == "content_block_start":
@@ -279,7 +274,6 @@ class SessionEntryPipeline:
                 session_id=session_id,
             )
             await self._append_normalized(session_id, entries)
-            # 轮次终结：未被权威条目替换的 draft（中断/错误）随内存丢弃。
             self.draft.clear()
             # 中断的结果是时间线事件：SDK 回显缺席时由 result 兜底定型，
             # 尾检去重保证与已入日志的回显只留一条。须先于 log_turn_complete

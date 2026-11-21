@@ -22,7 +22,6 @@ interface Props {
   onTest: (id: number) => void;
   onEdit: (cred: AgentCredential) => void;
   onDelete: (cred: AgentCredential) => void;
-  /** 档位绑定或解除绑定请求在途的 Agent 供应商。 */
   tierBusyIds?: ReadonlySet<number>;
   onBindTier: (id: number, tier: AgentCredentialTier, entry: CatalogEntryHit) => void;
   onUnbindTier: (id: number, tier: AgentCredentialTier) => void;

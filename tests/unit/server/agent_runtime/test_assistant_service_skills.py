@@ -19,7 +19,6 @@ class TestListAvailableSkills:
             encoding="utf-8",
         )
 
-        # Create a dev-only skill in .claude/skills/ (should NOT appear)
         dev_skill = tmp_path / ".claude" / "skills" / "dev-tool"
         dev_skill.mkdir(parents=True)
         (dev_skill / "SKILL.md").write_text(

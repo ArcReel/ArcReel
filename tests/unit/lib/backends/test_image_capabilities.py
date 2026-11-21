@@ -60,9 +60,7 @@ def test_custom_model_matches_entry_by_name(channel, model_id, expected):
 @pytest.mark.parametrize(
     ("model_id", "overrides", "expected"),
     [
-        # 条目说只接受图生图，能力覆盖把文生图整维替换为开启
         ("qwen-image-edit-plus", {"text_to_image": True}, {T2I, I2I}),
-        # 覆盖关掉一维，另一维仍取条目
         ("qwen-image-edit-plus", {"image_to_image": False}, set()),
         # 对应不上条目：只覆盖的那一维受约束，另一维不加约束
         ("relay-image-x", {"image_to_image": False}, {T2I}),
@@ -214,7 +212,7 @@ def test_settings_show_both_image_dimensions_of_a_comfyui_endpoint_from_its_bind
     def view(definition: dict):
         spec = comfyui_endpoint_spec("ce-7", definition)
         return custom_capability_view(
-            model_id="doubao-seedream-4-5-251128",  # 对得上条目也不读条目
+            model_id="doubao-seedream-4-5-251128",
             endpoint="ce-7",
             spec=spec,
             raw_overrides=None,

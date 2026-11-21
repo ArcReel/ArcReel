@@ -148,7 +148,6 @@ class TestExtractors:
 
     def test_extract_billing_duration(self):
         assert extract_billing_duration({"usage": {"duration": 15}}) == 15
-        # 容忍 float / 数字字符串
         assert extract_billing_duration({"usage": {"duration": 4.8}}) == 5
         assert extract_billing_duration({"usage": {"duration": "10"}}) == 10
 
@@ -161,7 +160,6 @@ class TestExtractors:
     def test_extract_billing_duration_missing(self):
         assert extract_billing_duration({"usage": {}}) is None
         assert extract_billing_duration({}) is None
-        # 非数字字符串无法解析 → None
         assert extract_billing_duration({"usage": {"duration": "abc"}}) is None
 
     def test_extract_billing_duration_non_positive_falls_back(self):
@@ -179,7 +177,6 @@ class TestExtractors:
         assert extract_billing_duration({"usage": {"duration": 86400}}) == 86400
 
     def test_extract_billing_duration_non_dict_usage(self):
-        # usage 为非 dict 真值（畸形上游）→ 归一化为空、回 None，不抛 AttributeError
         assert extract_billing_duration({"usage": [1, 2]}) is None
         assert extract_billing_duration({"usage": "oops"}) is None
 
@@ -232,7 +229,6 @@ class TestSafeBodyForLog:
         assert view["model"] == "wan2.7-r2v"
         assert view["resolution"] == "720P"
         assert view["media"] == "<1 item>"
-        # 长 prompt 被截断
         assert len(view["prompt"]) < 200
 
     def test_image_messages_summarized_to_counts(self):

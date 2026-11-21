@@ -5,7 +5,6 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { itemPositionLabel } from "@/utils/episode-display";
 import { episodeItemKind, findEpisodeItem, type EpisodeItemFacts } from "@/utils/episode-item";
 
-/** 当前项目剧本里的条目事实（位置、总数、摘录、缩略图）；条目已不在剧本里时为 null。 */
 export function useEpisodeItem(itemId: string): EpisodeItemFacts | null {
   const scripts = useProjectsStore((s) => s.currentScripts);
   return useMemo(() => findEpisodeItem(scripts, itemId), [scripts, itemId]);

@@ -12,7 +12,6 @@ import type {
 const TRIAL_POLL_INTERVAL_MS = 2000;
 const TRIAL_POLL_MAX_CONSECUTIVE_FAILURES = 5;
 
-/** 创建一次测试连接的载荷：内联定义或模型行引用二选一。 */
 export interface TrialRunRequest {
   definition?: unknown;
   model_ref?: TrialRunModelRef;
@@ -22,16 +21,12 @@ export interface TrialRunRequest {
 
 export interface TrialRunHandle {
   run: TrialRunInfo | null;
-  /** 终态：成功或失败。 */
   finished: boolean;
   starting: boolean;
-  /** 创建、回读或取产物时的出错说明。 */
   error: string | null;
-  /** 上一次 run 是被用户放弃的。 */
   cancelled: boolean;
   /** 回读连续失败到上限，已停止轮询；run 仍占着服务端名额，取消入口照旧可用。 */
   pollStopped: boolean;
-  /** 产物的本地对象 URL；没有产物或还没取回为 null。 */
   artifactUrl: string | null;
   start: (request: TrialRunRequest, assets?: EndpointTestAssets) => Promise<void>;
   cancel: () => Promise<void>;

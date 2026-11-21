@@ -2,7 +2,6 @@ import type { EpisodesView, ReplanSummary } from "@/types";
 
 import { toGlobal } from "./manual-split-model";
 
-/** 原文右侧色条的一种分法：新方案的第 `index` 集，或重新规划范围里还没生成到的原文。 */
 export type CompareLane = { kind: "new"; index: number } | { kind: "pending" };
 
 /** 一行原文里右侧色条的一段：`[from, to)` 是文件内的码位偏移。 */
@@ -24,7 +23,6 @@ export interface ReplanCompare {
    * 第一个非空白字符，落在文件末尾的空白里时取下一个文件的开头。
    */
   diffs: (file: number) => number[];
-  /** 原文全部在方案还没生成到的范围里的现有集。 */
   waiting: ReadonlySet<number>;
 }
 
@@ -39,7 +37,6 @@ function sameLane(a: CompareLane | undefined, b: CompareLane | undefined): boole
   return a.kind === "pending" || a.index === (b as { index: number }).index;
 }
 
-/** 两段相邻色条是否连成一条：前一段的结尾与后一段的开头属于同一集或都在等待规划。 */
 export function lanesContinue(previous: LanePiece[], next: LanePiece[]): boolean {
   return sameLane(previous.at(-1)?.lane, next[0]?.lane);
 }
@@ -86,7 +83,6 @@ export function replanCompare(view: EpisodesView, replan: ReplanSummary | null):
       pieces.push({ from: Math.max(draft.start, from), to: Math.min(draft.end, to), lane: { kind: "new", index: draft.index } });
     }
     if (!replan.complete) {
-      // 等待规划：方案的结尾之后，且不早于起点
       const pendingFrom =
         file < end[0] || file < start[0]
           ? Infinity

@@ -36,7 +36,6 @@ const SEVERITY_STYLE: Record<DiagnosticSeverity, { icon: LucideIcon; tone: strin
   warnings: { icon: AlertTriangle, tone: "text-warn" },
 };
 
-/** 项目导入、导出的诊断清单：按严重程度分组列出问题与出处，没有任何条目时不显示。 */
 export function ArchiveDiagnosticsDialog({
   title,
   description,

@@ -214,7 +214,6 @@ describe("API", () => {
     });
 
     it("preserves and presents a structured speech admission blocker", async () => {
-      // 文案按单元在本集里的当前位置称呼：E1U2 排在第 2 位。
       useProjectsStore.setState({
         currentScripts: { "episode_1.json": { episode: 1, video_units: [{ unit_id: "E1U5" }, { unit_id: "E1U2" }] } as never },
       });
@@ -779,7 +778,6 @@ describe("API", () => {
           },
         ],
       };
-      // 三个封装都用含空格项目名，断言 encodeURIComponent 在各自路径上生效（编码丢失即失败）。
       await API.getScriptReview("a b", 1);
       await API.saveScriptReviewContent("a b", 2, content);
       await API.saveScriptReviewContent("a b", 2, content, "fp 1");

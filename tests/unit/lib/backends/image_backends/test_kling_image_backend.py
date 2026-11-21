@@ -222,14 +222,12 @@ class TestGenerateHappyPath:
 
             result = await _jwt_backend().generate(_request(tmp_path))
 
-            # images/generations 提交端点
             assert only_request(routes.submit).url.path == "/v1/images/generations"
             assert routes.poll.calls.last.request.url.path == "/v1/images/generations/task-9"
 
         assert result.provider == PROVIDER_KLING
         assert result.image_uri == "https://x/final.png"
         assert result.image_path.read_bytes() == b"png-bytes"
-        # 未选择分辨率时不报分辨率
         assert result.usage is not None
         assert result.usage.dimensions == {}
         assert result.usage.quantities == {"output_images": 1, "input_images": 0}

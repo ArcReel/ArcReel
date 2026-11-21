@@ -221,7 +221,6 @@ async def delete_connection(
             if existing is not None:
                 await _ensure_connection_unused(session, existing)
                 if await new_content_target(session) == "object_storage":
-                    # 删除后每次图片提交都会失败：先把新增图片改回本地保存
                     raise ConflictError("object_storage_connection_is_new_image_target")
                 failures = await stack.enter_async_context(
                     dispose_connection_objects(session, existing, delete_remote=delete_remote_objects)

@@ -117,7 +117,6 @@ async def test_prefix_stops_before_anchor(seeded):
     copied = await store.load({"project_key": project_key, "session_id": new_id})
 
     assert copied is not None
-    # 锚点及其后的 Agent 回复都不进前缀。
     assert [e["type"] for e in copied] == ["user", "assistant", "user", "assistant", "user", "assistant"]
     assert all(e["sessionId"] == new_id for e in copied)
 

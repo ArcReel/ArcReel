@@ -279,7 +279,6 @@ describe("UsageRecordsSection records", () => {
 
     expect(await screen.findByRole("img", { name: "分镜 1" })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "分镜 2" })).not.toBeInTheDocument();
-    // 排队中的任务还没解析出模型，按模型筛选时不列出。
     expect(screen.queryByRole("img", { name: "分镜 3" })).not.toBeInTheDocument();
   });
 

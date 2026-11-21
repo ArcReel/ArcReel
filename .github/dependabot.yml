@@ -5,7 +5,6 @@
 
 version: 2
 updates:
-  # Python dependencies via uv (pyproject.toml + uv.lock)
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
@@ -125,6 +124,7 @@ updates:
           - "mutmut"
           - "blockbuster"
           - "time-machine"
+          - "tree-sitter*"
         update-types:
           - "minor"
           - "patch"
@@ -135,7 +135,6 @@ updates:
           - "minor"
           - "patch"
 
-  # Frontend npm dependencies (pnpm)
   - package-ecosystem: "npm"
     directory: "/frontend"
     schedule:
@@ -269,7 +268,6 @@ updates:
           - "minor"
           - "patch"
 
-  # 文档站 npm dependencies (pnpm)
   - package-ecosystem: "npm"
     directory: "/website"
     schedule:
@@ -323,7 +321,6 @@ updates:
           - "minor"
           - "patch"
 
-  # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

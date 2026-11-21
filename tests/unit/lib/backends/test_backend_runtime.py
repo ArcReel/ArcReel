@@ -465,8 +465,8 @@ class TestRetryPredicates:
             httpx.ReadError("conn reset mid-read"),
             httpx.WriteError("conn reset mid-write"),
             httpx.RemoteProtocolError("server disconnected"),
-            ConnectionError(),  # 内建：歧义，不重试
-            TimeoutError(),  # 内建：歧义，不重试
+            ConnectionError(),
+            TimeoutError(),
         ):
             assert should_retry_submit(exc) is False
 
@@ -506,7 +506,6 @@ class TestRetryPredicates:
         resume_exc = ResumeExpiredError(job_id="job-503", provider="v2")
         assert should_retry_poll(resume_exc) is False
         assert should_retry_submit(resume_exc) is False
-        # 普通异常即便消息含状态码子串也不重试（绕开字符串误判）。
         assert should_retry_poll(ValueError("503 in message")) is False
         assert should_retry_submit(RuntimeError("got 500 somewhere")) is False
 
@@ -538,7 +537,6 @@ class TestShouldRetryDownload:
     def test_local_protocol_errors_and_business_exceptions_fail_fast(self):
         assert should_retry_download(httpx.UnsupportedProtocol("scheme")) is False
         assert should_retry_download(httpx.LocalProtocolError("bad")) is False
-        # 普通异常即便消息含状态码子串也不重试（绕开字符串误判）。
         assert should_retry_download(ValueError("503 in message")) is False
 
 
@@ -643,7 +641,6 @@ class TestSubmitPost:
                 await submit_post(_post, provider="v2")
 
     async def test_ambiguous_error_wrapped_with_manual_retry_hint(self):
-        # ReadTimeout（请求可能已送达）包成 AmbiguousSubmitError，消息含手动重试提示。
         async def _post() -> httpx.Response:
             raise httpx.ReadTimeout("read timed out")
 
@@ -994,7 +991,6 @@ class TestProviderJobIdPersistenceMixin:
     """提交-轮询型 video backend 的持久化收口点：单一统一调用点承接 None 判断 + 写回 + fail-fast。"""
 
     def _backend(self) -> ProviderJobIdPersistenceMixin:
-        # 裸 mixin 实例即可——_persist_provider_job_id 不依赖任何子类状态。
         return ProviderJobIdPersistenceMixin()
 
     def _request(self, *, task_id: str | None) -> VideoGenerationRequest:
@@ -1159,7 +1155,7 @@ _LIMIT = 64 * 1024 * 1024
 class TestStreamToFile:
     async def test_writes_body_and_leaves_no_partial_file(self, tmp_path: Path):
         output = tmp_path / "nested" / "out.mp4"
-        payload = b"x" * (9 * 1024 * 1024)  # 跨过攒批阈值，走多次落盘
+        payload = b"x" * (9 * 1024 * 1024)
 
         with capture_http() as router:
             router.get("https://cdn.test/a.mp4").mock(return_value=httpx.Response(200, content=payload))

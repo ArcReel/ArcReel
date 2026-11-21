@@ -442,7 +442,7 @@ class TestPatrolLoop:
         mgr = _make_manager(tmp_path)
         managed, client = _make_managed("s1", status="completed")
         await _start(managed)
-        managed.last_activity = time.monotonic()  # 刚刚活跃
+        managed.last_activity = time.monotonic()
         mgr.sessions["s1"] = managed
 
         try:

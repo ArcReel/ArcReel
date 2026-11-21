@@ -37,7 +37,6 @@ export interface ModelCapabilitiesInput {
   usesReferenceImages?: boolean;
   /** 分镜已挂尾帧时读取服务端的首尾帧档位；规划期缺省为 false。 */
   usesEndFrame?: boolean;
-  /** 置 false 时不查（演示态等）。 */
   enabled?: boolean;
 }
 
@@ -68,16 +67,9 @@ export interface ModelCapabilities {
   /** 首帧 / 尾帧生效值（含用户覆盖）；尚未查到或查询失败时为 null（未知），不谎报不支持。 */
   firstFrame: boolean | null;
   lastFrame: boolean | null;
-  /** 声音一致性三级标识；尚未查到或查询失败时为 null（未知）。 */
   voiceConsistency: VoiceConsistencyTier | null;
-  /**
-   * 服务端明确答复视频模型不满足桶能力或无法解析（端点 400/422）。网络等其他失败不算，仍为 false：
-   * 那只是能力未知，不能据此门控。
-   */
   videoModelUnresolved: boolean;
-  /** 服务端给出的模型失效原因与修复指引。 */
   videoModelError: string | null;
-  /** 当前上下文的查询在途（含约束上下文变化后的重取）。 */
   loading: boolean;
 }
 

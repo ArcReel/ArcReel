@@ -361,7 +361,6 @@ def _poll_after_seconds(tasks: list[dict[str, Any]], queue_depth: dict[str, int]
     bases = {"video": 10, "reference_video": 10, "grid": 8, "tts": 4}
     base = max((bases.get(str(task["task_type"]), 3) for task in active), default=3)
     depth = max((queue_depth.get(str(task["task_type"]), 0) for task in active), default=0)
-    # ponytail: coarse queue heuristic; replace with measured completion percentiles if polling load becomes material.
     return min(30, base + depth // 5)
 
 

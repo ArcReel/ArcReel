@@ -18,7 +18,6 @@ from typing import Any
 #: 集账本条目上的字段：本集条目编号用过的最大主序号。
 ITEM_ID_HIGH_WATER_FIELD = "item_id_high_water"
 
-#: 条目数组键 → 编号字母。
 ITEM_ID_LETTERS: dict[str, str] = {"segments": "S", "scenes": "S", "shots": "S", "video_units": "U"}
 
 ITEM_ID_RE = re.compile(r"^E(\d+)([SU])(\d+)(?:_\d+)?$")

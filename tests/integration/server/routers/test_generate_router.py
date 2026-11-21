@@ -233,7 +233,6 @@ class TestGenerateRouter:
             assert body["task_id"] == "task-1"
             assert "message" in body
 
-            # Verify enqueue was called correctly
             call = fake_queue.calls[0]
             assert call["project_name"] == "demo"
             assert call["task_type"] == "storyboard"
@@ -831,7 +830,6 @@ class TestGenerateRouter:
                 or "kịch bản" in video.json()["detail"]
                 or "损坏" in video.json()["detail"]
             )
-            # 任务未入队
             assert fake_queue.calls == []
 
     def test_video_missing_script_fail_fast_404(self, tmp_path, monkeypatch):
@@ -864,7 +862,6 @@ class TestGenerateRouter:
             )
             assert video.status_code == 404, video.text
             assert str(missing_script_path) not in video.text
-            # 任务未入队
             assert fake_queue.calls == []
 
     def test_video_missing_segment_404(self, tmp_path, monkeypatch):
@@ -889,7 +886,6 @@ class TestGenerateRouter:
                 },
             )
             assert video.status_code == 404, video.text
-            # 任务未入队
             assert fake_queue.calls == []
 
     def test_character_enqueue_success(self, tmp_path, monkeypatch):
@@ -1039,21 +1035,18 @@ class TestGenerateRouter:
         client = _client(monkeypatch, fake_pm, fake_queue)
 
         with client:
-            # Bad storyboard prompt (structured but missing scene)
             bad_prompt = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E1S02",
                 json={"script_file": "episode_1.json", "prompt": {"composition": {}}},
             )
             assert bad_prompt.status_code == 400
 
-            # Nonexistent segment
             not_found = client.post(
                 "/api/v1/projects/demo/generate/storyboard/MISSING",
                 json={"script_file": "episode_1.json", "prompt": "test"},
             )
             assert not_found.status_code == 404
 
-            # Video without storyboard
             (project_path / "storyboards" / "scene_E1S01.png").unlink()
             no_storyboard = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
@@ -1061,14 +1054,12 @@ class TestGenerateRouter:
             )
             assert no_storyboard.status_code == 400
 
-            # Bad video prompt
             bad_video_prompt = client.post(
                 "/api/v1/projects/demo/generate/video/E1S01",
                 json={"script_file": "episode_1.json", "prompt": {"action": ""}},
             )
             assert bad_video_prompt.status_code in (400, 500)
 
-            # Empty string prompt for storyboard route (segment exists, prompt is empty str)
             empty_storyboard_prompt = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E1S02",
                 json={"script_file": "episode_1.json", "prompt": ""},
@@ -1084,21 +1075,18 @@ class TestGenerateRouter:
             )
             assert empty_video_prompt.status_code == 400
 
-            # Missing character
             fake_pm.project["characters"] = {}
             missing_char = client.post(
                 "/api/v1/projects/demo/generate/character/Alice",
             )
             assert missing_char.status_code == 404
 
-            # Missing scene
             fake_pm.project["scenes"] = {}
             missing_scene = client.post(
                 "/api/v1/projects/demo/generate/scene/祠堂",
             )
             assert missing_scene.status_code == 404
 
-            # Missing prop
             fake_pm.project["props"] = {}
             missing_prop = client.post(
                 "/api/v1/projects/demo/generate/prop/玉佩",
@@ -1241,7 +1229,6 @@ class TestVideoRouteGate:
     def test_reference_route_rejected_even_with_leftover_storyboard(self, tmp_path, monkeypatch):
         """残留分镜图不改变判定：生成模式以 project.json 为唯一真相源，不按磁盘产物换路径。"""
         project_path = _prepare_files(tmp_path)
-        # 分镜图产物 scene_E1S01.png 由 _prepare_files 写入
         fake_pm = self._reference_pm(project_path, storyboard_script=True)
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)

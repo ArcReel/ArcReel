@@ -70,7 +70,6 @@ describe("buildTaskFailureTarget", () => {
   });
 
   it("normalizes scripts/ prefix on either side when matching episode", () => {
-    // task.script_file 带前缀也能匹配 episodes 中带前缀的记录
     const target = buildTaskFailureTarget(
       makeTask({ task_type: "storyboard", script_file: "scripts/ep1.json" }),
       projectData,

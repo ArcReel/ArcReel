@@ -37,10 +37,8 @@ interface UsageSessionsCardProps {
   onPage: (direction: "prev" | "next") => void;
 }
 
-/** 无值时的占位。 */
 const DASH = "—";
 
-/** 带说明的文字：悬停、点按或按 Enter/Space 时显示说明。 */
 function HintedText({ hint, children }: { hint: string; children: ReactNode }) {
   return (
     <InfoTip>
@@ -231,7 +229,6 @@ type DetailState =
   | { status: "failed" }
   | { status: "ready"; items: UsageAgentSessionRecord[] };
 
-/** 展开的会话明细：按时间每条记录一行，同一轮的几条记录自然排在一起。 */
 function SessionDetail({ sessionId, title }: { sessionId: string; title: string }) {
   const { t, i18n } = useTranslation("dashboard");
   const [state, setState] = useState<DetailState>({ status: "loading" });

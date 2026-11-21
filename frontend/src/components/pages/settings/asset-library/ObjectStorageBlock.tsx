@@ -209,7 +209,6 @@ export function ObjectStorageBlock() {
   );
 }
 
-/** 已配置连接的摘要：桶、Endpoint、区域与掩码后的 Access Key ID，以及测试、编辑与删除入口。 */
 function ConnectionCard({
   connection,
   test,

@@ -102,11 +102,6 @@ def get_config_resolver() -> ConfigResolver:
     return ConfigResolver(async_session_factory)
 
 
-# ---------------------------------------------------------------------------
-# 请求 / 响应模型
-# ---------------------------------------------------------------------------
-
-
 class TestParametersInput(BaseModel):
     """调用参数，与 ``VideoGenerationRequest`` 同名。刻意没有 seed（产品界面无处设置）。"""
 
@@ -188,7 +183,6 @@ class TrialRunResponse(BaseModel):
     status: str
     provider: str
     model: str
-    #: 这一笔产的是视频还是图像；读侧据此决定产物按播放器还是按图展示。
     media_type: str = "video"
     created_at: float
     finished_at: float | None = None
@@ -208,11 +202,6 @@ class TrialRunResponse(BaseModel):
     #: 这条失败码该让用户去做什么（``GenerationAction``），与生成失败在项目页给出的是同一份判定。
     error_action: str | None = None
     has_artifact: bool = False
-
-
-# ---------------------------------------------------------------------------
-# 共用：请求解析与定义闸门
-# ---------------------------------------------------------------------------
 
 
 async def _parse_body[T: BaseModel](request: Request, model: type[T]) -> tuple[T, EndpointTestAssets]:
@@ -361,11 +350,6 @@ async def _custom_provider(provider_id: str, session: AsyncSession) -> CustomPro
     return provider
 
 
-# ---------------------------------------------------------------------------
-# 预览请求 / 验证响应
-# ---------------------------------------------------------------------------
-
-
 @router.post("/preview-request")
 async def preview_endpoint_request(
     request: Request,
@@ -411,11 +395,6 @@ async def check_endpoint_response(
     except EndpointTestDefinitionError as exc:
         raise _invalid(exc.diagnostics, _t) from exc
     return stage_report_payload(report)
-
-
-# ---------------------------------------------------------------------------
-# 测试连接
-# ---------------------------------------------------------------------------
 
 
 @router.post("/trial-runs", status_code=201)
@@ -518,11 +497,6 @@ async def get_trial_run_artifact(
         raise NotFoundError("trial_run_artifact_not_found")
     path, media_type = located
     return FileResponse(path, media_type=media_type)
-
-
-# ---------------------------------------------------------------------------
-# 辅助
-# ---------------------------------------------------------------------------
 
 
 def _previewed(section: Any) -> PreviewedRequestResponse:

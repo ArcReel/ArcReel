@@ -24,10 +24,8 @@ from lib.script.reference_video.text_parser import render_mentions
 #: 类型声明行的 YAML 键，插在 ``Style`` 与 ``Scene`` 之间。
 REFERENCE_IMAGES_KEY = "Reference_Images"
 
-#: 上一分镜图在参考图证据里的角色名。
 PREVIOUS_STORYBOARD_ROLE = "previous_storyboard"
 
-#: 上一分镜图的约束句，随类型声明行发给模型。
 PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = "只参考构图与色调"
 
 #: 按资产类型的类型说明；商品条目并入保真要求。

@@ -215,7 +215,6 @@ class TestTaskRepository:
         assert not prop_edit["deduped"]
         assert prop_edit["task_id"] != character_edit["task_id"]
 
-        # 同一 resource_type 再次入队仍应正常去重（回归防护）。
         character_edit_again = await repo.enqueue(
             project_name="demo",
             task_type="image_edit",
@@ -700,11 +699,10 @@ class TestTaskRepository:
             payload={},
             script_file="ep1.json",
         )
-        # Claim one task so it becomes running
         await repo.claim_next("image")
 
         result = await repo.cancel_all_queued("demo")
-        assert result["cancelled_count"] == 1  # only the queued video task
+        assert result["cancelled_count"] == 1
         assert result["skipped_running_count"] == 0  # running 任务在查询 queued 前已被 claim，不算 skipped
 
         task = await repo.get(t2["task_id"])
@@ -763,7 +761,7 @@ class TestCancelCascade:
     async def test_cancel_running_head_is_rejected_and_chain_stays_queued(self, db_session):
         repo = TaskRepository(db_session)
         a, b, c = await self._chain_3(repo)
-        await repo.claim_next("image")  # A 拉成 running
+        await repo.claim_next("image")
 
         with pytest.raises(TaskNotCancellableError):
             await repo.cancel_task(a)

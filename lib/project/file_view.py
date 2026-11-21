@@ -86,7 +86,6 @@ class RemoteFile:
 
     path: str
     stored: ObjectLocator
-    #: 版本记录的创建时间（UTC ISO 8601）。
     modified_at: str
     #: 对象登记的字节数；未查询或没有登记时为 0。
     size: int = 0
@@ -170,7 +169,7 @@ def absent_remote_files(project_dir: Path, rel: str = "") -> list[RemoteFile]:
             return False
         try:
             _parts(path)
-        except FileNotFoundError:  # 版本记录里的脏路径、基础设施路径
+        except FileNotFoundError:
             return False
         return not os.path.lexists(project_dir / path)
 
@@ -270,7 +269,7 @@ def _fetch_needed(project_dir: Path, rel: str, *, deleting: bool) -> bool:
         parts = _parts(rel)
         if not parts:
             return False
-        _resolve(project_dir, parts[:-1])  # 父目录同样不跟随符号链接
+        _resolve(project_dir, parts[:-1])
     except FileNotFoundError:
         return False
     if (project_dir / rel).is_symlink() or rel not in remote_work_file_digests(project_dir):

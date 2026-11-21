@@ -27,11 +27,9 @@ interface ClipInspectorProps {
   clip: EditClip | undefined;
   trimIgnored: boolean;
   thumbnail: string | undefined;
-  /** 视频单元 ID → 它在本集里的当前位置。 */
   positions: ReadonlyMap<string, number>;
 }
 
-/** 选中片段的位置、截取、转场与说明。截取作废时旧的截取加删除线，并说明暂用完整视频。 */
 export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, positions }: ClipInspectorProps) {
   const { t } = useTranslation("dashboard");
   const thumbnailFp = useProjectsStore((s) => (thumbnail ? s.getAssetFingerprint(thumbnail) : null));
@@ -124,7 +122,6 @@ interface IssueListProps {
   issues: readonly EditTimelineIssue[];
   /** 可选中的剪辑片段 ID；BGM 片段（如 b1）不在其中，相关 issue 不带定位按钮。 */
   clipIds: ReadonlySet<string>;
-  /** 视频单元 ID → 它在本集里的当前位置。 */
   positions: ReadonlyMap<string, number>;
   onSelectClip: (clipId: string) => void;
 }
@@ -153,7 +150,6 @@ export function IssueList({ issues, clipIds, positions, onSelectClip }: IssueLis
               unit: issue.unit_id ? (positions.get(issue.unit_id) ?? t("common:deleted")) : "",
               code: issue.code,
             };
-            // 同一种 issue 按 params.cause 分成几种说法，如旁白越界分「压到下一段旁白」与「超出末尾」。
             const cause = typeof issue.params.cause === "string" ? `_${issue.params.cause}` : "";
             const text = t(`edit_view_issue_${issue.code}${cause}`, {
               ...params,

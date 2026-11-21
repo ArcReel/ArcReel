@@ -123,7 +123,7 @@ describe("CapabilityOverrideRow 键盘操作", () => {
     const { onChange } = setup();
     await user.tab();
     await user.keyboard("{ArrowLeft}");
-    expect(onChange).toHaveBeenLastCalledWith(false); // follow 向左回绕到 off
+    expect(onChange).toHaveBeenLastCalledWith(false);
     await user.keyboard("{End}");
     expect(onChange).toHaveBeenLastCalledWith(false);
     await user.keyboard("{Home}");

@@ -384,7 +384,6 @@ def _handle_mode_failure(
             _raw_output_from_exception(exc),
         )
         return _billed_usage(exc, provider=provider, model=model)
-    # 校验类耗尽，或末档仍是 wire 层不兼容——降级链已无更弱的档可退。
     logger.warning(
         "Instructor %s 档失败且降级链已走完，判定为结构化输出能力不足；模型原始输出：%s",
         mode.value,
@@ -429,7 +428,7 @@ def instructor_fallback_sync(
             except Exception as exc:
                 discarded = _handle_mode_failure(exc, mode=mode, next_mode=next_mode, provider=provider, model=model)
                 merge_billed_usage(billed, discarded)
-        assert result is not None  # 链内每条失败路径都抛异常，走到这里必有结果
+        assert result is not None
         merge_billed_usage(billed, result)
         billed.text = result.text
         return billed
@@ -498,7 +497,7 @@ async def instructor_fallback_async(
             except Exception as exc:
                 discarded = _handle_mode_failure(exc, mode=mode, next_mode=next_mode, provider=provider, model=model)
                 merge_billed_usage(billed, discarded)
-        assert result is not None  # 链内每条失败路径都抛异常，走到这里必有结果
+        assert result is not None
         merge_billed_usage(billed, result)
         billed.text = result.text
         return billed

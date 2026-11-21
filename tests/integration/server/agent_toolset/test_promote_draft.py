@@ -70,10 +70,6 @@ from tests.integration.server.agent_tool_support import (
 
 pytestmark = pytest.mark.usefixtures("video_request_facts")
 
-# ---------------------------------------------------------------------------
-# 草稿与修复晋升闭环（script_plan）
-# ---------------------------------------------------------------------------
-
 
 #: 六类阻断违约的最小触发样例（违约类 → 扁平 unit），共 7 条：「``@[X]`` 未登记」一类按出现位置
 #: 拆成描述位（unregistered_asset）与台词记号 speaker 位（unregistered_speaker）两条，两处走不同入口，
@@ -224,7 +220,6 @@ async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolHar
         assert rv_quarantine_path(fake_ctx).exists()
         assert not rv_script_plan_path(fake_ctx).exists()
 
-    # 改成另一类违约后报告随之刷新，不是上一轮的陈旧快照
     envelope = read_rv_quarantine(fake_ctx)
     envelope["content"]["units"][0]["text"] = "@[张三] 推门，音量 {}"
     rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
@@ -254,11 +249,6 @@ async def test_promote_draft_rejects_stale_draft_revision(fake_ctx: ToolHarness,
     assert not rv_script_plan_path(fake_ctx).exists()
 
 
-# ---------------------------------------------------------------------------
-# script_plan 乐观并发控制（取回时记基线指纹，晋升前锁内比对）
-# ---------------------------------------------------------------------------
-
-
 async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: ToolHarness) -> None:
     """「用户在内容确认界面编辑 + Agent 改草稿并晋升」的双端并发：取回后正式文件被另一写入方
     改过时，晋升中止并返回冲突报告（含最新内容与合并指引），不静默覆盖对方的修改；草稿
@@ -267,7 +257,6 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     await open_for_edit(fake_ctx, source="source/episode_1.txt")
 
-    # 模拟取回之后 Web 端保存改写了正式文件
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 在 @[村口] 等候")])
     web_version = rv_script_plan_path(fake_ctx).read_text(encoding="utf-8")
 
@@ -282,7 +271,6 @@ async def test_promote_conflicts_when_official_changed_after_open(fake_ctx: Tool
     assert '"doc_type": "reference_script_plan"' in report
     # 冲突报告附上盘上现值的扁平草稿单元，供 Agent 对照合并
     assert "在 @[村口] 等候" in report
-    # 正式文件未被覆盖，草稿仍在场
     assert rv_script_plan_path(fake_ctx).read_text(encoding="utf-8") == web_version
     assert rv_quarantine_path(fake_ctx).exists()
 
@@ -1126,11 +1114,6 @@ async def test_generate_episode_script_ignores_quarantine_after_mode_switch(fake
     assert "待处理的提示词编写草稿" not in said(out)
 
 
-# ---------------------------------------------------------------------------
-# drama script_plan 的取回编辑与晋升闭环
-# ---------------------------------------------------------------------------
-
-
 async def test_promote_drama_script_plan_rederives_needs_replan(fake_ctx: ToolHarness) -> None:
     """needs_replan 由晋升侧按台词准入重新派生，不取草稿里的值——它是机器判据，
     手写值一旦被采信，后续重规划会漏掉真正需要重排的场景。"""
@@ -1176,7 +1159,7 @@ async def test_promote_drama_script_plan_reports_schema_breach_without_writing(f
 
     await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
     envelope = read_drama_quarantine(fake_ctx)
-    envelope["content"]["scenes"][0]["duration_seconds"] = 7  # 不在档位内
+    envelope["content"]["scenes"][0]["duration_seconds"] = 7
     drama_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
 
     out = await promote_drama(fake_ctx)
@@ -1389,11 +1372,6 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
     formal = json.loads(drama_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert formal["scenes"][0]["scene_description"] == "并发正式内容"
     assert read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "本次生成内容"
-
-
-# ---------------------------------------------------------------------------
-# narration script_plan 的取回编辑与晋升闭环
-# ---------------------------------------------------------------------------
 
 
 async def test_split_narration_segments_quarantines_violation_instead_of_discarding(

@@ -27,7 +27,6 @@ interface Props {
   /** 本集有未确认的脚本规划或待修复草稿：先确认弃置再建正式脚本。 */
   discardsPlan: boolean;
   variant?: "outline" | "ghost";
-  /** 只用于布局（如 `ml-auto`）。 */
   className?: string;
 }
 

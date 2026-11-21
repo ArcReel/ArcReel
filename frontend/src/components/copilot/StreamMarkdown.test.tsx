@@ -163,7 +163,6 @@ describe("StreamMarkdown 渲染惰性", () => {
     for (let cut = 1; cut < payload.length; cut += 1) {
       rerender(<StreamMarkdown content={payload.slice(0, cut)} />);
       expect(collectActiveContent(container), `cut=${cut} 前段`).toEqual([]);
-      // 前段中不完整链接渲染为占位链接按钮，点击后既不打开确认框也不打开窗口。
       for (const el of container.querySelectorAll('a, button, [data-streamdown="link"]')) fireEvent.click(el);
       expect(screen.queryByRole("button", { name: "打开链接" }), `cut=${cut} 前段确认框`).not.toBeInTheDocument();
       expect(open, `cut=${cut} 前段打开窗口`).not.toHaveBeenCalled();
@@ -227,7 +226,7 @@ describe("StreamMarkdown 应用内链接", () => {
       "click",
       (event) => {
         prevented = event.defaultPrevented;
-        event.preventDefault(); // 挡掉 jsdom 的真实导航
+        event.preventDefault();
       },
       { once: true },
     );

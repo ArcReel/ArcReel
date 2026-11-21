@@ -8,17 +8,14 @@ type SourceProps = {
   text: string;
   template: PromptTemplateMeta;
   partials: PromptTemplatePartial[];
-  /** 点展开处的片段名进入片段详情。 */
   onOpenPartial: (name: string) => void;
 };
 
 const MARKER_PATTERN = /(\{#[\s\S]*?#\}|\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\})/;
 const SLOT_PATTERN = /^[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*$/;
-// ponytail: 只展开直接片段调用，带过滤器的表达式保留原文；语法扩展后再接解析器。
 const PARTIAL_PATTERN =
   /^\{\{-?\s*(?<kind>partial|variant)\s*\(\s*(["'])(?<name>[^"']+)\2\s*(?:,\s*(?<axis>[a-zA-Z_]\w*))?[^()]*\)\s*-?\}\}$/;
 
-/** 展示模版语法与片段原文，不执行 Jinja 或填充项目数据。 */
 export function PromptTemplateSource(props: SourceProps) {
   const { t } = useTranslation("dashboard");
   return (

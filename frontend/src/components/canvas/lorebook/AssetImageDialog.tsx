@@ -11,7 +11,6 @@ export function AssetImageDialog({
   alt,
   onClose,
 }: {
-  /** 为 null 时关闭。 */
   src: string | null;
   title: string;
   alt: string;

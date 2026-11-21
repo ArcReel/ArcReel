@@ -459,7 +459,6 @@ class ProjectArchiveService:
         self._formal_commit = formal_commit
         self._provider_asset_links = provider_asset_links
         self._import_recommendations = import_recommendations
-        # 每次导入开始时取一次，修复与迁移用同一份
         self._bare_provider_models: BareProviderModels | None = None
         self.validator = DataValidator(projects_dir=str(project_manager.projects_dir))
 
@@ -815,7 +814,6 @@ class ProjectArchiveService:
                             warnings=diagnostics.warning_messages(),
                             diagnostics=diagnostics,
                         )
-                    # 有无信封的两条路径均在 staging 一次性提交。
                     try:
                         import_skipped = ensure_imported_artifact_target_state(
                             staging_dir,
@@ -843,7 +841,6 @@ class ProjectArchiveService:
                                 extra={
                                     "confirmation_required": True,
                                     "migration_report": report.model_dump(mode="json"),
-                                    # 报告按集 ID 指称；确认窗据此显示集名。
                                     "episodes": self._ledger_titles(staging_dir),
                                 },
                             )
@@ -933,7 +930,6 @@ class ProjectArchiveService:
             self._repair_unit_mentions_tree(snapshot_dir, diagnostics)
             diagnostics.extend_validation(self.validator.validate_project_tree(snapshot_dir))
 
-            # 从源目录收集非标准顶层条目，记录到诊断中（即使已被过滤不导出）
             excluded_entries = self._collect_pass_through_entries(source_dir)
             for entry in excluded_entries:
                 diagnostics.add(
@@ -1494,7 +1490,6 @@ class ProjectArchiveService:
                 location=f"{script_path_rel}:novel.source_file",
             )
 
-        # 剥离废弃的 episode 级聚合字段
         for deprecated_field in ("characters_in_episode", "clues_in_episode"):
             if deprecated_field in script_payload:
                 script_payload.pop(deprecated_field)
@@ -1516,12 +1511,8 @@ class ProjectArchiveService:
         content_mode = raw_content_mode
         generation_mode = project_payload.get("generation_mode")
 
-        # 修复分流按规范解析的骨架种类走：所有参考生视频都使用 video_units，storyboard
-        # 分镜图生视频按创作类型使用 segments/scenes/shots。
         kind = resolve_declared_kind(content_mode, generation_mode)
 
-        # video_units 骨架用 references 组织资产，结构与
-        # storyboard 骨架的 characters/scenes/props 不同，单独走专用修复分支。
         if kind == "video_units":
             units_changed = self._repair_video_units_payload(
                 project_dir,
@@ -1534,11 +1525,9 @@ class ProjectArchiveService:
             )
             return script_changed or units_changed, project_changed
 
-        # storyboard 骨架（segments/scenes/shots，含 ad 的 shots）逐条补全字段与资产回填。
         items_key = kind
         raw_items, id_field, _kind = resolve_kind_items(script_payload, kind=kind)
         chars_field = SKELETONS[kind].chars_field
-        # storyboard 骨架必有 chars_field；video_units 已在上分支返回。
         assert chars_field is not None
 
         if not isinstance(raw_items, list):

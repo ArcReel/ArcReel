@@ -99,7 +99,6 @@ class TestGenerationTasks:
         )
 
         assert result["resource_type"] == "videos"
-        # 验证 update_scene_asset 被调用，其中包含 video_thumbnail
         asset_types = [call["asset_type"] for call in fake_pm.updated_assets]
         assert "video_thumbnail" in asset_types
         assert thumbnail_path.exists()
@@ -289,7 +288,6 @@ class TestGenerationTasks:
                 },
             )
         assert exc.value.code == "video_duration_not_supported"
-        # 越界 duration 在起跑时被拒，绝不应调用后端生成。
         assert fake_generator.video_calls == []
 
     async def test_execute_video_task_rejects_duration_removed_by_current_resolution(self, monkeypatch, tmp_path):
@@ -682,12 +680,12 @@ class TestGenerationTasks:
         [
             # 越界与脏数据：统称非法路径
             ("/etc/passwd", "invalid storyboard image path"),  # 绝对路径：裸 `/` 拼接会整体丢弃左操作数
-            ("../../outside.png", "invalid storyboard image path"),  # `..` 穿越出项目目录
+            ("../../outside.png", "invalid storyboard image path"),
             (123, "invalid storyboard image path"),  # 剧本 JSON 里的脏数据（非字符串）须可读失败而非 TypeError
             (0, "invalid storyboard image path"),  # falsy 脏数据：真值判断不得当成「未设置」而静默回退默认路径
-            (False, "invalid storyboard image path"),  # 同上
-            ([], "invalid storyboard image path"),  # 同上
-            ({}, "invalid storyboard image path"),  # 同上
+            (False, "invalid storyboard image path"),
+            ([], "invalid storyboard image path"),
+            ({}, "invalid storyboard image path"),
             # 目录归属：项目内但不在 storyboards/，措辞需与越界区分，便于定位外部编辑过的剧本
             ("storyboards/../end_frames/scene_E1S01.png", "must stay under storyboards/"),
             ("end_frames/scene_E1S01.png", "must stay under storyboards/"),
@@ -897,14 +895,14 @@ class TestGenerationTasks:
         "end_frame_value",
         [
             "/etc/passwd",  # 绝对路径：裸 `/` 拼接会整体丢弃左操作数，读到项目外文件
-            "../../outside.png",  # `..` 穿越出项目目录
+            "../../outside.png",
             "end_frames/../storyboards/scene_E1S01.png",  # 项目内但绕开快照目录，等于直接引用源图
             "storyboards/scene_E1S01.png",  # 同上：字段只接受 end_frames/ 内的快照
             123,  # 剧本 JSON 里的脏数据（非字符串）须给出可读失败，而非 TypeError
             0,  # falsy 脏数据：真值判断不得把它当成「未设置」而静默跳过尾帧
-            False,  # 同上
-            [],  # 同上
-            {},  # 同上
+            False,
+            [],
+            {},
             "end_frames/scene_E1S02.png",  # 落在快照目录内、文件也存在，但属于别的镜头——跨镜头误引
         ],
     )
@@ -917,7 +915,7 @@ class TestGenerationTasks:
         (tmp_path / "outside.png").write_bytes(b"png")
         end_frame_dir = project_path / "end_frames"
         end_frame_dir.mkdir(parents=True, exist_ok=True)
-        (end_frame_dir / "scene_E1S02.png").write_bytes(b"png")  # 别的镜头的快照，供跨镜头误引用例检查
+        (end_frame_dir / "scene_E1S02.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
         seed_current_storyboard(fake_pm)
         fake_generator = FakeGenerator()
@@ -1104,7 +1102,6 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator()
 
-        # 改用 drama 剧本：E1S01 携带有序 utterances（voiceover 在前、dialogue 在后）
         fake_pm.script = {
             "episode": 1,
             "content_mode": "drama",
@@ -1143,7 +1140,6 @@ class TestGenerationTasks:
         )
 
         prompt_yaml = fake_generator.video_calls[0]["prompt"]
-        # dialogue-kind 台词与说话人进 YAML，voiceover-kind 不进视频提示词
         assert "你来了。" in prompt_yaml
         assert "王" in prompt_yaml
         assert "那是命运的开端。" not in prompt_yaml
@@ -1202,7 +1198,6 @@ class TestGenerationTasks:
         prompt_yaml = fake_generator.video_calls[0]["prompt"]
         assert "Voice_Profiles" in prompt_yaml
         assert "低沉沙哑" in prompt_yaml
-        # 顶部集中声明段须先于 Action 出现
         assert prompt_yaml.index("Voice_Profiles") < prompt_yaml.index("Action")
 
     async def test_execute_video_task_skips_voice_profiles_for_silent_model(self, monkeypatch, tmp_path):

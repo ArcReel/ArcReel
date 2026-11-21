@@ -1,9 +1,7 @@
 """Thông báo kiểm tra dữ liệu và chẩn đoán gói lưu trữ (tiếng Việt)."""
 
 MESSAGES = {
-    # ---- passthrough ----
     "val_literal": "{text}",
-    # ---- hình dạng trường chung ----
     "val_missing_field": "Thiếu trường bắt buộc: {field}",
     "val_missing_field_at": "{prefix}: thiếu trường bắt buộc {field}",
     "val_field_type_string": "Sai kiểu trường: {field} phải là chuỗi",
@@ -24,13 +22,11 @@ MESSAGES = {
     "val_field_bad_timestamp": "{field} không phải dấu thời gian ISO8601 hợp lệ: {value}",
     "val_item_must_be_object": "{prefix}: phải là đối tượng",
     "val_item_format_object": "{prefix}: dữ liệu sai định dạng, phải là đối tượng",
-    # ---- tham chiếu đường dẫn ----
     "val_path_empty": "{field}: đường dẫn không được để trống",
     "val_path_traversal": "{field}: đường dẫn tham chiếu vượt ra ngoài dự án: {path}",
     "val_path_outside_dir": "{field}: đường dẫn tham chiếu phải nằm trong thư mục {dir}/: {path}",
     "val_path_missing": "{field}: tệp được tham chiếu không tồn tại: {path}",
     "val_path_must_be_relative": "{field} phải là đường dẫn tương đối trong dự án: {path}",
-    # ---- trường cấp dự án ----
     "val_content_mode_invalid": "content_mode không hợp lệ: '{value}', phải thuộc {allowed}",
     "val_source_kind_invalid": "{prefix}: source_kind không hợp lệ: '{value}', phải thuộc {allowed}",
     "val_generation_mode_invalid": "generation_mode không hợp lệ: '{value}', phải thuộc {allowed}",
@@ -42,7 +38,6 @@ MESSAGES = {
     "val_cannot_load_script": "Không tải được tệp kịch bản: {path}",
     "val_unrecognized_entry": "Phát hiện tệp/thư mục bổ sung không nhận diện được: {name}",
     "val_novel_must_be_object": "Trường novel phải là đối tượng",
-    # ---- mục tập phim và sổ cái ----
     "val_ledger_status_type": "{prefix}: ledger_status phải là chuỗi, giá trị hiện tại: {value}",
     "val_source_origin_invalid": "{prefix}: source_origin không hợp lệ: '{value}', phải thuộc {allowed}",
     "val_source_range_requires_whole_source": "{prefix}: chỉ tập được cắt từ toàn bộ văn bản nguồn (source_origin là whole_source) mới được có source_range",
@@ -50,7 +45,6 @@ MESSAGES = {
     "val_episode_missing_num_at": "{prefix}: thiếu trường bắt buộc episode (số nguyên)",
     "val_episode_missing_title_at": "{prefix}: thiếu trường bắt buộc title (chuỗi, có thể rỗng)",
     "val_episode_missing_num": "Thiếu trường bắt buộc: episode (số nguyên)",
-    # ---- dự án quảng cáo / phim ngắn ----
     "val_ad_only_field": "{field} chỉ dùng được cho dự án quảng cáo/phim ngắn (content_mode=ad)",
     "val_ad_missing_target_duration": (
         "Thiếu trường bắt buộc: target_duration (tổng thời lượng mục tiêu tính bằng giây cho dự án quảng cáo/phim ngắn)"
@@ -71,7 +65,6 @@ MESSAGES = {
         "Tổng thời lượng kịch bản {total} giây lệch {delta:.0%} so với target_duration {target} giây, "
         "vượt ngưỡng quan sát {threshold:.0%} (chỉ là thông báo, không chặn lưu)"
     ),
-    # ---- danh mục tài sản ----
     "val_asset_format_object": "{asset_type} '{name}' sai định dạng dữ liệu, phải là đối tượng",
     "val_asset_field_must_be_object": "{asset_type} '{name}'.{field} phải là đối tượng",
     "val_asset_field_must_be_string": "{asset_type} '{name}'.{field} phải là chuỗi, hiện là {actual}",
@@ -82,14 +75,11 @@ MESSAGES = {
         "Trùng tên tài nguyên dự án: {duplicate_type} '{duplicate_name}' xung đột với "
         "{first_type} '{first_name}' sau khi strip + chuẩn hóa Unicode NFC"
     ),
-    # ---- tham chiếu cấp mục ----
     "val_refs_unregistered": "{prefix}: {field} tham chiếu {asset_type} không có trong project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: thiếu {field}, sẽ dùng mảng rỗng mặc định",
-    # ---- kiểm tra mục chung ----
     "val_id_format": "{prefix}: {field} sai định dạng '{value}', phải là E{{n}}S{{nn}}",
     "val_missing_duration_default": "{prefix}: thiếu duration_seconds, sẽ dùng giá trị mặc định {default}",
     "val_duration_invalid": "{prefix}: duration_seconds không hợp lệ '{value}', phải là số nguyên dương",
-    # ---- utterances của drama ----
     "val_utterance_must_be_object": "{prefix} phải là đối tượng",
     "val_utterance_kind_invalid": "{prefix} kind phải là dialogue hoặc voiceover",
     "val_utterance_text_invalid": "{prefix} text phải là chuỗi không rỗng",
@@ -101,7 +91,6 @@ MESSAGES = {
         "{tolerance:.0%} (trần dung sai {budget:.1f} giây); thoại dài có thể không kịp nói hoặc nghe quá nhanh "
         "(chỉ là thông báo, không chặn lưu)"
     ),
-    # ---- cảnh quay quảng cáo ----
     "val_shot_duration_missing_zero": "{prefix}: thiếu duration_seconds, sẽ tính 0 vào tổng thời lượng",
     "val_shot_duration_out_of_range": (
         "{prefix}: duration_seconds không hợp lệ '{value}', chế độ reference_video yêu cầu số nguyên "
@@ -110,13 +99,11 @@ MESSAGES = {
     "val_shot_missing_voiceover_text": (
         "{prefix}: thiếu trường bắt buộc voiceover_text (lời thuyết minh, có thể là chuỗi rỗng)"
     ),
-    # ---- đơn vị video tham chiếu ----
     "val_unit_id_missing": "{prefix}: thiếu unit_id",
     "val_unit_id_missing_required": "{prefix}: thiếu trường bắt buộc unit_id",
     "val_unit_id_duplicate": "{prefix}: unit_id trùng lặp '{value}'",
     "val_video_units_missing": "Kịch bản reference_video thiếu mảng video_units",
     "val_unit_duration_range": "{prefix}: duration_seconds phải là số nguyên trong khoảng {low}-{high}",
-    # ---- khung xương và chế độ tạo video ----
     "val_skeleton_noun_segments": "phân cảnh",
     "val_skeleton_noun_scenes": "cảnh",
     "val_skeleton_noun_shots": "cảnh quay",
@@ -147,7 +134,6 @@ MESSAGES = {
         "Hãy chạy lại bước tách tập (script_plan) để tách lại tập này rồi sinh lại kịch bản. "
         "Kịch bản vẫn có thể xem, sửa và xuất."
     ),
-    # ---- di trú gộp thời lượng đơn vị video tham chiếu ----
     "val_unit_duration_clamped": (
         "unit {unit_id} có thời lượng {target}s nằm ngoài khoảng hợp lý {low}-{high}s; đã cắt về {clamped}s"
     ),
@@ -155,7 +141,6 @@ MESSAGES = {
         "unit {unit_id} có thời lượng {duration}s không thuộc các mức thời lượng của mô hình ({durations}); "
         "đã chọn mức {slot}s"
     ),
-    # ---- chẩn đoán sửa chữa và nhập/xuất gói lưu trữ ----
     "arch_source_encoding_unconverted": (
         "Không nhận diện được bảng mã tệp nguồn nên chưa chuyển sang UTF-8: source/{name} "
         "(khâu hoạch định tập không đọc được tệp này)"
@@ -192,7 +177,6 @@ MESSAGES = {
     "arch_canonical_path_normalized": "{location}: đã chuẩn hóa thành {path}",
     "arch_current_asset_materialized": "{location}: đã khôi phục tệp hiện hành {target} từ {source}",
     "arch_current_asset_restored_from_version": "{location}: đã khôi phục tệp hiện hành {target} từ {source}",
-    # ---- lỗi nhập gói lưu trữ ----
     "arch_invalid_conflict_policy": "Chính sách xử lý xung đột không hợp lệ",
     "arch_conflict_policy_unsupported": "conflict_policy chỉ hỗ trợ prompt, rename hoặc overwrite; nhận được: {value}",
     "arch_import_validation_failed": "Kiểm tra gói nhập thất bại",
@@ -214,7 +198,6 @@ MESSAGES = {
     "arch_project_name_conflict": (
         "Mã dự án '{name}' đã tồn tại. Hãy chọn ghi đè dự án hiện có hoặc nhập với tên mới."
     ),
-    # ---- Kiểm tra định nghĩa điểm cuối tùy chỉnh ----
     "val_ce_missing_field": "Thiếu trường bắt buộc: {field}",
     "val_ce_unknown_field": "Trường không xác định: {field}",
     "val_ce_removed_field": "Trường đã bị loại khỏi định dạng: {field} - {reason}",
@@ -352,7 +335,6 @@ MESSAGES = {
     "val_ce_template_text_variable_null": "Biến {name} rỗng nên không thể chèn vào văn bản",
     "val_ce_each_value_not_list": "$each.in trỏ tới {name}, có giá trị khi chạy không phải danh sách",
     "val_ce_each_key_duplicate": "$each dạng đối tượng tạo ra khóa {field} trùng với một khóa khác trong cùng đối tượng, nên yêu cầu không thể mang đủ mọi tư liệu",
-    # ---- Điểm cuối ComfyUI: liên kết node và phân loại khi nhập ----
     "val_ce_comfyui_binding_required": (
         "{binding_key} phải được liên kết với một node trước khi lưu: "
         "câu lệnh quyết định vẽ gì, đầu ra quyết định lấy tệp nào"
@@ -388,7 +370,6 @@ MESSAGES = {
     "val_ce_comfyui_ui_format_workflow": (
         "Đây là workflow định dạng UI của ComfyUI và không thể gửi đi; hãy xuất bằng Export (API) trong ComfyUI"
     ),
-    # ---- Điểm cuối ComfyUI: tín hiệu suy luận liên kết node và gợi ý ----
     "val_ce_infer_manual_binding": "Liên kết node đã lưu; giữ nguyên đích mà người dùng đã xác nhận",
     "val_ce_infer_title_marker": "Tiêu đề node mang dấu ARCREEL:",
     "val_ce_infer_external_node_family": "Node tham số của {family}, khai báo tham số {parameter}",
@@ -428,7 +409,6 @@ MESSAGES = {
         "{path_expression} dùng ký tự đại diện: với đối tượng chỉ lấy thành viên đầu tiên, "
         "và thứ tự khóa có thể khác nhau giữa bản xem trước và phía máy chủ"
     ),
-    # ---- kiểm tra nguồn chợ ----
     "val_market_index_unreadable": "Không đọc được tệp chỉ mục: {detail}",
     "val_market_unsupported_schema_version": "Phiên bản định dạng chỉ mục {version} mới hơn phiên bản được hỗ trợ {supported}",
     "val_market_missing_field": "Thiếu trường bắt buộc: {field}",

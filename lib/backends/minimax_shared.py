@@ -21,16 +21,13 @@ from pathlib import Path
 
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
 
-# 国内站默认 base（含 /v1）；国际站经配置覆盖 base_url 指向 MINIMAX_INTL_BASE_URL。
 MINIMAX_BASE_URL = "https://api.minimaxi.com/v1"
 MINIMAX_INTL_BASE_URL = "https://api.minimax.io/v1"
 
 # 单一已知路径后缀，归一化 host 时剥除以容忍用户填入完整 base。
 _V1_SUFFIX = "/v1"
-# v2 视频端点（H3）与 v1 同 host 不同前缀，见 minimax_video_v2_base_url。
 _V2_SUFFIX = "/v2"
 
-# 视频异步任务终态：Success/Fail；中间态 Preparing/Queueing/Processing 继续轮询。
 MINIMAX_STATUS_SUCCESS = "Success"
 MINIMAX_STATUS_FAIL = "Fail"
 _TERMINAL_VIDEO_STATES = frozenset({MINIMAX_STATUS_SUCCESS, MINIMAX_STATUS_FAIL})
@@ -113,9 +110,6 @@ def image_to_data_uri(image_path: Path) -> str:
     return _image_to_data_uri(image_path, _IMAGE_MIME_TYPES)
 
 
-# ── 单步 image_generation 响应工具 ────────────────────────────────────────────
-
-
 def extract_image_url(payload: object) -> str | None:
     """从 image_generation 响应 data.image_urls 取首个 URL（response_format=url，24h 有效）。
 
@@ -156,8 +150,6 @@ def minimax_failure_reason(payload: object) -> str | None:
     return None
 
 
-# ── 日志脱敏 ──────────────────────────────────────────────────────────────────
-
 # 仅允许进日志的标量字段白名单；prompt 仅记长度、subject_reference 仅计数，
 # base64/URL 一律不入日志（对齐 CodeQL clear-text-logging 约束）。
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
@@ -170,7 +162,6 @@ _SAFE_LOG_KEYS: frozenset[str] = frozenset(
         "n",
         "prompt_optimizer",
         "seed",
-        # H3 图像（/images/generations、/images/edits）的尺寸与输出字段
         "size",
         "area",
         "output_format",
@@ -192,9 +183,6 @@ def safe_body_for_log(body: dict) -> dict:
     if isinstance(refs, list) and refs:
         view["subject_reference"] = f"<{len(refs)} ref>"
     return view
-
-
-# ── 视频两步取 URL 状态机工具 ──────────────────────────────────────────────────
 
 
 def _base_resp_error(payload: dict) -> str | None:
@@ -259,9 +247,6 @@ def extract_minimax_download_url(retrieve_payload: dict) -> str:
         reason = _base_resp_error(retrieve_payload)
         raise RuntimeError(reason or f"MiniMax files/retrieve 响应缺少 download_url: {retrieve_payload}")
     return url
-
-
-# ── v2 视频任务状态机工具（单步取 URL） ───────────────────────────────────────
 
 
 def minimax_v2_video_status(payload: dict) -> str | None:

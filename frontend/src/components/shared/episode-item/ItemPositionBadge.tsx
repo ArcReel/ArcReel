@@ -7,9 +7,7 @@ interface ItemPositionBadgeProps {
   /** 本集数组里的当前位置，从 1 起；null 表示条目已不在剧本里。 */
   position: number | null;
   kind: EpisodeItemKind;
-  /** 叠在缩略图左上角；缺省时作为行内标签。 */
   overlay?: boolean;
-  /** 选中态：行内标签换成主色底。 */
   active?: boolean;
   className?: string;
 }

@@ -57,7 +57,6 @@ describe("CopyButton", () => {
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("sk-secret"));
     await act(async () => {});
-    // 复制没成功就不能显示「已复制」：用户会以为剪贴板里已有内容
     expect(screen.getByRole("button", { name: "复制消息" })).toBeInTheDocument();
   });
 });

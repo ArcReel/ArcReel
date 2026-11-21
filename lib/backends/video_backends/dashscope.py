@@ -197,8 +197,6 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
     """对 model_id 做一次判定，供路由/能力档/时长档复用同一结论。"""
     normalized = (model_id or "").strip().lower()
     if HAPPYHORSE_PATTERN.search(normalized):
-        # happyhorse 无 image-to-video 续接语法与 videoedit 模态；t2v/i2v/r2v 具体档位交由
-        # _profile_for_model 末尾的兜底子串匹配解析，此处不预先归一化。
         return WanClassification(
             family="happyhorse",
             is_image_to_video=False,
@@ -284,9 +282,6 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         # 为 True，恰好掩盖问题）——但本后端并未为这些未收窄的 2.x 小版本声明过已验证的首帧
         # 请求构造，没有已验证能力/请求 schema 的 id 排除出原生路由，同落下方 5) 的通用视频端点。
         has_known_modality = False
-    # wan2x_dot 无法从 model_id 直接归一化出确切 t2v/i2v/r2v 档位（其命名形态未收敛），
-    # profile_key 留空，交由 _match_profile_key 末尾的兜底子串匹配处理（多数认不得、取通道声明）；
-    # 是否收窄同 wan2.7 一样按已知模态门控需要供应商 API 事实与产品判断，不由本字段代为决定。
     return WanClassification(
         family=family,
         is_image_to_video=is_image_to_video,
@@ -487,8 +482,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         """接续已 submit 的 DashScope task：仅 poll + 下载（ADR 0007）。"""
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             return await self._poll_and_build(client, job_id, request, is_resume=True)
-
-    # ── request building ────────────────────────────────────────────────
 
     @classmethod
     def metered_usage(
@@ -693,8 +686,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         else:
             for item, uri in zip(reference_items, uris, strict=False):
                 item["reference_voice"] = uri
-
-    # ── HTTP submit / poll / download ───────────────────────────────────
 
     @with_retry_async(
         max_attempts=DEFAULT_MAX_ATTEMPTS,

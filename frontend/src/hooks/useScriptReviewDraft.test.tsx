@@ -137,7 +137,6 @@ describe("useScriptReviewDraft", () => {
     await act(async () => {
       await result.current.save();
     });
-    // 采纳保存回显后草稿与服务端一致，脏标记复位
     expect(result.current.dirty).toBe(false);
 
     act(() => {

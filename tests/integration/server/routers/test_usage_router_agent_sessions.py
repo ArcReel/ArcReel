@@ -13,7 +13,6 @@ from lib.db.models.session import AgentSession
 
 T0 = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 
-# 夹具里唯一的 Agent 凭证是库里的第一条；另一个供应商 id 指向一条已删除的凭证。
 LIVE_PROVIDER = "agent-1"
 DELETED_PROVIDER = "agent-101"
 
@@ -82,20 +81,16 @@ async def agent_client(db_factory, usage_app):
             [
                 generation_call(segment_id="S1"),
                 generation_call(segment_id="S2", status=CallStatus.FAILED, started_at=T0 + timedelta(minutes=1)),
-                # 会话 a：第 1 轮两个模型（同一时刻），第 5 轮一个
                 agent_call("sess-a", 1, "deepseek-chat", live, cost_amount=0.5),
                 agent_call(
                     "sess-a", 1, "deepseek-reasoner", live, cost_amount=0.25, input_tokens=400, output_tokens=100
                 ),
                 agent_call("sess-a", 5, "deepseek-chat", live, cost_amount=1.0, prompt="x" * 400),
-                # 会话 b：含一条未定价记录；另一条 CNY
                 agent_call(
                     "sess-b", 10, "glm-5", live, project_name="demo2", cost_amount=null(), unpriced_reason="no_entry"
                 ),
                 agent_call("sess-b", 11, "deepseek-chat", live, project_name="demo2", cost_amount=2.0, currency="CNY"),
-                # 凭证已删除、会话元数据也已删除
                 agent_call("sess-gone", 20, "kimi-k2", deleted, cost_amount=0.0),
-                # 历史记录：以 anthropic 落库
                 agent_call("sess-old", 30, "claude-sonnet-4-5", "anthropic", cost_amount=0.3),
                 # 失败的 Agent 轮次：不进「需要关注」
                 agent_call("sess-a", 6, "deepseek-chat", live, status=CallStatus.FAILED),

@@ -13,7 +13,6 @@ import { EmptyCard, ErrorCard, LoadingCard, type Load } from "./promptTemplateSh
 /** 按流水线顺序排列；接口返回的其他类别按首次出现顺序排在最后。 */
 const CATEGORY_ORDER = ["text", "asset", "storyboard", "video", "style"];
 
-/** 默认折叠为紧凑表的类别。 */
 const COMPACT_CATEGORIES = new Set(["style"]);
 
 const FILTER_AXES = ["content_mode", "generation_mode", "source_kind"] as const;
@@ -53,7 +52,6 @@ function stageLabel(t: Translate, stage: string): string {
   return t(`prompt_templates_stage_${stage}`, { defaultValue: stage });
 }
 
-/** 「种类 · 名字」，如「Agent 工具 · 生成脚本」。 */
 function triggerLabel(t: Translate, trigger: PromptTemplateTrigger): string {
   const kind = t(`prompt_templates_trigger_kind_${trigger.kind}`, { defaultValue: trigger.kind });
   const name = t(TRIGGER_NAME_KEYS[trigger.kind](trigger.name), { defaultValue: trigger.name });
@@ -94,7 +92,6 @@ function matchesFilter(template: PromptTemplateMeta, filter: AxisFilter): boolea
   });
 }
 
-/** 模版列表：按流水线顺序分组，画风组默认折叠，可按创作类型、生成模式、源文件类型筛选。 */
 export function PromptTemplateList({ onSelect }: { onSelect: (id: string) => void }) {
   const { t } = useTranslation("dashboard");
   const [state, setState] = useState<Load<PromptTemplateMeta[]>>({ status: "loading" });
@@ -231,7 +228,6 @@ function CategoryGroup({
   const label = categoryLabel(t, category);
   const count = <span className="text-xs text-muted-foreground">{t("prompt_templates_count", { count: items.length })}</span>;
 
-  // 画风等长尾类别默认收起为两列紧凑表；其余类别平铺带说明的行。
   if (compact) {
     return (
       <Collapsible render={<section aria-labelledby={headingId} />}>

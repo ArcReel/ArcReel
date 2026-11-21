@@ -75,7 +75,6 @@ class TestIterate:
 
         stream = channel.iterate(queue, idle_timeout=0.02)
         assert await asyncio.wait_for(anext(stream), timeout=1.0) is IDLE
-        # 心跳后继续等待，直播消息照常送达。
         channel.broadcast({"type": "assistant", "uuid": "after-idle"})
         assert (await anext(stream))["uuid"] == "after-idle"
         await stream.aclose()
@@ -131,10 +130,10 @@ class TestDropSubscriberOverflow:
             overflow=DropSubscriber(on_removed=removed_counts.append),
             queue_maxsize=1,
         )
-        channel.subscribe()  # 不消费，第二条广播时溢出
+        channel.subscribe()
         healthy = channel.subscribe()
         channel.broadcast(("changes", {"batch_id": "b1"}))
-        healthy.get_nowait()  # healthy 跟上节奏
+        healthy.get_nowait()
 
         channel.broadcast(("changes", {"batch_id": "b2"}))
 
@@ -147,7 +146,7 @@ class TestDropSubscriberOverflow:
         channel = SseChannel(overflow=DropSubscriber(), queue_maxsize=1)
         stale = channel.subscribe()
         channel.broadcast(("changes", {"batch_id": "b1"}))
-        channel.broadcast(("changes", {"batch_id": "b2"}))  # 溢出 → 移除
+        channel.broadcast(("changes", {"batch_id": "b2"}))
         assert channel.subscriber_count == 0
 
         # 积压随之丢弃：重连后的快照会重新对齐
@@ -176,10 +175,10 @@ class TestLifecycleHooks:
         first = channel.subscribe()
         assert events == ["first"]
         channel.subscribe()
-        assert events == ["first"]  # 1→2 不触发
+        assert events == ["first"]
 
         await channel.unsubscribe(first)
-        assert events == ["first"]  # 还剩订阅者，末位钩子不触发
+        assert events == ["first"]
 
     async def test_first_subscriber_hook_sees_registered_queue(self):
         counts: list[int] = []
@@ -205,7 +204,7 @@ class TestLifecycleHooks:
         channel = self._channel_with_hooks(events, queue_maxsize=1)
         stale = channel.subscribe()
         channel.broadcast("a")
-        channel.broadcast("b")  # 溢出 → 移除最后一个订阅者
+        channel.broadcast("b")
 
         assert channel.subscriber_count == 0
         assert events == ["first"]  # 溢出移除不触发生命周期钩子

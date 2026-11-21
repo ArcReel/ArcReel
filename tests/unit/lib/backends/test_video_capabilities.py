@@ -30,7 +30,6 @@ from lib.custom_provider.capabilities import (
 from lib.custom_provider.endpoints import comfyui_endpoint_spec
 from tests.factories import comfyui_endpoint_definition
 
-#: 实现了全部输入路径、参考图与参考音频段数都不设上限的调用通道。
 _OPEN_CHANNEL = VideoCapabilities(
     text_to_video=True,
     first_frame=True,

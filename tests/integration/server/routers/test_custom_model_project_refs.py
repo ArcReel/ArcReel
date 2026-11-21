@@ -116,7 +116,6 @@ def _assert_deleted_model_refs_cleared(model_refs_pm: ProjectManager, name: str,
     assert all(key not in refs or refs[key] is None for key in CLEARED_ON_DELETE), refs
     # ADR 0054：视频桶键不级联清理，由解析闸兜底
     assert all(refs[key] == ref for key in VIDEO_BUCKET_KEYS), refs
-    # 被删模型的分辨率覆盖一定清掉，其他模型的覆盖保留
     assert _model_settings_keys(model_refs_pm, name) == ["other/keep"]
 
 
@@ -149,7 +148,6 @@ async def test_rename_rewrites_project_model_settings_and_global_refs(model_refs
     }
     assert await _globals(db_factory) == dict.fromkeys(GLOBAL_MODEL_SETTING_KEYS, f"{pid}/new-a")
 
-    # 别的模型改名成旧 ID：不会接管已改写的引用
     assert (
         model_refs_client.patch(f"/api/v1/providers/{pid}/models/keep", json={"model_id": "old-a"}).status_code == 200
     )

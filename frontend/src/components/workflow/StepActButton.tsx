@@ -7,7 +7,6 @@ import type { StepAct } from "./step-list";
 interface Props {
   act: StepAct;
   onRun: (act: StepAct) => void;
-  /** 在「或者 …」、行内常驻入口与提醒里一律降为文字链，只有下一步的主入口保留按钮形态。 */
   asLink?: boolean;
   busy?: boolean;
 }

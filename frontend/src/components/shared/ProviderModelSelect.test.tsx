@@ -4,7 +4,6 @@ import { describe, it, expect, vi } from "vitest";
 import "@/i18n";
 import { ProviderModelSelect } from "./ProviderModelSelect";
 
-/** 弹层异步打开：点击触发按钮后等列表出现再查询。 */
 async function open(user: ReturnType<typeof userEvent.setup>, trigger = screen.getAllByRole("combobox")[0]) {
   await user.click(trigger);
   await screen.findByRole("listbox");
@@ -253,7 +252,6 @@ describe("ProviderModelSelect – search", () => {
 
   it("does not apply stale query filtering when search input is hidden", async () => {
     const user = userEvent.setup();
-    // Start with searchable enabled so user can type a query
     const { rerender } = render(
       <ProviderModelSelect
         value=""

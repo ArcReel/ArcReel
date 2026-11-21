@@ -95,7 +95,6 @@ async def model_buckets(session: AsyncSession, model: CustomProviderModel) -> fr
     )
 
 
-#: 桶 → 所属媒体类型，由 ``BUCKETS_BY_MEDIA_TYPE`` 反转得到，不另列一份。
 _MEDIA_TYPE_BY_BUCKET: dict[str, str] = {
     bucket: media_type for media_type, buckets in BUCKETS_BY_MEDIA_TYPE.items() for bucket in buckets
 }

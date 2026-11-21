@@ -67,9 +67,6 @@ from server.services.project.episode_display import present_request_diagnostics
 router = APIRouter(prefix="/projects/{project_name}", tags=["grids"])
 
 
-# ==================== 请求/响应模型 ====================
-
-
 class GenerateGridRequest(BaseModel):
     script_file: str
     scene_ids: list[str] | None = None
@@ -83,7 +80,6 @@ class GenerateGridResponse(BaseModel):
     # 逐宫格给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每一张
     # 宫格都等到全批落库为止；未产出宫格的分组不进映射，调用方据此不给它们打标。
     task_ids_by_grid: dict[str, str]
-    # 缺失即生成时联合图已就绪、尚未切分落格而跳过的宫格
     unsplit_grid_ids: list[str]
     # 批量语义：全部入队都命中既有任务（一个新任务都没建）才为 True
     deduped: bool
@@ -108,9 +104,6 @@ def _load_admitted_grid_script(
         if script_episode != episode:
             raise ValueError(f"script episode {script_episode!r} does not match requested episode {episode}")
     return script
-
-
-# ==================== 宫格图生成 ====================
 
 
 @router.post("/generate/grid/{episode}", response_model=GenerateGridResponse)
@@ -235,9 +228,6 @@ def _raise_for_refused_submission(project: dict, plan: GridSubmissionPlan) -> No
     raise RuntimeError(f"grid submission refused without a reportable reason: {sorted(by_code)}")
 
 
-# ==================== 宫格档位能力 ====================
-
-
 class GridReferenceCount(BaseModel):
     scene_ids: list[str]
     count: int
@@ -302,9 +292,6 @@ async def get_grid_capability(
     )
 
 
-# ==================== 宫格图列表 ====================
-
-
 @router.get("/grids")
 async def list_grids(project_name: str, request: Request, _t: Translator):
     """列出项目下所有宫格图记录。"""
@@ -313,9 +300,6 @@ async def list_grids(project_name: str, request: Request, _t: Translator):
         return [g.to_dict() for g in GridManager(_grid_project_path(project_name)).list_all()]
 
     return await present_request_diagnostics(await asyncio.to_thread(_list), request, _t)
-
-
-# ==================== 宫格图详情 ====================
 
 
 def _grid_project_path(project_name: str) -> Path:
@@ -341,9 +325,6 @@ async def get_grid(project_name: str, grid_id: str, request: Request, _t: Transl
     """获取单个宫格图记录。"""
     grid = await asyncio.to_thread(lambda: _load_grid_or_404(_grid_project_path(project_name), grid_id))
     return await present_request_diagnostics(grid.to_dict(), request, _t)
-
-
-# ==================== 重新生成宫格图 ====================
 
 
 def _require_grid_prompts_written(items: list[dict], id_field: str) -> None:
@@ -453,9 +434,6 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     return {"success": True, "task_id": task["task_id"], "deduped": task.get("deduped", False)}
 
 
-# ==================== 切分落格 ====================
-
-
 @router.post("/grids/{grid_id}/split")
 async def split_grid(project_name: str, grid_id: str, user: CurrentUser):
     """按当前联合图切分并覆写各分镜格——唯一覆写分镜格的操作，直接执行不设确认。
@@ -487,9 +465,6 @@ async def split_grid(project_name: str, grid_id: str, user: CurrentUser):
         "missing_scene_ids": result.missing_scene_ids,
         "asset_fingerprints": result.asset_fingerprints,
     }
-
-
-# ==================== 联合图上传 ====================
 
 
 @router.post("/grids/{grid_id}/upload")

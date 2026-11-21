@@ -19,10 +19,8 @@ class TestCapacityTable:
             _limits={"known": {"image": 4, "video": 0}},
             _defaults={"image": 5, "video": 3},
         )
-        # 已知 + lane 在表 → 登记值（含 0=不支持该 lane）
         assert table.get("known", "image") == 4
         assert table.get("known", "video") == 0
-        # 已知 + lane 不在表 → 0
         assert table.get("known", "audio") == 0
         # 完全未知 → 默认，且纯查询不写回
         assert table.get("unknown", "image") == 5
@@ -34,7 +32,6 @@ class TestCapacityTable:
         table.replace({"p": {"image": 9, "video": 1}})
         assert table.get("p", "image") == 9
         assert table.get("p", "video") == 1
-        # 默认不受 replace 影响
         assert table.get("unknown", "image") == 5
 
     def test_from_env_derives_support_and_defaults(self, monkeypatch):
@@ -48,7 +45,7 @@ class TestCapacityTable:
             assert pid in table._limits
             for lane, global_default in (("image", 5), ("video", 3), ("audio", 10)):
                 if lane not in catalog.provider_media_types(pid):
-                    assert table.get(pid, lane) == 0  # 不支持的 lane → 投影为 0
+                    assert table.get(pid, lane) == 0
                 elif lane not in meta.default_concurrency:
                     # 未声明出厂默认的 lane 必须落到硬编码全局默认。这条断言不读
                     # meta.default_concurrency，故非重言——能抓住装载回退漂移。声明了默认的
@@ -60,7 +57,6 @@ class TestCapacityTable:
         monkeypatch.setenv("IMAGE_MAX_WORKERS", "7")
         monkeypatch.setenv("VIDEO_MAX_WORKERS", "2")
         table = CapacityTable.from_env()
-        # 未知 provider 的懒默认跟随 env
         assert table.get("unknown", "image") == 7
         assert table.get("unknown", "video") == 2
 
@@ -163,7 +159,6 @@ class TestCapacityTable:
 
         assert table.get("custom-1", "image") == 2
         assert table.get("custom-1", "video") == 7
-        # 不支持的 lane（无 audio 模型）投影为 0
         assert table.get("custom-1", "audio") == 0
 
     async def test_from_db_custom_endpoint_model_takes_its_lane_from_the_definition(self, monkeypatch):
@@ -356,10 +351,8 @@ class TestCapacityTable:
         with caplog.at_level(logging.WARNING, logger="lib.generation.generation_worker"):
             table = await CapacityTable.from_db()
 
-        # 脏 key 回退 env 默认值（image=5）并告警
         assert table.get("ark", "image") == 5
         assert "image_max_workers" in caplog.text
-        # 同 provider 其余合法 key、其他 provider 的配置正常生效
         assert table.get("ark", "video") == 2
         assert table.get("gemini-aistudio", "image") == 7
 
@@ -420,13 +413,10 @@ class TestCapacityTable:
 
         table = CapacityTable.from_env()
 
-        # 声明了 video=1 → 取声明默认，而非全局默认 3
         assert table.get("declared-video", "video") == 1
-        # 同 provider 未声明的 image lane → 全局默认 5
         assert table.get("declared-video", "image") == 5
         # 支持 audio 且声明 audio=12 → 取声明默认（高于全局默认 10），audio lane 正向回退
         assert table.get("declared-audio", "audio") == 12
-        # 未声明默认的 provider → 全局默认
         assert table.get("plain-video", "video") == 3
         # 声明了 image 默认但该 provider 不支持 image → 投影为 0（_lane_limits 不回归）
         assert table.get("declared-unsupported", "image") == 0
@@ -478,9 +468,9 @@ class TestCapacityTable:
 
         table = CapacityTable.from_env()
 
-        assert table.get("agnes", "video") == 1  # 声明默认压过活跃的全局 5
-        assert table.get("agnes", "image") == 5  # 声明不外溢到未声明的 image lane
-        assert table.get("ark", "video") == 5  # 未声明默认的视频供应商仍跟随全局 env
+        assert table.get("agnes", "video") == 1
+        assert table.get("agnes", "image") == 5
+        assert table.get("ark", "video") == 5
 
 
 async def test_worker_start_loads_stored_builtin_and_custom_concurrency(monkeypatch, file_db_factory):

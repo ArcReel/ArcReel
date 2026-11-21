@@ -33,7 +33,6 @@ interface Synced<T> {
 }
 
 export interface DraftEditorHandle<T> {
-  /** 当前编辑中的草稿正文；草稿结构收不成可编辑形状时为 null。 */
   content: T | null;
   setContent: (update: (prev: T) => T) => void;
   dirty: boolean;
@@ -41,15 +40,11 @@ export interface DraftEditorHandle<T> {
   outdated: boolean;
   saving: boolean;
   discarding: boolean;
-  /** 本份草稿的 AI 修复在提交、排队或执行中。 */
   repairing: boolean;
-  /** 保存并校验；违约清零即采用。 */
   save: () => Promise<void>;
   /** 提交 AI 修复（修复已保存的草稿）；返回 `true` 表示已提交或已落定，供调用方收起弹窗。 */
   repair: (instructions: string) => Promise<boolean>;
-  /** 丢弃草稿；返回是否成功，供调用方决定是否收起确认框。 */
   discard: () => Promise<boolean>;
-  /** 放弃本地编辑，载入服务端最新草稿。 */
   reloadLatest: () => void;
 }
 
@@ -90,7 +85,6 @@ export function useDraftEditor<T>({ projectName, episode, view, narrow, onSettle
   const activeRepairs = useActiveResourceIds("text_draft_repair", projectName);
   const repairing = repairResourceId != null && activeRepairs.has(repairResourceId);
   const latestRepair = useLatestTasksByResource(projectName, "text_draft_repair").get(repairResourceId ?? "");
-  // 看到本份草稿有在跑的修复（别处提交、或页面重新打开）时同样跟踪它。
   if (latestRepair != null && isOccupyingStatus(latestRepair.status) && watchedRepairId !== latestRepair.task_id) {
     setWatchedRepairId(latestRepair.task_id);
   }
@@ -105,7 +99,6 @@ export function useDraftEditor<T>({ projectName, episode, view, narrow, onSettle
     [narrow],
   );
 
-  // 服务端草稿变化时的派生状态（render 期同步）：无未保存编辑才采用。
   if (view != null && (synced == null || (synced.revision !== incomingRevision && !isDirty(synced)))) {
     adoptView(view);
   }

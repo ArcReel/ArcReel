@@ -15,7 +15,6 @@ import { createScriptEditTimeline } from "./create-script-timeline";
 interface EditTimelineEmptyStateProps {
   projectName: string;
   episode: number;
-  /** 新建成功后回调，剪辑视图据此切到新的剪辑时间线。 */
   onCreated: (created: EditTimelineReadout) => void;
 }
 
@@ -42,7 +41,6 @@ export function EditTimelineEmptyState({
   const blocked = blockedReason !== undefined;
 
   const handleHandToAgent = useCallback(() => {
-    // 只填不发送，已有会话时不切换、不新建
     const episodeRef = episodeAgentRef(ledger, episode, t);
     useAssistantStore.getState().setInput(t("workflow:agent_prefill_create_edit_timeline", { episodeRef }));
     useAppStore.getState().setAssistantPanelOpen(true);
@@ -52,7 +50,6 @@ export function EditTimelineEmptyState({
     if (creating || blocked) return;
     setCreating(true);
     try {
-      // 新建的剪辑时间线随即成为选中的标签，不再另弹提示。
       onCreated((await createScriptEditTimeline(projectName, episode, t)).created);
     } catch (err) {
       useAppStore.getState().pushToast(t("edit_timeline_create_failed", { message: errMsg(err) }), "error");

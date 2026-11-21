@@ -35,7 +35,6 @@ from lib.artifacts.generation_input import (
 TARGET = "E1S02"
 _REGISTERED_BASIS = ArtifactBasis.build("test/registered", kind_version=1, inputs={}).digest
 
-#: 缺省登记在清单里的资产图与上一分镜图：键 → 路径。
 _SHEETS: dict[ArtifactKey, str] = {
     ArtifactKey.asset_sheet("character", "张三"): "characters/张三.png",
     ArtifactKey.asset_sheet("character", "张三/劲装"): "characters/derivatives/张三/劲装.png",

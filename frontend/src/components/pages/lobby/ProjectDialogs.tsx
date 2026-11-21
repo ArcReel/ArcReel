@@ -30,10 +30,8 @@ import { getProjectDisplayName } from "@/utils/project-display";
 import type { ProjectSummary } from "@/types";
 
 interface ProjectDialogProps {
-  /** 要操作的项目；为 null 时对话框关闭。 */
   project: ProjectSummary | null;
   onClose: () => void;
-  /** 改动已保存，列表需要重新加载。 */
   onDone: () => void;
 }
 

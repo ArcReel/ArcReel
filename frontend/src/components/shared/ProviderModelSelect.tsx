@@ -18,22 +18,21 @@ import {
 import { ProviderIcon } from "./ProviderIcon";
 
 interface ProviderModelSelectProps {
-  value: string; // "gemini-aistudio/veo-3.1-generate-001"
-  options: string[]; // ["gemini-aistudio/veo-3.1-generate-001", ...]
-  providerNames: Record<string, string>; // {"gemini-aistudio": "AI Studio", ...}
+  value: string;
+  options: string[];
+  providerNames: Record<string, string>;
   /**
    * "provider/model" → 按当前语言成文的模型名，与 `providerNames` 同一次目录拉取。缺键的
    * 条目（自定义供应商、后端未覆盖的组合）退回 model id，故本项可省略。
    */
-  modelNames?: Record<string, string>; // {"gemini-aistudio/veo-3.1-generate-001": "Veo 3.1", ...}
+  modelNames?: Record<string, string>;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
   /** If true, adds a default option that returns empty string */
   allowDefault?: boolean;
-  /** Label for the default option */
   defaultLabel?: string;
-  defaultHint?: string; // "当前: gemini-aistudio/veo-3.1-generate-001"
+  defaultHint?: string;
   /** When value is empty, show this "provider/model" as the effective fallback in the trigger */
   fallbackValue?: string;
   /**
@@ -46,11 +45,8 @@ interface ProviderModelSelectProps {
    * 「自动选择（当前：…）」；null 表示没有可用供应商、自动选择会失败。省略即显示 placeholder。
    */
   autoValue?: string | null;
-  /** Accessible label for the trigger button */
   "aria-label"?: string;
-  /** Enable in-dropdown search input. Defaults to true. */
   searchable?: boolean;
-  /** Minimum option count to actually render the search input. Defaults to 6. */
   searchThreshold?: number;
   /**
    * 每个选项行下方的补充信息（如视频模型的能力线：时长/分辨率/音轨）。
@@ -63,22 +59,19 @@ interface ProviderModelSelectProps {
    * 不能选中，原因写在选项行下方；搜索同样作用于它们。为空或省略即不渲染这一组。
    */
   unavailable?: UnavailableOption[];
-  /** `unavailable` 那一组的组标题（已 t()）。 */
   unavailableLabel?: string;
 }
 
 export interface UnavailableOption {
-  value: string; // "provider/model"
+  value: string;
   reason: string;
 }
 
 /** 下拉里的一组：默认项单独成组（没有组标题），其余按供应商分组。 */
 // 用 type 而非 interface：Combobox 的分组类型带索引签名，interface 不能赋给它。
 type OptionGroup = {
-  /** 供应商 id；默认项组与不能选的那一组为 null。 */
   provider: string | null;
   items: string[];
-  /** 不能选的那一组（`unavailable`）。 */
   unavailable?: boolean;
 };
 

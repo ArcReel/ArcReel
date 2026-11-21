@@ -28,7 +28,6 @@ logging.getLogger("sqlalchemy.pool.impl").setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 _SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm")
-#: 旧布局的默认 SQLite 主文件名（位于数据根下）。
 _LEGACY_SQLITE_DB_NAME = ".arcreel.db"
 
 

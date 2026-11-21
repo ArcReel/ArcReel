@@ -7,7 +7,6 @@ interface Props {
   id: string;
   value: string;
   onChange: (next: string) => void;
-  /** 所选模型的音色表；为空时只是普通输入框。 */
   voices: readonly TtsVoiceOption[];
   disabled?: boolean;
   "aria-describedby"?: string;

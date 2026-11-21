@@ -5,10 +5,8 @@ import { episodeDisplayName, episodeItemLabel, type ProjectScripts } from "@/uti
 
 const GROUP_NAME_LIMIT = 5;
 
-/** 事件通知文案的翻译函数，由调用方从 `events` 命名空间取得。 */
 export type EventsT = TFunction<"events">;
 
-/** 把事件里的集 ID 与条目 ID 换成「标题 · S01」所需的账本，按播出顺序排列。 */
 export type EpisodeLedger = readonly Pick<EpisodeMeta, "episode" | "title">[];
 
 // 完成事件：一次生成跑完的信号。同时承担两种用途——
@@ -138,7 +136,6 @@ function summarizeGroupNames(
   return `${names.join(t("list.separator"))}${suffix}`;
 }
 
-// 单条文案的句式 key：action 决定句式，与分组文案共用同一套 action 归类。
 function singleTextKey(action: ProjectChange["action"]): string {
   if (action === "storyboard_ready" || action === "video_ready") {
     return action;

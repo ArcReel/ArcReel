@@ -84,7 +84,7 @@ def test_a_record_from_an_older_schema_is_migrated_and_restored(
 ) -> None:
     project_dir = _timeline_project(projects_dir)
     record_id = _old_record(project_dir, [DOCUMENT, RENDER], schema_version=17)
-    migrate_project_dir(project_dir)  # 应用升级
+    migrate_project_dir(project_dir)
 
     restored = cross_version_client.post(f"/api/v1/projects/{project_dir.name}/trash/{record_id}/restore")
 
@@ -163,5 +163,4 @@ def test_a_degraded_restore_lands_files_where_the_migration_moved_them(
     assert body["download_only"] == []
     assert (project_dir / "scenes" / "古庙.png").read_bytes() == b"temple"
     assert not (project_dir / "clues" / "古庙.png").exists()
-    # 没有只能下载的结构文件：记录随之消失
     assert _trash(cross_version_client, project_dir.name) == []

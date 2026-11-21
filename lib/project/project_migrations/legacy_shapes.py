@@ -112,7 +112,6 @@ class _Work:
     project_dir: Path
     schema_version: int
     project: dict[str, Any]
-    #: 内存里的 ``project`` 有尚未写盘的改动。
     project_changed: bool = False
     #: 已落盘的规整项：重跑发现不了它们，中途失败也要记下。改动 ``project.json`` 的规整项排在最前。
     adjusted: list[MigrationAdjustment] = field(default_factory=list)
@@ -635,7 +634,6 @@ def _carry_merged_derivative_records(work: _Work, drops: list[_AssetDrop]) -> No
     新键下已有登记或历史时不动；重跑时旧键已不在、图已在新路径，同样收敛。
     """
 
-    # （被去掉条目名, 保留名, 衍生名, 清单要改的路径）与（被去掉条目名, 衍生名）。
     moved: list[tuple[str, str, str, dict[str, str]]] = []
     retired: list[tuple[str, str]] = []
     for drop in drops:
@@ -755,7 +753,6 @@ def _copy_shared_reference_files(work: _Work) -> None:
     fields = list(_named_file_fields(work))
     frozen: dict[str, bytes] = {}
     before = len(work.adjusted)
-    #: 改指到副本的资产图：（资产类型, 名字, 旧值, 副本路径）。
     sheets: list[tuple[str, str, str, str]] = []
     planned: dict[str, tuple[bytes | None, MigrationAdjustment]] = {}
     pending = [
@@ -1043,7 +1040,6 @@ def _named_file_owner(project: dict[str, Any], rel: str) -> tuple[str, str] | No
 
 #: 条目 id 的集号前缀（与 ``script_editor`` 的条目 id 形态一致，含 ``_N`` 拆分后缀）。
 _ITEM_ID_EPISODE = re.compile(r"\AE(\d+)[SU]\d+(?:_\d+)?\Z")
-#: ``new_item_id`` 取出的号：集号、字母、序号。
 _ITEM_ID_PARTS = re.compile(r"\AE(\d+)([SU])(\d+)\Z")
 
 

@@ -231,7 +231,7 @@ async def test_edit_based_on_a_revision_before_a_rollback_conflicts_on_the_resto
 ) -> None:
     timeline_id = await _create(service)
     await _edit(service, timeline_id, 1, {"op": "set_volume", "clip": "c1", "volume": 0.2})
-    await service.restore("demo", timeline_id, revision=1, author=AGENT)  # r3：c1 音量被还原
+    await service.restore("demo", timeline_id, revision=1, author=AGENT)
 
     with pytest.raises(EditTimelineError) as conflict:
         await _edit(service, timeline_id, 2, {"op": "set_hold", "clip": "c1", "hold": 0.5})

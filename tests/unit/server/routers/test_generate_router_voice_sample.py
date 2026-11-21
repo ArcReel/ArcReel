@@ -131,7 +131,6 @@ class TestAudioBackendVoices:
         assert body["configured"] is True
         assert body["provider_id"] == "dashscope"
         assert body["model"] == "qwen3-tts-flash"
-        # 未带 Accept-Language 时按 DEFAULT_LOCALE（zh）渲染。
         assert body["voices"] == [{"id": "Cherry", "label": "芊悦 · 阳光正向的自然年轻女声"}]
 
     def test_configured_localizes_label_by_accept_language(self, tmp_path, monkeypatch):

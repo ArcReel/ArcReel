@@ -418,7 +418,6 @@ def test_copying_shared_reference_files_converges_after_a_failed_commit(
             raise OSError("disk full")
         write(path, payload)
 
-    # 副本都已落盘、保留副本也已挪出，改指的 project.json 提交失败。
     with monkeypatch.context() as patch:
         patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project)
         with pytest.raises(OSError, match="disk full"):
@@ -819,7 +818,6 @@ def test_a_failed_sheet_copy_commit_rolls_the_claims_back_and_the_retry_converge
         with pytest.raises(OSError, match="disk full"):
             runner.migrate_project_dir(project_dir)
 
-    # 改指没能提交：复制落点、登记与 project.json 一并回到改前。
     assert (project_dir / "characters/阿青.png").read_bytes() == b"qing-stray"
     assert (project_dir / "scenes/雨巷.png").read_bytes() == contents["scenes/雨巷.png"]
     assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest
@@ -1106,7 +1104,6 @@ def test_dialogue_speakers_and_unit_text_mentions_follow_the_kept_name(tmp_path:
     [unit] = _read_json(project_dir / "scripts" / "episode_1.json")["video_units"]
     assert unit["text"] == "@[Alice]：{你好}\n@[Alice]推门，@[Alice]回头"
     [scene] = _read_json(project_dir / "scripts" / "episode_2.json")["scenes"]
-    # 改写后与保留名重复的引用只留一个。
     assert scene["characters_in_scene"] == ["Alice"]
     assert scene["dialogue"] == [{"speaker": "Alice", "line": "走吧"}]
     assert [(item.code, item.episode) for item in record] == [
@@ -1281,7 +1278,6 @@ def test_derivatives_of_several_case_variants_fold_into_each_other(tmp_path: Pat
 
     normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=[])
 
-    # 后一条变体的 hat 与前一条迁入的 Hat 只差大小写，并入它。
     assert _read_json(project_dir / "project.json")["characters"] == {
         "Alice": {"description": "保留", "derivatives": {"Hat": {"description": "变体的帽子", "character_sheet": ""}}}
     }
@@ -1690,7 +1686,6 @@ def test_adjustments_survive_a_chain_that_fails_and_is_retried(tmp_path: Path, u
     add_duplicate_ledger_entry(project_dir, 1, "episode_1_copy.json")
     script_path = project_dir / "scripts" / "episode_1.json"
     script_bytes = script_path.read_bytes()
-    # 剧本读不出仍拒绝整个项目：链停在半路，已做的规整写进未完成的报告。
     script_path.write_text(unreadable, encoding="utf-8")
 
     assert migrate_project_with_verdict(project_dir) is not None
@@ -1846,12 +1841,10 @@ def test_crossed_bindings_each_land_on_their_own_canonical_script(
     for episode, title in ((1, "第一集"), (2, "第2集")):
         script = _read_json(project_dir / "scripts" / f"episode_{episode}.json")
         assert (script["episode"], script["title"]) == (episode, title)
-    # 没有剧本被挪成保留副本，交叉挪动的临时名也没留下。
     leftovers = [path.name for path in (project_dir / "scripts").iterdir() if ".bak." not in path.name]
     assert sorted(leftovers) == ["episode_1.json", "episode_2.json"]
     report = load_migration_report(project_dir)
     assert report is not None
-    # 改绑按挪动的先后提交，报告也按这个顺序记。
     assert sorted((item.code, item.episode, item.backup) for item in report.adjusted) == [
         ("script_binding_canonicalized", 1, None),
         ("script_binding_canonicalized", 2, None),
@@ -1927,7 +1920,6 @@ def test_a_rebind_interrupted_between_a_move_and_its_commit_finishes_on_retry(
         assert (script["episode"], script["title"]) == (episode, title)
     leftovers = [path.name for path in (project_dir / "scripts").iterdir() if ".bak." not in path.name]
     assert sorted(leftovers) == ["episode_1.json", "episode_2.json"]
-    # 中断前已改绑到临时名的集，报告仍写原来的绑定。
     report = load_migration_report(project_dir)
     assert report is not None
     for item in report.adjusted:
@@ -1952,7 +1944,6 @@ def test_a_kept_copy_made_before_a_failed_rebind_commit_stays_in_the_report(
             raise OSError("disk full")
         write(path, payload)
 
-    # 规范路径上的旧稿已挪成保留副本、剧本也挪到位，提交账本时失败。
     with monkeypatch.context() as patch:
         patch.setattr(legacy_shapes, "atomic_write_json", fail_on_rebind_commit)
         assert migrate_project_with_verdict(project_dir) is not None

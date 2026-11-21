@@ -4,7 +4,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 集页「多宫格分镜图」视图：按章节切分点分组，每组一张卡片，信息栏加联合图媒体栏。
 const GRID_PATH = "/app/projects/demo/episodes/1?view=grid";
 
 
@@ -101,9 +100,7 @@ function grid(
 }
 
 const GRIDS = [
-  // 第 1 组：联合图已就绪、尚未切分落格，参考图多且名字长。
   grid("grid-a", GROUPS[0], { rows: 3, cols: 3, split_at: null, reference_images: REFERENCES }),
-  // 第 2 组：两张联合图，第二张生成失败、错误说明很长。
   grid("grid-b1", GROUPS[1].slice(0, 9), { rows: 3, cols: 3 }),
   grid("grid-b2", GROUPS[1].slice(9), {
     rows: 2,
@@ -112,7 +109,6 @@ const GRIDS = [
     grid_image_path: null,
     error_message: LONG_ERROR,
   }),
-  // 第 3 组：生成中，还没有联合图。第 4 组没有联合图。
   grid("grid-c", GROUPS[2], { rows: 2, cols: 2, status: "generating", grid_image_path: null }),
 ];
 
@@ -157,7 +153,6 @@ defineRegionScenarios("多宫格分镜图", [
       const first = groupCard(page, 1);
       await expect(first.getByText("未切分", { exact: true })).toBeVisible();
       await expect(first.getByRole("button", { name: "切分落格" })).toBeEnabled();
-      // 联合图在信息栏右侧的媒体栏里，高度不超过视图区的 70%，整张可见
       const image = await box(first.getByRole("img", { name: "联合图" }));
       const card = await box(first);
       const view = await box(page.getByRole("tabpanel"));
@@ -184,7 +179,6 @@ defineRegionScenarios("多宫格分镜图", [
       await expect(second.getByRole("button", { name: "第 2 张联合图" })).toHaveAttribute("aria-pressed", "true");
       await expect(second.getByText(LONG_ERROR)).toBeVisible();
       await expect(second.getByText("失败", { exact: true })).toBeVisible();
-      // 没有联合图时不能切分，仍可重新生成或上传
       await expect(second.getByRole("button", { name: "切分落格" })).toBeDisabled();
       await expect(second.getByRole("button", { name: "重新生成", exact: true })).toBeEnabled();
       await expect(second.getByRole("button", { name: "上传联合图" })).toBeEnabled();

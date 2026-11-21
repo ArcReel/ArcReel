@@ -8,7 +8,6 @@ import type { EpisodeItemKind } from "@/utils/episode-item";
 interface ItemPositionOfTotalProps {
   itemId: string;
   kind: EpisodeItemKind;
-  /** 本集数组里的当前位置，从 1 起。 */
   position: number;
   total: number;
   className?: string;

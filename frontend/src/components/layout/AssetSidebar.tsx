@@ -42,7 +42,6 @@ import { EpisodeCard } from "./EpisodeCard";
 import { SidebarEpisodeList } from "./SidebarEpisodeList";
 
 interface AssetSidebarProps {
-  /** 收为 56px 图标栏：只显示导航图标与集序号，名称在悬停或聚焦时显示。 */
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
 }
@@ -55,10 +54,6 @@ interface NavItem {
   count?: number;
 }
 
-/**
- * 工作区侧栏：上方是工作区导航（项目概览、分集、角色、场景、道具，广告项目另有商品、没有分集），
- * 下方是分集列表（搜索、排序与每集的操作）。宽度由外壳的调宽手柄决定；折叠时收为图标栏。
- */
 export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps) {
   const { t } = useTranslation(["common", "dashboard"]);
   const { currentProjectName, currentProjectData } = useProjectsStore();
@@ -79,7 +74,6 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
     if (currentProjectName) debouncedFetchCost(currentProjectName);
   }, [currentProjectName, debouncedFetchCost]);
 
-  // Derive active episode from `/episodes/:id`
   const activeEp = useMemo(() => {
     const m = location.match(/^\/episodes\/(\d+)/);
     return m ? parseInt(m[1], 10) : null;
@@ -87,7 +81,6 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
 
   const moveEpisode = useMoveEpisode(currentProjectName);
   const deletion = useDeleteEpisode(currentProjectName ?? "", (episode) => {
-    // 删的是正在看的那一集时回到「分集」视图
     if (episode === activeEp) setLocation(episodesViewPath());
   });
 

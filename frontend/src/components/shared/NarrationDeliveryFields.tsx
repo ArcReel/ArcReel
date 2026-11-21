@@ -11,7 +11,6 @@ import { narrationDeliveryProblem, type NarrationDeliveryValue } from "./narrati
 
 const FIELD_LABEL_CLS = "text-xs font-medium text-muted-foreground";
 
-/** 交付方式的单选卡片：整块可点，选中项用品牌色描边与浅底。 */
 function deliveryCardClass(selected: boolean): string {
   return cn(
     "flex flex-1 cursor-pointer items-center justify-center rounded-lg border px-3 py-2.5 text-sm transition-colors has-focus-visible:ring-3 has-focus-visible:ring-ring/50",
@@ -25,7 +24,6 @@ interface Props {
   audioBackends: string[];
   providerNames: Record<string, string>;
   modelNames: Record<string, string>;
-  /** 下线提示（候选接口的 `lifecycle`）；所选配音模型即将下线或已下线时在下拉下方提示。 */
   lifecycle?: ModelLifecycleNotices;
 }
 

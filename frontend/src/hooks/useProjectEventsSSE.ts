@@ -98,7 +98,6 @@ function isNavigableChange(change: ProjectChange): boolean {
   return Boolean(change.focus?.anchor_type && change.focus?.anchor_id);
 }
 
-/** 定位窗格 → 工作区路由，按窗格联合类型穷尽；返回 null 表示该事件缺少路由所需信息、不可导航。 */
 const PANE_ROUTES: Record<ProjectChangePane, (focus: ProjectChangeFocus) => string | null> = {
   characters: () => `/${WORKSPACE_ROUTE_CHARACTERS}`,
   scenes: () => `/${WORKSPACE_ROUTE_SCENES}`,
@@ -322,7 +321,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           useAppStore.getState().invalidateTrash();
         }
 
-        // 提取并更新 asset fingerprints（零延迟，立即写入 store）
         const mergedFingerprints: Record<string, number> = {};
         for (const change of entityChanges) {
           if (change.asset_fingerprints) {
@@ -372,7 +370,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           [];
 
         if (notifyChanges) {
-          // Draft 事件 — 自动导航到剧集脚本规划 Tab
           let draftHandled = false;
           for (const change of entityChanges) {
             if (
@@ -425,11 +422,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           useAppStore.getState().invalidateReferenceVideoUnits();
         }
 
-        // 只在含实体变更时重拉项目：任务终态与记账结算是刷新信号，不改项目快照里的内容；
-        // 重建窗口内落盘、却未被任何在途批次描述的变更，后端会补扫后单独广播。
-        // 通知里的集标题与播出位置取刷新后的账本：Agent 新建、改名或调序的集在事件到达时
-        // 还不在本地账本里，按旧账本成文会显示成未命名集或旧标题，推出后无法再改。
-        // 刷新没有成功时不成文：旧剧本里还没有新建的条目，会被写成「已删除」；同步失败已另行告警。
         if (entityChanges.length > 0) {
           void refreshProject().then((result) => {
             if (disposed || !notifyChanges || result !== "success") return;
@@ -453,7 +445,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           });
         }
 
-        // Refresh cost data when generation completes
         const hasCompletionEvent = entityChanges.some((c) =>
           COMPLETION_ACTIONS.has(c.action),
         );
@@ -486,7 +477,6 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           useCostStore.getState().debouncedFetch(projectName);
         }
 
-        // Refresh grid list when a grid completes or gets split into cells
         if (entityChanges.some((c) => c.action === "grid_ready" || c.action === "grid_split_done")) {
           useAppStore.getState().invalidateGrids();
         }

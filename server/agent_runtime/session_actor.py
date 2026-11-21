@@ -259,8 +259,6 @@ class SessionActor:
             if not cmd.done.is_set():
                 cmd.complete(exc)
 
-    # --- Public accessors (avoid leaking _task to callers) -----------------
-
     @property
     def task(self) -> asyncio.Task | None:
         """Underlying actor task; None before start()."""

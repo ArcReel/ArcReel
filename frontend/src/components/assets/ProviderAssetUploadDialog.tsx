@@ -33,7 +33,6 @@ import { errMsg } from "@/utils/async";
 import { dismissOnEscape, dismissOnFocusLeave, keepFocusInside } from "@/utils/inline-confirm";
 import { cn } from "cn";
 
-/** 有入库任务仍在推进时的轮询间隔。 */
 export const LINK_POLL_INTERVAL_MS = 4000;
 
 const IN_FLIGHT: ReadonlySet<ProviderAssetLinkState> = new Set(["pending", "submitting", "processing", "uncertain"]);
@@ -125,7 +124,6 @@ function UploadPanel({ projectName, resourceType, resourceId }: Omit<ProviderAss
     return () => controllerRef.current?.abort();
   }, [fetchPanel]);
 
-  // 有入库任务仍由后台推进时轮询，全部有定论或停止自动查询后不再请求
   const polling = state.status === "ready" && state.panel.links.some((link) => IN_FLIGHT.has(link.state) && link.polling);
   useEffect(() => {
     if (!polling) return;
@@ -373,7 +371,6 @@ function LinkSummary({ title, subtitle, link }: { title: string; subtitle: strin
   );
 }
 
-/** 「解除关联」的行内确认：确认态焦点落在「取消」上，取消或 Esc 退出时焦点交还触发按钮，焦点离开确认区域也退出。 */
 function UnlinkControl({ busy, onConfirm }: { busy: boolean; onConfirm: () => void }) {
   const { t } = useTranslation(["assets", "common"]);
   const [confirming, setConfirming] = useState(false);

@@ -8,10 +8,6 @@ import type {
 } from "@/types";
 import { parseIsoTimestamp } from "@/utils/date-format";
 
-/**
- * 记录行的视图模型。已结束的调用与尚未产生调用行的进行中任务都投影到这里，
- * 让记录表、进行中子块与顶栏悬浮层共用同一个行组件。
- */
 export interface UsageRecordView {
   /** React key；进行中的任务行没有记录 id，用任务 id 组键。 */
   key: string;
@@ -19,7 +15,6 @@ export interface UsageRecordView {
   recordId: number | null;
   /** 服务了任务的调用带任务 id；无任务的文本调用与端点试跑为 null。 */
   taskId: string | null;
-  /** 端点试跑记录为空串。 */
   projectName: string;
   /** 项目标题；没有时界面回退到项目名。进行中的任务行没有标题。 */
   projectTitle: string | null;
@@ -34,7 +29,6 @@ export interface UsageRecordView {
   segmentRef: EpisodeItemRef | null;
   errorCode: string | null;
   errorMessage: string | null;
-  /** 已结束调用的开始时刻；进行中行用它排序与计时。 */
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
@@ -106,7 +100,6 @@ const SEGMENT_RESOURCE_TYPES: Record<TaskMediaType, ReadonlySet<string> | null> 
  */
 export function taskSegmentId(task: TaskItem): string | null {
   if (!task.resource_id) return null;
-  // audio 记账不看 resource_type，任务的资源种类有没有登记在这一支上都不影响结论。
   const allowed = SEGMENT_RESOURCE_TYPES[task.media_type];
   if (allowed === null) return task.resource_id;
   const kind = task.task_type === "image_edit" ? task.resource_type : task.task_type;

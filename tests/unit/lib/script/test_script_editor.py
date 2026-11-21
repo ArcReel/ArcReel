@@ -151,13 +151,7 @@ class TestPatchField:
         assert script["segments"][0]["video_prompt"]["note"] == "新增备注"
 
     def test_patch_optional_leaf_present_in_schema_succeeds(self):
-        # 合法的「补 LLM 漏写的 optional 字段」:NarrationSegment.note 是 schema 内的
-        # SkipJsonSchema[str | None] 字段,允许通过 patch 补;此路径既在 _set_nested
-        # 写入成功,也能通过 _guard_no_worse 校验(字段是合法 schema 字段)。
-        # 但 _narration() fixture 默认带 note=None,需要先 strip 再测「补」语义——
-        # 退而求其次,改测「写入 schema 合法字段」本身。
         script = _narration()
-        # 删 segment.note 模拟 LLM 漏写
         for seg in script["segments"]:
             seg.pop("note", None)
         script = patch_field(script, "E1S01", "note", "补全的备注")
@@ -316,7 +310,6 @@ class TestSplitSegment:
         视为合法初始态不 warn,只对 list / str / int 等真正脏数据 warn。"""
         import logging
 
-        # 脏数据:generated_assets 是 list 而非 dict
         script_dirty = _narration([_segment("E1S01"), _segment("E1S02")])
         script_dirty["segments"][0]["generated_assets"] = ["unexpected_list_form"]
 
@@ -331,7 +324,7 @@ class TestSplitSegment:
         import logging
 
         script_clean = _narration([_segment("E1S01"), _segment("E1S02")])
-        script_clean["segments"][0].pop("generated_assets", None)  # 模拟初始态缺失
+        script_clean["segments"][0].pop("generated_assets", None)
 
         with caplog.at_level(logging.WARNING, logger="lib.script.script_editor"):
             split_segment(script_clean, "E1S01", [_segment("a"), _segment("b")])

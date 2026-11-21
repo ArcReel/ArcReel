@@ -24,7 +24,6 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-/** 概览页头：标题、元信息（模式 · 画幅 · 集数 · 脚本时长）与「项目设置」。 */
 export function OverviewHeader({
   projectName,
   data,

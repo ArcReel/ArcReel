@@ -95,7 +95,6 @@ class _FakePM:
         (self.base / "ready" / "storyboards" / "scene_E1S01.png").write_bytes(b"png")
         (self.base / "empty").mkdir(parents=True, exist_ok=True)
         (self.base / "remove-me").mkdir(parents=True, exist_ok=True)
-        # generate_overview 的名义分支目标：存在但内容有问题的项目（源目录空/供应商未配置/json 损坏）
         (self.base / "bad").mkdir(parents=True, exist_ok=True)
         (self.base / "no-provider").mkdir(parents=True, exist_ok=True)
         (self.base / "no-default-model").mkdir(parents=True, exist_ok=True)
@@ -103,7 +102,6 @@ class _FakePM:
         (self.base / "bad-schema").mkdir(parents=True, exist_ok=True)
         (self.base / "truncated").mkdir(parents=True, exist_ok=True)
         (self.base / "retired-model").mkdir(parents=True, exist_ok=True)
-        # 上传后概览生成失败的软降级路径：项目存在，但 generate_overview 抛带路径异常
         (self.base / "leaky").mkdir(parents=True, exist_ok=True)
         (self.base / "retired-upload").mkdir(parents=True, exist_ok=True)
 
@@ -289,7 +287,6 @@ class _FakePM:
             # JSONDecodeError 是 ValueError 子类，不该被误判为「未配置供应商」
             json.loads("{not valid json")
         if name == "truncated":
-            # 模拟文本模型的输出被最大输出长度截断（TextGenerator 补齐 provider_id / custom_model 后抛出）
             raise TextOutputTruncatedError(
                 provider="openai", model="my-llm", output_tokens=64, provider_id="custom-3", custom_model=True
             )

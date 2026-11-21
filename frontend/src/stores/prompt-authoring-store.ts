@@ -1,6 +1,5 @@
 import { create } from "zustand";
 
-/** 「编写提示词」弹窗的范围：当前单条、全部待编写、自选多条。 */
 export type PromptAuthoringScope = "current" | "pending" | "custom";
 
 export interface PromptAuthoringOpenRequest {

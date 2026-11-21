@@ -228,11 +228,6 @@ def _write_source_text(pm: ProjectManager, filename: str, text: str) -> Path:
     return path
 
 
-# ---------------------------------------------------------------------------
-# 状态流转（drama）
-# ---------------------------------------------------------------------------
-
-
 def _set_episode_target_duration(pm: ProjectManager, seconds: int) -> None:
     def _set(project: dict) -> None:
         project["episode_target_duration"] = seconds
@@ -303,10 +298,8 @@ class TestDramaGateFlow:
         pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
 
-        # script_plan 未产出
         assert (await svc.get_state("demo", 1))["status"] == "no_script_plan"
 
-        # script_plan 产出 → 可审中间态、阻塞
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
@@ -316,7 +309,6 @@ class TestDramaGateFlow:
         project = pm.load_project("demo")
         assert script_review.review_status(project_path, project, 1) == "pending_review"
 
-        # 确认 → 放行
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
@@ -466,14 +458,8 @@ class TestDramaGateFlow:
         path = _write_script_plan(pm, "drama", _admitted_drama_script_plan())
         await svc.confirm("demo", 1)
 
-        # 同内容、不同缩进 / 键序重写
         path.write_text(json.dumps(_admitted_drama_script_plan(), ensure_ascii=False, indent=4), encoding="utf-8")
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
-
-
-# ---------------------------------------------------------------------------
-# 内容确认即整集转换：无正式脚本时新建，已有正式脚本时须认可覆盖
-# ---------------------------------------------------------------------------
 
 
 async def _confirm_over_existing_script(pm: ProjectManager) -> dict:
@@ -800,11 +786,6 @@ class TestConfirmMaterializesScript:
         assert script_review.stored_review(pm.load_project("demo"), 1) == {}
 
 
-# ---------------------------------------------------------------------------
-# 状态流转（narration，共用同一 gate）
-# ---------------------------------------------------------------------------
-
-
 class TestNarrationGateFlow:
     async def test_pending_then_confirm(self, tmp_path, video_request_facts):
         pm = _make_project(tmp_path, "narration")
@@ -866,21 +847,14 @@ class TestNarrationGateFlow:
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
 
-# ---------------------------------------------------------------------------
-# 状态流转（reference_video，跨 content_mode 共用同一 gate）
-# ---------------------------------------------------------------------------
-
-
 class TestReferenceVideoGateFlow:
     async def test_no_script_plan_then_pending_then_confirmed(self, tmp_path, video_request_facts):
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         project_path = pm.get_project_path("demo")
 
-        # script_plan 未产出
         assert (await svc.get_state("demo", 1))["status"] == "no_script_plan"
 
-        # script_plan 产出 → 可审中间态、阻塞 prompt_authoring
         _write_rv_script_plan(pm, _rv_script_plan())
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
@@ -888,7 +862,6 @@ class TestReferenceVideoGateFlow:
         assert state["content"]["units"][0]["text"].startswith("@[阿离]")
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
 
-        # 确认 → 放行
         confirmed = await svc.confirm("demo", 1)
         assert confirmed["status"] == "confirmed"
         assert confirmed["confirmed_at"]
@@ -1009,7 +982,7 @@ class TestReferenceVideoGateFlow:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         bad = _rv_script_plan()
-        bad["units"][0]["duration_seconds"] = 9999  # 超出 unit 时长的结构合理性区间
+        bad["units"][0]["duration_seconds"] = 9999
         _write_rv_script_plan(pm, bad)
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
@@ -1248,7 +1221,7 @@ class TestReferenceVideoGateFlow:
     async def test_reference_duration_tiers_none_for_non_reference_video_episode(self, tmp_path, video_request_facts):
         """非 reference_video 变体不求值事实、直接 None——判据是方法自身的 script_plan_kind，
         不能靠调用方按 get_state.supported_durations 是否非 None 短路。"""
-        pm = _make_project(tmp_path, "drama")  # generation_mode 缺省，非 reference_video
+        pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
 
         assert await svc.get_reference_duration_tiers("demo", 1) is None
@@ -1392,7 +1365,6 @@ class TestReferenceVideoScriptPlanMigration:
         assert on_disk["units"][0]["duration_seconds"] == 8
         assert "duration_override" not in on_disk["units"][0]
 
-        # 幂等：二次读不再改写落盘内容。
         before = path.read_bytes()
         await svc.get_state("demo", 1)
         assert path.read_bytes() == before
@@ -1677,11 +1649,6 @@ class TestApplicability:
         assert (await svc.get_state("addemo", 1))["status"] == "not_applicable"
 
 
-# ---------------------------------------------------------------------------
-# 编辑校验 + 确认前置错误
-# ---------------------------------------------------------------------------
-
-
 class TestErrors:
     @pytest.mark.parametrize("kind", ["drama", "narration", "reference_video"])
     async def test_agent_draft_keeps_formal_plan_readonly_until_discarded(self, tmp_path, video_request_facts, kind):
@@ -1778,7 +1745,7 @@ class TestErrors:
         assert script_review.review_status(pm.get_project_path("demo"), project, 1) == "pending_review"
 
     async def test_save_not_applicable_rejected(self, tmp_path):
-        pm = _make_project(tmp_path, "ad")  # ad 无结构化 script_plan，gate 不适用
+        pm = _make_project(tmp_path, "ad")
         svc = _service(pm)
         with pytest.raises(ScriptReviewError) as exc:
             await svc.save_content("demo", 1, _drama_script_plan())
@@ -1786,7 +1753,7 @@ class TestErrors:
 
     async def test_get_state_unregistered_episode_rejected(self, tmp_path):
         """适用 gate 但分集未登记 project.json → episode_not_found（而非误报 no_script_plan）。"""
-        pm = _make_project(tmp_path, "drama")  # 仅登记第 1 集
+        pm = _make_project(tmp_path, "drama")
         svc = _service(pm)
         with pytest.raises(ScriptReviewError) as exc:
             await svc.get_state("demo", 99)
@@ -1810,7 +1777,6 @@ class TestErrors:
         path = _write_rv_script_plan(pm, _rv_script_plan())
         stale = (await svc.get_state("demo", 1))["fingerprint"]
 
-        # 另一编辑方先保存（内容变化 → 指纹漂移）
         other = _rv_script_plan()
         other["units"][0]["text"] = "@[阿离] 转身离开。"
         await svc.save_content("demo", 1, other)
@@ -1871,7 +1837,7 @@ class TestErrors:
         write_quarantine(
             project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "旧基底"}]}, violations=[]
         )
-        await svc.save_content("demo", 1, _rv_script_plan())  # 内容未变（校验结果与盘上一致）
+        await svc.save_content("demo", 1, _rv_script_plan())
         assert prompt_authoring_q.exists()
 
         edited = _rv_script_plan()
@@ -1888,11 +1854,6 @@ class TestErrors:
         with pytest.raises(ScriptReviewError) as exc:
             await svc.confirm("demo", 1)
         assert exc.value.code == "invalid_content"
-
-
-# ---------------------------------------------------------------------------
-# 单一写盘出口（lib.script.script_review.write_script_plan_locked）
-# ---------------------------------------------------------------------------
 
 
 class TestScriptPlanWriteStore:
@@ -1946,7 +1907,6 @@ class TestScriptPlanWriteStore:
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
 
-        # 内容未变 → 不清
         write_quarantine(
             project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
         )
@@ -1954,7 +1914,6 @@ class TestScriptPlanWriteStore:
             assert script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]}) is False
         assert prompt_authoring_q.exists()
 
-        # 内容变了 → 清
         with script_review.script_plan_write_lock(project_path, 1):
             assert script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]}) is True
         assert not prompt_authoring_q.exists()

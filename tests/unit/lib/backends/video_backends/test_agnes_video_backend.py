@@ -144,7 +144,7 @@ class TestNumFramesAndSize:
 
         frames = _duration_to_num_frames(duration)
         assert frames == expected_frames
-        assert (frames - 1) % 8 == 0  # 形如 8n+1
+        assert (frames - 1) % 8 == 0
 
     def test_resolve_size_portrait_explicit_hw(self):
         from lib.backends.video_backends.agnes import _resolve_size
@@ -241,7 +241,6 @@ class TestTextToVideo:
         assert body["num_frames"] == 121
         assert body["frame_rate"] == 24
         assert body["seed"] == 7
-        # 文生视频：无任何图像通道
         assert "image" not in body
         assert "extra_body" not in body
         assert submitted.headers["Authorization"] == "Bearer sk-test"
@@ -516,7 +515,7 @@ class TestFailureAndTimeout:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
-            assert routes.query.call_count == 0  # 未发起二次查询
+            assert routes.query.call_count == 0
 
         assert result.video_uri == "https://cdn.agnes/direct.mp4"
 
@@ -584,7 +583,6 @@ class TestFailureAndTimeout:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.generate(_request(tmp_path))
 
-            # 顶层/metadata 已命中权威字段，未发起二次查询
             assert routes.query.call_count == 0
 
         assert result.video_uri == "https://cdn.agnes/authoritative.mp4"
@@ -620,7 +618,6 @@ class TestFailureAndTimeout:
 
         assert result.video_uri == "https://platform-outputs.agnes-ai.com/videos/meta.mp4"
         assert result.video_path.read_bytes() == b"meta-bytes"
-        # 终态响应无 seconds，时长须从二次查询响应解析，而非回落请求时长
         assert result.duration_seconds == 8
 
     async def test_video_id_query_without_url_raises_descriptive_error(self, tmp_path: Path):
@@ -676,7 +673,7 @@ class TestSubmitResilience:
                 await backend.generate(_request(tmp_path))
 
             assert routes.submit.call_count == 1
-            assert routes.poll.call_count == 0  # 4xx 在提交阶段失败，不该轮询
+            assert routes.poll.call_count == 0
 
     async def test_submit_read_timeout_wraps_ambiguous(self, tmp_path: Path):
         with _agnes_api() as routes, bounded_poll_clock():
@@ -687,7 +684,7 @@ class TestSubmitResilience:
                 await backend.generate(_request(tmp_path))
 
             assert routes.submit.call_count == 1
-            assert routes.poll.call_count == 0  # 歧义态不该轮询
+            assert routes.poll.call_count == 0
 
 
 class TestResume:
@@ -725,7 +722,7 @@ class TestResume:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
             result = await backend.resume_video("task-resume", _request(tmp_path, output_path=tmp_path / "out.mp4"))
 
-            assert routes.submit.call_count == 0  # resume 不 POST create
+            assert routes.submit.call_count == 0
             assert only_request(routes.poll).url.path.endswith("/videos/task-resume")
 
         assert result.task_id == "task-resume"
@@ -802,7 +799,7 @@ class TestProviderJobIdPersistence:
 
         assert persisted == [
             {
-                "task_id": "worker-task-99",  # worker 任务 id
+                "task_id": "worker-task-99",
                 "job_id": "agnes-task-42",  # Agnes submit 返回的 task_id 作为 job_id 写回
                 "provider": PROVIDER_AGNES,
                 "endpoint": None,

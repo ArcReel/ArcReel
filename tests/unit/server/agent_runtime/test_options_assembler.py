@@ -90,7 +90,6 @@ async def test_load_provider_env_overrides_injects_anthropic_and_empties() -> No
     assert env["ANTHROPIC_BASE_URL"] == "https://anthropic.example.com"
     assert env["ANTHROPIC_AUTH_TOKEN"] == ""
     assert env["CLAUDE_CODE_OAUTH_TOKEN"] == ""
-    # 其他 provider 空值覆盖
     assert env["ARK_API_KEY"] == ""
     assert env["XAI_API_KEY"] == ""
     assert env["GEMINI_API_KEY"] == ""
@@ -125,7 +124,6 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     assert options.env["ANTHROPIC_API_KEY"] == "sk"
     assert options.max_turns == 7
     assert list(options.setting_sources) == _SETTING_SOURCES
-    # file access hook 恒注册
     assert "PreToolUse" in options.hooks
     assert [(matcher.matcher, matcher.on_failure) for matcher in options.hooks["PreToolUse"]] == [
         (None, "block"),
@@ -135,7 +133,6 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     assert [(matcher.matcher, matcher.on_failure) for matcher in options.hooks["PostToolUse"]] == [
         ("Write|Edit", None),
     ]
-    # sandbox 启用 → sandbox settings 编译进 options
     assert options.sandbox.get("enabled") is True
     # 用户消息回放开关：缺失则 SDK 不回放副本，身份映射无从建立
     assert options.extra_args == {"replay-user-messages": None}
@@ -254,7 +251,6 @@ async def test_json_pre_validation_hook_keeps_event_loop_running(
         result = await task
         gate.assert_read_was_offloaded()
 
-    # 替换后仍是合法 JSON → 放行
     assert result == {}
 
 

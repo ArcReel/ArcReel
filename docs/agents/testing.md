@@ -23,6 +23,12 @@ testmon 的覆盖数据保存在 `.testmondata` 中，不包含另起进程执�
 - 根 [conftest](../../tests/conftest.py)设置 `PYTHON_DOTENV_DISABLED=1`，测试环境无需空 `.env`。涉及 `local_port` 的用例需在允许绑定本地端口的环境运行。
 - 模型目录测试使用 [catalog fixture](../../tests/fixtures/catalog.json)，按 fixture 日期判定关停等生命周期。用 [catalog_support](../../tests/catalog_support.py) 构造用例数据或切换日期。验证出厂快照本身用 [test_factory_snapshot](../../tests/unit/lib/catalog/test_factory_snapshot.py)。发布数据格式由目录构建侧校验，发版刷新快照不应使普通用例失败。
 
+## 源码注释检查
+
+`uv run python -m scripts.audit_comments` 会检查相对 `HEAD` 与 `origin/main` 共同祖先的源码注释，范围覆盖已提交、未提交和未跟踪的文件，也可用 `--base <commit>` 指定比较基线。该检查同时随 `gate.py conventions`、`gate.py --changed` 和 CI 运行，规则与工具指令边界见 [ADR 0121](../adr/0121-source-comment-ratchet-and-decision-records.md)。
+
+`uv run python -m scripts.audit_comments --stats` 按语言盘点当前工作树中的注释及预计可整行删除的行数。`comment_lines` 统计含注释的行数，包括同时含代码和注释的行。`removable_lines` 估算能整行删除的行数。用户直接编辑的配置示例和部署文件可保留帮助性注释，并按同一规则从统计范围中排除。
+
 ## 事件循环阻塞
 
 [阻塞守卫](../../tests/blocking_guard/__init__.py)记录 lib/server 异步调用链上的阻塞，报错列出最近业务函数和调用栈。即使阻塞发生在替身里，也按生产线程契约处理。能用内存替身的就用内存，确需落盘的替身把 I/O 放进 `asyncio.to_thread`。

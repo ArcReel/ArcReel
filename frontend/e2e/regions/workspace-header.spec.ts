@@ -6,7 +6,6 @@ import { clearAgentOverlay } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 工作区顶栏与侧栏集列表：项目切换器、通知面板、项目内未知路径的空状态与集的键盘排序。
 const CHARACTERS_PATH = "/app/projects/demo/characters";
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const EVENT_STREAM: ApiOverrides = {

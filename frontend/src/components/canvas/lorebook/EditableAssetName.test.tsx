@@ -56,7 +56,6 @@ describe("EditableAssetName", () => {
     fireEvent.change(input, { target: { value: "  青莲  " } });
     await userEvent.type(input, "{Enter}");
 
-    // dry-run 预览先行，确认框展示影响数字
     await waitFor(() =>
       expect(renameSpy).toHaveBeenCalledWith("demo", "character", "李白", "青莲", { dryRun: true }),
     );
@@ -158,7 +157,6 @@ describe("EditableAssetName", () => {
     const confirmButton = () => within(screen.getByRole("alertdialog")).getByRole("button", { name: "重命名" });
     await waitFor(() => expect(confirmButton()).toBeEnabled());
 
-    // 确认框打开后详情里起了一次本地写入
     rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} busy />);
     expect(confirmButton()).toBeDisabled();
 

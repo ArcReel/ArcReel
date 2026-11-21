@@ -29,14 +29,12 @@ import { formatNameList } from "@/utils/list-format";
 
 import { ImpactConfirmDialog } from "./ImpactConfirmDialog";
 
-/** 提示条里最多点名的文件数，其余以「等」概括。 */
 const NAMED_FILES = 2;
 
 interface UnregisteredFilesProps {
   projectName: string;
   files: UnregisteredSourceFile[];
   episodes: EpisodeMeta[];
-  /** 处置完成后重新拉取「分集」视图。 */
   onChanged: () => void;
 }
 
@@ -110,7 +108,6 @@ function UnregisteredFileList({
   const [error, setError] = useState<string | null>(null);
   const noSourceEpisodes = episodes.filter((episode) => episode.source_origin === "none");
 
-  /** 处置一个文件：成功后文件从列表里消失，失败时在列表上方说明原因。 */
   const run = async (name: string, action: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);

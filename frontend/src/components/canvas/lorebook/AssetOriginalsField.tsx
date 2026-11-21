@@ -20,10 +20,8 @@ interface AssetOriginalsFieldProps {
   projectName: string;
   name: string;
   assetType: OriginalsAssetType;
-  /** 已上传的原图路径：角色最多一张，商品可以多张。 */
   paths: string[];
   readOnly?: boolean;
-  /** 详情里其它写入或生成占用中：上传入口一起禁用。 */
   busy?: boolean;
 }
 
@@ -48,7 +46,6 @@ export function AssetOriginalsField({
   const fingerprints = useProjectsStore((s) => s.assetFingerprints);
   const multiple = assetType === "product";
   const urls = paths.map((path) => API.getFileUrl(projectName, path, fingerprints[path] ?? null));
-  // 列表只显示缩略图（多张 64px 方块，单张 112px 高），点开查看时才拉原图
   const thumbUrls = paths.map((path) =>
     API.getFileUrl(projectName, path, fingerprints[path] ?? null, { width: multiple ? 160 : 640 }),
   );

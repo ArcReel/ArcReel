@@ -206,7 +206,6 @@ def wide_tier_reference_project(tmp_path: Path) -> Path:
 async def test_build_prompt_renders_pending_formal_units(reference_project: Path):
     gen = ScriptGenerator(reference_project)
     prompt = await gen.build_prompt(episode=1)
-    # 正式剧本里待编写单元的正文逐字进入 prompt，与 unit 时长一起
     assert "@[主角] 推开 @[酒馆] 的门" in prompt
     assert "（时长 4s）" in prompt
     # unit_id 不下发给 prompt_authoring：产出按位对齐
@@ -381,7 +380,6 @@ async def test_prompt_authoring_rejects_formal_duration_outside_effective_tiers(
     with pytest.raises(PromptAuthoringUnitRejected, match=r"不在当前生效档位.*时间线") as exc_info:
         await gen.generate(episode=1)
     generator.generate.assert_not_awaited()
-    # 归为修改输入，按界面位置称呼单元（第 2 个），带上现时长与可选档位。
     assert (exc_info.value.code, exc_info.value.params) == (
         "prompt_authoring_duration_off_tier",
         {"unit_id": "E1U04", "position": 2, "duration_seconds": 8, "tiers": "4"},
@@ -485,7 +483,7 @@ async def test_script_generator_narrows_duration_tiers_per_unit_not_episode_wide
 
     units_by_id = _formal_units(project)
     assert units_by_id["E1U01"]["duration_seconds"] == 3
-    assert units_by_id["E1U02"]["duration_seconds"] == 2  # 未被另一个带图 unit 的收窄连带改动
+    assert units_by_id["E1U02"]["duration_seconds"] == 2
 
 
 @pytest.mark.asyncio
@@ -771,11 +769,6 @@ async def test_build_prompt_follows_project_reference_route(tmp_path: Path):
     assert "（时长 4s）" in prompt
 
 
-# ---------------------------------------------------------------------------
-# 内容确认转换读取 reference_video 脚本规划
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_conversion_reads_legacy_script_plan_draft_without_source_text(plan_only_reference_project: Path):
     """存量 script_plan 草稿（无 source_text，per-shot 时长已由迁移收编）仍能被校验器读取并转换。
@@ -955,7 +948,6 @@ def test_reference_script_plan_migration_carries_confirmation_confirmed_after_co
     script_plan_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
     before = script_review.content_fingerprint(script_plan_path)
 
-    # 构造时 project.json 尚无确认记录。
     gen = ScriptGenerator(plan_only_reference_project)
 
     # 构造之后才发生确认（模拟并发的 ScriptReviewService.confirm()），self.project_json 不刷新。
@@ -963,7 +955,7 @@ def test_reference_script_plan_migration_carries_confirmation_confirmed_after_co
     project = _json.loads(project_path.read_text(encoding="utf-8"))
     project["episodes"][0]["script_plan_review"] = {"fingerprint": before, "confirmed_at": "2026-01-01T00:00:00Z"}
     project_path.write_text(_json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    assert "script_plan_review" not in gen.project_json["episodes"][0]  # 构造时的快照确实还没有它
+    assert "script_plan_review" not in gen.project_json["episodes"][0]
 
     gen._load_reference_script_plan(episode=1, supported_durations=[4, 8])
 
@@ -1107,11 +1099,6 @@ async def test_prompt_authoring_runs_while_script_plan_quarantined(reference_pro
     assert _formal_units(reference_project)["E1U01"]["text"] == PROMPT_AUTHORING_UNIT_TEXT
 
 
-# ---------------------------------------------------------------------------
-# prompt_authoring 违约的待修复草稿与修复晋升闭环
-# ---------------------------------------------------------------------------
-
-#: 违约的 prompt_authoring 展开：引用了未登记的资产名（单元正文里没有的 @[路人甲]）。
 BAD_PROMPT_AUTHORING_UNIT_TEXT = "镜头1：中景。@[路人甲] 推开 @[酒馆] 的门。"
 
 

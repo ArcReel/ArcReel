@@ -82,11 +82,6 @@ def _write_reference_prompt_authoring(fake_ctx: ToolHarness, script: dict) -> No
     (scripts / "episode_1.json").write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
 
-# ---------------------------------------------------------------------------
-# open_draft
-# ---------------------------------------------------------------------------
-
-
 async def test_open_draft_returns_flat_draft_structure(fake_ctx: ToolHarness) -> None:
     """取回的是扁平草稿结构，不装派生物：Agent 改的是引用语法正文 / 原文锚 / 时长，
     unit_id 由晋升时按数组序号重新派生，放进草稿等于给漂移开口子。"""
@@ -828,7 +823,6 @@ async def test_patch_draft_receipt_omits_the_stale_violation_report(fake_ctx: To
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
-    # 模拟上一次晋升失败留下的报告。
     envelope = read_rv_quarantine(fake_ctx)
     stale = [{"code": "novel_text_coverage", "label": "", "message": "旧正文的违约", "line": None}]
     rv_quarantine_path(fake_ctx).write_text(
@@ -1044,7 +1038,6 @@ async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: To
     assert second["discarded"] is False
     assert not rv_quarantine_path(fake_ctx).exists()
     assert rv_script_plan_path(fake_ctx).read_text(encoding="utf-8") == formal_before
-    # 丢弃的草稿进项目回收站，恢复回原位
     project_dir = rv_quarantine_path(fake_ctx).parents[2]
     (record,) = project_trash.list_records(project_dir)
     assert record.origin == "agent"

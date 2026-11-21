@@ -43,7 +43,6 @@ async def test_synthesize_decodes_hex_audio_to_file(tmp_path: Path):
     assert body["stream"] is False
     assert body["output_format"] == "hex"
     assert body["voice_setting"] == {"voice_id": "female-shaonv", "speed": 1.2}
-    # 输出格式跟随落盘扩展名，文件内容与 .wav 一致
     assert body["audio_setting"]["format"] == "wav"
     assert out.read_bytes() == b"RIFFwavbytes"
     assert result.provider == "minimax"

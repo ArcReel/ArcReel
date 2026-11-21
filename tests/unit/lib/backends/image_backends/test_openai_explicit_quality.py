@@ -66,12 +66,10 @@ class TestExplicitQualityInRequest:
             "size": "1008x1792",
             "quality": "low",
         }
-        # 同一档位换画质，size 不变
         assert await _sent(tmp_path, image_size="1K", quality="high", edit=edit) == {
             "size": "1008x1792",
             "quality": "high",
         }
-        # 同一画质换档位，quality 不变
         assert await _sent(tmp_path, image_size="2K", quality="low", edit=edit) == {
             "size": "1440x2560",
             "quality": "low",

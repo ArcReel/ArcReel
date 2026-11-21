@@ -42,7 +42,6 @@ def _valid_script(segments: list[dict] | None = None) -> dict:
 
 
 def _invalid_script() -> dict:
-    # 缺 summary/novel，image_prompt/video_prompt 形状错 —— 结构非法
     return {
         "episode": 1,
         "title": "标题",
@@ -65,7 +64,6 @@ class TestNoWorseSemantics:
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
         with pytest.raises(ScriptStructureValidationError), pm.locked_script("demo", "episode_1.json") as script:
-            # 把合法 segment 的 duration 改成越界值
             script["segments"][0]["duration_seconds"] = 999
 
     def test_invalid_to_invalid_is_allowed(self, tmp_path: Path):
@@ -95,7 +93,6 @@ class TestNoWorseSemantics:
         with pytest.raises(ScriptStructureValidationError):
             pm.save_script("demo", _invalid_script(), "episode_1.json")
 
-        # 拒绝后文件不应落盘
         scripts_dir = pm.get_project_path("demo") / "scripts"
         assert not (scripts_dir / "episode_1.json").exists()
 
@@ -112,7 +109,6 @@ class TestValidateDefaultsOn:
         pm = _pm(tmp_path)
         pm.save_script("demo", _valid_script(), "episode_1.json")
 
-        # locked_script 不传 validate
         with pytest.raises(ScriptStructureValidationError), pm.locked_script("demo", "episode_1.json") as script:
             script["segments"][0]["video_prompt"] = 123
 
@@ -373,7 +369,6 @@ class TestAssetWritebackExemption:
         )
         result = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")
         assert len(result) == 1
-        # 同样 get_scenes_needing_storyboard 也容错
         result2 = pm.get_scenes_needing_storyboard("demo", "episode_1.json")
         assert len(result2) == 1
 

@@ -79,7 +79,6 @@ def bound_provider_response(body: object) -> object:
 # 撞键会让剧本里同名的那个单元的支出既算进集合计、又作为项目级支出再算一次。
 PROJECT_LEVEL_SEGMENT_KEY = "\x00__project__"
 
-# 产出项目媒体（资产图、分镜、视频、配音）的调用类型
 _MEDIA_CALL_TYPES = ("image", "video", "audio")
 
 
@@ -952,7 +951,6 @@ class UsageRepository(BaseRepository):
         for session_id, currency, amount in (await self.session.execute(self._scope_query(costs_stmt, ApiCall))).all():
             costs.setdefault(session_id, {})[currency or "USD"] = float(amount or 0.0)
 
-        # 模型按在会话里首次出现的先后列出。
         models_stmt = (
             select(ApiCall.session_id, ApiCall.model, func.min(ApiCall.started_at).label("first_seen"))
             .where(*in_page)

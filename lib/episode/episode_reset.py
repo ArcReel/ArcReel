@@ -97,7 +97,7 @@ class EpisodeResetResult:
     #: 移出账本的集（没有产物）。
     removed_episodes: list[int]
     deleted_files: list[str]
-    archived_files: list[tuple[str, str]]  # (原路径, 留底路径)
+    archived_files: list[tuple[str, str]]
     consumed_episodes: list[int]
     #: 转为无原文的集并标 stale、移到播出顺序末尾的集（有产物）。
     retired_episodes: list[int] = field(default_factory=list)
@@ -182,9 +182,6 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         if not _in_scope(num):
             continue
         dupes = entries_by_num.get(num) or [{}]
-        # 已消费判定同样要聚合全部重复条目：损坏账本可能首条指向缺失的规范剧本路径、
-        # 后条的 script_file 指向实际存在的非规范路径（如 scripts/custom_name.json），
-        # 只传被 setdefault 留下的首条给 has_downstream_products 会漏判
         is_consumed = (
             num in consumed_by_ledger_status
             or num in product_nums
@@ -404,8 +401,6 @@ def reset_episode_planning(
     pm = ProjectManager.for_project_dir(project_dir)
     project_name = project_dir.name
 
-    # 锁外预扫描/前置校验只为二段确认与快速失败服务：校验不通过或需要确认时零写入返回，
-    # 不进锁、不碰文件
     project = pm.load_project(project_name)
     if (
         episode_id is not None
@@ -434,7 +429,6 @@ def reset_episode_planning(
             deleted_files=[_rel(project_dir, path) for path in plan.deletes],
         )
 
-    # 结果只能在锁内（按锁内复扫的实际处置）拼出，用闭包变量带回锁外
     committed: list[EpisodeResetResult] = []
     commit_plan: _ResetPlan | None = None
     retired_nums: list[int] = []

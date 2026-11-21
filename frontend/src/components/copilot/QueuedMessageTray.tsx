@@ -26,11 +26,8 @@ import { turnPlainText } from "./chat/utils";
 // ---------------------------------------------------------------------------
 
 interface QueuedMessageTrayProps {
-  /** 编辑或删除一条排队消息。 */
   onWithdraw: (id: string, intent: QueuedMessageWithdrawal) => Promise<void>;
-  /** 重新发送一条「未发送」消息。 */
   onResend: (id: string) => Promise<void>;
-  /** 立即发送一条排队消息。 */
   onSendNow: (id: string) => Promise<void>;
   /** Agent 正在提问：托盘与问卷同时在场，降低高度上限，且不提供立即发送。 */
   questionPending: boolean;
@@ -42,7 +39,6 @@ export function QueuedMessageTray(props: QueuedMessageTrayProps) {
   const { t } = useTranslation("dashboard");
   const messages = useAssistantStore((s) => s.queuedMessages);
   const listRef = useRef<HTMLUListElement>(null);
-  // 上一次渲染时托盘里的消息 id，按顺序；据此分辨末尾是新发出的消息还是重排后换上来的
   const previousIdsRef = useRef<string[]>([]);
 
   // 新发出的消息排在末尾：末尾出现没见过的消息就把它滚到托盘底边，前面的消息被接纳离开时不跳动。
@@ -73,7 +69,6 @@ export function QueuedMessageTray(props: QueuedMessageTrayProps) {
           {t("queued_messages_unsent_notice")}
         </p>
       )}
-      {/* 列表自身可聚焦，键盘才能滚动 */}
       <ul
         ref={listRef}
         aria-label={t("queued_messages_label")}
@@ -174,7 +169,6 @@ function QueuedMessageItem({
           <span className="shrink-0 text-muted-foreground">
             {t(unsent ? "queued_message_state_unsent" : "queued_message_state_queued")}
           </span>
-          {/* 「未发送」消息的发送与排队中消息的立即发送都排在最前 */}
           <div className="-my-0.5 flex shrink-0 items-center">
             {unsent && (
               <Button variant="ghost" size="icon-xs" disabled={busy} onClick={resend} aria-label={t("queued_message_resend")}>

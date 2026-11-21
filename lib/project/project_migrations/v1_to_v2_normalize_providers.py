@@ -70,13 +70,11 @@ def migrate_project_dict(project: dict) -> dict:
         data.setdefault("image_provider_t2i", legacy)
         data.setdefault("image_provider_i2i", legacy)
 
-    # ② 归一化 provider 字段
     for key in _PROVIDER_FIELDS:
         value = data.get(key)
         if isinstance(value, str) and value:
             data[key] = _normalize_field(value)
 
-    # ③ 删除 legacy 单字段
     data.pop("image_backend", None)
 
     return data

@@ -77,7 +77,6 @@ def _fake_grid_waiter(enqueue, wait=None):
 async def test_generate_grid_list_only(fake_ctx: ToolHarness) -> None:
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
-    # Need enough segments to form a group with valid layout
     fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
@@ -635,7 +634,6 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(fake_ctx
 
 
 async def test_generate_grid_wrong_mode(fake_ctx: ToolHarness) -> None:
-    # 项目未开启 grid_storyboard → error
     out = await run_declared_tool("generate_grid", fake_ctx, {"script": "episode_1.json"})
     assert out.problem is not None
 

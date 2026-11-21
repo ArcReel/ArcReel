@@ -24,7 +24,6 @@ import { matchedEntryFor, type ModelRow } from "./customProviderFormState";
 import { EndpointSelect } from "./EndpointSelect";
 import { RequestAddresses } from "./RequestAddresses";
 
-//: 模型多于这个数量时显示搜索框与按类型筛选。
 const FILTER_THRESHOLD = 5;
 
 const MEDIA_LABEL_KEY: Record<MediaType, string> = {
@@ -59,7 +58,6 @@ function entryState(entry: MatchedCatalogEntry | null | undefined): "pending" | 
   return entry?.priced ? "priced" : "unpriced";
 }
 
-/** 表格里「对应条目」一列：已定价显示条目名，其余两种状态显示一个短标签。 */
 function EntryCell({ row }: { row: ModelRow }) {
   const { t } = useTranslation("dashboard");
   const entry = matchedEntryFor(row);
@@ -87,7 +85,6 @@ export interface ModelTableProps {
   /** 已按当前协议派生过端点的模型行。 */
   rows: ModelRow[];
   protocol: DiscoveryFormat;
-  /** 表单里当前填写的接口地址，请求地址条据此拼出完整地址。 */
   baseUrl: string;
   expanded: ReadonlySet<string>;
   onToggleExpanded: (key: string) => void;
@@ -97,10 +94,6 @@ export interface ModelTableProps {
   onSetEnabled: (keys: string[], enabled: boolean) => void;
 }
 
-/**
- * 自定义供应商的模型表格：列为启用、模型 ID、类型、调用端点、对应条目、默认。点击行在下方展开编辑区，
- * 可以同时展开多行；模型多于 5 个时显示搜索框与按类型筛选。
- */
 export function ModelTable({
   rows,
   protocol,
@@ -320,7 +313,6 @@ interface ModelFieldsProps {
   onRemove: () => void;
 }
 
-/** 展开的编辑区：属性共用一条标签列，「删除模型」在底部。 */
 function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFieldsProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const requests = useEndpointCatalogStore((s) => s.endpoints.find((e) => e.key === row.endpoint)?.requests);
@@ -428,7 +420,6 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
         />
       </FieldRow>
 
-      {/* 分辨率（仅 image/video，audio 无分辨率维度） */}
       {(media === "image" || media === "video") && (
         <FieldRow
           label={t("resolution_label")}
@@ -447,7 +438,6 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
         </FieldRow>
       )}
 
-      {/* ComfyUI 视频行的可选时长：写进能力覆盖的 durations 键，留空跟随 workflow 原生时长 */}
       {editsDurations && (
         <FieldRow
           label={t("supported_durations_label")}
@@ -475,8 +465,6 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
         </FieldRow>
       )}
 
-      {/* 能力覆盖（仅 video endpoint；首批只开放 last_frame）。ComfyUI 端点的能力只从节点绑定推导，
-          服务端对该协议的覆盖写入一律 422，故不给入口。 */}
       {media === "video" && !isComfyuiProtocol(protocol) && (
         <FieldRow label={t("cap_override_last_frame_label")}>
           <CapabilityOverrideRow
@@ -499,7 +487,6 @@ function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFields
   );
 }
 
-/** 编辑区里的对应条目：已对应时显示条目名与「模型厂商/官方模型名」。 */
 function EntryDetail({ entry }: { entry: MatchedCatalogEntry | null | undefined }) {
   const { t } = useTranslation("dashboard");
   if (entry === undefined) return <p className="pt-1.5 text-sm text-muted-foreground">{t("cp_model_entry_pending")}</p>;
@@ -514,7 +501,6 @@ function EntryDetail({ entry }: { entry: MatchedCatalogEntry | null | undefined 
   );
 }
 
-/** 对应条目下方的说明：未定价写明调用会怎样记账，还不知道时说明何时给出。 */
 function EntryHint({ entry }: { entry: MatchedCatalogEntry | null | undefined }) {
   const { t } = useTranslation("dashboard");
   switch (entryState(entry)) {

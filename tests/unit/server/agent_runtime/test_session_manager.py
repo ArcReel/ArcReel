@@ -119,7 +119,6 @@ class TestSessionManager:
     def test_managed_session_broadcast_and_queue_overflow(self):
         managed = ManagedSession(session_id="s1", actor=None)
 
-        # 会话通道把消息广播给订阅者。
         queue = managed.channel.subscribe()
         managed.channel.broadcast({"type": "result", "uuid": "r1"})
         assert queue.get_nowait()["type"] == "result"
@@ -244,7 +243,6 @@ class TestSessionManager:
 
         meta = await meta_store.create("demo", "sdk-send-msg")
 
-        # Build a client whose query explodes — verify send_message flips status to error.
         client = FakeSDKClient()
 
         async def _boom(prompt, session_id: str = "default"):
@@ -568,7 +566,6 @@ class TestSessionManager:
         result = await allow_cb("Read", {"x": 1}, None)
         assert isinstance(result, _FakeDeny)
         assert "未授权" in result.message
-        # AskUserQuestion still handled
         result2 = await allow_cb("AskUserQuestion", {"questions": []}, None)
         assert result2.updated_input == {"questions": []}
 
@@ -644,14 +641,12 @@ class TestSessionManager:
             live = await anext(stream)
             assert isinstance(live, LiveMessage)
             assert live.message["uuid"] == "live-1"
-            # idle_timeout 内无消息 → 心跳事件
             assert isinstance(await anext(stream), Heartbeat)
             # 挤爆订阅者队列：critical 消息填满 + 无可驱逐 → 队列被清空，流结束。
             for i in range(120):
                 managed.channel.broadcast({"type": "result", "uuid": f"m{i}"})
             tail = [event async for event in stream]
             assert tail == []
-        # 正常退出后订阅者被移除
         assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
@@ -675,14 +670,13 @@ class TestSessionManager:
                         continue
                     if exit_mode == "exception":
                         raise RuntimeError("boom")
-                    break  # break 退出路径
+                    break
 
         if exit_mode == "exception":
             with pytest.raises(RuntimeError):
                 await consume()
         else:
             await consume()
-        # break / 异常退出路径同样确定性移除订阅者
         assert not managed.channel.has_subscribers
 
     @pytest.mark.asyncio
@@ -704,7 +698,6 @@ class TestSessionManager:
 
         hook = mgr._options_assembler._build_file_access_hook(own_project)
 
-        # Read own project file — allowed (within project_cwd)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(own_project / "script.json")}},
             None,
@@ -712,7 +705,6 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Read other project file — denied (跨项目隔离)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(other_project / "script.json")}},
             None,
@@ -743,7 +735,6 @@ class TestSessionManager:
 
         hook = mgr._options_assembler._build_file_access_hook(own_project)
 
-        # Write own project file — allowed
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "output.txt")}},
             None,
@@ -751,7 +742,6 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write to lib/ (readonly) — denied
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(lib_dir / "hack.py")}},
             None,
@@ -797,7 +787,6 @@ class TestSessionManager:
 
         hook = mgr._options_assembler._build_file_access_hook(own_project)
 
-        # Write .py in project dir — denied (code extension)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "helper.py")}},
             None,
@@ -806,7 +795,6 @@ class TestSessionManager:
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
         assert ".py" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
-        # Edit .sh in project dir — denied (code extension)
         result = await hook(
             {"tool_name": "Edit", "tool_input": {"file_path": str(own_project / "run.sh")}},
             None,
@@ -822,7 +810,6 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write .md — allowed
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "notes.md")}},
             None,
@@ -830,7 +817,6 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write .txt — allowed
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "episode.txt")}},
             None,
@@ -879,7 +865,6 @@ class TestSessionManager:
 
         hook = mgr._options_assembler._build_file_access_hook(own_project)
 
-        # Read agent_runtime_profile/CLAUDE.md — allowed (readonly dir)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(profile_md)}},
             None,
@@ -921,7 +906,6 @@ class TestSessionManager:
         result_file = tool_results_dir / "toolu_01Abc.txt"
         result_file.write_text("full bash output here")
 
-        # Read own project's SDK tool-results — allowed
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(result_file)}},
             None,
@@ -951,7 +935,6 @@ class TestSessionManager:
         other_file = other_project / "secret.json"
         other_file.write_text("{}")
 
-        # Read OTHER project directly — denied (cross-project isolation)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(other_file)}},
             None,
@@ -967,7 +950,6 @@ class TestSessionManager:
         """
         hook, _, _ = await self._make_sdk_hook_env(tmp_path, meta_store)
 
-        # Write outside cwd — denied
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": "/tmp/escape.json"}},
             None,
@@ -1034,8 +1016,6 @@ class TestJsonValidationHook:
         }
         return await hook_fn(input_data, None, None)
 
-    # --- Edit: valid replacement keeps JSON valid → allow ---
-
     async def test_edit_valid_replacement_returns_empty(self, tmp_path):
         """Edit that keeps JSON valid is allowed."""
         json_file = tmp_path / "ep.json"
@@ -1052,8 +1032,6 @@ class TestJsonValidationHook:
         )
         assert result == {}
 
-    # --- Edit: replacement breaks JSON → deny ---
-
     async def test_edit_breaking_replacement_denies(self, tmp_path):
         """Edit that would produce invalid JSON is denied."""
         json_file = tmp_path / "ep.json"
@@ -1065,7 +1043,7 @@ class TestJsonValidationHook:
             {
                 "file_path": str(json_file),
                 "old_string": '"old value"',
-                "new_string": '"has "quotes" inside"',  # unescaped quotes
+                "new_string": '"has "quotes" inside"',
             },
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
@@ -1093,8 +1071,6 @@ class TestJsonValidationHook:
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-    # --- Write: valid content → allow ---
-
     async def test_write_valid_json_returns_empty(self, tmp_path):
         """Write with valid JSON content is allowed."""
         manager = self._make_manager(tmp_path)
@@ -1108,8 +1084,6 @@ class TestJsonValidationHook:
         )
         assert result == {}
 
-    # --- Write: invalid content → deny ---
-
     async def test_write_invalid_json_denies(self, tmp_path):
         """Write with invalid JSON content is denied."""
         manager = self._make_manager(tmp_path)
@@ -1122,8 +1096,6 @@ class TestJsonValidationHook:
             tool_name="Write",
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-
-    # --- Non-.json file → skip ---
 
     async def test_non_json_file_returns_empty(self, tmp_path):
         """Hook ignores non-.json files."""
@@ -1152,8 +1124,6 @@ class TestJsonValidationHook:
             },
         )
         assert result == {}
-
-    # --- Non-Write/Edit tool → skip ---
 
     async def test_non_write_edit_tool_returns_empty(self, tmp_path):
         """Hook ignores tools other than Write/Edit."""
@@ -1184,8 +1154,6 @@ class TestJsonValidationHook:
             },
         )
         assert result == {}
-
-    # --- Edit: curly/smart quotes in new_string → deny ---
 
     async def test_edit_curly_quotes_in_new_string_denies(self, tmp_path):
         """Edit whose new_string contains curly quotes is denied even when
@@ -1277,8 +1245,6 @@ class TestJsonPostValidationHook:
         }
         return await hook_fn(input_data, "test-tool-use-id", None)
 
-    # --- Valid JSON after edit → pass ---
-
     async def test_valid_json_after_edit_returns_empty(self, tmp_path):
         """PostToolUse returns empty when file is valid JSON after edit."""
         json_file = tmp_path / "ep.json"
@@ -1294,18 +1260,14 @@ class TestJsonPostValidationHook:
         )
         assert result == {}
 
-    # --- Invalid JSON after edit with backup → restore + additionalContext ---
-
     async def test_invalid_json_restores_backup(self, tmp_path):
         """PostToolUse restores backup when file is invalid JSON after edit."""
         json_file = tmp_path / "ep.json"
         original_content = '{"title": "original"}'
 
-        # Simulate: file was corrupted by edit
         json_file.write_text('{"title": "broken",,}')
         manager = self._make_manager(tmp_path)
 
-        # Provide backup
         backups: dict = {
             "test-tool-use-id": (json_file, original_content),
         }
@@ -1317,17 +1279,12 @@ class TestJsonPostValidationHook:
             json_backups=backups,
         )
 
-        # Should report the issue via additionalContext
         assert "additionalContext" in result.get("hookSpecificOutput", {})
         assert "回滚" in result["hookSpecificOutput"]["additionalContext"]
 
-        # File should be restored
         assert json_file.read_text() == original_content
 
-        # Backup should be consumed (popped)
         assert "test-tool-use-id" not in backups
-
-    # --- Invalid JSON after edit without backup → report only ---
 
     async def test_invalid_json_no_backup_reports_error(self, tmp_path):
         """PostToolUse reports error when file is corrupt and no backup exists."""
@@ -1345,8 +1302,6 @@ class TestJsonPostValidationHook:
         ctx = result.get("hookSpecificOutput", {}).get("additionalContext", "")
         assert "无法恢复" in ctx
         assert "回滚" not in ctx
-
-    # --- Non-.json file → skip ---
 
     async def test_non_json_file_returns_empty(self, tmp_path):
         """PostToolUse ignores non-.json files."""
@@ -1382,9 +1337,6 @@ class TestJsonPostValidationHook:
         assert result == {}
         # Backup should be consumed to prevent memory leaks
         assert "test-tool-use-id" not in backups
-
-
-# --- ManagedSession 状态机（Session Actor 重构）-----------------------------
 
 
 def _make_managed_for_state_test():
@@ -1436,9 +1388,6 @@ def test_on_actor_message_broadcasts_to_subscribers():
     assert queue.get_nowait()["type"] == "assistant"
 
 
-# --- ManagedSession 对 actor 的代理 -----------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_send_query_sets_running_and_awaits_done():
     from server.agent_runtime.session_actor import SessionActor
@@ -1461,7 +1410,6 @@ async def test_send_query_sets_running_and_awaits_done():
     # send_query 在消息写给 CLI 后即返回；离开 running 以 CLI 报 idle 为准（此单元测试没挂 inbox）
     assert managed.status == "running"
 
-    # 收尾
     await managed.send_disconnect()
 
 
@@ -1496,7 +1444,6 @@ async def test_send_interrupt_is_idempotent_via_flag():
     managed = ManagedSession(session_id="t", actor=actor, status="running", project_name="p")
     await actor.start()
 
-    # 发一个 query 让这一轮开始
     q = SessionCommand(type="query", message=_user_message("x", "u-x"))
     await actor.enqueue(q)
     await q.done.wait()

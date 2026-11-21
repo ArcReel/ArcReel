@@ -258,7 +258,6 @@ class TestNewSessionEventLogFlow:
             )
 
         assert sdk_id == SDK_ID
-        # POST 受理响应的权威条目：seq 0、身份已分配
         managed = manager.sessions[SDK_ID]
         assert managed.initial_user_log_entry is not None
         assert managed.initial_user_log_entry["seq"] == 0
@@ -281,7 +280,6 @@ class TestNewSessionEventLogFlow:
             assert entries[2]["content"] == "file.txt"
             assert entries[2]["is_error"] is False
 
-            # subagent 条目带 parent_tool_use_id 收录
             assert entries[3]["parent_tool_use_id"] == "tu-1"
 
             # 一轮结束后 draft 已随 result 丢弃
@@ -502,9 +500,7 @@ class TestNewSessionEventLogFlow:
         try:
             entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 3)
             assert [e["type"] for e in entries] == ["user", "assistant", "user"]
-            # 提问条目：assistant 条目内的 AskUserQuestion tool_use（结构化 questions）
             assert entries[1]["content"][0]["name"] == "AskUserQuestion"
-            # 答复条目：typed、携带结构化答案与 tool_use_id 关联
             assert entries[2]["subtype"] == "question_answer"
             assert entries[2]["tool_use_id"] == "tu-q"
             assert entries[2]["answers"] == {"继续吗?": "继续"}
@@ -648,11 +644,9 @@ class TestNewSessionEventLogFlow:
                 client_key="ck-fail-new",
             )
 
-        # 状态回写：会话进入可观察的 error 态而非静默成功
         meta = await manager.meta_store.get(SDK_ID)
         assert meta is not None
         assert meta.status == "error"
-        # 会话已随失败清理：不残留内存态、SDK 连接已断开
         assert SDK_ID not in manager.sessions
         assert client.disconnected is True
         # 内存态提前置 error：cleanup 取消 _process_task 时不应再走 interrupted
@@ -1060,7 +1054,6 @@ class TestQueuedMessages:
         with patch.object(service.meta_store, "update_status", new=_suspend_running):
             sending = asyncio.create_task(service.send_or_create("demo", "加一段旁白", session_id=SDK_ID))
             await asyncio.wait_for(suspended.wait(), timeout=5.0)
-            # 没有在途命令，actor 正常断开，驱逐完整收尾并写入终态
             await service.session_manager.close_session(SDK_ID)
             release.set()
             outcome = (await asyncio.gather(sending, return_exceptions=True))[0]
@@ -1646,7 +1639,6 @@ class TestUnsentQueuedMessages:
             assert resent["message"]["content"] == "加一段旁白"
             assert resent["uuid"] != client.sent_messages[-1]["uuid"]
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]
-            # 重复点击不会再送一次
             await service.resend_queued_message("demo", SDK_ID, queued["id"])
             assert len(revived.sent_messages) == 1
 

@@ -5,7 +5,6 @@ import type { ProblemView } from "./problem-views";
 
 interface Props {
   problems: ProblemView[];
-  /** 列表的无障碍名，通常绑到上方的小标题。 */
   labelledBy?: string;
   className?: string;
 }

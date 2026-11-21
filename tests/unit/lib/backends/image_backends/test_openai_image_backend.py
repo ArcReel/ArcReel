@@ -117,8 +117,8 @@ class TestOpenAIImageBackend:
         mock_client.images.generate.assert_awaited_once()
         call_kwargs = mock_client.images.generate.call_args[1]
         assert call_kwargs["model"] == "gpt-image-2"
-        assert call_kwargs["size"] == "1008x1792"  # 9:16 精确（1K 短边 1024）
-        assert call_kwargs["quality"] == "medium"  # 1K
+        assert call_kwargs["size"] == "1008x1792"
+        assert call_kwargs["quality"] == "medium"
         # GPT Image 模型族不支持 response_format；严格兼容网关会 400，因此绝不能传
         assert "response_format" not in call_kwargs
 
@@ -256,7 +256,6 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
 
-            # image_size="1K"（短边 1024）下遍历不同 aspect_ratio，比例精确
             for aspect, expected_size in [("16:9", "1792x1008"), ("1:1", "1024x1024"), ("9:16", "1008x1792")]:
                 output_path = tmp_path / f"output_{aspect.replace(':', '_')}.png"
                 request = ImageGenerationRequest(
@@ -280,7 +279,6 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
 
-            # quality 仍按 image_size 档位映射；遍历有映射的档位
             for img_size, expected_quality in [("512px", "low"), ("1K", "medium"), ("2K", "high")]:
                 output_path = tmp_path / f"output_{img_size}.png"
                 request = ImageGenerationRequest(
@@ -331,7 +329,7 @@ class TestOpenAIImageBackend:
 
         assert result.text_input_tokens == 500
         assert result.image_input_tokens == 0
-        assert result.image_output_tokens == 2200  # 顶层 fallback
+        assert result.image_output_tokens == 2200
         assert result.text_output_tokens is None
         # 用量契约：按 token 上报，选择维度取自请求里的 size 与 quality
         assert result.usage is not None
@@ -379,9 +377,9 @@ class TestOpenAIImageBackend:
             return_value=_make_mock_image_response(
                 b64_data,
                 usage={
-                    "input_tokens": 500,  # 顶层有
+                    "input_tokens": 500,
                     "output_tokens": 2200,
-                    "input_tokens_details": None,  # 但拆分缺失
+                    "input_tokens_details": None,
                 },
             )
         )
@@ -443,7 +441,6 @@ class TestOpenAIImageBackend:
             return_value=_make_mock_image_response(
                 b64_data,
                 usage={
-                    # 没有 output_tokens 顶层、没有 output_tokens_details
                     "input_tokens": 500,
                     "input_tokens_details": {"text_tokens": 500, "image_tokens": 0},
                 },
@@ -563,7 +560,7 @@ class TestModeGating:
         with captured_openai_clients():
             from lib.backends.image_backends.openai import OpenAIImageBackend
 
-            b = OpenAIImageBackend(api_key="x", model="m")  # mode="both" 默认
+            b = OpenAIImageBackend(api_key="x", model="m")
             req = ImageGenerationRequest(
                 prompt="p",
                 output_path=tmp_path / "o.png",

@@ -52,9 +52,6 @@ REFERENCE_AUDIO_KIND = "reference_audio"
 _GRID_TYPE = "grids"
 
 
-# ---------------------------------------------------------------- 删除
-
-
 def trash_grid(project_dir: Path, grid_id: str, episode: int | None) -> project_trash.TrashRecord:
     """把一条宫格记录连同联合图与版本历史移进项目回收站；调用方持项目锁与该宫格的记录锁。
 
@@ -110,9 +107,6 @@ def trash_reference_audio(project_dir: Path, character: str, rel: str) -> projec
     """把角色不再引用的参考音频移进项目回收站；调用方持项目锁，字段已在同一临界区里改掉。"""
     obj = {"kind": REFERENCE_AUDIO_KIND, "character": character, "path": rel}
     return project_trash.record_deletion(project_dir, obj, [rel], snapshot=True)
-
-
-# ---------------------------------------------------------------- 恢复
 
 
 def take_grid(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
@@ -245,9 +239,6 @@ def take_reference_audio(project_dir: Path, staged: Path, obj: Mapping[str, Any]
         land=land,
         after=lambda: emit_project_change_hint(project_dir.name, changed_paths=[ProjectManager.PROJECT_FILE]),
     )
-
-
-# ---------------------------------------------------------------- 内部
 
 
 def _failed(identity: str) -> ConflictError:

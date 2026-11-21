@@ -28,11 +28,9 @@ def center_crop_to_ratio(img: Image.Image, target_ratio: str) -> Image.Image:
         return img
 
     if current_ratio > target:
-        # Too wide — crop width
         new_w = int(h * target)
         left = (w - new_w) // 2
         return img.crop((left, 0, left + new_w, h))
-    # Too tall — crop height
     new_h = int(w / target)
     top = (h - new_h) // 2
     return img.crop((0, top, w, top + new_h))
@@ -104,12 +102,10 @@ def split_grid_image(
 
             cell = grid_image.crop((x0, y0, x1, y1))
 
-            # Apply edge margin trim
             if margin_x > 0 or margin_y > 0:
                 cw, ch = cell.size
                 cell = cell.crop((margin_x, margin_y, cw - margin_x, ch - margin_y))
 
-            # Center crop to target aspect ratio
             cell = center_crop_to_ratio(cell, video_aspect_ratio)
             cells.append(cell)
 

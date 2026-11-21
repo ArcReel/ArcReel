@@ -10,7 +10,6 @@ import { errMsg } from "@/utils/async";
 import { episodeAgentRef } from "@/utils/episode-display";
 
 export interface ScriptPlanSubmit {
-  /** 提交或交接的请求在途。 */
   submitting: boolean;
   /** 直接 AI 规划：本集已有进行中的规划时提示并不提交。返回是否已提交。 */
   submit: (instructions: string) => Promise<boolean>;

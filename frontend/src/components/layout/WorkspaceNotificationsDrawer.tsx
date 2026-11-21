@@ -50,7 +50,6 @@ export function WorkspaceNotifications({ onNavigate }: WorkspaceNotificationsPro
     }
   };
 
-  // 面板开着时新到的通知同样直接算已读，高亮保留到关闭
   useEffect(() => {
     if (!open) return;
     return useAppStore.subscribe((state, prev) => {

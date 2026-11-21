@@ -18,10 +18,6 @@ interface UsageAttentionCardProps {
   onChange: (patch: Partial<UsageRecordsFilters>) => void;
 }
 
-/**
- * 需要关注只在真有异常时渲染，由调用方按 `summary.attention` 是否为空决定；
- * 空卡片比没有卡片更占地方也更没信息。
- */
 export function UsageAttentionCard({ summary, onChange }: UsageAttentionCardProps) {
   const { t } = useTranslation("dashboard");
   const providerLabel = providerLabelResolver(summary);

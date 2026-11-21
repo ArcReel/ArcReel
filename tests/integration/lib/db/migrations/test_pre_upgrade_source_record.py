@@ -171,7 +171,6 @@ async def test_migrating_before_the_first_start_keeps_the_old_release(entry, dat
 
     assert await _source(database) == upgrade_source.Source(known=True, revision=REVISION_0_34_0_35)
     assert await _start(database) == ProviderModel("ark", ARK_IMAGE_0_35)
-    # 之后的启动与迁移不改记录
     await _cli_upgrade()
     assert await _source(database) == upgrade_source.Source(known=True, revision=REVISION_0_34_0_35)
 

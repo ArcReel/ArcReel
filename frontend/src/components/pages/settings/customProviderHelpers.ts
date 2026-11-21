@@ -10,12 +10,10 @@ import type {
 export type { DiscoveryFormat };
 export type ModelLike = { key: string; endpoint: EndpointKey; is_default: boolean };
 
-/** 模型发现协议是否为 ComfyUI。判据只此一处，界面各处不各写一遍字面量比较。 */
 export function isComfyuiProtocol(format: DiscoveryFormat): boolean {
   return format === "comfyui";
 }
 
-/** 一个调用端点是否为 ComfyUI 端点。与 isComfyuiProtocol 同理：字面量只在这里出现一次。 */
 export function isComfyuiEndpoint(endpoint: Pick<EndpointDescriptor, "kind">): boolean {
   return endpoint.kind === "comfyui";
 }
@@ -26,7 +24,6 @@ export function isComfyuiVideoEndpoint(endpoint: Pick<EndpointDescriptor, "kind"
   return isComfyuiEndpoint(endpoint) && endpoint.media_type === "video";
 }
 
-/** 连通性检查将打到的 URL 预览。 */
 export function urlPreviewFor(format: DiscoveryFormat, rawBaseUrl: string): string | null {
   const trimmed = rawBaseUrl.trim().replace(/\/+$/, "");
   if (!trimmed) return null;
@@ -60,7 +57,6 @@ export function toggleDefaultReducer<T extends ModelLike>(
   if (targetMedia === undefined) {
     return rows.map((r) => (r.key === targetKey ? { ...r, is_default: isEnabling } : r));
   }
-  // 非 image（text/video/audio）：仅 enabling 时清同 media_type 其他默认
   if (targetMedia !== "image") {
     return rows.map((r) => {
       if (r.key === targetKey) return { ...r, is_default: isEnabling };
@@ -69,7 +65,6 @@ export function toggleDefaultReducer<T extends ModelLike>(
       return { ...r, is_default: false };
     });
   }
-  // image：仅 enabling 时按 capability 交集清冲突
   const targetCaps = endpointToImageCaps[target.endpoint] ?? [];
   return rows.map((r) => {
     if (r.key === targetKey) return { ...r, is_default: isEnabling };
@@ -128,8 +123,6 @@ export function mergeDiscoveredModels<T extends MergeRow>(
     return discovered.map((row) => ({ ...row }));
   }
 
-  // 未填 model_id 的手动行 model_id 同为空串，进 Map 会互相覆盖（键唯一）导致静默丢行；
-  // 单独留存，按原顺序补在末尾。
   const remaining = new Map<string, T>();
   const emptyIdRows: T[] = [];
   for (const r of prev) {
@@ -149,7 +142,6 @@ export function mergeDiscoveredModels<T extends MergeRow>(
       merged.push({ row: d, fromExisting: false });
     }
   }
-  // 保留未被发现响应覆盖的既存行（含未填 model_id 的手动行）
   for (const r of remaining.values()) {
     merged.push({ row: r, fromExisting: true });
   }
@@ -179,9 +171,6 @@ export function mergeDiscoveredModels<T extends MergeRow>(
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// 能力覆盖（模型级，首批仅 last_frame）
-// ---------------------------------------------------------------------------
 
 /** 稀疏覆盖字典的唯一写入点：next === undefined 表示回到「跟随判定」，此时把该键从字典移除
  *  而不是写 false——键缺席与显式 false 在后端是两种语义（跟随判定 vs 强制关）。移除后字典为空

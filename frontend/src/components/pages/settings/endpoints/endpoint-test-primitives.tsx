@@ -31,7 +31,6 @@ export function TestCard({
   );
 }
 
-/** 端点测试的一个字段：标签在上，控件在下。`htmlFor` 指向控件的 id。 */
 export function TestField({
   label,
   htmlFor,

@@ -20,7 +20,6 @@
     z-index: calc(var(--z-onboarding) + 1) !important;
 }
 
-/* ── 气泡本体 ─────────────────────────────────────────────── */
 
 .driver-popover.arc-tour {
     background: var(--popover);
@@ -63,7 +62,6 @@
     border-right-color: transparent;
 }
 
-/* ── 文字 ─────────────────────────────────────────────────── */
 
 .driver-popover.arc-tour .driver-popover-title {
     /* 编辑体标题，与大厅海报卡同一张脸 */
@@ -82,7 +80,6 @@
     color: var(--subtle-foreground);
 }
 
-/* ── 关闭按钮：Button ghost icon-sm ───────────────────────── */
 
 .driver-popover.arc-tour .driver-popover-close-btn {
     top: 12px;
@@ -103,7 +100,6 @@
     background: color-mix(in oklab, var(--muted) 50%, transparent);
 }
 
-/* ── 页脚 ─────────────────────────────────────────────────── */
 
 .driver-popover.arc-tour .driver-popover-footer {
     margin-top: 20px;
@@ -151,7 +147,6 @@
     border: 0;
 }
 
-/* ── 按钮：Button 的 sm 尺寸 ──────────────────────────────── */
 
 .driver-popover.arc-tour .driver-popover-footer-btn {
     display: inline-flex;
@@ -178,7 +173,6 @@
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 50%, transparent);
 }
 
-/* 上一步：outline */
 .driver-popover.arc-tour .driver-popover-prev-btn {
     color: var(--foreground);
     border-color: var(--input);
@@ -201,7 +195,6 @@
     background: color-mix(in oklab, var(--muted) 50%, transparent);
 }
 
-/* 下一步 / 完成：default */
 .driver-popover.arc-tour .driver-popover-next-btn,
 .driver-popover.arc-tour .driver-popover-done-btn {
     color: var(--primary-foreground);
@@ -217,7 +210,6 @@
     opacity: 0.5;
 }
 
-/* ── 窄屏 ─────────────────────────────────────────────────── */
 
 @media (max-width: 480px) {
     .driver-popover.arc-tour {

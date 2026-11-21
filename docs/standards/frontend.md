@@ -35,12 +35,6 @@ paths:
 
 ## 原语与 shadcn 生成文件
 
-### `components/ui/` 中偏离上游的有意改动，在改动处写一行注释说明原因
-
-为满足本仓库规范而改变原语的行为或样式时（例如给 Dialog 增加限高的 Body、把遮罩改为不透明），在改动处写一行注释说明原因。原语升级时要用 `pnpm exec shadcn add <组件> --diff` 对照上游手动合并，没有注释的本地改动无法和上游代码区分，合并时容易被冲掉。这类注释解释的是偏离上游的原因，不按删除历史描述类注释的通用规则处理。
-
-单纯的 lint 修复不加注释；确认是误报的，用行内 `eslint-disable-next-line <规则> -- 理由` 豁免。
-
 ### 代码类输入框用 `Input` 与 `Textarea` 的 `mono`，不手写等宽字体
 
 `mono` 只管字体，`variant` 只管外观，两者可以同时使用。`InputGroupInput` 与 `InputGroupTextarea` 透传 `mono`。不要在输入框或它的外层元素上写 `font-mono`：外层的字体经继承进入输入框，`@shadcn/lint` 查不到，规范也就无从核对。

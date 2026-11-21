@@ -41,7 +41,6 @@ from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
 
-#: 仍在生成的状态；其余状态都是终态，``completed`` 之外的终态按失败处理。
 _RUNNING_STATUSES = frozenset({"in_progress", "queued"})
 
 #: 每秒成片的视频 token 数，按分辨率档位（Gemini API 定价页）；没发分辨率时按服务端缺省 720p 估算。

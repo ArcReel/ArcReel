@@ -194,7 +194,6 @@ defineRegionScenarios("分镜详情", [
         expect(video.x).toBeGreaterThan(image.x + image.width - 1);
         expect(Math.abs(video.y - image.y)).toBeLessThan(80);
       }
-      // 对应原文默认收起
       await expect(page.getByRole("button", { name: "对应原文与参考" })).toHaveAttribute("aria-expanded", "false");
       // 区域截图不带紧凑档盖在画布上的 Agent 面板
       await clearAgentOverlay(page);

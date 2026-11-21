@@ -12,7 +12,6 @@ import sqlalchemy as sa
 
 from alembic import op
 
-# revision identifiers, used by Alembic.
 revision: str = "6cb95261c2b7"
 down_revision: str | Sequence[str] | None = "3c8b0ae43345"
 branch_labels: str | Sequence[str] | None = None
@@ -31,10 +30,8 @@ def upgrade() -> None:
     cols = _get_column_names("api_calls")
 
     with op.batch_alter_table("api_calls") as batch_op:
-        # Rename cost_usd → cost_amount (skip if already renamed)
         if "cost_usd" in cols:
             batch_op.alter_column("cost_usd", new_column_name="cost_amount")
-        # Add new columns (skip if already present)
         if "currency" not in cols:
             batch_op.add_column(sa.Column("currency", sa.String(), server_default="USD", nullable=False))
         if "provider" not in cols:

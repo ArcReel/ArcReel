@@ -69,7 +69,6 @@ export interface AssetDeletionPreview {
   episodes: { episode: number; references: number }[];
 }
 
-/** Login response from POST /auth/token (mirrors backend TokenResponse). */
 export interface LoginResponse {
   access_token: string;
   token_type: string;
@@ -93,7 +92,6 @@ export interface EpisodeScriptSnapshot {
   revision: string;
 }
 
-/** Version metadata returned by the versions API. */
 export interface VersionInfo {
   version: number;
   filename: string;
@@ -113,7 +111,6 @@ export interface VersionInfo {
   source?: string;
 }
 
-/** 分镜/视频单元媒体上传的统一响应。 */
 export interface ShotUploadResult {
   success: boolean;
   path: string;
@@ -143,7 +140,6 @@ export interface AssistantEntriesStreamOptions {
   onError?: (error: SseStreamError) => void;
 }
 
-/** Filters for {@link API.listTasks} and {@link API.listProjectTasks}. */
 export interface TaskListFilters {
   projectName?: string;
   status?: string;
@@ -199,7 +195,6 @@ export interface UsageSummaryQuery {
   view?: "generation" | "agent";
 }
 
-/** Generic success response used by many endpoints. */
 export interface SuccessResponse {
   success: boolean;
   message?: string;
@@ -215,7 +210,6 @@ export interface AgentProfileStatus {
   customized_files: string[];
 }
 
-/** Payload for {@link API.createProject}. */
 export interface CreateProjectPayload {
   title: string;
   name?: string;
@@ -232,7 +226,6 @@ export interface CreateProjectPayload {
   episode_target_duration?: number | null;
   /** 仅 ad：目标总时长（秒），UI 四档 15/30/60/90。 */
   target_duration?: number;
-  /** 仅 ad：创作诉求短文本（可空）。 */
   brief?: string | null;
   style_template_id?: string | null;
   video_backend?: string | null;

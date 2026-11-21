@@ -29,9 +29,7 @@ describe("isSupportedSourceFile", () => {
     expect(isSupportedSourceFile("")).toBe(false);
   });
   it("matches the suffix, not a substring", () => {
-    // A supported extension in the middle must not pass.
     expect(isSupportedSourceFile("foo.txt.zip")).toBe(false);
-    // ...but the trailing extension is what counts.
     expect(isSupportedSourceFile("report.pdf.txt")).toBe(true);
   });
 });

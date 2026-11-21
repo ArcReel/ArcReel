@@ -830,7 +830,6 @@ class TestExecuteImageEditTask:
         assert not Path(call["reference_images"][0]).exists()  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
         assert call["prompt"] == "把头发改成红色"
         assert "原始角色 prompt" not in call["prompt"]
-        # 新版本带编辑标记 metadata
         assert call["source"] == IMAGE_EDIT_VERSION_SOURCE
         assert call["resource_type"] == "characters"
         # 旧图先以中性元数据补登（不带编辑指令），保证编辑前版本可回滚
@@ -1064,7 +1063,6 @@ class TestImageEditEventMapping:
             )
             assert delivered[0]["entity_type"] == "character"
             assert delivered[0]["action"] == "updated"
-            # 指纹按 character 任务口径计算（characters/Alice.png 存在于磁盘）
             assert "characters/Alice.png" in delivered[0]["asset_fingerprints"]
 
             delivered.clear()

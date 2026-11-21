@@ -35,7 +35,6 @@ interface ShotSplitViewProps {
   onMoveShot?: (shotId: string, afterId: string | null) => Promise<boolean>;
   /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
   onInsertShot?: InsertShotHandler;
-  /** 移除分镜，resolve 为是否成功 */
   onRemoveShot?: (itemId: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void | Promise<void>;
@@ -111,7 +110,6 @@ export function ShotSplitView({
     setSelection({ id: segmentId, index: safeIndex });
   }
 
-  /** 切到第 index 个分镜；当前分镜有未保存修改时先由离开拦截询问。 */
   const select = useCallback((index: number) => {
     const id = ids[index];
     if (id === undefined) return;
@@ -137,7 +135,6 @@ export function ShotSplitView({
         }
       }
     : undefined;
-  // 详情里的前移、后移一位换算成锚点。
   const handleMoveStep = handleMoveShot
     ? (shotId: string, direction: "earlier" | "later") => {
         const afterId = stepAnchor(ids, ids.indexOf(shotId), direction);

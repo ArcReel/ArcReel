@@ -3,7 +3,6 @@
 // 不引用模块级变量，辅助函数全部写在函数内部。
 
 export interface ClippedOverflow {
-  /** 裁切内容的元素（overflow 为 hidden 或 clip）的选择器路径。 */
   path: string;
   axis: "x" | "y" | "xy";
   client: { width: number; height: number };
@@ -13,7 +12,6 @@ export interface ClippedOverflow {
 }
 
 export interface StrayScrollX {
-  /** 出现横向滚动、却没有声明横向滚动的元素的选择器路径。 */
   path: string;
   client: { width: number };
   scroll: { width: number };
@@ -42,7 +40,6 @@ export function inspectLayout(): LayoutReport {
   // 豁免必须写明原因：空值不算豁免。
   const EXEMPT = '[data-overflow-ok]:not([data-overflow-ok=""])';
   const SCROLLING = new Set(["auto", "scroll"]);
-  // 声明横向滚动的工具类，含响应式与状态前缀。
   const SCROLL_X_CLASS = /^(?:[\w-]+:)*overflow-(?:x-)?(?:auto|scroll)$/;
 
   function describe(el: Element): string {
@@ -118,7 +115,6 @@ export function inspectLayout(): LayoutReport {
     const clipX = CLIPPING.has(style.overflowX);
     const clipY = CLIPPING.has(style.overflowY);
     if (!clipX && !clipY) continue;
-    // sr-only 与折叠态元素。
     if (el.clientWidth <= 1 || el.clientHeight <= 1) continue;
     const overX = clipX && el.scrollWidth - el.clientWidth > TOLERANCE;
     const overY = clipY && el.scrollHeight - el.clientHeight > TOLERANCE;

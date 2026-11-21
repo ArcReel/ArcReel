@@ -19,7 +19,6 @@ interface ScriptOverwriteConfirmDialogProps {
   open: boolean;
   overwrite: ScriptOverwrite;
   loading: boolean;
-  /** 确认前置条件未满足（如视频模型无法解析）时禁用框内确认按钮。 */
   confirmDisabled?: boolean;
   /** 标题与确认按钮文字；缺省为内容确认的「覆盖并确认」。 */
   title?: string;

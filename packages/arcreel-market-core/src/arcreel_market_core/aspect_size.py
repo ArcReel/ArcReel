@@ -28,15 +28,12 @@ DEFAULT_SHORT_EDGE = 720
 # 跨后端统一的档位 → 短边像素。各后端按自身约束（max_long_edge / max_total_pixels）夹取。
 # 图片：512px / 1K / 2K / 4K；DashScope wan 的 1K/2K/4K 复用本表。
 IMAGE_TIER_SHORT_EDGE: dict[str, int] = {"512px": 512, "1K": 1024, "2K": 1440, "4K": 2160}
-# 视频：480p / 720p / 1080p / 4K。
 VIDEO_TIER_SHORT_EDGE: dict[str, int] = {"480p": 480, "720p": 720, "1080p": 1080, "4K": 2160}
 
 # 默认比例：来源受控（项目固定竖屏短剧居多），无法解析时回退竖屏 9:16，最小惊讶。
 _DEFAULT_ASPECT: tuple[int, int] = (9, 16)
 
-# 自定义 "宽*高" 值的分隔符：英文 x、星号、全角叉号。
 _WH_RE = re.compile(r"^\s*(\d+)\s*[xX×*]\s*(\d+)\s*$")
-# 比例分隔符：英文/全角冒号。
 _RATIO_SEP_RE = re.compile(r"[:：]")
 
 
@@ -91,9 +88,8 @@ def aspect_size(
 
     short_comp = min(aw, ah)
     long_comp = max(aw, ah)
-    short_unit = round_to * short_comp  # 短边每单位 t 的像素增量
+    short_unit = round_to * short_comp
 
-    # 短边最接近 short_edge 的 t
     t = max(1, round(short_edge / short_unit))
 
     # 长边像素上限夹取。上限连最小合法尺寸（t=1）都容不下时，仍取 t=1（最小合法尺寸），

@@ -74,14 +74,12 @@ class TestScenesRouter:
     def test_error_mapping(self, monkeypatch):
         fake_pm = _FakePM()
         with _client(monkeypatch, fake_pm) as client:
-            # 重复名 → 409
             dup_resp = client.post(
                 "/api/v1/projects/demo/scenes",
                 json={"name": "祠堂", "description": ""},
             )
             assert dup_resp.status_code == 409
 
-            # 不存在的场景 → 404
             missing_resp = client.patch(
                 "/api/v1/projects/demo/scenes/不存在",
                 json={"description": "x"},

@@ -157,8 +157,6 @@ class AssistantService:
             await self._interrupt_stale_running_sessions()
             self._startup_done = True
 
-    # ==================== Session CRUD ====================
-
     async def _interrupt_stale_running_sessions(self) -> None:
         """On service restart, stale running sessions cannot safely resume."""
         interrupted_count = await self.meta_store.interrupt_running_sessions()
@@ -210,7 +208,6 @@ class AssistantService:
         """Get session by ID."""
         meta = await self.meta_store.get(session_id)
         if meta and session_id in self.session_manager.sessions:
-            # Update status from live session
             managed = self.session_manager.sessions[session_id]
             meta = SessionMeta(**{**meta.model_dump(), "status": managed.status})
         return meta
@@ -250,8 +247,6 @@ class AssistantService:
 
         return await self.meta_store.delete(session_id)
 
-    # ==================== Messages ====================
-
     def _prepare_content(
         self,
         content: str,
@@ -290,10 +285,9 @@ class AssistantService:
         （``entry``）。已被改写取代的会话不再受理消息（``SessionSupersededError``）。新会话：首条消息
         写入日志后才返回，响应携带权威条目。前端不渲染任何本地合成消息。
         """
-        await asyncio.to_thread(self.pm.get_project_path, project_name)  # Validate project
+        await asyncio.to_thread(self.pm.get_project_path, project_name)
 
         if session_id:
-            # Existing session
             async with self._admission_locks.lock_for(session_id):
                 meta = await self.meta_store.get(session_id)
                 if meta is None:
@@ -318,7 +312,6 @@ class AssistantService:
                     client_key=client_key,
                 )
             return self._accepted_response(session_id, accepted)
-        # New session
         if not client_key:
             return await self._create_new_session(project_name, content, images, locale, client_key)
 
@@ -330,7 +323,6 @@ class AssistantService:
         # 后来者等锁而非各自建会话，避免重复执行同一 prompt。
         lock = self._new_session_locks.lock_for(client_key)
         async with lock:
-            # 双重检查：等锁期间先行者可能已完成同一 client_key 的建会话。
             existing = await self._find_accepted_new_session(client_key, project_name)
             if existing is not None:
                 return existing
@@ -349,7 +341,6 @@ class AssistantService:
         路径口径一致，均在返回前做归属校验。"""
         mapped_session_id = self._new_session_client_keys.get(client_key)
         if mapped_session_id is not None:
-            # 幂等重试：首次受理已建会话并投递，返回同一会话的权威条目。
             entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
             if entry is None:
                 # 映射指向的会话条目已不存在（如会话已被删除）：映射已失效，
@@ -378,7 +369,6 @@ class AssistantService:
             return None
         session_id, entry = recovered
         if not await self._new_session_matches_project(session_id, project_name):
-            # 兜底命中的会话属于其他项目 → 视为未命中，走当前项目新建路径。
             return None
         # 上一行 await 期间该 key 可能已被其他并发请求记入新映射；仅当当前
         # 无映射或已是同一 session_id 时才写入，避免用本次查到的（较旧）
@@ -432,8 +422,6 @@ class AssistantService:
             "queued_message": accepted.get("queued_message"),
         }
 
-    # ==================== 消息改写（分支会话编排） ====================
-
     # 等待运行中轮次中断到终态的上限与轮询间隔：终态由 inbox 任务收到 SDK 的
     # result 消息后推导，没有可等的 event，只能观察状态。
     _INTERRUPT_SETTLE_TIMEOUT = 30.0
@@ -460,7 +448,7 @@ class AssistantService:
         响应与发送端点同构：``client_key`` 为请求侧幂等键，重试不产生第二个分支
         会话；改写后的消息在新会话里先是排队消息（``queued_message``），被接纳后落进新会话的日志。
         """
-        await asyncio.to_thread(self.pm.get_project_path, project_name)  # Validate project
+        await asyncio.to_thread(self.pm.get_project_path, project_name)
         if not client_key:
             return await self._rewrite_message_once(
                 project_name,
@@ -715,8 +703,6 @@ class AssistantService:
             "session_id": session_id,
             "session_status": session_status,
         }
-
-    # ==================== 会话事件日志（UI 时间线唯一读源） ====================
 
     async def list_session_entries(
         self,
@@ -984,13 +970,9 @@ class AssistantService:
         normalized.pop("sdk_session_id", None)
         return normalized
 
-    # ==================== Lifecycle ====================
-
     async def shutdown(self) -> None:
         """Shutdown service gracefully."""
         await self.session_manager.shutdown_gracefully()
-
-    # ==================== Skills ====================
 
     # Lucide icon hint for each user-invocable skill. The display name is
     # **not** stored here — the frontend resolves it from i18n

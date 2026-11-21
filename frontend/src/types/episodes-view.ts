@@ -56,7 +56,6 @@ export interface ExternalSourceChange {
 export interface EpisodesViewEpisode {
   episode: number;
   origin: EpisodeSourceOrigin;
-  /** 原文段出现在整本源文里。 */
   placed: boolean;
   /** 原文范围起点所在的整本源文文件（仅 placed）。 */
   source_file: string | null;
@@ -118,16 +117,13 @@ export interface ReplanCandidateEpisode {
  */
 export interface ReplanSummary {
   id: string;
-  /** 从哪一集开始重新规划。 */
   episode: number;
   instructions: string | null;
-  /** 已生成到整本源文结尾。 */
   complete: boolean;
   /** 生成中途停止的原因：AI 找不到切分点、出错；创作者主动停止或还在生成时为 null。 */
   interrupted: "no_cut_point" | "failed" | null;
   stale: "ledger_changed" | "source_changed" | null;
   start: SourcePoint;
-  /** 已生成到的位置。 */
   end: SourcePoint;
   /** 被替换的切出集数；候选过时或还没有集时为 null。 */
   old_count: number | null;
@@ -142,7 +138,6 @@ export interface ReplanSummary {
   needs_review: number[];
   /** 原文超出新方案覆盖范围、采纳时同样按被替换处理的集（方案没有生成到整本源文结尾时）。 */
   uncovered: number[];
-  /** 播出位置会变的其他集。 */
   moved: { episode: number; from: number; to: number }[];
   episodes: ReplanCandidateEpisode[];
 }
@@ -193,7 +188,6 @@ export type ManualSplitAction =
   | { action: "merge_next"; episode: number }
   | { action: "clear_after"; episode: number };
 
-/** 一次手工切分波及的集（集 ID）。 */
 export interface ManualSplitImpact {
   /** 原文范围变了且有产物，标 stale。 */
   restaled: number[];
@@ -207,16 +201,12 @@ export interface ManualSplitImpact {
 
 export type ManualSplitResponse =
   | { status: "applied"; episode: number | null; impact: ManualSplitImpact }
-  /** `impact.text` 是服务端成文的确认清单。 */
   | { status: "confirmation_required"; impact: ManualSplitImpact & { text: string } };
 
-/** 整本源文文件的改动（插入、替换、编辑、删除、调序）波及的集（集 ID）。 */
 export interface SourceFileImpact {
-  /** 原文没变，只平移位置。 */
   shifted: number[];
   /** 原文有变化、已有产物，标 stale。 */
   changed_with_products: number[];
-  /** 原文有变化、还没有产物。 */
   changed_without_products: number[];
   /** 原文全部删掉、已有产物，转为无原文的集并移到播出顺序末尾。 */
   retired: number[];
@@ -279,7 +269,6 @@ export interface CreateEpisodeBody {
 /** 删除一集会丢失的内容。`text` 只在等待确认时出现，是服务端成文的确认文本。 */
 export interface EpisodeDeletionImpact {
   episode: number;
-  /** 删除不丢失任何无法在项目内重建的内容。 */
   recoverable: boolean;
   revision: string;
   text?: string;

@@ -266,8 +266,6 @@ export function ReferenceVideoCard({
     const end = ta.selectionEnd ?? 0;
     if (start !== end) return;
     const text = ta.value;
-    // 向左扫到最近的 @，用 MENTION_RE 判断它是否是一个完整 mention。
-    // 限制扫描范围（光标前 64 字符）避免长文本里 O(n) 扫每次 backspace。
     const scanFrom = Math.max(0, start - 64);
     const slice = text.slice(scanFrom, start);
     for (const m of slice.matchAll(MENTION_RE)) {
@@ -355,7 +353,6 @@ export function ReferenceVideoCard({
         </div>
       )}
 
-      {/* 编辑框随栏高撑开，栏太矮时不低于 12rem，由外层滚动。 */}
       <div className="relative min-h-48 flex-1 rounded-md border border-input bg-background/60 transition-colors duration-fast focus-within:border-ring">
         <pre
           ref={preRef}

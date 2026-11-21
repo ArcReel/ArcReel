@@ -31,7 +31,6 @@ function isExpired(expiresAt: string | null, now: Date): boolean {
   return expiresAt !== null && new Date(expiresAt) < now;
 }
 
-/** 全局设置「访问令牌」：列出 ArcReel 签发的访问令牌，创建与吊销。吊销不可逆，用 AlertDialog 确认。 */
 export function AccessTokensSection() {
   const { t } = useTranslation(["dashboard", "common"]);
   const [tokens, setTokens] = useState<ApiKeyInfo[]>([]);

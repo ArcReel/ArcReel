@@ -78,7 +78,6 @@ def renamed_reference(name: str, old_name: str, new_name: str) -> str | None:
 class ReferenceCatalogEntry:
     """引用目录里的一条已登记引用。"""
 
-    #: 归属的资产类型（``ASSET_SPECS`` 的键）。
     asset_type: str
     #: 可写在正文与引用字段里的引用名，已在比对坐标系（去两端空白 + Unicode NFC）中。
     name: str

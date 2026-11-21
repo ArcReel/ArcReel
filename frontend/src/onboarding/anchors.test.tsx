@@ -75,7 +75,6 @@ function renderWorkbenchHeader() {
   );
 }
 
-/** 每个锚点挂载它所在的界面。断言统一在下面的用例里做。 */
 const RENDERERS: Record<OnboardingAnchor, () => void> = {
   [ONBOARDING_ANCHORS.lobbyCreateProject]: renderLobby,
   [ONBOARDING_ANCHORS.lobbySettings]: renderLobby,
@@ -165,7 +164,6 @@ describe("onboarding anchors", () => {
     useOnboardingStore.setState({ active: true });
     renderLobby();
 
-    // 海报与标题各出现一次
     expect(await screen.findAllByText("爱丽丝梦游仙境")).toHaveLength(2);
     // 演示卡是纯前端常量，不经过项目列表，也没有任何写入
     expect(useProjectsStore.getState().projects).toEqual([]);

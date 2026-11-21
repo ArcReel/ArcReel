@@ -24,7 +24,6 @@ from arcreel_market_core.endpoint_definition import DefinitionIssue, validate_de
 from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
 
-#: 随版定义所在目录。文件名（不含 ``.json``）即内置端点键。
 BUILTIN_DEFINITIONS_DIR = Path(__file__).parent / "builtin_endpoints"
 
 #: 随版定义的作者署名。「复制为我的」产出的副本沿用它，用户改名改版本自便。

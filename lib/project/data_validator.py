@@ -717,7 +717,7 @@ class DataValidator:
             return
         # scene/prop 的 extra_string_fields 当前均为空 tuple（见 ASSET_SPECS），仍按 spec 取
         # 以保持「validator 跟 spec 同步」——将来给 scenes/props 加 extra 字段时无需改本处。
-        asset_type = field_label.rstrip("s")  # "scenes" → "scene"; "products" → "product"
+        asset_type = field_label.rstrip("s")
         spec = ASSET_SPECS.get(asset_type)
         extra_fields = spec.extra_string_fields if spec else ()
         extra_list_fields = spec.extra_list_fields if spec else ()
@@ -1116,7 +1116,6 @@ class DataValidator:
                 errors.append(_m("val_utterance_speaker_type", prefix=uprefix))
                 has_speaker = True
             else:
-                # 字符串（空串 / 纯空白按 Utterance._normalize_speaker 同口径归一为「无 speaker」）或 None
                 has_speaker = isinstance(speaker, str) and bool(speaker.strip())
             if kind == "dialogue" and not has_speaker:
                 errors.append(_m("val_utterance_dialogue_speaker", prefix=uprefix))

@@ -97,10 +97,6 @@ async def test_project_quality_reaches_formal_image_request(tmp_path, db_factory
         generation_context.reset_backend_cache_for_tests()
 
 
-# ---------------------------------------------------------------------------
-# 官方同步之后：缓存的自定义图片后端随新数据重建（应用启动时注入的清缓存）
-# ---------------------------------------------------------------------------
-
 _QUALITIES = ("low", "medium", "high")
 _RELAY = "https://relay.test/v1"
 _OUTPUT = solid_png_bytes((20, 200, 90))
@@ -188,7 +184,6 @@ async def test_request_quality_follows_the_estimate_after_official_sync(
     """缓存了自定义图片后端之后，官方同步改了绑定条目的画质取值：下一次请求的画质与当时的费用预估一致。"""
     snapshot = with_entry_facts(catalog.factory_snapshot(), "openai", "gpt-image-2", qualities=before)
     install_catalog(monkeypatch, snapshot)
-    # 同步前执行一次，缓存按旧数据构造的后端
     assert request_json(await _sent_image_request())["quality"] == ("low" if before else "medium")
 
     upstream = with_dataset_version(with_entry_facts(snapshot, "openai", "gpt-image-2", qualities=after), NEWER)

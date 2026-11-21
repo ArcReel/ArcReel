@@ -189,7 +189,6 @@ class TestPerModelCapabilities:
         assert _effective("kling-v2-5-turbo", "pro").last_frame is True
 
     def test_video_o1_i2v_only_with_reference_images(self):
-        # 多图主体 R2V
         vc = _effective("kling-video-o1")
         assert vc.text_to_video is False
         assert vc.last_frame is True
@@ -406,7 +405,6 @@ class TestCapabilityValidation:
         assert exc.value.code == "video_reference_images_unsupported"
 
     def test_reference_images_over_limit_raises(self, tmp_path):
-        # v3-omni 上限 4：传 5 张即拒绝
         with pytest.raises(VideoCapabilityError) as exc:
             _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, reference_images=self._refs(tmp_path, 5)))
         assert exc.value.code == "video_reference_images_exceeded"
@@ -422,7 +420,6 @@ class TestCapabilityValidation:
         assert exc.value.code == "video_capability_missing_t2v"
 
     def test_reference_at_limit_allowed(self, tmp_path):
-        # 恰好达上限（4 张）放行
         subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(
             _request(tmp_path, reference_images=self._refs(tmp_path, 4))
         )
@@ -571,7 +568,7 @@ class TestPayloadBuilding:
         assert subpath == "text2video"
         assert payload["model_name"] == "kling-v2-5-turbo"
         assert payload["mode"] == "std"
-        assert payload["duration"] == "5"  # 字符串
+        assert payload["duration"] == "5"
         assert payload["aspect_ratio"] == "9:16"
         assert "image" not in payload
 
@@ -682,7 +679,6 @@ class TestSafeLogView:
         b = _jwt_backend()
         subpath, payload = b._build_payload(_request(tmp_path, start_image=img))
         view = b._safe_log_view(subpath, payload)
-        # 仅标量；base64 与 prompt 不展开
         assert view["has_image"] is True
         assert view["prompt_len"] == len("a cat walking")
         assert "image" not in view
@@ -704,14 +700,13 @@ class TestGenerateHappyPath:
 
             result = await _jwt_backend().generate(_request(tmp_path))
 
-            # text2video 提交端点
             assert only_request(routes.submit).url.path == "/v1/videos/text2video"
             assert str(only_request(routes.download).url) == _DOWNLOAD_URL
 
         assert result.provider == PROVIDER_KLING
         assert result.task_id == "task-9"
         assert result.video_uri == _DOWNLOAD_URL
-        assert result.generate_audio is False  # turbo 无音频
+        assert result.generate_audio is False
         assert result.video_path.read_bytes() == b"mp4-bytes"
 
     async def test_jwt_injected_on_submit(self, tmp_path):

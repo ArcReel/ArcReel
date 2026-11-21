@@ -131,7 +131,6 @@ class SourceLoader:
         if size > max_bytes:
             raise FileSizeExceededError(filename=original_filename, size_bytes=size, limit_bytes=max_bytes)
 
-        # 冲突协商
         has_conflict, suggested_stem = cls.detect_conflict(original_filename, dst_dir)
         target_stem = Path(original_filename).stem
         effective_filename = original_filename

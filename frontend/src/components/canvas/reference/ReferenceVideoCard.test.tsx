@@ -8,7 +8,6 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type { ProjectData } from "@/types";
 import type { ReferenceVideoUnit } from "@/types/reference-video";
 
-// 形状同后端：单元只有一段正文 `text`，时长单独落在单元上。
 function mkUnit(overrides: Partial<ReferenceVideoUnit> = {}): ReferenceVideoUnit {
   return {
     unit_id: "E1U1",
@@ -75,7 +74,6 @@ afterEach(() => {
 });
 
 describe("ReferenceVideoCard", () => {
-  // 正文是唯一真相：编辑器逐字展示 `text`，不合成任何前缀。
   it("renders the unit body verbatim, multi-line included", () => {
     const unit = mkUnit({ text: "line1\nline2", duration_seconds: 8 });
     render(<ControlledCard unit={unit} />);
@@ -98,7 +96,6 @@ describe("ReferenceVideoCard", () => {
   });
 
   it("highlights inline speech marks in the editor overlay", () => {
-    // 高亮层与预览（ScriptHighlight）同口径：记号原文逐字保留，只加底色与说话人 title。
     const unit = mkUnit({ text: "门开了。@[张三]：{我来了}", duration_seconds: 3 });
     const { container } = render(<ControlledCard unit={unit} />);
     const dialogue = container.querySelector('[title="张三"]');
@@ -146,7 +143,6 @@ describe("ReferenceVideoCard", () => {
     await user.clear(ta);
     await user.type(ta, "眼@");
     expect(await screen.findByRole("listbox")).toBeInTheDocument();
-    // 放弃这次 mention，输入中文句号
     await user.type(ta, "。");
     await waitFor(() =>
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
@@ -252,7 +248,6 @@ describe("ReferenceVideoCard", () => {
     ta.blur();
     // mousedown preventDefault on options keeps the textarea focused through
     // clicks, so genuine blurs can close the picker without a setTimeout.
-    // No artificial delay — only wait for React's state flush.
     await waitFor(() =>
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
     );
@@ -268,14 +263,12 @@ describe("ReferenceVideoCard", () => {
     ta.focus();
     ta.setSelectionRange(ta.value.length, ta.value.length);
 
-    // 第一次 Backspace：选中整个 @主角，不变更文本
     await user.keyboard("{Backspace}");
     expect(ta.value.endsWith("@主角")).toBe(true);
     expect(ta.selectionStart).toBeLessThan(ta.selectionEnd);
     const selected = ta.value.slice(ta.selectionStart, ta.selectionEnd);
     expect(selected).toBe("@主角");
 
-    // 第二次 Backspace：浏览器默认 delete-selection 行为删除整个选区
     await user.keyboard("{Backspace}");
     expect(ta.value.endsWith("@主角")).toBe(false);
     expect(ta.value).toMatch(/hi\s*$/);
@@ -305,7 +298,6 @@ describe("ReferenceVideoCard combobox ARIA", () => {
     expect(ta).toHaveAttribute("aria-expanded", "false");
     expect(ta).toHaveAttribute("aria-controls", "reference-editor-picker");
     expect(ta).toHaveAttribute("aria-autocomplete", "list");
-    // aria-label 是短名，不是长 placeholder
     expect(ta).toHaveAttribute("aria-label", "视频单元提示词");
 
     await user.clear(ta);
@@ -313,7 +305,6 @@ describe("ReferenceVideoCard combobox ARIA", () => {
     await waitFor(() => {
       expect(ta).toHaveAttribute("aria-expanded", "true");
     });
-    // activedescendant 指向第一个 option 的 id（初始 activeIndex=0）
     const firstOption = screen.getAllByRole("option")[0];
     expect(firstOption.id).toBeTruthy();
     await waitFor(() => {
@@ -333,7 +324,7 @@ describe("ReferenceVideoCard combobox ARIA", () => {
   });
 
   it("omits aria-describedby when there are no unknown mentions", () => {
-    renderCard(mkUnit()); // default: "hi"，无 mention
+    renderCard(mkUnit());
     const ta = screen.getByRole("combobox");
     expect(ta).not.toHaveAttribute("aria-describedby");
   });

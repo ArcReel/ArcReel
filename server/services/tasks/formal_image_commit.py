@@ -83,7 +83,6 @@ class FormalImageCommitOutcome:
     created_at: str
 
 
-# 正式图提交的公共签名：活化回调 / 元数据提交器。
 type StagedImageCommit = Callable[[Path, Path, Mapping[str, Any]], int]
 type MetadataCommitter = Callable[[Callable[[], None]], None]
 #: 正式提交的最后一步，收到新选中的内容版本；抛错时整次提交回滚。
@@ -454,7 +453,6 @@ async def run_formal_image_task(
         generator = ctx.generator
         if plan.pre_submit is not None:
             await plan.pre_submit(generator)
-        # before_submit 只在声明了 checkpoint 的任务上出现，不声明就不落进 kwargs
         optional: dict[str, Any] = {}
         if plan.before_submit is not None:
             optional["before_submit"] = plan.before_submit

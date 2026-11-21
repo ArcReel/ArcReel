@@ -211,15 +211,12 @@ describe("ModelConfigSection", () => {
         }}
       />,
     );
-    // 创建向导路径只剩三个默认层主下拉：video + image + text
     const comboboxes = screen.getAllByRole("combobox");
     expect(comboboxes).toHaveLength(3);
     expect(screen.queryByText("按用途指定模型")).not.toBeInTheDocument();
 
-    // Opening each dropdown should reveal "使用全局默认" as the default option
     await user.click(comboboxes[0]);
     expect(await screen.findByRole("option", { name: /使用全局默认/ })).toBeInTheDocument();
-    // Close by clicking again
     await user.click(comboboxes[0]);
   });
 
@@ -235,7 +232,6 @@ describe("ModelConfigSection", () => {
         globalDefaults={{ ...EMPTY_GLOBALS, textDefault: "gemini/g25" }}
       />,
     );
-    // 只剩文本这一个折叠区，视频/图片细分因无候选数据而不渲染
     const disclosures = screen.getAllByRole("button", { name: /按用途指定模型/ });
     expect(disclosures).toHaveLength(1);
     await userEvent.setup().click(disclosures[0]);
@@ -258,7 +254,6 @@ describe("ModelConfigSection", () => {
       />,
     );
 
-    // 已配置的「文生图」仍在，且展示的是已保存值；未配置的「图生图」无候选可选，不渲染
     const t2i = screen.getByRole("combobox", { name: "文生图" });
     expect(t2i).toHaveTextContent("nano-banana");
     expect(screen.queryByRole("combobox", { name: "图生图" })).not.toBeInTheDocument();
@@ -348,7 +343,6 @@ describe("ModelConfigSection", () => {
     it("collapses the sub-fields by default and names each row after its generation path", async () => {
       const user = userEvent.setup();
       renderWithCandidates();
-      // 三个媒体各一个折叠区，初始收起
       const sections = screen.getAllByRole("button", { name: /按用途指定模型/ });
       expect(sections).toHaveLength(3);
       expect(sections.every((d) => d.getAttribute("aria-expanded") === "false")).toBe(true);
@@ -374,7 +368,6 @@ describe("ModelConfigSection", () => {
       expect(await screen.findByRole("option", { name: /seedance/ })).toBeInTheDocument();
       await user.keyboard("{Escape}");
 
-      // 图生视频桶只列 i2v 候选
       await user.click(screen.getByRole("combobox", { name: "图生视频" }));
       expect(await screen.findByRole("option", { name: /veo-3/ })).toBeInTheDocument();
       expect(screen.queryByRole("option", { name: /seedance/ })).not.toBeInTheDocument();
@@ -394,7 +387,6 @@ describe("ModelConfigSection", () => {
               shutdown_date: "2026-11-24",
               successor: "bytedance/seedance-2",
               successor_name: "Seedance 2",
-              // 后继只够格参考生视频这一处
               switch_targets: { default: null, i2v: null, r2v: "ark/seedance-2" },
             },
           },
@@ -494,7 +486,6 @@ describe("ModelConfigSection", () => {
         globalDefaults: { ...EMPTY_GLOBALS, video: "gemini/veo-3", videoR2V: "ark/seedance" },
       });
       await user.click(screen.getAllByText("按用途指定模型")[0]);
-      // r2v 有全局桶 → 用桶值；i2v 无 → 落到全局默认模型
       expect(screen.getByRole("combobox", { name: "参考生视频" })).toHaveTextContent(
         /跟随默认 · Ark · seedance/,
       );
@@ -533,7 +524,6 @@ describe("ModelConfigSection", () => {
         }),
       );
 
-      // 换的是执行桶：分辨率清空，4 秒不在 seedance 的支持集里，时长退回自动
       onChange.mockClear();
       await user.click(screen.getByRole("combobox", { name: "图生视频" }));
       await user.click(await screen.findByRole("option", { name: /seedance/ }));
@@ -621,7 +611,6 @@ describe("ModelConfigSection", () => {
     expect(await screen.findByRole("radio", { name: "10 秒" })).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
 
-    // 参考生视频项目改走 r2v 桶，i2v 的覆盖对它不作数
     rerender(
       <ModelConfigSection
         usesReferenceImages
@@ -674,10 +663,8 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // Open the video backend dropdown
     const videoTrigger = screen.getByRole("combobox", { name: /视频模型/ });
     await user.click(videoTrigger);
-    // Click on the ark/seedance option (4s is not in its supported_durations: [5, 8, 10])
     const seedanceOption = await screen.findByRole("option", { name: /seedance/ });
     await user.click(seedanceOption);
 
@@ -709,7 +696,7 @@ describe("ModelConfigSection", () => {
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         videoBackend: "ark/seedance",
-        defaultDuration: 8, // 8 is in both supported lists
+        defaultDuration: 8,
       }),
     );
   });
@@ -756,7 +743,6 @@ describe("ModelConfigSection", () => {
         enable={{ video: false }}
       />,
     );
-    // No combobox for video model should be visible
     expect(screen.queryByRole("combobox", { name: /视频模型/ })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /^默认图片模型$/ })).toBeInTheDocument();
   });
@@ -771,11 +757,9 @@ describe("ModelConfigSection", () => {
         globalDefaults={{ ...EMPTY_GLOBALS, video: "ark/seedance" }}
       />,
     );
-    // Should reflect ark/seedance's supported_durations [5, 8, 10]
     expect(await screen.findByRole("radio", { name: "5 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "10 秒" })).toBeInTheDocument();
-    // Should NOT show DEFAULT_DURATIONS buttons that ark/seedance doesn't support
     expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "6 秒" })).not.toBeInTheDocument();
   });
@@ -898,7 +882,6 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // 连续区间 → slider，不再有按钮组（除 auto + slider 自身的 radio）
     expect(await screen.findByRole("slider")).toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "3 秒" })).not.toBeInTheDocument();
   });
@@ -971,10 +954,8 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // 越界提示含失效秒数（10 不在 gemini/veo-3 的 [4,6,8] 内）
     expect(await screen.findByText(/不再受当前模型支持/)).toBeInTheDocument();
     expect(screen.getByText(/10/)).toBeInTheDocument();
-    // 无任何时长钮处于激活态：auto 与所有数字钮 aria-checked 均为 false
     expect(screen.getByRole("radio", { name: "auto" })).not.toBeChecked();
     for (const sec of ["4 秒", "6 秒", "8 秒"]) {
       expect(screen.getByRole("radio", { name: sec })).not.toBeChecked();
@@ -1052,7 +1033,6 @@ describe("ModelConfigSection", () => {
         globalDefaults={EMPTY_GLOBALS}
       />,
     );
-    // slider 分支：20 不在 [3..15] 内
     const slider = await screen.findByRole("slider");
     expect(slider).toBeInTheDocument();
     expect(screen.getByText(/不再受当前模型支持/)).toBeInTheDocument();
@@ -1064,7 +1044,6 @@ describe("ModelConfigSection", () => {
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ defaultDuration: null }));
   });
 
-  // ── 联动约束：分辨率 / 参考图路径收窄可选时长 ──────────────────
 
   const VEO_PROVIDERS: ProviderInfo[] = [
     {
@@ -1174,14 +1153,12 @@ describe("ModelConfigSection", () => {
       />,
     );
 
-    // 旧选项还在（布局不跳），但整组已标记为不可操作，点击不产生任何写入。
     const group = await screen.findByRole("radiogroup", { name: "默认时长" });
     await waitFor(() => expect(group).toHaveAttribute("aria-disabled", "true"));
     await user.click(screen.getByRole("radio", { name: "4 秒" }));
     expect(onChange).not.toHaveBeenCalled();
 
     gate.release?.();
-    // 新上下文落地后恢复可选，且只剩 4K 允许的档位。
     expect(await screen.findByRole("radio", { name: "8 秒" })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument());
     await user.click(screen.getByRole("radio", { name: "8 秒" }));
@@ -1479,7 +1456,6 @@ describe("音频开关的模型可控性", () => {
       );
     }
 
-    /** 打开指定下拉，读出 v3-omni 那一行的能力线，再关掉——同时只开一个下拉。 */
     async function omniRowIn(user: ReturnType<typeof userEvent.setup>, comboboxName: string) {
       await user.click(screen.getByRole("combobox", { name: comboboxName }));
       const text = (await screen.findByRole("option", { name: /v3-omni/ })).textContent ?? "";
@@ -1490,7 +1466,6 @@ describe("音频开关的模型可控性", () => {
     it("参考生视频项目：默认层与参考生桶标无声，图生桶不受牵连仍标有声", async () => {
       const user = userEvent.setup();
       renderDropdowns(true);
-      // 默认层留空时执行的是 r2v 桶，能力线跟着走
       expect(await omniRowIn(user, "默认视频模型")).toContain("无声");
 
       await user.click(screen.getAllByText("按用途指定模型")[0]);
@@ -1515,7 +1490,6 @@ describe("音频开关的模型可控性", () => {
       renderDropdowns(true);
       expect(await omniRowIn(user, "默认图片模型")).not.toMatch(/有声|无声/);
 
-      // 图片折叠区排在视频之后
       await user.click(screen.getAllByText("按用途指定模型")[1]);
       expect(await omniRowIn(user, "文生图")).not.toMatch(/有声|无声/);
       expect(await omniRowIn(user, "图生图")).not.toMatch(/有声|无声/);
@@ -1523,9 +1497,6 @@ describe("音频开关的模型可控性", () => {
   });
 });
 
-// -------------------------------------------------------------------------
-// ComfyUI 模型行：尺寸 / 时长被 workflow 固定时，对应控件禁用并说清原因
-// -------------------------------------------------------------------------
 describe("dimensions a ComfyUI workflow fixes", () => {
   const COMFY_ENDPOINT: EndpointDescriptor = {
     key: "ce-2",
@@ -1580,7 +1551,6 @@ describe("dimensions a ComfyUI workflow fixes", () => {
 
   const BACKEND = "custom-3/my-wan-workflow";
 
-  /** 挂着一个 ComfyUI 模型行的项目：端点目录按用例给出的约束应答。 */
   function renderWithConstraints(overrides: Partial<EndpointDescriptor>, durations: number[]) {
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({

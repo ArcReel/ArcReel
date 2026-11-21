@@ -23,7 +23,6 @@ async def test_append_then_list_then_load_via_sdk_helpers(session_factory, tmp_p
     project_cwd.mkdir(parents=True)
     sid = "00000000-0000-0000-0000-000000000abc"
 
-    # Append via our store implementation (production write path)
     key = {"project_key": make_project_key(project_cwd), "session_id": sid}
     # Note: SDK builds the conversation chain by walking parentUuid from the
     # most recent terminal backwards — so the assistant entry must point at

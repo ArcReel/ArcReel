@@ -20,7 +20,6 @@ export interface UnitPreviewPanelProps {
   /** Composite UI status — combines persisted state, queue, and optimistic flags.
    *  When omitted, falls back to `video_clip ? 'ready' : 'pending'`. */
   status?: UnitStatus;
-  /** Latest task error message (if any) for the failed state. */
   errorMessage?: string | null;
   /**
    * 占用集（含入队后真实任务行落库前的乐观标记）命中与否，独立于 status：
@@ -28,9 +27,7 @@ export interface UnitPreviewPanelProps {
    * 仅看 status 会在乐观窗口内漏禁用。
    */
   busy?: boolean;
-  /** Estimated cost for this unit (optional; rendered next to the CTA). */
   estimatedCost?: CostBreakdown;
-  /** Actual already-spent cost; rendered in the metadata block. */
   actualCost?: CostBreakdown;
   onGenerate?: (unitId: string) => void;
   narrationText?: string;
@@ -41,7 +38,6 @@ export interface UnitPreviewPanelProps {
   generationBlocked?: boolean;
   /** 上传成片视频（替换该单元的 AI 生成视频）；未提供时不显示上传入口 */
   onUploadVideo?: (unitId: string, file: File) => void | Promise<void>;
-  /** 上传进行中 */
   uploadingVideo?: boolean;
   /**
    * 该 unit 的版本恢复请求在途。恢复不产生任务行、进不了 tasks-store 占用集，状态由
@@ -56,7 +52,6 @@ export interface UnitPreviewPanelProps {
    * 时，`restoring`/`busy` 这类渲染快照要等 render 冲刷才生效，其间的点击仍会发出恢复请求。
    */
   checkBusy?: (unitId: string) => boolean;
-  /** 版本恢复后的刷新回调（重新拉取 units） */
   onRestored?: () => void | Promise<void>;
   /** 正文有未保存修改：生成按钮写「保存并生成」，`onGenerate` 负责先保存。 */
   saveFirst?: boolean;

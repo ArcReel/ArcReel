@@ -173,7 +173,6 @@ def _plan_occurrences(
 def _typed_owner_map(occurrences: list[_AssetOccurrence]) -> dict[tuple[str, str], _AssetOccurrence]:
     owners: dict[tuple[str, str], _AssetOccurrence] = {}
     for item in occurrences:
-        # 同类型等价条目按存量读侧后写胜出。
         owners[(item.asset_type, item.key)] = item
     return owners
 

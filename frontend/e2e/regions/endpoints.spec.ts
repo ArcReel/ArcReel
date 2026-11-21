@@ -5,8 +5,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 「调用端点」分区：全出血档的二级栏（我的端点 | 内置 Tab、紧凑档图标栏）与端点详情
-// （使用这个端点的模型、定义表单、端点测试，底部保存栏）。
 
 const ENDPOINTS_PATH = "/app/settings?section=endpoints";
 // 录制的端点目录只有内置端点；压力变体在它后面接上自定义端点，「内置」Tab 仍是真实数据。
@@ -52,7 +50,6 @@ const VALID = {
   },
 };
 
-// 压力变体：自定义端点多且名称长，二级栏在自己的栏里滚动；第一个端点被很多模型使用。
 const MANY_ENDPOINTS: ApiOverrides = {
   "GET /api/v1/custom-endpoints": {
     status: 200,

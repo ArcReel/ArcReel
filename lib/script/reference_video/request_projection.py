@@ -334,9 +334,7 @@ class ReferenceUnitHydration:
 
     declared_references: tuple[ReferenceResource, ...]
     available_assets: tuple[ResolvedReferenceAsset, ...]
-    #: 声明了、此刻却没有任何可用图片候选的引用。
     unavailable_references: tuple[ReferenceResource, ...]
-    #: 正文提及、但项目未登记的名字。
     unregistered_references: tuple[str, ...]
     declared_generation_type: VideoGenerationType
     hydrated_generation_type: VideoGenerationType
@@ -444,7 +442,6 @@ class MemoizedReferenceAssets:
         self._known: dict[tuple[Path, str, str, str], bool] = {}
 
     def is_available(self, asset: ResolvedReferenceAsset) -> bool:
-        # 判定依赖路径、候选种类与认领键（引用类型 + 名称），四者共同决定一张图。
         key = (asset.path, asset.kind, asset.reference.type, asset.reference.name)
         known = self._known.get(key)
         if known is None:

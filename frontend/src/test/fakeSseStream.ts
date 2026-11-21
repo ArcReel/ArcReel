@@ -25,7 +25,6 @@ export class FakeSseStream implements SseStreamHandle {
     FakeSseStream.instances.push(this);
   }
 
-  /** 推送一条已解析的服务端事件。 */
   emit(event: string, payload: unknown): void {
     this.onEvent?.(event, payload as Record<string, unknown>);
   }

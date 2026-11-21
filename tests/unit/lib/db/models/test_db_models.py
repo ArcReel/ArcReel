@@ -78,7 +78,7 @@ class TestUserModel:
         result = await db_session.execute(select(User).where(User.id == "u1"))
         loaded = result.scalar_one()
         assert loaded.username == "alice"
-        assert loaded.role == "user"  # server_default
+        assert loaded.role == "user"
         assert loaded.created_at is not None
         assert loaded.updated_at is not None
 

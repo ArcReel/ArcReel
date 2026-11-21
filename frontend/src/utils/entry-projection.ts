@@ -64,9 +64,6 @@ export function mergeEntriesBySeq(
   return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
 }
 
-// ---------------------------------------------------------------------------
-// 增量投影器
-// ---------------------------------------------------------------------------
 
 /** 内部累积态的 turn：content 为可就地回填的内部块，version 是展示缓存键。 */
 interface InternalTurn {
@@ -84,7 +81,6 @@ interface ToolUseSite {
   block: ContentBlock;
 }
 
-/** 一条平铺时间线（主时间线或某个子智能体组）的折叠状态。 */
 interface Fold {
   committed: InternalTurn[];
   cursor: InternalTurn | null;
@@ -115,7 +111,6 @@ export interface TimelineProjector {
 }
 
 export function createTimelineProjector(): TimelineProjector {
-  // 前缀指纹：source 为上次 project 的 entries 引用，count 为已折叠条目数
   let source: TimelineEntry[] = [];
   let count = 0;
 
@@ -170,7 +165,6 @@ export function createTimelineProjector(): TimelineProjector {
     return false;
   }
 
-  /** 条目触达 turn 后：失效其展示缓存，并沿子智能体锚链逐层失效祖先 turn。 */
   function touch(fold: Fold, turn: InternalTurn): void {
     composedDirty = true;
     turn.version = ++versionCounter;
@@ -194,7 +188,6 @@ export function createTimelineProjector(): TimelineProjector {
     return turn;
   }
 
-  /** 追加系统注入块：优先并入当前 assistant turn，否则开 system turn。 */
   function attachSystemBlock(fold: Fold, entry: TimelineEntry, block: ContentBlock): void {
     if (fold.cursor && fold.cursor.type === "assistant") {
       fold.cursor.content.push(block);
@@ -259,13 +252,11 @@ export function createTimelineProjector(): TimelineProjector {
       if (site && !anchorCreatesCycle(site.fold, group.fold)) {
         group.anchor = site;
         pendingGroups.delete(group);
-        // 合成卡片并回锚点：锚点 turn 展示需重建，顶层合成卡片消失
         touch(site.fold, site.turn);
       }
     }
   }
 
-  /** 取 parent_tool_use_id 对应的子时间线折叠状态，组首现时尝试锚定。 */
   function groupFoldFor(parentId: string): Fold {
     let group = groups.get(parentId);
     if (!group) {
@@ -398,7 +389,6 @@ export function createTimelineProjector(): TimelineProjector {
       return;
     }
 
-    // entry.type === "user"
     if (entry.subtype === "compact_summary") {
       startTurn(fold, "system", [{ type: "compact_summary", text: blocksText(entryBlocks(entry)) }], entry);
       return;
@@ -439,9 +429,6 @@ export function createTimelineProjector(): TimelineProjector {
     startTurn(fold, "user", entryBlocks(entry).map(cloneBlock), entry);
   }
 
-  // -------------------------------------------------------------------------
-  // 展示视图 — 由累积态派生，按 turn 版本缓存
-  // -------------------------------------------------------------------------
 
   function foldDisplay(fold: Fold): Turn[] {
     if (fold.displayVersion === fold.version) return fold.display;
@@ -486,7 +473,6 @@ export function createTimelineProjector(): TimelineProjector {
         content.push(block);
       }
     }
-    // task_started 块对应的 Agent tool_use 已有 result 时推导为已完成
     if (completedAgentIds) {
       const completed = completedAgentIds;
       for (const block of content) {
@@ -559,9 +545,6 @@ export function projectEntriesToTurns(entries: TimelineEntry[]): Turn[] {
   return createTimelineProjector().project(entries);
 }
 
-// ---------------------------------------------------------------------------
-// draft 投影与增量应用
-// ---------------------------------------------------------------------------
 
 /** 收集已落权威 assistant 条目的 message_id 集合（draft 替换判定的派生索引）。 */
 export function collectCommittedMessageIds(entries: TimelineEntry[]): Set<string> {

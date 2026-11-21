@@ -148,7 +148,6 @@ class TestTaskSpecFromRequest:
         assert exc.value.code == "prompt_scene_empty"
 
     def test_storyboard_string_prompt_builds_spec(self):
-        # 文本形态提示词不走 scene 判据，非空串照常入队。
         spec = TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt="黄昏的码头")
         assert spec.payload == {"prompt": "黄昏的码头"}
 
@@ -158,7 +157,6 @@ class TestTaskSpecFromRequest:
         assert exc.value.code == "prompt_text_empty"
 
     def test_storyboard_non_mapping_composition_accepted(self):
-        # 入队判据只看 scene：composition 形态不参与准入，prompt 原样进入 payload。
         prompt = {"scene": "黄昏的码头", "composition": "medium"}
         spec = TaskSpec.from_request(task_type="storyboard", media_type="image", resource_id="S01", prompt=prompt)
         assert spec.payload == {"prompt": prompt}
@@ -187,7 +185,6 @@ class TestTaskSpecFromRequest:
         assert spec.payload == {"script_file": "episode_1.json"}
 
     def test_reference_video_empty_prompt_rejected(self):
-        # 所有 shots[*].text 拼接后只剩空白 → 守卫点拒绝，不再漏到执行层。
         with pytest.raises(TaskSpecValidationError) as exc:
             TaskSpec.from_request(
                 task_type="reference_video",
@@ -199,7 +196,6 @@ class TestTaskSpecFromRequest:
         assert exc.value.code == "prompt_text_empty"
 
     def test_tts_null_prompt_builds_spec(self):
-        # 旁白文本默认由执行层从剧本 novel_text 读取，prompt 留空合法。
         spec = TaskSpec.from_request(task_type="tts", media_type="audio", resource_id="E1S01", prompt=None)
         assert spec.payload == {"prompt": None}
 
@@ -213,7 +209,6 @@ class TestTaskSpecFromRequest:
         assert exc.value.code == "prompt_text_empty"
 
     def test_tts_object_prompt_rejected(self):
-        # tts 只接受非空字符串或留空，对象类型用专用错误码标明实际约束。
         with pytest.raises(TaskSpecValidationError) as exc:
             TaskSpec.from_request(task_type="tts", media_type="audio", resource_id="E1S01", prompt={"text": "x"})
         assert exc.value.code == "tts_prompt_must_be_string_or_null"
@@ -353,7 +348,6 @@ class TestGenerationQueueClient:
             script_file="episode_01.json",
             source="skill",
         )
-        # 取消任务后 wait_for_task 应正常返回（不抛异常），状态为 cancelled
         await generation_queue.cancel_task(task["task_id"])
 
         result = await wait_for_task(
@@ -545,7 +539,6 @@ class TestBatchEnqueueAndWaitSync:
         assert failures[0].task_id == ""
         assert failures[0].status == "failed"
         assert "queue backend unavailable" in (failures[0].error or "")
-        # The spec after the failing one is still enqueued and awaited.
         assert mock_enqueue.call_count == 3
         assert mock_wait.call_count == 2
 
@@ -570,7 +563,6 @@ class TestBatchEnqueueAndWaitSync:
 
         assert successes == []
         assert {f.resource_id for f in failures} == {"S01", "S02"}
-        # S02 never attempts an enqueue call once its dependency failed.
         assert mock_enqueue.call_count == 1
         assert mock_wait.call_count == 0
 
@@ -621,11 +613,9 @@ class TestBatchEnqueueAndWaitSync:
         ]
         batch_enqueue_and_wait_sync(project_name="demo", specs=specs)
 
-        # First enqueue: no dependency
         first_call = mock_enqueue.call_args_list[0]
         assert first_call.kwargs.get("dependency_task_id") is None
 
-        # Second enqueue: dependency_task_id resolved to "t-first"
         second_call = mock_enqueue.call_args_list[1]
         assert second_call.kwargs["dependency_task_id"] == "t-first"
         assert second_call.kwargs["dependency_group"] == "ep1:group:1"

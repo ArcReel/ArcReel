@@ -13,7 +13,6 @@ import { ROUTE_META } from "./generation-route-meta";
  * 参考生视频是角色/场景/道具参考图集合（R2V），这正是区分生成模式的判据。
  */
 
-/** 「创建后不可更改」琥珀锁形徽章。与区块标题同行，设置页只读展示复用。 */
 export function RouteLockBadge() {
   const { t } = useTranslation("dashboard");
   return (
@@ -41,7 +40,6 @@ function frameClass(active: boolean): string {
   return active ? "border-primary/50 bg-primary/10" : "border-border bg-background/60";
 }
 
-/** 输入契约图示：单张分镜图 → 视频。 */
 function StoryboardDiagram({ active }: { active: boolean }) {
   return (
     <span aria-hidden className="flex items-center gap-2.5">
@@ -54,7 +52,6 @@ function StoryboardDiagram({ active }: { active: boolean }) {
   );
 }
 
-/** 输入契约图示：角色、场景、道具参考图叠放 → 视频。 */
 function ReferenceDiagram({ active }: { active: boolean }) {
   const iconCls = cn("size-4", active ? "text-primary" : "text-muted-foreground");
   const chip = (icon: ReactNode, key: string) => (
@@ -75,7 +72,6 @@ function ReferenceDiagram({ active }: { active: boolean }) {
   );
 }
 
-/** 呈现顺序：分镜图生视频在左（默认路径），参考生视频在右。 */
 const ROUTE_CARDS: readonly { route: GenerationRoute; Diagram: (props: { active: boolean }) => ReactNode }[] = [
   { route: "storyboard", Diagram: StoryboardDiagram },
   { route: "reference_video", Diagram: ReferenceDiagram },
@@ -85,7 +81,6 @@ export interface GenerationRouteCardsProps {
   /** null = 未选。必选：未选时向导不放行。 */
   value: GenerationRoute | null;
   onChange: (next: GenerationRoute) => void;
-  /** 装配条等从属内容，仅分镜图生视频选中时由调用方传入。 */
   children?: ReactNode;
 }
 

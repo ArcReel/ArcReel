@@ -44,7 +44,6 @@ export function DemoAssistantPanel() {
 
   return (
     <div data-onboarding={ONBOARDING_ANCHORS.workbenchAgent} className="relative isolate flex h-full flex-col">
-      {/* 头部：真实面板在这里显示会话标题与历史、新建入口；演示里没有会话可管理，只写面板名 */}
       <header className="flex h-12 shrink-0 items-center border-b border-border px-3">
         <h2 className="min-w-0 truncate text-sm font-medium">{t("dashboard:arcreel_agent")}</h2>
       </header>
@@ -67,7 +66,6 @@ export function DemoAssistantPanel() {
               <MessageScrollerItem messageId="demo-reply">
                 <Message align="start">
                   <MessageContent>
-                    {/* 连续的工序排成没有段距的一列，与真实消息区一致 */}
                     <div className="flex min-w-0 flex-col">
                       {work.map(({ key, icon, name, summary }) => (
                         <WorkRow key={key} icon={icon} name={name} summary={summary} status="ok" />
@@ -85,7 +83,6 @@ export function DemoAssistantPanel() {
         </MessageScroller>
       </MessageScrollerProvider>
 
-      {/* 输入区：与真实面板同一外形，只作展示，演示中不可用 */}
       <div className="shrink-0 border-t border-border p-3">
         <InputGroup>
           <InputGroupTextarea

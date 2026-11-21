@@ -22,7 +22,6 @@ export type CharactersField =
   | "characters_in_scene"
   | "characters_in_shot";
 
-/** 取条目 ID（segment_id / scene_id / shot_id）。 */
 export function getScriptItemId(item: ScriptItem, mode: EditorContentMode): string {
   if (mode === "narration") return (item as NarrationSegment).segment_id;
   if (mode === "ad") return (item as AdShot).shot_id;
@@ -45,7 +44,6 @@ export function getScriptItems(
   return [];
 }
 
-/** 取该模式下条目的角色引用字段名。 */
 export function charactersFieldFor(mode: EditorContentMode): CharactersField {
   if (mode === "drama") return "characters_in_scene";
   if (mode === "ad") return "characters_in_shot";

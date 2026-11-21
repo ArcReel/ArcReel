@@ -106,7 +106,6 @@ function isReadOnlyGateBlocking(endpoint: string): boolean {
   return projectName === null || isDemoProject(projectName);
 }
 
-/** 为 fetch options 注入 Authorization header */
 export function withAuth(endpoint: string, options: RequestInit = {}): RequestInit {
   const method = (options.method ?? "GET").toUpperCase();
   if (method !== "GET" && method !== "HEAD" && isReadOnlyGateBlocking(endpoint)) {
@@ -117,7 +116,6 @@ export function withAuth(endpoint: string, options: RequestInit = {}): RequestIn
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  // Add Accept-Language header based on current i18n language
   headers.set("Accept-Language", i18n.language || "zh");
   return { ...options, headers };
 }

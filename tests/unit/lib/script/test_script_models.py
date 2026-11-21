@@ -98,7 +98,6 @@ class TestScriptModels:
     def test_drama_video_prompt_has_no_dialogue_field(self):
         """drama 用无-dialogue 变体：video_prompt 不携带 dialogue 字段（台词迁入 utterances）。"""
         assert "dialogue" not in DramaVideoPrompt.model_fields
-        # narration / ad 共享的 VideoPrompt 仍保留 dialogue
         assert "dialogue" in VideoPrompt.model_fields
 
     def test_drama_scene_utterances_defaults_empty(self):
@@ -173,7 +172,6 @@ class TestScriptModels:
             Utterance(kind="dialogue", speaker="王", text="你来了。"),
             Utterance(kind="voiceover", text="多年以后，她仍记得那个夜晚。"),
         ]
-        # 旧字段被剥离：video_prompt 无 dialogue、场景无 voiceover 属性
         assert not hasattr(scene, "voiceover")
         assert "dialogue" not in scene.video_prompt.model_dump()
 
@@ -238,7 +236,7 @@ class TestScriptModels:
         """duration_seconds 接受 1-60 范围内任意整数。"""
         segment = NarrationSegment(
             segment_id="E1S01",
-            duration_seconds=10,  # 之前会被 DurationSeconds 拒绝
+            duration_seconds=10,
             novel_text="原文",
             characters_in_segment=["姜月茴"],
             image_prompt=ImagePrompt(
@@ -460,15 +458,15 @@ class TestItemDurationCoercion:
     @pytest.mark.parametrize(
         "dirty",
         [
-            {},  # 缺失
-            {"duration_seconds": None},  # None
+            {},
+            {"duration_seconds": None},
             {"duration_seconds": True},  # bool（int 子类，须排除）
             {"duration_seconds": False},
-            {"duration_seconds": 0},  # 非正数
-            {"duration_seconds": -5},  # 负数
-            {"duration_seconds": "6"},  # 数字字符串
-            {"duration_seconds": "six"},  # 非数字字符串
-            {"duration_seconds": 4.5},  # 浮点
+            {"duration_seconds": 0},
+            {"duration_seconds": -5},
+            {"duration_seconds": "6"},
+            {"duration_seconds": "six"},
+            {"duration_seconds": 4.5},
         ],
     )
     def test_dirty_values_fall_back_by_kind(self, kind: str, dirty: dict):
@@ -644,7 +642,6 @@ class TestLLMSchemaExclusion:
         keys = self._all_keys(NarrationEpisodeScript.model_json_schema())
         for forbidden in ("note", "generated_assets", "end_frame_image", "pending_authoring"):
             assert forbidden not in keys, f"{forbidden} 不应出现在 LLM schema 中"
-        # 顶层 duration_seconds 由 caller 重算
         assert "duration_seconds" not in NarrationEpisodeScript.model_json_schema()["properties"]
 
     def test_drama_schema_excludes_runtime_fields(self):

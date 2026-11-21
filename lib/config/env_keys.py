@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-# —— SDK 子进程需要的 Anthropic env keys（通过 options.env 注入）——
 ANTHROPIC_ENV_KEYS: tuple[str, ...] = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_BASE_URL",
@@ -16,7 +15,6 @@ ANTHROPIC_ENV_KEYS: tuple[str, ...] = (
     "CLAUDE_CODE_SUBAGENT_MODEL",
 )
 
-# —— 其他 provider env keys（options.env 用空值覆盖兜底）——
 OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
     # Claude CLI / SDK 会优先读取这些旁路认证变量。它们不属于 ArcReel 的
     # provider 凭证模型，但必须在 Agent 会话中显式置空，避免继承宿主环境。
@@ -48,7 +46,6 @@ OTHER_PROVIDER_ENV_KEYS: tuple[str, ...] = (
     "DEFAULT_VIDEO_PROVIDER",
 )
 
-# —— 启动断言：真密钥子集，命中即 fail-fast ——
 PROVIDER_SECRET_KEYS: frozenset[str] = frozenset(
     {
         "ANTHROPIC_API_KEY",

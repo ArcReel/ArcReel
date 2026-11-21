@@ -13,7 +13,6 @@ const MEDIA_GROUP_LABEL_KEY: Record<MediaType, string> = {
   audio: "endpoint_audio_group",
 };
 
-// 分组顺序派生自上表的声明顺序，新增媒体类型只需在上方加一条
 const MEDIA_ORDER = Object.keys(MEDIA_GROUP_LABEL_KEY) as MediaType[];
 
 function imageCapabilityKey(caps: ImageCap[]): string {
@@ -22,9 +21,7 @@ function imageCapabilityKey(caps: ImageCap[]): string {
 }
 
 interface EndpointSelectProps {
-  /** 触发按钮的 id，供字段标签用 `htmlFor` 关联。 */
   id?: string;
-  /** 没有可见字段标签时（如列表行内）触发按钮的无障碍名称。 */
   "aria-label"?: string;
   value: EndpointKey;
   onChange: (next: EndpointKey) => void;
@@ -35,14 +32,9 @@ interface EndpointSelectProps {
    */
   protocol: DiscoveryFormat;
   disabled?: boolean;
-  /** 窄位置（列表行内）：触发按钮只显示端点名称，请求路径留在下拉选项里。 */
   compact?: boolean;
 }
 
-/**
- * 自定义供应商模型的「调用端点」选择器：按媒体类型分组，每项显示端点名称、请求方法与路径，
- * 图片端点另标文生图 / 图生图能力。选项全部来自端点目录（后端单一真相源）。
- */
 export function EndpointSelect({
   id,
   "aria-label": ariaLabel,
@@ -79,7 +71,6 @@ export function EndpointSelect({
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <Select<EndpointKey>
-        // 空值是「这一行还没有端点」（宿主切到 ComfyUI 协议却无端点可挂），显示占位文字
         value={value === "" ? null : value}
         onValueChange={(next) => {
           // 同值重选不算变化：调用方按端点是否变化决定是否作废未保存的能力覆盖
@@ -132,7 +123,6 @@ export function EndpointSelect({
           ))}
         </SelectContent>
       </Select>
-      {/* 目录取失败时选择器没有选项可列，给出重试入口；store.refresh 对在途请求短路 */}
       {attempted && !initialized && !loading && (
         <Button variant="link" size="sm" className="self-start" onClick={() => void refreshCatalog()}>
           {t("endpoint_catalog_retry")}

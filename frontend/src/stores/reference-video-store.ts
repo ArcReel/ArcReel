@@ -1,4 +1,3 @@
-// frontend/src/stores/reference-video-store.ts
 import { create } from "zustand";
 import { API } from "@/api";
 import { errMsg } from "@/utils/async";
@@ -25,7 +24,6 @@ export function referenceVideoCacheKey(projectName: string, episode: number): st
 }
 
 interface ReferenceVideoStore {
-  /** Keyed by `${projectName}::${episode}`. */
   unitsByEpisode: Record<string, ReferenceVideoUnit[]>;
   /**
    * 同 key 下逐单元的服务端定桶结论（桶、档位、引用分裂），随单元列表一起到达，写入口的

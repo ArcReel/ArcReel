@@ -189,7 +189,6 @@ class VideoResumeRunner:
         try:
             result = await _execute_with_video_cleanup()
         except asyncio.CancelledError:
-            # 进程级打断：落终态并把 pending 调用行结算为 cancelled。
             await asyncio.shield(self._queue.mark_task_interrupted(task_id))
             await asyncio.shield(self.settle_unresumable_call(task, cancelled=True))
             raise

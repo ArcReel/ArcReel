@@ -19,7 +19,6 @@ class TestBaseUrlDerivation:
         assert AGNES_BASE_URL == "https://apihub.agnes-ai.com/v1"
 
     def test_host_only_gets_v1_suffix(self):
-        # 用户只填 host，派生时补 /v1
         assert agnes_base_url("https://apihub.agnes-ai.com") == "https://apihub.agnes-ai.com/v1"
 
     def test_full_v1_base_is_idempotent(self):

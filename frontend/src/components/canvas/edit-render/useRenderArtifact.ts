@@ -17,10 +17,8 @@ const RENDER_TASK_TYPE: Record<RenderKind, string> = {
 export type RenderArtifactView = FinalCutStatus | JianyingDraftStatus;
 
 export interface RenderArtifactState {
-  /** 当前交付物的产物现状；首次加载完成前为 null。 */
   artifact: RenderArtifactView | null;
   loading: boolean;
-  /** 读取现状失败的原因。 */
   loadError: string | null;
   /** 本次提交的任务；未提交时为 null，终态后保留以展示结果（失败原因在任务上）。 */
   task: TaskItem | null;
@@ -28,9 +26,7 @@ export interface RenderArtifactState {
   submitting: boolean;
   /** 提交请求在途（还没拿到 task_id）时为 true；接回已有任务时不经过这一段。 */
   requesting: boolean;
-  /** 提交请求本身失败的原因（如入队前检查不通过）。 */
   submitError: string | null;
-  /** 提交一次出片任务并开始轮询。 */
   submit: () => Promise<void>;
 }
 
@@ -46,7 +42,6 @@ function fetchArtifact(
     : API.getJianyingDraftStatus(projectName, timelineId, { narration: options.narration, signal });
 }
 
-/** 查找与产物同一剪辑时间线、同一交付物与版本的在途出片任务；查询失败时按没有处理。 */
 async function findActiveRenderTask(
   projectName: string,
   kind: RenderKind,

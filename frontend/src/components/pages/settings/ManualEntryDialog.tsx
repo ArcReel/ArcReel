@@ -45,13 +45,10 @@ interface Props {
   mediaType?: MediaType;
   /** 可选的媒体类型（供应商支持的类型）；不给或为空则四种都可选，默认选第一个。 */
   mediaTypes?: readonly string[];
-  /** 模型名称的初值，一般是正在设置的模型 ID。 */
   initialName?: string;
-  /** 再次编辑一个还没保存的新条目。 */
   initial?: NewCatalogEntry | null;
   /** 填好了：调用方把它放进自己的草稿，随自己的保存一起写入；对话框不保存任何东西。 */
   onConfirm: (entry: NewCatalogEntry) => void;
-  /** 目录里已有同名模型时，让用户直接选择它。 */
   onUseExisting?: (hit: CatalogEntryHit) => void;
 }
 
@@ -109,7 +106,6 @@ function ManualEntryForm({
     });
   }, []);
 
-  // 目录里是否已有同名模型，以及按名字预设预填的可选时长
   const lookupName = useDebouncedValue(name.trim(), 250);
   useEffect(() => {
     if (!lookupName) return;

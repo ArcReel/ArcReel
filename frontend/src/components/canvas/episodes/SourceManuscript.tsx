@@ -111,7 +111,6 @@ export function SourceManuscript({
   const { t } = useTranslation(["dashboard", "common"]);
   const info = new Map(view.episodes.map((episode) => [episode.episode, episode]));
   const meta = new Map(episodes.map((episode) => [episode.episode, episode]));
-  // 第一个尚未分集的段之前挂分隔线，之后的尾段只淡化显示
   const firstTail = view.files
     .flatMap((file) => file.segments.map((segment) => ({ file, segment })))
     .find(({ segment }) => segment.kind === "unsplit" && !segment.gap);
@@ -423,7 +422,6 @@ const EpisodeBlock = memo(function EpisodeBlock({
   caret: CaretMark;
   hostRun: number | null;
   compare: SegmentCompare;
-  /** 新的分集方案还没生成到这一集。 */
   waiting: boolean;
   register: (episode: number, el: HTMLElement | null) => void;
 }) {

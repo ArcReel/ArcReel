@@ -140,7 +140,6 @@ class TestStreamEntryEvents:
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
 
         assert [name for name, _, _ in events] == ["entry", "entry", "draft", "queue", "status"]
-        # SSE 事件 id 即 seq
         assert [sse_id for _, _, sse_id in events[:2]] == ["0", "1"]
         assert events[3][1]["messages"] == []
         assert events[4][1]["status"] == "completed"
@@ -268,7 +267,6 @@ class TestStreamEntryEvents:
 
         names = [name for name, _, _ in events]
         assert names == ["entry", "entry", "draft", "queue", "status", "entry", "delta", "status"]
-        # 存量 entry：seq 0、1；直播放行的只有 seq 2（seq 1 重复被跳过）
         assert [e[2] for e in events if e[0] == "entry"] == ["0", "1", "2"]
         # draft 首帧快照携带累积态与 rev 门槛
         draft_payload = events[2][1]

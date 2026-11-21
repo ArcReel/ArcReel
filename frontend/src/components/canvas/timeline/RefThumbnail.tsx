@@ -47,7 +47,6 @@ function getSheetPath(
   return typeof value === "string" ? value : undefined;
 }
 
-/** 悬停时的资产预览：资产图、名称、类型与描述首行。 */
 function RefPreview({
   kind,
   name,

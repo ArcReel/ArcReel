@@ -2,9 +2,6 @@ import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
-// ---------------------------------------------------------------------------
-// ChatImage — 消息里的图片附件：点开在对话框里看原图。
-// ---------------------------------------------------------------------------
 
 interface ChatImageProps {
   src: string;

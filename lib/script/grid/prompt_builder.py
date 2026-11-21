@@ -103,7 +103,7 @@ def _compute_panel_aspect(grid_aspect_ratio: str, rows: int, cols: int) -> str:
     例：grid 4:3, 3行2列 → panel (4/2):(3/3) = 2:1
     """
     gw, gh = (int(x) for x in grid_aspect_ratio.split(":"))
-    pw = gw * rows  # 交叉相乘避免浮点
+    pw = gw * rows
     ph = gh * cols
     g = gcd(pw, ph)
     return f"{pw // g}:{ph // g}"

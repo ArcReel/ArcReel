@@ -22,7 +22,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 # 参与模块级互引的模块（lib.config ↔ lib.custom_provider、端点定义的分派方 ↔ 各 kind 的实现方）
 # 及要求保持轻量的基础模块另需登记 FIRST_IMPORT_MODULES。
 MODULES = [
-    # lib 顶层单文件模块
     "lib.backends.ark_shared",
     "lib.backends.backend_runtime",
     "arcreel_market_core.video_backend_contract",
@@ -56,7 +55,6 @@ MODULES = [
     "lib.backends.text_generator",
     "lib.infra.thumbnail",
     "lib.artifacts.version_manager",
-    # lib 子包
     "lib.config",
     "lib.custom_provider",
     "lib.custom_provider.comfyui",
@@ -68,7 +66,6 @@ MODULES = [
     "lib.prompts.prompt_templates",
     "lib.backends.text_backends",
     "lib.backends.video_backends",
-    # server
     "server",
     "server.agent_runtime",
     "server.app",

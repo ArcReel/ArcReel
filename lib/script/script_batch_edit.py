@@ -278,7 +278,6 @@ class ScriptBatchEditor:
             resolved_script = bound_script
             return resolved_script
 
-        # 离开剧本的条目（编号 → 条目数组键）与改写前的结构文件，在锁内的候选校验通过后填好。
         departed: dict[str, str] = {}
         removed_ids: set[str] = set()
         before_files: dict[str, bytes] = {}
@@ -640,7 +639,6 @@ class ScriptBatchEditor:
         )
 
 
-#: 分镜图生视频各条目形态的空条目内容字段；时长沿用锚点分镜，视觉层留空待编写。
 _BLANK_ITEM_FIELDS: dict[str, dict[str, Any]] = {
     "segments": {
         "segment_break": False,

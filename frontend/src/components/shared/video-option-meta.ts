@@ -38,7 +38,6 @@ export function videoOptionMetaRenderer({
       customProviders,
       endpointToMediaType,
     ).options;
-    // 查不到模型时为 null，音轨格整格不渲染——两条分支都不臆造一个答案。
     const audioControl = route ? lookupVideoAudioControl(providers, fullValue, route, customProviders) : null;
     const hasAudioTrack = route
       ? (audioControl === null ? null : audioControl !== "always_off")

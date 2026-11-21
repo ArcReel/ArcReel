@@ -437,11 +437,6 @@ def fd_count():
     return _count
 
 
-# ---------------------------------------------------------------------------
-# Shared database fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(scope="session", autouse=True)
 def shared_db_schema():
     """把模块级 engine 所指的库迁到 head，使任何用例都能直接用它。
@@ -665,11 +660,6 @@ async def file_session_factory(tmp_path: Path) -> AsyncIterator[async_sessionmak
         yield async_sessionmaker(engine, expire_on_commit=False)
 
 
-# ---------------------------------------------------------------------------
-# SessionManager family (used by 3+ test files)
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 async def meta_store(db_factory: async_sessionmaker[AsyncSession]) -> SessionMetaStore:
     """Create an async SessionMetaStore backed by in-memory SQLite."""
@@ -683,11 +673,6 @@ async def session_manager(tmp_path: Path, meta_store: SessionMetaStore) -> Sessi
         project_root=tmp_path,
         meta_store=meta_store,
     )
-
-
-# ---------------------------------------------------------------------------
-# 收集期钩子：档位 marker 注入与边界校验
-# ---------------------------------------------------------------------------
 
 
 TESTS_ROOT = Path(__file__).parent
@@ -872,16 +857,10 @@ async def async_session():
             await engine.dispose()
         return
 
-    # SQLite in-memory — engine is throwaway, ORM-driven schema.
     async with make_test_engine(dialect_aware=False) as engine:
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as session:
             yield session
-
-
-# ---------------------------------------------------------------------------
-# GenerationQueue family (used by 2+ test files)
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -896,11 +875,6 @@ async def generation_queue(db_factory: async_sessionmaker[AsyncSession]):
     generation_queue_module._QUEUE_INSTANCE = None
 
 
-# ---------------------------------------------------------------------------
-# Polling / retry clock (used by 2+ test files)
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def poll_clock():
     """``bounded_poll_clock`` 的 fixture 形态：整条用例的轮询与退避等待都走假表。
@@ -911,11 +885,6 @@ def poll_clock():
 
     with bounded_poll_clock():
         yield
-
-
-# ---------------------------------------------------------------------------
-# Edit timeline projects (final cut and Jianying draft tests)
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture

@@ -4,7 +4,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 集页「脚本规划」tab：没有脚本的集的起步态（起步区、本集原文与导览）、重新规划对话框与内容确认页。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SOURCE_PATH = "GET /api/v1/projects/demo/source/episode_1.txt";
 const TASKS_PATH = "GET /api/v1/tasks?page_size=200&project_name=demo";
@@ -50,7 +49,6 @@ const SOURCE_TEXT = Array.from(
     `第 ${i + 1} 段。夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过，风把旗子吹得猎猎作响。沈砚停在拐角，听见护城河那边传来一声闷响，像是什么沉甸甸的东西落了水。他没有回头，只把灯往袖子里收了收，沿着墙根慢慢往河边走去。`,
 ).join("\n\n");
 
-/** 没有脚本规划也没有正式脚本的集：页面进入「脚本规划」tab 的起步态。 */
 function scriptlessProject(episode: Record<string, unknown>): ApiOverrides[string] {
   const { script_file: _scriptFile, script_status: _scriptStatus, ...recordedEpisode } = project.project.episodes[0];
   return {
@@ -66,7 +64,6 @@ function scriptlessProject(episode: Record<string, unknown>): ApiOverrides[strin
   };
 }
 
-// 制作状态：本集已有集原文、还没有规划与正式脚本，下一步是规划脚本。
 const PLANNING_NEXT = { type: "prepare_script_plan", args: { episode_id: 1 }, requested_ids: [], requires_confirmation: false, reason: "next" };
 const SCRIPTLESS_PLAN: ApiOverrides[string] = {
   status: 200,
@@ -88,7 +85,6 @@ const SCRIPTLESS_PLAN: ApiOverrides[string] = {
   },
 };
 
-// 切自整本源文的集：长原文、十条节拍与长尾钩子。
 const CUT_EPISODE: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo": scriptlessProject({
@@ -110,7 +106,6 @@ const OWN_EPISODE: ApiOverrides = {
   [SOURCE_PATH]: { status: 200, body: OWN_TEXT },
 };
 
-// 本集的脚本规划任务正在跑：起步区换成状态说明。
 const PLANNING_RUNNING: ApiOverrides = {
   ...CUT_EPISODE,
   [TASKS_PATH]: {
@@ -179,7 +174,6 @@ const SCRIPTED_NO_PLAN: ApiOverrides = {
   },
 };
 
-// 内容确认页压力：二十四条长原文分镜，视频模型给出 4/6/8 秒三档。
 const REVIEW_STRESS: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo/video-capabilities": {
@@ -220,7 +214,6 @@ const REVIEW_STRESS: ApiOverrides = {
   },
 };
 
-// 起步态在视图宽 860px 以上把导览放到右侧栏。
 const GUIDE_RAIL_MIN_WIDTH = 860;
 
 const viewTabs = (page: Page) => page.getByRole("tablist", { name: "集视图" });
@@ -249,7 +242,6 @@ async function cutSourceReady(page: Page) {
   await sourceRegion(page).getByText("第 18 段。", { exact: false }).waitFor();
 }
 
-/** 起步态的视图宽：导览放右栏还是原文上方由它决定。 */
 async function railLayout(page: Page) {
   return (await box(planPanel(page))).width >= GUIDE_RAIL_MIN_WIDTH;
 }
@@ -268,7 +260,6 @@ defineRegionScenarios("脚本规划起步态", [
       const source = sourceRegion(page);
       await expect(source.getByRole("textbox")).toHaveCount(0);
       await expect(source.getByRole("link", { name: "去分集" })).toBeVisible();
-      // 起步区在原文之上
       expect((await box(starterTitle(page))).y).toBeLessThan((await box(source)).y);
       if (await railLayout(page)) {
         await expect(guideRail(page)).toBeVisible();

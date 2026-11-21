@@ -53,10 +53,6 @@ export interface EnqueueResult {
   deduped: boolean;
 }
 
-/**
- * deduped 时弹统一 info 提示；否则弹该操作自己的成功文案
- * （successText 为 null 表示该操作成功时本就静默，维持静默）。
- */
 function notifyEnqueued(
   deduped: boolean,
   successText: string | null,
@@ -70,7 +66,6 @@ function notifyEnqueued(
   }
 }
 
-/** 资源粒度乐观标记的简写（请求发出前调用）。 */
 function markResource(
   projectName: string,
   resourceKind: ResourceKind,
@@ -82,7 +77,6 @@ function markResource(
     .beginOptimisticActive(projectName, resourceKind, resourceId, pendingTaskType);
 }
 
-/** scriptFile 粒度乐观标记的简写（请求发出前调用）。 */
 function markScriptFile(projectName: string, taskType: string, scriptFile: string): OptimisticHandle {
   return useTasksStore.getState().beginOptimisticActiveForScriptFile(projectName, taskType, scriptFile);
 }
@@ -472,7 +466,6 @@ export async function enqueueAssetSheetBatch(
   return res;
 }
 
-/** 文本任务批次里已建出任务的成员的任务 ID。 */
 function memberTaskIds(batch: { members: ReadonlyArray<{ task_id?: string | null }> }): string[] {
   return batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
 }

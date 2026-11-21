@@ -38,8 +38,6 @@ function nextKey(keys: string[]): string {
   return `u${max + 1}`;
 }
 
-/** Flip an utterance's kind, preserving text. dialogue→voiceover drops the
- *  speaker; voiceover→dialogue opens an empty speaker for the author to fill. */
 function flipKind(u: Utterance): Utterance {
   return u.kind === "dialogue"
     ? { kind: "voiceover", speaker: null, text: u.text }
@@ -51,7 +49,6 @@ interface UtteranceRowProps {
   index: number;
   total: number;
   disabled: boolean;
-  /** 说话人候选的 datalist id；没有候选时为 undefined。 */
   speakerListId?: string;
   onUpdate: (next: Utterance) => void;
   onMove: (delta: -1 | 1) => void;
@@ -79,7 +76,6 @@ function UtteranceRow({
 
   return (
     <div className="relative flex gap-2.5">
-      {/* 时序线 + 节点：实心 = 台词，空心 = 画外音 */}
       <div className="relative flex w-4 shrink-0 flex-col items-center">
         {index > 0 && <span aria-hidden="true" className="absolute top-0 h-2.5 w-px bg-border" />}
         <span

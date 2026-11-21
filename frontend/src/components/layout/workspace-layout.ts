@@ -1,14 +1,12 @@
 import { useSyncExternalStore } from "react";
 import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
 
-/** 侧栏折叠后的图标栏宽度。 */
 export const SIDEBAR_RAIL_WIDTH = 56;
 export const SIDEBAR_MIN_WIDTH = 200;
 export const SIDEBAR_MAX_WIDTH = 320;
 export const SIDEBAR_DEFAULT_WIDTH = 256;
 /** 标准档 Agent 面板挤压画布时，画布至少保留的宽度；面板与侧栏的可拖上限随之收窄。 */
 export const CANVAS_MIN_WIDTH = 480;
-/** 调宽手柄每按一次方向键移动的距离。 */
 export const RESIZE_KEYBOARD_STEP = 16;
 
 const SIDEBAR_WIDTH_STORAGE_KEY = "arcreel_workspace_sidebar_width";

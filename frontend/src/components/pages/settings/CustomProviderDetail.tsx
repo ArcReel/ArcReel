@@ -10,7 +10,6 @@ import { CustomProviderForm } from "./CustomProviderForm";
 
 interface CustomProviderDetailProps {
   providerId: number;
-  /** 深链里的模型 ID：打开时展开并定位到这一行。 */
   initialModelId?: string;
   onDeleted: () => void;
   onSaved: () => void;

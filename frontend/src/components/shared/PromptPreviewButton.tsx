@@ -17,13 +17,10 @@ import { copyText } from "@/utils/clipboard";
 import type { RenderedPromptPreview } from "@/types";
 
 export interface PromptPreviewButtonProps<T extends RenderedPromptPreview> {
-  /** 弹窗标题，同时作为触发按钮的悬停说明，区分同一页面上的多个入口。 */
   title: string;
   /** 取最终提示词：每次打开与刷新各调一次，调用时读到的是调用方最新的闭包（如当前草稿）。 */
   load: (signal: AbortSignal) => Promise<T>;
-  /** 标题下的口径说明，如「按已保存内容渲染」或「按当前模型能力计算」。 */
   notice?: ReactNode;
-  /** 在最终文本下方追加的区块，拿到的是本次请求的完整结果（如随请求发出的参考图列表）。 */
   renderExtra?: (result: T) => ReactNode;
   disabled?: boolean;
   /** 有未保存修改时先保存；失败则保留原处，不打开预览。回调需用 useCallback。 */

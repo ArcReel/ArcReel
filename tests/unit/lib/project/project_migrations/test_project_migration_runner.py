@@ -37,7 +37,7 @@ def test_skip_already_current(tmp_projects: Path):
 
 def test_migrate_bumps_through_all_versions(tmp_projects: Path, monkeypatch):
     """runner 逐级跑到 CURRENT_SCHEMA_VERSION（此处 v0→v1→v2→v3）。"""
-    _write_project(tmp_projects, "p1", {"name": "p1"})  # 无 schema_version
+    _write_project(tmp_projects, "p1", {"name": "p1"})
 
     called: list[int] = []
 
@@ -108,7 +108,7 @@ def test_real_v2_to_v3_stamps_version_via_runner(tmp_projects: Path):
     assert data["whole_source_files"] == [{"source_file": "source/novel.txt"}]
     assert "planning_cursor" not in data
     assert (source / "_remaining.txt").exists()  # 迁移不动 source/ 下任何文件
-    assert list(p.glob("project.json.bak.v2-*"))  # runner 自动版本化备份
+    assert list(p.glob("project.json.bak.v2-*"))
 
 
 def test_migrate_project_dir_single_project(tmp_projects: Path):
@@ -119,7 +119,6 @@ def test_migrate_project_dir_single_project(tmp_projects: Path):
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["image_provider_t2i"] == "gemini-vertex/y"
     assert "image_backend" not in data
-    # 幂等：已是最新版本再调返回 False、不改动
     assert migrate_project_dir(d) is False
 
 
@@ -215,7 +214,6 @@ def test_cleanup_old_backups(tmp_projects: Path):
     (old_clues_dir / "a.png").write_bytes(b"x")
     new_clues_dir.mkdir()
 
-    # mtime 控制：old 文件/目录 mtime 设为 8 天前
     eight_days_ago = time.time() - 8 * 86400
     import os
 
@@ -263,7 +261,7 @@ def test_cleanup_retains_v7_recovery_backups_until_schema_promotion_succeeds(tmp
 
 def test_hardlink_backup_clues_creates_mirror(tmp_projects: Path, monkeypatch):
     """v0→v1 迁移前应硬链接备份 clues/ 到 clues.bak.v0-<ts>/。"""
-    p = _write_project(tmp_projects, "p1", {"name": "p1"})  # v0
+    p = _write_project(tmp_projects, "p1", {"name": "p1"})
     (p / "clues").mkdir()
     (p / "clues" / "玉佩.png").write_bytes(b"prop-image")
     (p / "clues" / "nested").mkdir()

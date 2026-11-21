@@ -13,7 +13,6 @@ import { create } from "zustand";
 // ---------------------------------------------------------------------------
 
 interface CapabilitiesState {
-  /** 能力数据版本号；每次 invalidate 自增。 */
   revision: number;
   /** 作废当前能力数据，触发所有在用查询重取。上述任一类写入成功后调用。 */
   invalidate: () => void;

@@ -33,7 +33,6 @@ export function formatDate(
   return getFormatter(lang, options).format(date);
 }
 
-// 本地时刻 HH:mm，用于同一天内的对话流；解析失败返回 null 由调用方兜底
 export function formatClockTime(value: string | null | undefined): string | null {
   if (!value) return null;
   const d = parseIsoTimestamp(value);
@@ -42,7 +41,6 @@ export function formatClockTime(value: string | null | undefined): string | null
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// 紧凑本地时间 MM/DD HH:mm，用于信息密集的列表/标题；解析失败返回 null 由调用方兜底
 export function formatShortDateTime(value: string | null | undefined): string | null {
   if (!value) return null;
   const d = parseIsoTimestamp(value);

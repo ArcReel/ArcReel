@@ -896,7 +896,6 @@ class TestVersionsRouter:
         # 冻结比例保持不变：还原换回的是历史联合图，其产出比例未随版本记录，
         # 改写成项目当前比例会把老图按新比例裁切。与手动上传（改写为当前比例）相反。
         assert saved.video_aspect_ratio == "16:9"
-        # 不做分镜侧元数据同步
         assert fake_pm.update_calls == []
 
     @pytest.mark.parametrize("record_bytes", [None, b"{broken"])
@@ -1020,7 +1019,6 @@ class TestVersionsRouter:
         assert resp.status_code == 400
         # 断言到具体文案：两道闸门各自触发，不被对方的 400 顶替
         assert expected_detail in resp.json()["detail"]
-        # 拒绝即止：联合图未被替换，宫格记录的切分态原样保留
         assert (tmp_path / "grids" / f"{grid.id}.png").read_bytes() == b"original-bytes"
         saved = GridManager(tmp_path).get(grid.id)
         assert saved is not None
@@ -1124,7 +1122,6 @@ class TestVersionsRouter:
             assert body["file_path"] == "reference_videos/E1U1.mp4"
             assert body["asset_fingerprints"]["reference_videos/thumbnails/E1U1.jpg"] == 0
 
-        # 缩略图文件被删除；unit 元数据清掉过期 video_uri / video_thumbnail
         assert not thumb.exists()
         script = real_pm.load_script("demo", "episode_1.json")
         ga = script["video_units"][0]["generated_assets"]

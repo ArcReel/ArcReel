@@ -154,7 +154,6 @@ class TestSessionManagerProjectScope:
 
         prompt = manager._options_assembler._build_project_context("demo")
 
-        # Session-invariant facts are present
         assert "项目标识：demo" in prompt
         assert f"项目目录（即当前工作目录 cwd）：{project_dir.resolve().as_posix()}" in prompt
         assert "项目元数据（标题、风格、概述等）存于 project.json，需要时读取。" in prompt
@@ -191,7 +190,6 @@ class TestSessionManagerProjectScope:
         """Output is independent of project.json: the stable block is emitted even when it is absent."""
         project_dir = DataRootLayout(tmp_path / "projects").projects_dir / "empty"
         project_dir.mkdir(parents=True)
-        # No project.json created
 
         manager = SessionManager(
             project_root=tmp_path,

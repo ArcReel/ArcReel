@@ -56,9 +56,6 @@ const GridImageToVideoCanvas = lazyNamed(() => import("./grid/GridImageToVideoCa
 /** 集级路由 path，与渲染该集的 `<Route>` 共用一份。 */
 const EPISODE_ROUTE_PATH = `/${WORKSPACE_ROUTE_EPISODES}/:episodeId`;
 
-// ---------------------------------------------------------------------------
-// resolveSegmentPrompt -- shared segment lookup for generate storyboard/video
-// ---------------------------------------------------------------------------
 
 type PromptField = "image_prompt" | "video_prompt";
 
@@ -86,10 +83,6 @@ function resolveSegmentPrompt(
   };
 }
 
-// ---------------------------------------------------------------------------
-// StudioCanvasRouter -- reads Zustand store data and renders the correct
-// canvas view based on the nested route within /app/projects/:projectName.
-// ---------------------------------------------------------------------------
 
 export function StudioCanvasRouter() {
   const { t } = useTranslation("dashboard");
@@ -195,7 +188,6 @@ export function StudioCanvasRouter() {
     }
   }, [refreshProject, t]);
 
-  // afterId 为 null 时追加到末尾（空脚本里即第一条）。
   const handleInsertShot = useCallback(async (
     afterId: string | null,
     novelText: string | undefined,
@@ -354,7 +346,6 @@ export function StudioCanvasRouter() {
     t,
   ]);
 
-  // ---- Asset sheet generation callbacks ----
   const handleGenerateCharacter = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {

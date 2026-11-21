@@ -103,7 +103,6 @@ CAPABILITY_OVERRIDE_ALLOWLIST = CHANNEL_FACT_OVERRIDE_KEYS | ALL_MODEL_FACT_OVER
 _AUDIO_TRACK_FIELDS = AUDIO_TRACK_OVERRIDE_KEYS
 
 
-#: 图片模型事实覆盖键 → 端点声明里对应的能力。
 _IMAGE_CAPABILITY_BY_OVERRIDE_KEY: dict[str, ImageCapability] = {
     "text_to_image": ImageCapability.TEXT_TO_IMAGE,
     "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
@@ -124,12 +123,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/custom-providers", tags=["Custom Providers"])
 
-_CONNECTIVITY_CHECK_TIMEOUT = 15  # 秒
+_CONNECTIVITY_CHECK_TIMEOUT = 15
 
 #: ComfyUI 的连通性探针路径。零鉴权的本体上它也可匿名访问，故它同时是「地址对不对」的判据。
 _COMFYUI_SYSTEM_STATS_PATH = "/system_stats"
 
-# 全局 DB settings 中可能引用自定义供应商的键（删除 provider / 删除 model 时清理悬空引用）
 _BACKEND_SETTING_KEYS = (
     "default_video_backend",
     "default_image_backend",
@@ -164,10 +162,6 @@ _GLOBAL_BUCKET_REFERENCE_KEYS = (
     "default_video_backend_i2v",
     "default_video_backend_r2v",
 )
-
-# ---------------------------------------------------------------------------
-# Pydantic 模型
-# ---------------------------------------------------------------------------
 
 
 class ModelInput(BaseModel):
@@ -272,7 +266,7 @@ class FullUpdateProviderRequest(BaseModel):
 
     display_name: str
     base_url: str
-    api_key: str | None = None  # None = 不修改
+    api_key: str | None = None
     models: list[ModelInput] | None = None
     # 并发上限随 PUT 全量提交（空输入 → None → 全局默认）；None 即清除，非"不修改"。
     image_max_workers: MaxWorkers
@@ -312,7 +306,6 @@ class ModelResponse(BaseModel):
     audio_track: VideoAudioMode | None = None
     reference_route_audio_track: VideoAudioMode | None = None
     voice_consistency: VoiceConsistency | None = None
-    # 用户覆盖（稀疏字典）；音轨生效值由上面的服务端字段提供。
     capability_overrides: dict[str, object] | None = None
     # 生效的路径覆盖（docs/adr/0101）：端点定义里已不存在的请求名不回显，下次保存随之丢弃。
     path_overrides: dict[str, str] | None = None
@@ -381,7 +374,7 @@ class EndpointDescriptor(BaseModel):
     display_name: str | None = None
     request_method: str
     request_path_template: str
-    image_capabilities: list[str] | None = None  # image 类填能力字符串列表，其他为 None
+    image_capabilities: list[str] | None = None
     # 该 endpoint 的执行层是否真的下传尾帧约束；仅 video 类有意义。前端据此收窄 last_frame
     # 覆盖控件里「强制开」的可选范围——否则用户只能撞上写入侧的 422 才知道这条路不通。
     end_image_capable: bool = False
@@ -397,17 +390,11 @@ class EndpointDescriptor(BaseModel):
     # 子集，只决定文案说「天生固定」「缺帧率来源、补一处」还是「换算不出整秒时长」。
     duration_tier_empty: bool = False
     native_resolution: str | None = None
-    # 可覆盖路径的请求（docs/adr/0101）；空列表 = 该端点不开放修改请求地址。
     requests: list[EndpointRequestDescriptor] = []
 
 
 class EndpointCatalogResponse(BaseModel):
     endpoints: list[EndpointDescriptor]
-
-
-# ---------------------------------------------------------------------------
-# 辅助函数
-# ---------------------------------------------------------------------------
 
 
 def _system_capabilities_for(
@@ -1011,11 +998,6 @@ async def invalidate_provider_caches(request: Request) -> None:
         await worker.reload_limits()
 
 
-# ---------------------------------------------------------------------------
-# 单个模型（供应商模型 Sheet 经 server/routers/provider_models.py 调用）
-# ---------------------------------------------------------------------------
-
-#: 供应商模型 Sheet 可以保存的自定义供应商模型字段。
 CUSTOM_MODEL_SETTING_FIELDS = frozenset(
     {
         "model_id",
@@ -1281,11 +1263,6 @@ async def custom_model_settings(session: AsyncSession, row: CustomProviderModel)
     )
 
 
-# ---------------------------------------------------------------------------
-# Provider CRUD
-# ---------------------------------------------------------------------------
-
-
 @router.get("")
 async def list_providers(
     session: AsyncSession = Depends(get_async_session),
@@ -1469,7 +1446,6 @@ async def full_update_provider(
     kwargs: dict = {
         "display_name": body.display_name,
         "base_url": body.base_url,
-        # PUT 为并发上限的权威来源：始终写入（含 None 清除），不做"仅非空更新"
         "image_max_workers": body.image_max_workers,
         "video_max_workers": body.video_max_workers,
         "audio_max_workers": body.audio_max_workers,
@@ -1514,11 +1490,6 @@ async def delete_provider(
     await invalidate_provider_caches(request)
     # 清理引用该 provider 的项目级配置（同步文件 I/O，放到线程池避免阻塞事件循环）
     await run_sync_transaction(_cleanup_project_refs, prefix, _PROJECT_BACKEND_KEYS)
-
-
-# ---------------------------------------------------------------------------
-# 无状态操作
-# ---------------------------------------------------------------------------
 
 
 @router.post("/discover")
@@ -1636,7 +1607,6 @@ async def _run_discover(
     from lib.custom_provider.discovery import UnsupportedDiscoveryFormatError, discover_models
 
     if is_comfyui_protocol(discovery_format):
-        # 结构化的「不适用」而非 422：这不是一次失败的发现，是该协议本就没有这一步。
         return DiscoverResponse(not_applicable=True, reason=_t("discovery_not_applicable_comfyui"))
     try:
         discover = discover_models_fn or discover_models

@@ -74,7 +74,6 @@ async def _timed(client, probe: h.Probe | None, name: str, episode: int) -> dict
     return rec
 
 
-# ---------------------------------------------------------------- 空闲
 async def _first_open(name: str, episode: int) -> dict[str, Any]:
     """新进程里的第一次请求：服务重启后第一次打开。模块导入与建表不计入。"""
 
@@ -154,7 +153,6 @@ def cmd_idle(a: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
-# ---------------------------------------------------------------- 剖析
 def cmd_profile(a: argparse.Namespace) -> None:
     """每个接口一次清缓存后的请求与一次热请求，cProfile 输出到 out/<接口>-<cold|warm>.prof。"""
 
@@ -192,7 +190,6 @@ def cmd_profile(a: argparse.Namespace) -> None:
     asyncio.run(run())
 
 
-# ---------------------------------------------------------------- 高峰
 def _complete_video(unit_id: str, episode: int, video_kb: int) -> None:
     """一次视频任务完成：提交版本并登记产物清单，再把产物写回剧本。"""
 
@@ -278,10 +275,10 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 task.add_done_callback(tasks.discard)
 
             def on_video_done(self, episode: int) -> None:
-                for name in ("project", "units", "wf_status", "wf_plan"):  # 实体变更批次
+                for name in ("project", "units", "wf_status", "wf_plan"):
                     if name in names:
                         self.fire(name, episode)
-                for name in ("units", "wf_status", "wf_plan"):  # 任务终态批次
+                for name in ("units", "wf_status", "wf_plan"):
                     if name in names:
                         self.fire(name, episode)
                 if "cost" in names:
@@ -461,7 +458,6 @@ def cmd_peak(a: argparse.Namespace) -> dict[str, Any]:
     os._exit(0)
 
 
-# ---------------------------------------------------------------- 汇总
 def summarize(idle: dict[str, Any], peak: dict[str, Any]) -> str:
     def s(x: float | None) -> str:
         return "-" if x is None or x != x else f"{x:.2f}s"
@@ -536,7 +532,6 @@ def cmd_all(a: argparse.Namespace) -> None:
     print(f"\n=== summary ({a.episodes} episodes x {a.units} units, total {time.perf_counter() - t:.0f}s) ===\n{table}")
 
 
-# ---------------------------------------------------------------- CLI
 def _sample_hz(value: str) -> float:
     # 负数或 inf 会得到不正的采样间隔，采样线程空转、挤占被测进程的 CPU。
     hz = float(value)

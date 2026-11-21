@@ -18,9 +18,7 @@ interface FooterSlot {
 const FooterSlotContext = createContext<FooterSlot | null>(null);
 
 interface PageShellProps {
-  /** 顶栏，传 `PageHeader`。 */
   header: ReactNode;
-  /** 侧栏，传 `PageSidebar`；项目大厅、资产库这类单视图页面不传。 */
   sidebar?: ReactNode;
   tier: ContainerTier;
   children: ReactNode;
@@ -66,7 +64,6 @@ export function PageShell({ header, sidebar, tier, children }: PageShellProps) {
             )}
           </FooterSlotContext.Provider>
           {tier !== "bleed" && (
-            // 区段经 PageShellFooter 渲染进来；没有内容时整行隐藏。
             <div
               ref={setFooterElement}
               className="shrink-0 border-t border-border bg-card px-6 py-3 empty:hidden xl:px-8"

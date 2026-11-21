@@ -69,8 +69,6 @@ export function OnboardingTour() {
     setStepIndex(index);
   };
 
-  // 当前所在路由是否是引导覆盖的路由之一（大厅或设置页）——驱动效果（4）以此为准，
-  // 而不是逐步比对，这样大厅↔设置页之间的跨页步骤切换不会拆重建 driver 实例。
   const onTourRoute = tourRoutes.has(normalizedLocation);
   const requiredRoute = steps[stepIndex]?.route ?? null;
   const requiredQuery = steps[stepIndex]?.query;
@@ -130,7 +128,6 @@ export function OnboardingTour() {
     enteredInteractiveTarget,
   ]);
 
-  // 1. 查询「是否已看过」
   useEffect(() => {
     if (!inMainUi) return;
     const controller = new AbortController();
@@ -138,7 +135,6 @@ export function OnboardingTour() {
     return () => controller.abort();
   }, [inMainUi]);
 
-  // 2. 未看过 → 自动开一次（退出时 seen 置真，不会再开）
   useEffect(() => {
     if (!inMainUi || seen !== false) return;
     useOnboardingStore.getState().start();

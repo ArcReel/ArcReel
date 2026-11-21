@@ -136,7 +136,6 @@ class TestVision:
         assert result.text == "style description"
         assert result.input_tokens == 100
         assert result.output_tokens == 50
-        # 确认走的是 chat.completions 而不是 responses API
         mock_client.chat.completions.create.assert_called_once()
 
     async def test_vision_message_format(self, mock_ark, sync_to_thread):
@@ -186,7 +185,6 @@ class TestCapabilityAwareStructured:
         _, mock_client = mock_ark
         b = ArkTextBackend(api_key="k", model="mock-model-with-structured")
         b._test_client = mock_client
-        # 手动添加原生结构化输出能力
         b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
         return b
 
@@ -386,9 +384,7 @@ class TestCapabilityAwareStructured:
         )
 
         assert result.text == '{"a": 1}'
-        # 原生路径应该被尝试过
         backend_with_structured._test_client.chat.completions.create.assert_called_once()
-        # 降级路径应该被使用
         backend_with_structured._openai_client.chat.completions.create.assert_called_once()
 
 

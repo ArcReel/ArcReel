@@ -22,7 +22,6 @@ export interface PendingImportReport {
 }
 
 interface ImportReportConfirmDialogProps {
-  /** 待确认的升级报告；为 null 时对话框关闭。 */
   pending: PendingImportReport | null;
   importing: boolean;
   onConfirm: () => void;

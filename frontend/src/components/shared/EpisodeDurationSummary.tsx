@@ -12,7 +12,6 @@ import { useTranslation } from "react-i18next";
  * 合计取当前草稿（含用户未保存的改动）逐条时长之和，因此改一条时长即时反映在对比上。
  */
 export interface EpisodeDurationSummaryProps {
-  /** 本集各条目时长之和（秒）。 */
   totalSeconds: number;
   /** 项目级单集目标时长（秒）；null = 未设目标，不渲染。 */
   targetSeconds: number | null;

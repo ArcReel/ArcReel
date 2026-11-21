@@ -179,7 +179,6 @@ function FilesSection({ projectName, refreshKey }: { projectName: string; refres
   const { t } = useTranslation("dashboard");
   const { directories, load, retry, dropEntry } = useDirectories(projectName, refreshKey);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  // 只记路径，条目取自最新的目录列表：刷新后详情跟着更新，文件不在了详情也随之消失。
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const selected = selectedPath === null ? null : findEntry(directories, selectedPath);
   const [checked, setChecked] = useState<ReadonlyMap<string, FileViewEntry>>(new Map());
@@ -205,7 +204,6 @@ function FilesSection({ projectName, refreshKey }: { projectName: string; refres
     });
   };
 
-  // 每个文件单独提交、单独恢复；失败项保留勾选，方便重试。
   const moveToTrash = async (entries: FileViewEntry[]) => {
     if (deleting) return;
     setDeleting(true);
@@ -374,7 +372,6 @@ function DirectoryList(props: DirectoryListProps) {
               )}
             >
               <File aria-hidden className="size-4 shrink-0 self-start mt-0.5 text-muted-foreground" />
-              {/* 名称单独占一行，角色与大小放在第二行，窄栏里文件名不被挤没 */}
               <span className="flex min-w-0 flex-1 flex-col">
                 <TruncatedText text={entry.name} focusable={false} />
                 <span className="text-xs text-muted-foreground">

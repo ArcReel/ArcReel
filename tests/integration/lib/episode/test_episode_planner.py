@@ -522,7 +522,7 @@ class TestPlan:
 
         assert len(fake.requests) == 2
         retry_prompt = fake.requests[1].prompt
-        assert bad_anchor in retry_prompt  # 失败原因指明具体锚点
+        assert bad_anchor in retry_prompt
         assert "不存在" in retry_prompt
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
         project = _load_project(project_dir)
@@ -535,7 +535,7 @@ class TestPlan:
         project_dir = _write_project(tmp_path, source_text=source)
         fake = _FakeTextGenerator(
             [
-                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": repeated}]),  # 出现两次
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": repeated}]),
                 _plan_response(
                     [
                         {"title": "甲", "hook": "甲", "end_anchor": "他继续赶路。"},
@@ -549,8 +549,8 @@ class TestPlan:
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
         assert len(fake.requests) == 3
-        assert "2 次" in fake.requests[1].prompt  # 不唯一：报出现次数
-        assert "连续" in fake.requests[2].prompt  # 不连续：报范围推进问题
+        assert "2 次" in fake.requests[1].prompt
+        assert "连续" in fake.requests[2].prompt
         assert [s.title for s in result.episodes] == ["丙"]
 
     async def test_plan_rejects_overlapping_anchor_occurrences_as_ambiguous(self, tmp_path: Path):
@@ -559,7 +559,7 @@ class TestPlan:
         project_dir = _write_project(tmp_path, source_text=source)
         fake = _FakeTextGenerator(
             [
-                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "哪哪"}]),  # 重叠出现两次
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "哪哪"}]),
                 _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "李恒收剑而立。"}]),
             ]
         )
@@ -580,19 +580,18 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         eps = _load_project(project_dir)["episodes"]
-        # 还原出的偏移与精确匹配口径逐字节一致
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP1)}
         ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
         assert ep1 == SOURCE[: _end_of(ANCHOR_EP1)]
-        assert ep1.endswith("玉中藏着剑诀。")  # 源文标点未被改写（仍是全角 。）
+        assert ep1.endswith("玉中藏着剑诀。")
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
 
     async def test_plan_drama_resolves_anchor_with_punctuation_width_mismatch(self, tmp_path: Path):
         """drama 草稿同样走折叠容错：标点宽度不匹配（。→ .）时解析到正确精确偏移。"""
         project_dir = _write_project(tmp_path, content_mode="drama")
-        half_width_anchor = "被追杀的少女."  # 源文全角 。
+        half_width_anchor = "被追杀的少女."
         fake = _FakeTextGenerator(
             [
                 _plan_response(
@@ -611,7 +610,7 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         eps = _load_project(project_dir)["episodes"]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": _end_of(ANCHOR_EP2)}
         assert eps[0]["outline"]["story_beats"] == ["辞别师父", "城门遇袭"]
@@ -621,9 +620,9 @@ class TestPlan:
 
     async def test_plan_resolves_anchor_with_whitespace_width_mismatch(self, tmp_path: Path):
         """锚点空白宽度不匹配（全角空格 ↔ 半角空格）：折叠容错还原精确偏移。"""
-        source = "The hero　rose at dawn. Then darkness fell over the land."  # 含全角空格 U+3000
+        source = "The hero　rose at dawn. Then darkness fell over the land."
         project_dir = _write_project(tmp_path, source_text=source)
-        half_width_anchor = "The hero rose at dawn."  # 模型回显成半角空格
+        half_width_anchor = "The hero rose at dawn."
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "Dawn", "hook": "hook", "end_anchor": half_width_anchor}])]
         )
@@ -643,19 +642,19 @@ class TestPlan:
         source = unicodedata.normalize("NFC", "Tôi yêu tiếng Việt. Hôm nay trời đẹp lắm.")
         project_dir = _write_project(tmp_path, source_text=source)
         nfc_anchor = "Tôi yêu tiếng Việt."
-        nfd_anchor = unicodedata.normalize("NFD", nfc_anchor)  # 模型回显成分解形
+        nfd_anchor = unicodedata.normalize("NFD", nfc_anchor)
         assert nfd_anchor != nfc_anchor
         assert len(nfd_anchor) != len(nfc_anchor)
         fake = _FakeTextGenerator([_plan_response([{"title": "Mở đầu", "hook": "hook", "end_anchor": nfd_anchor}])])
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         eps = _load_project(project_dir)["episodes"]
         end = source.index(nfc_anchor) + len(nfc_anchor)  # 精确 NFC 偏移
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
         ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
-        assert ep1 == source[:end]  # 切片取 NFC 原文，未改写源文
+        assert ep1 == source[:end]
         assert [s.title for s in result.episodes] == ["Mở đầu"]
 
     async def test_plan_resolves_anchor_with_crlf_and_combining_length_change(self, tmp_path: Path):
@@ -665,7 +664,7 @@ class TestPlan:
         # 源文已是存储坐标系形态（NFC + \n）；窗口与切片均在此坐标系上
         source = "Tôi yêu tiếng Việt.\nHôm nay trời đẹp lắm. Mọi thứ thật tuyệt vời."
         project_dir = _write_project(tmp_path, source_text=source)
-        nfc_sub = "Tôi yêu tiếng Việt.\nHôm nay"  # 源文中的精确子串（NFC + \n）
+        nfc_sub = "Tôi yêu tiếng Việt.\nHôm nay"
         # 模型回显：组合字符分解（NFD，变长）+ 换行写成 \r\n（再 +1）
         crlf_nfd_anchor = unicodedata.normalize("NFD", nfc_sub).replace("\n", "\r\n")
         assert "\r\n" in crlf_nfd_anchor
@@ -677,7 +676,7 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         eps = _load_project(project_dir)["episodes"]
         end = source.index(nfc_sub) + len(nfc_sub)  # 归一坐标系下的精确末偏移（非锚原长）
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
@@ -689,7 +688,7 @@ class TestPlan:
         """源文用弯双引号（U+201C/U+201D），模型回显成直双引号：折叠表新增映射令其对齐。"""
         source = "他说：“古玉里藏着剑诀。”少女沉默不语。"
         curly_anchor = "“古玉里藏着剑诀。”"
-        straight_anchor = '"古玉里藏着剑诀。"'  # 模型回显成直引号
+        straight_anchor = '"古玉里藏着剑诀。"'
         project_dir = _write_project(tmp_path, source_text=source)
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "古玉藏诀", "hook": "hook", "end_anchor": straight_anchor}])]
@@ -697,26 +696,26 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         end = source.index(curly_anchor) + len(curly_anchor)
         eps = _load_project(project_dir)["episodes"]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
         ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
         assert ep1 == source[:end]
-        assert ep1.endswith("”")  # 源文标点未被改写（仍是弯引号）
+        assert ep1.endswith("”")
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
 
     async def test_plan_resolves_anchor_with_curly_double_quote_mismatch_reverse(self, tmp_path: Path):
         """反向：源文用直双引号，模型回显成弯双引号，同一折叠表对齐两个方向。"""
         source = '他说："古玉里藏着剑诀。"少女沉默不语。'
         straight_anchor = '"古玉里藏着剑诀。"'
-        curly_anchor = "“古玉里藏着剑诀。”"  # 模型回显成弯引号
+        curly_anchor = "“古玉里藏着剑诀。”"
         project_dir = _write_project(tmp_path, source_text=source)
         fake = _FakeTextGenerator([_plan_response([{"title": "古玉藏诀", "hook": "hook", "end_anchor": curly_anchor}])])
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         end = source.index(straight_anchor) + len(straight_anchor)
         eps = _load_project(project_dir)["episodes"]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
@@ -728,7 +727,7 @@ class TestPlan:
         """源文用弯单引号（U+2018/U+2019），模型回显成直单引号：折叠表新增映射令其对齐。"""
         source = "少女低声说：‘我不是坏人。’李恒不再追问。"
         curly_anchor = "‘我不是坏人。’"
-        straight_anchor = "'我不是坏人。'"  # 模型回显成直引号
+        straight_anchor = "'我不是坏人。'"
         project_dir = _write_project(tmp_path, source_text=source)
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "少女辩白", "hook": "hook", "end_anchor": straight_anchor}])]
@@ -736,13 +735,13 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         end = source.index(curly_anchor) + len(curly_anchor)
         eps = _load_project(project_dir)["episodes"]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
         ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
         assert ep1 == source[:end]
-        assert ep1.endswith("’")  # 源文标点未被改写（仍是弯引号）
+        assert ep1.endswith("’")
         assert [s.title for s in result.episodes] == ["少女辩白"]
 
     async def test_plan_resolves_anchor_with_cjk_wave_dash_fullwidth_anchor(self, tmp_path: Path):
@@ -757,7 +756,7 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         end = source.index(cjk_anchor) + len(cjk_anchor)
         eps = _load_project(project_dir)["episodes"]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
@@ -770,7 +769,7 @@ class TestPlan:
         """源文用 CJK 波浪号（U+301C），模型回显成半角 ~：折叠表新增映射令其对齐。"""
         source = "古玉估价约〜百金，来历不明。少女转身离去。"
         cjk_anchor = "约〜百金，来历不明。"
-        halfwidth_anchor = "约~百金，来历不明。"  # 模型回显成半角 ~
+        halfwidth_anchor = "约~百金，来历不明。"
         project_dir = _write_project(tmp_path, source_text=source)
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "估价成谜", "hook": "hook", "end_anchor": halfwidth_anchor}])]
@@ -778,7 +777,7 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         end = source.index(cjk_anchor) + len(cjk_anchor)
         eps = _load_project(project_dir)["episodes"]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
@@ -790,7 +789,7 @@ class TestPlan:
         """源文用全角直引号（U+FF02/U+FF07），模型回显成半角直引号：折叠表新增映射令其对齐。"""
         source = "少女喊道：＂别跑，＇等等我＇！＂李恒停下脚步。"
         fullwidth_anchor = "＂别跑，＇等等我＇！＂"
-        halfwidth_anchor = "\"别跑，'等等我'！\""  # 模型回显成半角直引号
+        halfwidth_anchor = "\"别跑，'等等我'！\""
         project_dir = _write_project(tmp_path, source_text=source)
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "城门呼喊", "hook": "hook", "end_anchor": halfwidth_anchor}])]
@@ -798,13 +797,13 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert len(fake.requests) == 1  # 容错命中，未触发重试
+        assert len(fake.requests) == 1
         end = source.index(fullwidth_anchor) + len(fullwidth_anchor)
         eps = _load_project(project_dir)["episodes"]
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
         ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
         assert ep1 == source[:end]
-        assert ep1.endswith("＂")  # 源文标点未被改写（仍是全角直引号）
+        assert ep1.endswith("＂")
         assert [s.title for s in result.episodes] == ["城门呼喊"]
 
     async def test_plan_rejects_anchor_ambiguous_after_punctuation_folding(self, tmp_path: Path):
@@ -989,7 +988,7 @@ class TestPlan:
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
         assert [s.title for s in result.episodes] == ["古玉藏诀"]
-        assert len(fake.requests) == 1  # 一次通过，未触发重试
+        assert len(fake.requests) == 1
 
     async def test_plan_drama_writes_outline_to_ledger(self, tmp_path: Path):
         """drama 条目加厚为分集大纲：story_beats + next_episode_teaser 落账本 outline。"""
@@ -1051,7 +1050,7 @@ class TestPlan:
                 _plan_response(
                     [
                         {
-                            "title": "山村少年",  # 作者写明的集标题，照搬
+                            "title": "山村少年",
                             "hook": "古玉剑诀来历成谜",
                             "end_anchor": ANCHOR_EP1,
                             "story_beats": ["山村习武", "后山得玉"],
@@ -1132,7 +1131,7 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake, window_chars=window_chars).plan()
 
-        assert ANCHOR_EP2 not in fake.requests[0].prompt  # 窗口被截断
+        assert ANCHOR_EP2 not in fake.requests[0].prompt
         assert result.source_exhausted is False
         assert result.cursor == {"source_file": "source/novel.txt", "offset": _end_of(ANCHOR_EP1)}
 
@@ -1170,7 +1169,7 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake, window_chars=window_chars).plan()
 
-        assert last_anchor in fake.requests[0].prompt  # 窗口已延伸到全文末尾，未被 window_chars 截断
+        assert last_anchor in fake.requests[0].prompt
         assert result.source_exhausted is True
         assert result.cursor == {"source_file": "source/novel.txt", "offset": len(SOURCE)}
 
@@ -1256,7 +1255,7 @@ class TestPlan:
         assert eps[2]["source_range"] == {"source_file": "source/novel2.txt", "start": 0, "end": len(source2)}
         assert result.cursor == {"source_file": "source/novel2.txt", "offset": len(source2)}
         assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == source2
-        assert result.source_exhausted is True  # 第二个文件也到结尾，且没有更多源文件
+        assert result.source_exhausted is True
 
     async def test_each_whole_source_file_is_planned_by_its_own_source_kind(self, tmp_path: Path):
         """剧情演绎里小说文件与剧本文件各按自己的类型规划，一个窗口只取一个文件的原文。"""
@@ -1513,9 +1512,9 @@ class TestPlan:
         stats = result.ledger_stats
         assert stats is not None
         assert stats.total_episodes == 3
-        assert [num for num, _units in stats.smallest] == [3, 2, 1]  # 体量升序：丙 < 乙 < 甲
+        assert [num for num, _units in stats.smallest] == [3, 2, 1]
         assert stats.median_units == 37
-        assert stats.target_volume is None  # 目标体量两个来源都未配置时不报
+        assert stats.target_volume is None
 
     async def test_plan_exhausted_batch_reports_target_units_when_configured(self, tmp_path: Path):
         """episode_target_units 项目设置存在时，核对材料里带出该目标体量。"""
@@ -1577,7 +1576,7 @@ class TestPlan:
         assert eps[1][script_review.STALE_SCRIPT_PLAN_REVISION_FIELD] == script_review.content_fingerprint(
             script_plan_path
         )
-        assert (project_dir / "scripts" / "episode_1.json").exists()  # 产物不删除
+        assert (project_dir / "scripts" / "episode_1.json").exists()
 
     async def test_plan_keeps_planned_when_no_downstream_products(self, tmp_path: Path):
         """新提交的集号磁盘上没有任何产物：照常标 planned，stale_episodes 为空。"""
@@ -1628,7 +1627,6 @@ def _planned_three(tmp_path: Path, *, statuses: tuple[str, str, str] = ("planned
     return project_dir
 
 
-# 第二个源文件：续作内容，锚点可唯一定位
 SOURCE2 = "第二部 上界风云。李恒踏入上界，灵气扑面而来。他在坊市结识了云岚宗弟子苏沐。两人结伴前往宗门，途中遭遇兽潮。"
 
 ANCHOR2_MID = "云岚宗弟子苏沐。"
@@ -1711,7 +1709,6 @@ class TestSourceFingerprintGate:
             _end_of(ANCHOR_EP1),
         )
         assert SOURCE_FINGERPRINTS_KEY in project
-        # 保留段派生文件不动，重置范围内的派生文件已删除
         assert (project_dir / "source" / "episode_1.txt").is_file()
         assert not (project_dir / "source" / "episode_2.txt").exists()
 
@@ -1764,7 +1761,7 @@ class TestSourceFingerprintGate:
             await planner.plan()
 
         project = _load_project(project_dir)
-        assert len(project.get("episodes") or []) == 1  # 第 1 集不受影响，也没有新集落账
+        assert len(project.get("episodes") or []) == 1
         assert SOURCE_FINGERPRINTS_KEY not in project
 
     async def test_plan_backfills_fingerprints_on_source_exhausted_early_return(self, tmp_path: Path):
@@ -1827,7 +1824,7 @@ class TestSourceFingerprintGate:
             await planner.plan()
 
         project = _load_project(project_dir)
-        assert len(project.get("episodes") or []) == 1  # 第 1 集不受影响，也没有新集落账
+        assert len(project.get("episodes") or []) == 1
         assert SOURCE_FINGERPRINTS_KEY not in project
 
 
@@ -1906,7 +1903,6 @@ class TestPlanGap:
         assert eps[1]["source_range"] == {"source_file": "source/novel.txt", "start": a, "end": mid}
         assert eps[2]["source_range"] == {"source_file": "source/novel.txt", "start": mid, "end": b}
         assert (project_dir / "source" / "episode_11.txt").read_text(encoding="utf-8") == SOURCE[mid:b]
-        # 第 3 集原样保留
         assert eps[4] == _entry(3, b, len(SOURCE))
         assert result.source_exhausted is True
         assert more == []

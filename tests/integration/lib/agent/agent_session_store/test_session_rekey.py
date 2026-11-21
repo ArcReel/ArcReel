@@ -32,7 +32,6 @@ async def test_rekey_without_source_moves_named_sessions_from_any_key(session_fa
     assert await _keys_of(store, "s2", keys) == ["new"]
     assert await _keys_of(store, "other", keys) == ["old-a"]
     assert {row["session_id"] for row in await store.list_session_summaries("new")} == {"s1", "s2"}
-    # 已在目标键下：再跑一次不改任何记录
     assert await _rekey(session_factory, rekey) == set()
 
 

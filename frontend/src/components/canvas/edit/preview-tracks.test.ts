@@ -180,7 +180,6 @@ describe("placeSubtitles", () => {
     const plan = buildPlaybackPlan(READOUT, null);
 
     expect(placeSubtitles(READOUT, plan, MEDIA)).toEqual([
-      // 旁白字幕从 c1 起点算起，延伸到 c2 上
       { start: 0, end: 2.5, text: "第一句。" },
       { start: 2.5, end: 5, text: "第二句。" },
       // c2 复用 E1U2 但不承载旁白，没有字幕；c3 承载旁白

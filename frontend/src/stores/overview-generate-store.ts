@@ -15,9 +15,7 @@ export type StoryGenerateError =
   | { kind: "refresh" };
 
 interface OverviewGenerateState {
-  /** 正在从原文生成故事设定的项目。 */
   generating: Record<string, true>;
-  /** 各项目最近一次生成没有就地填入的原因；再次生成时清除。 */
   errors: Record<string, StoryGenerateError>;
   generate: (projectName: string) => Promise<void>;
 }

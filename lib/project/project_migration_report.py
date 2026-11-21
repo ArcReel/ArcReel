@@ -232,7 +232,6 @@ def build_migration_report(
     )
 
 
-#: 以剧本条目 id 为资源 id 的产物种类：条目需要重新规划时，它们不进报告。
 _UNIT_ARTIFACT_KINDS = frozenset(
     {ArtifactKind.EPISODE_STORYBOARD.value, ArtifactKind.EPISODE_VIDEO.value, ArtifactKind.EPISODE_AUDIO.value}
 )

@@ -8,7 +8,6 @@ import { useWorkflowStore, workflowPlanKey } from "@/stores/workflow-store";
 
 export type BatchFillKind = "storyboards" | "videos" | "narration";
 
-/** 计划里各类产物的集合名。 */
 const ARTIFACT_OF: Record<BatchFillKind, string> = {
   storyboards: "storyboards",
   videos: "videos",

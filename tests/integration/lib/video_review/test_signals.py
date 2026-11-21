@@ -115,11 +115,9 @@ async def test_frames_around_each_signal_are_densified_and_marked(clip: Path) ->
     def tags_at(time_seconds: float) -> tuple[str, ...]:
         return tags[next(time for time in tags if time == pytest.approx(time_seconds))]
 
-    # 切点两侧：切点帧本身与它前一帧。
     for cut in (1.0, 2.0, 3.0):
         assert TAG_CUT in tags_at(cut)
         assert frame_before(cut) in tags
-    # 黑屏段与卡帧段各自的首尾帧都被抽到并标注。
     assert tags_at(1.0) == (TAG_CUT, TAG_BLACK)
     assert tags[frame_before(2.0)] == (TAG_BLACK,)
     assert tags_at(3.0) == (TAG_CUT, TAG_FREEZE)

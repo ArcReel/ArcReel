@@ -55,7 +55,6 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
     with contextlib.suppress(OSError):
         clues_dir.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
 
-    # versions/clues 同样按原 clue type 分流
     versions_clues = project_dir / "versions" / "clues"
     if versions_clues.exists():
         for name, data in old_clues.items():
@@ -157,7 +156,6 @@ def migrate_v0_to_v1(project_dir: Path) -> None:
     # 1. 先搬文件（任一步失败时 schema_version 仍为 0，重启会重试）
     _relocate_clue_files(project_dir, old_clues)
 
-    # 2. 级联剧本
     _migrate_scripts(project_dir, old_clues)
 
     # 3. 最后更新 project.json（原子写，schema_version 升级作为"提交"标志）

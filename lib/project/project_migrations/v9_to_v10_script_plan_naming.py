@@ -50,14 +50,12 @@ DRAFT_FILE_RENAMES: dict[str, str] = {
     "step2_reference_script.invalid.json": "prompt_authoring_reference_script.invalid.json",
 }
 
-#: ``project.json`` 分集条目上的字段改名。
 _EPISODE_FIELD_RENAMES: dict[str, str] = {
     "step1_review": "script_plan_review",
     "stale_step1_revision": "stale_script_plan_revision",
     "stale_step1_rebuilt_revision": "stale_script_plan_rebuilt_revision",
 }
 
-#: 剧集脚本 ``metadata`` 上的字段改名。
 _SCRIPT_METADATA_FIELD_RENAMES: dict[str, str] = {"step1_revision": "script_plan_revision"}
 
 #: 产物 key 里编码的 kind 值改名（见 ``lib.artifacts.artifact_manifest.ArtifactKind``）。

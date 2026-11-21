@@ -147,7 +147,6 @@ class TestGenerate:
         assert result.text == schema_response
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["response_format"]["type"] == "json_schema"
-        # 原生成功，不触发降级（instructor 客户端未构造）
         from_openai.assert_not_called()
 
     async def test_fenced_json_native_structured_output_is_unwrapped_without_fallback(self):

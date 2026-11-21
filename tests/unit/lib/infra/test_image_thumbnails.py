@@ -244,7 +244,7 @@ def test_cache_key_separates_source_paths(tmp_path: Path) -> None:
 def test_unwritable_cache_falls_back_to_original(tmp_path: Path) -> None:
     source = _write_image(tmp_path / "src" / "a.png", (1000, 500))
     blocker = tmp_path / "cache"
-    blocker.write_bytes(b"")  # 缓存根是一个文件，目录建不出来
+    blocker.write_bytes(b"")
 
     assert _thumb(source, blocker, 320) is None
 

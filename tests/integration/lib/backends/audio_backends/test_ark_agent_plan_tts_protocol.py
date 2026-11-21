@@ -69,7 +69,7 @@ async def _synthesize(server_replies: list[ScriptedReply], request: AudioSynthes
         backend = ArkAgentPlanAudioBackend(api_key="plan-key", model=_MODEL, transport_layer=layer)
         try:
             result = await backend.synthesize(request)
-        except Exception as exc:  # 用例按需断言异常
+        except Exception as exc:
             return server, None, exc
     # 改投前的地址就是生产地址：没有改用别的接口
     assert set(layer.seen) <= {_URL}

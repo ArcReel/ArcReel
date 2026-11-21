@@ -52,8 +52,6 @@ def prepare_script_entries(script_data: dict[str, Any], *, project: Mapping[str,
     # 兜底改写 segment/scene/unit ID 中的 E\d+ 前缀，避免 LLM 写错集号导致文件
     # 名跨集冲突（如 storyboards/scene_E1S01.png 被 E2 重新覆盖）。
     ep = int(episode)
-    # segment/scene/shot/unit ID 前缀统一经规范解析定骨架 + resolve_kind_items 查条目数组
-    # 与 id 字段改写（参考生视频三种 content_mode 均映射到 video_units，无需按生成模式分支）。
     kind = resolve_declared_kind(project.get("content_mode", "narration"), project.get("generation_mode"))
     raw_items, id_field, _kind = resolve_kind_items(script_data, kind=kind)
     # 校验失败降级保存的原始 dict 里该数组可能为非列表脏值（LLM 误写标量），
@@ -122,7 +120,6 @@ def finish_script_document(
     # 把旧值带进来——不在此处删就会随写盘回到磁盘上。
     script_data.pop("generation_mode", None)
 
-    # 添加时间戳
     now = datetime.now(UTC).isoformat()
     script_data.setdefault("metadata", {})
     script_data["metadata"]["created_at"] = now

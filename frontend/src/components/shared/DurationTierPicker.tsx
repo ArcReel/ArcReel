@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { Input } from "@/components/ui/input";
 
-/** 目标时长的常用档位（秒）；其他正整数秒走「自定义」。 */
 const DURATION_TIERS = [15, 30, 60, 90] as const;
 
 function isTier(value: number | null): boolean {
@@ -28,7 +27,6 @@ export interface DurationTierPickerProps {
   /** 当前时长（秒）；「自定义」里的输入不是正整数时为 null，调用方据此拦住提交。 */
   value: number | null;
   onChange: (value: number | null) => void;
-  /** 已翻译的字段名，同时作为单选组的可访问名称；默认「目标总时长」。 */
   label?: string;
   disabled?: boolean;
 }

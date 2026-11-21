@@ -147,11 +147,9 @@ def test_a_copy_that_changes_the_mtime_keeps_the_storyboard_current(
     sheet = project_path / SHEET
     assert _storyboard_state(pm)["current_ids"] == ["E1S01"]
 
-    # 原地改 mtime
     _age(sheet, seconds=1800)
     assert _storyboard_state(pm)["current_ids"] == ["E1S01"]
 
-    # 换一个新 inode 的同内容副本
     duplicate = sheet.with_name("Alice.copy.png")
     shutil.copyfile(sheet, duplicate)
     _age(duplicate, seconds=900)

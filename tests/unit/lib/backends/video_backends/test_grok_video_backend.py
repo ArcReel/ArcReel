@@ -226,18 +226,18 @@ class TestGrokVideoBackend:
     @pytest.mark.parametrize(
         ("raw_duration", "expected"),
         [
-            (15, 15),  # 整数直接收窄
-            ("15.0", 15),  # 浮点字符串先经 float 解析
+            (15, 15),
+            ("15.0", 15),
             (7.8, 8),  # 浮点 half-up 取整，与 dashscope 计费口径一致
-            (4.4, 4),  # half-up：不足半秒舍去
-            (0, 5),  # 零值回落请求时长
-            (-10, 5),  # 负值回落请求时长
+            (4.4, 4),
+            (0, 5),
+            (-10, 5),
             (0.3, 5),  # 取整到 0 同样回落，保持结果恒为正
-            ("unknown", 5),  # 不可解析回落请求时长
-            (float("inf"), 5),  # 溢出回落请求时长
+            ("unknown", 5),
+            (float("inf"), 5),
             (1e100, 5),  # 超出合理上限回落请求时长，防 DB Integer 列溢出
             (86400.9, 5),  # 上限基于取整前原始值：小数已超 24h 不得因取整落回上限内
-            (None, 5),  # 缺失回落请求时长
+            (None, 5),
         ],
     )
     async def test_duration_narrowed_to_int_with_fallback(self, video_output_path: Path, raw_duration, expected):

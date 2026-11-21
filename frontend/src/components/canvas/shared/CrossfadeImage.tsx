@@ -16,7 +16,6 @@ export function CrossfadeImage({
   src: string | null;
   alt: string;
   fallback: ReactNode;
-  /** 作用于图片元素，如 `object-contain`。 */
   className?: string;
   /** 透传给图片元素；列表里的卡片传 `"lazy"`，滚到视口附近才加载。 */
   loading?: "lazy" | "eager";
@@ -29,7 +28,6 @@ export function CrossfadeImage({
     previous: null,
   });
 
-  // 随 props 调整 state：换图时把已加载的当前图降为底图，新图从透明开始。
   if (shown.src !== src) {
     setShown({ src, loaded: false, failed: false, previous: shown.loaded ? shown.src : shown.previous });
   }

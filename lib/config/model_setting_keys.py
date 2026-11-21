@@ -9,7 +9,6 @@ TEXT_BACKEND_SETTING_KEYS: tuple[str, ...] = (
     "text_backend_complex",
 )
 
-#: 全局 system_settings 里所有引用模型的设置项。
 GLOBAL_MODEL_SETTING_KEYS: tuple[str, ...] = (
     *TEXT_BACKEND_SETTING_KEYS,
     "default_image_backend",
@@ -21,7 +20,6 @@ GLOBAL_MODEL_SETTING_KEYS: tuple[str, ...] = (
     "default_audio_backend",
 )
 
-#: 项目 project.json 里所有引用模型的字段。
 PROJECT_MODEL_SETTING_KEYS: tuple[str, ...] = (
     *TEXT_BACKEND_SETTING_KEYS,
     "default_image_backend",

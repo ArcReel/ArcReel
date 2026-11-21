@@ -4,7 +4,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 集页剪辑视图：播放器在左、详情栏在右，轨道横跨底部；整个视图不滚动，只有详情栏滚动。以及出片对话框。
 const EDIT_PATH = "/app/projects/demo/episodes/1?view=edit";
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const API: ApiOverrides = {
@@ -19,7 +18,6 @@ interface RecordedProject {
 
 const recordedProject = recorded<RecordedProject>("project-demo.json");
 
-// 压力变体：多条长名称的剪辑时间线，36 个片段约 2 分半，旁白、长字幕、两段 BGM、40 多条问题与 30 个未使用的视频单元。
 const TIMELINE_ID = "tl-00000006";
 const unit = (index: number) => `E1S${String(index + 1).padStart(2, "0")}`;
 
@@ -188,7 +186,6 @@ const TIMELINE: ApiOverrides = {
   ...videoMissing(1),
   "GET /api/v1/files/demo/bgm/bgm-0001.mp3": { status: 404, body: { detail: "页面级套件不回放媒体" } },
   "GET /api/v1/files/demo/bgm/bgm-0002.mp3": { status: 404, body: { detail: "页面级套件不回放媒体" } },
-  // 出片对话框：成片过时，剪映草稿尚未生成；没有在途任务。
   [`GET ${TIMELINE_BASE}/final-cut?narration=without_narration&subtitles=burned_subtitles`]: {
     status: 200,
     body: finalCut("stale"),
@@ -230,9 +227,7 @@ const renderDialog = (page: Page) => page.getByRole("dialog", { name: /^出片 �
 
 
 
-/** 弹层带入场动画，量尺寸、跑 axe 之前等它停下；进行中的转圈等循环动画不等。 */
 
-/** 紧凑档 Agent 面板盖在画布右侧，详情栏与页头行尾的出片按钮在它底下：先收起再操作。 */
 
 async function timelineReady(page: Page) {
   await editView(page).waitFor();
@@ -246,7 +241,6 @@ async function openRenderDialog(page: Page) {
   await expect(renderDialog(page).getByTestId("edit-render-artifact-status")).toBeVisible();
 }
 
-/** 主操作完整落在视口内。 */
 async function expectInViewport(page: Page, target: Locator) {
   const rect = await box(target);
   const { width, height } = viewport(page);
@@ -277,12 +271,10 @@ defineRegionScenarios("剪辑视图", [
     ready: timelineReady,
     act: async (page) => {
       await clearAgentOverlay(page);
-      // 选中带长说明的片段，详情栏撑到超高
       await page.getByTestId("edit-clip-c1").click();
       await expect(page.getByTestId("edit-clip-inspector")).toContainText("开场保留巡夜人");
       await expect(timelineTabs(page).getByRole("tab", { name: timelineNames[5] })).toHaveAttribute("aria-selected", "true");
 
-      // 四条轨道完整落在视口内，轨道组的底边不超出视图
       const { height } = viewport(page);
       const group = await box(tracks(page));
       expect(group.y + group.height).toBeLessThanOrEqual(height);
@@ -290,7 +282,6 @@ defineRegionScenarios("剪辑视图", [
       expect(group.y + group.height).toBeLessThanOrEqual(view.y + view.height);
       await expect(page.getByTestId("edit-bgm-b2")).toBeAttached();
 
-      // 详情栏内容超高时自己滚动，播放器不被压没
       const scrollable = await details(page).evaluate((el) => el.scrollHeight > el.clientHeight);
       expect(scrollable).toBe(true);
       expect((await box(player(page))).height).toBeGreaterThan(0);

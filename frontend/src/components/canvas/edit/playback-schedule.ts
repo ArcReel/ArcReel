@@ -1,8 +1,3 @@
-/**
- * 剪辑时间线在浏览器里的播放调度：把读取结果排成可播放的段落，并在全局时间与源素材时间之间换算。
- *
- * 全部是纯函数；`<video>` 的装载、播放与切换由 useTimelinePlayback 按这里的结论执行。
- */
 
 import type { EditClip, EditTimelinePreviewMedia, EditTimelineReadout } from "@/types/edit-timeline";
 
@@ -16,7 +11,6 @@ export interface PlaybackSegment {
   sourceOut: number;
   /** 播放音量：片段原声音量乘以生成时的供应商原声开关（关闭为 0）。 */
   sourceVolume: number;
-  /** 视频单元的 current 视频版本；换版本后源素材随之变化。 */
   videoVersion: number | null;
   /** 没有可用视频的片段按编排时长占位，只走时钟，不装载视频。 */
   hasVideo: boolean;
@@ -32,9 +26,7 @@ export interface PlaybackPlan {
 
 export interface PlaybackLocation {
   index: number;
-  /** 源素材里应显示的时间；片段没有可用视频时为 null。 */
   sourceTime: number | null;
-  /** 画面已放到出点，正停在末帧上定格。 */
   holding: boolean;
 }
 
@@ -46,7 +38,6 @@ export interface PlayheadState {
 export interface PlayheadSample {
   /** 当前片段的视频正在推进时的 currentTime；定格、占位或视频已结束时为 null。 */
   videoTime: number | null;
-  /** 距上一次采样经过的秒数。 */
   elapsed: number;
 }
 
@@ -100,7 +91,6 @@ export function buildPlaybackPlan(readout: EditTimelineReadout, media: EditTimel
   return { segments, duration: readout.duration };
 }
 
-/** 转场用透明度渐变近似：切点前淡出、切点后淡入，切点上全黑。 */
 export function transitionOpacity(segment: PlaybackSegment, t: number): number {
   let opacity = 1;
   if (segment.fadeIn > 0) opacity = Math.min(opacity, (t - segment.start) / segment.fadeIn);
@@ -132,7 +122,6 @@ export function locate(plan: PlaybackPlan, t: number): PlaybackLocation | null {
   return { index, sourceTime: round(segment.sourceIn + Math.min(offset, length)), holding };
 }
 
-/** 空闲的那个 `<video>` 该预载什么：下一个有可用视频的片段的入点；后面没有时为 null。 */
 export function preloadTarget(
   plan: PlaybackPlan,
   index: number,

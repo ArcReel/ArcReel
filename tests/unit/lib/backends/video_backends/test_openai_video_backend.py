@@ -196,7 +196,7 @@ class TestOpenAIVideoBackend:
         assert call_kwargs["prompt"] == "A cat walking in the park"
         assert call_kwargs["model"] == "sora-2"
         assert call_kwargs["seconds"] == "8"
-        assert call_kwargs["size"] == "720x1280"  # 720p 9:16
+        assert call_kwargs["size"] == "720x1280"
         assert "input_reference" not in call_kwargs
 
     async def test_image_to_video(self, tmp_path: Path):
@@ -335,7 +335,6 @@ class TestOpenAIVideoBackend:
             )
             result = await backend.generate(request)
 
-        # 请求 6 秒 → 透传 → 回退应保留请求值 6
         assert result.duration_seconds == 6
 
     async def test_size_mapping(self, tmp_path: Path):
@@ -391,9 +390,7 @@ class TestOpenAIVideoBackend:
 
         assert result.video_path == output_path
         assert output_path.read_bytes() == b"video-data"
-        # create 只调用 1 次，不因下载失败重新创建任务
         assert mock_client.videos.create.call_count == 1
-        # download_content 调用 3 次（2 次失败 + 1 次成功）
         assert mock_client.videos.download_content.call_count == 3
 
     async def test_content_download_all_retries_exhausted(self, tmp_path: Path):
@@ -425,7 +422,6 @@ class TestOpenAIVideoBackend:
             with pytest.raises(RuntimeError, match="Failed to resolve Vertex video URL"):
                 await backend.generate(request)
 
-        # 即使下载重试耗尽，也只创建 1 次任务
         assert mock_client.videos.create.call_count == 1
 
     async def test_content_download_non_retryable_error_fails_immediately(self, tmp_path: Path):
@@ -458,7 +454,6 @@ class TestOpenAIVideoBackend:
             with pytest.raises(AuthenticationError):
                 await backend.generate(request)
 
-        # 不可重试错误：只调用 1 次下载就抛出，不进入退避重试
         assert mock_client.videos.download_content.call_count == 1
         assert not output_path.exists()
 
@@ -470,7 +465,6 @@ class TestOpenAIVideoBackend:
         """
         mock_client = AsyncMock()
         mock_client.videos.create = AsyncMock(return_value=_make_mock_video(status="queued"))
-        # 模拟非标状态序列：NOT_START → running → in_progress → completed
         mock_client.videos.retrieve = AsyncMock(
             side_effect=[
                 _make_mock_video(status="NOT_START"),
@@ -496,9 +490,7 @@ class TestOpenAIVideoBackend:
             )
             result = await backend.generate(request)
 
-        # 必须轮询 4 次（3 次非完成 + 1 次完成）才得到结果
         assert mock_client.videos.retrieve.call_count == 4
-        # 下载只在完成后调用一次
         assert mock_client.videos.download_content.call_count == 1
         assert result.video_path == output_path
 
@@ -534,7 +526,6 @@ class TestOpenAIVideoBackend:
             )
             await backend.generate(request)
 
-        # 首查即 completed：poll_with_retry 一次 retrieve 即返回，不多查
         assert retrieved == ["vid_123"]
         assert output_path.read_bytes() == b"v"
 
@@ -685,7 +676,6 @@ class TestOpenAIVideoBackend:
 
         assert _is_openai_not_found(RuntimeError("file not found in storage")) is False
         assert _is_openai_not_found(RuntimeError("session expired but task is fine")) is False
-        # 仍能识别 status_code=404
         exc = RuntimeError("any")
         exc.status_code = 404
         assert _is_openai_not_found(exc) is True
@@ -825,9 +815,7 @@ class TestFailureMessage:
     @pytest.mark.parametrize(
         ("error", "expected"),
         [
-            # SDK 原生形态：带 code / message 的模型，只取 message
             (VideoCreateError(code="moderation_blocked", message="content policy"), "content policy"),
-            # 代理网关透传的裸 dict / 裸字符串
             ({"code": 500, "message": "upstream down"}, "upstream down"),
             ({"code": "billing_hard_limit_reached"}, "billing_hard_limit_reached"),
             # 数字错误码同样是原因，别因为不是字符串就丢掉

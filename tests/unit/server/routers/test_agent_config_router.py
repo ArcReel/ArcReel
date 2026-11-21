@@ -49,9 +49,6 @@ async def unauth_client(db_factory, monkeypatch):
         yield client
 
 
-# ── Task 9: GET /agent/preset-providers ───────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_list_preset_providers_returns_catalog(agent_config_client) -> None:
     resp = await agent_config_client.get("/api/v1/agent/preset-providers")
@@ -79,9 +76,6 @@ async def test_list_preset_providers_requires_auth(unauth_client) -> None:
     assert resp.status_code in (401, 403)
 
 
-# ── Task 10: /agent/credentials CRUD ─────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_list_credentials_initially_empty(agent_config_client) -> None:
     resp = await agent_config_client.get("/api/v1/agent/credentials")
@@ -101,7 +95,6 @@ async def test_create_with_preset(agent_config_client) -> None:
     assert cred["display_name"] == "DeepSeek"
     assert cred["api_key_masked"].startswith("sk-")
     assert cred["icon_key"] == "DeepSeek"
-    # 第一条凭证应自动 active
     assert cred["is_active"] is True
 
 
@@ -327,9 +320,6 @@ async def test_patch_credential(agent_config_client) -> None:
     assert resp.json()["display_name"] == "Renamed"
 
 
-# ── 倍率与档位定价状态 ─────────────────────────────────────────
-
-
 def _tiers(cred: dict) -> dict[str, dict]:
     return {tier["tier"]: {k: v for k, v in tier.items() if k != "tier"} for tier in cred["tiers"]}
 
@@ -409,9 +399,6 @@ async def test_a_tier_binding_takes_precedence_over_the_model_name(agent_config_
     # 失效绑定回到按模型名对应，但绑定还存着，状态里标出来让界面能解除
     assert tiers["opus"]["manually_bound"] is False
     assert tiers["opus"]["binding_stale"] is True
-
-
-# ── 档位手动绑定 ──────────────────────────────────────────────
 
 
 async def _create_gateway_credential(client, **extra) -> dict:
@@ -577,12 +564,10 @@ async def test_delete_nonexistent_returns_404(agent_config_client) -> None:
 
 @pytest.mark.asyncio
 async def test_delete_inactive_returns_204(agent_config_client) -> None:
-    # 第一条自动 active
     await agent_config_client.post(
         "/api/v1/agent/credentials",
         json={"preset_id": "deepseek", "api_key": "sk-A"},
     )
-    # 第二条显式 activate=False，可删
     second = (
         await agent_config_client.post(
             "/api/v1/agent/credentials",
@@ -591,9 +576,6 @@ async def test_delete_inactive_returns_204(agent_config_client) -> None:
     ).json()
     resp = await agent_config_client.delete(f"/api/v1/agent/credentials/{second['id']}")
     assert resp.status_code == 204
-
-
-# ── Task 11: POST /agent/credentials/{id}/activate ────────────────
 
 
 @pytest.mark.asyncio

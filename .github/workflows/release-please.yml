@@ -85,7 +85,7 @@ jobs:
           snapshot=lib/catalog/snapshot
           fetched="$(mktemp -d)"
           # 仅 https（含重定向）、限体积与耗时；体积上限与实例官方同步（lib/catalog/official_sync.py）一致
-          fetch() { # $1 文件名 $2 体积上限（字节）
+          fetch() {
             curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
               --max-filesize "$2" --max-time 30 --retry 2 -o "$fetched/$1" "$CATALOG_BASE_URL/$1"
           }

@@ -45,7 +45,6 @@ interface TimelineCanvasProps extends EpisodeCanvasContext {
   onMoveShot?: (shotId: string, afterId: string | null, scriptFile?: string) => Promise<boolean>;
   /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
   onInsertShot?: (afterId: string | null, novelText: string | undefined, scriptFile?: string) => Promise<boolean>;
-  /** 移除分镜，resolve 为是否成功 */
   onRemoveShot?: (itemId: string, scriptFile?: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string, scriptFile?: string) => void;
   onGenerateVideo?: (segmentId: string, scriptFile?: string) => void | Promise<void>;
@@ -112,7 +111,6 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
   const { t } = useTranslation("dashboard");
   const contentMode = projectData?.content_mode ?? "narration";
   // 分镜编辑子视图按剧本形状显式分派：narration（segments）/ drama（scenes）/ ad（shots）。
-  // 未知/脏 content_mode 沿用历史兜底落 drama 视图。
   const editorContentMode: "narration" | "drama" | "ad" =
     contentMode === "narration" ? "narration" : contentMode === "ad" ? "ad" : "drama";
 
@@ -248,7 +246,6 @@ export function TimelineCanvas(props: TimelineCanvasProps) {
         <AdScriptProgress projectName={projectName} episode={episode} noScript={false} className="mx-4 mt-3" />
       )}
 
-      {/* 主体 */}
       <div className="flex min-h-0 flex-1 flex-col" data-onboarding={ONBOARDING_ANCHORS.workbenchTimeline}>
         <RetainedEditUnit identity={episodeScript && segments.length > 0 ? "shots" : "empty"} message={t("shot_externally_removed")} value={view === "plan" && hasDraft && editorContentMode !== "ad" ? (
           <div className="relative h-full overflow-y-auto p-4">

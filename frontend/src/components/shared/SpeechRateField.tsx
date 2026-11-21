@@ -15,7 +15,6 @@ import { SPEECH_RATE_MAX, SPEECH_RATE_MIN, isValidSpeechRate } from "./speech-ra
  * 后会被同一个估算器按「词/秒」解释，数字不变而含义变了。
  */
 
-/** 阅读单位名词的 i18n key：en / vi / ru 计「词」、zh 计「字」，语言未定时用中性的「字或词」。 */
 function readingUnitKey(sourceLanguage?: string | null): string {
   const code = (sourceLanguage ?? "").trim().toLowerCase();
   if (code === "en" || code === "vi" || code === "ru") return "reading_unit_word";

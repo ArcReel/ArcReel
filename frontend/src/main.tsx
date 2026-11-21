@@ -26,7 +26,6 @@ if (metaDescription) {
 
 initTheme();
 
-// 从 localStorage 恢复登录状态
 useAuthStore.getState().initialize();
 
 const root = document.getElementById("app-root");

@@ -11,7 +11,6 @@ type EndpointDuplicateChoicesProps = {
   disabled: boolean;
 } & (
   | {
-      /** 导入：每行一个「覆盖」按钮，点击即执行。 */
       onOverwrite: (id: number) => void;
       selection?: undefined;
       blockedSources?: undefined;

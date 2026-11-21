@@ -6,7 +6,6 @@ import { waitForEntrance } from "../support/region-helpers.ts";
 import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 顶栏「导出项目」的范围对话框：两个范围选项、剪辑视图提示与底部的「导出」。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const EVENT_STREAM: ApiOverrides = {

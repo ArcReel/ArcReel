@@ -14,7 +14,6 @@ from lib.script.script_review import overwrite_with_text
 from server.i18n import Translator
 from server.services.project.script_review import ScriptReviewError
 
-# gate 领域错误码 → HTTP 状态。invalid_content / episode_not_found 带参数另行注入。
 _ERROR_STATUS: dict[str, int] = {
     "not_applicable": 409,
     "no_script_plan": 409,

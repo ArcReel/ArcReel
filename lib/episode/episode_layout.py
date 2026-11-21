@@ -91,7 +91,6 @@ class LayoutEpisode:
 
     episode: int
     origin: SourceOrigin
-    #: 原文段出现在左栏整本源文里。
     placed: bool
     #: 原文范围起点所在的整本源文文件（仅 ``placed``）。
     source_file: str | None

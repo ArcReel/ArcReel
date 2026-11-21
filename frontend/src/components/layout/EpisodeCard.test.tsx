@@ -78,7 +78,6 @@ describe("EpisodeCard", () => {
   });
 });
 
-/** 一集只有脚本、还没排视频产物：卡片只能显示条目数本身。 */
 function unplannedEpisode(): EpisodeMeta {
   return makeEpisode({
     status: "scripted",

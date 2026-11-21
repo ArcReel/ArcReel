@@ -361,7 +361,6 @@ class TestEditImageValidation:
                 json={"resource_type": "character", "resource_id": "Alice", "instruction": "x"},
             )
             assert resp.status_code == 400
-            # E1S03 无 generated_assets 指针且 canonical 文件不存在
             resp = client.post(
                 "/api/v1/projects/demo/edit/image",
                 json={

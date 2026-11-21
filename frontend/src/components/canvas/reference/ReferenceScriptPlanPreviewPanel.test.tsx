@@ -28,7 +28,6 @@ const VIDEO_CAPS = {
   max_duration: 8,
 } as VideoCapabilities;
 
-/** 展开单元时长下拉，读出可选秒数后收起。 */
 async function durationOptions(name = "视频单元 1 时长"): Promise<string[]> {
   const user = userEvent.setup();
   await user.click(await screen.findByRole("combobox", { name }));
@@ -58,8 +57,6 @@ const CONFIRMED: Partial<ScriptReviewState> = {
   script_overwrite: makeScriptOverwrite(),
 };
 
-/** 服务端对单个 unit 的定桶结论；默认「引用齐全 → r2v，档位 4/8」，用例按需覆盖。 */
-/** 本面板的缺省结论：@[阿离]/@[长街] 参考图齐全、落 r2v、档位 4/8。 */
 function mkCapability(unitId: string, patch: Partial<ReferenceUnitCapability> = {}): ReferenceUnitCapability {
   return makeReferenceUnitCapability(unitId, {
     declared_capability: "r2v",
@@ -282,7 +279,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(await screen.findByText("视频单元 1 (text line 1): Server-rendered speech diagnostic")).toBeInTheDocument();
   });
 
-  // 场景引用提示：与解析预览面板同判据，落在 unit 卡内，不阻断确认。
   it("warns on units that reference no scene while the project registers scene assets", async () => {
     const state = pendingState();
     state.content = { units: [{ unit_id: "E1U01", text: "@[阿离] 推门。", duration_seconds: 8, source_text: "阿离推门。" }] };
@@ -899,7 +895,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     );
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    // 服务端判定 @[阿离]/@[长街] 参考图齐全、落 r2v 并收窄到 8 秒：4/6 秒不再可选。
     expect(await durationOptions()).toEqual(["8"]);
     expect(screen.queryByText(/引用的资产缺图/)).not.toBeInTheDocument();
   });
@@ -1012,7 +1007,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(saved);
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    // 初始无引用：服务端落 i2v，4/6/8 全可选。
     expect(await durationOptions()).toEqual(["4", "6", "8"]);
 
     // 编辑正文新增 @[阿离]（尚未保存）：面板不自判「名字已登记」，档位保持服务端上一份结论。
@@ -1021,7 +1015,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.change(textarea, { target: { value: "@[阿离] 推门而入。" } });
     expect(await durationOptions()).toEqual(["4", "6", "8"]);
 
-    // 保存后服务端按可用参考图重新定桶：r2v 收窄到仅 8 秒。
     fireEvent.click(await screen.findByText("保存"));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     await act(async () => {
@@ -1090,7 +1083,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   });
 
   it("compares the episode total against the project target", async () => {
-    // pendingState 只有一个 8 秒 unit
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ episode_target_duration: 30 }));
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 

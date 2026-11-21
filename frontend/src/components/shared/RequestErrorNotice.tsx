@@ -26,7 +26,6 @@ export function RequestErrorNotice({
   className,
 }: {
   error: unknown;
-  /** 摘要旁的恢复动作，如「重试」。 */
   action?: { label: string; onClick: () => void };
   className?: string;
 }) {

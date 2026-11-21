@@ -75,7 +75,6 @@ def test_downgrade_collapses_conflicting_active_tasks(
                 queued_at="2026-07-16 10:00:01",
             )
 
-        # 降级前该数据在新（含 resource_type）索引下合法共存
         with engine.begin() as conn:
             statuses = {row[0]: row[1] for row in conn.execute(sa.text("SELECT task_id, status FROM tasks")).fetchall()}
         assert statuses == {"task-a": "queued", "task-b": "queued"}
@@ -97,7 +96,6 @@ def test_downgrade_collapses_conflicting_active_tasks(
         assert rows["task-b"][2] == "system"
         assert rows["task-b"][3] is not None
 
-        # 窄索引已恢复且无 resource_type 列
         with engine.begin() as conn:
             columns = {row[1] for row in conn.execute(sa.text("PRAGMA table_info(tasks)")).fetchall()}
         assert "resource_type" not in columns

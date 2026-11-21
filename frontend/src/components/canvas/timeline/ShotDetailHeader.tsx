@@ -8,23 +8,17 @@ interface ShotDetailHeaderProps {
   segmentId: string;
   index: number;
   total: number;
-  /** 位置后面的属性：时长、状态、切分点开关等。 */
   meta: ReactNode;
-  /** 前移、后移一位；缺省时不显示。 */
   onMoveEarlier?: () => void;
   onMoveLater?: () => void;
-  /** 「在此后插入」「移除分镜」。 */
   structureActions?: ReactNode;
   onPrev: () => void;
   onNext: () => void;
-  /** 切换分镜、移动与增删共用的禁用条件及原因。 */
   navDisabled: boolean;
   navDisabledHint?: string;
-  /** 行尾的备注入口。 */
   notes?: ReactNode;
 }
 
-/** 分镜详情页头：左侧「位置 / 总数」与属性，右侧移动、增删、上一镜 / 下一镜与备注。 */
 export function ShotDetailHeader({
   segmentId,
   index,

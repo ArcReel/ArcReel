@@ -233,7 +233,6 @@ async def reference_projection_for_queued_task(
             script=script,
             unit=unit,
             project_path=project_path,
-            # Claim/rate-limit routing only needs the hydrated visual generation type.
             options=ReferenceRequestOptions(),
             check_asset_links=False,
         )

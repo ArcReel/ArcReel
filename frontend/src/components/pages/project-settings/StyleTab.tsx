@@ -29,7 +29,6 @@ function toPickerValue(style: ProjectStyle): StylePickerValue {
   return { mode: "template", templateId, activeCategory: category, uploadedFile: null, uploadedPreview: null };
 }
 
-/** 选择器里是否已选定风格：模版选了卡片，或参考图有图。 */
 function draftComplete(draft: StylePickerValue): boolean {
   return draft.mode === "template" ? !!draft.templateId : !!(draft.uploadedFile ?? draft.uploadedPreview);
 }
@@ -45,7 +44,6 @@ function fromPickerValue(draft: StylePickerValue, current: ProjectStyle): Projec
     // react-doctor-disable-next-line react-doctor/no-create-object-url-without-revoke -- 地址经 onChange 存入表单值，ProjectSettingsPage 的 effect 在换图、放弃、保存或卸载时 revoke
     return { kind: "image", preview: URL.createObjectURL(draft.uploadedFile), description: "", file: draft.uploadedFile };
   }
-  // 沿用已保存的参考图
   return draft.uploadedPreview && current.kind === "image" ? current : null;
 }
 
@@ -84,7 +82,6 @@ function CurrentStyle({ value: style }: { value: ProjectStyle }) {
   );
 }
 
-/** 「风格」：只显示当前风格；「更换」在对话框里选，「使用此风格」写回未保存修改，随其他修改一起保存。 */
 export function StyleTab({ value: style, onChange }: { value: ProjectStyle; onChange: (next: ProjectStyle) => void }) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);

@@ -33,7 +33,6 @@ import { demoPlaceholder } from "./demo-placeholder";
  */
 export const DEMO_PROJECT_NAME = "onboarding_demo";
 
-/** 演示里唯一有剧本的分集。 */
 export const DEMO_SCRIPTED_EPISODE = 1;
 
 /** 该分集的剧本文件名，与 `EpisodeMeta.script_file` 去掉 `scripts/` 前缀后一致。 */
@@ -75,7 +74,6 @@ const EPISODE_STATUSES: NonNullable<EpisodeMeta["status"]>[] = [
   "draft",
 ];
 
-/** 第 1 集 6 条分镜的骨架：时长、出场引用、镜别与运镜。文案按 index 从 i18n 取。 */
 const SEGMENT_SKELETONS: {
   duration: number;
   segmentBreak: boolean;
@@ -155,7 +153,6 @@ const characterNames = (t: DemoT): string[] =>
 const sceneNames = (t: DemoT): string[] => [1, 2, 3].map((n) => t(`demo_scene_${n}_name`));
 const propNames = (t: DemoT): string[] => [1, 2, 3].map((n) => t(`demo_prop_${n}_name`));
 
-/** 大厅演示卡用的摘要形态。 */
 export function buildDemoProject(t: DemoT): ProjectSummary {
   return {
     name: DEMO_PROJECT_NAME,
@@ -170,7 +167,6 @@ export function buildDemoProject(t: DemoT): ProjectSummary {
   };
 }
 
-/** 演示工作台用的完整项目形态。 */
 export function buildDemoProjectData(t: DemoT): ProjectData {
   const characters: Record<string, Character> = {};
   characterNames(t).forEach((name, i) => {
@@ -206,7 +202,6 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
     return {
       episode,
       title: t(`demo_episode_${episode}_title`),
-      // 只有第 1 集在演示里带剧本；其余分集只有标题，进去会看到「演示只到第 1 集」的说明
       script_file: isScripted ? `scripts/${DEMO_SCRIPT_FILE}` : "",
       status,
       ...(isScripted

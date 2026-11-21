@@ -16,8 +16,6 @@ describe("provider-models fetchers", () => {
     vi.restoreAllMocks();
   });
 
-  // 供应商配置可变（用户在设置页编辑模型 supported_durations），前端不得持久缓存它——
-  // 每次消费都必须重拉，否则项目设置/向导读到的时长集会陈旧（ADR 0035）。
   it("getCustomProviderModels re-fetches on every call (no persistent cache)", async () => {
     const spy = vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
 

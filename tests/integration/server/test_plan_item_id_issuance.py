@@ -54,7 +54,7 @@ async def test_generated_plan_takes_numbers_after_every_used_one(tmp_path: Path)
 
 async def test_promotion_keeps_ids_already_issued_to_the_plan(tmp_path: Path) -> None:
     pm = _project(tmp_path)
-    formal = pm.reserve_item_ids("demo", 1, "scenes", 2)  # 盘上正式规划此前发到的编号
+    formal = pm.reserve_item_ids("demo", 1, "scenes", 2)
     plan: dict[str, Any] = {"scenes": [{"scene_id": "E1S05"}, {"scene_id": "E1S05"}, {"scene_id": "E1S02"}]}
 
     await reissue_plan_item_ids(pm, "demo", 1, plan, keep=formal)

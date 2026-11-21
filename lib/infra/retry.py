@@ -20,7 +20,6 @@ from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
-# 基础可重试错误（不依赖任何 SDK）
 BASE_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     ConnectionError,
     TimeoutError,
@@ -55,7 +54,6 @@ RETRYABLE_STATUS_PATTERNS = (
     "timeout",
 )
 
-# 默认重试配置，供各后端直接引用，避免魔法数字分散在 9+ 处
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS: tuple[int, ...] = (2, 4, 8)
 

@@ -48,8 +48,6 @@ describe("LoginPage returnTo consumption", () => {
     );
   });
 
-  // 锁住登录成功后对 ?from 的「消费」分支：读取 from → safeReturnPath 校验 → 回跳。
-  // 防止以后误改回固定跳转 /app/projects 而主流程回归漏过。
   it("navigates to a valid internal ?from path after successful login", async () => {
     const { container, history } = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo%3Ftab%3Dscene");
     submitLogin(container);
@@ -58,8 +56,6 @@ describe("LoginPage returnTo consumption", () => {
     });
   });
 
-  // 锁住 hash 在回跳链路中存活：from 携带 #shot-3，登录后导航目标须保留该锚点。
-  // 若源码（AuthGuard / 401 拦截 / safeReturnPath）丢掉 hash，此断言会失败。
   it("preserves the URL hash in the return path", async () => {
     const { container, history } = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo%23shot-3");
     submitLogin(container);
