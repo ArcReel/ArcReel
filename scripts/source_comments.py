@@ -48,7 +48,7 @@ _SUFFIX_LANGUAGES: dict[str, Language] = {
 }
 _IGNORE_NAMES = {".dockerignore", ".gitattributes", ".gitignore", ".prettierignore", ".worktreeinclude", "CODEOWNERS"}
 _COMMENT_NODES = {"Comment", "comment", "hash_bang_line"}
-_GITHUB_EXPRESSION = re.compile(rb"\$\{\{(?:'(?:[^']|'')*'|(?!\}\})[^'])*\}\}")
+_GITHUB_EXPRESSION = re.compile(rb"\$\{\{(?:'(?:[^']|'')*+'|(?!\}\})[^'])*+\}\}")
 _ENCODING = re.compile(r"^[ \t\f]*#.*?coding[:=][ \t]*[-\w.]+", re.ASCII)
 _IGNORE_COMMENT = re.compile(rb"^[ \t]*(?P<comment>#[^\r\n]*)", re.MULTILINE)
 _GITIGNORE_COMMENT = re.compile(rb"^(?P<comment>#[^\r\n]*)", re.MULTILINE)

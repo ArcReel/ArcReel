@@ -63,6 +63,11 @@ from scripts.source_comments import extract_comments
         ),
         (
             ".github/workflows/example.yml",
+            "steps:\n  - run: |\n      echo ${{ '}} # it''s a quote: ''' }} ${{ '' }} # shell prose\n",
+            ["# shell prose"],
+        ),
+        (
+            ".github/workflows/example.yml",
             "jobs:\n"
             "  sample:\n"
             "    steps:\n"
@@ -114,6 +119,7 @@ from scripts.source_comments import extract_comments
         "dockerfile-continuation",
         "yaml",
         "workflow",
+        "workflow-escaped-expression-quotes",
         "workflow-shell-and-data",
         "composite-flow-step",
         "workflow-folded-comment-span",
