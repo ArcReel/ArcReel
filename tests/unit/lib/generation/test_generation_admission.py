@@ -13,7 +13,18 @@ from lib.generation import generation_admission
 
 async def test_admission_guard_serializes_one_resource_across_script_rebinds(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
+    contended = asyncio.Event()
     acquired = asyncio.Event()
+    lock = portalocker.lock
+
+    def observe_lock_attempt(handle, flags):
+        try:
+            lock(handle, flags)
+        except portalocker.AlreadyLocked:
+            contended.set()
+            raise
+
+    monkeypatch.setattr(portalocker, "lock", observe_lock_attempt)
 
     async def _acquire_rebound_binding() -> None:
         async with generation_admission.generation_admission_lock(
@@ -23,42 +34,42 @@ async def test_admission_guard_serializes_one_resource_across_script_rebinds(tmp
         ):
             acquired.set()
 
-    async with generation_admission.generation_admission_lock(
-        project_name="demo",
-        script_file="episode_01.json",
-        resource_id="E1S01",
+    async with (
+        asyncio.TaskGroup() as tasks,
+        generation_admission.generation_admission_lock(
+            project_name="demo",
+            script_file="episode_01.json",
+            resource_id="E1S01",
+        ),
     ):
-        rebound = asyncio.create_task(_acquire_rebound_binding())
-        await asyncio.sleep(0.1)
+        tasks.create_task(_acquire_rebound_binding())
+        await asyncio.wait_for(contended.wait(), timeout=5)
         assert not acquired.is_set()
 
-    await rebound
     assert acquired.is_set()
 
 
 async def test_sync_compensation_guard_shares_the_async_resource_lock(tmp_path, monkeypatch):
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
-    acquired = threading.Event()
 
-    def _acquire_for_compensation() -> None:
+    def acquire_for_compensation(*, blocking: bool) -> None:
         with generation_admission.generation_admission_lock_sync(
             project_name="demo",
             script_file="rebound_episode_01.json",
             resource_id="E1S01",
+            blocking=blocking,
         ):
-            acquired.set()
+            pass
 
     async with generation_admission.generation_admission_lock(
         project_name="demo",
         script_file="episode_01.json",
         resource_id="E1S01",
     ):
-        compensation = asyncio.create_task(asyncio.to_thread(_acquire_for_compensation))
-        await asyncio.sleep(0.1)
-        assert not acquired.is_set()
+        with pytest.raises(portalocker.AlreadyLocked):
+            await asyncio.to_thread(acquire_for_compensation, blocking=False)
 
-    await compensation
-    assert acquired.is_set()
+    await asyncio.to_thread(acquire_for_compensation, blocking=True)
 
 
 async def test_admission_guard_propagates_non_contention_lock_failures(tmp_path, monkeypatch):

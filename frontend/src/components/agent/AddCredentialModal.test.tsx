@@ -522,7 +522,7 @@ describe("AddCredentialModal", () => {
       expect(apiKeyInput()).toBeEnabled();
     });
 
-    it("does not show import button in edit mode", async () => {
+    it("does not show import button in edit mode", () => {
       vi.spyOn(API, "listCustomProviders").mockResolvedValue({
         providers: [sampleProvider],
       });
@@ -540,8 +540,6 @@ describe("AddCredentialModal", () => {
       );
 
       // edit 模式即使有可导入供应商也不显示按钮（避免误操作覆盖现有凭证）
-      // 等几个事件循环确保 effect 不会触发（edit 模式 effect 不该调 API）
-      await new Promise((r) => setTimeout(r, 0));
       expect(API.listCustomProviders).not.toHaveBeenCalled();
       expect(screen.queryByTestId("import-from-provider")).not.toBeInTheDocument();
     });

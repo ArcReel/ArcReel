@@ -801,8 +801,6 @@ class TestProjectEventService:
                 assert event_name == "snapshot"
 
                 channel = service._channels["demo"]
-                # 订阅时的首轮扫描会清空标记，等它落定再预置，否则重建捕获到的是空集合
-                await asyncio.sleep(0.1)
                 assert channel.pending_sources == set()
                 channel.pending_sources.add("webui")
 
@@ -956,27 +954,37 @@ class TestProjectEventService:
         service = ProjectEventService(tmp_path, poll_interval=0.05)
         await service.start()
 
-        # 模拟首次扫描卡住:watch task 永不 set ready_event,_subscribe 会 park 在 wait()。
+        watch_started = asyncio.Event()
+
         async def _never_ready(project_name, channel):
-            await asyncio.sleep(3600)
+            watch_started.set()
+            await asyncio.Future()
 
         monkeypatch.setattr(service, "_watch_project", _never_ready)
 
-        task = asyncio.create_task(service._subscribe("demo"))
-        await asyncio.sleep(0.05)
-        channel = service._channels["demo"]
-        assert channel.sse.has_subscribers
-        watch_task = channel.task
+        async def subscribe():
+            async with service.stream_events("demo"):
+                pytest.fail("首次扫描完成前，订阅不应返回")
 
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        task = asyncio.create_task(subscribe())
+        try:
+            await asyncio.wait_for(watch_started.wait(), timeout=5)
+            channel = service._channels["demo"]
+            assert channel.sse.has_subscribers
+            watch_task = channel.task
+            assert watch_task is not None
 
-        assert "demo" not in service._channels
-        await asyncio.sleep(0)
-        assert watch_task.cancelled() or watch_task.done()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
-        await service.shutdown()
+            assert "demo" not in service._channels
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(watch_task, timeout=5)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await service.shutdown()
 
     @pytest.mark.asyncio
     async def test_new_subscriber_entering_during_stop_watch_stays_registered(self, tmp_path, monkeypatch):

@@ -984,7 +984,7 @@ describe("StudioCanvasRouter", () => {
       scripts: { "episode_1.json": makeScript() },
     });
     let resolveUpdate: (result: { success: boolean }) => void = () => {};
-    vi.spyOn(API, "updateSegment").mockReturnValue(
+    const updateSegment = vi.spyOn(API, "updateSegment").mockReturnValue(
       new Promise((resolve) => {
         resolveUpdate = resolve;
       }),
@@ -992,12 +992,10 @@ describe("StudioCanvasRouter", () => {
 
     renderAt("/episodes/1");
 
-    fireEvent.click(screen.getByText("update-prompt-await"));
-
-    // 放几轮微任务/宏任务过去：底层 PATCH 仍未落地，回调不能提前 resolve——
-    // 若用 voidPromise 包一层，包装函数会在这里已经 resolve，暴露不出真正的 bug。
-    await new Promise((r) => setTimeout(r, 0));
-    await new Promise((r) => setTimeout(r, 0));
+    await act(async () => {
+      fireEvent.click(screen.getByText("update-prompt-await"));
+    });
+    expect(updateSegment).toHaveBeenCalledTimes(1);
     expect(screen.getByText("update-prompt-await")).toHaveAttribute("data-update-pending", "true");
 
     resolveUpdate({ success: true });

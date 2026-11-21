@@ -1,3 +1,4 @@
+import { waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ONBOARDING_ANCHORS } from "./anchors";
 import { anchorSelector, startTour, type TourLabels, type TourStep } from "./tour";
@@ -162,6 +163,7 @@ describe("startTour", () => {
   });
 
   it("re-places the popover when the anchor is pushed down before the highlight settles", async () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList);
     const handle = startTour(
       [
@@ -172,26 +174,32 @@ describe("startTour", () => {
       { onExit: vi.fn() },
     );
     const stage = () => document.querySelector(".driver-overlay path")?.getAttribute("d") ?? "";
-    await vi.waitFor(() => expect(stage()).not.toBe(""));
-    click(".driver-popover-next-btn");
-
     const target = document.createElement("div");
     target.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyDemoCard);
     let top = 100;
     vi.spyOn(target, "getBoundingClientRect").mockImplementation(() => new DOMRect(40, top, 300, 200));
-    // 锚点挂载后 driver 立即按当时的位置摆好气泡，下一帧才落定高亮框；问候区恰好在这之间渲染
-    document.body.appendChild(target);
-    await Promise.resolve();
-    expect(popover().querySelector(".driver-popover-title")?.textContent).toBe("演示卡");
-    top = 166;
-    document.body.prepend(document.createElement("h1"));
 
-    await vi.waitFor(() => expect(stage()).toContain(",158 h"));
-    await vi.waitFor(() => expect(popover()).toHaveStyle({ bottom: `${window.innerHeight - (166 + 200 + 18)}px` }));
+    try {
+      vi.advanceTimersToNextFrame();
+      expect(stage()).not.toBe("");
+      click(".driver-popover-next-btn");
+      expect(popover()).toHaveClass("driver-popover-waiting");
 
-    handle.dispose();
-    target.remove();
-    vi.unstubAllGlobals();
+      document.body.appendChild(target);
+      await waitFor(() => expect(popover().querySelector(".driver-popover-title")?.textContent).toBe("演示卡"));
+      expect(popover()).toHaveStyle({ bottom: `${window.innerHeight - (100 + 200 + 18)}px` });
+      top = 166;
+
+      vi.advanceTimersToNextFrame();
+      vi.advanceTimersToNextFrame();
+      expect(stage()).toContain(",158 h");
+      expect(popover()).toHaveStyle({ bottom: `${window.innerHeight - (166 + 200 + 18)}px` });
+    } finally {
+      handle.dispose();
+      target.remove();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("falls back to a centered popover when the anchor is missing, and warns", async () => {

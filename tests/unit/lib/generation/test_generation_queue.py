@@ -3,7 +3,9 @@
 import asyncio
 import json
 
+import portalocker
 import pytest
+import time_machine
 
 from lib.db.models.task import Task
 from lib.db.repositories.task_repo import TaskNotCancellableError
@@ -33,12 +35,26 @@ class TestGenerationQueue:
 
         monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "app-data"))
         reset_for_tests()
-        async with generation_admission_lock(
-            project_name="admission-demo",
-            script_file="scripts/episode_01.json",
-            resource_id="E1S01",
+        lock_contended = asyncio.Event()
+        lock = portalocker.lock
+
+        def observe_lock_attempt(handle, flags):
+            try:
+                lock(handle, flags)
+            except portalocker.AlreadyLocked:
+                lock_contended.set()
+                raise
+
+        monkeypatch.setattr(portalocker, "lock", observe_lock_attempt)
+        async with (
+            asyncio.TaskGroup() as tasks,
+            generation_admission_lock(
+                project_name="admission-demo",
+                script_file="scripts/episode_01.json",
+                resource_id="E1S01",
+            ),
         ):
-            enqueue = asyncio.create_task(
+            enqueue = tasks.create_task(
                 queue.enqueue_task(
                     project_name="admission-demo",
                     task_type="tts",
@@ -48,10 +64,10 @@ class TestGenerationQueue:
                     provider_id="audio-provider",
                 )
             )
-            await asyncio.sleep(0.1)
+            await asyncio.wait_for(lock_contended.wait(), timeout=5)
             assert not enqueue.done()
 
-        result = await enqueue
+        result = enqueue.result()
         assert result["deduped"] is False
 
     async def test_enqueue_dedupe_claim_and_succeed(self, queue):
@@ -279,28 +295,28 @@ class TestGenerationQueue:
         assert seen_options[0].to_payload() == {}
 
     async def test_worker_lease_takeover(self, queue):
-        first_ok = await queue.acquire_or_renew_worker_lease(
-            name="default",
-            owner_id="worker-a",
-            ttl_seconds=1,
-        )
-        assert first_ok
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as clock:
+            first_ok = await queue.acquire_or_renew_worker_lease(
+                name="default",
+                owner_id="worker-a",
+                ttl_seconds=1,
+            )
+            assert first_ok
 
-        second_ok = await queue.acquire_or_renew_worker_lease(
-            name="default",
-            owner_id="worker-b",
-            ttl_seconds=1,
-        )
-        assert not second_ok
+            second_ok = await queue.acquire_or_renew_worker_lease(
+                name="default",
+                owner_id="worker-b",
+                ttl_seconds=1,
+            )
+            assert not second_ok
 
-        await asyncio.sleep(1.2)
-
-        takeover_ok = await queue.acquire_or_renew_worker_lease(
-            name="default",
-            owner_id="worker-b",
-            ttl_seconds=1,
-        )
-        assert takeover_ok
+            clock.shift(1)
+            takeover_ok = await queue.acquire_or_renew_worker_lease(
+                name="default",
+                owner_id="worker-b",
+                ttl_seconds=1,
+            )
+            assert takeover_ok
 
     async def test_claim_next_task_respects_dependencies_without_blocking_other_heads(self, queue):
         head_one = await queue.enqueue_task(

@@ -220,10 +220,22 @@ describe("RenderDialog", () => {
     await userEvent.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
 
-    accept({ task_id: "task-1", deduped: false, artifact_path: "renders/x.mp4" });
-    expect(await screen.findByText("正在渲染成片…")).toBeInTheDocument();
-    await userEvent.keyboard("{Escape}");
-    expect(onClose).toHaveBeenCalledTimes(1);
+    const dialog = screen.getByRole("dialog");
+    const runningText = "正在渲染成片…";
+    const observer = new MutationObserver(() => {
+      if (within(dialog).queryByText(runningText) === null) return;
+      observer.disconnect();
+      const target = document.activeElement ?? dialog;
+      target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+    observer.observe(dialog, { subtree: true, childList: true, characterData: true });
+    try {
+      accept({ task_id: "task-1", deduped: false, artifact_path: "renders/x.mp4" });
+      expect(await screen.findByText(runningText)).toBeInTheDocument();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      observer.disconnect();
+    }
   });
 
   it("提交被入队前检查拒绝时显示原因", async () => {

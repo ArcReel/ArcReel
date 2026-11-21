@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { Clapperboard, Download, Film, Loader2, RotateCw } from "lucide-react";
@@ -166,12 +166,12 @@ function RenderPanel({
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const busy = requesting || downloading;
-  useEffect(() => {
+  useLayoutEffect(() => {
     // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent, react-doctor/no-prop-callback-in-effect -- 在途状态来自按版本 key 重新挂载的面板与其 useRenderArtifact，父级无法持有；父级只需据此忽略关闭请求，卸载时由下方 cleanup 复位
     onBusyChange(busy);
   }, [busy, onBusyChange]);
   // 换版本重新挂载或对话框关闭时，上一份面板的在途状态不再拦住关闭。
-  useEffect(() => () => onBusyChange(false), [onBusyChange]);
+  useLayoutEffect(() => () => onBusyChange(false), [onBusyChange]);
 
   const isDraft = kind === "jianying_draft";
   const hasFile = artifact !== null && artifact.version !== null;
