@@ -677,7 +677,10 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("2K");
   });
 
-  it("keeps legacy projects without an i2i resolution unset until edited and lets stale i2i values reset independently", async () => {
+  it.each([
+    { options: ["1K", "2K"], showsPicker: true },
+    { options: [], showsPicker: false },
+  ])("resets a stale i2i resolution independently with catalog options $options", async ({ options, showsPicker }) => {
     const updateSpy = mockProject({
       video_backend: "gemini/veo-3",
       default_image_backend: "gemini/nano-banana",
@@ -710,7 +713,7 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
             capabilities: [],
             default: true,
             supported_durations: [],
-            resolutions: ["1K", "2K"],
+            resolutions: options,
             qualities: [],
             audio_track: "always_off",
             reference_route_audio_track: "always_off",
@@ -722,7 +725,9 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
 
     renderAt("/app/projects/demo/settings?tab=models");
     expect(await screen.findByRole("combobox", { name: "文生图 · 分辨率" })).toHaveTextContent("4K");
-    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("512px");
+    const i2iPicker = screen.queryByRole("combobox", { name: "图生图 · 分辨率" });
+    expect(i2iPicker !== null).toBe(showsPicker);
+    expect(i2iPicker?.textContent?.includes("512px") ?? false).toBe(showsPicker);
     expect(screen.getByText(/已保存的分辨率 512px/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
@@ -907,6 +912,25 @@ describe("ProjectSettingsPage – model_settings quality", () => {
         },
       }),
     );
+  });
+
+  it("preserves the target model's saved quality when switching and changing its resolution", async () => {
+    const updateSpy = mockProject({
+      default_image_backend: "openai/gpt-image-2",
+      model_settings: { "openai/gpt-image-1": { resolution: "1K", quality: "high" } },
+    });
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=models");
+
+    await pick(user, await screen.findByRole("combobox", { name: /^默认图片模型$/ }), /gpt-image-1/);
+    const imageCard = (await qualityPicker()).closest("section")!;
+    await pick(user, within(imageCard).getByRole("combobox", { name: "分辨率" }), "2K");
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1].model_settings?.["openai/gpt-image-1"]).toEqual({
+      resolution: "2K", quality: "high",
+    });
   });
 
   it("keeps an image model's quality when only a video resolution changes", async () => {
