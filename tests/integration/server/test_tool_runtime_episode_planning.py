@@ -83,13 +83,33 @@ class _PlanningQueue(GenerationQueue):
         self.pause_followup = False
         self.followup_entered = asyncio.Event()
         self.release_followup = asyncio.Event()
+        self.pause_stop_after_read = False
+        self.followup_enqueued = asyncio.Event()
+        self.fail_next_cancel = False
+
+    async def get_active_tasks_for_resources(self, **kwargs: Any) -> list[dict[str, Any]]:
+        active = await super().get_active_tasks_for_resources(**kwargs)
+        if self.pause_stop_after_read and any(task["status"] == "running" for task in active):
+            self.pause_stop_after_read = False
+            self.release_followup.set()
+            await asyncio.wait_for(self.followup_enqueued.wait(), timeout=5)
+        return active
 
     async def enqueue_task(self, **kwargs: Any) -> dict[str, Any]:
         if self.pause_followup and kwargs.get("dependency_task_id") is not None:
             self.pause_followup = False
             self.followup_entered.set()
             await self.release_followup.wait()
+            result = await super().enqueue_task(**kwargs)
+            self.followup_enqueued.set()
+            return result
         return await super().enqueue_task(**kwargs)
+
+    async def cancel_task(self, task_id: str) -> dict[str, Any]:
+        if self.fail_next_cancel:
+            self.fail_next_cancel = False
+            raise RuntimeError("transient cancel failure")
+        return await super().cancel_task(task_id)
 
 
 @pytest.fixture
@@ -133,6 +153,7 @@ async def planning(tmp_path: Path, file_db_factory, monkeypatch: pytest.MonkeyPa
         yield projects, services, file_db_factory
     finally:
         queue.release_followup.set()
+        queue.followup_enqueued.set()
         await worker.stop()
 
 
@@ -267,6 +288,67 @@ async def test_stop_during_followup_enqueue_preserves_progress_and_allows_an_exp
 
     assert _titles(projects) == ["第1集", "第2集", "第3集"]
     assert len(generator.prompts) == 3
+
+
+async def test_stop_after_followup_enqueue_completes_before_stop_mark_still_cancels_followup(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    queue = services.queue
+    assert isinstance(queue, _PlanningQueue)
+    queue.pause_followup = True
+    queue.pause_stop_after_read = True
+    generator = _Generator(hold=True)
+    _use_generator(monkeypatch, generator)
+    scope = _scope(projects)
+    request = ToolRequest(PlanEpisodesRequest())
+
+    try:
+        outcome = await start_episode_planning(request, scope, _WEB, services)
+        assert outcome.problem is None
+        await asyncio.wait_for(queue.followup_entered.wait(), timeout=5)
+        stopped = await asyncio.wait_for(stop_episode_planning(scope, _WEB, services), timeout=5)
+    finally:
+        generator.release.set()
+    assert len(stopped.running) == 1
+    assert len(stopped.cancelled) == 1
+
+    tasks = await _wait_until_idle(session_factory)
+    assert [task.status for task in tasks] == ["succeeded", "cancelled"]
+    assert len(generator.prompts) == 1
+    assert _titles(projects) == ["第1集"]
+
+    resumed_generator = _Generator()
+    _use_generator(monkeypatch, resumed_generator)
+    resumed = await start_episode_planning(request, scope, _WEB, services)
+    assert resumed.problem is None
+    await _wait_until_idle(session_factory)
+
+    assert _titles(projects) == ["第1集", "第2集", "第3集"]
+    assert len(resumed_generator.prompts) == 2
+
+
+async def test_transient_followup_cancel_error_preserves_capped_window_commit_and_retries_before_finish(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    queue = services.queue
+    assert isinstance(queue, _PlanningQueue)
+    queue.pause_followup = True
+    queue.fail_next_cancel = True
+    generator = _Generator(max_output_tokens=400)
+    _use_generator(monkeypatch, generator, window_chars=len("".join(_CHAPTERS)))
+    scope = _scope(projects)
+    request = ToolRequest(PlanEpisodesRequest())
+
+    outcome = await start_episode_planning(request, scope, _WEB, services)
+    assert outcome.problem is None
+    await _stop_while_followup_is_entering(scope, services, queue)
+
+    tasks = await _wait_until_idle(session_factory)
+    assert [task.status for task in tasks] == ["succeeded", "cancelled"]
+    assert len(generator.prompts) == 1
+    assert _titles(projects) == ["第1集"]
 
 
 async def test_stop_during_a_capped_final_window_does_not_queue_another(

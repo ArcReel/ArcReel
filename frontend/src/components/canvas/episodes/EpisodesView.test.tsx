@@ -447,6 +447,34 @@ describe("EpisodesView", () => {
       expect(stop).toHaveBeenCalledExactlyOnceWith("demo");
     });
 
+    it("restores the stop button for retry when stopping fails", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      const stop = vi
+        .spyOn(API, "stopEpisodePlanning")
+        .mockRejectedValueOnce(new Error("网络断开"))
+        .mockResolvedValueOnce({ cancelled: [], running: ["plan-1"] });
+      useTasksStore.setState({
+        tasks: [
+          makeTask({
+            task_id: "plan-1",
+            project_name: "demo",
+            task_type: "text_episode_plan",
+            resource_id: "episode-planning",
+            status: "running",
+          }),
+        ],
+      });
+      renderView();
+
+      const popover = await openPlanning("AI 规划中 · 67%");
+      await userEvent.click(popover.getByRole("button", { name: "停止规划" }));
+      expect(await popover.findByRole("button", { name: "停止规划" })).toBeInTheDocument();
+
+      await userEvent.click(popover.getByRole("button", { name: "停止规划" }));
+      expect(await popover.findByText("正在规划的这一段完成后停止，已规划出的集会保留。")).toBeInTheDocument();
+      expect(stop).toHaveBeenCalledTimes(2);
+    });
+
     it("sends a truncated custom model to its entry in settings", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
       useTasksStore.setState({

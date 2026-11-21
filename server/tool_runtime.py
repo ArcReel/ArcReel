@@ -2904,12 +2904,13 @@ def _format_plan(result: PlanResult, project: Mapping[str, Any], *, gap: bool = 
 _STOPPED_PLANNING_WINDOWS: set[str] = set()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class _PlanningChain:
     """Web 逐窗规划时，后续任务占用另一个槽，依赖当前任务成功。"""
 
     task: Mapping[str, Any]
     services: Services
+    _queued_next_task_id: str | None = None
 
     async def queue_next_window(self) -> None:
         task_id = str(self.task["task_id"])
@@ -2931,8 +2932,31 @@ class _PlanningChain:
             user_id=str(self.task.get("user_id") or DEFAULT_USER_ID),
             dependency_task_id=task_id,
         )
-        if task_id in _STOPPED_PLANNING_WINDOWS and not next_window.get("deduped"):
-            await self.services.queue.cancel_task(str(next_window["task_id"]))
+        if not next_window.get("deduped"):
+            self._queued_next_task_id = str(next_window["task_id"])
+            await self.cancel_if_stopped(suppress_error=True)
+
+    async def cancel_if_stopped(self, *, suppress_error: bool = False) -> None:
+        task_id = str(self.task["task_id"])
+        next_task_id = self._queued_next_task_id
+        if next_task_id is None or task_id not in _STOPPED_PLANNING_WINDOWS:
+            return
+        try:
+            await self.services.queue.cancel_task(next_task_id)
+        except Exception:
+            if not suppress_error:
+                raise
+            logging.getLogger(__name__).warning(
+                "取消分集规划后续窗口失败: task_id=%s next_task_id=%s",
+                task_id,
+                next_task_id,
+                exc_info=True,
+            )
+        else:
+            self._queued_next_task_id = None
+
+    def clear_stop_mark(self) -> None:
+        _STOPPED_PLANNING_WINDOWS.discard(str(self.task["task_id"]))
 
 
 async def _execute_plan_episodes(
@@ -2947,58 +2971,63 @@ async def _execute_plan_episodes(
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     try:
-        planner = await planner_cls.create(
-            await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
-        )
-        if chain is None:
-            result = await planner.plan(instructions=request.value.instructions, gap=gap)
+        try:
+            planner = await planner_cls.create(
+                await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
+            )
+            if chain is None:
+                result = await planner.plan(instructions=request.value.instructions, gap=gap)
+            else:
+                result = await planner.plan(
+                    instructions=request.value.instructions, on_more_to_plan=chain.queue_next_window, gap=gap
+                )
+        except TextOutputTruncatedError as exc:
+            outcome: ToolOutcome[Any] = ToolOutcome(problem=truncation_problem(exc))
+        except NoAvailableProviderError as exc:
+            outcome = ToolOutcome(problem=no_available_provider_problem(exc))
+        except ModelNotInCatalogError as exc:
+            outcome = ToolOutcome(problem=model_not_in_catalog_problem(exc))
+        except NoCutPointError as exc:
+            outcome = ToolOutcome(
+                problem=ToolProblem(
+                    "episode_planning_no_cut_point",
+                    str(exc),
+                    action=GenerationAction.FIX_INPUT,
+                    params={"source_file": exc.source_file, "offset": exc.offset},
+                )
+            )
+        except Exception as exc:
+            # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
+            outcome = ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
         else:
-            result = await planner.plan(
-                instructions=request.value.instructions, on_more_to_plan=chain.queue_next_window, gap=gap
+            project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
+            value = PlanEpisodesResult(
+                message=_format_plan(result, project, gap=gap is not None),
+                episodes=[
+                    {
+                        "episode_id": episode.episode,
+                        "position": episode_position(project, episode.episode),
+                        "title": episode.title,
+                        "hook": episode.hook,
+                        "reading_units": episode.reading_units,
+                        "ledger_status": episode.ledger_status,
+                        "first_sentence": episode.first_sentence,
+                        "last_sentence": episode.last_sentence,
+                    }
+                    for episode in result.episodes
+                ],
+                cursor=result.cursor,
+                source_exhausted=result.source_exhausted,
+                total_planned=result.total_planned,
+                ledger_stats=_ledger_stats_payload(result.ledger_stats),
             )
-    except TextOutputTruncatedError as exc:
-        return ToolOutcome(problem=truncation_problem(exc))
-    except NoAvailableProviderError as exc:
-        return ToolOutcome(problem=no_available_provider_problem(exc))
-    except ModelNotInCatalogError as exc:
-        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
-    except NoCutPointError as exc:
-        return ToolOutcome(
-            problem=ToolProblem(
-                "episode_planning_no_cut_point",
-                str(exc),
-                action=GenerationAction.FIX_INPUT,
-                params={"source_file": exc.source_file, "offset": exc.offset},
-            )
-        )
-    except Exception as exc:
-        # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
-        return ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
+            outcome = ToolOutcome(value=value)
+        if chain is not None:
+            await chain.cancel_if_stopped(suppress_error=outcome.problem is not None)
+        return outcome
     finally:
         if chain is not None:
-            _STOPPED_PLANNING_WINDOWS.discard(str(chain.task["task_id"]))
-    project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
-    value = PlanEpisodesResult(
-        message=_format_plan(result, project, gap=gap is not None),
-        episodes=[
-            {
-                "episode_id": episode.episode,
-                "position": episode_position(project, episode.episode),
-                "title": episode.title,
-                "hook": episode.hook,
-                "reading_units": episode.reading_units,
-                "ledger_status": episode.ledger_status,
-                "first_sentence": episode.first_sentence,
-                "last_sentence": episode.last_sentence,
-            }
-            for episode in result.episodes
-        ],
-        cursor=result.cursor,
-        source_exhausted=result.source_exhausted,
-        total_planned=result.total_planned,
-        ledger_stats=_ledger_stats_payload(result.ledger_stats),
-    )
-    return ToolOutcome(value=value)
+            chain.clear_stop_mark()
 
 
 def _plan_episodes_preflight(projects: ProjectManager, project_name: str) -> None:
@@ -3243,41 +3272,45 @@ async def _draft_replan_window(
 ) -> ToolOutcome[Any]:
     planning_instructions = instructions if isinstance(instructions, str) else None
     try:
-        planner = await planner_cls.create(
-            await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
-        )
-        result: CandidatePlanResult = await planner.plan_candidate(
-            candidate_id, planning_instructions, on_more_to_plan=chain.queue_next_window
-        )
-    except TextOutputTruncatedError as exc:
-        return ToolOutcome(problem=truncation_problem(exc))
-    except NoAvailableProviderError as exc:
-        return ToolOutcome(problem=no_available_provider_problem(exc))
-    except ModelNotInCatalogError as exc:
-        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
-    except NoCutPointError as exc:
-        return ToolOutcome(
-            problem=ToolProblem(
-                "episode_planning_no_cut_point",
-                str(exc),
-                action=GenerationAction.FIX_INPUT,
-                params={"source_file": exc.source_file, "offset": exc.offset},
+        try:
+            planner = await planner_cls.create(
+                await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
             )
-        )
-    except Exception as exc:
-        # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
-        return ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
+            result: CandidatePlanResult = await planner.plan_candidate(
+                candidate_id, planning_instructions, on_more_to_plan=chain.queue_next_window
+            )
+        except TextOutputTruncatedError as exc:
+            outcome: ToolOutcome[Any] = ToolOutcome(problem=truncation_problem(exc))
+        except NoAvailableProviderError as exc:
+            outcome = ToolOutcome(problem=no_available_provider_problem(exc))
+        except ModelNotInCatalogError as exc:
+            outcome = ToolOutcome(problem=model_not_in_catalog_problem(exc))
+        except NoCutPointError as exc:
+            outcome = ToolOutcome(
+                problem=ToolProblem(
+                    "episode_planning_no_cut_point",
+                    str(exc),
+                    action=GenerationAction.FIX_INPUT,
+                    params={"source_file": exc.source_file, "offset": exc.offset},
+                )
+            )
+        except Exception as exc:
+            # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
+            outcome = ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
+        else:
+            done = "，已覆盖到整本源文结尾" if result.source_exhausted else ""
+            outcome = ToolOutcome(
+                value=ReplanWindowResult(
+                    message=f"新的分集方案追加了 {len(result.episodes)} 集，共 {result.total} 集{done}。",
+                    planned=len(result.episodes),
+                    total=result.total,
+                    complete=result.source_exhausted,
+                )
+            )
+        await chain.cancel_if_stopped(suppress_error=outcome.problem is not None)
+        return outcome
     finally:
-        _STOPPED_PLANNING_WINDOWS.discard(str(chain.task["task_id"]))
-    done = "，已覆盖到整本源文结尾" if result.source_exhausted else ""
-    return ToolOutcome(
-        value=ReplanWindowResult(
-            message=f"新的分集方案追加了 {len(result.episodes)} 集，共 {result.total} 集{done}。",
-            planned=len(result.episodes),
-            total=result.total,
-            complete=result.source_exhausted,
-        )
-    )
+        chain.clear_stop_mark()
 
 
 def _planning_gap(raw: object) -> tuple[str, int] | None:
@@ -3301,26 +3334,35 @@ async def stop_episode_planning(
     scope: ProjectScope, caller: CallerContext, services: Services
 ) -> StopEpisodePlanningResult:
     """停止分集规划：取消排队中的窗口；执行中的那一窗照常完成，它切出的集保留，但不再排下一窗。"""
-    active = await services.queue.get_active_tasks_for_resources(
-        project_name=scope.project_name,
-        task_type=_TEXT_EPISODE_PLAN,
-        resource_ids=list(EPISODE_PLANNING_SLOTS),
-        user_id=caller.user_id,
-    )
     cancelled: list[str] = []
     running: list[str] = []
-    for task in active:
-        task_id = str(task["task_id"])
-        if task.get("status") == "queued":
-            try:
-                await services.queue.cancel_task(task_id)
-            except TaskNotCancellableError:
-                pass
-            else:
-                cancelled.append(task_id)
-                continue
-        running.append(task_id)
-        _STOPPED_PLANNING_WINDOWS.add(task_id)
+    seen_running: set[str] = set()
+    while True:
+        active = await services.queue.get_active_tasks_for_resources(
+            project_name=scope.project_name,
+            task_type=_TEXT_EPISODE_PLAN,
+            resource_ids=list(EPISODE_PLANNING_SLOTS),
+            user_id=caller.user_id,
+        )
+        new_running = False
+        for task in active:
+            task_id = str(task["task_id"])
+            if task.get("status") == "queued":
+                try:
+                    cancel_result = await services.queue.cancel_task(task_id)
+                except TaskNotCancellableError:
+                    pass
+                else:
+                    if cancel_result.get("cancelled"):
+                        cancelled.append(task_id)
+                    continue
+            if task_id not in seen_running:
+                seen_running.add(task_id)
+                running.append(task_id)
+                _STOPPED_PLANNING_WINDOWS.add(task_id)
+                new_running = True
+        if not new_running:
+            break
     return StopEpisodePlanningResult(cancelled=cancelled, running=running)
 
 
@@ -3366,14 +3408,17 @@ async def execute_queued_text_task(
             chain=_PlanningChain(task=task, services=services),
         )
     elif task_type == _TEXT_EPISODE_PLAN:
-        outcome = await _execute_plan_episodes(
-            ToolRequest(PlanEpisodesRequest(instructions=payload.get("instructions"))),
-            scope,
-            services,
-            planner_cls=planner_cls,
-            chain=_PlanningChain(task=task, services=services) if payload.get("continue_to_end") else None,
-            gap=_planning_gap(payload.get("gap")),
-        )
+        try:
+            outcome = await _execute_plan_episodes(
+                ToolRequest(PlanEpisodesRequest(instructions=payload.get("instructions"))),
+                scope,
+                services,
+                planner_cls=planner_cls,
+                chain=_PlanningChain(task=task, services=services) if payload.get("continue_to_end") else None,
+                gap=_planning_gap(payload.get("gap")),
+            )
+        finally:
+            _STOPPED_PLANNING_WINDOWS.discard(str(task["task_id"]))
     else:
         request = TextGenerationRequest(
             episode=payload["episode"],
