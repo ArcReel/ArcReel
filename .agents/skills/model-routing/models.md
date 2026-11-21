@@ -1,5 +1,7 @@
 # 模型映射
 
+委派出现异常时，按同 category 下的 fallback 链依次重试。
+
 ## Category
 
 | Category | 模型 | Effort | Fallback |
