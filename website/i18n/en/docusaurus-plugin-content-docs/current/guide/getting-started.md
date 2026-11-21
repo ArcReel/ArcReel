@@ -161,6 +161,8 @@ Tell the Agent the aspect ratio, audience, and target duration. In Narration or 
 
 ### 5.2 Episodes and Script {#episodes-and-script}
 
+After choosing **Stop planning** in Episodes, you can close the popover or leave the page. The current section finishes, and the episodes planned so far are kept. When replanning, choose **Stop generating** to keep the candidate generated so far. You can resume from the saved progress later.
+
 Open the episode you want to produce. In Narration and Drama projects, run Script Planning, then check shot durations, dialogue, and newly identified assets in Content Review. Choose Confirm & continue to create the formal script. Ads and short videos generate a formal script directly. Check the result in the workspace. See [Content Structure](./workflows.md#stage-content-structure) for review criteria.
 
 ### 5.3 Character, Scene, and Prop Assets {#character-scene-prop-assets}

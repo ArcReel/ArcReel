@@ -420,6 +420,33 @@ describe("EpisodesView", () => {
       expect(await screen.findByRole("button", { name: "AI 规划中 · 67%" })).toBeInTheDocument();
     });
 
+    it("sends one stop command even if a queued planning window appears afterward", async () => {
+      vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
+      const stop = vi.spyOn(API, "stopEpisodePlanning").mockResolvedValue({ cancelled: [], running: ["plan-1"] });
+      const running = makeTask({
+        task_id: "plan-1",
+        project_name: "demo",
+        task_type: "text_episode_plan",
+        resource_id: "episode-planning",
+        status: "running",
+      });
+      useTasksStore.setState({ tasks: [running] });
+      renderView();
+
+      const popover = await openPlanning("AI 规划中 · 67%");
+      await userEvent.click(popover.getByRole("button", { name: "停止规划" }));
+      expect(await popover.findByText("正在规划的这一段完成后停止，已规划出的集会保留。")).toBeInTheDocument();
+      const queued = makeTask({
+        ...running,
+        task_id: "plan-2",
+        resource_id: "episode-planning-next",
+        status: "queued",
+      });
+      act(() => useTasksStore.setState({ tasks: [running, queued] }));
+
+      expect(stop).toHaveBeenCalledExactlyOnceWith("demo");
+    });
+
     it("sends a truncated custom model to its entry in settings", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
       useTasksStore.setState({

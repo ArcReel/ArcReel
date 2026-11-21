@@ -77,6 +77,21 @@ class _Generator:
         return TextGenerationResult(text=json.dumps(body, ensure_ascii=False), provider="fake", model="fake-model")
 
 
+class _PlanningQueue(GenerationQueue):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.pause_followup = False
+        self.followup_entered = asyncio.Event()
+        self.release_followup = asyncio.Event()
+
+    async def enqueue_task(self, **kwargs: Any) -> dict[str, Any]:
+        if self.pause_followup and kwargs.get("dependency_task_id") is not None:
+            self.pause_followup = False
+            self.followup_entered.set()
+            await self.release_followup.wait()
+        return await super().enqueue_task(**kwargs)
+
+
 @pytest.fixture
 async def planning(tmp_path: Path, file_db_factory, monkeypatch: pytest.MonkeyPatch):
     projects = ProjectManager(tmp_path / "projects")
@@ -85,7 +100,7 @@ async def planning(tmp_path: Path, file_db_factory, monkeypatch: pytest.MonkeyPa
     projects.create_project("planning", content_mode="narration")
     projects.create_project_metadata("planning", "Planning", "", "narration")
     register_project_sources(projects, "planning", whole_source={"novel.txt": "".join(_CHAPTERS)})
-    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+    queue = _PlanningQueue(session_factory=file_db_factory, project_manager=projects)
     services = Services(
         projects=projects,
         workflow_planner=object(),
@@ -117,6 +132,7 @@ async def planning(tmp_path: Path, file_db_factory, monkeypatch: pytest.MonkeyPa
     try:
         yield projects, services, file_db_factory
     finally:
+        queue.release_followup.set()
         await worker.stop()
 
 
@@ -212,6 +228,45 @@ async def test_stop_keeps_finished_windows_and_the_next_run_resumes_from_the_cur
     await _wait_until_idle(session_factory)
 
     assert _titles(projects) == ["第1集", "第2集", "第3集"]
+
+
+async def _stop_while_followup_is_entering(scope: ProjectScope, services: Services, queue: _PlanningQueue) -> None:
+    await asyncio.wait_for(queue.followup_entered.wait(), timeout=5)
+
+    try:
+        stopped = await asyncio.wait_for(stop_episode_planning(scope, _WEB, services), timeout=5)
+        assert stopped.cancelled == []
+        assert len(stopped.running) == 1
+    finally:
+        queue.release_followup.set()
+
+
+async def test_stop_during_followup_enqueue_preserves_progress_and_allows_an_explicit_resume(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    queue = services.queue
+    assert isinstance(queue, _PlanningQueue)
+    queue.pause_followup = True
+    generator = _Generator()
+    _use_generator(monkeypatch, generator)
+    scope = _scope(projects)
+    request = ToolRequest(PlanEpisodesRequest())
+
+    outcome = await start_episode_planning(request, scope, _WEB, services)
+    assert outcome.problem is None
+    await _stop_while_followup_is_entering(scope, services, queue)
+
+    tasks = await _wait_until_idle(session_factory)
+    assert len(generator.prompts) == 1, [task.status for task in tasks]
+    assert _titles(projects) == ["第1集"]
+
+    resumed = await start_episode_planning(request, scope, _WEB, services)
+    assert resumed.problem is None
+    await _wait_until_idle(session_factory)
+
+    assert _titles(projects) == ["第1集", "第2集", "第3集"]
+    assert len(generator.prompts) == 3
 
 
 async def test_stop_during_a_capped_final_window_does_not_queue_another(
@@ -324,6 +379,45 @@ async def test_replanning_fills_a_candidate_window_by_window_and_leaves_the_ledg
     assert [episode["source_range"] for episode in candidate["episodes"]] == [e["source_range"] for e in ledger[1:]]
     assert all("节奏放慢" in prompt for prompt in generator.prompts)
     assert "第一章" not in generator.prompts[0].rsplit("---", 2)[-2]
+
+
+async def test_stop_during_replan_followup_enqueue_keeps_the_candidate_available_to_continue(
+    planning, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projects, services, session_factory = planning
+    queue = services.queue
+    assert isinstance(queue, _PlanningQueue)
+    scope = _scope(projects)
+    request = ToolRequest(PlanEpisodesRequest())
+    _use_generator(monkeypatch, _Generator())
+    assert (await start_episode_planning(request, scope, _WEB, services)).problem is None
+    await _wait_until_idle(session_factory)
+    ledger = projects.load_project("planning")["episodes"]
+    generator = _Generator()
+    _use_generator(monkeypatch, generator)
+    queue.pause_followup = True
+
+    assert (await start_episode_replan(request, scope, _WEB, services, episode=ledger[0]["episode"])).problem is None
+    await _stop_while_followup_is_entering(scope, services, queue)
+
+    tasks = await _wait_until_idle(session_factory)
+    assert len(generator.prompts) == 1, [task.status for task in tasks]
+    project = projects.load_project("planning")
+    assert project["episodes"] == ledger
+    candidate = project["episode_replan"]
+    assert not candidate["complete"]
+    assert [episode["source_range"] for episode in candidate["episodes"]] == [ledger[0]["source_range"]]
+
+    assert (await continue_episode_replan(candidate["id"], scope, _WEB, services)).problem is None
+    await _wait_until_idle(session_factory)
+
+    project = projects.load_project("planning")
+    assert project["episodes"] == ledger
+    finished = project["episode_replan"]
+    assert finished["id"] == candidate["id"]
+    assert finished["complete"]
+    assert finished["episodes"][:1] == candidate["episodes"]
+    assert len(generator.prompts) == len(finished["episodes"]) == 3
 
 
 async def test_a_pending_candidate_refuses_planning_and_another_replan(
