@@ -154,7 +154,7 @@ import type {
   PresentationRequestOptions,
   PresentationResourceType,
 } from "@/types/presentation";
-import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
+import type { Asset, AssetType, AssetCreatePayload, AssetIdentity, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
 import type {
   DeletedProjectListing,
@@ -4127,6 +4127,11 @@ class API {
     return this.request<{ asset: Asset }>(`/assets/${encodeURIComponent(id)}`);
   }
 
+  static async findAssetByName(type: AssetType, name: string, signal: AbortSignal) {
+    const query = new URLSearchParams({ type, name });
+    return this.request<{ asset: AssetIdentity | null }>(`/assets/by-name?${query}`, { signal });
+  }
+
   static async createAsset(payload: AssetCreatePayload & { image?: File }) {
     const form = new FormData();
     form.append("type", payload.type);
@@ -4180,6 +4185,7 @@ class API {
     resource_id: string;
     override_name?: string;
     overwrite?: boolean;
+    overwrite_asset_id?: string;
   }) {
     return this.request<{ asset: Asset }>(`/assets/from-project`, {
       method: "POST",

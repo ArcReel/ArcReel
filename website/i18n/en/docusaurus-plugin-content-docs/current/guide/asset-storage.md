@@ -47,6 +47,8 @@ Choose **Select from provider asset library** from the more-actions menu on a pr
 
 ## Save to the Global Asset Library and Apply to Other Projects {#asset-library-across-projects}
 
+When **Add to Library** finds an entry of the same type and name, you can change the name before adding it or choose **Overwrite Existing** to update that entry.
+
 When you save a project asset to the global asset library, or apply an asset from the global asset library to another project, the **Available** links of the current version of its asset image and derivative images go along with the images. They still belong to the original asset library account, site, region, and project.
 
 - What goes along is a copy of each link, held independently by each project or by the global asset library: unlinking or replacing the image in one place does not affect the other copies.

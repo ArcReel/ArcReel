@@ -126,7 +126,7 @@ const RECORDINGS: Recording[] = [
   // 资产库：默认的「角色」标签首页（项目画廊「从资产库导入」同一请求）、画廊的资产图状态，以及入库预览按名称查重。
   { file: "assets-character", method: "GET", path: "/api/v1/assets?limit=60&type=character" },
   { file: "project-demo-asset-sheets-status", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/asset-sheets/status` },
-  { file: "assets-character-search-lin-xi", method: "GET", path: `/api/v1/assets?q=${encodeURIComponent("林夕")}&type=character` },
+  { file: "assets-character-by-name-lin-xi", method: "GET", path: `/api/v1/assets/by-name?type=character&name=${encodeURIComponent("林夕")}` },
   // 项目设置：Agent 配置状态与项目记忆（演示项目没有定制配置与记忆文件，多条目由场景替换）。
   { file: "project-demo-agent-profile", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-profile` },
   { file: "project-demo-agent-memory", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-memory` },

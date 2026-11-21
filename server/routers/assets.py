@@ -248,6 +248,16 @@ async def list_assets(
     }
 
 
+@router.get("/by-name")
+async def find_asset_by_name(type: str, name: str, _t: Translator):
+    if type not in GLOBAL_LIBRARY_ASSET_TYPES:
+        raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
+    asset_name = _validate_asset_name(name, _t)
+    async with async_session_factory() as s:
+        asset = await AssetRepository(s).get_by_type_name(type, asset_name)
+    return {"asset": {"id": asset.id, "type": asset.type, "name": asset.name} if asset is not None else None}
+
+
 @router.get("/{asset_id}")
 async def get_asset(asset_id: str, _t: Translator):
     async with async_session_factory() as s:
@@ -321,7 +331,7 @@ async def update_asset(
     patch = {k: v for k, v in req.model_dump().items() if v is not None}
     if "name" in patch:
         patch["name"] = _validate_asset_name(patch["name"], _t)
-    async with async_session_factory() as s:
+    async with library_entry_lock(asset_id), async_session_factory() as s:
         repo = AssetRepository(s)
         a = await repo.get_by_id(asset_id)
         if not a:
@@ -413,6 +423,7 @@ class FromProjectRequest(BaseModel):
     resource_id: str
     override_name: str | None = None
     overwrite: bool = False
+    overwrite_asset_id: str | None = None
 
 
 @router.post("/from-project")
@@ -587,6 +598,9 @@ async def _store_from_project(
     located: tuple[_Source, list[tuple[str, str, _Source]], Path | None],
 ) -> dict:
     asset_name = _validate_asset_name(req.override_name or req.resource_id, _t)
+    if req.overwrite and req.overwrite_asset_id is not None:
+        async with library_entry_lock(req.overwrite_asset_id):
+            return await _write_from_project(req, _t, resource, located, asset_name)
     async with async_session_factory() as s:
         found = await AssetRepository(s).get_by_type_name(req.resource_type, asset_name)
     if found is None:
@@ -594,6 +608,10 @@ async def _store_from_project(
     # 覆盖已有条目与换图串行：锁内重新读取条目，提交后撤下的是这次真正换下的图片
     async with library_entry_lock(found.id):
         return await _write_from_project(req, _t, resource, located, asset_name)
+
+
+def _from_project_conflict(message: str, existing: dict | None) -> HTTPException:
+    return HTTPException(status_code=409, detail={"message": message, "existing": existing})
 
 
 async def _write_from_project(
@@ -613,15 +631,19 @@ async def _write_from_project(
         existing = await repo.get_by_type_name(req.resource_type, asset_name)
         # overwrite 会整表换掉衍生行；旧行的图片在 commit 成功后才删，故先取出。
         stale_derivatives = await repo.list_derivatives(existing.id) if existing is not None else []
-        conflict_payload = await _serialize_one(repo, existing) if existing is not None else None
-
-    if conflict_payload is not None and not req.overwrite:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": _t("asset_already_exists", name=asset_name),
-                "existing": conflict_payload,
-            },
+    if existing is not None and not req.overwrite:
+        raise _from_project_conflict(
+            _t("asset_already_exists", name=asset_name),
+            _serialize(existing, stale_derivatives),
+        )
+    if (
+        req.overwrite
+        and req.overwrite_asset_id is not None
+        and (existing is None or existing.id != req.overwrite_asset_id)
+    ):
+        raise _from_project_conflict(
+            _t("asset_overwrite_target_changed", name=asset_name),
+            _serialize(existing, stale_derivatives) if existing is not None else None,
         )
 
     # 5) 把源图、衍生图存进库（按全局设置写本地或对象存储），参考音频拷到 global_assets/{type}/{uuid}.{ext}。
@@ -676,6 +698,15 @@ async def _write_from_project(
                     derivative_images=derivative_images,
                 )
             except IntegrityError as exc:
+                if existing is None:
+                    async with async_session_factory() as s:
+                        repo = AssetRepository(s)
+                        concurrent = await repo.get_by_type_name(req.resource_type, asset_name)
+                        if concurrent is not None:
+                            raise _from_project_conflict(
+                                _t("asset_already_exists", name=asset_name),
+                                await _serialize_one(repo, concurrent),
+                            ) from exc
                 raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=asset_name)) from exc
         except BaseException:
             await _discard(writer)

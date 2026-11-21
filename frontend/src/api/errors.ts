@@ -90,6 +90,7 @@ export class ApiRequestError extends Error {
     public readonly diagnostic?: unknown,
     /** HTTP 状态码；调用方据此区分「资源已不存在」与瞬时网络/服务错误。 */
     public readonly status?: number,
+    public readonly detail?: unknown,
   ) {
     super(message);
     this.name = "ApiRequestError";
