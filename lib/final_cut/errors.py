@@ -13,6 +13,7 @@ type FinalCutErrorCode = Literal[
     "final_cut_empty",
     "final_cut_ffmpeg_unavailable",
     "final_cut_render_failed",
+    "final_cut_path_too_long",
     "final_cut_acceptance_failed",
 ]
 

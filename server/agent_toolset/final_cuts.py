@@ -23,6 +23,8 @@ RENDER_FINAL_CUT = ToolDeclaration(
         "final_cut_narration_unavailable；随包 ffmpeg 不可用返回 final_cut_ffmpeg_unavailable。"
         "渲染任务读到的视频或旁白配音版本文件已损坏时，任务失败为 final_cut_video_version_corrupted 或 "
         "final_cut_narration_version_corrupted，params 带 unit_id 与 version。"
+        "渲染路径超出当前系统的长度上限时任务失败为 final_cut_path_too_long，params 带 path、length 与 limit；"
+        "这不是重试能解决的，需要把项目数据根目录移到更短的路径后再渲染。"
         "省略 revision 时渲染提交时的最新修订：渲染期间剪辑时间线又被改动，或显式渲染旧修订，成片一出来就是 stale，"
         "仍可下载。每条剪辑时间线的每个版本只保留最新一份成片，再次渲染会覆盖它并把 version 加一。"
         "终态结果的 final_cut 带 revision、narration、subtitles、version、artifact_path、acceptance（expected_duration 为剪辑时间线时长，"

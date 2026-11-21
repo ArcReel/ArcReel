@@ -805,6 +805,7 @@ MESSAGES = {
     "final_cut_empty": "Dòng thời gian dựng không có đoạn nào để kết xuất",
     "final_cut_ffmpeg_unavailable": "Không dùng được ffmpeg đi kèm, nên không thể kết xuất video thành phẩm",
     "final_cut_render_failed": "Kết xuất video thành phẩm thất bại, vui lòng thử lại",
+    "final_cut_path_too_long": "Đường dẫn kết xuất quá dài ({length} ký tự, giới hạn {limit}), nên không thể ghi tệp thành phẩm: {path}",
     "final_cut_acceptance_failed": "Video thành phẩm vừa kết xuất không đạt kiểm tra, vui lòng thử lại",
     "final_cut_render_in_progress": "Dòng thời gian dựng này đã có một tác vụ kết xuất với tham số khác đang chờ hoặc đang chạy ({task_id}); hãy gửi lại sau khi tác vụ đó kết thúc",
     "jianying_draft_narration_unavailable": "Chỉ dự án lồng tiếng TTS mới xuất được bản nháp Jianying có lời dẫn",
