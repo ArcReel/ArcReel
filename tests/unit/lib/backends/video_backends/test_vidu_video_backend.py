@@ -348,16 +348,18 @@ class TestPromptLength:
             duration_seconds=8,
             reference_images=[ref],
         )
-        _endpoint, body = backend._build_request(req)
+        endpoint, body = backend._build_request(req)
 
+        assert endpoint == "/reference2video"
         assert body["prompt"] == prompt
 
     def test_text2video_allows_longer_than_reference_limit(self, video_output_path: Path):
-        """文本生视频支持长提示词。"""
-        backend = _profile("viduq3-turbo")(api_key="k", model="viduq3-turbo")
+        """端点上限按端点各算：t2v 的 5000 不受 /reference2video 的 2000 牵连。"""
+        backend = _profile("viduq2")(api_key="k", model="viduq2")
         req = VideoGenerationRequest(prompt="字" * 3000, output_path=video_output_path, duration_seconds=8)
-        _endpoint, body = backend._build_request(req)
+        endpoint, body = backend._build_request(req)
 
+        assert endpoint == "/text2video"
         assert len(body["prompt"]) == 3000
 
 
