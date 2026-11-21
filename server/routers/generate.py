@@ -22,7 +22,6 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
-from lib.artifacts.generation_input import project_input_observation, storyboard_image_input
 from lib.backends.image_errors import ImageCapabilityError
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError, video_bucket_for_generation_mode
@@ -57,7 +56,12 @@ from lib.speech.speech_composition import SpeechMode, admit_script_unit
 from server.auth import CurrentUser
 from server.i18n import Translator
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
-from server.services.admission.image_references import check_asset_image_limit, reference_image_limit
+from server.services.admission.image_references import (
+    check_asset_image_limit,
+    check_storyboard_image_limit,
+    planned_previous_storyboard_id,
+    reference_image_limit,
+)
 from server.services.admission.reference_admission import require_admitted_storyboard_references
 from server.services.tasks.derivative_sheet_tasks import build_derivative_sheet_instruction
 from server.services.tasks.generation_context import AudioLaneRequest, resolve_generation_context
@@ -148,22 +152,44 @@ async def generate_storyboard(
         if resolved[0].get("image_prompt") is None:
             raise ConflictError("script_prompt_pending", segment_id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
+        previous_id = planned_previous_storyboard_id(items, id_field, resolved[1])
 
-        return project, script, episode, pm_local.get_project_path(project_name)
+        return project, script, episode, pm_local.get_project_path(project_name), previous_id
 
-    project, script, episode, path = await run_sync_transaction(_sync)
+    project, script, episode, path, previous_id = await run_sync_transaction(_sync)
+    queue = get_generation_queue()
     maximum, model = await reference_image_limit(project_name, project, path)
     if maximum is not None:
-
-        def check_limit():
-            observation = project_input_observation(path)
-            assembled = storyboard_image_input(
-                project, script, episode=episode, resource_id=segment_id, observation=observation
+        pending_previous_id: str | None = None
+        if previous_id is not None:
+            active_previous = await queue.get_active_tasks_for_resources(
+                project_name=project_name,
+                task_type="storyboard",
+                resource_ids=[previous_id],
+                script_file=req.script_file,
+                user_id=user.id,
             )
-            assembled.require_planned_reference_limit(observation, maximum, model=model)
+            if any(str(task.get("resource_id") or "") == previous_id for task in active_previous):
+                pending_previous_id = previous_id
+
+        def check_limit() -> None:
+            current_script = (
+                get_project_manager().load_script(project_name, req.script_file)
+                if previous_id is not None and pending_previous_id is None
+                else script
+            )
+            check_storyboard_image_limit(
+                project,
+                current_script,
+                path,
+                episode=episode,
+                resource_id=segment_id,
+                limit=(maximum, model),
+                pending_previous_id=pending_previous_id,
+            )
 
         try:
-            await asyncio.to_thread(check_limit)
+            await run_sync_transaction(check_limit)
         except ImageCapabilityError as exc:
             raise BadRequestError(exc.code, **exc.params).with_diagnostic(
                 {"code": exc.code, "params": exc.params}
@@ -179,7 +205,6 @@ async def generate_storyboard(
         script_file=req.script_file,
     )
 
-    queue = get_generation_queue()
     result = await queue.enqueue_task(
         project_name=project_name,
         task_type=spec.task_type,

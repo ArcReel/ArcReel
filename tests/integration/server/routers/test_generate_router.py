@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -270,18 +271,21 @@ class TestGenerateRouter:
         }
         assert fake_queue.calls == []
 
-    @pytest.mark.parametrize("previous_on_disk", [False, True], ids=["pending", "available"])
-    def test_storyboard_counts_one_registered_previous_image_against_limit(
-        self, tmp_path, monkeypatch, previous_on_disk
+    @pytest.mark.parametrize("previous_state", ["active-pending", "available"])
+    def test_storyboard_counts_active_or_available_previous_image_against_limit(
+        self, tmp_path, monkeypatch, previous_state
     ):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        fake_pm.script["segments"][1]["products_in_shot"] = ["保温杯"]
-        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
+        first, target, _ = fake_pm.script["segments"]
+        target["products_in_shot"] = ["保温杯"]
         fake_queue = _FakeQueue()
+        if previous_state == "active-pending":
+            first["generated_assets"] = {}
+            (project_path / "storyboards" / "scene_E1S01.png").unlink()
+            fake_queue.active_by_user["default"] = [{"task_id": "prev-1", "resource_id": "E1S01", "status": "running"}]
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
         with _client(monkeypatch, fake_pm, fake_queue) as client:
-            if not previous_on_disk:
-                (project_path / "storyboards" / "scene_E1S01.png").unlink()
             response = client.post(
                 "/api/v1/projects/demo/generate/storyboard/E1S02",
                 json={"script_file": "episode_1.json", "prompt": "雨夜"},
@@ -299,37 +303,101 @@ class TestGenerateRouter:
             },
         }
         assert fake_queue.calls == []
+        assert fake_queue.active_queries == [
+            {
+                "project_name": "demo",
+                "task_type": "storyboard",
+                "resource_ids": ["E1S01"],
+                "script_file": "episode_1.json",
+                "user_id": "default",
+            }
+        ]
 
-    @pytest.mark.parametrize("previous", ["chapter-break", "unbound", "unregistered", "blocked", "available"])
+    @pytest.mark.parametrize(
+        "previous",
+        ["first-shot", "chapter-break", "previous-idle", "available-no-double-count"],
+    )
     def test_storyboard_admits_four_planned_references(self, tmp_path, monkeypatch, previous):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         first, target, _ = fake_pm.script["segments"]
-        target["products_in_shot"] = ["保温杯"]
-        previous_path = project_path / "storyboards" / "scene_E1S01.png"
-        if previous == "chapter-break":
-            target["segment_break"] = True
-        elif previous == "unbound":
-            first["generated_assets"] = {}
-        elif previous == "unregistered":
-            previous_path.unlink()
-        elif previous == "available":
-            target["props"] = []
-        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
         fake_queue = _FakeQueue()
+        segment_id = "E1S02"
+        if previous == "first-shot":
+            segment_id = "E1S01"
+            first["characters_in_segment"] = ["Alice"]
+            first["scenes"] = ["祠堂"]
+            first["props"] = ["玉佩"]
+            first["products_in_shot"] = ["保温杯"]
+        elif previous == "chapter-break":
+            target["products_in_shot"] = ["保温杯"]
+            target["segment_break"] = True
+            fake_queue.active_by_user["default"] = [{"task_id": "prev-1", "resource_id": "E1S01", "status": "queued"}]
+        elif previous == "previous-idle":
+            target["products_in_shot"] = ["保温杯"]
+            first["generated_assets"] = {}
+            (project_path / "storyboards" / "scene_E1S01.png").unlink()
+        elif previous == "available-no-double-count":
+            target["products_in_shot"] = ["保温杯"]
+            target["props"] = []
+            fake_queue.active_by_user["default"] = [
+                {"task_id": "prev-regen", "resource_id": "E1S01", "status": "running"}
+            ]
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
         with _client(monkeypatch, fake_pm, fake_queue) as client:
-            if previous in {"chapter-break", "blocked"}:
-                previous_path.unlink()
-            if previous == "blocked":
-                previous_path.mkdir()
             response = client.post(
-                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                f"/api/v1/projects/demo/generate/storyboard/{segment_id}",
                 json={"script_file": "episode_1.json", "prompt": "雨夜"},
             )
 
         assert response.status_code == 200, response.text
         assert response.json()["task_id"] == "task-1"
-        assert [call["resource_id"] for call in fake_queue.calls] == ["E1S02"]
+        assert [call["resource_id"] for call in fake_queue.calls] == [segment_id]
+
+    def test_storyboard_reloads_script_when_previous_finishes_before_queue_probe(self, tmp_path, monkeypatch):
+        project_path = _prepare_files(tmp_path)
+
+        class _SnapshotPM(_FakePM):
+            def load_script(self, project_name, script_file):
+                return json.loads(json.dumps(super().load_script(project_name, script_file)))
+
+        fake_pm = _SnapshotPM(project_path)
+        first, target, _ = fake_pm.script["segments"]
+        first["generated_assets"] = {}
+        target["products_in_shot"] = ["保温杯"]
+        previous_path = project_path / "storyboards" / "scene_E1S01.png"
+        previous_path.unlink()
+
+        class _CommitDuringProbeQueue(_FakeQueue):
+            async def get_active_tasks_for_resources(self, **kwargs):
+                def _commit_previous():
+                    previous_path.write_bytes(b"png")
+                    first["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
+                    fake_pm.register_storyboards()
+
+                await asyncio.to_thread(_commit_previous)
+                return await super().get_active_tasks_for_resources(**kwargs)
+
+        fake_queue = _CommitDuringProbeQueue()
+        use_image_admission_context(monkeypatch, fake_resolve_ctx(FakeGenerator(), image_max_reference_images=4))
+        with _client(monkeypatch, fake_pm, fake_queue) as client:
+            response = client.post(
+                "/api/v1/projects/demo/generate/storyboard/E1S02",
+                json={"script_file": "episode_1.json", "prompt": "雨夜"},
+            )
+
+        assert response.status_code == 400, response.text
+        assert response.json()["diagnostic"] == {
+            "code": "image_reference_images_exceeded",
+            "params": {
+                "model": "gpt-image-2",
+                "count": 5,
+                "limit": 4,
+                "names": "E1S01",
+                "previous_storyboard": "E1S01",
+            },
+        }
+        assert fake_queue.calls == []
 
     def test_storyboard_refuses_a_pending_image_prompt_before_enqueue(self, tmp_path, monkeypatch):
         """正式剧本里该分镜的 image_prompt 尚未填写（None）：单条端点 409，不入队。"""
