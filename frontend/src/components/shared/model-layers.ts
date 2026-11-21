@@ -33,19 +33,15 @@ export function executingVideoModel(
   return effectiveModel(bucket, value.videoBackend, globalBucket, globals.video, auto) ?? "";
 }
 
-/**
- * 文生图路径真正会执行的图片模型——分镜图与资产图都走该路径，图片分辨率按它存取。
- * 图生图另有自己的执行模型，两者不同时后端查不到该键、回落供应商默认档位。全层皆空时取文生图的
- * 自动选择预览。
- */
 export function executingImageModel(
-  value: { imageBackendDefault: string; imageBackendT2I: string },
-  globals: { image: string; imageT2I: string } & AutoBackendsLayer,
+  value: { imageBackendDefault: string; imageBackendT2I: string; imageBackendI2I?: string },
+  globals: { image: string; imageT2I: string; imageI2I?: string } & AutoBackendsLayer,
+  purpose: "t2i" | "i2i" = "t2i",
 ): string {
-  return (
-    effectiveModel(value.imageBackendT2I, value.imageBackendDefault, globals.imageT2I, globals.image, globals.auto?.t2i) ??
-    ""
-  );
+  const bucket = purpose === "i2i" ? value.imageBackendI2I : value.imageBackendT2I;
+  const globalBucket = purpose === "i2i" ? globals.imageI2I : globals.imageT2I;
+  const auto = globals.auto?.[purpose];
+  return effectiveModel(bucket, value.imageBackendDefault, globalBucket, globals.image, auto) ?? "";
 }
 
 /**

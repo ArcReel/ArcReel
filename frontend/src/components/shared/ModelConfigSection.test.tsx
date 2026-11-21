@@ -1849,3 +1849,242 @@ describe("图片画质与失效的已存值", () => {
     expect(screen.queryByText(/已保存的分辨率/)).not.toBeInTheDocument();
   });
 });
+
+describe("ModelConfigSection – split t2i/i2i image resolutions", () => {
+  const IMAGE_PROVIDERS: ProviderInfo[] = [
+    {
+      id: "gemini",
+      display_name: "Gemini",
+      description: "",
+      status: "ready",
+      media_types: ["image"],
+      capabilities: [],
+      credential_count: 0,
+      models: {
+        "nano-banana": {
+          display_name: "Nano Banana",
+          media_type: "image",
+          capabilities: [],
+          default: true,
+          supported_durations: [],
+          resolutions: ["1K", "2K", "4K"],
+          qualities: [],
+          audio_track: "always_off",
+          reference_route_audio_track: "always_off",
+          voice_consistency: "none",
+        },
+        "no-res-model": {
+          display_name: "No Res",
+          media_type: "image",
+          capabilities: [],
+          default: false,
+          supported_durations: [],
+          resolutions: [],
+          qualities: [],
+          audio_track: "always_off",
+          reference_route_audio_track: "always_off",
+          voice_consistency: "none",
+        },
+      },
+    },
+    {
+      id: "openai",
+      display_name: "OpenAI",
+      description: "",
+      status: "ready",
+      media_types: ["image"],
+      capabilities: [],
+      credential_count: 0,
+      models: {
+        "gpt-image-2": {
+          display_name: "GPT Image 2",
+          media_type: "image",
+          capabilities: [],
+          default: true,
+          supported_durations: [],
+          resolutions: ["1K", "2K"],
+          qualities: [],
+          audio_track: "always_off",
+          reference_route_audio_track: "always_off",
+          voice_consistency: "none",
+        },
+      },
+    },
+  ];
+
+  const IMAGE_OPTIONS = {
+    videoBackends: [],
+    imageBackends: ["gemini/nano-banana", "gemini/no-res-model", "openai/gpt-image-2"],
+    textBackends: [],
+    providerNames: { gemini: "Gemini", openai: "OpenAI" },
+  };
+
+  it("shows separate t2i and i2i resolution pickers with each model's own options when executing models differ", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageBackendDefault: "gemini/nano-banana",
+          imageBackendI2I: "openai/gpt-image-2",
+          imageResolution: "4K",
+          imageResolutions: { "gemini/nano-banana": "4K", "openai/gpt-image-2": "1K" },
+        }}
+        onChange={onChange}
+        providers={IMAGE_PROVIDERS}
+        options={IMAGE_OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    const t2iPicker = screen.getByRole("combobox", { name: "文生图 · 分辨率" });
+    const i2iPicker = screen.getByRole("combobox", { name: "图生图 · 分辨率" });
+    expect(t2iPicker).toHaveTextContent("4K");
+    expect(i2iPicker).toHaveTextContent("1K");
+
+    await user.click(i2iPicker);
+    expect(await screen.findByRole("option", { name: "1K" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "2K" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "4K" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("option", { name: "2K" }));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageResolution: "4K",
+        imageResolutions: { "gemini/nano-banana": "4K", "openai/gpt-image-2": "2K" },
+      }),
+    );
+  });
+
+  it("shows only one resolution picker when t2i and i2i resolve to the same model", () => {
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageBackendDefault: "gemini/nano-banana",
+          imageResolution: "2K",
+          imageResolutions: { "gemini/nano-banana": "2K" },
+        }}
+        onChange={() => {}}
+        providers={IMAGE_PROVIDERS}
+        options={IMAGE_OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "分辨率" })).toHaveTextContent("2K");
+    expect(screen.queryByRole("combobox", { name: "文生图 · 分辨率" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "图生图 · 分辨率" })).not.toBeInTheDocument();
+  });
+
+  it("splits image resolutions when global defaults resolve t2i and i2i to different models", () => {
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageResolutions: { "gemini/nano-banana": "4K", "openai/gpt-image-2": "2K" },
+        }}
+        onChange={() => {}}
+        providers={IMAGE_PROVIDERS}
+        options={IMAGE_OPTIONS}
+        globalDefaults={{
+          ...EMPTY_GLOBALS,
+          imageT2I: "gemini/nano-banana",
+          imageI2I: "openai/gpt-image-2",
+        }}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "文生图 · 分辨率" })).toHaveTextContent("4K");
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("2K");
+  });
+
+  it("renders only the supported bucket picker when the other executing image model has no resolutions", () => {
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageBackendDefault: "gemini/no-res-model",
+          imageBackendI2I: "openai/gpt-image-2",
+          imageResolutions: { "openai/gpt-image-2": "2K" },
+        }}
+        onChange={() => {}}
+        providers={IMAGE_PROVIDERS}
+        options={IMAGE_OPTIONS}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    expect(screen.queryByRole("combobox", { name: "文生图 · 分辨率" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("2K");
+  });
+
+  it("uses free-form combobox input for a custom i2i model while keeping builtin t2i as a select", () => {
+    useEndpointCatalogStore.setState({
+      endpointToMediaType: { "openai-images": "image" },
+      endpointConstraints: {},
+      initialized: true,
+    });
+    const customProviders: CustomProviderInfo[] = [
+      {
+        id: 7,
+        display_name: "Relay",
+        discovery_format: "openai",
+        base_url: "https://relay.example/v1",
+        api_key_masked: "sk-***",
+        created_at: "2026-01-01T00:00:00Z",
+        image_max_workers: null,
+        video_max_workers: null,
+        audio_max_workers: null,
+        models: [
+          {
+            id: 1,
+            model_id: "custom-edit",
+            display_name: "Custom Edit",
+            endpoint: "openai-images",
+            is_default: false,
+            is_enabled: true,
+            resolution: null,
+            qualities: [],
+            multiplier: 1,
+            entry_binding: null,
+            matched_entry: null,
+            system_capabilities: null,
+            capability_overrides: null,
+            path_overrides: null,
+            requests: [],
+          },
+        ],
+      },
+    ];
+    render(
+      <ModelConfigSection
+        value={{
+          ...EMPTY_VALUE,
+          imageBackendDefault: "gemini/nano-banana",
+          imageBackendI2I: "custom-7/custom-edit",
+          imageResolution: "4K",
+          imageResolutions: { "gemini/nano-banana": "4K", "custom-7/custom-edit": "1536x1024" },
+        }}
+        onChange={() => {}}
+        providers={IMAGE_PROVIDERS}
+        customProviders={customProviders}
+        options={{
+          ...IMAGE_OPTIONS,
+          imageBackends: [...IMAGE_OPTIONS.imageBackends, "custom-7/custom-edit"],
+          providerNames: { ...IMAGE_OPTIONS.providerNames, "custom-7": "Relay" },
+        }}
+        globalDefaults={EMPTY_GLOBALS}
+        enable={{ video: false, text: false }}
+      />,
+    );
+
+    expect(screen.getByRole("combobox", { name: "文生图 · 分辨率" })).toHaveTextContent("4K");
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveValue("1536x1024");
+  });
+});

@@ -579,8 +579,8 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     const user = userEvent.setup();
     renderAt("/app/projects/demo/settings?tab=models");
 
-    await waitFor(() => expect(screen.getAllByRole("combobox", { name: "分辨率" })).toHaveLength(2));
-    const imageResolution = screen.getAllByRole("combobox", { name: "分辨率" })[1];
+    const imageResolution = await screen.findByRole("combobox", { name: "文生图 · 分辨率" });
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("1080p");
     expect(imageResolution).toHaveTextContent("720p");
     await user.click(imageResolution);
     await user.click(await screen.findByRole("option", { name: "1080p" }));
@@ -593,6 +593,213 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
         "openai/gpt-image": { resolution: "1080p" },
         "gemini/nano-banana": { resolution: "1080p" },
       }),
+    });
+  });
+
+  it("saves and restores independent resolutions for different executing t2i and i2i models while preserving quality", async () => {
+    let persisted: Record<string, unknown> = {
+      title: "Demo",
+      episodes: [],
+      characters: {},
+      clues: {},
+      video_backend: "gemini/veo-3",
+      default_image_backend: "gemini/nano-banana",
+      image_provider_i2i: "openai/gpt-image-2",
+      model_settings: {
+        "gemini/nano-banana": { resolution: "4K" },
+        "openai/gpt-image-2": { resolution: "1K", quality: "low" },
+      },
+    };
+    vi.spyOn(API, "getProject").mockImplementation(
+      async () => ({ project: persisted, scripts: {} }) as unknown as ProjectResponse,
+    );
+    const updateSpy = vi.spyOn(API, "updateProject").mockImplementation(async (_name, patch) => {
+      persisted = { ...persisted, ...patch };
+      return { success: true, project: persisted } as unknown as UpdateResponse;
+    });
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      {
+        ...RESOLUTION_PROVIDERS[0],
+        models: {
+          ...RESOLUTION_PROVIDERS[0].models,
+          "nano-banana": { ...RESOLUTION_PROVIDERS[0].models["nano-banana"], resolutions: ["1K", "2K", "4K"] },
+        },
+      },
+      {
+        id: "openai",
+        display_name: "OpenAI",
+        description: "",
+        status: "ready",
+        media_types: ["image"],
+        capabilities: [],
+        credential_count: 0,
+        models: {
+          "gpt-image-2": {
+            display_name: "GPT Image 2",
+            media_type: "image",
+            capabilities: [],
+            default: true,
+            supported_durations: [],
+            resolutions: ["1K", "2K"],
+            qualities: ["low", "medium", "high"],
+            audio_track: "always_off",
+            reference_route_audio_track: "always_off",
+            voice_consistency: "none",
+          },
+        },
+      },
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+
+    const user = userEvent.setup();
+    const first = renderAt("/app/projects/demo/settings?tab=models");
+
+    const t2iPicker = await screen.findByRole("combobox", { name: "文生图 · 分辨率" });
+    const i2iPicker = screen.getByRole("combobox", { name: "图生图 · 分辨率" });
+    expect(t2iPicker).toHaveTextContent("4K");
+    expect(i2iPicker).toHaveTextContent("1K");
+
+    await user.click(i2iPicker);
+    expect(screen.queryByRole("option", { name: "4K" })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("option", { name: "2K" }));
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: expect.objectContaining({
+        "gemini/nano-banana": { resolution: "4K" },
+        "openai/gpt-image-2": { resolution: "2K", quality: "low" },
+      }),
+    });
+
+    first.unmount();
+    renderAt("/app/projects/demo/settings?tab=models");
+    expect(await screen.findByRole("combobox", { name: "文生图 · 分辨率" })).toHaveTextContent("4K");
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("2K");
+  });
+
+  it("keeps legacy projects without an i2i resolution unset until edited and lets stale i2i values reset independently", async () => {
+    const updateSpy = mockProject({
+      video_backend: "gemini/veo-3",
+      default_image_backend: "gemini/nano-banana",
+      image_provider_i2i: "openai/gpt-image-2",
+      model_settings: {
+        "gemini/nano-banana": { resolution: "4K" },
+        "openai/gpt-image-2": { resolution: "512px" },
+      },
+    });
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      {
+        ...RESOLUTION_PROVIDERS[0],
+        models: {
+          ...RESOLUTION_PROVIDERS[0].models,
+          "nano-banana": { ...RESOLUTION_PROVIDERS[0].models["nano-banana"], resolutions: ["1K", "2K", "4K"] },
+        },
+      },
+      {
+        id: "openai",
+        display_name: "OpenAI",
+        description: "",
+        status: "ready",
+        media_types: ["image"],
+        capabilities: [],
+        credential_count: 0,
+        models: {
+          "gpt-image-2": {
+            display_name: "GPT Image 2",
+            media_type: "image",
+            capabilities: [],
+            default: true,
+            supported_durations: [],
+            resolutions: ["1K", "2K"],
+            qualities: [],
+            audio_track: "always_off",
+            reference_route_audio_track: "always_off",
+            voice_consistency: "none",
+          },
+        },
+      },
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+
+    renderAt("/app/projects/demo/settings?tab=models");
+    expect(await screen.findByRole("combobox", { name: "文生图 · 分辨率" })).toHaveTextContent("4K");
+    expect(screen.getByRole("combobox", { name: "图生图 · 分辨率" })).toHaveTextContent("512px");
+    expect(screen.getByText(/已保存的分辨率 512px/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: expect.objectContaining({
+        "gemini/nano-banana": { resolution: "4K" },
+        "openai/gpt-image-2": { resolution: null },
+      }),
+    });
+  });
+
+  it("saves simultaneous video and i2i image resolution edits without overwriting each other and keeps unconfigured i2i clean", async () => {
+    const updateSpy = mockProject({
+      video_backend: "gemini/veo-3",
+      default_image_backend: "gemini/nano-banana",
+      image_provider_i2i: "openai/gpt-image-2",
+      model_settings: {},
+    });
+    vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+      {
+        ...RESOLUTION_PROVIDERS[0],
+        models: {
+          ...RESOLUTION_PROVIDERS[0].models,
+          "nano-banana": { ...RESOLUTION_PROVIDERS[0].models["nano-banana"], resolutions: ["1K", "2K", "4K"] },
+        },
+      },
+      {
+        id: "openai",
+        display_name: "OpenAI",
+        description: "",
+        status: "ready",
+        media_types: ["image"],
+        capabilities: [],
+        credential_count: 0,
+        models: {
+          "gpt-image-2": {
+            display_name: "GPT Image 2",
+            media_type: "image",
+            capabilities: [],
+            default: true,
+            supported_durations: [],
+            resolutions: ["1K", "2K"],
+            qualities: [],
+            audio_track: "always_off",
+            reference_route_audio_track: "always_off",
+            voice_consistency: "none",
+          },
+        },
+      },
+    ] as Awaited<ReturnType<typeof providerModels.getProviderModels>>);
+
+    const user = userEvent.setup();
+    renderAt("/app/projects/demo/settings?tab=models");
+
+    const videoPicker = await screen.findByRole("combobox", { name: "分辨率" });
+    const t2iPicker = screen.getByRole("combobox", { name: "文生图 · 分辨率" });
+    const i2iPicker = screen.getByRole("combobox", { name: "图生图 · 分辨率" });
+    expect(t2iPicker).toHaveTextContent("默认（不传）");
+    expect(i2iPicker).toHaveTextContent("默认（不传）");
+    expect(within(sidebar()).getByRole("link", { name: /^模型/ })).not.toHaveAccessibleName(/有未保存的修改/);
+
+    await user.click(videoPicker);
+    await user.click(await screen.findByRole("option", { name: "1080p" }));
+    await user.click(i2iPicker);
+    await user.click(await screen.findByRole("option", { name: "2K" }));
+    fireEvent.click(saveButton());
+
+    await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
+    expect(updateSpy.mock.calls[0][1]).toEqual({
+      model_settings: {
+        "gemini/veo-3": { resolution: "1080p" },
+        "gemini/nano-banana": { resolution: null },
+        "openai/gpt-image-2": { resolution: "2K" },
+      },
     });
   });
 });
