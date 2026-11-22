@@ -5,7 +5,8 @@ import type { TFunction } from "i18next";
 import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
 import { ProviderIcon } from "@/components/shared/ProviderIcon";
-import { PROVIDER_POLICY_NOTICES, ProviderPolicyNotice } from "@/components/shared/ProviderPolicyNotice";
+import { ProviderPolicyNotice } from "@/components/shared/ProviderPolicyNotice";
+import { PROVIDER_POLICY_NOTICES } from "@/components/shared/providerPolicyNotices";
 import { CredentialList } from "@/components/pages/CredentialList";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
@@ -117,6 +118,53 @@ function ProviderChannelTabs({ providerId, channels, onSelectChannel }: ChannelT
           ))}
         </TabsList>
       </Tabs>
+    </div>
+  );
+}
+
+function ProviderDetailHeader({
+  providerId,
+  detail,
+  channels,
+  onSelectChannel,
+}: {
+  providerId: string;
+  detail: ProviderConfigDetail;
+  channels?: ProviderChannelOption[];
+  onSelectChannel?: (providerId: string) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  const mediaTypes = [...(detail.media_types ?? [])].sort((a, b) => mediaTypeRank(a) - mediaTypeRank(b));
+  const policyNotice = PROVIDER_POLICY_NOTICES[providerId];
+  return (
+    <div className="flex flex-col gap-3">
+      <ProviderChannelTabs providerId={providerId} channels={channels} onSelectChannel={onSelectChannel} />
+      <div className="flex items-start gap-3">
+        <ProviderIcon providerId={providerId} className="mt-0.5 size-7 shrink-0" />
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="text-lg font-medium">{detail.display_name}</h2>
+            <Badge variant={detail.status === "ready" ? "secondary" : "outline"}>
+              {t(STATUS_LABEL_KEY[detail.status])}
+            </Badge>
+          </div>
+          {detail.description && (
+            <p className="max-w-[40em] text-sm text-muted-foreground">{detail.description}</p>
+          )}
+          {policyNotice && (
+            <ProviderPolicyNotice notice={policyNotice} className="max-w-[40em] text-xs text-muted-foreground" />
+          )}
+          {mediaTypes.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {mediaTypes.map((kind) => (
+                <Badge key={kind} variant="outline">
+                  {MEDIA_TYPE_LABEL_KEY[kind] ? t(MEDIA_TYPE_LABEL_KEY[kind]) : kind}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -291,42 +339,17 @@ export function ProviderDetail({ providerId, initialModelId, channels, onSelectC
     );
   }
 
-  const mediaTypes = [...(detail.media_types ?? [])].sort((a, b) => mediaTypeRank(a) - mediaTypeRank(b));
   const multiplierValid = isMultiplierValid(unit.value.multiplier);
-  const policyNotice = PROVIDER_POLICY_NOTICES[providerId];
 
   return (
     <DetailPane
       header={
-        <div className="flex flex-col gap-3">
-          {channelSwitcher}
-          <div className="flex items-start gap-3">
-            <ProviderIcon providerId={providerId} className="mt-0.5 size-7 shrink-0" />
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <div className="flex min-w-0 items-center gap-2">
-                <h2 className="text-lg font-medium">{detail.display_name}</h2>
-                <Badge variant={detail.status === "ready" ? "secondary" : "outline"}>
-                  {t(STATUS_LABEL_KEY[detail.status])}
-                </Badge>
-              </div>
-              {detail.description && (
-                <p className="max-w-[40em] text-sm text-muted-foreground">{detail.description}</p>
-              )}
-              {policyNotice && (
-                <ProviderPolicyNotice notice={policyNotice} className="max-w-[40em] text-xs text-muted-foreground" />
-              )}
-              {mediaTypes.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {mediaTypes.map((kind) => (
-                    <Badge key={kind} variant="outline">
-                      {MEDIA_TYPE_LABEL_KEY[kind] ? t(MEDIA_TYPE_LABEL_KEY[kind]) : kind}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <ProviderDetailHeader
+          providerId={providerId}
+          detail={detail}
+          channels={channels}
+          onSelectChannel={onSelectChannel}
+        />
       }
       footer={<SaveBar unit={unit} className="max-w-178" />}
     >

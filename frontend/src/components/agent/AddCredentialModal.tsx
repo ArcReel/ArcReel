@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
-import { AGENT_PRESET_POLICY_NOTICES, ProviderPolicyNotice } from "@/components/shared/ProviderPolicyNotice";
+import { ProviderPolicyNotice } from "@/components/shared/ProviderPolicyNotice";
+import { AGENT_PRESET_POLICY_NOTICES } from "@/components/shared/providerPolicyNotices";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
