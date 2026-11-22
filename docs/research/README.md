@@ -11,3 +11,4 @@
 | 创作 Agent 记忆 | [Claude 官方材料](agent-memory-definition-and-practice.md)、[Agent SDK 固定版本调查](agent-auto-memory-under-sdk.md)、[OpenClaw 取样](openclaw-text-memory.md) | [项目记忆与用户记忆 ADR](../adr/0074-agent-memory-two-level-storage.md)、[数据布局 ADR](../adr/0088-data-root-layered-projects-subdirectory.md) |
 | 供应商素材与对象存储 | [上传链路源码取样](create-asset-local-upload-research.md)、[正式存储改造范围](material-object-storage-scope.md) | [素材存储与供应商关联 ADR](../adr/0108-material-storage-independent-of-provider-registration.md) |
 | 使用记录趋势图 | [图表库选型实测](chart-library.md) | [趋势图组件](../../frontend/src/components/usage/UsageTrendChart.tsx) |
+| 方舟 Agent Plan 使用限制 | [使用边界与影响评估](ark-agent-plan-usage-restriction.md) | [厂商收纳与条款提示 #3992](https://github.com/ArcReel/ArcReel/pull/3992)、[供应商配置指南](../../website/docs/guide/providers.md) |
