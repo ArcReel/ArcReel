@@ -46,7 +46,7 @@ Find curves at [easing.dev](https://easing.dev/) or [easings.co](https://easings
 | Modals, drawers | 200–500ms |
 | Marketing / explanatory | Can be longer |
 
-**Rule: UI animations stay under 300ms.** A 180ms dropdown feels more responsive than a 400ms one. Faster spinners make load feel faster (same actual time). Instant tooltips after the first (skip delay + animation) make a toolbar feel faster.
+**Rule: UI animations stay under 300ms. Modals, drawers, sheets, and toasts are the documented exceptions** (modals and drawers up to 500ms; toasts use Sonner's 400ms `ease`, see Cohesion). A 180ms dropdown feels more responsive than a 400ms one. Faster spinners make load feel faster (same actual time). Instant tooltips after the first (skip delay + animation) make a toolbar feel faster.
 
 ## Physicality
 
@@ -56,7 +56,7 @@ Find curves at [easing.dev](https://easing.dev/) or [easings.co](https://easings
   .popover { transform-origin: var(--transform-origin); } /* Base UI */
   ```
   **Modals are exempt** — they appear centered in the viewport, keep `transform-origin: center`.
-- **Button press feedback.** `transform: scale(0.97)` on `:active`, `transition: transform 160ms ease-out`. Subtle (0.95–0.98). Applies to any pressable element.
+- **Button press feedback.** `transform: scale(0.97)` on `:active`, `transition: transform 160ms var(--ease-out)`. Subtle (0.95–0.98). Applies to any pressable element.
 
 ## Springs
 
@@ -103,22 +103,22 @@ Legacy fallback: `useEffect(() => setMounted(true), [])` + `data-mounted` attrib
 Slow where the user is deciding, fast where the system responds.
 
 ```css
-.overlay { transition: clip-path 200ms ease-out; }            /* release: fast */
+.overlay { transition: clip-path 200ms var(--ease-out); }            /* release: fast */
 .button:active .overlay { transition: clip-path 2s linear; }  /* press: slow, deliberate */
 ```
 
 ## Performance
 
-- **Only animate `transform` and `opacity`** — they skip layout/paint and run on the GPU. `padding`/`margin`/`height`/`width`/`top`/`left` trigger all three rendering steps.
+- **Prefer `transform` and `opacity`** — they skip layout/paint and run on the GPU; `clip-path` and measured height (accordions) are the documented exceptions. `padding`/`margin`/`height`/`width`/`top`/`left` trigger all three rendering steps.
 - **Don't drive child transforms via a CSS variable on the parent** — it recalcs styles for all children. Set `transform` directly on the element.
   ```js
   element.style.setProperty('--swipe-amount', `${d}px`); // bad: recalc on all children
   element.style.transform = `translateY(${d}px)`;        // good: only this element
   ```
-- **Framer Motion shorthands are NOT hardware-accelerated.** `x`/`y`/`scale` run on the main thread via rAF and drop frames under load. Use the full transform string:
+- **Motion shorthands are hardware-accelerated from `motion` 14.2.** Before 14.2, `x`/`y`/`scale` run on the main thread via rAF and drop frames under load, so on those versions upgrade or use the full transform string. Layout animations (`layout`, `layoutId`) run on the main thread in every version:
   ```jsx
-  <motion.div animate={{ x: 100 }} />                          // drops frames under load
-  <motion.div animate={{ transform: "translateX(100px)" }} />  // hardware accelerated
+  <motion.div animate={{ x: 100 }} />                          // motion 14.2+: hardware accelerated
+  <motion.div animate={{ transform: "translateX(100px)" }} />  // hardware accelerated in every version
   ```
 - **CSS animations beat JS under load** — they run off the main thread; rAF-based animations stutter while the browser loads/scripts/paints. Use CSS for predetermined motion, JS for dynamic/interruptible.
 - **WAAPI** gives JS control with CSS performance (hardware-accelerated, interruptible, no library):
@@ -148,12 +148,12 @@ When a crossfade shows two overlapping states despite tuning easing/duration, ad
 
 ## Stagger
 
-Stagger group entrances; 30–80ms between items. Longer delays feel slow. Stagger is decorative — never block interaction while it plays.
+Stagger group entrances; 30–80ms between items. Longer delays feel slow. Stagger is decorative — never block interaction while it plays. For group entrances, follow `../choreograph/SKILL.md` (one entrance per container, non-uniform delays).
 
 ```css
-.item { opacity: 0; transform: translateY(8px); animation: fadeIn 300ms ease-out forwards; }
+.item { opacity: 0; transform: translateY(8px); animation: fadeIn 300ms var(--ease-out) forwards; }
 .item:nth-child(2) { animation-delay: 50ms; }
-.item:nth-child(3) { animation-delay: 100ms; }
+.item:nth-child(3) { animation-delay: 90ms; }
 @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
 ```
 
@@ -163,6 +163,7 @@ Stagger group entrances; 30–80ms between items. Longer delays feel slow. Stagg
 @media (prefers-reduced-motion: reduce) {
   .element { animation: fade 0.2s ease; } /* keep opacity/color, drop transform-based motion */
 }
+@keyframes fade { from { opacity: 0; } }
 @media (hover: hover) and (pointer: fine) {
   .element:hover { transform: scale(1.05); } /* gate hover motion — touch fires false hovers on tap */
 }
