@@ -20,9 +20,9 @@ ArcReel 把 Agent（智能体）、文本生成、图像生成、视频生成和
 
 ## 2. 查看可用的供应商与模型 {#capability-matrix}
 
-在「设置 → 供应商」打开内置供应商详情，按文本、图片、视频或音频查看模型。列表显示当前版本开放的模型、价格摘要与状态。要接入私有网关、本地模型服务或内置供应商未提供的协议，请看[自定义供应商](#custom-providers)。
+在「设置 → 供应商」打开内置供应商详情，按文本、图片、视频或音频查看模型。列表显示当前版本开放的模型、价格摘要与状态。同一厂商有多个接入渠道时，左侧合并为一个入口并在详情页顶部提供渠道切换标签：在「Google Gemini」下切换「AI Studio」与「Vertex AI」，在「火山方舟」下切换「按量付费」与「Agent Plan」；各渠道的密钥、倍率与模型列表独立维护。要接入私有网关、本地模型服务或内置供应商未提供的协议，请看[自定义供应商](#custom-providers)。
 
-方舟 Agent Plan 优先使用订阅额度，ArcReel 默认不估算调用费用。如果在方舟控制台为支持的模型开启超额后付费，套餐额度用尽后，方舟会对超额调用另行出账，实际费用以方舟账单为准。参见方舟的[超额后付费管理说明](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh)。
+方舟 Agent Plan 优先使用订阅额度，ArcReel 默认不估算调用费用。如果在方舟控制台为支持的模型开启超额后付费，套餐额度用尽后，方舟会对超额调用另行出账，实际费用以方舟账单为准。参见方舟的[超额后付费管理说明](https://docs.volcengine.com/docs/ark/agent-plan-personal-over-quota-postpaid-management?lang=zh)。使用限制以火山方舟[服务条款](https://docs.volcengine.com/docs/ark/subscription-package-service-terms-conditions?lang=zh)为准：限于最终用户交互式调用（未经明确支持或授权不得用于应用后端、批量处理、自动化或定时任务等非交互式调用），文本模型仅限用于认可的 AI 工具，API Key 仅限本人单席位使用，个人版含数据授权，视频生成需 Large 及以上套餐。
 
 ## 3. 配置层级 {#configuration-layers}
 

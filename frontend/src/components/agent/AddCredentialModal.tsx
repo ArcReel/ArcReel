@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { API } from "@/api";
+import { ProviderPolicyNotice } from "@/components/shared/ProviderPolicyNotice";
+import { AGENT_PRESET_POLICY_NOTICES } from "@/components/shared/providerPolicyNotices";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
@@ -126,6 +128,7 @@ export function AddCredentialModal({
     if (form.presetId === customSentinelId) return null;
     return presets.find((p) => p.id === form.presetId) ?? null;
   }, [form.presetId, presets, customSentinelId]);
+  const presetPolicyNotice = selected ? AGENT_PRESET_POLICY_NOTICES[selected.id] : undefined;
 
   // 供应商不提供模型列表接口时（如火山方舟两档套餐），下拉框回退到预设的建议模型，
   // 用户不必知道模型 ID 也能选中一个可用值。
@@ -561,10 +564,16 @@ export function AddCredentialModal({
               </p>
             </Field>
 
-            {selected?.notes && (
-              <p className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-subtle-foreground">
-                {selected.notes}
-              </p>
+            {(selected?.notes || presetPolicyNotice) && (
+              <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-subtle-foreground">
+                {selected?.notes && <p>{selected.notes}</p>}
+                {presetPolicyNotice && (
+                  <ProviderPolicyNotice
+                    notice={presetPolicyNotice}
+                    className={selected?.notes ? "text-xs text-muted-foreground" : undefined}
+                  />
+                )}
+              </div>
             )}
 
             {submitError && (

@@ -13,6 +13,12 @@ import { Button } from "@/components/ui/button";
 import { ProviderDetail } from "./ProviderDetail";
 import { CustomProviderDetail } from "./settings/CustomProviderDetail";
 import { CustomProviderForm } from "./settings/CustomProviderForm";
+import {
+  buildPresetRailEntries,
+  resolvePresetRailActiveId,
+  resolveVendorChannels,
+} from "./settings/providerGroups";
+import type { ProviderInfo } from "@/types";
 
 type Selection =
   | { kind: "preset"; id: string }
@@ -21,9 +27,9 @@ type Selection =
   | null;
 
 /** 二级栏条目的 id：预置与自定义供应商的 id 可能撞值，加上分组前缀。 */
-function railId(selection: Selection): string | null {
+function railId(selection: Selection, providers: readonly ProviderInfo[]): string | null {
   if (!selection) return null;
-  if (selection.kind === "preset") return `preset:${selection.id}`;
+  if (selection.kind === "preset") return resolvePresetRailActiveId(providers, selection.id);
   if (selection.kind === "custom") return `custom:${selection.id}`;
   return "custom:new";
 }
@@ -71,7 +77,8 @@ export function ProviderSection() {
   }, [refresh, notifyRefreshFailure]);
 
   const selectFirstPreset = useCallback(() => {
-    if (providers.length > 0) navigate(providerSettingsPath({ preset: providers[0].id }), { replace: true });
+    const firstTarget = buildPresetRailEntries(providers, null)[0]?.targetProviderId;
+    if (firstTarget) navigate(providerSettingsPath({ preset: firstTarget }), { replace: true });
   }, [providers, navigate]);
 
   // 从「调用端点」小节的「新建供应商并使用此端点」接线过来的预填。
@@ -88,20 +95,32 @@ export function ProviderSection() {
     selectFirstPreset();
   }, [loading, selection, selectFirstPreset]);
 
+  const activePresetId = selection?.kind === "preset" ? selection.id : null;
+  const activeVendorChannels = useMemo(
+    () => (activePresetId ? resolveVendorChannels(providers, activePresetId) : undefined),
+    [providers, activePresetId],
+  );
+  const selectPresetChannel = useCallback(
+    (nextProviderId: string) => {
+      navigate(providerSettingsPath({ preset: nextProviderId }), { replace: true });
+    },
+    [navigate],
+  );
+
   const railGroups = useMemo<SecondaryRailGroup[]>(
     () => [
       {
         id: "preset",
         label: t("provider_rail_preset"),
-        items: providers.map((p) => ({
-          id: `preset:${p.id}`,
-          label: p.display_name,
+        items: buildPresetRailEntries(providers, activePresetId).map((entry) => ({
+          id: entry.railItemId,
+          label: entry.labelKey !== undefined ? t(entry.labelKey) : entry.displayName,
           description:
-            p.credential_count > 0
-              ? t("provider_credential_count", { count: p.credential_count })
+            entry.credentialCount > 0
+              ? t("provider_credential_count", { count: entry.credentialCount })
               : t("status_unconfigured"),
-          icon: <ProviderIcon providerId={p.id} className="size-4" />,
-          href: providerSettingsPath({ preset: p.id }),
+          icon: <ProviderIcon providerId={entry.iconProviderId} className="size-4" />,
+          href: providerSettingsPath({ preset: entry.targetProviderId }),
         })),
       },
       {
@@ -123,7 +142,7 @@ export function ProviderSection() {
         emptyText: t("custom_providers_empty"),
       },
     ],
-    [t, providers, customProviders],
+    [t, providers, activePresetId, customProviders],
   );
 
   if (loadError) {
@@ -149,7 +168,7 @@ export function ProviderSection() {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <SecondaryRail label={t("provider_list")} groups={railGroups} activeId={railId(selection)} replace />
+      <SecondaryRail label={t("provider_list")} groups={railGroups} activeId={railId(selection, providers)} replace />
 
       {selection?.kind === "preset" && (
         // 换供应商时整栏重建：未保存的高级配置、在途保存与加载状态都属于上一个供应商
@@ -158,6 +177,8 @@ export function ProviderSection() {
           key={`${selection.id}:${modelId ?? ""}`}
           providerId={selection.id}
           initialModelId={modelId}
+          channels={activeVendorChannels}
+          onSelectChannel={selectPresetChannel}
           onSaved={refreshAfterSave}
         />
       )}

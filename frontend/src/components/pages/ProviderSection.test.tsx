@@ -417,4 +417,138 @@ describe("ProviderSection", () => {
     );
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
+
+  describe("multi-channel vendor grouping", () => {
+    const groupedCatalog: ProviderInfo[] = [
+      {
+        id: "gemini-aistudio",
+        display_name: "AI Studio",
+        description: "",
+        status: "ready",
+        media_types: ["image"],
+        capabilities: [],
+        credential_count: 1,
+        models: {},
+      },
+      {
+        id: "gemini-vertex",
+        display_name: "Vertex AI",
+        description: "",
+        status: "unconfigured",
+        media_types: ["video"],
+        capabilities: [],
+        credential_count: 0,
+        models: {},
+      },
+      {
+        id: "ark",
+        display_name: "火山方舟",
+        description: "",
+        status: "unconfigured",
+        media_types: ["video"],
+        capabilities: [],
+        credential_count: 0,
+        models: {},
+      },
+      {
+        id: "ark-agent-plan",
+        display_name: "火山方舟 Agent Plan",
+        description: "",
+        status: "ready",
+        media_types: ["text", "image"],
+        capabilities: [],
+        credential_count: 2,
+        models: {},
+      },
+      {
+        id: "grok",
+        display_name: "Grok",
+        description: "",
+        status: "unconfigured",
+        media_types: ["image"],
+        capabilities: [],
+        credential_count: 0,
+        models: {},
+      },
+    ];
+
+    function detailByProviderId(id: string): ProviderConfigDetail {
+      const item = groupedCatalog.find((p) => p.id === id);
+      return {
+        ...providerDetailFor("zh"),
+        id,
+        display_name: item?.display_name ?? id,
+        status: item?.status ?? "unconfigured",
+      };
+    }
+
+    beforeEach(() => {
+      vi.mocked(API.getProviders).mockResolvedValue({ providers: groupedCatalog });
+      vi.mocked(API.getProviderConfig).mockImplementation((id) => Promise.resolve(detailByProviderId(id)));
+    });
+
+    it("groups multi-channel vendors into one rail item with aggregated key count and opens primary channel on click", async () => {
+      const { location } = renderAt("/app/settings?section=providers&provider=gemini-aistudio");
+      const nav = await screen.findByRole("navigation", { name: "供应商列表" });
+      const presetTab = within(nav).getByRole("tab", { name: /预置/ });
+      expect(presetTab).toHaveTextContent("3");
+
+      const panel = within(nav).getByRole("tabpanel");
+      const links = within(panel).getAllByRole("link");
+      expect(links).toHaveLength(3);
+
+      const geminiLink = within(panel).getByRole("link", { name: /Google Gemini/ });
+      expect(geminiLink).toHaveAttribute("aria-current", "page");
+      expect(geminiLink).toHaveTextContent("已配置 1 个密钥");
+
+      const arkLink = within(panel).getByRole("link", { name: /火山方舟/ });
+      expect(arkLink).toHaveTextContent("已配置 2 个密钥");
+      expect(within(panel).getByRole("link", { name: /Grok/ })).toHaveTextContent("未配置");
+
+      fireEvent.click(arkLink);
+      await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=providers&provider=ark"));
+      await screen.findByRole("heading", { name: "火山方舟" });
+    });
+
+    it("activates the vendor group and matching channel tab on deep link, and stays on current channel when clicking active rail item", async () => {
+      const { location } = renderAt("/app/settings?section=providers&provider=ark-agent-plan");
+      await screen.findByRole("heading", { name: "火山方舟 Agent Plan" });
+
+      const nav = screen.getByRole("navigation", { name: "供应商列表" });
+      const arkLink = within(within(nav).getByRole("tabpanel")).getByRole("link", { name: /火山方舟/ });
+      expect(arkLink).toHaveAttribute("aria-current", "page");
+
+      const channelTabs = screen.getByRole("tablist", { name: "接入渠道" });
+      const paygTab = within(channelTabs).getByRole("tab", { name: /按量付费/ });
+      const agentPlanTab = within(channelTabs).getByRole("tab", { name: /Agent Plan/ });
+      expect(agentPlanTab).toHaveAttribute("aria-selected", "true");
+      expect(agentPlanTab).toHaveAccessibleName(/已配置 2 个密钥/);
+      expect(paygTab).toHaveAttribute("aria-selected", "false");
+
+      fireEvent.click(arkLink);
+      expect(location.history.at(-1)).toBe("/app/settings?section=providers&provider=ark-agent-plan");
+
+      fireEvent.click(paygTab);
+      await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=providers&provider=ark"));
+      await screen.findByRole("heading", { name: "火山方舟" });
+    });
+
+    it("guards unsaved edits when switching between channels of the same vendor", async () => {
+      const { location } = renderAt("/app/settings?section=providers&provider=ark");
+      await screen.findByRole("heading", { name: "火山方舟" });
+      fireEvent.change(screen.getByRole("spinbutton", { name: "Max Workers" }), { target: { value: "9" } });
+
+      const channelTabs = screen.getByRole("tablist", { name: "接入渠道" });
+      fireEvent.click(within(channelTabs).getByRole("tab", { name: /Agent Plan/ }));
+
+      const dialog = await screen.findByRole("alertdialog", { name: "有未保存的修改" });
+      expect(location.history.at(-1)).toBe("/app/settings?section=providers&provider=ark");
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "放弃修改" }));
+      await waitFor(() =>
+        expect(location.history.at(-1)).toBe("/app/settings?section=providers&provider=ark-agent-plan"),
+      );
+      await screen.findByRole("heading", { name: "火山方舟 Agent Plan" });
+    });
+  });
 });

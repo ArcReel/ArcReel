@@ -5,15 +5,19 @@ import type { TFunction } from "i18next";
 import { API } from "@/api";
 import { errMsg, voidCall } from "@/utils/async";
 import { ProviderIcon } from "@/components/shared/ProviderIcon";
+import { ProviderPolicyNotice } from "@/components/shared/ProviderPolicyNotice";
+import { PROVIDER_POLICY_NOTICES } from "@/components/shared/providerPolicyNotices";
 import { CredentialList } from "@/components/pages/CredentialList";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { PartialSaveError, useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { FieldHint } from "@/components/pages/settings/CustomProviderFieldRow";
 import { ProviderModelList } from "@/components/pages/settings/ProviderModelList";
+import type { ProviderChannelOption } from "@/components/pages/settings/providerGroups";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ProviderConfigDetail, ProviderField, ProviderMultiplierInfo } from "@/types";
 import { parseMultiplier } from "@/utils/multiplier";
 
@@ -85,10 +89,92 @@ function isMultiplierValid(text: string): boolean {
   return !text.trim() || parseMultiplier(text) !== undefined;
 }
 
+interface ChannelTabsProps {
+  providerId: string;
+  channels?: ProviderChannelOption[];
+  onSelectChannel?: (providerId: string) => void;
+}
+
+function ProviderChannelTabs({ providerId, channels, onSelectChannel }: ChannelTabsProps) {
+  const { t } = useTranslation("dashboard");
+  if (!channels || channels.length <= 1 || !onSelectChannel) return null;
+  return (
+    <div className="relative flex min-w-0 overflow-x-auto scroll-fade-x">
+      <Tabs value={providerId} onValueChange={(nextId: string) => onSelectChannel(nextId)} className="shrink-0">
+        <TabsList aria-label={t("provider_channels_aria")}>
+          {channels.map((channel) => (
+            <TabsTrigger key={channel.providerId} value={channel.providerId}>
+              {t(channel.tabLabelKey)}
+              {channel.credentialCount > 0 && (
+                <>
+                  <span aria-hidden className="size-1.5 rounded-full bg-good" />
+                  <span className="sr-only">
+                    {" "}
+                    {t("provider_credential_count", { count: channel.credentialCount })}
+                  </span>
+                </>
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+    </div>
+  );
+}
+
+function ProviderDetailHeader({
+  providerId,
+  detail,
+  channels,
+  onSelectChannel,
+}: {
+  providerId: string;
+  detail: ProviderConfigDetail;
+  channels?: ProviderChannelOption[];
+  onSelectChannel?: (providerId: string) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  const mediaTypes = [...(detail.media_types ?? [])].sort((a, b) => mediaTypeRank(a) - mediaTypeRank(b));
+  const policyNotice = PROVIDER_POLICY_NOTICES[providerId];
+  return (
+    <div className="flex flex-col gap-3">
+      <ProviderChannelTabs providerId={providerId} channels={channels} onSelectChannel={onSelectChannel} />
+      <div className="flex items-start gap-3">
+        <ProviderIcon providerId={providerId} className="mt-0.5 size-7 shrink-0" />
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="text-lg font-medium">{detail.display_name}</h2>
+            <Badge variant={detail.status === "ready" ? "secondary" : "outline"}>
+              {t(STATUS_LABEL_KEY[detail.status])}
+            </Badge>
+          </div>
+          {detail.description && (
+            <p className="max-w-[40em] text-sm text-muted-foreground">{detail.description}</p>
+          )}
+          {policyNotice && (
+            <ProviderPolicyNotice notice={policyNotice} className="max-w-[40em] text-xs text-muted-foreground" />
+          )}
+          {mediaTypes.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {mediaTypes.map((kind) => (
+                <Badge key={kind} variant="outline">
+                  {MEDIA_TYPE_LABEL_KEY[kind] ? t(MEDIA_TYPE_LABEL_KEY[kind]) : kind}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   providerId: string;
   /** 深链里的模型 ID：打开时直接打开它的 Sheet。 */
   initialModelId?: string;
+  channels?: ProviderChannelOption[];
+  onSelectChannel?: (providerId: string) => void;
   /** 高级配置或密钥改动入库之后调用，供上层刷新供应商目录（二级栏的密钥数量与状态）。 */
   onSaved?: () => void;
 }
@@ -97,7 +183,7 @@ interface Props {
  * 预置供应商详情。换供应商时由上层按 `providerId` 重建整栏，组件内只处理同一供应商的语言重取与重试。
  * 密钥区的增改删与切换、模型列表的启用开关立即生效；底部保存栏负责供应商倍率与高级配置（并发上限等）。
  */
-export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
+export function ProviderDetail({ providerId, initialModelId, channels, onSelectChannel, onSaved }: Props) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
   const [detail, setDetail] = useState<ProviderConfigDetail | null>(null);
   const [multiplier, setMultiplier] = useState<ProviderMultiplierInfo | null>(null);
@@ -215,9 +301,14 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
   );
   const unit = useEditUnit({ source, save });
 
+  const channelSwitcher = (
+    <ProviderChannelTabs providerId={providerId} channels={channels} onSelectChannel={onSelectChannel} />
+  );
+  const hasChannelSwitcher = Boolean(channels && channels.length > 1 && onSelectChannel);
+
   if (loadError) {
     return (
-      <DetailPane>
+      <DetailPane header={hasChannelSwitcher ? channelSwitcher : undefined}>
         <div role="alert" className="flex flex-col items-start gap-3 p-6">
           <p className="text-sm font-medium text-warn">{t("common:load_failed")}</p>
           <p className="text-sm text-subtle-foreground">{loadError}</p>
@@ -239,7 +330,7 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
 
   if (!detail || !multiplier) {
     return (
-      <DetailPane>
+      <DetailPane header={hasChannelSwitcher ? channelSwitcher : undefined}>
         <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
           <Loader2 aria-hidden className="size-4 animate-spin text-primary" />
           {t("common:loading")}
@@ -248,35 +339,17 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
     );
   }
 
-  const mediaTypes = [...(detail.media_types ?? [])].sort((a, b) => mediaTypeRank(a) - mediaTypeRank(b));
   const multiplierValid = isMultiplierValid(unit.value.multiplier);
 
   return (
     <DetailPane
       header={
-        <div className="flex items-start gap-3">
-          <ProviderIcon providerId={providerId} className="mt-0.5 size-7 shrink-0" />
-          <div className="flex min-w-0 flex-col gap-1.5">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="text-lg font-medium">{detail.display_name}</h2>
-              <Badge variant={detail.status === "ready" ? "secondary" : "outline"}>
-                {t(STATUS_LABEL_KEY[detail.status])}
-              </Badge>
-            </div>
-            {detail.description && (
-              <p className="max-w-[40em] text-sm text-muted-foreground">{detail.description}</p>
-            )}
-            {mediaTypes.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {mediaTypes.map((kind) => (
-                  <Badge key={kind} variant="outline">
-                    {MEDIA_TYPE_LABEL_KEY[kind] ? t(MEDIA_TYPE_LABEL_KEY[kind]) : kind}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        <ProviderDetailHeader
+          providerId={providerId}
+          detail={detail}
+          channels={channels}
+          onSelectChannel={onSelectChannel}
+        />
       }
       footer={<SaveBar unit={unit} className="max-w-178" />}
     >

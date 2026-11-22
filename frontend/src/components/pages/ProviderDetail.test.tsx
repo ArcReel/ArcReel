@@ -255,4 +255,39 @@ describe("ProviderDetail", () => {
     await waitFor(() => expect(input).toHaveAttribute("aria-invalid", "true"));
     expect(setMultiplier).not.toHaveBeenCalled();
   });
+
+  it("renders a subtle policy notice with official terms link for ark-agent-plan only", async () => {
+    const arkAgentDetail: ProviderConfigDetail = {
+      ...detailFor("zh"),
+      id: "ark-agent-plan",
+      display_name: "火山方舟 Agent Plan",
+      description: "火山方舟面向个人用户推出的订阅式大模型服务套餐，按积分计费。",
+    };
+    const arkPaygDetail: ProviderConfigDetail = {
+      ...detailFor("zh"),
+      id: "ark",
+      display_name: "火山方舟",
+      description: "字节跳动旗下火山引擎的大模型服务平台（MaaS）。",
+    };
+    vi.spyOn(API, "getProviderConfig").mockImplementation((id) =>
+      Promise.resolve(id === "ark-agent-plan" ? arkAgentDetail : arkPaygDetail),
+    );
+
+    const { unmount } = render(<ProviderDetail providerId="ark-agent-plan" />);
+    await screen.findByRole("heading", { name: "火山方舟 Agent Plan" });
+    expect(screen.getByText(/火山方舟条款限定文本模型仅用于认可的 AI 工具/)).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "查看服务条款" });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://docs.volcengine.com/docs/ark/subscription-package-service-terms-conditions?lang=zh",
+    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+    unmount();
+
+    render(<ProviderDetail providerId="ark" />);
+    await screen.findByRole("heading", { name: "火山方舟" });
+    expect(screen.queryByRole("link", { name: "查看服务条款" })).not.toBeInTheDocument();
+  });
 });
