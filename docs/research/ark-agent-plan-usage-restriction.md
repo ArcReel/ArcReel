@@ -1,6 +1,6 @@
 # 火山方舟 Agent Plan 使用限制对 `ark-agent-plan` 的影响评估
 
-日期：2026-11-21。背景：[#3094](https://github.com/ArcReel/ArcReel/issues/3094)。仓库基线：[`bf715a2a`](https://github.com/ArcReel/ArcReel/tree/bf715a2a3fe5096475577efe4e29eb4f31b9b5f0)。本次调研仅基于火山引擎官方文档原文与仓库源码的静态核验，未进行真实付费调用实验，未绕过工具识别机制，也未向火山引擎提交工单。本报告为产品决策提供依据，不实施任何代码或界面改动。
+日期：2026-11-21（决策记录更新：2026-11-22）。背景：[#3094](https://github.com/ArcReel/ArcReel/issues/3094)。仓库基线：[`bf715a2a`](https://github.com/ArcReel/ArcReel/tree/bf715a2a3fe5096475577efe4e29eb4f31b9b5f0)。本次调研仅基于火山引擎官方文档原文与仓库源码的静态核验，未进行真实付费调用实验，未绕过工具识别机制，也未向火山引擎提交工单。本报告为产品决策提供依据，自身不包含代码或界面改动；已采纳的后续落地见第七节。
 
 ## 结论总览
 
@@ -135,12 +135,12 @@
 
 1. **新用户与默认模型**：自 v0.36.0 起，`lib/catalog/snapshot/catalog.json` 中 `ark-agent-plan.defaults` 仅保留 `video`（`doubao-seedance-2.0-mini`），不再有 `text` 默认推荐（[`lib/config/pre_upgrade_recommendations.py`](https://github.com/ArcReel/ArcReel/blob/bf715a2a3fe5096475577efe4e29eb4f31b9b5f0/lib/config/pre_upgrade_recommendations.py#L137-L145)）。移除文本模型不会影响新用户的默认推荐解析。
 2. **存量已配置用户**：v0.34.0 / v0.35.0 升级固化的实例，或用户在全局默认、简单/复杂文本档位、项目级模型设置中手动选过 `ark-agent-plan` 文本模型的，配置仍指向这些模型 ID。[`assemble_backend()`](https://github.com/ArcReel/ArcReel/blob/bf715a2a3fe5096475577efe4e29eb4f31b9b5f0/lib/backends/backend_assembly/assembler.py#L144-L160) 会调用 `catalog.require_callable()`，直接删除目录条目会导致老用户在下次文本生成时直接收到 `ModelNotInCatalogError`。
-3. **平稳过渡做法**：若采用方案 C 或 D，应优先通过设置页候选过滤/标记停用（或提供明确的错误提示引导切换到按量付费的 `ark` 或其他文本供应商），避免在无迁移说明的情况下静默删除目录条目。
+3. **平稳过渡做法**：仅在设置页做候选过滤或标记停用只能阻止新选，无法拦住已保存的 `ark-agent-plan` 文本配置经 `create_text_backend_for_task()` → `assemble_backend()` 继续发起调用。若采用方案 C 或 D 并要求真正停止存量文本调用，需在文本后端装配/派发入口显式拦截 `ark-agent-plan` 文本调用，并给出清晰的迁移提示引导切换到按量付费的 `ark` 或其他文本供应商，同时保持媒体模型与其他供应商可用，避免直接静默删除目录条目导致裸露的 `ModelNotInCatalogError`。
 4. **不影响的功能**：供应商连通性校验 `_check_ark` 走视频任务列表 API，不依赖文本模型；独立的 `ark-agent-plan` Agent 预设走 `lib/agent/agent_provider_catalog.py`，不受内置供应商目录删改影响。
 
 ### 5.2 最小建议
 
-- **最小无破坏建议（推荐立即考虑）**：先实施**方案 B**，在内置供应商 `ark-agent-plan` 与 Agent 预设 `ark-agent-plan` 的说明文案中明确标注四点已证实限制——（1）官方声明文本模型不可用于非 AI 工具的 API 调用；（2）API Key 仅限本人单席位使用，不得多人共享；（3）个人版含数据授权（输入输出可用于模型优化），对数据隐私敏感应选企业版或按量付费；（4）视频生成仅 Large / Max 套餐支持。同时保持当前不提供文本默认推荐的状态。
+- **最小无破坏建议（推荐立即考虑）**：先实施**方案 B**，在内置供应商 `ark-agent-plan` 与 Agent 预设 `ark-agent-plan` 的说明文案中给出克制提示并提供官方条款外链，重点涵盖：（1）官方声明文本模型仅用于认可的 AI 工具且不可用于非交互式 API 调用；（2）API Key 仅限本人单席位使用，不得多人共享；（3）个人版含数据授权（输入输出可用于模型优化），对数据隐私敏感应选企业版或按量付费；（4）视频生成仅 Large / Max 套餐支持；完整适用范围（包括 §2.2 约定的中国大陆地域限制与商业使用书面许可条件）由官方服务条款外链承接，并保留第六节第 5 项待确认问题。同时保持当前不提供文本默认推荐的状态。
 - **若追求更严格合规基线**：在向火山引擎确认前采用**方案 D**，将内置供应商 `ark-agent-plan` 的候选模型收口至图片、视频与语音，并配套对存量已选文本模型的迁移提示；独立 Agent 预设保留并标注「嵌入 Claude Agent SDK 的授权边界尚待官方确认，仅建议个人本地使用」。
 
 ## 六、待向火山引擎确认的问题与人工材料清单
@@ -158,3 +158,11 @@
 - 火山引擎官方工单回复截图或书面邮件原文（含回复日期、工单编号或对接方身份）。
 - 回复所对应的《火山方舟大模型订阅套餐服务专用条款》及套餐概览生效版本或日期。
 - 若获准纳入支持工具列表或取得特定场景书面豁免，留存授权范围（适用模态、个人版/企业版、有效期与限制条件）并据此更新本报告与产品配置。
+
+## 七、已采纳决策（2026-11-22）
+
+维护者采纳**方案 B**，并已在 [#3992](https://github.com/ArcReel/ArcReel/pull/3992) 落地：
+
+- 保留内置供应商 `ark-agent-plan` 文本模型可选（继续不设文本默认推荐），不破坏存量配置；
+- 在「设置 → 供应商」将多渠道厂商收纳为单条目并增加顶部渠道切换标签（`Google Gemini`：`AI Studio` / `Vertex AI`；`火山方舟`：`按量付费` / `Agent Plan`）；
+- 在内置供应商 `ark-agent-plan` 详情头与 Agent 预设 `ark-agent-plan` 弹窗中补充克制的条款提示及官方[服务条款](https://docs.volcengine.com/docs/ark/subscription-package-service-terms-conditions?lang=zh)外链（覆盖 `zh`、`en`、`ru`、`vi` 四语），并同步更新中英文[供应商配置指南](../../website/docs/guide/providers.md)（含 §2.8 交互式调用限制）。
