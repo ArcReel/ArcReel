@@ -773,3 +773,63 @@ describe("AddCredentialModal 模型下拉回退", () => {
     expect(screen.getByLabelText(/代理地址/).closest(".font-mono")).toBeNull();
   });
 });
+
+describe("AddCredentialModal preset policy notice", () => {
+  it("appends a subtle policy notice with official terms link for ark-agent-plan only, not ark-coding-plan", () => {
+    const volcPresets: PresetProvider[] = [
+      {
+        id: "ark-agent-plan",
+        display_name: "Volcengine Ark Agent Plan",
+        icon_key: "Volcengine",
+        messages_url: "https://ark.cn-beijing.volces.com/api/plan",
+        discovery_url: null,
+        default_model: "doubao-seed-evolving",
+        suggested_models: ["doubao-seed-evolving", "kimi-k3"],
+        docs_url: null,
+        api_key_url: "https://console.volcengine.com/ark",
+        notes: "按月订阅的豆包/火山方舟 Agent 套餐。",
+        api_key_pattern: null,
+        is_recommended: false,
+      },
+      {
+        id: "ark-coding-plan",
+        display_name: "Volcengine Ark Coding Plan",
+        icon_key: "Volcengine",
+        messages_url: "https://ark.cn-beijing.volces.com/api/coding",
+        discovery_url: null,
+        default_model: "doubao-seed-code",
+        suggested_models: ["doubao-seed-code"],
+        docs_url: null,
+        api_key_url: "https://console.volcengine.com/ark",
+        notes: "火山方舟 Coding Plan 套餐。",
+        api_key_pattern: null,
+        is_recommended: false,
+      },
+    ];
+
+    render(
+      <AddCredentialModal
+        open
+        presets={volcPresets}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Volcengine Ark Agent Plan/i }));
+    expect(screen.getByText("按月订阅的豆包/火山方舟 Agent 套餐。")).toBeInTheDocument();
+    expect(screen.getByText(/API Key 仅限本人单席位使用，个人版含数据授权。/)).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "查看服务条款" });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://docs.volcengine.com/docs/ark/subscription-package-service-terms-conditions?lang=zh",
+    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+    fireEvent.click(screen.getByRole("button", { name: /Volcengine Ark Coding Plan/i }));
+    expect(screen.getByText("火山方舟 Coding Plan 套餐。")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "查看服务条款" })).not.toBeInTheDocument();
+  });
+});
