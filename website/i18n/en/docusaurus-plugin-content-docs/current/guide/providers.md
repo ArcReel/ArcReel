@@ -14,6 +14,45 @@ ArcReel treats the Agent, text generation, image generation, video generation, a
 
 Under Settings → ArcReel Agent, add and activate an Agent provider credential for project chat, content analysis, script planning, and task orchestration. The Agent uses the Claude Agent SDK and can connect to Anthropic or a compatible gateway.
 
+Each Agent provider is an Anthropic-compatible gateway, and only one is active at a time; after switching, new sessions use the new provider while running sessions keep the previous one.
+
+#### Models, Providers, and API Protocols {#agent-protocol}
+
+A model, a provider, and an API protocol are three different things: a model is a generation capability released by a model maker, a provider serves calls to that model, and an API protocol is the request-and-response convention between the two sides. The same model can be offered by multiple providers, and the same provider can use different protocols for different capabilities.
+
+The built-in Agent calls only the Anthropic Messages protocol: it sends requests to "API Base URL + `/v1/messages`" and expects an Anthropic-format response. Text tasks support OpenAI-compatible and other protocols, but that does not carry over to the Agent — a provider that only offers an OpenAI Chat Completions-compatible interface cannot be used directly as an Agent provider.
+
+#### Connecting a Compatible Gateway {#agent-gateway}
+
+Prefer providers that expose an Anthropic Messages-compatible endpoint directly. The preset list already covers Anthropic and compatible endpoints from GLM, DeepSeek, Kimi, MiniMax, Xiaomi MiMo, and Volcengine Ark Coding Plan and Agent Plan: picking a preset fills in the URL, so you only need the key and the default model.
+
+For a compatible endpoint not covered by the presets, choose "Custom" and fill in the fields yourself:
+
+- "API Base URL": the gateway URL of the compatible endpoint. The full Messages URL the Agent will call is previewed under the field; you can also paste a complete `…/v1/messages` endpoint copied from the provider's documentation — the trailing segment is stripped on save. The URL must be an absolute http(s) address without query parameters, fragments, or user info.
+- "Key": the credential the endpoint requires.
+- "Default Model": a model name the endpoint actually serves. "Advanced Model Routing" can route capability tiers and subagents to different models; for non-official providers, empty tiers use the default model name, while for the Anthropic preset, empty tiers are decided by Claude Code.
+- With the URL and key filled in, "Discover Models" reads the endpoint's `/v1/models` to fill candidate model names — for reference only: if the endpoint does not implement this interface, or the list does not match the models actually available, enter the model name manually per its documentation.
+
+Verify with "Test Connection" before saving: it sends a minimal request to the Messages URL the Agent will call (up to 30 seconds) and checks that the response is in Anthropic format. A successful response in a different format reports "This endpoint speaks OpenAI-compat protocol", meaning the URL points at an endpoint using another protocol; model-related hints mean you should check the model name first; for rate limits and timeouts, retry later as hinted — a timeout means the endpoint is reachable, so you can save and retry; otherwise, check the key and URL against the status code and raw error.
+
+#### Connecting an External Protocol Gateway {#agent-external-gateway}
+
+If a provider does not offer an Anthropic Messages-compatible endpoint but you still want it to drive the Agent, you can run an external protocol-conversion gateway that wraps other-protocol model services behind a compatible endpoint, then connect it via "Custom" as described above. Common options and their official documentation:
+
+- LiteLLM: [Claude Agent SDK with LiteLLM](https://docs.litellm.ai/docs/tutorials/claude_agent_sdk)
+- Claude Code Router: [project README](https://github.com/musistudio/claude-code-router/blob/main/README.md)
+
+Using LiteLLM as an example:
+
+1. Write a `config.yaml` and start the proxy per the LiteLLM documentation. The proxy listens on `http://localhost:4000` by default — that address is the Anthropic-compatible endpoint it exposes;
+2. Under Settings → ArcReel Agent, add an Agent provider and choose "Custom";
+3. Set "API Base URL" to `http://localhost:4000` (it must be reachable from the ArcReel service: in a container deployment, `localhost` refers to the container itself, so use the gateway host's address as reachable from ArcReel);
+4. Set "Key" to the LiteLLM gateway access key (such as the master key or a virtual key);
+5. Set "Default Model" to a `model_name` exposed by `model_list` in `config.yaml`;
+6. Save after "Test Connection" passes, then set the provider as active.
+
+An external protocol gateway is an optional workaround, not a built-in ArcReel feature: compatibility depends on the model, the provider, and the gateway version (including details such as streaming responses and tool calls). ArcReel has not verified these combinations end to end and does not treat them as an officially supported way to connect. For the gateway's setup, upgrades, and supported models, follow each project's official documentation; after connecting, confirm it works via "Test Connection" and a few real conversations before using it in projects.
+
 ### 1.2 Media and Text Providers {#media-and-text-providers}
 
 Under Settings → Providers, configure credentials for text, images, video, and text-to-speech (TTS). Then choose the model for each use under Default Models. Generation models use their own provider settings, independently of the Agent provider.
