@@ -40,10 +40,6 @@ paths:
 
 seam 指带有生产默认值、且不改变生产行为的构造参数或关键字参数，例如 `retry_async(operation, *, clock=..., jitter=...)`。它适用于轮询时钟、间隔、退避、HTTP 探测客户端、文件系统与子进程。模块级的可替换全局变量不算 seam，因为它会让测试之间共享可变状态。可测性改造同样不得改变生产行为，前端仅允许抽取纯函数及进行 hook 级的结构性拆分。
 
-### 进程级缓存的重置钩子是公开函数 `reset_for_tests()` / `reset_<名称>_for_tests()`
-
-生产模块用 `functools.cache` 这类进程级缓存时，暴露公开的重置钩子（如 `lib.infra.app_data_dir.reset_for_tests`），只清缓存、不改生产行为。这是过渡形态：新代码优先把缓存依赖做成参数注入。
-
 ### 出站 HTTP 用 respx 拦截，FastAPI 依赖用 `dependency_overrides`
 
 respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的流量同样被捕获），断言的是真实序列化后的请求。路由依赖用 `app.dependency_overrides` 替换，不 patch。
