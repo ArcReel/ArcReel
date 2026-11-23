@@ -3,8 +3,6 @@
 inheritance: true
 knowledge_base:
   code_guidelines:
-    # docs/standards/ 下各领域规范按 frontmatter 的 paths 应用到对应源码。
-    # standards:start 与 standards:end 之间由 `uv run python scripts/audit_conventions.py --fix` 生成，不手工修改。
     filePatterns:
       # standards:start
       - files: "docs/standards/backend.md"

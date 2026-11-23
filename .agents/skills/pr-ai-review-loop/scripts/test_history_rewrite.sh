@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# test_history_rewrite.sh — poll.sh on a PR whose history was rewritten (amend, squash,
-# rebase + force push) instead of extended with fix commits.
-#
-# USAGE
-#   bash test_history_rewrite.sh
-#
 # Fixture: testdata/history_rewrite_pr3813.json, the REST state of a real PR after its
 # second force push — fixes squashed into one commit on top of two pre-PR commits. Earlier
 # reviews and Codex receipts are anchored on commits the rewrite orphaned (d3112dfb,
@@ -13,22 +7,6 @@
 # to 200 chars, human comments reduced to the trigger commands with the author renamed.
 # The walkthrough body is the full capture in coderabbit_walkthrough_force_push_pr3813.txt
 # (scope token redacted). Earlier states are derived in-test from that one capture.
-#
-# What "correct" means after a rewrite:
-#   last_push_at           committer date of the rewritten head, even when the head is not
-#                          the last listed commit — the watermark moves with the force push
-#   is_new                 only what reviewers posted after the rewritten head was committed,
-#                          plus ids no earlier poll saw. An old inline comment whose
-#                          commit_id GitHub re-pointed at the new head stays old
-#   reviewed_current_head  true only for rows anchored on the rewritten head; a row anchored
-#                          on an orphaned commit is false even when it was written after the
-#                          force push (a slow review of the previous head)
-#   started_current_head   false right after the force push, true once Codex names the head
-#   base_oid, commits_since_pr_created   gone from the index: they compared commit dates
-#                          with the PR creation time, which a rebase makes meaningless
-#
-# gh is stubbed on PATH and serves the state file named by HR_STATE; TMPDIR is redirected
-# so snapshots and ledgers land in a throwaway dir.
 
 # shellcheck disable=SC2016 # jq filters are single-quoted on purpose; values go in via --arg.
 set -euo pipefail
@@ -77,7 +55,6 @@ HEAD=f250154adca3b572cdde28c4fea5acbb58097b84
 OLD_HEAD=aecc4a58628b4357612e3612c6a8eea12900e35b
 HEAD_COMMITTED_AT=2026-11-12T21:11:37Z
 
-# The capture with the walkthrough body restored.
 FINAL="$TMP_ROOT/final.json"
 jq --rawfile walkthrough "$TESTDATA/coderabbit_walkthrough_force_push_pr3813.txt" \
   '(.comments[] | select(.body == "@@WALKTHROUGH@@") | .body) = $walkthrough' \
@@ -86,9 +63,6 @@ jq -e --arg head "$HEAD" '.pr.head.sha == $head and (.commits | last | .sha) == 
   and (.comments[0].body | contains("change_assessment_commit"))' "$FINAL" >/dev/null \
   || fail "fixture does not have the expected shape"
 
-# The moment after the force push: nothing posted after the rewritten head was committed,
-# and the two comments reviewers rewrite in place (CodeRabbit walkthrough, Codex summary)
-# still name the previous head. $1 = updated_at of those two comments.
 just_pushed() {
   jq --arg at "$HEAD_COMMITTED_AT" --arg head "$HEAD" --arg old "$OLD_HEAD" --arg updated "$1" '
     .reviews |= map(select(.submitted_at <= $at))
@@ -102,7 +76,6 @@ just_pushed() {
   ' "$FINAL"
 }
 
-# poll <case name> <state file>: one poll in the case's own snapshot dir; prints the index path.
 poll() {
   local name="$1" state="$2"
   mkdir -p "$TMP_ROOT/tmp-$name"
@@ -161,7 +134,6 @@ check "a receipt for the orphaned previous head is not a current-HEAD pass" "$IN
 check "Codex has not started on the rewritten head, earlier triggers notwithstanding" "$INDEX" \
   '(.codex.started_current_head | not) and ([.own_trigger_comments[] | select(.command == "@codex review")] | length) == 4'
 
-# ---- 3. a slow review of the orphaned head lands after the force push ----
 just_pushed 2026-11-12T21:12:30Z > "$TMP_ROOT/slow.json"
 INDEX=$(poll slow "$TMP_ROOT/slow.json")
 check "a walkthrough rewritten after the force push but anchored on the orphaned head is not a review of the head" "$INDEX" \
@@ -174,7 +146,6 @@ INDEX=$(poll late-summary "$TMP_ROOT/late-summary.json")
 check "a Codex summary created after the force push but naming the orphaned head is neither a review nor a start signal" "$INDEX" \
   '(.codex.started_current_head | not) and ([.codex.comments_new[] | select(.reviewed_current_head)] | length) == 0'
 
-# Codex reports the review of the rewritten head as failed (real body from another PR, re-pointed).
 jq --rawfile failed "$SCRIPT_DIR/testdata/codex_summary_failed_pr3850.txt" --arg head "$HEAD" '
   .comments[1].body = ($failed | gsub("00259c60c4d473b0639d7e794faeb26c42a54aad"; $head))
 ' "$TMP_ROOT/slow.json" > "$TMP_ROOT/failed.json"
@@ -182,7 +153,6 @@ INDEX=$(poll failed "$TMP_ROOT/failed.json")
 check "a failed Codex review of the head is reported and is not a start signal" "$INDEX" \
   '.codex.failed_current_head and (.codex.started_current_head | not)'
 
-# ---- 4. rebase: every commit rewritten, all committed after the PR was created ----
 jq --arg head "$HEAD" '
   .commits |= map(if .sha == $head then . else .sha = ("0000000" + .sha[7:]) end)
   | .commits[0].commit.committer.date = "2026-11-12T21:11:35Z"

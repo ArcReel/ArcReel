@@ -1,14 +1,9 @@
 name: Docker Edge
 
-# main 合入后构建开发镜像：推送不可变 sha-* 标签 + 可变 main 标签
-# （有部署环境跟踪 main 标签）。正式发布走 docker-release.yml。
-
 on:
   push:
     branches: [main]
-    # 影响镜像内容的路径：Dockerfile COPY 清单 + 依赖文件
     paths:
-      # 本工作流自身变更也须在合入后立即演练发布管线
       - ".github/workflows/docker-edge.yml"
       - "Dockerfile"
       - ".dockerignore"
@@ -51,7 +46,6 @@ jobs:
         env:
           REPO: ${{ github.repository }}
 
-      # 按 ISO 周生成 APT_REFRESH，使 Dockerfile 的系统包层每周失效一次并重新 apt-get upgrade
       - name: Compute apt refresh key
         id: apt
         run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"

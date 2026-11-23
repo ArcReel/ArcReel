@@ -44,10 +44,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Decide run scope
-        # 全量运行（nightly、发布 PR）不裁剪：所有域、五档视口、采集覆盖率。发布 PR 变更的
-        # 版本文件不覆盖 docker 域，须显式全量以兑现「发布 commit 跑全量 CI」。
-        # 其余 PR 按域裁剪，不采集覆盖率（Codecov 状态不拦合并，由 main 的 push 与 nightly 更新），
-        # 页面级套件只跑有截图基线的三档视口，另外两档由 nightly 覆盖。
         # 分片数按每片约 115 条用例定：单 worker 下 2560×1440 一档约 3 秒一条，最慢一片约 7 分钟，
         # 与 Backend tests (integration) 相当。三档 921 条分 8 片，五档 1521 条分 13 片。
         # 用例数明显变化时重算。
@@ -81,11 +77,6 @@ jobs:
           full: ${{ steps.scope.outputs.full }}
 
   workflow-static:
-    # workflow 文件的语法与安全闸门。actionlint 走官方容器镜像（自带 shellcheck 与
-    # pyflakes，能检查 run: 脚本）；zizmor 用默认 persona，medium 及以上阻断，--offline
-    # 使判定不受环境里是否存在 GitHub token 影响，与 pre-commit 本地一致。
-    # 两个工具版本须与 .pre-commit-config.yaml 中对应 hook 的版本同步升级。
-    # zizmor 只审 GitHub 实际执行的输入；.agents/skills/ 下 vendored skill 自带的上游 CI 不在本仓库运行。
     needs: changes
     if: needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
@@ -158,9 +149,6 @@ jobs:
         run: uv run python scripts/lint_agent_runtime_profile.py
 
   conventions:
-    # 仓库约定闸门：scripts/audit_conventions.py --check（规范索引与 CodeRabbit 映射、
-    # Dependabot 分组、工具版本同步、豁免注释的行内理由）。涉及的文件横跨各域，其中
-    # docs/standards/ 等不属于任何域，所以不按域裁剪。
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -194,9 +182,6 @@ jobs:
           uv run python -m scripts.audit_comments --base "$COMMENT_BASE"
 
   test-lint:
-    # 测试卫生闸门：scripts/audit_tests.py --check（零第三方依赖，纯 stdlib ast）。
-    # 独立于 backend-static：脚本同时扫后端 tests/ 与 frontend/src/**/*.test.*，
-    # 只挂 backend 域会让 frontend-only PR 绕过前端段。
     needs: changes
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
@@ -223,14 +208,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 豁免清单的每一条都由 tests/unit 触发：unit job 声明这一点，过期条目在 CI 报出；
-          # integration 单独跑只触发其中一部分，不带。
           - suite: unit
             path: tests/unit
             extra_args: --blocking-guard-expect-all-exemptions
           - suite: integration
             path: tests/integration
-          # workspace 子包的测试目录自带 pytest 配置，与应用测试分开收集
           - suite: market-core
             path: packages/arcreel-market-core/tests
           - suite: catalog-core
@@ -264,7 +246,6 @@ jobs:
         # 锁定的 pytest-xdist 补 worker 时会把崩溃 worker 已跑完的文件重新排队，补上的 worker
         # 领到空任务后会话卡在 99%；何时可以去掉见 docs/agents/testing.md「CI 挂起诊断」。
         # 步骤超时短于 job 超时，挂起时留出时间给下一步输出诊断。
-        # 覆盖率是否采集见 changes job 的「Decide run scope」。
         timeout-minutes: 20
         env:
           ARCREEL_TEST_HANG_DUMP_DIR: ${{ runner.temp }}/pytest-hang
@@ -282,12 +263,6 @@ jobs:
             -n 4 --dist loadfile --max-worker-restart=0 "${coverage_args[@]}"
 
       - name: Hang and crash diagnostics
-        # tests/hang_watchdog.py 写下的各进程最后的进展（开始执行的用例与 sessionfinish/unconfigure 阶段）与无进展时的线程栈；
-        # 末尾是阶段记录的进程已跑完会话，末尾停在某条用例的进程就卡在那条用例上。
-        # worker 宕掉（node down: Not properly terminated）时，controller 的进展记有它的退出码或终止信号；
-        # 死于 os._exit 的 worker 在 .stacks 里留有调用栈，收到 SIGTERM/SIGHUP/SIGINT 的进程在
-        # 同名的 .SIGTERM 等文件里留有当时的栈，段错误的栈在测试步骤的 stderr（Fatal Python error，
-        # faulthandler 没能运行时没有），被 SIGKILL 的看内核日志里有没有 OOM。
         if: failure() || cancelled()
         env:
           DUMP_DIR: ${{ runner.temp }}/pytest-hang
@@ -316,10 +291,6 @@ jobs:
           fail_ci_if_error: false
 
   postgres-compat:
-    # SQLite/PostgreSQL 方言兼容性闸门：alembic 三步闭环（upgrade/downgrade/idempotent）
-    # + 所有 DB-touching 测试（marker 驱动）跑在 PG16 上。
-    # 绑定 backend 域而非独立的 database 域：方言差异可由任何 SQLAlchemy 查询改动引入，
-    # 不限于 alembic/ 目录。
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
@@ -360,13 +331,11 @@ jobs:
         run: |
           set -e
           uv run alembic upgrade head
-          uv run alembic upgrade head           # 2. 幂等性：第二次应该 no-op
+          uv run alembic upgrade head
           uv run alembic downgrade base
           uv run alembic upgrade head
 
       - name: Run dialect-sensitive tests against Postgres
-        # 4 worker + loadfile：独立 schema 用例可并行，共用 public schema 的 async_session
-        # 用例留在同一文件/worker，避免主键与锁冲突。
         env:
           COVERAGE: ${{ needs.changes.outputs.coverage }}
         run: |
@@ -474,8 +443,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    # 按用例分片，每片仍是单 worker，截图渲染条件不变。视口范围与分片数由 changes job 的
-    # 「Decide run scope」决定。25 分钟上限只用来兜住卡死。
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -505,7 +472,6 @@ jobs:
 
       - name: Run page-level suite
         working-directory: frontend
-        # 截图基线在同一镜像里生成，比对出差异或缺少基线时该片失败
         env:
           E2E_SCREENSHOTS: "1"
           E2E_VIEWPORTS: ${{ needs.changes.outputs.e2e_viewports }}
@@ -521,9 +487,6 @@ jobs:
           retention-days: 30
 
   e2e-record-drift:
-    # 页面级套件的接口替身只随代码变化：录制脚本起两个后端，一个照常、一个前移系统时钟并换掉出厂快照与
-    # pyproject 版本号，两边各录一次，替身不同即失败（不写文件）。漂移来源是录制后端读到的输入，
-    # backend 域的任何改动都可能带进来；录制脚本本身在 frontend 域。
     name: E2E fixture recording drift
     needs: changes
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
@@ -547,8 +510,6 @@ jobs:
           node-version: "24"
 
       - name: Install system dependencies
-        # 后端启动时探测 Agent 沙箱：Linux 上缺 bwrap / socat 或 bwrap 起不来即中止启动。Ubuntu 24.04
-        # 默认禁用非特权 user namespace，须在 runner 上放开，理由同 docker-verify。
         run: |
           sudo apt-get update && sudo apt-get install -y bubblewrap socat
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
@@ -595,11 +556,6 @@ jobs:
         run: pnpm run build
 
   docker-verify:
-    # PR 阶段的镜像装配验证：只构建 amd64、不登录、不推送。
-    # 应用正确性由 backend/frontend 测试保证，这里只验证镜像能构建、容器能起、
-    # /health 可达；Trivy 仅上报不阻断（发布级阻断在 docker-release.yml）。
-    # runner 固定 24.04：下方 sysctl 键与语义按该版本假设，-latest 漂移会在
-    # 健康检查前把 job 打红
     needs: changes
     if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-24.04
@@ -628,8 +584,6 @@ jobs:
 
       - name: Smoke test container health
         run: |
-          # 沙箱运行参数与官方 Compose 一致（website/docs/ops/deployment.md）：容器内 bwrap
-          # 需要这些权限，缺失时 server 按沙箱红线启动硬失败
           docker run -d --name arcreel-ci \
             --security-opt seccomp=unconfined \
             --security-opt apparmor=unconfined \
@@ -661,8 +615,6 @@ jobs:
           exit-code: "0"
 
   release-integrity:
-    # 发布 PR（release-please--* 分支）的完整性校验；其余情形 skip（聚合口径视为通过）。
-    # 发布 PR 同时跑全量 CI：它是即将被打 tag 发布的 commit，不因分支名前缀跳过测试。
     if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--')
     runs-on: ubuntu-latest
     timeout-minutes: 10

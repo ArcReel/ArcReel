@@ -1,22 +1,4 @@
 #!/usr/bin/env bash
-# query.sh — layer-2 detail lookups against the snapshot staged by poll.sh.
-#
-# USAGE
-#   bash query.sh --repo-root <path> <PR_NUMBER> details <id>...      # full bodies by id
-#   bash query.sh --repo-root <path> <PR_NUMBER> history              # review/comment history
-#   bash query.sh --repo-root <path> <PR_NUMBER> unacked <bot[bot]>   # old unacked inline comments
-#   bash query.sh --repo-root <path> <PR_NUMBER> index                # re-print the last poll index
-#                                                  # decision facts a no_change line stands in for, e.g. after
-#                                                  # context compaction)
-#
-# Reads the snapshot poll.sh staged for the same round; field semantics live in poll.sh's
-# header. Failures are LOUD (never silent-empty): snapshot missing, unknown subcommand,
-# unknown bot name, id not found => non-zero exit + `QUERY_ERROR:` on stderr. An empty
-# JSON result from a fixed subcommand therefore genuinely means "no such data".
-#
-# Every call echoes snapshot provenance (head SHA + generated_at) to stderr — cross-check
-# it against the round's poll output; when they disagree, re-run poll.sh rather than
-# trusting the file.
 
 set -euo pipefail
 
@@ -67,7 +49,6 @@ fi
 
 jq -r '"QUERY_SNAPSHOT: repo=\(.repo) pr=\(.pr) head=\(.head) generated_at=\(.generated_at)"' "$SNAPSHOT_FILE" >&2
 
-# Bots that appear in inline_comments_by_user. Keep in sync with poll.sh's bot-login regex.
 KNOWN_BOTS=("coderabbitai[bot]" "chatgpt-codex-connector[bot]" "github-advanced-security[bot]")
 
 case "$CMD" in
@@ -105,9 +86,6 @@ case "$CMD" in
     ;;
 
   history)
-    # clean_head = poll.sh mk_preview with a 400-char cut (keep the stripping in sync):
-    # raw heads of bot bodies open with HTML-comment/badge boilerplate that buries the
-    # actual topic text.
     jq '
       def clean_head:
         (. // "")

@@ -1,11 +1,4 @@
 #!/usr/bin/env bash
-# test_round.sh — regression test for round.sh (per-PR round ledger).
-#
-# USAGE
-#   bash test_round.sh
-#
-# gh is stubbed on PATH: REST repository lookup answers a fixed slug, PR lookup the head SHA
-# from ROUND_TEST_HEAD. TMPDIR is redirected so the ledger lands in a throwaway dir.
 
 set -euo pipefail
 

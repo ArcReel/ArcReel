@@ -42,7 +42,6 @@ def perturb_sources(workdir: Path) -> None:
     from lib import app_version
     from lib.catalog import query
 
-    # 空目录：读出厂快照的代码直接失败。
     empty_snapshot = workdir / "snapshot"
     empty_snapshot.mkdir()
     query.SNAPSHOT_DIR = empty_snapshot

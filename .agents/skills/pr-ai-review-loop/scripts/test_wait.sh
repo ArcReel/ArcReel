@@ -1,21 +1,4 @@
 #!/usr/bin/env bash
-# test_wait.sh — regression test for wait.sh: which PR-state changes end the wait, and how
-# probes behave under GitHub failures.
-#
-# USAGE
-#   bash test_wait.sh
-#
-# gh, sleep and date are stubbed on PATH; the clock only advances through the stubbed
-# sleep (and through gh in slow_probe mode), so every case is deterministic. The stub gh
-# serves one PR whose shape is selected by three knobs:
-#   WAIT_TEST_MODE    what changes from the second probe on (default: nothing)
-#   WAIT_TEST_CHECKS  required checks on entry: running (default) | finished | empty
-#   WAIT_TEST_RULES   base-branch rulesets: rules (default: ci-required + codeql-required
-#                     are required) | none (HTTP 404) | empty (no required-checks rule)
-#   WAIT_TEST_CODEX   started (default: a Codex reaction after the push) | silent
-#   WAIT_TEST_PUSH_AT committer date of the head commit (default: the fake epoch, 0)
-# Bot bodies with a fixed shape (Codex receipt, CodeRabbit rate-limit banner) are the real
-# captures in testdata/.
 
 set -euo pipefail
 
@@ -340,9 +323,6 @@ run_wait() {
 
 sleeps() { paste -sd, "$TMP_ROOT/sleeps"; }
 
-# expect_wait <label> <mode> <expected first stdout line> [<expected sleeps>]
-# Runs with --max 180; a WAIT_READY expectation also requires the return after exactly one
-# probe interval unless a sleep list is given.
 expect_wait() {
   local label="$1" mode="$2" expected="$3" expected_sleeps="${4:-}"
   reset_case
@@ -359,8 +339,6 @@ expect_wait() {
   [[ "$(sleeps)" == "$expected_sleeps" ]] || fail "$label: expected sleeps $expected_sleeps, got $(sleeps)"
 }
 
-# ---- what ends the wait, by required-check state on entry ----
-# mode | while required checks run | when they had already finished on entry
 SIGNALS=(
   "head_change|WAIT_READY: head_changed|WAIT_READY: head_changed"
   "new_review|WAIT_READY: new_finding|WAIT_READY: new_finding"

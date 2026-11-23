@@ -1,11 +1,5 @@
 name: Docker Release
 
-# v* tag 触发的正式发布：双架构漏洞闸门 → 多架构构建 → semver + latest 标签，
-# 同一次构建推送 ghcr 与 Docker Hub，附带 SBOM 与 provenance attestation。
-# GitHub Release 由 release-please 创建，此处不再重复生成。
-# 目录数据仓库（ArcReel/arcreel-catalog）的构建由 catalog-release-build.yml 在 release 发布时触发，
-# 与本工作流并行，镜像发布不等待也不依赖它。
-
 on:
   push:
     tags: ["v*"]
@@ -40,7 +34,6 @@ jobs:
         env:
           REPO: ${{ github.repository }}
 
-      # 按 ISO 周生成 APT_REFRESH，使 Dockerfile 的系统包层每周失效一次并重新 apt-get upgrade
       - name: Compute apt refresh key
         id: apt
         run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
@@ -144,8 +137,6 @@ jobs:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}
             docker.io/${{ env.IMAGE_NAME_LC }}
-          # latest 交由 metadata-action 默认 flavor（latest=auto）：仅稳定
-          # semver tag 生成，预发布 tag（如 v1.2.3-rc.1）只推版本标签
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

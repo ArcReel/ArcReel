@@ -67,7 +67,6 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
                 all_characters[name] = char_data.copy()
                 print(f"      👤 发现角色: {name}")
             else:
-                # 合并数据（优先保留有资产图的版本）
                 if char_data.get("character_sheet") and not all_characters[name].get("character_sheet"):
                     all_characters[name] = char_data.copy()
                     print(f"      👤 更新角色: {name} (有资产图)")
@@ -88,7 +87,6 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
                 episode_num = i
                 break
 
-        # 添加剧集信息（不包含统计字段，由项目摘要读时计算）
         episodes.append(
             {
                 "episode": episode_num,
@@ -110,7 +108,6 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
             first_script = json.load(f)
             project_title = first_script.get("novel", {}).get("title", project_name)
 
-    # 构建 project.json（不包含 status 字段，由项目摘要读时计算）
     project_data = {
         "title": project_title,
         "style": "",
@@ -124,7 +121,6 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
         },
     }
 
-    # 统计已完成的角色资产图（仅用于日志输出）
     completed_chars = 0
     for char_data in all_characters.values():
         sheet = char_data.get("character_sheet")
@@ -153,8 +149,6 @@ def migrate_project(pm: ProjectManager, project_name: str, dry_run: bool = False
             json.dump(project_data, f, ensure_ascii=False, indent=2)
         print("\n  ✅ 已创建 project.json")
 
-        # 可选：从剧本中移除 characters 字段（保留原文件备份）
-        # 这里我们保留剧本中的 characters 以保持向后兼容
         print("  ℹ️  保留剧本中的 characters 字段以保持向后兼容")
 
     return True

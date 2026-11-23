@@ -1,60 +1,9 @@
 #!/usr/bin/env bash
-# wait.sh — block until the PR has something to act on, or the fixed safety timeout.
-#
-# USAGE
-#   bash wait.sh --repo-root <path> <PR_NUMBER> [--max <seconds>]
-#
-# The one entry point for waiting on CI and on reviewers. It is EDGE-TRIGGERED: the first
-# probe is the baseline, and the script returns only when something actionable appears
-# that the baseline did not have. Whatever already holds on entry (finished checks, an
-# overdue Codex trigger, findings already posted) is the caller's to handle from poll.sh
-# before waiting; it never makes the wait return on its own.
-#
-# OUTPUT (stdout, one line)
-#   WAIT_READY: <reason>[, <reason>...]
-#     head_changed     the PR head is no longer the baseline head
-#     new_finding      a CodeRabbit or Codex review with a body, a top-level inline comment
-#                      from CodeRabbit, Codex or CodeQL, or a code-scanning alert the PR
-#                      introduces (open on the PR ref, absent from the base). Deliberately
-#                      at least as wide as poll.sh's has_new_findings: waking for a body
-#                      that turns out to be an ack is cheap, sleeping through a finding is not
-#     reviewer_notice  a reviewer bot posted a new top-level comment other than CodeRabbit's
-#                      walkthrough and Codex's clean-pass receipt or summary, or one of its
-#                      comments newly shows a pause, rate limit, skipped review or quota error,
-#                      or Codex's summary newly reports the review of a commit as failed
-#     codex_silent     the Codex trigger window closed during this wait: the head commit is
-#                      CODEX_WINDOW seconds old, Codex shows no start signal for it (a review
-#                      on the head, a reaction or comment after the commit, its summary naming
-#                      the head) and nobody has posted `@codex review` since. Fires on the
-#                      transition only, so a PR where that reviewer is retired does not
-#                      return on every call
-#     checks_passed    the required checks of the head went from unfinished to all finished,
-#     checks_failed(<names>)  none failing / the named ones failing
-#     state_changed    the required checks were already finished on entry — the caller is
-#                      waiting on reviewers — and any decision-relevant state changed
-#                      (reviews, comments, reactions, inline comments, check runs, alerts)
-#   WAIT_TIMEOUT: nothing actionable within <seconds> seconds
-#   Errors go to stderr prefixed `WAIT_ERROR:` with a non-zero exit.
-#
-# While required checks are still running, nothing else returns: check-run status flips,
-# reactions, walkthrough rewrites, in-thread bot replies and acks all wait for the checks.
-#
-# REQUIRED CHECKS
-#   Names come from the base branch rulesets (repos/<slug>/rules/branches/<base>, rule type
-#   required_status_checks), read once per run. Finished = every name has a check run on
-#   the head and the latest run per name (by started_at, as in poll.sh) is completed; a name
 #   with no run yet — the minutes right after a push — is unfinished. When the rules are
 #   unreadable or name nothing, every check run on the head stands in, and an empty list is
 #   unfinished.
-#
 # The default wait uses 1770 seconds of a 30-minute command budget, leaving 30 seconds
 # for setup and result delivery. --max is an override for tests and manual diagnostics.
-# Every probe is an atomic read of reviews, comments, reactions, inline comments, check
-# runs, and the PR/base code-scanning alert sets. Truncated output, network errors,
-# rate limits, and HTTP 5xx responses retry the whole probe up to three times. Authentication,
-# permission, and other request errors fail loudly with WAIT_ERROR. Body judgments are
-# shared with poll.sh through signals.jq. The push time is the head commit committer date
-# (poll.sh PITFALL 1).
 
 set -euo pipefail
 
@@ -316,7 +265,6 @@ else
 fi
 
 REPO_SLUG=$(<"$WORKDIR/repo-slug")
-# Each page goes through the deadline, response validation, and failure classifier.
 fetch_pages() {
   local output_file="$1" error_file="$2" availability="$3" endpoint="$4" projection="${5:-.}"
   local page=1 separator='?' count
@@ -369,7 +317,6 @@ probe_once() {
   fetch_pages "$WORKDIR/check-runs.json" "$WORKDIR/check-runs.err" required \
     "repos/${REPO_SLUG}/commits/${head_sha}/check-runs" '.check_runs' || return 1
 
-  # Committer date of the head commit; immutable per sha, so one fetch per head.
   if [[ ! -s "$WORKDIR/commit-${head_sha}.json" ]]; then
     fetch_json "$WORKDIR/commit.json" "$WORKDIR/commit.err" required \
       gh api --include "repos/${REPO_SLUG}/commits/${head_sha}" || return 1
@@ -556,7 +503,6 @@ probe_once() {
   mv "$output_file.next" "$output_file"
 }
 
-# Reasons the current state is actionable relative to the baseline; empty = keep waiting.
 ready_reasons() {
   local current_file="$1" now="$2"
   jq -r -n \

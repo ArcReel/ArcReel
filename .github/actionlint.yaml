@@ -1,5 +1,3 @@
-# actionlint 的豁免配置。它没有行内注释语法，唯一的豁免形式是这里按文件列出错误消息正则，
-# 每条附理由。
 paths:
   .github/workflows/docker-release.yml:
     ignore:

@@ -1,8 +1,3 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
-
 version: 2
 updates:
   - package-ecosystem: "uv"
@@ -12,8 +7,6 @@ updates:
       day: "monday"
     open-pull-requests-limit: 10
     versioning-strategy: lockfile-only
-    # 刚发布的版本先沉淀几天再开 PR，降低撞上「发布即回归」的概率；
-    # semver-minor 走 default-days，只有偏离它的档位单列
     cooldown:
       default-days: 7
       semver-major-days: 14
@@ -32,8 +25,6 @@ updates:
           - "version-update:semver-major"
           - "version-update:semver-minor"
           - "version-update:semver-patch"
-    # 各域分组只收 minor/patch，聚合成可安全自动合并的 PR；
-    # major 不匹配任何分组 → 单独成 PR，留给人工审查。
     groups:
       fastapi-stack:
         patterns:
@@ -141,7 +132,6 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 10
-    # ^ range 内的升级只动 lockfile；超出 range（major）才改 package.json 并开 PR
     versioning-strategy: increase-if-necessary
     cooldown:
       default-days: 7
@@ -194,8 +184,6 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      # shadcn 原语的运行时与 CLI。major 不进分组、单独开 PR：在该 PR 中对已安装组件
-      # 运行 `pnpm exec shadcn add <组件> --diff` 并手动合并（流程见 docs/agents/dependencies.md）。
       shadcn-stack:
         patterns:
           - "@base-ui/react"

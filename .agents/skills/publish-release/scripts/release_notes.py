@@ -92,7 +92,7 @@ class Entry:
     category: str
     scope: str
     text: str
-    refs: list[int] = field(default_factory=list)  # closes 的 issue；没有时退回 PR 号
+    refs: list[int] = field(default_factory=list)
     sha: str = ""
 
 

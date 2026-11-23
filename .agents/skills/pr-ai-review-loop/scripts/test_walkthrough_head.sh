@@ -1,31 +1,4 @@
 #!/usr/bin/env bash
-# test_walkthrough_head.sh — regression test for poll.sh's CodeRabbit walkthrough commit
-# anchor (cr_walkthrough_head) and the reviewed_current_head rule built on it (PITFALL 9).
-#
-# USAGE
-#   bash test_walkthrough_head.sh
-#
-# CodeRabbit submits a review object only on the first pass; every later push is an
-# incremental review that rewrites the walkthrough comment in place and submits no new
-# review, so the latest review's commit stays pinned to the first reviewed HEAD while the
-# walkthrough body carries the anchor that moves. This test pins both the parser and the
-# rule to the exact bytes CodeRabbit ships. Defs are extracted verbatim from poll.sh, and
-# the judgments shared with wait.sh are included from signals.jq, so the shipped functions
-# are exercised, not a copy. Fixtures (real bodies, captured via
-# `gh api repos/<owner>/<repo>/issues/<pr>/comments`):
-#   - coderabbit_walkthrough_incremental_pr2614.txt: a walkthrough rewritten by an
-#     incremental review; carries both the "📥 Commits" range line and the
-#     change_assessment_commit marker, both naming HEAD 1836151d, while the only review
-#     object stays anchored on 6dfd561b.
-#   - coderabbit_walkthrough_full_pr2620.txt: a first (full) review's walkthrough; no range
-#     line at all, only the change_assessment_commit and final_review_risk_coverage markers
-#     (HEAD e77c32c9).
-#   - coderabbit_walkthrough_skip_bot_pr3319.txt: a skip notice ("Review skipped", bot
-#     author); same marker and shape as the draft skip notice. The head was never reviewed.
-#   - coderabbit_walkthrough_skip_no_changes_pr3356.txt: a skip notice because the new
-#     commits had no reviewable changes; nothing was left to review. The change-stack
-#     link's scope token is redacted.
-# The marker-less shapes are derived in-test by stripping lines from those bodies.
 
 set -euo pipefail
 
@@ -70,7 +43,6 @@ HEAD_3356="9140671e2a7d6f366618613c24970b97ca3ffffb"
 
 fail=0
 
-# ---- cr_walkthrough_head: every observed anchor shape, in preference order ----
 # name | fixture | drop lines matching this regex before parsing ("" = none) | expected
 ANCHOR_CASES=(
   "marker+range|$INCREMENTAL||\"$HEAD_2614\""
@@ -104,9 +76,6 @@ for tc in "${ANCHOR_CASES[@]}"; do
   fi
 done
 
-# ---- cr_walkthrough_rest: the rule the loop actually reads ----
-# The incremental-review shape: one review object pinned to the first reviewed HEAD,
-# walkthrough rewritten (updated_at > last push) with an anchor on the current HEAD.
 # name | head | reviews json | commit the R1 review is anchored on | expected reviewed_current_head
 # | walkthrough fixture (default: the incremental review)
 LAST_PUSH="2026-09-21T18:00:00Z"
@@ -152,7 +121,6 @@ for tc in "${RULE_CASES[@]}"; do
   fi
 done
 
-# ---- cr_review_skipped_body: a skip notice is not a review, unless nothing was left to review ----
 # name | fixture | expected
 SKIP_CASES=(
   "skip notice|$SKIP_BOT|true"
