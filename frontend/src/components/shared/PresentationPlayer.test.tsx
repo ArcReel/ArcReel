@@ -372,6 +372,50 @@ describe("PresentationPlayer", () => {
     expect(pause).toHaveBeenCalledTimes(2);
   });
 
+  it("never parks the playhead past the decoded media end when the boundary runs long", async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+    const video = await screen.findByLabelText("分镜 2 成片预览");
+    await screen.findByLabelText("分镜 2 TTS 音轨");
+    // 呈现边界 6s，浏览器解码出的时长只有 5.98s：停在 6s 会让播放头留在已播完的状态，重播无反应。
+    Object.defineProperty(video, "duration", { configurable: true, value: 5.98 });
+    Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 6 });
+
+    fireEvent.timeUpdate(video);
+
+    expect(video).toHaveProperty("currentTime", 5.98);
+    expect(pause).toHaveBeenCalled();
+  });
+
+  it("replays from the presentation start when play is pressed at the boundary", async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+    const video = await screen.findByLabelText("分镜 2 成片预览");
+    await screen.findByLabelText("分镜 2 TTS 音轨");
+    // 播到边界后播放头停在 6s；此时再点播放若照旧按越界处理，会立刻被暂停，播放键看起来毫无反应。
+    Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 6 });
+    pause.mockClear();
+
+    fireEvent.play(video);
+
+    expect(video).toHaveProperty("currentTime", 0);
+    expect(pause).not.toHaveBeenCalled();
+  });
+
   it("suppresses the custom cue while native captions are showing", async () => {
     const nativeTrack = { mode: "hidden" };
     const textTracks = new EventTarget() as EventTarget & { length: number; 0: typeof nativeTrack };

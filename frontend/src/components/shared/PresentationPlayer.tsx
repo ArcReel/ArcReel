@@ -35,6 +35,8 @@ interface PresentationPlayerProps {
 
 /** 起始位置离可播放范围末尾至少留出这么多，免得一播放就撞上边界停住。 */
 const START_END_MARGIN_SECONDS = 0.05;
+/** 播放头离呈现边界这么近就算已经停在边界上，点播放按从头重播处理。 */
+const BOUNDARY_EPSILON_SECONDS = 0.001;
 
 interface PresentationLoadState {
   resourceKey: string;
@@ -252,20 +254,48 @@ export function PresentationPlayer({
     // 视频元素在 presentation 就绪后才挂载，所以载入结果变化时要重跑。
   }, [startAt, presentation, onStartApplied]);
 
+  const presentationBounds = useMemo(() => {
+    if (!presentation) return null;
+    const start = presentation.video.start_microseconds / 1_000_000;
+    return {
+      start,
+      end: start + presentation.video.duration_microseconds / 1_000_000,
+      durationMicroseconds: presentation.video.duration_microseconds,
+    };
+  }, [presentation]);
+
   const stopAtPresentationBoundary = useCallback(
     (video: HTMLVideoElement) => {
-      if (!presentation) return false;
-      const boundaryMicroseconds =
-        presentation.video.start_microseconds + presentation.video.duration_microseconds;
-      const boundarySeconds = boundaryMicroseconds / 1_000_000;
-      if (video.currentTime < boundarySeconds) return false;
-      if (video.currentTime !== boundarySeconds) video.currentTime = boundarySeconds;
+      if (!presentationBounds) return false;
+      // 呈现边界由服务端探测得出，常与浏览器解码出的时长差一帧左右。边界若落在媒体结尾之后，
+      // 停在边界会让播放头留在已播完的状态，再点播放不出来，界面看起来毫无反应。
+      const endSeconds =
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.min(presentationBounds.end, video.duration)
+          : presentationBounds.end;
+      if (video.currentTime < endSeconds) return false;
+      if (video.currentTime !== endSeconds) video.currentTime = endSeconds;
       video.pause();
       audioRef.current?.pause();
-      setPositionMicroseconds(presentation.video.duration_microseconds);
+      setPositionMicroseconds(presentationBounds.durationMicroseconds);
       return true;
     },
-    [presentation],
+    [presentationBounds],
+  );
+
+  /**
+   * 播放头已经停在呈现边界上时，点播放键是从头重播，不是又一次撞上边界。
+   * 不区分这一点，`play` 事件里会立刻被判为越界并暂停，播放键看起来毫无反应。
+   */
+  const restartWhenParkedAtBoundary = useCallback(
+    (video: HTMLVideoElement) => {
+      if (!presentationBounds) return false;
+      if (video.currentTime < presentationBounds.end - BOUNDARY_EPSILON_SECONDS) return false;
+      if (video.currentTime <= presentationBounds.start) return false;
+      video.currentTime = presentationBounds.start;
+      return true;
+    },
+    [presentationBounds],
   );
 
   const refreshNativeCaptionMode = useCallback(() => {
@@ -391,9 +421,11 @@ export function PresentationPlayer({
         }}
         onRateChange={(event) => synchronizeNarrationControls(event.currentTarget)}
         onPlay={(event) => {
+          if (restartWhenParkedAtBoundary(event.currentTarget)) return;
           if (!stopAtPresentationBoundary(event.currentTarget)) synchronizeNarration(true);
         }}
         onPlaying={(event) => {
+          if (restartWhenParkedAtBoundary(event.currentTarget)) return;
           if (!stopAtPresentationBoundary(event.currentTarget)) synchronizeNarration(true);
         }}
         onPause={() => audioRef.current?.pause()}
