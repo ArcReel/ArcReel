@@ -14,7 +14,7 @@ ArcReel treats the Agent, text generation, image generation, video generation, a
 
 Under Settings → ArcReel Agent, add and activate an Agent provider credential for project chat, content analysis, script planning, and task orchestration. The Agent uses the Claude Agent SDK and can connect to Anthropic or a compatible gateway.
 
-Each Agent provider is an Anthropic-compatible gateway, and only one is active at a time; after switching, new sessions use the new provider while running sessions keep the previous one.
+Each Agent provider is an Anthropic-compatible gateway, and only one is active at a time. The provider is bound per connection: a connection reads the credential that is active when it is established, so sessions started after a switch use the new provider. A running session keeps its original connection, and reconnecting a resident session after a network drop does not change its provider; but a session resumed after its actor process exited — for example after a service restart — opens a new connection and uses whichever provider is active at resume time.
 
 #### Models, Providers, and API Protocols {#agent-protocol}
 
@@ -30,7 +30,7 @@ For a compatible endpoint not covered by the presets, choose "Custom" and fill i
 
 - "API Base URL": the gateway URL of the compatible endpoint. The full Messages URL the Agent will call is previewed under the field; you can also paste a complete `…/v1/messages` endpoint copied from the provider's documentation — the trailing segment is stripped on save. The URL must be an absolute http(s) address without query parameters, fragments, or user info.
 - "Key": the credential the endpoint requires.
-- "Default Model": a model name the endpoint actually serves. "Advanced Model Routing" can route capability tiers and subagents to different models; for non-official providers, empty tiers use the default model name, while for the Anthropic preset, empty tiers are decided by Claude Code.
+- "Default Model": a model name the endpoint actually serves. "Advanced Model Routing" can route capability tiers and subagents to different models. Each tier resolves in order: the value set on the credential for that tier, then the matching legacy system setting (for example `anthropic_default_haiku_model` for the Haiku tier), then — if it is still empty — a provider-type default, where non-official providers use the default model name and the Anthropic preset leaves the choice to Claude Code.
 - With the URL and key filled in, "Discover Models" reads the endpoint's `/v1/models` to fill candidate model names — for reference only: if the endpoint does not implement this interface, or the list does not match the models actually available, enter the model name manually per its documentation.
 
 Verify with "Test Connection" before saving: it sends a minimal request to the Messages URL the Agent will call (up to 30 seconds) and checks that the response is in Anthropic format. A successful response in a different format reports "This endpoint speaks OpenAI-compat protocol", meaning the URL points at an endpoint using another protocol; model-related hints mean you should check the model name first; for rate limits and timeouts, retry later as hinted — a timeout means the endpoint is reachable, so you can save and retry; otherwise, check the key and URL against the status code and raw error.
@@ -44,10 +44,10 @@ If a provider does not offer an Anthropic Messages-compatible endpoint but you s
 
 Using LiteLLM as an example:
 
-1. Write a `config.yaml` and start the proxy per the LiteLLM documentation. The proxy listens on `http://localhost:4000` by default — that address is the Anthropic-compatible endpoint it exposes;
+1. Write a `config.yaml` and start the proxy per the LiteLLM documentation. Set the master key before starting — via the `LITELLM_MASTER_KEY` environment variable or `general_settings.master_key` in `config.yaml`; current LiteLLM versions refuse to start when the master key is unset, empty, or a known unsafe value. The proxy listens on `http://localhost:4000` by default — that address is the Anthropic-compatible endpoint it exposes;
 2. Under Settings → ArcReel Agent, add an Agent provider and choose "Custom";
 3. Set "API Base URL" to `http://localhost:4000` (it must be reachable from the ArcReel service: in a container deployment, `localhost` refers to the container itself, so use the gateway host's address as reachable from ArcReel);
-4. Set "Key" to the LiteLLM gateway access key (such as the master key or a virtual key);
+4. Set "Key" to the master key from step 1; to use a virtual key instead, the proxy also needs a PostgreSQL database (`DATABASE_URL` or `general_settings.database_url`), and keys are created via `/key/generate`;
 5. Set "Default Model" to a `model_name` exposed by `model_list` in `config.yaml`;
 6. Save after "Test Connection" passes, then set the provider as active.
 

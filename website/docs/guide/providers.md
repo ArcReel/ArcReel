@@ -14,7 +14,7 @@ ArcReel 把 Agent（智能体）、文本生成、图像生成、视频生成和
 
 在「设置 → ArcReel Agent」添加并启用一个 Agent 供应商凭证，用于项目对话、内容分析、脚本规划和任务编排。Agent 基于 Claude Agent SDK，可以接 Anthropic 官方服务或兼容网关。
 
-每个 Agent 供应商对应一个 Anthropic 兼容网关，同一时间只有一个生效；切换后新会话使用新的供应商，进行中的会话继续使用原来的供应商。
+每个 Agent 供应商对应一个 Anthropic 兼容网关，同一时间只有一个生效。供应商按会话连接确定：连接建立时读取当时生效的凭证，切换生效供应商后新发起的会话使用新供应商；仍在运行的会话保持原连接，网络中断后重连常驻会话也不更换供应商；但 actor 进程退出或服务重启后再恢复的会话属于新连接，会使用恢复时生效的供应商。
 
 #### 模型、供应商与接口协议 {#agent-protocol}
 
@@ -30,7 +30,7 @@ ArcReel 把 Agent（智能体）、文本生成、图像生成、视频生成和
 
 - 「API 代理地址」填兼容入口的网关地址。输入框下方实时显示 Agent 实际请求的完整 Messages 地址；从供应商文档复制整条 `…/v1/messages` 端点时可以直接粘贴，保存时末尾这一段会被去掉。地址须是 http(s) 绝对地址，不能带查询参数、锚点或用户名密码。
 - 「密钥」填该入口要求的凭证。
-- 「默认模型」填该入口实际提供的模型名。「高级模型路由」可以把不同能力等级与子智能体分流到其他模型；非官方供应商下留空的档位统一使用默认模型名，Anthropic 官方预设留空的档位由 Claude Code 决定。
+- 「默认模型」填该入口实际提供的模型名。「高级模型路由」可以把不同能力等级与子智能体分流到其他模型；每个档位按顺序取值：先用凭证上该档位填写的值，留空时回退到对应的旧系统设置（如 Haiku 档位的 `anthropic_default_haiku_model`），仍为空再按供应商类型处理——非官方供应商使用默认模型名，Anthropic 官方预设交给 Claude Code 决定。
 - 填好地址与密钥后可用「获取模型列表」从入口的 `/v1/models` 读取它报告的模型填充候选，仅供参考：入口不实现这个接口、或列表与实际可用模型不一致时，按其文档手动填写模型名。
 
 保存前用「测试连接」验证：它向 Agent 实际请求的 Messages 地址发一次最小请求（上限 30 秒），并检查响应是否为 Anthropic 协议格式。返回成功但格式不符时提示「该端点返回 OpenAI 兼容协议」，说明地址指向了其他协议的入口；模型相关提示优先核对模型名；限流与超时按提示稍后重试，超时说明服务可达、可直接保存后重试；其余情况对照状态码与原始错误信息核对密钥与地址。
@@ -44,10 +44,10 @@ ArcReel 把 Agent（智能体）、文本生成、图像生成、视频生成和
 
 以 LiteLLM 为例：
 
-1. 按 LiteLLM 文档编写 `config.yaml` 并启动代理，代理默认监听 `http://localhost:4000`，它就是对外提供的 Anthropic 兼容入口地址；
+1. 按 LiteLLM 文档编写 `config.yaml` 并启动代理：启动前必须先设置 master key，可以用环境变量 `LITELLM_MASTER_KEY`，也可以在 `config.yaml` 中设置 `general_settings.master_key`；当前版本的 LiteLLM 在 master key 未设置、为空或是已知不安全值时拒绝启动。代理默认监听 `http://localhost:4000`，它就是对外提供的 Anthropic 兼容入口地址；
 2. 在「设置 → ArcReel Agent」添加 Agent 供应商，选择「自定义配置」；
 3. 「API 代理地址」填 `http://localhost:4000`（须是 ArcReel 服务实际可达的地址：容器部署时 `localhost` 指容器自身，应填网关所在主机对 ArcReel 可达的地址）；
-4. 「密钥」填 LiteLLM 网关的访问密钥（如 master key 或虚拟密钥）；
+4. 「密钥」填第 1 步设置的 master key；改用虚拟密钥（virtual key）时，代理还须配置 PostgreSQL 数据库（`DATABASE_URL` 或 `general_settings.database_url`），并通过 `/key/generate` 创建密钥；
 5. 「默认模型」填 `config.yaml` 中 `model_list` 暴露的 `model_name`；
 6. 「测试连接」通过后保存，并将该供应商设为生效。
 
