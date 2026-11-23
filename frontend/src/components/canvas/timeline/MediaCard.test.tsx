@@ -109,7 +109,6 @@ describe("MediaCard in the demo workbench", () => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
   });
 
-  // 四个入口的回调/开关全部给足：只有演示态判定本身能把它们关掉
   function renderCardWithAllEntries() {
     return renderCard({
       assetPath: "storyboards/E1S01_v1.png",

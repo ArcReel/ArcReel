@@ -10,7 +10,6 @@ import { PromptAuthoringHost } from "./PromptAuthoringDialog";
 
 const ACCEPTED = { batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.authorPrompts>>;
 
-// 条目 ID 里的数字与位置错开（E1S04 是分镜 2），界面只按位置称呼条目。
 const SCRIPT = {
   episode: 1,
   segments: [

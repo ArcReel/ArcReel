@@ -10,7 +10,6 @@ import { makeUsageRecord, makeUsageSummary } from "./usage-fixtures";
 import { renderUsageRecordsSection } from "./usage-test-utils";
 
 
-/** 只取记录请求的状态维度：进行中区的取数走同一个客户端方法，但不带时间范围。 */
 function recordQueries(): { statuses: readonly string[] }[] {
   return vi
     .mocked(API.getUsageRecords)
@@ -80,7 +79,6 @@ describe("UsageRecordsSection filters", () => {
     await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalled());
 
     const query = vi.mocked(API.getUsageSummary).mock.calls[0][0];
-    // 默认 30 天含今天，起点是本地日零点的 2026-02-14，而不是 UTC 日切。
     expect(query?.since).toBe(new Date(2026, 1, 14, 0, 0, 0, 0).toISOString());
     expect(query?.tz).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
@@ -113,7 +111,6 @@ describe("UsageRecordsSection filters", () => {
 
     renderUsageRecordsSection();
 
-    // store 跨挂载常驻，再次打开也要重取 summary，离开期间结束的调用才进 KPI。
     await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalledTimes(2));
   });
 
@@ -134,13 +131,11 @@ describe("UsageRecordsSection filters", () => {
 
     await act(() => i18n.changeLanguage("en"));
 
-    // 供应商显示名由服务端按请求语言渲染，只有 summary 需要重取。
     await waitFor(() => expect(API.getUsageSummary).toHaveBeenCalledTimes(2));
     expect(vi.mocked(API.getUsageRecords).mock.calls.length).toBe(recordCalls);
   });
 
   it("filters by a model whose ID looks like a placeholder value and clears it from the all option", async () => {
-    // 自定义供应商的模型 ID 不受限制，任何字符串都可能是真实模型。
     vi.mocked(API.getUsageSummary).mockResolvedValue(
       makeUsageSummary({
         filter_options: { projects: [], providers: [], models: [{ provider: "custom-1", model: "__all__" }] },

@@ -25,7 +25,6 @@ interface RecordedPlan {
 const project = recorded<RecordedProject>("project-demo.json");
 const plan = recorded<RecordedPlan>("project-demo-workflow-plan.json");
 
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -153,8 +152,6 @@ const NO_PLAN = {
   script_overwrite: null,
 };
 
-// 录制的集已有正式脚本、还没有规划：「AI 规划脚本」打开的是重新规划对话框。录制的制作状态里集原文缺失，
-// 这里补成规划准入成立。
 const SCRIPTED_NO_PLAN: ApiOverrides = {
   ...BASE,
   "POST /api/v1/projects/demo/workflow-plan": {
@@ -226,12 +223,6 @@ const guideToggle = (page: Page) => page.getByRole("button", { name: /本集导�
 const progress = (page: Page) => page.getByTestId("workflow-panel");
 const progressPopover = (page: Page) => page.getByRole("dialog", { name: "制作进度" });
 
-
-
-/** 弹层带入场动画，量尺寸、跑 axe 之前等它停下；进行中的转圈等循环动画不等。 */
-
-/** 紧凑档 Agent 面板盖在画布右侧：先收起再操作右侧的入口。 */
-
 async function starterReady(page: Page) {
   await starterTitle(page).waitFor();
   await progress(page).waitFor();
@@ -253,7 +244,6 @@ defineRegionScenarios("脚本规划起步态", [
     api: CUT_EPISODE,
     ready: cutSourceReady,
     act: async (page) => {
-      // 紧凑档 Agent 面板盖住画布右侧，收起后才看得到完整的起步态
       await clearAgentOverlay(page);
       await expect(viewTabs(page).getByRole("tab", { name: "脚本规划" })).toHaveAttribute("aria-selected", "true");
       await expect(viewTabs(page).getByRole("tab", { name: "原文" })).toHaveCount(0);

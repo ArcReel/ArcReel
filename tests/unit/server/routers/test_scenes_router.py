@@ -109,7 +109,6 @@ class TestScenesRouterDoesNotCollideWithProjects:
         app = FastAPI()
         register_error_handlers(app)
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-        # 与 server/app.py 同序：projects 先 include
         app.include_router(projects_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         app.include_router(scenes.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
 

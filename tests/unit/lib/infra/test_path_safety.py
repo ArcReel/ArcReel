@@ -40,7 +40,6 @@ def test_empty_rel_path_returns_false(tmp_path: Path):
 
 
 def test_dirty_type_returns_false(tmp_path: Path):
-    # rel_path 来自 project.json 原始字段，可能是任意 JSON 类型；脏数据按「不存在」处理
     assert safe_exists(tmp_path, cast(Any, {"oops": 1})) is False
     assert safe_exists(tmp_path, cast(Any, 42)) is False
 
@@ -56,7 +55,6 @@ def test_safe_join_rejects_dotdot(tmp_path: Path):
 
 
 def test_safe_join_rejects_absolute_escape(tmp_path: Path):
-    # 绝对路径按 os.path.join 语义丢弃 base 前缀，随后仍要过包含校验
     with pytest.raises(PathTraversalError):
         safe_join(tmp_path, "/etc/passwd")
 
@@ -67,9 +65,6 @@ def test_safe_join_absolute_within_base_allowed(tmp_path: Path):
 
 
 def test_safe_join_rejects_malformed_path(tmp_path: Path):
-    # 内嵌 NUL 字节：JSON 可表达但文件系统非法，os.path.realpath 会直接抛
-    # 原生 ValueError；safe_join 需统一转换成 PathTraversalError，否则只捕获
-    # PathTraversalError 的调用点会让这类脏数据退化成未预期的 500。
     with pytest.raises(PathTraversalError):
         safe_join(tmp_path, "bad\x00name.png")
 
@@ -84,8 +79,6 @@ def test_safe_join_base_itself_allowed_with_flag(tmp_path: Path):
 
 
 def test_safe_join_root_base_itself_rejected_by_default():
-    # base 为文件系统根时 base_prefix == base_real，候选路径与 base 相等也会通过
-    # startswith 前缀比较——回归覆盖 allow_base=False 在这种情况下仍需拒绝。
     root = Path(os.path.abspath(os.sep))
     with pytest.raises(PathTraversalError):
         safe_join(root, "")

@@ -2,7 +2,6 @@ import { render, screen, fireEvent, waitFor, act, within } from "@testing-librar
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 
-// Stub URL object APIs not available in jsdom
 globalThis.URL.createObjectURL ??= vi.fn(() => "blob:mock");
 globalThis.URL.revokeObjectURL ??= vi.fn();
 import i18n from "@/i18n";
@@ -43,7 +42,6 @@ const mockSysConfig = {
   },
 };
 
-/** 全局默认的 TTS 设置，向导里切到 TTS 配音时应原样预填。 */
 const narrationDefaults = {
   audio_backend: "dashscope/qwen3-tts-flash",
   narration_voice: "Cherry",
@@ -73,12 +71,6 @@ const mockProviders = {
   ],
 };
 
-/**
- * 无项目端点的替身：向导里项目尚不存在，按候选模型回时长（服务端算好的收窄结果）。
- *
- * 每个 describe 的 beforeEach 都要装一次：`restoreMocks` 会在每个用例后还原 spy，
- * 漏装的分组一旦走到第二步就会调真实 API。
- */
 function stubModelVideoCapabilities() {
   vi.spyOn(API, "getModelVideoCapabilities").mockImplementation((backend) => {
     const durations = backend === "ark/seedance" ? [5, 10] : [4, 6, 8];
@@ -204,7 +196,6 @@ describe("CreateProjectModal", () => {
         narration_delivery: "post_production",
       }),
     );
-    // 后期配音项目不提交 TTS 快照，未填的可选时长与语速不带键
     for (const key of ["audio_backend", "target_duration", "episode_target_duration", "speech_rate_units_per_second"]) {
       expect(payload).not.toHaveProperty(key);
     }
@@ -302,7 +293,6 @@ describe("CreateProjectModal", () => {
     render(<CreateProjectModal />);
     fillBasics({ route: "参考生视频" });
     clickNext();
-    // 项目尚不存在：按全局默认解析出的候选模型走无项目端点，并带上参考图路径
     await waitFor(() =>
       expect(API.getModelVideoCapabilities).toHaveBeenCalledWith(
         "gemini-aistudio/veo-3",
@@ -378,8 +368,6 @@ describe("CreateProjectModal", () => {
   });
 
   it("revalidates duration and resolution when step 1 switches the executing video model", async () => {
-    // 全局给两条视频路径指定了不同模型时，改生成模式即换执行模型：时长与分辨率都是按前一个
-    // 模型选的，不清掉会被写到新模型名下
     vi.spyOn(API, "getSystemConfig").mockResolvedValue({
       ...mockSysConfig,
       settings: {
@@ -423,7 +411,6 @@ describe("CreateProjectModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "上一步" }));
     fireEvent.click(screen.getByRole("radio", { name: /参考生视频/ }));
     fireEvent.click(await walkToStyle());
-    // 执行模型换成 seedance：4 秒不在其支持集内、1080p 也不是它的分辨率，两者都不跟进载荷
     await waitFor(() =>
       expect(API.createProject).toHaveBeenCalledWith(
         expect.objectContaining({ generation_mode: "reference_video", default_duration: null }),
@@ -766,7 +753,6 @@ describe("CreateProjectModal ad mode", () => {
   });
 });
 
-// 供应商名由后端按 Accept-Language 成文，替身按当前语言返回对应译名。
 function sysConfigFor(lang: string) {
   return {
     ...mockSysConfig,

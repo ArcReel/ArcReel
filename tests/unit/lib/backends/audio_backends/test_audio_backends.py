@@ -57,7 +57,6 @@ class TestRegistry:
             register_backend("fake-audio-test", lambda **_: marker)
             assert create_backend("fake-audio-test") is marker
         finally:
-            # 清理全局注册表，避免污染读取注册表的其它测试
             audio_registry._BACKEND_FACTORIES.pop("fake-audio-test", None)
 
 
@@ -131,13 +130,11 @@ class TestDashScopeAudioBackend:
         ids = [v.id for v in voices]
         assert len(ids) == len(set(ids))
         assert all(v.label for v in voices)
-        # 调用方（voices 端点）依赖每次返回独立列表，不能是同一份可变共享对象
         assert voices is not b.list_voices()
         assert {"Cherry", "Eldric Sage"} <= set(ids)
 
     @pytest.mark.parametrize(
         "model",
-        # 同走 multimodal 端点，但官方音色列表只写明适用于 qwen3-tts-flash
         ["qwen-tts", "qwen3-tts-instruct-flash", "qwen3-tts-flash-2025-09-18", "relay/qwen3-tts-flash"],
     )
     def test_list_voices_is_empty_for_unconfirmed_model(self, model: str):
@@ -170,7 +167,6 @@ class TestDashScopeAudioBackend:
         assert result.output_path == out
 
     async def test_speed_param_ignored(self, tmp_path: Path):
-        # speed 仅 realtime 支持，同步模型忽略（不报错、请求体不带 speed）
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 
         with _dashscope_audio_routes() as routes:
@@ -184,7 +180,6 @@ class TestDashScopeAudioBackend:
         assert "speech_rate" not in body["input"]
 
     async def test_http_error_raises(self, tmp_path: Path):
-        # 4xx 透出 httpx.HTTPStatusError（与其余 backend 一致），不嵌响应体进异常消息；提交按状态码不可重试
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 
         with _dashscope_audio_routes(synth=httpx.Response(400, text="bad request")) as routes:
@@ -198,11 +193,8 @@ class TestDashScopeAudioBackend:
         assert routes.download.call_count == 0
 
     async def test_submit_4xx_with_transient_substring_no_retry(self, tmp_path: Path, poll_clock):
-        # 4xx 错误消息带 "503" 子串（请求 URL/task_id）：旧字符串兜底会据此误判重试到超时，
-        # 新状态码谓词只读 response.status_code，按 400 fail-fast——计费的合成 POST 只发一次、不连带下载。
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 
-        # host 里带 503 让异常文本命中瞬态子串——真实形态是请求 URL / task_id 里出现的数字
         host = "https://dashscope-503.example.com"
         with _dashscope_audio_routes(
             synth=httpx.Response(400, text="bad request"),
@@ -212,14 +204,12 @@ class TestDashScopeAudioBackend:
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.synthesize(AudioSynthesisRequest(text="x", output_path=tmp_path / "e.wav", voice="Cherry"))
 
-        # 异常字符串确实带瞬态子串（旧兜底据此误判重试的前提）；新谓词按状态码单次 fail-fast
         assert "503" in str(ei.value)
         assert ei.value.response.status_code == 400
         assert routes.synthesize.call_count == 1
         assert routes.download.call_count == 0
 
     async def test_download_failure_does_not_rebill_synthesis(self, tmp_path: Path, poll_clock):
-        # 下载瞬时失败只重试 GET，绝不回头重跑会再次计费的合成 POST。
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 
         with _dashscope_audio_routes(
@@ -234,8 +224,6 @@ class TestDashScopeAudioBackend:
         assert out.read_bytes() == b"ok"
 
     async def test_empty_download_retried_then_rejected_no_file(self, tmp_path: Path, poll_clock):
-        # 200 但空体视为瞬态：重试到共用的下载失败预算耗尽后失败，不写 0 字节 wav，
-        # 合成 POST 不被重跑。
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
         from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 
@@ -264,8 +252,6 @@ class TestDashScopeAudioBackend:
         assert out.read_bytes() == b"ok"
 
     async def test_download_http_error_raises(self, tmp_path: Path, poll_clock):
-        # 下载 4xx：透出 httpx.HTTPStatusError 且不写文件、不被误判可重试、合成 POST 不被重跑；
-        # 异常文本不携带预签名 query（有效期内等同下载凭证）
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 
         signed_url = "https://x/out.wav?Expires=1&Signature=topsecret"
@@ -283,8 +269,6 @@ class TestDashScopeAudioBackend:
         assert not out.exists()
 
     async def test_download_write_settles_through_cancellation(self, tmp_path: Path):
-        # 供应商已返回、音频字节已到手：取消落在 staging 写盘期间时，写入先结算，取消随之消失，
-        # 调用方 MediaGenerator.generate_audio_async 的后续产物提交与 finally 清理都在写入完成之后进行。
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 
         gate = WriteGate()
@@ -373,7 +357,6 @@ class TestOpenAIAudioBackend:
         assert result.output_path == out
 
     async def test_write_settles_through_cancellation(self, tmp_path: Path):
-        # 合成已计费、字节已到手：取消落在写盘期间时，写入先结算，取消随之消失，后续产物提交照常执行
         gate = WriteGate()
         out = GatedWritePath(tmp_path / "o.wav").attach(gate)
         written = tmp_path / "o.wav"
@@ -489,7 +472,6 @@ class TestOpenAIAudioBackend:
             assert mock_client.requests[-1]["speed"] == 1.5
 
     async def test_language_type_not_sent(self, tmp_path: Path):
-        # /v1/audio/speech 无语种字段（DashScope 特有），不应混入请求
         mock_client = _mock_speech_client()
         with captured_openai_clients(mock_client):
             from lib.backends.audio_backends.openai import OpenAIAudioBackend
@@ -512,7 +494,6 @@ class TestOpenAIAudioBackend:
         assert mock_client.requests[-1]["response_format"] == "wav"
 
     async def test_empty_body_rejected_no_file_no_rebill(self, tmp_path: Path):
-        # 200 + 空体：不落 0 字节文件、不重试（重试 = 再次计费）
         mock_client = _mock_speech_client(content=b"")
         with captured_openai_clients(mock_client):
             from lib.backends.audio_backends.openai import OpenAIAudioBackend
@@ -526,14 +507,12 @@ class TestOpenAIAudioBackend:
         assert not out.exists()
 
     async def test_write_failure_does_not_rebill_synthesis(self, tmp_path: Path, poll_clock):
-        # 写盘瞬态失败（消息含可重试模式）不应回头重跑会再次计费的合成调用
         mock_client = _mock_speech_client()
         with captured_openai_clients(mock_client):
             from lib.backends.audio_backends.openai import OpenAIAudioBackend
 
             b = OpenAIAudioBackend(api_key="sk", model="tts-1")
             out_dir = tmp_path / "missing-dir"
-            # 父目录不存在 → write_bytes 抛 OSError；伪造含 "timed out" 的消息走最坏路径
             req = AudioSynthesisRequest(text="hi", output_path=out_dir / "o.wav", voice="alloy")
             with (
                 patch.object(type(req.output_path), "write_bytes", side_effect=OSError("Connection timed out")),

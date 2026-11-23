@@ -180,7 +180,6 @@ describe("EditTimelineView", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "播放" }));
 
-    // 已删除单元的片段被跳过，空闲的元素预载下一个可播放片段，并在这次点击里一并解锁
     expect(idle).toHaveAttribute("src", "/api/v1/files/demo/reference_videos/E1U3.mp4?v=2");
     expect(vi.mocked(HTMLMediaElement.prototype.play).mock.contexts).toContain(idle);
     expect(current).toHaveAttribute("preload", "auto");
@@ -254,7 +253,6 @@ describe("EditTimelineView", () => {
     expect(stale).toHaveAttribute("data-trim-ignored", "true");
     expect(screen.queryByTestId("edit-clip-c2")).not.toBeInTheDocument();
     expect(screen.getByTestId("edit-clip-deleted-c2")).toBeInTheDocument();
-    // 剧本里 E1U4 排第 3 个：以位置称呼，不露出单元 ID
     const unused = screen.getByText("未使用").parentElement as HTMLElement;
     expect(within(unused).getByRole("img", { name: "视频单元 3" })).toBeInTheDocument();
     expect(unused).not.toHaveTextContent("U4");
@@ -681,7 +679,6 @@ describe("EditTimelineView", () => {
   });
 
   it("unlocks every narration on play but only loads the ones about to be heard", async () => {
-    // c2 的旁白从 20s 开始，离播放起点超过预载窗口
     const long: EditTimelineReadout = {
       ...INITIAL_CUT,
       duration: 25,
@@ -778,7 +775,6 @@ describe("EditTimelineView", () => {
 
       renderView();
 
-      // 默认会打开最近修改的「初剪」，链接要求的是另一条
       expect(await screen.findByRole("tab", { name: "按脚本顺序" })).toHaveAttribute("aria-selected", "true");
       await waitFor(() => expect(screen.getByTestId("edit-clip-d2")).toHaveAttribute("aria-pressed", "true"));
       expect(screen.getByTestId("edit-clip-d1")).toHaveAttribute("aria-pressed", "false");

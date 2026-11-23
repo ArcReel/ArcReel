@@ -76,7 +76,6 @@ def _records(trash_client) -> list[dict]:
 
 
 def test_deleting_a_referenced_file_is_rejected(trash_client, trash_project_dir):
-    # 未纳入整本源文的源文件同样拒绝：它交给分集视图处理
     for path in ("storyboards/scene_E1S01.png", "project.json", "scripts/episode_1.json", "source/extra.txt"):
         response = trash_client.delete(FILES, params={"path": path})
         assert response.status_code == 409, path
@@ -233,7 +232,6 @@ def test_a_multi_file_record_is_restored_whole_or_not_at_all(trash_client, trash
     (trash_project_dir / "extras/b.txt").write_text("b", encoding="utf-8")
     with project_metadata_lock(trash_project_dir):
         record = project_trash.record_deletion(trash_project_dir, {"kind": "bundle"}, ["notes.txt", "extras/b.txt"])
-    # 删除之后途经目录被换成符号链接：第二个文件无处可落
     (tmp_path / "outside").mkdir()
     (trash_project_dir / "extras").rmdir()
     (trash_project_dir / "extras").symlink_to(tmp_path / "outside")
@@ -360,10 +358,8 @@ def test_history_version_moves_to_trash_and_restores_into_version_history(trash_
     assert history["current_version"] == latest["version"]
     back = next(v for v in history["versions"] if v["file"] == restored["path"])
     assert back["prompt"] == "old prompt"
-    # 原版本的元数据（生成依据等）随版本加回，否则视频、音频版本加回后无法选回。
     assert back["aspect_ratio"] == "9:16"
     assert back["created_at"] == old["created_at"]
-    # 加回的是同一个内容版本：身份沿用，摘要与加回的字节一致。
     assert back["content_version_id"] == old["content_version_id"]
     assert back["content_digest"] == old["content_digest"]
     assert (trash_project_dir / back["file"]).read_bytes() == b"in-use"

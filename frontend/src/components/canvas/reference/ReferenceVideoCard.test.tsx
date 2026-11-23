@@ -128,12 +128,9 @@ describe("ReferenceVideoCard", () => {
     await user.type(ta, "推门而入。@主角");
     const lastCall = onChange.mock.calls.at(-1)!;
     expect(lastCall[0]).toBe("推门而入。@主角");
-    // Card 只向上报正文：参考图在执行期从 `@[名称]` 解析，不在编辑时随行。
     expect(lastCall).toHaveLength(1);
   });
 
-  // 回归：扫 @ 时遇到中文标点（"。"/"，"等）应 break，不能把"眼@。|"的光标误识为
-  // 正在输入的 mention，否则会弹出 query="。" 的永远空 picker。
   it("does not open the picker when cursor sits after a punctuation following an orphan '@'", async () => {
     const user = userEvent.setup();
     render(
@@ -147,7 +144,6 @@ describe("ReferenceVideoCard", () => {
     await waitFor(() =>
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
     );
-    // 方向键左右移动光标，也不应"复活"那个悬挂的 @
     await user.keyboard("{ArrowLeft}{ArrowRight}");
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
@@ -198,7 +194,6 @@ describe("ReferenceVideoCard", () => {
   });
 
   it("offers each character form and inserts the derivative reference verbatim", async () => {
-    // 衍生是独立的引用名：候选里显示为「本体 / 衍生」，插进正文的仍是 `@[本体/衍生]`。
     useProjectsStore.setState({
       currentProjectName: "proj",
       currentProjectData: {
@@ -246,14 +241,11 @@ describe("ReferenceVideoCard", () => {
     await user.type(ta, "@");
     expect(await screen.findByRole("listbox")).toBeInTheDocument();
     ta.blur();
-    // mousedown preventDefault on options keeps the textarea focused through
-    // clicks, so genuine blurs can close the picker without a setTimeout.
     await waitFor(() =>
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument(),
     );
   });
 
-  // Backspace 两次删除：第一次高亮整个 @mention，第二次由默认 delete-selection 完成删除。
   it("first Backspace next to a mention selects it; second deletes the whole chip", async () => {
     const user = userEvent.setup();
     const unit = mkUnit({ text: "hi @主角" });
@@ -377,7 +369,6 @@ describe("ReferenceVideoCard final prompt preview", () => {
     expect(within(dialog).getByText("本次请求不携带参考图")).toBeInTheDocument();
   });
 
-  // 提示词是正文，与着色镜像层一起用比例字体；两层字体一致，光标才对得上着色。
   it("keeps the prompt editor and its overlay in the proportional font", () => {
     const { container } = render(<ControlledCard unit={mkUnit({ text: "张三推开了门。" })} />);
 

@@ -74,7 +74,6 @@ describe("SegmentRefsEditModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /Forest/ }));
 
     fireEvent.click(screen.getByRole("button", { name: "确定" }));
-    // props unchanged → not in payload
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0][0]).toEqual({
       characters: ["Hero", "Villain"],
@@ -104,7 +103,6 @@ describe("SegmentRefsEditModal", () => {
     );
     const ghostRow = screen.getByRole("button", { name: /Ghost/ });
     expect(ghostRow).toBeInTheDocument();
-    // 失效说明写在行内，读屏随按钮名称一起读出
     expect(ghostRow).toHaveAccessibleName(expect.stringContaining("失效"));
     fireEvent.click(ghostRow);
     expect(screen.getByRole("button", { name: "确定" })).toBeEnabled();

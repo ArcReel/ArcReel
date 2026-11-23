@@ -57,8 +57,6 @@ describe("ProviderModelSelect – trigger display", () => {
   });
 
   it("shows the provider name for a bare provider id carrying no model", () => {
-    // 后端接受不带 model 的裸 provider id（下游按该供应商默认模型执行）；按 provider/model
-    // 硬拆会把触发按钮显示成空的「 · 」，用户看不出这项其实已配置
     render(
       <ProviderModelSelect
         value="ark"
@@ -264,8 +262,6 @@ describe("ProviderModelSelect – search", () => {
     await user.type(screen.getByPlaceholderText(/搜索模型或供应商/), "veo");
     expect(screen.getAllByRole("option")).toHaveLength(2);
 
-    // Re-render with searchable disabled — search box hides; list must not
-    // remain filtered by the now-invisible query.
     rerender(
       <ProviderModelSelect
         value=""
@@ -319,7 +315,6 @@ describe("ProviderModelSelect – model display names", () => {
 
     await open(user, trigger);
     const option = screen.getByRole("option", { name: /Seedance 1\.5 Pro/ });
-    // model id 仍在选项行内可辨识——同名译名下用户靠它区分具体条目
     expect(option).toHaveTextContent("seedance");
   });
 
@@ -335,7 +330,6 @@ describe("ProviderModelSelect – model display names", () => {
       />,
     );
     await open(user);
-    // 无译名时不补第二行，否则同一串 id 会重复出现两遍
     expect(screen.getByRole("option", { name: /seedance/ })).toHaveTextContent(/^seedance$/);
   });
 

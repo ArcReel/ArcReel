@@ -105,7 +105,6 @@ describe("PromptTemplatesSection", () => {
     expect(screen.getByText("外观描述")).toBeInTheDocument();
     expect(screen.getByTitle("外观描述")).toHaveTextContent("description");
     expect(screen.getByRole("heading", { name: "模板正文" })).toBeInTheDocument();
-    // 正文会横向滚动：代码块自身可聚焦，键盘才能滚动
     const source = screen.getByRole("region", { name: "模板正文" });
     source.focus();
     expect(source).toHaveFocus();

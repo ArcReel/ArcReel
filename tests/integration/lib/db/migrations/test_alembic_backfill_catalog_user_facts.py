@@ -73,7 +73,6 @@ def test_seedance_2_copy_keeps_last_frame_and_reference_audio(
 
     facts = parse_entry(entry).facts
     assert isinstance(facts, VideoFacts)
-    # 未收录首帧、尾帧时实例只开首帧；升级前 Seedance 2 接受尾帧，副本上必须显式记下。
     assert (facts.text_to_video, facts.first_frame, facts.last_frame) == (True, True, True)
     assert facts.max_reference_images == 9
     assert (facts.reference_audio, facts.max_reference_audio_count, facts.max_reference_audio_total_seconds) == (
@@ -92,7 +91,6 @@ def test_gpt_image_2_copy_keeps_output_token_estimate(
 
     facts = parse_entry(entry).facts
     assert isinstance(facts, ImageFacts)
-    # 官方「Calculating costs」计算器里 gpt-image-2 的质量基数。
     assert dict(facts.output_token_bases) == {"low": 16, "medium": 48, "high": 96}
 
 
@@ -108,13 +106,11 @@ def test_fields_the_user_filled_are_kept(
     facts = parse_entry(kept).facts
     assert isinstance(facts, VideoFacts)
     assert facts.last_frame is False
-    # 参考音频三项按一组处理：用户填过其中一项，其余两项不补，避免拼出用户没有确认过的组合。
     assert (facts.reference_audio, facts.max_reference_audio_count, facts.max_reference_audio_total_seconds) == (
         None,
         1,
         None,
     )
     assert (facts.first_frame, facts.max_reference_images) == (True, 9)
-    # 升级前认不得的名字只有通道的统一回落，没有模型事实可补，副本保持未收录。
     assert created == unknown
     assert user_created == 1

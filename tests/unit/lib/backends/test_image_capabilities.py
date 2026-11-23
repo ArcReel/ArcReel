@@ -62,7 +62,6 @@ def test_custom_model_matches_entry_by_name(channel, model_id, expected):
     [
         ("qwen-image-edit-plus", {"text_to_image": True}, {T2I, I2I}),
         ("qwen-image-edit-plus", {"image_to_image": False}, set()),
-        # 对应不上条目：只覆盖的那一维受约束，另一维不加约束
         ("relay-image-x", {"image_to_image": False}, {T2I}),
     ],
 )
@@ -78,11 +77,6 @@ def test_comfyui_endpoint_ignores_entry_and_overrides():
     )
     assert model is None
     assert intersect_image_capabilities({T2I}, model) == {T2I}
-
-
-# ---------------------------------------------------------------------------
-# 参考图上限：条目与通道两侧求值，候选与编排层裁剪读同一个结果
-# ---------------------------------------------------------------------------
 
 
 def _sheets(count: int) -> list[VisualReference]:
@@ -165,11 +159,6 @@ def test_custom_override_closing_i2i_makes_the_reference_path_unsupported():
         _require_limit(limit, 16)
 
 
-# ---------------------------------------------------------------------------
-# 设置页的生效能力与候选读同一个求值结果
-# ---------------------------------------------------------------------------
-
-
 def test_settings_show_i2i_unsupported_when_the_entry_records_zero_references(monkeypatch: pytest.MonkeyPatch):
     """条目显式记 0 张：设置页的图生图为不支持、参考图上限 0，与候选（只进 t2i）一致。"""
     from lib.custom_provider.capability_view import builtin_capability_view, custom_capability_view
@@ -186,7 +175,6 @@ def test_settings_show_i2i_unsupported_when_the_entry_records_zero_references(mo
     assert view.effective == zero_references
     assert builtin_model_buckets("grok", "grok-imagine-image", official) == {"t2i"}
 
-    # 自定义供应商按模型名对应同一个条目；图生图仍可修改，原值是求值后的不支持
     custom = custom_capability_view(
         model_id="gemini-3-pro-image",
         endpoint="gemini-image",

@@ -108,18 +108,15 @@ class TestResolveItems:
         assert len(script["segments"]) == 3
 
     def test_missing_key_is_empty_list(self):
-        # 内容数组键缺失 → 空列表（合法的「空草稿」），不报错
         items, _id, kind = resolve_items({"content_mode": "narration"})
         assert kind == "segments"
         assert items == []
 
     def test_non_list_items_fail_loud(self):
-        # 键存在但类型非 list（数据损坏）→ fail-loud，而非静默降级为 []
         with pytest.raises(ScriptEditError):
             resolve_items({"content_mode": "narration", "segments": "oops"})
 
     def test_present_but_null_fails_loud(self):
-        # 键存在但值为 null（损坏数据）→ fail-loud，不与「键缺失」混为空草稿
         with pytest.raises(ScriptEditError):
             resolve_items({"content_mode": "narration", "segments": None})
 
@@ -142,11 +139,6 @@ class TestPatchField:
         assert script["video_units"][1]["note"] == "备注"
 
     def test_patch_unknown_leaf_field_succeeds_at_set_nested_layer(self):
-        # _set_nested 单元层面允许叶子写入——dict 操作不查 schema。
-        # 但这里写的是 video_prompt.note(VideoPrompt 实际无 note 字段),
-        # 是个 hallucinated 字段——在 _set_nested 这层确实写进 dict,但经
-        # _write_script_unlocked 的 _guard_no_worse 会被 Pydantic extra="forbid" 拒,
-        # 真实工具链不允许落盘(见 test_patch_unknown_leaf_blocked_at_write_throat)。
         script = patch_field(_narration(), "E1S01", "video_prompt.note", "新增备注")
         assert script["segments"][0]["video_prompt"]["note"] == "新增备注"
 
@@ -167,26 +159,19 @@ class TestPatchField:
 
     @pytest.mark.parametrize("id_field", ["segment_id", "scene_id", "unit_id"])
     def test_patch_id_field_rejected(self, id_field):
-        # 三类 id 字段（segment/scene/unit）均不可直改：id 由 insert/split 派生，agent 改 id
-        # 会让其他依赖 id 定位的 helper 回写到错误分镜，或产生重复 id 歧义。
         with pytest.raises(ScriptEditError, match="不可改分镜 id"):
             patch_field(_narration(), "E1S01", id_field, "X")
 
     def test_patch_end_frame_image_rejected(self):
-        # 尾帧字段只由尾帧设置/清除端点写入：patch 放行等于让 agent 原样写任意字符串，
-        # 绕过快照复制并重新引入悬空引用与越界路径。
         with pytest.raises(ScriptEditError, match="不可改 end_frame_image"):
             patch_field(_narration(), "E1S01", "end_frame_image", "../../../etc/passwd")
 
     def test_patch_pending_authoring_rejected(self):
-        # 待编写只由新增条目置位、提示词编写清除；patch 放行会让 Agent 手改这条陈述。
         with pytest.raises(ScriptEditError, match="不可改 pending_authoring"):
             patch_field(_narration(), "E1S01", "pending_authoring", False)
 
     @pytest.mark.parametrize("field", ["image_prompt", "video_prompt"])
     def test_patch_cannot_clear_a_prompt_to_none(self, field):
-        # None 是提示词的「待生成」态，只由脚本规划机械转换写入；剧本模型接受 None 之后，
-        # patch 是把已有提示词清空的唯一入口，须在这里拒绝。
         with pytest.raises(ScriptEditError, match="清成 null"):
             patch_field(_narration(), "E1S01", field, None)
         with pytest.raises(ScriptEditError, match="清成 null"):
@@ -216,7 +201,6 @@ class TestInsertSegment:
         assert script["segments"][1]["generated_assets"] == {}
 
     def test_insert_drops_end_frame_image(self):
-        # 新 id 名下还没有快照，agent 自带的值只会指向锚点的快照或不存在的路径。
         new_item = _segment("X") | {"end_frame_image": "end_frames/scene_E1S01.png"}
         script = insert_segment(_narration(), "E1S01", new_item)
         assert script["segments"][1].get("end_frame_image") is None
@@ -258,23 +242,16 @@ class TestSplitSegment:
         assert ids == ["E1S01", "E1S03", "E1S04", "E1S02"]
 
     def test_split_issues_numbers_after_the_floor(self):
-        # floor 是本集用过的最大号（含已删除的编号），拆出的新分镜从它之后取号
         script = split_segment(_narration(), "E1S01", [_segment("a"), _segment("b")], floor=7)
         assert [s["segment_id"] for s in script["segments"]] == ["E1S01", "E1S08", "E1S02"]
 
     def test_split_keeps_anchor_assets_clears_new_parts(self):
-        # 锚点(parts[0],保留原 id)的 generated_assets 不动,与 insert_segment 的「锚点资产
-        # 不动」语义对齐;其余 parts(新派生 id)清空 generated_assets 退回 pending 待重生。
-        # 即便 agent 在 parts[0] 自带了 generated_assets 也以原分镜实际值为准,不让 agent
-        # 凭空写资产路径。
         anchor_assets = _narration()["segments"][0]["generated_assets"]
         script = split_segment(_narration(), "E1S01", [_segment("a"), _segment("b")])
         assert script["segments"][0]["generated_assets"] == anchor_assets
         assert script["segments"][1]["generated_assets"] == {}
 
     def test_split_keeps_anchor_end_frame_clears_new_parts(self):
-        # 尾帧快照按镜头 id 命名：锚点保留原 id 故快照仍归它；新派生 id 名下没有快照，
-        # 且以原分镜实际值为准，不让 agent 在 parts[0] 凭空改写快照路径。
         script_in = _narration()
         script_in["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
         parts = [_segment("a") | {"end_frame_image": "end_frames/forged.png"}, _segment("b")]
@@ -300,7 +277,6 @@ class TestSplitSegment:
         script = split_segment(_reference(), "E1U1", [_unit("a"), _unit("b")])
         ids = [u["unit_id"] for u in script["video_units"]]
         assert ids == ["E1U1", "E1U3", "E1U2"]
-        # 锚点 video_unit 保留原 generated_assets,新派生 unit 清空
         assert script["video_units"][0]["generated_assets"] == anchor_assets
         assert script["video_units"][1]["generated_assets"] == {}
 

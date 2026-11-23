@@ -83,7 +83,6 @@ function renderPicker(props: Partial<Parameters<typeof EndFramePicker>[0]> = {})
 
 beforeEach(() => {
   vi.spyOn(API, "listGrids").mockResolvedValue([
-    // 带 scripts/ 前缀也应归入本集（任务行与 episode 元数据前缀不一致）
     grid(`scripts/${SCRIPT}`, "grids/g1_cell_0.png"),
     grid("episode_2.json", "grids/g2_cell_0.png"),
   ]);
@@ -111,7 +110,6 @@ describe("EndFramePicker 项目内通道", () => {
 
     expect(queryByRole("button", { name: /^分镜 2$/ })).not.toBeInTheDocument();
 
-    // 角色/场景分组已移除：即使 currentProjectData 里有对应素材也不展示
     expect(queryByText("角色")).not.toBeInTheDocument();
     expect(queryByText("场景")).not.toBeInTheDocument();
   });
@@ -145,7 +143,6 @@ describe("EndFramePicker 项目内通道", () => {
 describe("EndFramePicker 上传通道", () => {
   it("选定文件后交回父级（与项目内通道同一落点）", async () => {
     const onPickUpload = vi.fn();
-    // Dialog 走 portal，file input 不在 render 的 container 子树内
     const { baseElement, findByText } = renderPicker({ onPickUpload });
     await findByText("本集分镜图");
 

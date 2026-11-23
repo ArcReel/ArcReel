@@ -140,7 +140,6 @@ class TestProjectsRouter:
         with client:
             resp = client.patch("/api/v1/projects/ready", json={"source_kind": "screenplay"})
             assert resp.status_code == 200
-            # 「不接受该字段」的实质保证：请求体里的值不得落进项目数据
             assert "source_kind" not in fake_pm.project_data["ready"]
 
     def test_project_details_report_whether_each_derivative_is_referenced(self, tmp_path, monkeypatch):
@@ -189,7 +188,6 @@ class TestProjectsRouter:
             assert ignored_mode.status_code == 200
             assert "content_mode" not in fake_pm.project_data["ready"]
 
-            # aspect_ratio 现在允许修改（字符串），dict 类型将被 Pydantic 拒绝（422）
             rejected_ratio_dict = client.patch(
                 "/api/v1/projects/ready",
                 json={"aspect_ratio": {"videos": "16:9"}},

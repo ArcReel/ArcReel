@@ -7,7 +7,6 @@ import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 const CHARACTERS_PATH = "/app/projects/demo/characters";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -29,7 +28,6 @@ const recordedProject = recorded<RecordedProject>("project-demo");
 const [firstProject] = recorded<RecordedProjects>("projects").projects;
 const [firstEpisode] = recordedProject.project.episodes;
 
-// 当前项目名很长、项目很多且名字都长：切换器列表要在弹层里滚动，「← 项目」不能被挤得换行。
 const MANY_PROJECTS: ApiOverrides = {
   ...EVENT_STREAM,
   "GET /api/v1/projects/demo": {
@@ -72,7 +70,6 @@ const MANY_EPISODES: ApiOverrides = {
   "POST /api/v1/projects/demo/episodes/2/move": { status: 200, body: { success: true } },
 };
 
-// 导出失败会记入工作区通知；用它在页面里攒出多条长通知。
 const EXPORT_FAILS: ApiOverrides = {
   ...EVENT_STREAM,
   "POST /api/v1/projects/demo/export/token?scope=current": {
@@ -84,7 +81,6 @@ const EXPORT_FAILS: ApiOverrides = {
   },
 };
 
-// Agent 改了一个角色、新增了一个分镜：两条变更都带定位目标，进入工作区通知，各带「查看」。
 const NOTICE_CHARACTERS = Array.from({ length: 24 }, (_, i) => `巡夜人 ${i + 1}`);
 const NOTICE_CHARACTER = NOTICE_CHARACTERS.at(-1)!;
 const NOTICE_SHOT = "E1S05";
@@ -186,7 +182,6 @@ async function shellReady(page: Page) {
   await switcher(page).waitFor();
 }
 
-/** 紧凑档侧栏自动收为图标栏，先展开才能看到集列表。 */
 async function expandSidebar(page: Page) {
   const expand = page.getByRole("button", { name: "展开侧栏" });
   if (await expand.isVisible()) await expand.click();
@@ -208,7 +203,6 @@ defineRegionScenarios("工作区顶栏", [
     ready: shellReady,
     act: async (page) => {
       const back = page.getByRole("link", { name: "项目", exact: true });
-      // 单行按钮高 28px，换行后会更高
       expect((await back.boundingBox())?.height).toBeLessThanOrEqual(28);
       await expect(back).toBeInViewport({ ratio: 1 });
 
@@ -242,7 +236,6 @@ defineRegionScenarios("工作区顶栏", [
     ready: shellReady,
     act: async (page) => {
       for (let i = 0; i < 6; i++) await failExport(page);
-      // 提示 5 秒后自动消失；等它们走完，截图里只有通知面板
       await expect(page.locator('[data-slot="toast"]')).toHaveCount(0, { timeout: 15_000 });
       await expect(bell(page)).toHaveAccessibleName("工作区通知，未读 6 条");
 
@@ -263,7 +256,6 @@ defineRegionScenarios("工作区顶栏", [
     ready: shellReady,
     act: async (page) => {
       await deliverNoticeEventsOnce(page);
-      // 每条变更各记一条完成提示与一条带定位目标的通知，只有后者有「查看」
       await expect(bell(page)).toHaveAccessibleName("工作区通知，未读 4 条");
       await clearAgentOverlay(page);
       const panel = page.getByRole("dialog", { name: "工作区通知" });

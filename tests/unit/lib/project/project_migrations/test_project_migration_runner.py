@@ -99,15 +99,12 @@ def test_real_v2_to_v3_stamps_version_via_runner(tmp_projects: Path):
     assert "p1" in summary.migrated
     data = json.loads((p / "project.json").read_text(encoding="utf-8"))
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
-    # 盖章语义细节由 test_project_migration_v2_v3 专测，此处只验证迁移器经 MIGRATORS
-    # 注册生效与 runner 外围行为
-    # 无原文范围、有集文件且 source/ 另有整本源文的旧条目，v15→v16 判为切自整本源文
     assert data["episodes"] == [
         {"episode": 1, "title": "开端", "script_file": "scripts/episode_1.json", "source_origin": "whole_source"}
     ]
     assert data["whole_source_files"] == [{"source_file": "source/novel.txt"}]
     assert "planning_cursor" not in data
-    assert (source / "_remaining.txt").exists()  # 迁移不动 source/ 下任何文件
+    assert (source / "_remaining.txt").exists()
     assert list(p.glob("project.json.bak.v2-*"))
 
 
@@ -141,7 +138,7 @@ def test_corrupted_schema_version_skipped_not_abort(tmp_projects: Path):
     assert "broken" not in summary.migrated + summary.failed + summary.skipped
     assert "ok" in summary.migrated
     data = json.loads((tmp_projects / "broken" / "project.json").read_text(encoding="utf-8"))
-    assert data["schema_version"] == "corrupted"  # 原样保留，待人工修复
+    assert data["schema_version"] == "corrupted"
 
 
 def test_numeric_string_schema_version_is_not_classified_as_current(tmp_projects: Path):

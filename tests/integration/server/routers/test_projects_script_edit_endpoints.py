@@ -225,7 +225,6 @@ class TestProjectsRouter:
         assert response.json()["segment"]["needs_replan"] is True
 
     def test_update_segment_rejects_drama_script_with_residual_segments(self, tmp_path, monkeypatch):
-        # drama 脚本残留 segments 键不应被当 narration 改写：须返回 400 而非放行
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "drama.json")] = {
             "content_mode": "drama",
@@ -243,8 +242,6 @@ class TestProjectsRouter:
             assert resp.status_code == 400
 
     def test_update_segment_write_value_error_returns_422(self, tmp_path, monkeypatch):
-        # 写盘统一入口对客户端错误（结构非法 / 集号错配 / 非法文件名）抛 ValueError，
-        # router 须统一转 422 而非落到 500 兜底。
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "narration.json")] = {
             "content_mode": "narration",
@@ -267,7 +264,6 @@ class TestProjectsRouter:
             )
             assert resp.status_code == 422
             body = resp.json()
-            # 摘要走产品语言，异常原文只进独立诊断字段
             assert body["detail"] == "脚本结构校验失败，请检查后重试"
             assert "不一致" in body["diagnostic"]
 
@@ -311,12 +307,10 @@ class TestProjectsRouter:
             assert gen_overview_bad.status_code == 400
             assert "源目录为空" in gen_overview_bad.json()["detail"]
 
-            # 供应商未配置属另一类原因，与「源目录为空」区分（各自映射独立 i18n key）
             gen_overview_no_provider = client.post("/api/v1/projects/no-provider/generate-overview")
             assert gen_overview_no_provider.status_code == 400
             assert "配置文本供应商" in gen_overview_no_provider.json()["detail"]
 
-            # 没有文本默认模型：指引到默认模型设置，不说成未配置供应商
             gen_overview_no_default = client.post("/api/v1/projects/no-default-model/generate-overview")
             assert gen_overview_no_default.status_code == 400
             assert gen_overview_no_default.json()["detail"] == zh_errors.MESSAGES["text_default_model_not_set"]
@@ -329,7 +323,6 @@ class TestProjectsRouter:
             assert update_overview.json()["overview"]["synopsis"] == "new synopsis"
 
     def test_update_scene_atomically_rejects_mixed_utterances(self, tmp_path, monkeypatch):
-        # 人工编辑不能把一次视频请求写成角色发声 + 叙述旁白混合单元。
         fake_pm = _FakePM(tmp_path)
         fake_pm.scripts[("ready", "episode_1.json")] = {
             "content_mode": "drama",
@@ -591,7 +584,6 @@ class TestProjectsRouter:
             )
             assert dirty_id.status_code == 422
 
-            # 重复 shot_id：身份键不唯一，PATCH 会静默更新首个命中项，必须拦下
             fake_pm.scripts[("ad-ready", "episode_1.json")] = {
                 "content_mode": "ad",
                 "shots": [{"shot_id": "a"}, {"shot_id": "a"}],
@@ -676,7 +668,6 @@ class TestProjectsRouter:
         detail = response.json()["detail"]
         assert project_name in detail
         assert "坏数据" in detail
-        # 阻断必须发生在惰性迁移读写之前：project.json 与 scripts/*.json 都不能被动过
         assert fake_pm.project_data == before_project_data
         assert fake_pm.scripts == before_scripts
 

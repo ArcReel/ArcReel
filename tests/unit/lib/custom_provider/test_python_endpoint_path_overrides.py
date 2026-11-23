@@ -32,7 +32,6 @@ async def test_async_video_overriding_only_poll_keeps_submit_on_the_default_path
                 200, json={"output": {"task_status": "SUCCEEDED", "video_url": "https://cdn.example/tasks/r.mp4"}}
             )
         )
-        # 取自响应的下载地址不属于任何请求，原样发出
         download = router.get("https://cdn.example/tasks/r.mp4").mock(return_value=httpx.Response(200, content=b"v"))
         await backend.generate(
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p", task_id="w-1")
@@ -42,7 +41,6 @@ async def test_async_video_overriding_only_poll_keeps_submit_on_the_default_path
 
 
 async def test_sdk_endpoint_override_is_relative_to_the_raw_base_url_and_expands_the_model():
-    # 方舟 SDK 走同步 httpx 客户端；有覆盖的提交不再补 /api/v3
     backend = ENDPOINT_REGISTRY["ark-seedance-2"].build_backend(
         _PROVIDER, "seedance-x", {"submit": "/ark/{{ model }}/tasks?async=1"}
     )

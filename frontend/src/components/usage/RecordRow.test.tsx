@@ -38,7 +38,6 @@ describe("RecordRow compact layout", () => {
     expect(row).toHaveTextContent(/3\s*第 1 集 · 推门而入/);
     expect(row).not.toHaveTextContent("S10");
     expect(row).toHaveTextContent("Google · imagen-4");
-    // 项目名不占位置：悬浮层里整栏都属于同一个项目。
     expect(row).not.toHaveTextContent("星海列车");
 
     await userEvent.click(row);
@@ -65,7 +64,6 @@ describe("RecordRow compact layout", () => {
         providerLabel={providerLabel}
       />,
     );
-    // 位置角标叠在缩略图上、不截断；集名与正文摘录放不下时才截断。
     expect(screen.getByRole("img", { name: "分镜 5" })).toBeInTheDocument();
     expect(screen.getByText("山门 · 雨夜推门")).toBeInTheDocument();
     expect(container.querySelector("img")).toHaveAttribute("src", expect.stringContaining("scene_E7S02.png"));

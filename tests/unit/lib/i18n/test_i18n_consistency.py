@@ -141,9 +141,6 @@ def test_format_placeholders_consistent():
     import string
 
     def placeholders(msg: str) -> set[tuple[str, str]]:
-        # 用 `str.format` 自己的解析器：转义花括号 `{{…}}`（如语法示例 `@[角色]：{台词}`）
-        # 被识别为字面文本而非占位符，带格式说明的 `{delta:.0%}` 也能正确取到字段名。
-        # 连同 format_spec 一起比较：某语言漏写 `.0%` / `.1f` 会让该语言渲染出原始数值。
         return {(name, spec or "") for _, name, spec, _ in string.Formatter().parse(msg) if name}
 
     base_locale = SUPPORTED_LOCALES[0]
@@ -231,7 +228,6 @@ def test_every_event_label_key_is_translated():
     emitted |= set(SKELETON_ITEM_LABEL_KEYS.values())
     emitted |= {f"named_entity_{asset_type}" for asset_type in ASSET_SPECS}
     emitted |= {f"named_entity_{t}_derivative" for t, spec in ASSET_SPECS.items() if spec.supports_derivatives}
-    # 快照差分与路由直接发布的固定 key（无表可枚举，在此登记）。
     emitted |= {
         "character_reference_audio",
         "project_settings",
@@ -269,7 +265,6 @@ def test_frontend_dashboard_covers_prompt_template_axes_and_categories():
         assert not missing, f"{locale} dashboard missing prompt template keys: {sorted(missing)}"
 
 
-#: 目录名里出现即需要译名的书写系统区段：拉丁字母以外的写法在 en/vi 界面上无法直接阅读。
 _NON_LATIN_RANGES = (
     ("\u0400", "\u04ff"),
     ("\u3040", "\u30ff"),

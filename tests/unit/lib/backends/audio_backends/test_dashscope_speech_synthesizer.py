@@ -96,7 +96,6 @@ class TestRequest:
         assert submitted.headers["Authorization"] == "Bearer sk"
         assert "X-DashScope-Async" not in submitted.headers
         assert "X-DashScope-SSE" not in submitted.headers
-        # 输出格式随落盘扩展名，language_type 不发送；未给语速时不带 rate
         assert request_json(submitted) == {
             "model": "qwen-audio-3.0-tts-flash",
             "input": {
@@ -108,7 +107,6 @@ class TestRequest:
         }
         assert str(only_request(routes.download).url) == _AUDIO_URL
         assert (tmp_path / "o.wav").read_bytes() == b"RIFFbytes"
-        # 3.0 系只报计费字符数，不报 token：按字符计价由计算器从原文统计
         assert result.text == "我家的后面有一个很大的花园。"
         assert result.input_tokens is None
         assert result.audio_output_tokens is None
@@ -186,10 +184,8 @@ class TestVoices:
     @pytest.mark.parametrize(
         "model",
         [
-            # 同端点的新型号：音色表里没有它，不借用 3.1 的音色
             "qwen-audio-3.2-tts-turbo",
             "qwen-audio-3.1-tts-next",
-            # 官方音色列表没有日期快照或中转命名空间的说法，认不出就不列
             "qwen-audio-3.0-tts-flash-2026-03-04",
             "aliyun/qwen-audio-3.1-tts-flash",
         ],

@@ -42,10 +42,6 @@ type Reply = TrialRunInfo | number | (() => Promise<Response>);
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-/**
- * 在 fetch 边界按路由回放响应：真实的 API 方法与 HTTP 状态到 ApiRequestError 的映射都参与测试。
- * 每条路由按队列取回复，最后一条重复使用；数字回复是带 detail 的错误状态。
- */
 function stubTrialRunServer(replies: Partial<Record<Route, Reply[]>>) {
   const queues: Record<Route, Reply[]> = { create: [RUNNING], read: [], cancel: [], ...replies };
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

@@ -24,7 +24,6 @@ describe("EndpointsSection · share to official market", () => {
 
   beforeEach(() => {
     stubEndpointsSection();
-    // 目录里多一个 workflow 端点，两种端点的分享入口都要覆盖。
     useEndpointCatalogStore.setState({
       endpoints: [...CATALOG, descriptor({ key: "ce-8", kind: "comfyui" })],
       loading: false,
@@ -77,7 +76,6 @@ describe("EndpointsSection · share to official market", () => {
 
     await chooseMenu("分享到官方市场");
     const dialog = await screen.findByRole("dialog");
-    // slug 默认由端点名称派生；诊断未清零前不可提交。
     expect(within(dialog).getByLabelText("slug 建议")).toHaveValue("example-video-api");
     expect(await within(dialog).findByText("缺少字段 submit")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "提交" })).toBeDisabled();
@@ -129,7 +127,6 @@ describe("EndpointsSection · share to official market", () => {
     expect(await within(dialog).findByText("本地校验通过，可以提交")).toBeInTheDocument();
     const input = within(dialog).getByTestId("market-share-icon-input");
     await userEvent.upload(input, stale);
-    // 图标读取未完成时不可提交，否则会带着上一次的图标或不带图标出站。
     expect(within(dialog).getByRole("button", { name: "提交" })).toBeDisabled();
     await userEvent.upload(input, latest);
     finishLatest(new TextEncoder().encode("<svg/>").buffer);

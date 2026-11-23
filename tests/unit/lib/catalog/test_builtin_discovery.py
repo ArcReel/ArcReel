@@ -57,7 +57,6 @@ def test_google_form_strips_path_prefix():
 
     request = only_request(route)
     assert request.headers["x-goog-api-key"] == "g-key"
-    # 单次请求的超时与 OpenAI 形态一致（30 秒），不按 SDK 默认值挂着
     assert request.extensions["timeout"]["read"] == 30
     assert ids == ["gemini-3-flash-preview", "veo-3.1-generate-preview"]
 
@@ -84,7 +83,6 @@ def test_classify_lists_amphibious_listing_once_per_model_key_and_infers_unknown
 
 
 def test_classify_carries_the_entry_an_unlisted_model_name_maps_to():
-    # 清单外、名字能对应条目（大小写、别名）的模型带上条目，添加后按它计价；对应不上的没有条目
     rows = {
         r.model_id: r for r in builtin_discovery.classify_model_ids("dashscope", ["Qwen3-Max", "gpt-5.5", "acme-x"])
     }

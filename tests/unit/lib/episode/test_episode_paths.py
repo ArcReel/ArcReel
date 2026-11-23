@@ -54,25 +54,19 @@ def test_new_content_mode_registered_once_covers_gate_and_web(monkeypatch, tmp_p
     assert gate_path is not None
     assert gate_path == tmp_path / "drafts" / "episode_1" / "script_plan_docu.json"
 
-    # web 草稿读写：_stage_files 返回同一文件名
     assert files._stage_files("docudrama") == {"script_plan": "script_plan_docu.json"}
 
 
 def test_ad_has_no_structured_script_plan_across_web_and_gate(tmp_path):
     """ad 不走结构化 script_plan：web 阶段映射为空、gate 路径解析为 None。"""
-    # web 草稿读写：ad 不误落 drama 文件名，返回空映射；ad 优先于 generation_mode，
-    # 带 reference_video 戳同样无 script_plan
     assert files._stage_files("ad") == {}
     assert files._stage_files("ad", generation_mode="reference_video") == {}
-    # gate：ad 无结构化 script_plan 可探测，该集的脚本进度因此不会被判为"已分段"
     assert script_review.script_plan_path(tmp_path, {"content_mode": "ad", "episodes": [{"episode": 1}]}, 1) is None
 
 
 def test_gate_only_json_and_web_also_md():
     """gate 只认结构化 .json；web 读取兼认旧版 .md。"""
-    # gate 的登记表不含任何 .md
     assert all(name.endswith(".json") for name in episode_paths.SCRIPT_PLAN_FILENAMES.values())
-    # web 读取候选含旧 .md
     assert "script_plan_segments.md" in episode_paths.script_plan_read_candidates("narration")
     assert "script_plan_normalized_script.md" in episode_paths.script_plan_read_candidates("drama")
 
@@ -86,18 +80,14 @@ def test_script_plan_path_follows_reference_video_across_content_modes(tmp_path)
         assert script_review.script_plan_path(tmp_path, project, 1) == (
             episode_paths.episode_drafts_dir(tmp_path, 1) / episode_paths.REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
         )
-        # 首轮拆分未过校验时只产出草稿、正式文件从未写过：草稿另有探测位，
-        # 该集因此仍被判为"已分段"，而不是退回源文审阅。
         assert script_review.script_plan_quarantine_path(tmp_path, project, 1) == (
             episode_paths.episode_drafts_dir(tmp_path, 1)
             / episode_paths.REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME
         )
 
-    # 未挂 rv 的项目沿用 content_mode 既有文件名，不受影响
     assert script_review.script_plan_path(tmp_path, {"content_mode": "narration", "episodes": [{"episode": 1}]}, 1) == (
         episode_paths.episode_drafts_dir(tmp_path, 1) / episode_paths.script_plan_filename("narration")
     )
-    # ad 优先于 generation_mode：即便挂 rv 也无结构化 script_plan（与 gate/web 同口径，见上一测试）
     assert (
         script_review.script_plan_path(
             tmp_path,

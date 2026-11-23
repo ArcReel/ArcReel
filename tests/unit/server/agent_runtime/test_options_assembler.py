@@ -134,11 +134,8 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
         ("Write|Edit", None),
     ]
     assert options.sandbox.get("enabled") is True
-    # 用户消息回放开关：缺失则 SDK 不回放副本，身份映射无从建立
     assert options.extra_args == {"replay-user-messages": None}
-    # CLI stdout 单条 NDJSON 行的缓冲上限：默认 1 MiB 会被附图请求的回放副本撞穿
     assert options.max_buffer_size == CLI_STDOUT_MAX_BUFFER_BYTES == 32 * 1024 * 1024
-    # 会话状态帧：CLI 欠后续轮次时一直报 running，会话层据此保护会话不被断开
     assert options.env["CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"] == "1"
 
 
@@ -207,7 +204,6 @@ async def test_build_system_prompt_renders_language_rule_for_locale(tmp_path: Pa
         "## 当前项目上下文",
         "## 用户记忆",
     ]
-    # 人设随创作类型 CLAUDE.md 由 SDK 加载，不再由服务端追加
     assert "ArcReel Agent" not in append
 
 
@@ -289,7 +285,6 @@ async def test_build_settings_redirects_auto_memory_to_project_memory_dir(tmp_pa
 
     project_cwd = (tmp_path / "projects").resolve() / "demo"
     assert json.loads(options.settings) == {"autoMemoryDirectory": str(project_memory_dir(project_cwd))}
-    # 显式设 autoMemoryEnabled 会覆盖原生默认，装配不碰它
     assert "autoMemoryEnabled" not in options.settings
     assert options.sandbox.get("enabled") is True
 
@@ -307,7 +302,6 @@ async def test_append_prompt_carries_user_memory_dir_and_index(tmp_path: Path) -
     assert "## 用户记忆" in prompt
     assert memory_dir.as_posix() in prompt
     assert "拿不准留项目记忆" in prompt
-    # 内核沙箱对用户记忆目录拒读且不放行写，记忆读写只能走内置文件工具
     assert "Bash 读写不了该目录" in prompt
     assert "- [配音偏好](voice.md) — 固定用女声" in prompt
 
@@ -360,13 +354,11 @@ async def test_append_prompt_truncates_user_memory_index_over_byte_limit(tmp_pat
     assembler = _make_assembler(tmp_path)
     memory_dir = DataRootLayout((tmp_path / "projects").resolve()).user_memory_dir(DEFAULT_USER_ID)
     memory_dir.mkdir(parents=True)
-    # 10 行 × 每行 3 000 余字节（中文 3 字节/字）≈ 30 KB，行数远在 200 以内
     index = "\n".join(f"- 第 {i} 条：" + "记" * 1000 for i in range(10))
     (memory_dir / "MEMORY.md").write_text(index, encoding="utf-8")
 
     prompt = await assembler._build_append_prompt("demo")
 
-    # 25 000 字节落在第 9 行内，回退到上一个换行 → 前 8 行完整保留
     assert "- 第 7 条：" in prompt
     assert "- 第 8 条：" not in prompt
     assert f"共 10 行 / {len(index.encode('utf-8'))} 字节" in prompt
@@ -397,7 +389,6 @@ async def test_append_prompt_omits_user_memory_for_invalid_user_id(tmp_path: Pat
     assert "## 语言规范" in prompt
 
 
-#: 内置工具：只读三件之外，涵盖写文件、跑命令、派生子会话、联网与提问。
 _BUILTIN_TOOLS = (
     "Read",
     "Glob",
@@ -417,7 +408,6 @@ _BUILTIN_TOOLS = (
     "AskUserQuestion",
 )
 
-#: 只读子智能体能调用的全部工具：审片只看素材、审图只看图，两者都能读项目文件。
 _READ_ONLY_SUBAGENT_TOOLS = {
     "review-footage": {"Read", "Glob", "Grep", "mcp__arcreel__inspect_video_units"},
     "review-images": {"Read", "Glob", "Grep", "mcp__arcreel__inspect_images"},

@@ -42,8 +42,6 @@ from lib.references.reference_compression import ReferencePayloadFloorError
 from lib.script.reference_video.request_projection import ProjectionProblem, ReferenceProjectionBlockedError
 from tests.factories import make_display_names
 
-# AST 守卫扫的是真实源码树、渲染断言用的是真实 i18n 目录，不 mock 任何被测入口。
-
 _CAPABILITY_EXCEPTIONS = {"ImageCapabilityError", "VideoCapabilityError", "ReferencePayloadFloorError"}
 _SCANNED_ROOTS = ("lib", "server")
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -143,19 +141,11 @@ def _scan_tree(tree: ast.Module, rel: str) -> tuple[dict[str, str], list[tuple[s
 
     for node, name in constructions:
         where = f"{rel}:{node.lineno}"
-        # 三个能力异常的首参都叫 ``code``，位置与关键字两种写法都合法。只看位置参数会让
-        # ``ReferencePayloadFloorError(code="new")`` 落进「无实参」分支被登记成默认码，
-        # 真正的 new code 既不入集合也不记为动态点，两道守卫一起失效。
         code_expr = node.args[0] if node.args else _keyword_value(node, "code")
         if code_expr is None:
-            # ``**kwargs`` 解包里可能藏着 code，静态看不见。此时不能当「没给 code」处理：
-            # ``ReferencePayloadFloorError(**{"code": "new"})`` 会被登记成默认码，真正的
-            # new code 两道守卫一起放行。无位置参数也无显式 ``code=`` 时，只有确定没有解包
-            # 才敢认默认码。
             if any(keyword.arg is None for keyword in node.keywords):
                 dynamic_sites.append((where, f"{rel}::{_enclosing_function(tree, node.lineno)}"))
             elif name == "ReferencePayloadFloorError":
-                # 唯一带默认 code 的能力异常（构造点常省略实参）。
                 codes.setdefault(ReferencePayloadFloorError().code, where)
             else:
                 dynamic_sites.append((where, f"{rel}::{_enclosing_function(tree, node.lineno)}"))
@@ -165,14 +155,8 @@ def _scan_tree(tree: ast.Module, rel: str) -> tuple[dict[str, str], list[tuple[s
             for literal in literals:
                 codes.setdefault(literal, where)
         else:
-            # code 来自变量 / 模块常量，或条件表达式里混了动态分支：静态枚举不全，
-            # 登记漂移会漏网。记下来单独断言。
             dynamic_sites.append((where, f"{rel}::{_enclosing_function(tree, node.lineno)}"))
 
-    # ``error_code=`` 只在确有 capability 构造点的文件里采集，避免同名 kwarg 的
-    # 无关模块被误当 capability code 报「未登记」假阳性。非字面量的 error_code
-    # 同样记成不可扫描点：helper 内部的构造点已按 scope 豁免，调用方再静默放过
-    # 就两道守卫全失效，未登记 code 会一路落到用户可见的裸机器码。
     for node in calls:
         error_code = _keyword_value(node, "error_code")
         if error_code is None:
@@ -200,11 +184,6 @@ def _scan_raised_codes() -> tuple[dict[str, str], list[tuple[str, str]]]:
     return codes, dynamic_sites
 
 
-# code 由变量/形参传入、静态扫不出字面量的构造点，按「文件::所在函数」豁免（不按行号，
-# 行号会随无关改动漂移；也不按文件，否则同文件里任意新增的动态构造点都会被一并放过）。
-# 仅允许「同文件内由 ``error_code=`` 字面量喂入的 helper」这一种形态——helper 自身扫不出，
-# 但它的每个调用方都被上面的 kwarg 采集覆盖。值是该 scope 允许的动态构造点数量：豁免是
-# 定额而非空白支票，函数内再多一个动态构造点就得重新自证，不会被顺带放行。
 _ALLOWED_DYNAMIC_SCOPES: dict[str, int] = {}
 
 
@@ -347,7 +326,7 @@ def test_capability_construction_sites_supply_every_template_param():
         for locale in ("zh", "en", "vi"):
             template = MESSAGES[locale].get(code)
             if template is None:
-                continue  # 缺模板由 test_capability_code_has_all_three_locales 负责
+                continue
             absent = _template_placeholders(template) - provided
             if absent:
                 missing.append(f"{where} ({code}, {locale}) 缺参数 {sorted(absent)}")
@@ -379,8 +358,6 @@ def test_stored_reason_renders_per_locale():
     assert stored == '[video_duration_not_supported] {"duration": 7, "supported": "5, 10"}'
 
     for locale in ("zh", "en", "vi"):
-        # 期望值独立取自该 locale 的模板目录，而非拿渲染结果互相比对——只断言"三者不同"
-        # 的话，zh/en/vi 模板或 locale 映射被互换仍会通过。
         expected = MESSAGES[locale]["video_duration_not_supported"].format(duration=7, supported="5, 10")
         assert render_failure(stored, _translator(locale), make_display_names(locale)) == expected
 
@@ -490,7 +467,6 @@ def test_video_request_facts_rejection_keeps_code_and_params_for_localized_tasks
         assert render_failure(stored, _translator(locale), make_display_names(locale)) == expected
 
 
-#: 视频生成不再读旁白交付后删掉的失败码与重试标记；历史任务行上的原文照原样透传。
 _RETIRED_NARRATED_VIDEO_CODES = (
     "tts_duration_endpoint_fixed",
     "video_shorter_than_tts",
@@ -641,7 +617,6 @@ def test_provider_rejection_stores_status_and_reason_as_separate_params():
     for locale in ("zh", "en", "vi"):
         rendered = render_failure(stored, _translator(locale), make_display_names(locale))
         assert rendered == MESSAGES[locale]["task_fail_provider_rejected"].format(status=400)
-        # 摘要是上游原文，不进译文——读侧按独立字段展示。
         assert "InvalidParameter" not in rendered
 
 
@@ -772,7 +747,6 @@ def test_bound_reason_shrinks_oversized_non_string_params():
     bounded = bound_reason(stored, 2000)
 
     assert len(bounded) <= 2000
-    # 仍是合法信封：读侧解析得出来，渲染成本地化文案而非裸机器码。
     rendered = render_failure(bounded, _translator("en"), make_display_names("en"))
     assert rendered is not None
     assert rendered != bounded
@@ -787,7 +761,6 @@ def test_bound_reason_shrinks_escape_heavy_params():
     """
     names = "\\" * 900
     stored = encode_failure("image_reference_images_unreadable", names=names)
-    # 转义让编码长度约为原始长度的两倍——正是误判成立的前提。
     assert len(stored) > 2 * len(names)
 
     bounded = bound_reason(stored, 900)
@@ -796,7 +769,6 @@ def test_bound_reason_shrinks_escape_heavy_params():
     rendered = render_failure(bounded, _translator("en"), make_display_names("en"))
     assert rendered is not None
     assert "image_reference_images_unreadable" not in rendered
-    # 预算够放下相当一部分参数时就不该削空——诊断内容是这条原因的全部价值。
     assert len(json.loads(bounded.split(" ", 1)[1])["names"]) > 100
 
 

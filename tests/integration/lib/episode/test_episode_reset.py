@@ -32,9 +32,6 @@ from lib.episode.episode_reset import (
 )
 from lib.episode.episode_sources import discover_sources, planning_start
 
-# 全部用例跨 EpisodeReset / ProjectManager / EpisodePlanner 协作，用真实 tmp_path 文件系统，
-# 不 mock 被测模块的公共入口——按 docs/standards/testing.md 的分档规则归 integration。
-
 SOURCE = "第一章 山村少年。李恒在山村长大。第二章 下山。李恒辞别师父。第三章 风波。少女身份成谜。"
 
 
@@ -269,8 +266,6 @@ def test_conflict_when_new_consumed_episode_appears_during_commit(
 ) -> None:
     """锁内复扫发现确认清单之外的新消费集时拒绝提交、账本不被改动：这是防止「确认时看到的
     清单」与「实际提交时的账本状态」不一致的关键安全网，用 monkeypatch 模拟该竞态窗口。"""
-    # 通过 sys.modules 取模块对象供 monkeypatch 使用，不再新增一种 import 风格
-    # （lib.episode.episode_reset 已在文件顶部用 from-import 引入）
     episode_reset_module = sys.modules["lib.episode.episode_reset"]
     project_dir = _write_project(tmp_path)
     before = _load_project(project_dir)
@@ -280,7 +275,7 @@ def test_conflict_when_new_consumed_episode_appears_during_commit(
     def _fake_scan(pd: Path, project: dict, *, retained: frozenset[int] = frozenset()):
         calls["n"] += 1
         result = original_scan(pd, project, retained=retained)
-        if calls["n"] == 2:  # 第二次调用发生在锁内（_commit 的复扫）
+        if calls["n"] == 2:
             result.consumed.append(1)
         return result
 
@@ -532,7 +527,7 @@ def test_discover_episode_files_prefers_readable_over_dangling_alias(tmp_path: P
     project_dir = _write_project(tmp_path)
     valid = project_dir / "source" / "episode_1.txt"
     valid.write_text(SOURCE[:10], encoding="utf-8")
-    dangling = project_dir / "source" / "episode_01.txt"  # 排序早于 episode_1.txt
+    dangling = project_dir / "source" / "episode_01.txt"
     dangling.symlink_to(project_dir / "source" / "does_not_exist.txt")
 
     assert discover_episode_files(project_dir)[1] == valid

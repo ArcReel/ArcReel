@@ -11,7 +11,6 @@ def test_chinese_lines_hold_usable_width_divided_by_the_font_size() -> None:
     landscape = subtitle_layout(output_profile_for_aspect_ratio("16:9"))
     text = "天" * 30
 
-    # 竖屏行宽 1080 × 82%、字身 60 像素，一行 14 字；横屏行宽 1920 × 60%、字身 40 像素，一行 28 字。
     assert [len(line) for line in subtitle_lines(text, portrait)] == [14, 14, 2]
     assert [len(line) for line in subtitle_lines(text, landscape)] == [28, 2]
     assert subtitle_lines("短句。", portrait) == ("短句。",)
@@ -35,7 +34,6 @@ def test_opening_brackets_move_to_the_next_line_with_what_they_open() -> None:
 
 
 def test_latin_words_and_numbers_stay_whole_unless_wider_than_a_line() -> None:
-    # 半角字符按半个字身计：「ArcReel」占 3.5 个字宽，整词换到下一行；换行处的空格丢弃。
     assert wrap_chinese("我们用了ArcReel做视频", 6) == ("我们用了", "ArcReel做视", "频")
     assert wrap_chinese("一二 2026 年", 3) == ("一二", "2026", "年")
     assert wrap_chinese("abcdefghijklmnop中", 4) == ("abcdefgh", "ijklmnop", "中")

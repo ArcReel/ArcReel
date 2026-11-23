@@ -273,7 +273,6 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
-        # 输出语言锁定为项目 source_language，不回落默认中文
         assert "所有字符串值必须使用 English" in prompt
         assert "所有字符串值必须使用 中文" not in prompt
 
@@ -500,7 +499,6 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
-        # 正式剧本的内容字段透传进 prompt：scene_id + 视觉改编 + 对应原文 + 口播（仅供理解）
         assert "E1S01" in prompt
         assert "视觉改编：姜月茴立于庭院，目光沉静，晨光斜照。" in prompt
         assert "姜月茴缓步走进庭院" in prompt
@@ -549,7 +547,6 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path, config_resolver=_resolver())
         prompt = await generator.build_prompt(1)
 
-        # 输出语言锁定为项目 source_language，不回落默认中文
         assert "所有字符串值必须使用 English" in prompt
         assert "所有字符串值必须使用 中文" not in prompt
 
@@ -567,7 +564,6 @@ class TestScriptGenerator:
 
         generator = ScriptGenerator(project_path)
         parsed = generator._parse_response('{"foo": "bar"}', 1)
-        # 校验失败降级返回原始数据；title 兜底（账本标题，空标题留空）在校验前注入，故降级结果也携带
         assert parsed == {"foo": "bar", "title": ""}
 
     async def test_generate_writes_script_and_metadata(self, tmp_path):
@@ -821,7 +817,6 @@ class TestScriptGenerator:
         schema = fake.backend.last_request.response_schema
         assert schema is DramaVisualScript
         props = DramaVisualScript.model_json_schema()["$defs"]["DramaSceneVisual"]["properties"]
-        # 非视觉字段不进 LLM 输出 schema（工程透传，杜绝漂移）
         assert "utterances" not in props
         assert "source_text" not in props
         assert "duration_seconds" not in props
@@ -889,7 +884,6 @@ class TestScriptGenerator:
         _write_drama_script_plan_json(project_path, 1, _drama_script_plan_content())
         await _materialized_script(project_path)
 
-        # 空视觉响应 → 视觉层结构校验 fail-loud；但模型调用已发生，仍可断言请求参数
         fake = _FakeTextGenerator(json.dumps({"foo": "bar"}))
         generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
         with pytest.raises(ValueError, match="视觉层结构校验失败"):
@@ -915,7 +909,7 @@ class TestScriptGenerator:
             "../etc/passwd",
             "/tmp/abs.json",
             "a\\b.json",
-            "",  # 空字符串:Path("").name == "" 会过前两条校验,带空 filename 到写盘才崩
+            "",
         ],
     )
     async def test_generate_rejects_non_basename_output_filename(self, tmp_path, bad_filename):
@@ -1103,9 +1097,7 @@ class TestAddMetadataInjectsHiddenFields:
                 }
             ],
         }
-        # 完整模拟 _parse_response: model_validate → model_dump
         dumped = DramaEpisodeScript.model_validate(llm_response).model_dump()
-        # 守卫前提:model_dump 已塞入空 NovelInfo
         assert dumped["novel"] == {"title": "", "chapter": ""}
 
         out = sg._add_metadata(dumped, episode=1)
@@ -1314,7 +1306,6 @@ def _bare_generator(tmp_path: Path, project_extra: dict | None = None) -> Script
     return sg
 
 
-# 骨架种类 → 触发该骨架的 (content_mode, generation_mode)，即 resolve_declared_kind 的逆。
 _KIND_TO_MODES: dict[str, tuple[str, str | None]] = {
     "segments": ("narration", None),
     "scenes": ("drama", None),
@@ -1336,8 +1327,6 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         assert set(_KIND_PARSE_SCHEMA) == set(SKELETONS)
 
     def test_item_fallback_duration_covers_every_skeleton_kind(self):
-        # 时长兜底表单点化到 script_models，四骨架全登记（含 shots/video_units→0）；
-        # 第五种骨架加入 SKELETONS 而未登记即在 item_duration 查表 KeyError 报红。
         from lib.script.script_models import _ITEM_FALLBACK_DURATIONS
         from lib.script.script_skeleton import SKELETONS
 
@@ -1347,7 +1336,6 @@ class TestScriptGeneratorSkeletonExhaustiveness:
     def test_add_metadata_handles_every_skeleton_kind(self, kind: str, tmp_path: Path):
         from lib.script.script_skeleton import SKELETONS
 
-        # 参数化遍历 SKELETONS 全键：新增第五种骨架而 _KIND_TO_MODES 未登记即 KeyError 报红。
         assert set(_KIND_TO_MODES) == set(SKELETONS)
 
         content_mode, gen_mode = _KIND_TO_MODES[kind]
@@ -1360,12 +1348,9 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         out = sg._add_metadata({kind: [{id_field: "E1S01"}]}, episode=2)
 
         assert out[kind][0][id_field] == "E2S01"
-        # 条目数与总时长不落盘：派生值由项目摘要读时计算
         assert "duration_seconds" not in out
 
     def test_add_metadata_survives_dirty_degraded_items(self, tmp_path: Path):
-        # 校验失败降级保存的原始 dict 里 segments 可能含非 dict / duration_seconds 非数字的脏条目；
-        # 前缀改写不得崩溃，脏条目原样保留。
         sg = _bare_generator(tmp_path, {"content_mode": "narration"})
 
         out = sg._add_metadata(
@@ -1387,7 +1372,6 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         assert out["segments"][4]["segment_id"] == "E2S04"
 
     def test_add_metadata_survives_non_list_array(self, tmp_path: Path):
-        # 数组键为真值标量（LLM 误写）时 `... or []` 挡不住，isinstance 守卫避免迭代崩溃。
         sg = _bare_generator(tmp_path, {"content_mode": "narration"})
 
         out = sg._add_metadata({"segments": 123}, episode=1)
@@ -1396,8 +1380,6 @@ class TestScriptGeneratorSkeletonExhaustiveness:
         assert out["episode"] == 1
 
     def test_quality_probe_survives_non_list_array(self, tmp_path: Path, caplog):
-        # 数组键为真值标量时,_quality_probe 应被 isinstance 守卫收敛为空;外层 try/except 虽会
-        # 吞异常,但不得走 “quality probe skipped” 兜底(那意味着守卫失效、整段探针被误跳过)。
         sg = _bare_generator(tmp_path, {"content_mode": "narration"})
 
         with caplog.at_level("WARNING", logger="lib.script.script_generator"):
@@ -1750,7 +1732,6 @@ class TestLoadReferenceScriptPlan:
         assert on_disk["units"][0]["duration_seconds"] == 4
         assert "duration_override" not in on_disk["units"][0]
 
-        # 幂等：二次加载不再改写落盘内容。
         before_second_load = self._script_plan_path(sg, 1).read_bytes()
         sg._load_reference_script_plan(1, [4, 6, 8])
         assert self._script_plan_path(sg, 1).read_bytes() == before_second_load
@@ -1872,7 +1853,6 @@ class TestAdScriptGeneration:
         generator = ScriptGenerator(project_path)
         prompt = await generator.build_prompt(1)
 
-        # 输出语言规则锁定为项目 source_language，不回落默认中文
         assert "所有字符串值必须使用 en" in prompt
         assert "所有字符串值必须使用 中文" not in prompt
 
@@ -2059,13 +2039,11 @@ class TestAdParseResponseDriftRecovery:
         )
         parsed = generator._parse_response(llm_response, 1)
 
-        # 账本标题为空：标题留空，不落派生的「第 N 集」
         assert parsed["title"] == ""
         first, second = parsed["shots"]
         assert first["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
         assert first["video_prompt"]["camera_motion"] == "Zoom Out"
         assert first["video_prompt"]["dialogue"] == []
-        # 词表外值（wide_shot / dolly_in）不做语义映射，降级为中性默认值
         assert second["image_prompt"]["composition"]["shot_type"] == "Medium Shot"
         assert second["video_prompt"]["camera_motion"] == "Static"
 
@@ -2172,7 +2150,6 @@ class TestAdReferenceSkeletonUnity:
         assert "shots" not in saved
         assert "reference_units" not in saved
         assert [unit["unit_id"] for unit in saved["video_units"]] == ["E1U1", "E1U2"]
-        # 引用不落盘：正文是唯一真相，`@[名称]` 由读侧派生。
         assert "references" not in saved["video_units"][0]
         assert "@[速干杯]" in saved["video_units"][0]["text"]
 

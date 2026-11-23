@@ -17,7 +17,6 @@ from lib.custom_provider.comfyui.inference_rules import (
     semantic_key_names,
 )
 
-#: 两份规则表里逐字相同的几节：它们是节点类型的事实，与产图还是产视频无关。
 SHARED_SECTIONS = (
     "constant_nodes",
     "optional_inputs",

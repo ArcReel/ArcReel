@@ -26,7 +26,6 @@ async def test_concurrent_first_requests_keep_the_first_committed_instance_id(
         ) -> None:
             await super().__aexit__(exc_type, exc_val, exc_tb)
             if asyncio.current_task() is first_open and not read_finished.is_set():
-                # 在空标识的读取会话关闭后暂停，让另一请求先提交标识。
                 read_finished.set()
                 await resume.wait()
 
@@ -73,14 +72,12 @@ async def test_first_request_regenerates_when_the_winning_instance_id_is_reset_m
         ) -> None:
             await super().__aexit__(exc_type, exc_val, exc_tb)
             if asyncio.current_task() is first_open and not read_finished.is_set():
-                # 空标识的读取会话关闭后暂停，让另一请求先提交标识。
                 read_finished.set()
                 await resume_insert.wait()
 
         async def rollback(self) -> None:
             await super().rollback()
             if asyncio.current_task() is first_open and not rolled_back.is_set():
-                # 插入冲突回滚后、重读之前暂停，让先提交的标识被重置删除。
                 rolled_back.set()
                 await resume_reread.wait()
 

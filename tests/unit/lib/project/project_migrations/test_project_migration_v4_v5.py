@@ -105,7 +105,6 @@ class TestMigrateV4ToV5File:
         d = _write(tmp_path, {"schema_version": 5, "generation_mode": "grid"})
         migrate_v4_to_v5(d)
         data = _load(d)
-        # 已是 v5：不动（该形态不应存在，但守卫职责只看版本号）
         assert data["generation_mode"] == "grid"
 
     def test_missing_project_json_is_noop(self, tmp_path: Path):

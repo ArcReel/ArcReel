@@ -119,14 +119,12 @@ describe("ShotDetail 剧情演绎", () => {
   });
 
   it("上游画外音缺省 speaker 时：类型往返切换不产生虚假脏态（归一化签名）", () => {
-    // 存量画外音只有 kind/text、缺 speaker 键（类型允许 speaker?: null）
     const scene = makeScene({ utterances: [{ kind: "voiceover", text: "三年后。" }] });
     render(detailElement(scene, { onUpdatePrompt: vi.fn() }));
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "画外音" }));
     expect(screen.getByRole("button", { name: "保存" })).toBeInTheDocument();
-    // 切回画外音（speaker 归 null，文本不变）：归一化后与上游等价 → 复归干净 → 保存栏消失
     fireEvent.click(screen.getByRole("button", { name: "台词" }));
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
   });
@@ -198,7 +196,6 @@ describe("ShotDetail 剧情演绎", () => {
     });
 
     it("移除分镜先弹 danger 确认框说明产物去向，确认后才移除", async () => {
-      // 标题按本集位置称呼分镜：E1S01 排在第 2 位
       useProjectsStore.setState({
         currentScripts: {
           "episode_1.json": { episode: 1, content_mode: "drama", scenes: [makeScene({ scene_id: "E1S00" }), makeScene()] } as never,

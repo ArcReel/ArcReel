@@ -133,7 +133,6 @@ class TestGenericPatchIgnoresEndFrame:
     @pytest.mark.parametrize(
         ("content_mode", "path", "items_key", "id_key", "flat_body"),
         [
-            # narration 走显式 Pydantic 请求体（字段级白名单），drama/ad 走 updates 字典白名单
             ("narration", "segments", "segments", "segment_id", True),
             ("drama", "script-scenes", "scenes", "scene_id", False),
             ("ad", "script-shots", "shots", "shot_id", False),
@@ -145,7 +144,6 @@ class TestGenericPatchIgnoresEndFrame:
         pm = _seed_project(tmp_path, content_mode)
         client = _projects_client(pm, monkeypatch)
 
-        # 白名单内的 note 一并提交：它生效即证明 PATCH 确实执行了，end_frame_image 是被单独忽略
         updates = {"end_frame_image": "../../../etc/passwd", "note": "备注"}
         body = (
             {"script_file": "episode_1.json", **updates}

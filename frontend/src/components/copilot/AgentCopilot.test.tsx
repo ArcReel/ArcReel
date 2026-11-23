@@ -101,8 +101,6 @@ function makeSession(id: string, title: string, overrides: Partial<SessionMeta> 
 }
 
 describe("AgentCopilot", () => {
-  // Mocks whose callers wrap them with voidPromise must return a Promise
-  // so the .catch(...) chain in voidPromise resolves instead of crashing.
   const sendMessage = vi.fn().mockResolvedValue(undefined);
   const rewriteMessage = vi.fn().mockResolvedValue(true);
   const answerQuestion = vi.fn().mockResolvedValue(undefined);
@@ -275,7 +273,6 @@ describe("AgentCopilot", () => {
 
     it("closes the dialog once deleting succeeds, before the list catches up", async () => {
       const user = userEvent.setup();
-      // 删除成功由返回值告知，不看列表此刻是否已经去掉这一条
       deleteSession.mockResolvedValueOnce(true);
       render(<AgentCopilot />);
       await user.click(screen.getByRole("button", { name: "会话历史" }));
@@ -453,7 +450,6 @@ describe("AgentCopilot", () => {
       await user.click(within(within(tray).getAllByRole("listitem")[0]).getByRole("button", { name: "编辑" }));
       await waitFor(() => expect(input).toHaveValue("第 3 镜改成黄昏"));
 
-      // 第二条的编辑还在等撤回答复时发出输入框里的内容；答复在发送受理前到达，内容追加进输入框
       await user.click(within(within(tray).getAllByRole("listitem")[1]).getByRole("button", { name: "编辑" }));
       await user.click(screen.getByRole("button", { name: "发送消息" }));
       expect(sendMessage).toHaveBeenCalledWith("第 3 镜改成黄昏", [expect.objectContaining({ mimeType: "image/png" })]);
@@ -461,7 +457,6 @@ describe("AgentCopilot", () => {
       await waitFor(() => expect(input).toHaveValue("第 3 镜改成黄昏\n片尾加字幕"));
       act(() => acceptSend());
 
-      // 只清掉已发出的文字和图片，发送途中退回的内容留在输入框
       await waitFor(() => expect(input).toHaveValue("片尾加字幕"));
       expect(screen.getByRole("button", { name: "放大图片附件 1" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "放大图片附件 2" })).not.toBeInTheDocument();
@@ -478,7 +473,6 @@ describe("AgentCopilot", () => {
 
       await user.click(screen.getByRole("button", { name: "删除" }));
 
-      // 删除不可撤销：先在这一行原地确认，焦点落在取消上，误按 Enter 不会删除
       const confirm = screen.getByRole("group", { name: "删除这条消息？" });
       expect(withdrawQueuedMessage).not.toHaveBeenCalled();
       expect(within(confirm).getByRole("button", { name: "取消" })).toHaveFocus();
@@ -500,7 +494,6 @@ describe("AgentCopilot", () => {
       await user.click(screen.getByRole("button", { name: "删除" }));
       await user.click(screen.getByRole("button", { name: "取消" }));
       expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
-      // 退出确认后焦点交还删除按钮，键盘用户不会掉到 body
       expect(screen.getByRole("button", { name: "删除" })).toHaveFocus();
 
       await user.click(screen.getByRole("button", { name: "删除" }));
@@ -508,13 +501,11 @@ describe("AgentCopilot", () => {
       expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "删除" })).toHaveFocus();
 
-      // Tab 离开确认区域：确认态结束，焦点留在用户去的地方
       await user.click(screen.getByRole("button", { name: "删除" }));
       await user.tab();
       expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "删除" })).not.toHaveFocus();
 
-      // 点区域内的提示文字不算离开；点区域外不可聚焦的消息文字算离开
       await user.click(screen.getByRole("button", { name: "删除" }));
       await user.click(screen.getByText("删除这条消息？"));
       expect(screen.getByRole("group", { name: "删除这条消息？" })).toBeInTheDocument();
@@ -536,7 +527,6 @@ describe("AgentCopilot", () => {
       await user.click(screen.getByRole("button", { name: "确认删除" }));
 
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
-      // 撤回没能移出消息时这一行还在：确认态不退出，焦点回到取消，可以重试或取消
       const confirm = screen.getByRole("group", { name: "删除这条消息？" });
       await waitFor(() => expect(within(confirm).getByRole("button", { name: "取消" })).toHaveFocus());
       expect(within(confirm).getByRole("button", { name: "确认删除" })).toBeEnabled();
@@ -558,7 +548,6 @@ describe("AgentCopilot", () => {
       const [unsent, queued] = within(screen.getByRole("list", { name: "排队消息" })).getAllByRole("listitem");
       expect(within(unsent).getByText("未发送")).toBeInTheDocument();
       expect(within(queued).queryByRole("button", { name: "发送" })).not.toBeInTheDocument();
-      // 未发送的消息不在 CLI 队列里，没有轮次可打断：只有发送，没有立即发送
       expect(within(unsent).queryByRole("button", { name: "立即发送" })).not.toBeInTheDocument();
 
       await user.click(within(unsent).getByRole("button", { name: "发送" }));
@@ -661,14 +650,12 @@ describe("AgentCopilot", () => {
       expect(screen.getByRole("combobox", { name: "Agent 输入" })).toBeEnabled();
       expect(screen.getByRole("button", { name: "停止回复" })).toBeEnabled();
 
-      // 用户把托盘滚回顶部后，最前面的消息被接纳：不跳动；再发一条：滚到新消息
       tray.scrollTop = 0;
       act(() => useAssistantStore.setState((s) => ({ queuedMessages: s.queuedMessages.slice(1) })));
       expect(tray.scrollTop).toBe(0);
       act(() => useAssistantStore.setState((s) => ({ queuedMessages: [...s.queuedMessages, queued(21)] })));
       expect(tray.scrollTop).toBe(640);
 
-      // 立即发送把末尾那条排到最前：快照重排不是追加，滚到顶部露出它
       act(() =>
         useAssistantStore.setState((s) => ({
           queuedMessages: [s.queuedMessages[s.queuedMessages.length - 1]!, ...s.queuedMessages.slice(0, -1)],
@@ -742,7 +729,6 @@ describe("AgentCopilot", () => {
       await waitFor(() => expect(viewport.scrollTop).toBe(end));
       expect(jump).toHaveAttribute("data-active", "false");
 
-      // 上翻：滚轮表明是用户在滚动，跟随随之停止
       fireEvent.wheel(viewport, { deltaY: -600 });
       viewport.scrollTop = 0;
       fireEvent.scroll(viewport);

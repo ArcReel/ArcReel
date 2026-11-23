@@ -22,14 +22,12 @@ PROJECT = {
     "props": {"长剑": {}},
 }
 
-#: 角色带衍生的项目载荷：``@[角色/衍生]`` 的登记判定用例（docs/adr/0072）。
 DERIVATIVE_PROJECT = {
     "characters": {"李明": {"derivatives": {"劲装": {}}}, "王五": {}},
     "scenes": {"酒馆": {}},
     "props": {"长剑": {}},
 }
 
-#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
@@ -196,7 +194,6 @@ class TestUnitText:
 
         refs = validate_unit_text("unit E1U01", text, project, max_refs=None)
 
-        # 派生出的引用一律是归一形式：下游拿它回查资产表、在正文里替换成主体记号，须与此处同形
         assert [(r.type, r.name) for r in refs] == [("character", _NAME_NFC)]
 
     def test_unregistered_mention_still_rejected_after_normalization(self):
@@ -265,7 +262,6 @@ class TestDialogueLoad:
 
     def test_tolerance_admits_slight_overrun(self):
         """宽容系数内放行：语速是统计估算，「刚好写满」的正常产出不该被判违约。"""
-        # 21 字 ÷ 5 字/秒 = 4.2 秒，落在 4 秒 × 1.2 = 4.8 秒的宽容上限内
         line = "一二三四五六七八九十一二三四五六七八九十。"
         assert validate_dialogue_load("unit E1U01", f"@[李明]：{{{line}}}", 4, "zh") is None
 

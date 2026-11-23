@@ -116,7 +116,6 @@ def test_existing_index_preserves_identity_boundaries_assets_and_content(tmp_pat
     unit = migrated["video_units"][0]
     assert unit["duration_seconds"] == 8
     assert unit["generated_assets"] == assets
-    # 引用不再落盘：正文里的 `@[名称]` 记号按旧字段顺序写入，读时派生。
     text = unit["text"]
     assert extract_mentions(text)[:4] == ["咖啡", "演员", "厨房", "杯子"]
     assert text.index("缓慢转动") < text.index("醒来的第一口")
@@ -396,7 +395,6 @@ def test_empty_legacy_members_become_replan_shell_and_same_name_uses_product_pri
     empty, collision = _read_json(project_dir / "scripts/episode_1.json")["video_units"][:2]
     assert (empty["text"], empty["duration_seconds"], empty["needs_replan"]) == ("", 0, True)
     assert empty["generated_assets"] == {"video_uri": "provider://job"}
-    # 同名的商品与角色只写一个 `@[同名]` 记号，类型归属交读时派生（商品优先）。
     assert collision["text"].count("@[同名]") == 1
     assert extract_mentions(collision["text"])[0] == "同名"
 

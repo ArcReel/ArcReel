@@ -122,11 +122,9 @@ def test_rejected_address_forms(address: str, code: SourceAddressErrorCode) -> N
 @pytest.mark.parametrize(
     "address",
     [
-        # 直链本身在上限内，加上 ``url:`` 前缀的规范键超出
         "https://mirror.example.com/"
         + "a" * (2048 - len("https://mirror.example.com/") - len("/arcreel-market.json"))
         + "/arcreel-market.json",
-        # 简写在上限内，展开成 raw 索引地址后超出
         "someone/market@" + "/".join(["r" * 99] * 20),
     ],
     ids=["direct-url-canonical-key", "shorthand-index-url"],

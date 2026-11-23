@@ -31,7 +31,6 @@ VIDU2 = "vidu/vidu2.0"
 
 @pytest.fixture
 def resolver(db_factory, monkeypatch) -> ConfigResolver:
-    # 请求事实用例单独验证档位与能力，不受模型关停日期影响。
     install_catalog(
         monkeypatch,
         with_entry_changes(catalog.factory_snapshot(), VEO_PROVIDER, VEO_MODEL, discontinued=False, shutdown_date=None),
@@ -313,7 +312,6 @@ async def test_configured_identity_change_after_bucket_validation_fails(db_facto
     async def changing_sessions():
         async with db_factory() as session:
             yield session
-        # 在身份与桶校验完成的 session 关闭后提交配置变更，下一次能力读取会看到它。
         if not disabled:
             disabled.append(True)
             async with db_factory() as session:

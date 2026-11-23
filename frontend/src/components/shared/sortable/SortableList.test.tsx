@@ -91,7 +91,6 @@ describe("SortableList", () => {
     render(<Harness onMove={onMove} />);
     const handle = screen.getByRole("button", { name: "调整「甲」的顺序" });
     handle.focus();
-    // 同一轮事件循环，不留时间给传感器的 timer 与测量完成。
     fireEvent.keyDown(handle, { code: "Space", key: " " });
     fireEvent.keyDown(handle, { code: "ArrowDown", key: "ArrowDown" });
     fireEvent.keyDown(handle, { code: "ArrowDown", key: "ArrowDown" });

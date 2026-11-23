@@ -35,7 +35,6 @@ def test_snapshot_lists_exactly_the_registry_providers():
 
 @pytest.mark.parametrize("provider_id", list(PROVIDER_REGISTRY))
 def test_every_listed_model_resolves_to_an_entry(provider_id: str):
-    # 引用不到条目的供应商模型会在查询时被跳过，这里要求清单与查询结果一一对应。
     listing = catalog.factory_snapshot().builtin_providers[provider_id]
     assert len(catalog.list_models(provider_id)) == len(listing.models)
 
@@ -58,7 +57,6 @@ def test_every_listed_model_with_a_price_table_is_priceable():
 
 
 def test_every_entry_survives_a_user_copy_round_trip():
-    # 用户修改存下整条副本：任何快照条目（含价目表）写回再读入都必须原样还原
     for entry in catalog.factory_snapshot().entries:
         assert parse_entry(dump_entry(entry)) == entry, entry.key
 

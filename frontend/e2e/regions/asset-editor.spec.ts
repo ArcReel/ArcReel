@@ -15,7 +15,6 @@ const LONG_DESCRIPTION = Array.from(
     "四十岁上下，瘦高，穿洗得发白的灰布长衫，袖口磨出了毛边；左眼角有一颗痣，说话时习惯用折扇轻敲桌面。每天午后准时出现在茶馆二楼临窗的位置，讲到紧要处会突然停下喝茶，让听众干着急。",
 ).join("");
 
-// 内联 SVG 图片：getFileUrl 原样使用 data: 地址，不发请求。
 function svg(hue: number, width = 1280, height = 720) {
   return `data:image/svg+xml,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="hsl(${hue} 18% 20%)"/><circle cx="${width / 2}" cy="${height * 0.42}" r="${height / 6}" fill="hsl(${hue} 14% 42%)"/></svg>`,
@@ -100,7 +99,6 @@ const MANY_DERIVATIVES: Record<string, Asset> = Object.fromEntries(
 
 const NO_TASKS = { status: 200, body: { items: [], total: 0, page: 1, page_size: 200 } };
 
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，Sheet 停在替换的项目数据上。
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": projectWith({ characters: CHARACTERS }),
@@ -141,7 +139,6 @@ const LONG_API: ApiOverrides = {
   "GET /api/v1/projects/demo/asset-sheets/status": statusRows("character", [LONG_NAME, "沈砚"]),
 };
 
-// 压力变体：林夕的资产图已过期，重新生成前统计连带影响失败，错误说明很长且带不断行的长串。
 const STALE_IMPACT_FAILED_API: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo/asset-sheets/status": {

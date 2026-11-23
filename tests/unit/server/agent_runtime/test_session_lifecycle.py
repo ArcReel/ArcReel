@@ -455,9 +455,6 @@ class TestPatrolLoop:
             await mgr.close_session("s1")
 
 
-# --- 未空闲的会话：CLI 报 idle 之前（在途轮次、轮次之间仍有后台子智能体）断开 CLI 会中止它 ------
-
-
 _RESULT = {"type": "result", "subtype": "success", "is_error": False}
 
 
@@ -501,7 +498,6 @@ class TestNotIdleSessionProtection:
         try:
             with patch.object(mgr, "_get_cleanup_delay", new_callable=AsyncMock, return_value=0):
                 await _feed(mgr, managed, session_state_message("running"), _RESULT, session_state_message("idle"))
-                # 清理断开 CLI 即 actor 退出；shield 让超时只报失败，不顺带取消 actor
                 await asyncio.wait_for(asyncio.shield(actor_task), timeout=1.0)
 
             assert client.disconnected is True

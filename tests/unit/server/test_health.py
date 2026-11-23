@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 def app_client():
     from server.app import app
 
-    # 不进入 with，不跑 lifespan：/health 不依赖启动期的数据库与运行时目录
     return TestClient(app)
 
 
@@ -31,7 +30,6 @@ def test_health_commit_is_null_when_run_from_source(app_client, monkeypatch):
 
 
 def test_health_commit_is_null_when_image_built_without_commit(app_client, monkeypatch):
-    # Dockerfile 未传 BUILD_COMMIT 时，ENV 得到空串
     monkeypatch.setenv("ARCREEL_BUILD_COMMIT", "")
 
     assert app_client.get("/health").json()["commit"] is None

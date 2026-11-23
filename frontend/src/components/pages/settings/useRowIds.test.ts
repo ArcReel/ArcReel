@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { useNamedRowIds, useRowIds } from "./useRowIds";
 
 describe("useRowIds", () => {
-  // 调用方在同一个处理函数里改行与改 id，两者在同一次渲染里生效
   function useRows(initial: number) {
     const [count, setCount] = useState(initial);
     return { ...useRowIds(count), setCount };

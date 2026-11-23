@@ -84,7 +84,6 @@ async def test_text_to_image_posts_generations_with_the_ark_size(tmp_path: Path)
     assert body["model"] == _MODEL
     assert body["prompt"] == "猫"
     assert body["size"] == "1600x2848"
-    # 方舟 SDK 把未传的字段序列化为 null
     assert body.get("image") is None
     assert result.usage is not None
     assert result.usage.quantities["output_images"] == 1

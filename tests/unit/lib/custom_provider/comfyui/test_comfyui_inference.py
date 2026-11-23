@@ -21,7 +21,6 @@ from tests.factories import comfyui_endpoint_definition
 
 DATA = Path(__file__).parent / "data"
 
-#: 样本 workflow → 它产出的媒体类型。
 SAMPLES = {
     "wan21_t2v": "video",
     "wan22_moe_t2v": "video",
@@ -36,7 +35,6 @@ SAMPLES = {
     "sdxl_batch_t2i": "image",
 }
 
-#: 分级信号自高到低，每一级都要有夹具命中。
 GRADED_SIGNALS = (
     BindingSignal.MANUAL_BINDING,
     BindingSignal.TITLE_MARKER,
@@ -479,7 +477,6 @@ def test_a_key_that_yields_a_field_does_not_settle_on_another_one_already_taken(
     result = infer_sample("ltxv_i2v", workflow=workflow)
 
     assert landings(result, "end_image") == [("78", "image")]
-    # 90 上首帧与参考图同分，按并列规则谁都不留；两个键都该听见自己让出了什么。
     assert landings(result, "start_image") == []
     assert landings(result, "reference_images") == []
     assert note_codes(result, "reference_images") == {InferenceNote.TARGET_TAKEN.value}

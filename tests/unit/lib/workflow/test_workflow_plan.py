@@ -242,7 +242,6 @@ def test_multiple_admission_repairs_preserve_the_first_structured_action() -> No
         admission=admission.to_payload(),
     )
 
-    # 逐单元问题只在视频一步的准入结论里陈述一次，不再复制到步骤问题与顶层汇总。
     assert [p.code for step in plan.steps for p in step.problems] == []
     assert plan.problems == []
     assert [p["code"] for unit in _step(plan, "video").admission["units"] for p in unit["problems"]] == [

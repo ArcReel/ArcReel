@@ -702,7 +702,6 @@ class TestPatchProviderConfigMaxWorkersValidation:
             resp = client.patch("/api/v1/providers/dashscope/config", json={key: bad_value})
         assert resp.status_code == 422
         detail = resp.json()["detail"]
-        # 消息已经过 Translator 渲染（非裸 key id），且包含 UI 同款字段 Label 便于定位
         assert detail != "max_workers_must_be_positive_integer"
         assert providers._FIELD_META[key]["label"] in detail
 
@@ -849,8 +848,6 @@ class TestTestProviderConnection:
         session.rollback.assert_awaited_once()
 
     def test_dashscope_registered_in_dispatch(self):
-        # dashscope 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
-        # 否则点"测试连接"会落到 connectivity_check_unsupported 分支（即便 API Key 有效）
         assert "dashscope" in providers._CONNECTIVITY_CHECK_DISPATCH
 
     def test_dashscope_test_fn_uses_compatible_mode_and_filters_models(self):
@@ -883,8 +880,6 @@ class TestTestProviderConnection:
         assert resp.success is True
 
     def test_minimax_registered_in_dispatch(self):
-        # minimax 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
-        # 否则点"测试连接"会落到 connectivity_check_unsupported 分支（即便 API Key 有效）
         assert "minimax" in providers._CONNECTIVITY_CHECK_DISPATCH
 
     def test_minimax_test_fn_uses_v1_base_and_filters_models(self):
@@ -915,8 +910,6 @@ class TestTestProviderConnection:
         assert resp.success is True
 
     def test_kling_registered_in_dispatch(self):
-        # kling 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
-        # 否则点"测试连接"会落到 connectivity_check_unsupported 分支（即便凭证有效）
         assert "kling" in providers._CONNECTIVITY_CHECK_DISPATCH
 
     class _FakeKlingResponse:
@@ -942,7 +935,6 @@ class TestTestProviderConnection:
             resp = providers._check_kling({"api_key": "sk-kling"}, lambda k, **kw: k)
         assert resp.success is True
         assert captured["headers"]["Authorization"] == "Bearer sk-kling"
-        # account/costs 挂域名根路径，不带 /v1；默认 base_url 已迁移至 api-beijing
         assert captured["url"] == "https://api-beijing.klingai.com/account/costs"
         assert "start_time" in captured["params"]
         assert "end_time" in captured["params"]
@@ -1057,7 +1049,6 @@ class TestTestProviderConnection:
                     lambda k, **kw: k,
                 )
 
-        # 泄漏面真实存在：异常保留的请求 URL 里带着口令与查询串，消息里两者都没有
         assert "sk-leaked-kling" in str(exc_info.value.request.url)
         assert str(exc_info.value) == "401 response for https://relay.example.com/account/costs"
         assert exc_info.value.response.status_code == 401
@@ -1087,9 +1078,6 @@ class TestTestProviderConnection:
             with TestClient(app) as client:
                 resp = client.post("/api/v1/providers/kling/test")
 
-        # 请求真的发出去了，message 才是走完状态码兜底那条路的产物。口令进异常消息这件事由
-        # test_kling_test_fn_keeps_credentials_out_of_status_error_message 在 exc.request.url
-        # 上断言：httpx 出站前会把权限段挪进 Authorization 头，出站 URL 上看不到它。
         only_request(route)
         assert resp.status_code == 200
         body = resp.json()

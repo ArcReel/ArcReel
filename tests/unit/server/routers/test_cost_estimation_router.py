@@ -105,12 +105,9 @@ class TestCostEstimationRouter:
         mock_service.return_value.compute.assert_not_awaited()
 
     def test_no_auth_returns_401(self, monkeypatch):
-        # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，这里就测不到拒绝。
         monkeypatch.setenv("AUTH_ENABLED", "true")
         app = FastAPI()
         register_error_handlers(app)
-        # Do NOT override the auth dependency — real auth should reject.
-        # 认证依赖挂在注册处，这里须与 server/app.py 的挂法一致。
         app.include_router(cost_estimation.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.get("/api/v1/projects/demo/cost-estimate")

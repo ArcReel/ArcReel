@@ -209,7 +209,6 @@ describe("EndpointImportDialog", () => {
   });
 
   it("keeps the file the user picked last, whichever one finishes reading first", async () => {
-    // file.text() 没有可取消的句柄：先选 A 再选 B，A 读完得晚也不该把 B 顶掉。
     const onSource = vi.fn();
     renderDialog(validation(), { onSource });
     const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
@@ -234,7 +233,6 @@ describe("EndpointImportDialog", () => {
   });
 
   it("keeps what the user typed while a file was still being read", async () => {
-    // 读文件期间改文本框，屏幕上这份才是用户手上那份：在途的读回来不该顶掉它，也不该拿它去识别。
     const onSource = vi.fn();
     renderDialog(validation(), { onSource });
     const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
@@ -266,7 +264,6 @@ describe("EndpointImportDialog", () => {
       { definition: COMFYUI_DEFINITION, onBindNodes, onCreateCopy },
     );
 
-    // 同作者同名的判定留到编辑器里改完名字再说，所以这里不给覆盖/副本的选择。
     expect(screen.queryByRole("button", { name: "覆盖" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "去绑定节点" }));
 
@@ -275,7 +272,6 @@ describe("EndpointImportDialog", () => {
   });
 
   it("drops a recognition result once the pasted text no longer matches it", async () => {
-    // 识别完再改文本框，手上那份结果说的就不是屏幕上这份载荷了：继续下去存的是旧的那一份。
     const onBindNodes = vi.fn();
     renderDialog(validation({ import_shape: "comfyui_api_workflow" }), {
       definition: COMFYUI_DEFINITION,

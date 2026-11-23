@@ -4,7 +4,6 @@ import { ShotDetail } from "./ShotDetail";
 import type { NarrationSegment } from "@/types";
 import { makeNarrationSegment } from "@/test/factories";
 
-/** 有未保存修改时，生成按钮先保存再生成；保存没有完整生效时不生成。 */
 
 function renderDetail(props: Partial<Parameters<typeof ShotDetail>[0]> = {}, segment: NarrationSegment = makeNarrationSegment()) {
   return render(

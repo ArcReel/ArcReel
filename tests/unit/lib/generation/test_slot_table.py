@@ -135,7 +135,6 @@ class TestSlotTable:
         st.release("p-vid", "video", "v1")
         assert st.occupied_providers("video") == {"p-both"}
 
-        # drain 路径同样剪空 bucket：把 p-both 的 video 换成一个 done 的 INFLIGHT 占用
         st.release("p-both", "video", "v2")
         st.register("p-both", "video", "v3", _done_future())
         st.drain_finished()

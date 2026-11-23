@@ -77,7 +77,6 @@ def test_upgrade_backfills_identity_from_matching_accounts_only(
     finally:
         engine.dispose()
 
-    # 补写值必须与运行时的算法一致，否则存量关联在升级后不再被选中。
     assert identities == {
         10: account_identity("volcengine", "TEST-ACCOUNT-A"),
         11: "legacy-unresolved-11",

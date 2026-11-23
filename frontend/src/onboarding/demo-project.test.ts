@@ -11,14 +11,12 @@ import {
 
 const t = i18n.getFixedT("zh", "onboarding");
 
-/** 图片字段一律是现算的 data URI —— 仓库里不落任何二进制占位图。 */
 function expectInlinePlaceholder(value: string | null | undefined): void {
   expect(value).toMatch(/^data:image\/svg\+xml/);
 }
 
 describe("demo project data", () => {
   it("names the demo project something the backend can never accept", () => {
-    // 后端 PROJECT_NAME_PATTERN 是 ^[A-Za-z0-9-]+$：下划线让同名真实项目无法存在
     expect(DEMO_PROJECT_NAME).toContain("_");
     expect(isDemoProject(DEMO_PROJECT_NAME)).toBe(true);
     expect(isDemoProject("some-project")).toBe(false);
@@ -44,8 +42,6 @@ describe("demo project data", () => {
     const summary = data.status?.episodes_summary;
     const count = (status: string) =>
       data.episodes.filter((e) => e.status === status).length;
-    // scripted 统计的是"有生成剧本"的分集数（对齐 lib/workflow/workflow_state.py 的 script_status
-    // 口径），不是 status 字段字面等于 "scripted" 的分集数——没剧本的分集永远只能是 draft
     const scriptedCount = data.episodes.filter((e) => e.script_file !== "").length;
 
     expect(data.episodes).toHaveLength(summary?.total ?? 0);
@@ -84,7 +80,6 @@ describe("demo project data", () => {
     const data = buildDemoProjectData(t);
     const text = JSON.stringify([data, buildDemoScripts(t)]);
 
-    // 未命中的 key 会被 i18next 原样回显，扫一遍就能发现漏翻的字段
     expect(text).not.toMatch(/demo_(overview|episode|character|scene|prop|shot)_/);
   });
 

@@ -58,7 +58,6 @@ async def test_same_name_project_after_delete_inherits_no_records(tmp_path, monk
         assert fresh["task_id"] != old["running"]
 
         assert await SessionRepository(session).list(project_name="demo") == []
-        # 导入的同名项目带着相同的内容版本身份，也不继承旧项目的供应商素材关联
         assert await selected_link(session, project_name="demo", content_version_id="cv-1", scope=scope) is None
 
         usage = UsageRepository(session)

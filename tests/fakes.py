@@ -82,7 +82,6 @@ class FakeProjectAssetMutationMixin:
         raise NotImplementedError
 
     def get_project_path(self, project_name: str) -> Path:
-        # 替身默认没有项目目录：给一个不存在的位置，新建资产时查项目回收站得到空。
         return Path("/nonexistent-arcreel-fake-projects") / project_name
 
     def update_asset_entry(
@@ -226,9 +225,7 @@ class FakeTextGenerator:
     ``generate`` 抛出，模拟供应商调用失败。
     """
 
-    #: 与 ``TextGenerator.max_output_tokens`` 同名：未登记最大输出长度时的生效上限。
     max_output_tokens = 64000
-    #: 与 ``TextGenerator.model`` 同名：调用方写进元数据的模型名。
     model = "fake-text"
 
     def __init__(self, *responses: str | BaseException):
@@ -458,7 +455,6 @@ class FakeSDKClient:
             async for message in prompt:
                 self.sent_messages.append(message)
                 self.sent_queries.append(message["message"]["content"])
-        # 与真实 CLI 一致：首轮回复在收到 prompt 之后才产出
         for frame in self._initial_frames:
             await self._frames.put(frame(self) if callable(frame) else frame)
         self._initial_frames.clear()
@@ -481,7 +477,6 @@ class FakeSDKClient:
         """测试辅助：模拟 CLI 退出，已发出的帧读完后原始帧流终止。"""
         self._frames.put_nowait(_STREAM_EOF)
 
-    # 向后兼容：保留原方法签名（旧测试仍使用 `await client.connect()` / `await client.disconnect()`）
     async def connect(self) -> None:
         self._record("connect")
         if self._connect_error is not None:
@@ -524,7 +519,6 @@ async def build_managed_with_actor(
         m = managed_ref[0]
         if m is None:
             return
-        # 与生产回调一致：actor 交来 SDK 消息，会话层处理其序列化后的 dict
         msg = message_to_dict(raw_msg)
         if on_message_hook is not None:
             on_message_hook(m, msg)

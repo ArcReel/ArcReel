@@ -167,7 +167,6 @@ class TestScriptModels:
             "voiceover": ["多年以后，她仍记得那个夜晚。"],
         }
         scene = DramaScene.model_validate(legacy)
-        # dialogue 段在前、voiceover 段在后（确定性 best-effort）
         assert scene.utterances == [
             Utterance(kind="dialogue", speaker="王", text="你来了。"),
             Utterance(kind="voiceover", text="多年以后，她仍记得那个夜晚。"),
@@ -460,7 +459,7 @@ class TestItemDurationCoercion:
         [
             {},
             {"duration_seconds": None},
-            {"duration_seconds": True},  # bool（int 子类，须排除）
+            {"duration_seconds": True},
             {"duration_seconds": False},
             {"duration_seconds": 0},
             {"duration_seconds": -5},
@@ -470,17 +469,14 @@ class TestItemDurationCoercion:
         ],
     )
     def test_dirty_values_fall_back_by_kind(self, kind: str, dirty: dict):
-        # 缺失与所有脏值一律回退到骨架兜底时长（shots/video_units 兜底为 0）。
         assert item_duration(kind, dirty) == _ITEM_FALLBACK_DURATIONS[kind]
 
     @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
     def test_non_dict_item_counts_zero(self, kind: str):
-        # 非 dict 条目无时长语义，恒按 0 计，不挪用骨架兜底。
         for junk in ("junk", 5, None, ["x"]):
             assert item_duration(kind, junk) == 0
 
     def test_script_total_sums_mixed_dirty_items(self):
-        # 混合脏条目求和不抛：5(有效) + 0(非 dict) + 4(缺失) + 4(None) + 4(负数) = 17。
         items = [
             {"duration_seconds": 5},
             "junk_not_a_dict",
@@ -491,13 +487,11 @@ class TestItemDurationCoercion:
         assert script_duration_total("segments", items) == 17
 
     def test_script_total_video_units_missing_is_zero(self):
-        # 口径拍板：video_units 缺时长统一按 0 计（不再沿历史 8 秒 else 兜底）。
         assert script_duration_total("video_units", [{}, {"duration_seconds": None}]) == 0
         assert script_duration_total("video_units", [{"duration_seconds": 6}, {}]) == 6
 
     @pytest.mark.parametrize("kind", ["segments", "scenes", "shots", "video_units"])
     def test_script_total_non_list_is_zero(self, kind: str):
-        # items 为 null / 真值标量（降级保存脏值）按空处理返回 0、不抛。
         for junk in (None, "segments", 5, {"a": 1}):
             assert script_duration_total(kind, junk) == 0
 
@@ -651,7 +645,6 @@ class TestLLMSchemaExclusion:
         for forbidden in ("note", "generated_assets", "end_frame_image", "pending_authoring"):
             assert forbidden not in keys
         assert "duration_seconds" not in DramaEpisodeScript.model_json_schema()["properties"]
-        # utterances 是 LLM 可见的一等字段（drama 口播序列的落点），取代旧 voiceover
         assert "utterances" in keys
         assert "voiceover" not in keys
 
@@ -853,7 +846,6 @@ class TestGeneratedAssetsTemplateContract:
         from lib.project.project_manager import ProjectManager
         from lib.script.script_models import GeneratedAssets
 
-        # template 任何 key 不在模型字段集时 extra="forbid" 会抛；断验出来的对象带齐 template 的键
         for template in (ProjectManager.create_generated_assets(), ProjectManager.create_generated_assets("drama")):
             validated = GeneratedAssets.model_validate(template)
             assert set(template) <= set(validated.model_dump())

@@ -135,7 +135,6 @@ class TestBindings:
                 )
                 is None
             )
-            # 同一条记录换成另一个 Key：记录 ID 没变也不继承
             await CredentialRepository(session).update(ark_id, api_key="ark-key-of-another-account")
             await session.commit()
 
@@ -256,7 +255,6 @@ class TestBrowseAssets:
             ("asset-20260101-a", "Image", "active", None),
             ("asset-20260101-b", "Image", "failed", "InputImageSensitiveContentDetected"),
         ]
-        # 供应商的签名下载地址不下发
         assert "X-Tos-Signature" not in resp.text
         assert SK not in caplog.text
         assert SK not in str(request.headers)

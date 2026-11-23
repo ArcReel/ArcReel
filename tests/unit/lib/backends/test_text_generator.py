@@ -53,7 +53,6 @@ def _make_backend(provider="gemini", model="gemini-3-flash-preview"):
 
 class TestTextGenerator:
     async def test_generate_records_usage_on_success(self, wired):
-        # backend.name 为裸 "gemini"，记账须取解析层 provider_id（"gemini-aistudio"）。
         backend = _make_backend()
         gen = TextGenerator(backend, wired.ledger, "gemini-aistudio", purpose=CallPurpose.SCRIPT_GENERATION)
 

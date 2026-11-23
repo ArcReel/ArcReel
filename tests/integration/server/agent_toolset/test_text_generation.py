@@ -144,7 +144,6 @@ async def test_get_video_capabilities_annotates_reference_unit_tiers(
         },
         "units": {},
     }
-    # 全集原样保留：它是型号声明，不是生效档位
     assert payload["supported_durations"] == [4, 6, 8]
 
 
@@ -429,7 +428,6 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     _prepare_script_admission(fake_ctx.project_path)
     out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
     assert out.problem is None
-    # handler 不传 output_path —— ScriptGenerator 自己决定写到哪里
     assert "output_path" not in captured["calls"]
     assert "scripts/episode_1.json" in said(out)
     assert str(project_path) not in said(out)
@@ -704,7 +702,6 @@ async def test_generate_episode_script_unit_rejected_before_the_model_is_an_inpu
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False), encoding="utf-8"
     )
-    # 在时间线上改短时长后台词念不完：第 2 个单元在调用文本模型前被拦下。
     long_line = "他站在门口足足看了半晌才缓缓开口说出这句迟到了整整十年的道歉与告别" * 2
     scripts = fake_ctx.project_path / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
@@ -739,7 +736,6 @@ async def test_generate_episode_script_unit_rejected_before_the_model_is_an_inpu
         "prompt_authoring_dialogue_overload",
         GenerationAction.FIX_INPUT.value,
     )
-    # 按界面上的位置称呼单元（视频单元 2），参数原样透出供 Agent 转述。
     assert {key: problem["params"][key] for key in ("unit_id", "position", "duration_seconds")} == {
         "unit_id": "E1U04",
         "position": 2,
@@ -873,12 +869,10 @@ def test_parse_normalized_content_uses_dynamic_duration_schema() -> None:
     }
 
     valid = _parse_normalized_content(json.dumps({"title": "t", "scenes": [base_scene]}), model)
-    # 合法 duration → 模型校验通过，补全 DramaSceneContent 默认字段（source_text 默认空串）
     assert valid["scenes"][0]["duration_seconds"] == 8
     assert valid["scenes"][0]["source_text"] == ""
 
     bad = {**base_scene, "duration_seconds": 5}
-    # 超出枚举 → 动态 schema 校验失败 → fail-loud 抛 ValueError，不把未校验内容当成正式 script_plan 落盘
     with pytest.raises(ValueError, match="script_plan 规范化内容结构校验失败"):
         _parse_normalized_content(json.dumps({"title": "t", "scenes": [bad]}), model)
 
@@ -985,7 +979,6 @@ async def test_normalize_drama_script_wires_target_language(fake_ctx: ToolHarnes
     """normalize 把项目 source_language 透传为 build_normalize_prompt 的 target_language——
     非中文项目的 script_plan 输出语言据此切换，而非恒退默认中文。"""
 
-    # 工具经 ctx.pm.load_project 取项目；source_language 是输出语言的唯一真相源
     fake_ctx.pm.project_payload["source_language"] = "English"
     project_path = fake_ctx.project_path
     src = project_path / "source"
@@ -1021,7 +1014,6 @@ async def test_normalize_drama_script_rejects_empty_scenes(
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
-    # 空 scenes 不写盘，避免生成阶段才必然失败
     assert not (project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json").exists()
 
 
@@ -1088,7 +1080,6 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
             captured["generate_project_name"] = project_name
 
             class _R:
-                # script_plan 产出结构化 JSON（DramaNormalizedScript），非 markdown 表
                 text = json.dumps(
                     {
                         "title": "第一集",
@@ -1161,7 +1152,6 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
 
     class _Generator:
         async def generate(self, _request, project_name=None):
-            # 等待供应商期间的改写来自别的写方，不在被测调用的事件循环上。
             await asyncio.to_thread(source_path.write_text, "等待供应商期间改过的原文", encoding="utf-8")
             latest = {**project, "source_language": "English"}
             fake_ctx.pm.project_payload = latest
@@ -1274,7 +1264,6 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
 
     use_text_generator(monkeypatch, fake_create)
 
-    # 升级前的旧项目：工具入口按迁移裁决拒绝，这里直接调 handler 观察生成本身保留的请求依据。
     result = await generate_script_plan(
         ToolRequest(GenerateScriptPlanRequest(episode_id=1, source="source/selected.txt")),
         fake_ctx.scope,

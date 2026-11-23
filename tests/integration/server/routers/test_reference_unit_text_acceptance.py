@@ -37,7 +37,6 @@ _TINY_PNG = (
 _SCRIPT_FILE = "episode_1.json"
 _UNIT_ID = "E1U1"
 _UNIT_DURATION = 8
-#: 供应商能力替身的档位含单元编排时长，投影因此不产生改档确认类问题。
 _SUPPORTED_DURATIONS = (4, 8, 12)
 
 
@@ -154,14 +153,12 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
             "陆沉": {"description": "旧友", "character_sheet": "characters/陆沉.png"},
         }
         project["products"] = {
-            # 无资产图的商品：执行期注入它登记的全部原图，且不因类型排到最前。
             "灵犀手环": {
                 "description": "银色腕表",
                 "reference_images": ["products/手环_正面.png", "products/手环_侧面.png"],
             },
         }
         project["episodes"] = [{"episode": 1, "title": "雨夜", "script_file": f"scripts/{_SCRIPT_FILE}"}]
-        # 迁移入口按落盘版本决定是否改写，故把项目退回旧形态再跑整条链。
         project["schema_version"] = 8
 
     pm.update_project("demo", _seed)
@@ -326,5 +323,4 @@ async def test_unresolved_mention_warns_in_the_editor_but_blocks_the_generation(
     blockers = [problem for problem in projection.problems if problem.blocking]
     assert [problem.code for problem in blockers] == ["reference_asset_unregistered"]
     assert blockers[0].parameters()["missing_text"] == "无名氏"
-    # 其余提及照常解析：阻断的是这次请求，不是把已登记的引用一并丢掉。
     assert [asset.path.name for asset in projection.request_assets] == ["阿离.png"]

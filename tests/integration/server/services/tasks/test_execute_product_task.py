@@ -35,7 +35,6 @@ class TestGenerationTasks:
         [sent] = [reference["image"] for reference in call["reference_images"]]
         assert sent.name == "0000-保温杯_1.jpg"
         assert not sent.is_relative_to(project_path)
-        # 使用记录按映射把冻结副本还原为来源，快照目录随任务清理后记录仍能打开
         assert call["reference_sources"][str(sent)] == project_path / "products" / "refs" / "保温杯_1.jpg"
         assert fake_generator.image_reference_bytes[0] == [b"jpg"]
         assert "商品「保温杯」的标准资产图。" in call["prompt"]

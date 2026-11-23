@@ -4,12 +4,9 @@ import { recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 广告项目：概览常驻「创作灵感」与「商品」区承担首次录入，故事设定在视频页的「故事设定」tab。
-// 录制的演示项目改成广告项目，数据全用场景内覆盖。
 const OVERVIEW_PATH = "/app/projects/demo";
 const SETTING_PATH = "/app/projects/demo/episodes/1?view=setting";
 const PROJECT = "GET /api/v1/projects/demo";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换的项目数据上。
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -46,7 +43,6 @@ function adProject(project: Record<string, unknown>): ApiOverrides {
 
 const NEW_AD = adProject({});
 
-// 压力变体：很长的创作灵感、自定义目标时长、十二个长名称长描述的商品，以及写成分秒脚本的长梗概。
 const LONG_AD = adProject({
   title: "夏日汽水：给通勤路上的年轻人一口能喝出海风的清爽，并在三十秒里讲清楚三种口味",
   target_duration: 45,

@@ -48,7 +48,6 @@ async def test_project_quality_reaches_formal_image_request(tmp_path, db_factory
         with_entry_facts(catalog.factory_snapshot(), "openai", "gpt-image-2", qualities=("low", "medium", "high")),
     )
     project_path = prepare_files(tmp_path)
-    # 复用剧本数据构造器落盘；执行使用真实 ProjectManager，不把数据构造器注入任务。
     seed = _FakePM(project_path)
     seed.project.update(
         image_provider_t2i="openai/gpt-image-2",
@@ -90,7 +89,6 @@ async def test_project_quality_reaches_formal_image_request(tmp_path, db_factory
         body = request_json(only_request(route))
         assert body["quality"] == (quality or "medium")
         assert body["size"] == "1008x1792"
-        # 分镜夹具已有一张旧图，正式提交先补录它再写第 2 版；宫格是首版。
         assert result["version"] == (1 if grid else 2)
         assert (project_path / result["file_path"]).read_bytes() == output
     finally:
@@ -160,7 +158,6 @@ async def _estimated_total(tmp_path, db_factory) -> dict[str, float]:
 
 
 def _usd(tokens: int) -> float:
-    # 测试目录数据里 gpt-image-2 的图片输出 token 单价是 $30 / 百万
     return tokens * 30 / 1_000_000
 
 
@@ -171,9 +168,7 @@ def _serve_manifest_failure(router: respx.MockRouter) -> None:
 @pytest.mark.parametrize(
     ("before", "after", "sent", "tokens"),
     [
-        # 同步给绑定条目新增画质取值：存值生效，按 low 估（1K → 138 token）
         ((), _QUALITIES, "low", 138),
-        # 同步移除画质取值：忽略存值，按档位推出 medium（1K → 1234 token）
         (_QUALITIES, (), "medium", 1234),
     ],
     ids=["qualities-added", "qualities-removed"],
@@ -234,7 +229,6 @@ async def test_official_sync_refreshes_worker_lanes_only_when_applied(file_db_fa
     from tests.integration.lib.generation.worker_support import stub_executors
 
     snapshot = catalog.factory_snapshot()
-    # 使用完整条目和不同供应商清单模拟新增/移除 lane，不改变目录合成的保留条目规则。
     without_audio = replace(snapshot, builtin_providers=catalog_of([], {"grok": []}).builtin_providers)
     audio_listing = snapshot.builtin_providers["minimax"]
     with_audio = replace(snapshot, builtin_providers={"grok": audio_listing})

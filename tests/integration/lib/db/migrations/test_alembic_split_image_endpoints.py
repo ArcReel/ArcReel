@@ -12,7 +12,6 @@ from alembic import command
 from lib.backends.image_backends.base import ImageRequestFacts
 from lib.backends.image_backends.registry import channel_usage_estimator
 
-# 旧图片后端不读条目绑定：不透明 ID 即便绑定旧代际，仍走默认尺寸约定。
 _CUSTOM_MODELS = [
     ("ep-opaque", "ark-seedream", "bytedance/doubao-seedream-3-0"),
     ("doubao-seedream-3-0-t2i", "ark-seedream", None),
@@ -104,7 +103,6 @@ def test_existing_image_models_keep_request_and_metering_and_other_endpoints_unc
         ("dashscope", "wan2.7-image"): "dashscope-wan-image",
         ("ark", "doubao-seedream-3-other"): "openai-images",
     }
-    # 升级前这三条请求的分辨率计量，与新挂接端点的估算保持一致。
     expected_resolutions = {
         ("custom", "ep-opaque"): "1600x2848",
         ("custom", "doubao-seedream-3-0-t2i"): "720x1280",

@@ -49,10 +49,6 @@ class FakeIntersectionObserver {
   }
 }
 
-/**
- * 滚到底触发下一页。findBy 在 DOM 更新后即返回，此时哨兵的 effect 可能还没挂上观察器，
- * 直接触发会落空；加载中观察器都已断开，所以有已连接的观察器即说明哨兵已就绪。
- */
 async function reachBottomWhenArmed() {
   await waitFor(() => expect(FakeIntersectionObserver.instances.some((o) => o.connected)).toBe(true));
   act(() => FakeIntersectionObserver.reachBottom());
@@ -182,8 +178,6 @@ describe("AssetLibraryPage", { timeout: 15_000 }, () => {
     await reachBottomWhenArmed();
     await act(() => started.promise);
 
-    // 页面上已有 60 张卡片：按角色在整页查询每次都要遍历全部节点，高负载下单条查询就要一两秒，
-    // 对话框内的查询限定在对话框里，整页只按文本查。
     fireEvent.click(screen.getAllByText("新增资产")[0]);
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("名称"), { target: { value: "新角色" } });

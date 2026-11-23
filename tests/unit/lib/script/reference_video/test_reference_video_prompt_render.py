@@ -43,7 +43,6 @@ def _project(**overrides):
     return project
 
 
-#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
@@ -52,8 +51,6 @@ def _refs(*pairs):
     return [ReferenceResource(type=t, name=n) for t, n in pairs]
 
 
-#: 与声音无关的用例用的声音档：``soft`` 有声、无参考音频。渲染入口的 ``settings`` 必填，
-#: 这些用例照样要给一档，取字段默认即可。
 _SOFT = VoiceRenderSettings()
 
 
@@ -74,7 +71,6 @@ def test_native_tier_binds_audio_in_speaker_first_appearance_order():
         _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, model_id="doubao-seedance-2-0"),
     )
-    # 音频顺序即请求字段顺序，也即 @音频N 编号
     assert rendered.audio_speakers == ["张三", "李四"]
     assert (
         "<张三>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。"
@@ -151,7 +147,6 @@ def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencin
     def _body(prompt: str) -> str:
         return prompt.split("\n\n")[1]
 
-    # 有声侧确实绑定了两段音频，比对才有区分度（否则两侧本就无音频，断言恒真）
     assert audible.audio_speakers == ["张三", "李四"]
     assert "你终于来了。" in _body(audible.prompt)
     assert _body(silent.prompt) == _body(audible.prompt)
@@ -192,7 +187,6 @@ def test_silent_preview_and_execution_reach_the_same_conclusion(silencing: dict,
 
     assert preview.warnings == [expected]
     assert rendered.warnings == [expected]
-    # 承诺与实付一致：预览说这一集听不到声音，执行侧就不该绑上任何音频段
     assert rendered.audio_speakers == []
     assert "@音频" not in rendered.prompt
     assert [u.text for u in preview.utterances] == ["今晚的酒，我请。", "你终于来了。"]
@@ -256,7 +250,6 @@ def test_silent_tier_keeps_dialogue_lines_but_injects_no_voice_declaration():
     )
     assert "声音特征" not in rendered.prompt
     assert "@音频" not in rendered.prompt
-    # 台词照常渲染：供口型与表演
     assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
     assert {"key": WARN_SILENT_MODEL, "params": {"provider": "", "model": "minimax-01"}} in rendered.warnings
 
@@ -383,7 +376,6 @@ def test_clipped_reference_still_renders_as_subject():
     assert "@[张三]" not in rendered.prompt
     assert "@[长剑]" not in rendered.prompt
     assert "<张三> 推门而入，手按 <长剑>。" in rendered.prompt
-    # 主体记号与图号解耦：只有随请求发出的那张图才有绑定行
     assert rendered.prompt.startswith("<酒馆>@图片1。")
     assert "<张三>@图片" not in rendered.prompt
 
@@ -522,7 +514,6 @@ def test_requires_reference_image_downgrades_offscreen_speaker_with_warning():
         _refs(("scene", "酒馆"), ("character", "张三")),
         VoiceRenderSettings(voice_consistency="native", max_reference_audio=3, requires_reference_image=True),
     )
-    # 李四没有参考图（纯画外），即使有可用音频也不绑定
     assert rendered.audio_speakers == ["张三"]
     assert rendered.audio_speaker_reference_index == [1]
     assert "<李四>的台词音色参考" not in rendered.prompt
@@ -563,7 +554,6 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
     )
     assert f"<{_NAME_NFC}> 推门而入" in rendered.prompt
     assert f"<{_NAME_NFC}>说 {{Tôi đến rồi.}}" in rendered.prompt
-    # 引用语法记号一个都不该漏进供应商请求
     assert "@[" not in rendered.prompt
 
 
@@ -631,7 +621,7 @@ def test_out_of_bounds_audio_path_also_degrades_as_unavailable(tmp_path):
 
 def test_resolve_reference_audio_paths_ignores_non_dict_characters_bucket(tmp_path):
     (tmp_path / "project.json").write_text("{}", encoding="utf-8")
-    project = {"characters": [{}]}  # 校验器不拒绝非 dict 桶（data_validator 只在 dict 时才校验）
+    project = {"characters": [{}]}
 
     resolved = resolve_reference_audio_paths(project, tmp_path)
 

@@ -63,7 +63,6 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         "generation_mode": "reference_video",
         "video_units": [unit],
     }
-    # 生产项目一律处于当前 schema，甲、乙的资产图由补录认领进产物清单；丙的图登记了路径但文件不在。
     (tmp_path / "characters").mkdir()
     (tmp_path / "characters/a.png").write_bytes(b"a")
     (tmp_path / "characters/b.png").write_bytes(b"b")

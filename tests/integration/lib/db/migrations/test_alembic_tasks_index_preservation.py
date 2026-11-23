@@ -19,14 +19,12 @@ from alembic import command
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
 DEDUPE_INDEX = "idx_tasks_dedupe_active"
 
-# 各迁移 downgrade 显式 drop 的 tasks 索引：消失属预期回滚，与重建表的静默丢失区分开。
 INTENTIONAL_TASKS_INDEX_DROPS = {
     "26c2f9d11c8e": frozenset({"ix_tasks_batch_id"}),
     "285dbe1e9824": frozenset({"idx_tasks_status_provider_queued"}),
     "ea2e1a477bbf": frozenset({"ix_tasks_user_id"}),
 }
 
-# downgrade 走 batch 重建 tasks 表的迁移。
 REBUILD_MIGRATIONS = [
     "26c2f9d11c8e",
     "d4f8b1c73a20",
@@ -36,7 +34,6 @@ REBUILD_MIGRATIONS = [
     "ea2e1a477bbf",
 ]
 
-# initial schema，其 downgrade 删掉 tasks 表本身，全链走查到此为止。
 INITIAL_SCHEMA_REVISION = "156fe0aa0414"
 
 

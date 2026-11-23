@@ -192,7 +192,6 @@ class TestSdkTranscriptAdapterStorePath:
         mock_msg.message = {"content": "Hello"}
         mock_msg.uuid = "uuid-789"
         mock_msg.parent_tool_use_id = None
-        # Note: do NOT set mock_msg.timestamp — to mimic real SDK that omits the field
 
         fake_store = MagicMock()
         fake_store.load = AsyncMock(

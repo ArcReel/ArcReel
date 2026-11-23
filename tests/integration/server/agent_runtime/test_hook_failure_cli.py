@@ -137,7 +137,6 @@ async def test_security_hooks_at_cli_execution_boundary(tmp_path: Path, scenario
             matcher_index, callback_index = {"file_access": (0, 1), "subagent": (0, 0), "bash_env": (1, 0)}[scenario]
             built.hooks["PreToolUse"][matcher_index].hooks[callback_index] = broken_hook
 
-        # 空环境 + 临时配置隔离真实凭证；代理阻断 loopback 之外的 HTTP。
         env = {
             "PATH": os.environ["PATH"],
             "HOME": str(tmp_path),

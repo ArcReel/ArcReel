@@ -231,7 +231,6 @@ def _add_second_narrator_video(project_path: Path) -> None:
 async def test_current_tts_presentation_materializes_manifest_and_actual_media_boundaries(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
 
-    # Version filenames contain timestamps, so probe by media suffix instead of a fixed basename.
     async def probe(path: Path) -> float | None:
         return 4.5 if path.suffix == ".wav" else 6.25
 
@@ -556,7 +555,6 @@ async def test_episode_materialization_restarts_as_one_snapshot_after_script_edi
             return 4.5
         video_probes += 1
         if video_probes == 2:
-            # 探测期间另一个请求在工作线程里改了剧本与项目
             await asyncio.to_thread(_edit_script_and_project)
         return 6.25
 
@@ -914,7 +912,6 @@ async def test_current_presentation_reselects_when_version_changes_during_media_
         nonlocal switched
         if path.suffix == ".mp4" and not switched:
             switched = True
-            # 探测期间另一个请求在工作线程里换了当前版本
             await asyncio.to_thread(_add_replacement_version)
         return 6.25
 

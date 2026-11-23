@@ -214,7 +214,6 @@ def test_report_describes_the_completed_chain_and_keeps_legacy_audio_skips(tmp_p
     }
     status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
     assert status.migration_report == report
-    # 旧音频的选中版本记录没有 TTS 设置，不被登记，项目判为后期配音
     assert _read_json(project_dir / "project.json")["narration_delivery"] == "post_production"
 
 
@@ -300,7 +299,6 @@ async def test_tts_snapshot_takes_the_most_recently_generated_audio_settings(tmp
     project = _read_json(project_dir / "project.json")
     assert project["narration_delivery"] == "use_tts"
     assert (project["audio_backend"], project["narration_voice"]) == ("openai/tts-1", "alloy")
-    # 快照不设语速：旧项目里「跟随全局默认」的语速字段不再保留
     assert "narration_speed" not in project
     assert await _tts_status(project_dir, "E1S2") is ArtifactStatus.CURRENT
     assert await _tts_status(project_dir, "E1S1") is ArtifactStatus.STALE
@@ -469,7 +467,6 @@ async def test_current_presentation_and_subtitle_stay_current_and_preview_rebuil
     project_dir = _v15_legacy_presentation(tmp_path)
     legacy = _read_json(project_dir / _PRESENTATION_PATH)
     adapter = ProjectArtifactManifestAdapter(project_dir)
-    # v15 的读法：登记等于按实时转场算出的旧依据，即为时新。
     assert adapter.get_entry(_PRESENTATION_KEY) == ArtifactManifestEntry(
         _PRESENTATION_PATH, _legacy_digest_of(legacy, transition="fade")
     )
@@ -771,7 +768,6 @@ def test_episode_file_without_a_ledger_entry_becomes_an_own_source_episode(tmp_p
     assert status.content.episode_source == "present"
     assert status.content.source_remaining is True
     assert status.operations["prepare_script_plan"].state == "admitted"
-    # 项目列表不读源文，读迁移记下的结论：与制作状态一致，已有的集全部完成也不算项目完成
     assert project["source_remaining"] is True
     assert WorkflowStateService(pm).get_project_summary(project_dir.name, currency="registered").source_remaining
 

@@ -58,8 +58,6 @@ def test_storyboard_with_an_unregistrable_sheet_is_backfilled_and_reads_current(
     report = load_migration_report(project_dir)
     assert report is not None
     assert [item for item in report.skipped if item.kind == "episode-storyboard"] == []
-    # E1S3 早先按不带上一分镜图的依据登记，v17→v18 不动已登记条目；E1S2 补录后成为它可用的上一分镜图，
-    # 期望依据随之带上 E1S2，E1S3 读为过期——与运行期上一分镜图变为可用时同一口径。
     assert [_status(project_dir, unit_id) for unit_id in ("E1S1", "E1S2", "E1S3")] == ["current", "current", "stale"]
     storyboards = (
         WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name).episodes[0].storyboards

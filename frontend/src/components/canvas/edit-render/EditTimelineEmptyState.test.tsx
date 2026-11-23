@@ -107,7 +107,6 @@ describe("EditTimelineEmptyState", () => {
     render(<EditTimelineEmptyState projectName="demo" episode={3} onCreated={vi.fn()} />);
     await userEvent.click(screen.getByRole("button", { name: "交给 Agent 剪辑" }));
 
-    // 集 ID 3 在账本里排第 2：预填按集名称呼并附集 ID，不把集 ID 当第几集
     expect(useAssistantStore.getState().input).toBe(PREFILL);
     expect(useAppStore.getState().assistantPanelOpen).toBe(true);
     expect(create).not.toHaveBeenCalled();

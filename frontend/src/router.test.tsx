@@ -53,14 +53,11 @@ describe("AppRoutes", () => {
   beforeEach(() => {
     resetStores();
     useAuthStore.setState({ isAuthenticated: true, isLoading: false });
-    // ConfigStatusLoader 在 AppRoutes 中始终挂载；预置 initialized 让其 fetch() 短路，
-    // 路由测试无需关心配置状态，也避免触发未 mock 的供应商接口与退避重试。
     useConfigStatusStore.setState({ initialized: true });
     vi.restoreAllMocks();
   });
 
   afterEach(() => {
-    // 个别用例切到 fake timers,统一还原,避免污染其它用例。
     vi.useRealTimers();
   });
 
@@ -80,7 +77,6 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "/app/projects");
   });
 
-  // 旧的 lorebook、clues 入口已移除且不重定向；项目内未注册的子路径保留工作区外壳，空状态由画布显示。
   it.each(["/app/projects/demo/lorebook", "/app/projects/demo/clues", "/app/projects/demo/unknown/"])(
     "keeps the workspace shell for the unregistered workspace path %s",
     async (path) => {
@@ -155,8 +151,6 @@ describe("AppRoutes", () => {
   });
 
   it("切换界面语言不重跑真实项目的加载", async () => {
-    // 回归：演示项目的常量随 `t` 重灌，但这条依赖不能落到真实项目的加载 effect 上——
-    // 否则切语言会先清空 store 闪一次空态，还连带清掉 Agent 会话状态。
     vi.spyOn(API, "getProject").mockResolvedValue({
       project: {
         title: "Demo Project",
@@ -228,9 +222,6 @@ describe("AppRoutes", () => {
   });
 
   it("快速切换项目：旧项目的迟到响应不覆盖新项目的首屏数据", async () => {
-    // 回归：首屏加载收编进 refreshProject 的取消域后，A → B 快速切换时 A 的响应可能
-    // 在切换完成之后才落定（abort 与响应落定同为异步，响应先到时网络层不会 reject）。
-    // 它既不该写回 currentProject，也不该让 B 自己的首屏加载失踪或停在加载态。
     let resolveA!: (value: Awaited<ReturnType<typeof API.getProject>>) => void;
     const pendingA = new Promise<Awaited<ReturnType<typeof API.getProject>>>((res) => {
       resolveA = res;
@@ -241,8 +232,6 @@ describe("AppRoutes", () => {
         : Promise.resolve({ project: { title: "B-数据" } as never, scripts: {} }),
     );
 
-    // 只看最终态不足以证伪「迟到覆盖」——A 的数据即便写进去了，也会被随后跑完的 B 盖回
-    // 去。订阅整段过程，断言 A 的数据一次都没有落进 store。
     const seenTitles: Array<string | undefined> = [];
     const unsubscribe = useProjectsStore.subscribe((s) =>
       seenTitles.push(s.currentProjectData?.title),
@@ -268,7 +257,6 @@ describe("AppRoutes", () => {
       const s = useProjectsStore.getState();
       expect(s.currentProjectName).toBe("B");
       expect(s.currentProjectData?.title).toBe("B-数据");
-      // B 的首屏加载正常收口，不因 A 占着在途/排队名额而停在加载态
       expect(s.projectDetailLoading).toBe(false);
     });
     unsubscribe();
@@ -292,8 +280,6 @@ describe("AppRoutes", () => {
   it("redirects unauthenticated nested project URL to top-level /login", async () => {
     useAuthStore.setState({ isAuthenticated: false, isLoading: false });
     renderAt("/app/projects/demo");
-    // 回归：AuthGuard 渲染在 nest 路由内，相对的 /login 会被拼成
-    // /app/projects/demo/login（无匹配 → 404）；用 ~/login 绝对路径才落到 /login。
     expect(await screen.findByTestId("login-page")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "页面未找到" })).not.toBeInTheDocument();
   });
@@ -317,9 +303,7 @@ describe("AppRoutes", () => {
 
   it("ConfigStatusLoader 挂载后拉取配置状态,未初始化时按退避重试", async () => {
     vi.useFakeTimers();
-    // 从未初始化起步,让根级 ConfigStatusLoader 真正执行 fetch/重试逻辑
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
-    // 让配置拉取失败 → store 保持未初始化 → loader 按退避重试
     vi.spyOn(API, "getProviders").mockRejectedValue(new Error("backend not ready"));
     vi.spyOn(API, "listCustomProviders").mockRejectedValue(new Error("backend not ready"));
     vi.spyOn(API, "getSystemConfig").mockRejectedValue(new Error("backend not ready"));

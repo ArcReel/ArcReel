@@ -46,11 +46,6 @@ def _read_image_settings(engine: sa.Engine) -> dict[str, str]:
     return {row.key: row.value for row in rows}
 
 
-# (用例名, 迁移前键状态, 迁移后键状态)
-#
-# 语义变更只发生在「桶无有效值 + 默认层有配置」的两行（empty_buckets_with_default、
-# mixed_empty_bucket 的 i2i 侧）：迁移前空桶表示「跟随自动推断」，迁移后回退默认层。
-# 其余各行迁移前后解析结果一致，迁移只做键形态归一。
 _CASES = [
     ("all_absent", {}, {}),
     (
@@ -155,7 +150,6 @@ def test_upgrade_exhausts_legacy_key_combinations(alembic_cfg, name, before, aft
     assert _read_image_settings(engine) == after
 
 
-# 迁移后各组合的生效模型（t2i, i2i）；None = 无配置可落、留给自动推断。
 _RESOLVED_AFTER: dict[str, tuple[str | None, str | None]] = {
     "all_absent": (None, None),
     "default_only": ("grok/grok-2-image", "grok/grok-2-image"),
@@ -164,7 +158,6 @@ _RESOLVED_AFTER: dict[str, tuple[str | None, str | None]] = {
     "equal_buckets_diverging_from_default": ("openai/gpt-image-2", "openai/gpt-image-2"),
     "distinct_buckets_without_default": ("openai/gpt-image-2", "ark/kolors-img2img"),
     "distinct_buckets_with_default": ("openai/gpt-image-2", "ark/kolors-img2img"),
-    # 语义变更行：迁移前空桶跟随自动推断，迁移后落默认层
     "empty_buckets_with_default": ("grok/grok-2-image", "grok/grok-2-image"),
     "empty_buckets_without_default": (None, None),
     "mixed_empty_bucket": ("openai/gpt-image-2", "grok/grok-2-image"),
@@ -184,8 +177,6 @@ async def test_resolution_after_upgrade(name, before, after):
 
     for generation_type, expected in zip(("t2i", "i2i"), _RESOLVED_AFTER[name], strict=True):
         if expected is None:
-            # 无配置可落：解析必然走自动推断（需真实供应商表，此处不求值），
-            # 断言其前提——迁移后该桶与默认层都无有效值
             assert not any("/" in after.get(key, "") for key in (f"default_image_backend_{generation_type}", _KEYS[0]))
             continue
         resolved = await resolver._resolve_layered_backend(

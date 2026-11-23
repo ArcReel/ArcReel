@@ -81,7 +81,6 @@ class TestUsageRepository:
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
-        # 每个表情符号 4 字节 UTF-8，escape 成两个 \uXXXX 转义序列后是 12 字节。
         await repo.update_last_provider_response(call_id, {"payload": "🎬" * 15000})
 
         stored = (await stored_calls(async_session))[0].last_provider_response
@@ -123,7 +122,6 @@ class TestFinalizePendingByCallId:
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
-        # 显式 cost_amount=0.0 维持单元测试的确定性，绕过 auto-calc 路径
         affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
 
@@ -150,7 +148,6 @@ class TestFinalizePendingByCallId:
         assert affected == 1
 
         calls = await stored_calls(async_session)
-        # (1080p, 有声) 0.40 USD/s × 8s
         assert calls[0].status == "success"
         assert calls[0].cost_amount == pytest.approx(3.2)
         assert calls[0].unpriced_reason is None
@@ -178,7 +175,6 @@ class TestFinalizePendingByCallId:
 
         calls = await stored_calls(async_session)
         assert calls[0].currency == "CNY"
-        # 1080p、无输入视频：51 CNY / 百万 token
         assert calls[0].cost_amount == pytest.approx(246840 * 51.0 / 1_000_000)
         assert calls[0].unpriced_reason is None
         assert calls[0].usage_tokens == 246840, "usage_tokens 必须 UPDATE 写回 ApiCall 行"
@@ -331,7 +327,6 @@ class TestFinalizePendingByCallId:
 
         calls = await stored_calls(async_session)
         item = calls[0]
-        # started_at 与 finished_at 同瞬间内完成；duration_ms 必须是已写入的非 None 整数
         assert item.duration_ms is not None
         assert item.duration_ms >= 0
 
@@ -371,7 +366,6 @@ class TestFinalizePendingByCallId:
 
         calls = await stored_calls(async_session)
         assert calls[0].generate_audio is False
-        # (720p, 无声) 0.20 USD/s × 8s
         assert calls[0].cost_amount == pytest.approx(1.6)
 
 
@@ -403,11 +397,9 @@ class TestMultiProviderUsage:
         assert item.provider == "ark"
         assert item.currency == "CNY"
         assert item.usage_tokens == 246840
-        # 46.00 CNY/百万 token
         assert item.cost_amount == pytest.approx(246840 * 46.0 / 1_000_000, rel=1e-3)
 
     async def test_provider_neither_builtin_nor_custom_settles_unpriced(self, async_session):
-        # 供应商标识既不在注册表、也不是自定义供应商的存量行（如裸 gemini）对应不上条目，记为未定价，结算本身不报错
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
@@ -428,7 +420,6 @@ class TestMultiProviderUsage:
         assert item.unpriced_reason == "no_entry"
 
     async def test_builtin_call_without_reported_usage_settles_unpriced(self, async_session):
-        # 没有上报用量的内置供应商调用同样查价目表：计量项全部落空，记为未定价，不按默认模型或秒数猜
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo", call_type="image", model="gemini-3-pro-image", provider="gemini-aistudio"
@@ -466,7 +457,6 @@ class TestMultiProviderUsage:
         assert item.input_tokens == 1000
         assert item.output_tokens == 500
         assert item.currency == "USD"
-        # cost = (1000 * 0.50 + 500 * 3.00) / 1_000_000 = 0.002
         assert item.cost_amount == pytest.approx((1000 * 0.50 + 500 * 3.00) / 1_000_000)
 
     async def test_text_call_ark_cost(self, async_session):
@@ -492,7 +482,6 @@ class TestMultiProviderUsage:
         calls = await stored_calls(async_session)
         item = calls[0]
         assert item.currency == "CNY"
-        # cost = (2000 * 0.80 + 1000 * 2.70) / 1_000_000 = 0.0043
         assert item.cost_amount == pytest.approx((2000 * 0.80 + 1000 * 2.70) / 1_000_000)
 
     async def test_text_call_failed_zero_cost(self, async_session):
@@ -583,7 +572,6 @@ class TestListRecords:
 
         page = await UsageRepository(async_session).list_records()
 
-        # 同一 started_at 上按 id 倒序，后写入的 tie-b 排在 tie-a 之前。
         assert [item["segment_id"] for item in page["items"]] == ["tie-b", "tie-a", "older"]
         assert page["total"] == 3
         assert page["next_cursor"] is None
@@ -1154,7 +1142,6 @@ class TestCustomProviderSettlement:
 
         call = await self._settle(async_session, provider, "relay/kling-v2-6")
 
-        # 可灵 2.6：1080p 无声 0.5 CNY/秒 × 5 秒 × 供应商 0.5 × 模型 2
         assert (call.cost_amount, call.currency, call.unpriced_reason) == (pytest.approx(2.5), "CNY", None)
 
     async def test_unmatched_model_is_unpriced_with_reason_no_entry(self, async_session):

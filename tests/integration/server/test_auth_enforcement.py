@@ -16,9 +16,6 @@ from fastapi.testclient import TestClient
 
 import server.auth as auth_module
 
-# 穿过生产 app 的完整路由与认证栈，不是隔离单元，按 pytest markers 纪律属 integration。
-
-# 匿名可达：登录入口是拿 token 的前提；静态媒体经 <img src> / <video src> 加载。
 PUBLIC_OPERATIONS = frozenset(
     {
         "GET /health",
@@ -29,7 +26,6 @@ PUBLIC_OPERATIONS = frozenset(
     }
 )
 
-# 自带认证：浏览器原生下载导航带不了 Authorization header，端点内校验短时效下载 token。
 SELF_AUTH_OPERATIONS = frozenset(
     {
         "GET /api/v1/projects/{name}/export",
@@ -39,8 +35,6 @@ SELF_AUTH_OPERATIONS = frozenset(
 
 EXEMPT_OPERATIONS = PUBLIC_OPERATIONS | SELF_AUTH_OPERATIONS
 
-# SSE 端点走普通受保护 router，由前端以 fetch 带 Authorization header 消费；
-# 会话凭证不接受 query param 形态，见 docs/adr/0071。
 SSE_PATHS = (
     "/api/v1/projects/demo/assistant/sessions/s1/entries/stream",
     "/api/v1/projects/demo/assistant/sessions/s1/stream",
@@ -51,11 +45,8 @@ SSE_PATHS = (
 # 依赖数据库等 lifespan 建立的状态，会让这两个用例在干净环境里以 500 失败，掩盖认证结论。
 _PROBE_ENDPOINT = "/api/v1/custom-providers/endpoints"
 
-# OpenAPI Path Item 的全部操作字段。写全而非只列常用的几个，是为了让「新增路由自动纳入」
-# 这条承诺不留缺口——漏一个方法，该方法的端点就会被静默跳过而不是报错。
 _HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
 _PARAM_RE = re.compile(r"\{([^}]+)\}")
-# 路径参数占位值：认证在参数校验之前执行，取值只需能拼出合法 URL。
 _PARAM_PLACEHOLDERS = {"path": "x/y.png"}
 
 
@@ -138,7 +129,6 @@ def test_public_endpoints_stay_reachable(auth_coverage_client):
         ).status_code
         == 200
     )
-    # 静态媒体：项目不存在时是 404，不该是 401。
     assert auth_coverage_client.get("/api/v1/files/demo/x.png").status_code != 401
     assert auth_coverage_client.get("/api/v1/global-assets/characters/x.png").status_code != 401
 

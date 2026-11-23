@@ -111,14 +111,12 @@ class TestAssistantRouter:
             )
             assert send_at_capacity.status_code == 503
 
-            # POST /sessions/send — 会话已被改写取代 → 409
             send_superseded = client.post(
                 f"{PREFIX}/sessions/send",
                 json={"content": "hello", "session_id": "superseded"},
             )
             assert send_superseded.status_code == 409
 
-            # POST /sessions/send — 同键重试命中已接纳却没写入日志的消息 → 409，不再送入
             send_unrecorded = client.post(
                 f"{PREFIX}/sessions/send",
                 json={"content": "hello", "session_id": "unrecorded", "client_key": "ck-1"},

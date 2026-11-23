@@ -76,7 +76,6 @@ class TestVideoResumeRunner:
         await worker._resume.run(task)
         assert len(captured) == 1
         captured_task, captured_job_id = captured[0]
-        # Resume executor receives the row unchanged and loads its immutable checkpoint itself.
         assert captured_task["payload"] == {"video_provider_i2v": "gemini-aistudio/veo-3.1-fast-generate-preview"}
         assert captured_job_id == "openai-job"
         assert queue.succeeded == [("resume-locked", {"ok": True})]
@@ -134,7 +133,6 @@ class TestVideoResumeRunner:
             row = await session.get(ApiCall, call_id)
         assert (row.status, row.cost_amount) == ("failed", 0)
         assert row.error_message == "resume job x expired or not found on provider ark"
-        # 过期异常不带 HTTP 状态也不带上游错误码，分类落空——读侧按原文显示
         assert (row.error_code, row.error_params) == (None, None)
 
     @pytest.mark.asyncio
@@ -161,7 +159,6 @@ class TestVideoResumeRunner:
         assert queue.failed
         assert queue.failed[0][0] == "ep"
         assert "[resume_endpoint_changed_detail]" in queue.failed[0][1]
-        # 两侧 endpoint 都进错误详情，用户能归因到「接口被换过」而非泛化失败
         assert "openai-video" in queue.failed[0][1]
         assert "minimax-video" in queue.failed[0][1]
 

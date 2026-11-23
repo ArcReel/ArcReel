@@ -25,7 +25,6 @@ describe("provider-models fetchers", () => {
     expect(spy).toHaveBeenCalledTimes(2);
   });
 
-  // 内置供应商缓存同理：status/enabled 等可变项陈旧会让模型选择器漏显刚配好的供应商。
   it("getProviderModels re-fetches on every call (no persistent cache)", async () => {
     const spy = vi.spyOn(API, "getProviders").mockResolvedValue({ providers: [] });
 
@@ -125,7 +124,6 @@ describe("lookupVideoAudioControl", () => {
           audio_track: "always_off",
           reference_route_audio_track: "always_off",
         },
-        // 可灵 v3-omni 的形状：图生子路径带音轨开关，参考生子路径的原生 schema 不含该字段。
         "route-split": {
           ...VEO_PROVIDERS[0].models["seedance-like"],
           audio_track: "controllable",
@@ -144,7 +142,6 @@ describe("lookupVideoAudioControl", () => {
     expect(lookupVideoAudioControl(PROVIDERS, `gemini-aistudio/${modelId}`, "r2v")).toBe(expected);
   });
 
-  // 逐路径取值：按模型取会让参考生视频放行一个执行期必然被丢弃的开关（用户开了音频拿到无声成片）。
   it("reads the reference-route declaration for r2v", () => {
     expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/route-split", "i2v")).toBe("controllable");
     expect(lookupVideoAudioControl(PROVIDERS, "gemini-aistudio/route-split", "r2v")).toBe("always_off");
@@ -185,7 +182,6 @@ describe("catalogDurations", () => {
       },
     ] as unknown as Parameters<typeof catalogDurations>[1];
     expect(catalogDurations(VEO_PROVIDERS, custom, "custom-3/relay-video")).toEqual([5, 10]);
-    // 没有覆盖时时长由模型条目给出，前端查不到
     expect(catalogDurations(VEO_PROVIDERS, custom, "custom-3/plain-video")).toBeNull();
   });
 });

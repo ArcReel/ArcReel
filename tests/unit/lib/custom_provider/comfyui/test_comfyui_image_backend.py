@@ -196,13 +196,11 @@ class TestGenerate:
         assert result.image_path.read_bytes() == PNG_BYTES
         assert (result.provider, result.model) == ("custom-1", "flux-workflow")
         assert history.call_count == 1
-        # 引用值取响应里的 subfolder / name，不是请求里的——服务端会为重名改名。
         sent = request_json(only_request(submit))
         assert sent["prompt"]["20"]["inputs"]["image"] == "arcreel/job-7-reference_images-1.jpg"
         assert sent["client_id"] == "arcreel-job-7"
         assert upload.call_count == 1
         assert only_request(view).url.params["filename"] == "ArcReel_00001_.png"
-        # 种子是提交那一刻现随机的，不回传这一版就再也复现不了。
         assert result.seed == sent["prompt"]["3"]["inputs"]["seed"]
         assert result.image_uri == f"{BASE_URL}/view?filename=ArcReel_00001_.png&subfolder=&type=output"
 

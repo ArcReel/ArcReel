@@ -70,9 +70,7 @@ async def test_voices_follow_model_endpoint_and_request_locale(
 @pytest.mark.parametrize(
     ("endpoint", "known_model", "unknown_model", "known_voice"),
     [
-        # 百炼 qwen-audio：同一端点，新型号不借用 3.1 的音色
         ("dashscope-speech-synthesizer", "qwen-audio-3.0-tts-plus", "qwen-audio-3.1-tts-next", "longanlingxin"),
-        # 非百炼：MiniMax 系统音色只给官方 t2a_v2 型号
         ("minimax-tts", "speech-2.8-hd", "speech-2.9-hd", "male-qn-qingse"),
     ],
 )
@@ -110,7 +108,6 @@ async def test_same_endpoint_unknown_model_lists_no_voices(
                 ]
         assert known.status_code == unknown.status_code == 200
         assert known_voice in [v["id"] for v in known.json()["voices"]]
-        # 认不出的型号照常返回能力，只是不列音色；语速能力属于端点，不受影响
         assert unknown.json() == {"supports_speed": known.json()["supports_speed"], "voices": []}
     finally:
         reset_backend_cache_for_tests()

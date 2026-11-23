@@ -9,7 +9,6 @@ const sample: Utterance[] = [
   { kind: "dialogue", speaker: "阿离", text: "你终于回来了。" },
 ];
 
-/** 受控宿主：把 onChange 回写进 state，还原真实的删除 / 移动后重渲染。 */
 function Harness({ initial }: { initial: Utterance[] }) {
   const [utterances, setUtterances] = useState(initial);
   return <UtteranceListEditor utterances={utterances} onChange={setUtterances} />;
@@ -74,8 +73,6 @@ describe("UtteranceListEditor", () => {
     expect(screen.getByText("本分镜暂无发声内容。")).toBeInTheDocument();
   });
 
-  // 稳定 key 回归：数组索引作 key 时删除 / 移动会按位复用受控输入节点，
-  // 焦点跳到错误行、编辑内容串位。以下断言焦点始终跟随原条目。
   it("keeps focus on a later row after an earlier row is removed", () => {
     const rows: Utterance[] = [
       { kind: "voiceover", speaker: null, text: "首行画外音。" },

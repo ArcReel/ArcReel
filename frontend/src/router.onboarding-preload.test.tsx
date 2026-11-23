@@ -1,5 +1,3 @@
-// 引导开启时预取设置页 chunk：设置页承载引导锚点（settingsProviders、settingsAgent），
-// 懒加载后锚点要等 chunk 到达才出现，引导的锚点等待有上限，只能靠提前拉取兜住。
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -8,7 +6,6 @@ import { memoryLocation } from "wouter/memory-location";
 const systemConfigPageLoaded = vi.hoisted(() => vi.fn());
 const preloaded = vi.hoisted(() => vi.fn());
 
-// 预取的决定在 effect 里同步发出：包一层 preload 记下调用，不必等 chunk 异步求值才能断言「没有预取」
 vi.mock("@/utils/lazy-component", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/utils/lazy-component")>();
   return {
@@ -25,7 +22,6 @@ vi.mock("@/utils/lazy-component", async (importOriginal) => {
 });
 
 vi.mock("@/components/pages/SystemConfigPage", () => {
-  // 模块求值即代表设置页 chunk 已被拉取
   systemConfigPageLoaded();
   return { SystemConfigPage: () => <div data-testid="system-config-page" /> };
 });
@@ -47,7 +43,6 @@ async function renderProjectsWithTour(active: boolean) {
     import("@/stores/onboarding-store"),
   ]);
   useAuthStore.setState({ isAuthenticated: true, isLoading: false });
-  // 让 ConfigStatusLoader 的 fetch() 短路，避免触发未 mock 的接口
   useConfigStatusStore.setState({ initialized: true });
   useOnboardingStore.setState({ active });
 

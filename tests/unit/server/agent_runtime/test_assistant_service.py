@@ -117,7 +117,6 @@ class TestAssistantService:
         service.meta_store = store
         service.session_manager.meta_store = store
 
-        # Manually run the interrupt logic (normally done in startup())
         await service._interrupt_stale_running_sessions()
 
         refreshed_running = await service.meta_store.get(running.id)
@@ -277,7 +276,7 @@ class TestAssistantService:
         task1 = asyncio.create_task(service.send_or_create("demo", "hello", client_key="ck-race"))
         await asyncio.wait_for(entered.wait(), timeout=0.2)
         task2 = asyncio.create_task(service.send_or_create("demo", "hello", client_key="ck-race"))
-        await asyncio.sleep(0)  # 让 task2 跑到锁等待处挂起
+        await asyncio.sleep(0)
         release.set()
 
         result1 = await task1
@@ -294,7 +293,6 @@ class TestAssistantService:
 
         store = EventLogStore(session_factory=db_factory)
 
-        # 首次受理（重启前）：新会话首条用户条目已随 client_key 落库
         accepted_entry = build_user_entry([{"type": "text", "text": "hello"}])
         await store.append("sdk-prev", [accepted_entry], client_key="ck-restart")
 
@@ -305,7 +303,7 @@ class TestAssistantService:
         service.meta_store = _FakeMetaStore([])
         service.event_log = _FakeEventLogService()
         service.event_log_store = store
-        assert service._new_session_client_keys == {}  # 重启后进程内映射为空
+        assert service._new_session_client_keys == {}
 
         result = await service.send_or_create("demo", "hello", client_key="ck-restart")
 
@@ -313,7 +311,6 @@ class TestAssistantService:
         assert result["session_id"] == "sdk-prev"
         assert result["entry"] is not None
         assert result["entry"]["uuid"] == accepted_entry["uuid"]
-        # 命中后回填进程内映射，后续重试走快路径
         assert service._new_session_client_keys["ck-restart"] == "sdk-prev"
 
     @pytest.mark.asyncio
@@ -332,7 +329,6 @@ class TestAssistantService:
         service.event_log_store = store
         service._new_session_client_keys_max = 1
 
-        # 模拟 SessionManager 的受理落库：新会话首条条目随 client_key 写入
         async def send_new_session(project_name, prompt, *, user_entry=None, client_key=None, **kwargs):
             sid = f"sdk-{len(sm.new_sessions)}"
             sm.new_sessions.append((project_name, prompt))
@@ -387,7 +383,6 @@ class TestAssistantService:
 
         first = await service.send_or_create("proj_a", "hello", client_key="ck-shared")
         assert first["session_id"] == "sdk-0"
-        # 映射已就绪：项目 B 的调用会先走进程内映射命中的快路径
         assert service._new_session_client_keys["ck-shared"] == "sdk-0"
 
         second = await service.send_or_create("proj_b", "hello", client_key="ck-shared")
@@ -395,7 +390,6 @@ class TestAssistantService:
         assert second["session_id"] == "sdk-1"
         assert meta_store.metas["sdk-1"].project_name == "proj_b"
         assert sm.new_sessions == [("proj_a", "hello"), ("proj_b", "hello")]
-        # 映射被本项目会话覆盖，后续同项目重试命中 B
         assert service._new_session_client_keys["ck-shared"] == "sdk-1"
 
     @pytest.mark.asyncio
@@ -412,11 +406,11 @@ class TestAssistantService:
 
         first = await service.send_or_create("proj_a", "hello", client_key="ck-shared")
         assert first["session_id"] == "sdk-0"
-        service._new_session_client_keys.clear()  # 模拟重启：进程内映射丢失
+        service._new_session_client_keys.clear()
 
         second = await service.send_or_create("proj_b", "hello", client_key="ck-shared")
 
-        assert second["session_id"] == "sdk-1"  # DB 兜底命中 A 会话但项目不符 → 新建 B
+        assert second["session_id"] == "sdk-1"
         assert meta_store.metas["sdk-1"].project_name == "proj_b"
         assert sm.new_sessions == [("proj_a", "hello"), ("proj_b", "hello")]
 
@@ -439,7 +433,6 @@ class TestAssistantService:
         assert hit["session_id"] == "sdk-0"
         assert len(sm.new_sessions) == 1
 
-        # 清空映射后 DB 兜底路径同样命中原会话
         service._new_session_client_keys.clear()
         recovered = await service.send_or_create("proj_a", "hello", client_key="ck-same")
         assert recovered["session_id"] == "sdk-0"
@@ -475,12 +468,10 @@ class TestAssistantService:
         await service.send_or_create("demo", "hello-b", client_key="ck-b")
         assert list(service._new_session_client_keys) == ["ck-a", "ck-b"]
 
-        # 命中 ck-a（幂等重试，不新建会话）：应把 ck-a 刷新到最近使用端
         hit = await service.send_or_create("demo", "hello-a", client_key="ck-a")
         assert hit["session_id"] == "sdk-0"
         assert list(service._new_session_client_keys) == ["ck-b", "ck-a"]
 
-        # 第三个 key 到达挤出缓存：应淘汰最久未使用的 ck-b，而非刚被命中的 ck-a
         await service.send_or_create("demo", "hello-c", client_key="ck-c")
 
         assert "ck-a" in service._new_session_client_keys
@@ -521,7 +512,6 @@ class TestAssistantService:
         original_find_by_client_key = store.find_by_client_key
 
         async def find_by_client_key_with_concurrent_eviction(session_id, client_key):
-            # 模拟另一并发请求在本次 DB 查询期间把该 key 挤出缓存。
             service._new_session_client_keys.pop(client_key, None)
             return await original_find_by_client_key(session_id, client_key)
 
@@ -549,7 +539,6 @@ class TestAssistantService:
         service.meta_store = _FakeMetaStore([])
         service.event_log = _FakeEventLogService()
         service.event_log_store = store
-        # 模拟会话已被删除但进程内映射未清（delete_session 不感知该映射）。
         service._new_session_client_keys["ck-stale"] = "sdk-deleted"
 
         result = await service.send_or_create("demo", "hello", client_key="ck-stale")
@@ -572,12 +561,11 @@ class TestAssistantService:
         service.event_log = _FakeEventLogService()
 
         async def find_by_client_key(session_id, client_key):
-            # 模拟另一并发请求在本次查询期间把该 key 更新为新的有效映射。
             service._new_session_client_keys[client_key] = "sdk-fresh"
             return
 
         async def find_new_session_by_client_key(client_key):
-            return None  # 本测试只关心清理分支，不需要真的兜底恢复
+            return None
 
         service.event_log_store = SimpleNamespace(
             find_by_client_key=find_by_client_key,
@@ -587,7 +575,7 @@ class TestAssistantService:
 
         result = await service._find_accepted_new_session("ck-a", "demo")
 
-        assert result is None  # 本测试的兜底查询返回 None，不影响本次断言重点
+        assert result is None
         assert service._new_session_client_keys["ck-a"] == "sdk-fresh"
 
     @pytest.mark.asyncio
@@ -605,7 +593,6 @@ class TestAssistantService:
             return None
 
         async def find_new_session_by_client_key(client_key):
-            # 模拟另一并发请求在本次查询期间已经建好新会话并记入映射。
             service._new_session_client_keys[client_key] = "sdk-fresh"
             return "sdk-old", {"seq": 0, "type": "user"}
 
@@ -617,8 +604,7 @@ class TestAssistantService:
         result = await service._find_accepted_new_session("ck-b", "demo")
 
         assert result is not None
-        assert result["session_id"] == "sdk-old"  # 本次调用仍返回自己查到的权威条目
-        # 但不应覆盖并发写入的更新映射
+        assert result["session_id"] == "sdk-old"
         assert service._new_session_client_keys["ck-b"] == "sdk-fresh"
 
     @pytest.mark.asyncio

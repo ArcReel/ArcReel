@@ -26,7 +26,6 @@ function renderAt(path = "/app/settings?section=providers&provider=gemini-aistud
   };
 }
 
-// 后端按 Accept-Language 成文供应商与模型名，这里用替身按当前语言返回对应译名。
 function providersFor(lang: string): { providers: ProviderInfo[] } {
   return {
     providers: [
@@ -44,8 +43,6 @@ function providersFor(lang: string): { providers: ProviderInfo[] } {
   };
 }
 
-// 自定义供应商名是用户数据、真实场景不随语言变化；这里让替身按语言分叉，
-// 只为让「custom 列表随语言一起重取」可被 DOM 断言观察到。
 function customFor(lang: string): { providers: CustomProviderInfo[] } {
   return {
     providers: [
@@ -178,7 +175,6 @@ describe("ProviderSection", () => {
       await i18n.changeLanguage("en");
     });
 
-    // 切换语言后目录须按新语言重取，否则停留在切换前的译名
     await waitFor(() =>
       expect(within(nav()).getAllByText("Gemini AI Studio (EN)")[0]).toBeInTheDocument(),
     );
@@ -203,7 +199,6 @@ describe("ProviderSection", () => {
       await i18n.changeLanguage("en");
     });
 
-    // 语言切换是静默刷新：不回到 loading 面板，详情面板不被卸载
     expect(screen.queryByText(/加载供应商列表|Loading providers/)).not.toBeInTheDocument();
     expect(
       within(screen.getByRole("navigation")).getAllByText("Gemini AI Studio（中文）")[0],
@@ -234,7 +229,6 @@ describe("ProviderSection", () => {
       await i18n.changeLanguage("en");
     });
 
-    // 静默刷新失败不得把整个小节换成错误面板：那会卸载详情面板、丢掉未保存的表单输入
     await waitFor(() =>
       expect(
         within(screen.getByRole("navigation")).getAllByText("Gemini AI Studio（中文）")[0],
@@ -245,14 +239,12 @@ describe("ProviderSection", () => {
 
   it("surfaces the error when the language switches before any catalog has loaded", async () => {
     vi.spyOn(API, "getProviders").mockImplementation(() => {
-      // 首次（中文）拉取永不落定：语言切换发生在它返回之前
       if (i18n.language !== "en") return new Promise<never>(() => {});
       return Promise.reject(new Error("network down"));
     });
 
     renderAt();
 
-    // 首次拉取尚未返回就切语言：没有可留的目录，失败必须走错误面板而非留下空列表
     await act(async () => {
       await i18n.changeLanguage("en");
     });
@@ -264,12 +256,10 @@ describe("ProviderSection", () => {
   it("selects the first preset provider when the URL names no selection", async () => {
     const { location } = renderAt("/app/settings");
 
-    // 兜底选中以 replace 写回 URL，并在目录里点亮首个 preset
     const panel = await screen.findByRole("tabpanel");
     await waitFor(() =>
       expect(within(panel).getByRole("link", { name: /Gemini AI Studio（中文）/ })).toHaveAttribute("aria-current", "page"),
     );
-    // replace 写回：历史里只剩替换后的一条，不追加
     expect(location.history).toEqual(["/app/settings?section=providers&provider=gemini-aistudio"]);
   });
 
@@ -355,7 +345,6 @@ describe("ProviderSection", () => {
 
     saveNewCustomProvider();
 
-    // 保存后须切到刚建好的那一项，否则用户停在填满的表单上，再保存一次就多出一个重复供应商
     await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=2"));
     await waitFor(() => expect(API.getCustomProvider).toHaveBeenCalledWith(2, { signal: expect.any(AbortSignal) }));
   });
@@ -375,7 +364,6 @@ describe("ProviderSection", () => {
 
     saveNewCustomProvider();
 
-    // 选中来自新建响应，与目录重取的结局无关；刷新失败另行告警。
     await waitFor(() => expect(location.history.at(-1)).toBe("/app/settings?section=providers&custom=2"));
     await waitFor(() =>
       expect(useAppStore.getState().toast).toMatchObject({
@@ -386,7 +374,6 @@ describe("ProviderSection", () => {
   });
 
   it("opens a custom provider together with its provider multiplier", async () => {
-    // 倍率与供应商一起取齐再渲染表单：后到的倍率会被已开始的编辑当成外部更新，保存时把旧值写回
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT] });
     vi.spyOn(API, "getCustomProvider").mockResolvedValue(customProvider(1, "旧端点"));
@@ -399,7 +386,6 @@ describe("ProviderSection", () => {
   });
 
   it("deleting a custom provider with unsaved edits goes straight to the first preset", async () => {
-    // 供应商已经删掉，未保存的修改无处可存：删除后的跳转不再弹离开拦截
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT] });
     vi.spyOn(API, "getCustomProvider").mockResolvedValue(customProvider(1, "旧端点"));

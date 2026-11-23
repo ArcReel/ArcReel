@@ -12,8 +12,6 @@ import type { TaskItem } from "@/types";
 import { GridPreviewPanel } from "./GridPreviewPanel";
 import { gridImageAspect } from "./grid-preview-model";
 
-// useActiveResourceIds 默认包裹真实实现，仅在个别用例里用 mockReturnValue 模拟
-// "响应式信号尚未追上真实 store"的场景，验证提交 handler 不依赖它、独立新鲜读 store。
 const mockHolder = vi.hoisted(() => ({
   real: undefined as unknown as typeof import("@/stores/tasks-store").useActiveResourceIds,
 }));
@@ -229,7 +227,6 @@ describe("GridPreviewPanel split", () => {
     await waitFor(() => {
       expect(API.splitGrid).toHaveBeenCalledWith("demo", "grid-1");
       expect(useProjectsStore.getState().assetFingerprints["storyboards/scene_SCN-1.png"]).toBe(42);
-      // 单槽 toast：有跳过分镜时警示后发、留在最终态；只报数量，不露出条目 ID
       expect(useAppStore.getState().toast?.text).toBe("2 个分镜已不在脚本中，已跳过");
     });
     expect(screen.queryByText("未切分")).not.toBeInTheDocument();
@@ -324,8 +321,6 @@ describe("GridPreviewPanel 版本时光机跨宫格切换", () => {
 
     render(<GridPreviewPanel projectName="demo" gridIds={["grid-1", "grid-2"]} />);
 
-    // grid-1 的版本列表请求发出后不解析，切到 grid-2 并读到它自己的版本；
-    // 保护来自切换时的 setGrid(null) 卸载，改成加载期间留旧数据渲染即回归
     fireEvent.click(await screen.findByLabelText("版本"));
     await waitFor(() => expect(API.getVersions).toHaveBeenCalledWith("demo", "grids", "grid-1", { signal: expect.any(AbortSignal) }));
     fireEvent.click(screen.getByRole("button", { name: "第 2 张联合图" }));
@@ -349,7 +344,6 @@ describe("GridPreviewPanel 图片地址版本", () => {
 
     const { container } = render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
-    // 断言当前显示的图片：期间若有重拉，面板会回到加载态再重新挂载图片，先前取到的节点已脱离文档
     const referenceSrc = () =>
       container.querySelector<HTMLImageElement>('img[src*="characters/"]')?.getAttribute("src");
 

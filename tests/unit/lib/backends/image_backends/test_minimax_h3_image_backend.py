@@ -47,7 +47,6 @@ from tests.http_capture import (
     request_json,
 )
 
-# RFC 5737 TEST-NET-3 公网文档地址：既经过 check_destination 的真实地址校验，又不发起 DNS 查询。
 _BASE_URL = "https://203.0.113.10"
 _GENERATIONS = r"https://[^/]+/v1/images/generations"
 _EDITS = r"https://[^/]+/v1/images/edits"
@@ -259,7 +258,6 @@ class TestSizeMapping:
             ("4k", "16:9", {"aspect_ratio": "16:9", "area": "4K"}),
             ("2K", "1080:1920", {"aspect_ratio": "9:16", "area": "2K"}),
             ("2K", "3:1", {"aspect_ratio": "3:1", "area": "2K"}),
-            # 自定义宽x高只取短边，比例来自项目；显式 size 不与 aspect_ratio、area 同发
             ("1920x1080", "16:9", {"size": "1920x1080"}),
             ("2560*1440", "9:16", {"size": "1440x2560"}),
         ],
@@ -281,7 +279,6 @@ class TestSizeMapping:
             ("2K", "4:1", "image_aspect_ratio_not_supported"),
             ("2K", "1:5", "image_aspect_ratio_not_supported"),
             ("512px", "1:1", "image_resolution_not_supported"),
-            # 面积下限 655,360、上限 20,000,000
             ("600x600", "1:1", "image_resolution_not_supported"),
             ("5000x5000", "1:1", "image_resolution_not_supported"),
             ("huge", "1:1", "image_resolution_not_supported"),
@@ -351,7 +348,6 @@ class TestUsage:
         assert price_usage(token_table, usage, multiplier=1.0, estimate=True) == Unpriced(
             UnpricedReason.NO_USAGE_ESTIMATE
         )
-        # 自定义供应商下按张分分辨率档计价时，预估与结算同用 resolution 维度
         per_image_table = PriceTable(
             currency="CNY",
             meters=(
@@ -495,7 +491,6 @@ class TestCatalogAndVersionFloor:
         assert check_catalog(raw) == []
         data = parse_catalog(raw)
 
-        # 低于 0.37.1 时 H3 两款不进可用清单，只出现在 version_gated_models，image-01 照常可用
         install_catalog(monkeypatch, data, app_version="0.37.0")
         assert set(catalog.list_models("minimax")) == {"image-01"}
         assert builtin_model_endpoint("minimax", "image", "image-01") == "minimax-image"
@@ -508,14 +503,12 @@ class TestCatalogAndVersionFloor:
             "MiniMax-H3-Image-Highspeed": ("0.37.1", False),
         }
 
-        # 达到 0.37.1 后两款启用并绑定到 minimax-h3-image，默认模型仍是 image-01
         install_catalog(monkeypatch, parse_catalog(raw), app_version="0.37.1")
         assert set(catalog.list_models("minimax")) == {"image-01", "MiniMax-H3-Image", "MiniMax-H3-Image-Highspeed"}
         assert catalog.default_model("minimax", "image") == "image-01"
         for model in _MODELS:
             assert builtin_model_endpoint("minimax", "image", model) == "minimax-h3-image"
 
-        # 用户在界面新建按输出图片 token 计价的条目（无 output_token_bases）同样通过校验
         created = new_entry(
             maker="minimax",
             name="MiniMax-H3-Image-Custom",

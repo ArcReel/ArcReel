@@ -149,7 +149,6 @@ describe("syncAudio", () => {
   });
 
   it("corrects drift that accumulates over a long placement", () => {
-    // 墙钟走了 60s，元素自己的时钟慢了 0.2s：微调速度追，而不是一直放任
     const longBgm = { ...BGM, start: 0, end: 120, fadeIn: 0, fadeOut: 0 };
 
     const directive = syncAudio(longBgm, 60, true, playingAt(10 + 60 - 0.2));

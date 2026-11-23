@@ -95,8 +95,6 @@ CASES = [
         id="minimax/hailuo-i2v",
     ),
     pytest.param(
-        # 未指定分辨率（Auto）：定义的 defaults.resolution 在渲染前生效，请求照旧带 768P。
-        # 计价矩阵的 default_resolution 按同一个值结算，字段被整个删掉会让那条假设悬空。
         "minimax-hailuo-v1",
         "MiniMax-Hailuo-2.3",
         {"start_image": True, "resolution": None},
@@ -119,7 +117,6 @@ CASES = [
         id="minimax/hailuo-fast-default-resolution",
     ),
     pytest.param(
-        # Fast 与 2.3 请求形状一致、能力不同（仅图生视频），故独立成键；这里钉住形状一致。
         "minimax-hailuo-v1-fast",
         "MiniMax-Hailuo-2.3-Fast",
         {"start_image": True},
@@ -204,7 +201,6 @@ CASES = [
         id="minimax/h3-480p-resolution",
     ),
     pytest.param(
-        # 显式指定时缺省值不得插手：请求带的是调用方选的档位，经 enum_maps 映射为供应商侧字面。
         "minimax-h3",
         "MiniMax-H3",
         {"resolution": "2k"},
@@ -246,8 +242,6 @@ CASES = [
         id="minimax/h3-r2v-audio",
     ),
     pytest.param(
-        # 与内置 `_base_resp_error` 同口径：只有顶层 base_resp 的非零 status_code 判失败，
-        # 轮询中的 task.status_msg 不得被当成业务失败。
         "minimax-h3",
         "MiniMax-H3",
         {},

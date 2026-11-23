@@ -95,7 +95,6 @@ async def test_generate_grid_list_only_respects_4k_gate(
     expected: str,
     forbidden: str,
 ) -> None:
-    # 非 4K 时 4×4 / 5×5 不出现在面向 Agent 的分组预览里；档位取自项目 T2I 槽的图像分辨率
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
     fake_ctx.pm.script_payload["segments"] = [
@@ -111,7 +110,6 @@ async def test_generate_grid_list_only_respects_4k_gate(
 
 
 async def test_generate_grid_list_only_shows_split_for_oversized_group(fake_ctx: ToolHarness) -> None:
-    # 超过单张格数上限的分组，预览按切块后的张数与档位展示，与实际入队同源
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
     fake_ctx.pm.script_payload["segments"] = [
@@ -125,8 +123,6 @@ async def test_generate_grid_list_only_shows_split_for_oversized_group(fake_ctx:
 
 
 async def test_generate_grid_falls_back_on_null_aspect_ratio(fake_ctx: ToolHarness) -> None:
-    # project.json 允许把 aspect_ratio 显式写为 null；SDK 入队路径须回退到默认比例，
-    # 否则 None 会写进宫格规划、任务 payload 与记录上冻结的比例
     from lib.script.grid.grid_manager import GridManager
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
@@ -347,7 +343,6 @@ async def test_generate_grid_blocks_the_whole_group_when_one_scene_state_is_unre
     fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
-    # E1S02 已有一张旧联合图，但其 Manifest 状态读取会炸——组内其它三格都还没图。
     fake_ctx.pm.script_payload["segments"][1]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S02.png"}
 
     class _Resolver:
@@ -403,7 +398,6 @@ async def test_generate_grid_spares_an_already_reusable_sibling_when_one_scene_s
     fake_ctx.pm.script_payload["segments"] = [
         {"segment_id": f"E1S0{i}", "image_prompt": "p", "segment_break": False} for i in range(1, 5)
     ]
-    # E1S02 状态读取会炸；E1S03 已有旧图且状态 CURRENT（可复用）；E1S01/E1S04 缺图。
     fake_ctx.pm.script_payload["segments"][1]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S02.png"}
     fake_ctx.pm.script_payload["segments"][2]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S03.png"}
 
@@ -475,7 +469,6 @@ async def test_generate_grid_cleans_superseded_records(fake_ctx: ToolHarness) ->
 
     batch_waiter = _fake_grid_waiter(fake_enqueue, fake_wait)
 
-    # 预置两代旧记录：一代属于本组（应被清理），一代属于其它组（不得误删）
     gm = GridManager(fake_ctx.project_path)
     superseded = GridGeneration.create(
         episode=1,
@@ -524,8 +517,6 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
-    # 前 9 个缺分镜图（要生成的一张 grid_9），后 4 个已有可复用旧图
-    # （落在另一张 grid_4 里，整张都可复用、不产出替代品）。
     missing_ids = [f"E1S{i:02d}" for i in range(1, 10)]
     reusable_ids = [f"E1S{i:02d}" for i in range(10, 14)]
     fake_ctx.pm.script_payload["segments"] = [
@@ -576,7 +567,6 @@ async def test_generate_grid_cleanup_spares_a_fully_reusable_chunk_of_an_oversiz
 
 
 async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(fake_ctx: ToolHarness) -> None:
-    # 预览路径与入队路径同源，同样不能让 None 流进 plan_grid_chunks
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
     fake_ctx.pm.project_payload["aspect_ratio"] = None
@@ -590,7 +580,6 @@ async def test_generate_grid_list_only_falls_back_on_null_aspect_ratio(fake_ctx:
 
 
 async def test_generate_grid_splits_oversized_group_into_multiple_grids(fake_ctx: ToolHarness) -> None:
-    # 12 个分镜 + 非 4K（上限 9）：入队 2 张宫格，分镜不重不漏，每张 prompt 分镜数与格数一致
     from lib.script.grid.grid_manager import GridManager
 
     fake_ctx.pm.project_payload["generation_mode"] = "storyboard"
@@ -616,18 +605,14 @@ async def test_generate_grid_splits_oversized_group_into_multiple_grids(fake_ctx
 
     out = await run_declared_tool("generate_grid", fake_ctx, {"script": "episode_1.json"}, batch_waiter=batch_waiter)
     assert read_generation_result(out).ok
-    # 生成只产出联合图：两张都等用户审阅后切分落格
     assert len(out.value["grid_ids_awaiting_split"]) == 2
 
     assert [(len(p["scene_ids"]), p["grid_size"]) for p in payloads] == [(9, "grid_9"), (3, "grid_4")]
-    # 场景不重不漏且保持顺序
     assert [sid for p in payloads for sid in p["scene_ids"]] == all_ids
-    # 每张的 prompt 按自身块与档位构建
     assert "3×3" in payloads[0]["prompt"]
     assert "2×2" in payloads[1]["prompt"]
     assert all("Visual style: 水墨晕染，留白构图" in p["prompt"].splitlines() for p in payloads)
 
-    # 落盘的 grid 记录与 payload 一致，帧链长度等于格数
     grids = sorted(GridManager(fake_ctx.project_path).list_all(), key=lambda g: len(g.scene_ids), reverse=True)
     assert [(g.scene_ids, g.rows, g.cols) for g in grids] == [(all_ids[:9], 3, 3), (all_ids[9:], 2, 2)]
     assert all(len(g.frame_chain) == g.rows * g.cols for g in grids)
@@ -639,7 +624,6 @@ async def test_generate_grid_wrong_mode(fake_ctx: ToolHarness) -> None:
 
 
 async def test_generate_grid_rejected_on_reference_video_route(fake_ctx: ToolHarness) -> None:
-    # reference_video 生成模式无分镜图步骤：即使残留 grid_storyboard=true 也不适用宫格工具
     fake_ctx.pm.project_payload["generation_mode"] = "reference_video"
     fake_ctx.pm.project_payload["grid_storyboard"] = True
     out = await run_declared_tool("generate_grid", fake_ctx, {"script": "episode_1.json", "list_only": True})
@@ -831,7 +815,6 @@ async def test_concurrent_submissions_share_one_grid_instead_of_paying_twice(fak
     assert grid.id != abandoned.id
     assert enqueued == [grid.id, grid.id]
     assert [read_generation_result(out).succeeded for out in outs] == [scene_ids, scene_ids]
-    # 谁先进临界区由调度决定：恰有一次提交沿用另一次的宫格
     assert sum("沿用已在生成中的任务（未重复提交）" in out.value["summary"] for out in outs) == 1
 
 
@@ -975,7 +958,6 @@ async def test_generate_grid_judges_a_composite_finished_during_the_batch_agains
         gm.save(grid)
 
     async def worker_finishes(task_id: str, **_kwargs: Any) -> dict[str, Any]:
-        # 生成 worker 在别处落盘，不占工具所在的事件循环。
         await asyncio.to_thread(_complete_grid, task_id)
         return {"status": "succeeded"}
 

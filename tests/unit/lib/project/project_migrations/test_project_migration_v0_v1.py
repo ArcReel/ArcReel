@@ -114,13 +114,12 @@ def test_migrate_order_files_before_schema_bump(tmp_path: Path):
     with pytest.raises(AttributeError):
         mod.migrate_v0_to_v1(p)
 
-    # 第一步（搬图）确实先跑完了，崩溃卡在第二步
     assert (p / "props" / "玉佩.png").exists()
     assert (p / "scenes" / "庙宇.png").exists()
 
     data = json.loads((p / "project.json").read_text(encoding="utf-8"))
     assert data.get("schema_version", 0) == 0
-    assert "clues" in data  # project.json 未升级，幂等检查会重试
+    assert "clues" in data
 
 
 def test_migrate_self_heals_half_migrated(tmp_path: Path):
@@ -133,7 +132,6 @@ def test_migrate_self_heals_half_migrated(tmp_path: Path):
     (p / "clues" / "庙宇.png").write_bytes(b"scene-image")
     (p / "scripts").mkdir()
 
-    # 模拟"半迁移"状态：project.json 已 v1，但 clues/ 文件未搬走、剧本 clues[] 未拆
     (p / "project.json").write_text(
         json.dumps(
             {

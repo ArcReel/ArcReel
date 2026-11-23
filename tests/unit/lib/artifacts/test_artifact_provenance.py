@@ -599,7 +599,6 @@ def test_script_plan_basis_ignores_an_unset_episode_target_duration(
     dirty = build_script_plan_basis("source", episode=1, project={**project, "episode_target_duration": 5})
 
     assert explicit_null.digest == unset.digest
-    # 越界脏值读时降级为「未设目标」，提示词同样不变，basis 也不该动
     assert dirty.digest == unset.digest
 
 

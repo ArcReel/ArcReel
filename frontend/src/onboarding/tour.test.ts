@@ -42,7 +42,6 @@ describe("startTour", () => {
     const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn() });
 
     expect(popover().querySelector(".driver-popover-title")?.textContent).toBe("欢迎");
-    // 页面上没有任何真实元素被高亮 —— driver 顶上的是自己的占位元素，气泡因此居中
     expect(document.querySelector(".driver-active-element")?.id).toBe("driver-dummy-element");
 
     handle.dispose();
@@ -104,7 +103,6 @@ describe("startTour", () => {
   });
 
   it("leaves the highlighted element's own ARIA state as it was, during the step and after", async () => {
-    // 高亮到的是带下拉菜单的触发器：driver 会写上 aria-haspopup="dialog" 等，离开时整组删掉
     const trigger = document.createElement("button");
     trigger.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyCreateProject);
     trigger.setAttribute("aria-haspopup", "menu");
@@ -128,7 +126,6 @@ describe("startTour", () => {
     await vi.waitFor(() => expect(popover().querySelector(".driver-popover-title")?.textContent).toBe("收尾"));
     await vi.waitFor(() => expect(trigger).toHaveAttribute("aria-haspopup", "menu"));
     expect(trigger).toHaveAttribute("aria-expanded", "false");
-    // 居中气泡顶着的占位元素是空 div，同样不带这组属性
     await vi.waitFor(() => expect(document.getElementById("driver-dummy-element")).not.toHaveAttribute("aria-expanded"));
 
     handle.dispose();
@@ -138,14 +135,12 @@ describe("startTour", () => {
   });
 
   it("moves the highlight along when content rendered above pushes the anchor down", async () => {
-    // 回到大厅时问候区晚于「示例项目」区块渲染：锚点被推下去，高亮框要跟过去
     const target = document.createElement("div");
     target.setAttribute("data-onboarding", ONBOARDING_ANCHORS.lobbyDemoCard);
     document.body.appendChild(target);
     let top = 100;
     vi.spyOn(target, "getBoundingClientRect").mockImplementation(() => new DOMRect(40, top, 300, 200));
     const stage = () => document.querySelector(".driver-overlay path")?.getAttribute("d") ?? "";
-    // 关掉 driver 的转场，高亮框第一帧就落定；转场中的位移本来就逐帧跟着锚点走
     vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("reduce") }) as MediaQueryList);
 
     const handle = startTour([{ anchor: ONBOARDING_ANCHORS.lobbyDemoCard, title: "演示卡", body: "长这样" }], LABELS, {
@@ -207,12 +202,9 @@ describe("startTour", () => {
     const handle = startTour(
       [{ anchor: ONBOARDING_ANCHORS.lobbyDemoCard, title: "演示卡", body: "长这样" }],
       LABELS,
-      // 等待窗口压到最短：真实值给的是跨页导航的余量，这里只想看超时之后的降级
       { onExit: vi.fn(), anchorWaitMs: 10 },
     );
 
-    // driver 1.11 起在等待窗口里就先摆出居中气泡（置灰、按钮禁用），超时后才改由占位元素高亮，
-    // 所以这里等的是降级本身，而不是气泡出现
     await vi.waitFor(() => {
       expect(document.querySelector(".driver-active-element")?.id).toBe("driver-dummy-element");
     });
@@ -294,7 +286,6 @@ describe("startTour", () => {
   });
 
   it("hands focus back to where it was before the tour once the tour exits", () => {
-    // 引导启动时一个对话框开着、焦点在它的输入框里：退出后焦点回到这里，而不是落到 body
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();
@@ -320,9 +311,6 @@ describe("startTour", () => {
   });
 
   describe("keyboard navigation", () => {
-    // driver 自带的方向键处理绕过 onNextClick/onPrevClick、不会触发 onStepChange 上报
-    // （跨页导航因此失效）——startTour 关闭了它，自己接管 Esc/方向键，这里断言键盘路径
-    // 与按钮点击走的是同一条上报逻辑。
     it("advances and reports onStepChange on ArrowRight, same as clicking next", () => {
       const onStepChange = vi.fn();
       const handle = startTour(TWO_STEPS, LABELS, { onExit: vi.fn(), onStepChange });
@@ -360,9 +348,6 @@ describe("startTour", () => {
     });
 
     it("ignores ArrowLeft on the first step instead of exiting the tour", () => {
-      // driver 的「上一步」按钮在首步会被禁用，click() 不会触发；但键盘路径没有这层禁用
-      // 态——不挡住的话 movePrevious() 在 driver.js 内部找不到上一步会直接把引导销毁掉，
-      // 表现为用户什么都没做（没跳过/没关闭/没走完）却提前退出了引导。
       const onExit = vi.fn();
       const onStepChange = vi.fn();
       const handle = startTour(TWO_STEPS, LABELS, { onExit, onStepChange });
@@ -399,10 +384,6 @@ describe("startTour", () => {
   });
 
   describe("peripheral isolation", () => {
-    // driver.js 只挡 pointer-events + Tab 键，屏幕阅读器的虚拟光标仍能读到底层界面；
-    // body 的既有子节点（#app-root，以及 Dialog、Sheet 这类经 Portal 挂到 body、
-    // 与 #app-root 是兄弟关系的弹层）打 inert 摘出无障碍树，
-    // 才是真正的「全程只读」。
     function withAppRoot(): HTMLElement {
       const appRoot = document.createElement("div");
       appRoot.id = "app-root";
@@ -502,8 +483,6 @@ describe("startTour", () => {
 
       click(".driver-popover-next-btn");
 
-      // 离开该步后链路应重新锁上——只复原孔的兄弟节点不够，链路节点自身也要复原，
-      // 否则 #app-root 会在后续所有步骤里持续保持可达
       expect(appRoot.inert).toBe(true);
 
       handle.dispose();

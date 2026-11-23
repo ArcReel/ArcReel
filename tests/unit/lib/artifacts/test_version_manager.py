@@ -57,7 +57,6 @@ class TestVersionManager:
         assert len(info["versions"]) == 2
         assert vm.get_version_file_url("characters", "Alice", 2)
         assert vm.get_version_prompt("characters", "Alice", 2) == "p2"
-        # get_version_created_at 返回版本的原始入库时间
         assert vm.get_version_created_at("characters", "Alice", 1)
         assert vm.get_version_created_at("characters", "Alice", 99) is None
         assert vm.has_versions("characters", "Alice")
@@ -205,7 +204,6 @@ class TestVersionManager:
         with pytest.raises(NotFoundError):
             vm.restore_version("characters", "missing", 1, current)
 
-        # create record and delete version file to hit FileNotFoundError branch
         vm.add_version("characters", "Alice", "p", source_file=current)
         version_file = project / vm.get_versions("characters", "Alice")["versions"][0]["file"]
         version_file.unlink()
@@ -646,7 +644,6 @@ def test_version_changes_advance_activity_only_after_commit(tmp_path, operation)
 
 
 def test_failed_batch_rejection_keeps_activity_recorded_by_other_writers(tmp_path):
-    # 账本是项目全局的，草稿、记忆等写入方不经过版本管理的锁：批量拒绝回滚时不能抹掉它们同期的记账。
     vm = VersionManager(tmp_path)
     current = tmp_path / "characters" / "Alice.png"
     current.parent.mkdir()

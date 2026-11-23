@@ -286,7 +286,6 @@ class TestVideoLane:
         assert facts.supported_durations == tuple(expected.supported_durations or [])
         assert facts.max_reference_images == _backend_video_caps("ark", video_model).max_reference_images
         assert isinstance(facts.generate_audio, bool)
-        # 未设分辨率即不下发：lane 与事实都不补兜底档位。
         assert ctx.video.resolution is None
         assert facts.resolution is None
 
@@ -406,7 +405,6 @@ class TestVideoLane:
             builtin_endpoint=None,
         ):
             built_with.append(builtin_endpoint)
-            # 构造完成到守卫写入之间，设置页把这个模型改挂 2.5 端点。
             catalog.install_user_added_models(
                 (catalog.UserAddedModel("ark", model_id, "video", endpoint="ark-seedance-2-5"),)
             )
@@ -512,7 +510,6 @@ class TestActualIdentityQueries:
             submitted_job=False,
             builtin_endpoint=None,
         ):
-            # 模拟 load_custom_backend 的回退：请求 m-dead，实际构造出默认启用的 m-live
             return _FakeBackend(name=provider_id, model="m-live")
 
         use_backend_assembler(monkeypatch, _assemble)
@@ -523,10 +520,8 @@ class TestActualIdentityQueries:
             video=VideoLaneRequest(),
         )
 
-        # 不定桶身份解析按默认启用 model 收敛，构造层直接使用该身份。
         assert ctx.video.provider_model == ProviderModel(provider_id, "m-live")
         assert ctx.video.backend_model == "m-live"
-        # resolution 命中 m-live（实际身份）的 DB 默认，而非按解析意图 m-dead 落空
         assert ctx.video.resolution == "540p"
         assert ctx.video.request_facts is None
 
@@ -658,7 +653,6 @@ class TestVideoRequestFacts:
         )
 
         assert isinstance(read, VideoRequestFacts)
-        # 未设分辨率：两侧都不下发分辨率，参考图约束只随 r2v 桶生效。
         assert read.resolution is None
         assert read.allowed_durations == allowed
         assert ctx.video.request_facts == read
@@ -850,7 +844,6 @@ class TestBackendCache:
         set_catalog_today(monkeypatch, date(2026, 11, 23))
         explicit = await generation_context._get_or_create_image_backend("ark", {"model": default}, resolver)
         assert (explicit.model, built) == (default, [default])
-        # 没给模型时不按目录推荐补模型（docs/adr/0099）
         with pytest.raises(ModelNotInCatalogError):
             await generation_context._get_or_create_image_backend("ark", {}, resolver)
 
@@ -935,7 +928,6 @@ class TestBackendCache:
         provider_id = await _seed_custom_image_provider(
             patched_session_factory,
             [
-                # openai-images-generations 只声明 t2i，openai-images-edits 只声明 i2i
                 {"model_id": "t2i-m", "endpoint": "openai-images-generations", "is_default": True},
                 {"model_id": "i2i-m", "endpoint": "openai-images-edits", "is_default": True},
             ],
@@ -1069,7 +1061,6 @@ class TestBackendCache:
         t1 = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
         t2 = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
         await entered.wait()
-        # 让 t2 在 t1 构造挂起期间也进入 get_or_create（并发 miss 而非先后命中）
         for _ in range(3):
             await asyncio.sleep(0)
         release.set()
@@ -1113,14 +1104,13 @@ class TestBackendCache:
         resolver = cast(ConfigResolver, None)
 
         leader = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
-        await entered.wait()  # leader 已持锁，正在构造中途挂起
+        await entered.wait()
 
         follower = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
-        # 让 follower 跑到「捕获代数 + 排队等锁」这一步（尚未轮到它拿锁）
         for _ in range(3):
             await asyncio.sleep(0)
 
-        generation_context.invalidate_backend_cache()  # 失效边界：此时 follower 已排队，代数已翻篇
+        generation_context.invalidate_backend_cache()
         release.set()
         stale, _ = await leader
         stale_from_follower, _ = await follower
@@ -1167,9 +1157,7 @@ class TestValueObjectAssembly:
         [
             ("soft", True, False),
             ("native", True, False),
-            # C 类模型不产音
             ("none", True, True),
-            # 本集关闭音频：模型有音轨也听不到声音
             ("soft", False, True),
             ("none", False, True),
         ],
@@ -1200,10 +1188,6 @@ class TestValueObjectAssembly:
         with pytest.raises(VideoRequestFactsError, match="video_capability_unavailable"):
             _ = lane.is_silent
 
-
-# ---------------------------------------------------------------------------
-# 画质：项目存值经两侧求值后进入请求（docs/adr/0104）
-# ---------------------------------------------------------------------------
 
 _QUALITIES = ("low", "medium", "high")
 
@@ -1272,7 +1256,6 @@ class TestImageQuality:
         assert await _sent("1K", " low ") == {"size": "1008x1792", "quality": "low"}
         assert await _sent("1K", "high") == {"size": "1008x1792", "quality": "high"}
         assert await _sent("2K", "low") == {"size": "1440x2560", "quality": "low"}
-        # 不在可选值内照发；存量 512px 原样进入请求
         assert await _sent("1K", "LOW") == {"size": "1008x1792", "quality": "LOW"}
         assert await _sent("512px", "medium") == {"size": "576x1024", "quality": "medium"}
 
@@ -1339,7 +1322,6 @@ class TestImageQuality:
 
         for refs, supported in ((False, paths["generate"]), (True, paths["edit"])):
             if not supported:
-                # 端点没有实现的路径保持原有拒绝：任务类型桶解析时就不接受这个模型
                 with pytest.raises(ImageBucketCapabilityError):
                     await _sent("1K", "low", refs=refs)
                 continue

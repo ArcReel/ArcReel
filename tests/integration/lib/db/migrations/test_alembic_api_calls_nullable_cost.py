@@ -60,7 +60,6 @@ def test_upgrade_makes_cost_nullable_and_adds_columns_without_backfill(
         assert after["cost_amount"][0] is False
         assert after["cost_amount"][1] in ("0.0", "'0.0'")
         assert all(after[name] == (False, None) for name in _NEW_COLUMNS)
-        # 历史行原样保留：既不把 0 改成 NULL，也不回填新列。
         assert _costs(engine) == {1: 0.0, 2: 1.5}
         with engine.begin() as connection:
             rows = connection.execute(
@@ -70,9 +69,7 @@ def test_upgrade_makes_cost_nullable_and_adds_columns_without_backfill(
                 )
             ).fetchall()
         assert [tuple(row) for row in rows] == [(None, None, None, None, 10), (None, None, None, None, None)]
-        # 重建表不丢既有索引
         assert _indexes(engine) >= {"idx_api_calls_project_name", "idx_api_calls_status", "idx_api_calls_task_id"}
-        # 迁移后可写入 NULL 费用，与 0 区分
         with engine.begin() as connection:
             connection.execute(sa.text(_INSERT_CALL), {"id": 3, "cost_amount": None, "input_tokens": 5})
         assert _costs(engine)[3] is None
@@ -98,7 +95,6 @@ def test_downgrade_restores_not_null_cost_and_drops_new_columns(
         info = _column_info(engine)
         assert not _NEW_COLUMNS & info.keys()
         assert info["cost_amount"][0] is True
-        # 未定价的行降级后只能回退为 0，已定价的行不变。
         assert _costs(engine) == {1: 0.0, 2: 2.5}
         assert _indexes(engine) >= {"idx_api_calls_project_name", "idx_api_calls_status", "idx_api_calls_task_id"}
     finally:

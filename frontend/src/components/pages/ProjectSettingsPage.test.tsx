@@ -205,7 +205,6 @@ describe("ProjectSettingsPage – 分页与一次保存", () => {
     await waitFor(() => expect(location.history.at(-1)).toBe("/app/projects/demo/settings?tab=memory"));
     expect(await screen.findByRole("heading", { name: "新建记忆文件" })).toBeInTheDocument();
     expect(API.getAgentMemory).toHaveBeenCalledWith({ level: "project", projectName: "demo" }, expect.anything());
-    // 记忆与 Agent 配置各管各的保存，不显示外壳保存栏
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
     expect(updateSpy).not.toHaveBeenCalled();
   });
@@ -514,12 +513,10 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     await pick(r2v, "720p");
     expect(i2v).toHaveTextContent(sharedModel ? "720p" : "1080p");
     expect(r2v).toHaveTextContent("720p");
-    // 共用模型时两次修改互相抵消，另改一处让保存可用
     fireEvent.click(within(sidebar()).getByRole("link", { name: /^基础/ }));
     fireEvent.click(await screen.findByRole("radio", { name: /横屏 16:9/ }));
     fireEvent.click(saveButton());
     await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
-    // 共用模型时两次修改抵消，分辨率表与已保存的一致，不回写
     expect(updateSpy.mock.calls[0][1].model_settings).toEqual(
       sharedModel
         ? undefined
@@ -553,8 +550,6 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
   });
 
   it("reads and writes the image resolution under the executing text-to-image model", async () => {
-    // 项目默认层与文生图槽指向不同模型：后端按执行模型查 model_settings，故读写都挂在
-    // 文生图槽那个模型上——挂错 key 时用户选的分辨率会被静默忽略，且重载读回旧值。
     const updateSpy = mockProject({
       video_backend: "gemini/veo-3",
       default_image_backend: "gemini/nano-banana",
@@ -589,7 +584,6 @@ describe("ProjectSettingsPage – model_settings resolution", () => {
     await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
     expect(updateSpy.mock.calls[0][1]).toEqual({
       model_settings: expect.objectContaining({
-        // 写回的也是文生图执行模型的 key，项目默认层模型的设置原样保留
         "openai/gpt-image": { resolution: "1080p" },
         "gemini/nano-banana": { resolution: "1080p" },
       }),
@@ -861,7 +855,6 @@ describe("ProjectSettingsPage – model_settings quality", () => {
     fireEvent.click(saveButton());
 
     await waitFor(() => expect(updateSpy).toHaveBeenCalledTimes(1));
-    // 视频执行模型（全局默认）的那一项是既有的写法：没有存值时写 null 分辨率
     expect(updateSpy.mock.calls[0][1]).toEqual({
       model_settings: {
         "gemini/veo-3": { resolution: null },
@@ -940,7 +933,6 @@ describe("ProjectSettingsPage – model_settings quality", () => {
       model_settings: {
         "gemini/veo-3": { resolution: "720p" },
         "openai/gpt-image-2": { resolution: "2K", quality: "high" },
-        // 别的图片模型上存的画质，本表单不显示它，也不能被整表写入抹掉
         "openai/gpt-image-1": { resolution: "1K", quality: "low" },
       },
     });
@@ -1016,7 +1008,6 @@ describe("ProjectSettingsPage – 基础", () => {
     await waitFor(() => {
       expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({ grid_storyboard: true }));
     });
-    // 生成模式不在 PATCH 面上
     expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("generation_mode");
   });
 
@@ -1033,7 +1024,6 @@ describe("ProjectSettingsPage – 基础", () => {
       expect(updateSpy).toHaveBeenCalledWith("demo", expect.objectContaining({ episode_target_duration: 120 }));
     });
 
-    // 清空即写回 null（后端据此删除该偏好）
     fireEvent.change(screen.getByLabelText(/单集目标时长/), { target: { value: "" } });
     fireEvent.click(saveButton());
     await waitFor(() => {
@@ -1095,7 +1085,6 @@ describe("ProjectSettingsPage – 配音", () => {
     const updateSpy = mockProject({ generation_mode: "reference_video" });
     renderAt("/app/projects/demo/settings?tab=voice");
 
-    // 字段缺省即默认档：提示词约束选中
     expect(await screen.findByRole("radio", { name: /^提示词约束/ })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: /^参考音频/ }));
     fireEvent.click(saveButton());
@@ -1111,7 +1100,6 @@ describe("ProjectSettingsPage – 配音", () => {
     fireEvent.click(await screen.findByRole("radio", { name: "TTS 配音" }));
     expect(screen.queryByRole("radio", { name: /^提示词约束/ })).not.toBeInTheDocument();
     fireEvent.click(saveButton());
-    // 参考音频通道只属于参考生视频路线：分镜图生视频下该键与项目无关，不写
     await waitFor(() => expect(updateSpy).toHaveBeenCalled());
     expect(updateSpy.mock.calls[0][1]).not.toHaveProperty("character_voice_binding");
   });

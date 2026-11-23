@@ -10,7 +10,6 @@ import pytest
 from lib.project.project_manager import ProjectManager
 from server.services.currency.asset_regeneration_impact import AssetRegenerationImpact, asset_regeneration_impact
 
-#: 与 ``conftest.py`` 选角项目的项目名一致。
 PROJECT = "demo"
 
 

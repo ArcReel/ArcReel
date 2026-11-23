@@ -18,7 +18,6 @@ const workflowStatus = recorded<RecordedWorkflowStatus>("project-demo-workflow-s
 const [firstEpisode] = recordedProject.project.episodes;
 
 const EVENT_STREAM: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 

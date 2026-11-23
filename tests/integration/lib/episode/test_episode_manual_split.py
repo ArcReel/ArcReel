@@ -384,7 +384,6 @@ class TestAcrossFiles:
         }
 
     def test_unsplit_text_across_files_is_counted_in_the_merged_volume(self, tmp_path: Path):
-        # 两集之间夹着 a.txt 的「第三章。夜雨。」与 b.txt 的「第四章。重逢。」，各 7 字
         project_dir = _project_dir(tmp_path, [_cut(1, "a.txt", 0, CH3), _cut(2, "b.txt", CH5, len(B))])
 
         pending = merge_with_next_episode(project_dir, 1)

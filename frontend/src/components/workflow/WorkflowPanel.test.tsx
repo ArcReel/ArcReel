@@ -285,7 +285,6 @@ describe("WorkflowPanel 提醒", () => {
     expect(within(assets).queryByTestId("workflow-next-step")).not.toBeInTheDocument();
     const next = screen.getByTestId("workflow-next-step");
     expect(within(next).queryByText(/林默|祠堂|路人/)).not.toBeInTheDocument();
-    // 分镜图的生成入口会拒绝引用无图资产的分镜：下一步只附一条数量提示
     expect(within(next).getByText("1 个引用的资产还没有资产图，引用它们的分镜不能生成。")).toBeInTheDocument();
   });
 
@@ -767,7 +766,6 @@ describe("WorkflowPanel 分镜图与视频批量入口", () => {
   });
 });
 
-/** 第 1 集正式脚本只有条目 ID，界面按它们在数组里的位置称呼条目。 */
 function seedEpisodeScript(arrayKey: "segments" | "video_units", ids: string[]) {
   const idKey = arrayKey === "segments" ? "segment_id" : "unit_id";
   useProjectsStore.setState({

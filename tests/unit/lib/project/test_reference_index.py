@@ -134,7 +134,6 @@ def indexed_project_dir(tmp_path: Path) -> Path:
             FileReference(FileRole.REFERENCED, FileOwner("episode", episode=1)),
         ),
         ("thumbnails/scene_E1S01.jpg", FileReference(FileRole.DERIVED, FileOwner("segment", id="E1S01", episode=1))),
-        # 历史版本按版本历史判定，current 版本的快照同样在版本历史里并带当前标识；被删资产留下的版本仍是历史版本。
         (
             "versions/storyboards/E1S01_v1_20260101T000000.png",
             FileReference(FileRole.HISTORY, FileOwner("segment", id="E1S01", episode=1)),
@@ -199,7 +198,6 @@ def test_contains_resource_compares_asset_names_in_nfc(tmp_path: Path) -> None:
 
 
 def test_pending_grid_record_is_structure_before_any_reference(indexed_project_dir: Path) -> None:
-    # 排队中的宫格只有 grids/<id>.json，还没有产物登记或剧本 grid_id。
     _write(indexed_project_dir / "grids/grid_fedcba987654.json", {"id": "grid_fedcba987654", "status": "pending"})
 
     index = ReferenceIndex.build(indexed_project_dir)
@@ -213,7 +211,6 @@ def test_pending_grid_record_is_structure_before_any_reference(indexed_project_d
 
 
 def test_legacy_script_plan_is_structure_of_its_episode(indexed_project_dir: Path) -> None:
-    # 只剩旧版 .md 规划时，分集视图仍读取它作为该集的脚本规划。
     _write(indexed_project_dir / "drafts/episode_1/script_plan_normalized_script.md", "# 规划")
 
     assert ReferenceIndex.build(indexed_project_dir).reference_of(
@@ -229,7 +226,6 @@ def test_corrupt_project_data_fails_instead_of_reporting_unreferenced(indexed_pr
 
 
 def test_a_long_voice_style_does_not_break_the_index(tmp_path: Path) -> None:
-    # voice_style 是配音风格描述，不是路径；超过文件名长度上限（255 字节）时 stat 报 ENAMETOOLONG
     voice = "A warm Chicago American female voice, low-middle register with a soft husky edge, " * 4
     root = tmp_path / "demo"
     _write(
@@ -250,7 +246,6 @@ def test_a_long_voice_style_does_not_break_the_index(tmp_path: Path) -> None:
 def test_other_io_errors_while_canonicalizing_still_fail_the_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # 只放过名称过长；I/O 错误时不能把在用文件按项目记录的拼写入表、让它看起来未被引用
     import errno
 
     root = tmp_path / "demo"
@@ -261,7 +256,6 @@ def test_other_io_errors_while_canonicalizing_still_fail_the_build(
     original_is_symlink = Path.is_symlink
 
     def _io_error_on_the_sheet(self: Path) -> bool:
-        # 只让 _canonical 解析这张资产图时出错：读 project.json 等其它路径照常
         if self == sheet:
             raise OSError(errno.EIO, "I/O error", str(self))
         return original_is_symlink(self)

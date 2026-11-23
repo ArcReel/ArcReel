@@ -590,7 +590,6 @@ class TestEndpointCatalog:
         assert descriptor["source"] == "custom"
         assert descriptor["kind"] == "declarative"
         assert descriptor["display_name"] == "示例端点"
-        # 声明式端点（随版与用户自定义同此约定）的显示名写在定义里，没有可翻译的 key
         assert descriptor["display_name_key"] == ""
 
     def test_builtin_descriptors_declare_their_source(self, endpoints_client: TestClient):

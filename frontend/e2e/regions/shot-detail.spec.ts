@@ -4,7 +4,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
 
-// 集页「分镜」视图：左侧分镜列表，右侧分镜详情（中栏引用、提示词、台词、对应原文，媒体栏分镜图与视频）。
 const BOARD_PATH = "/app/projects/demo/episodes/1";
 
 
@@ -18,7 +17,6 @@ const recordedScript = project.scripts["episode_1.json"];
 
 const shotId = (n: number) => `E1S${String(n).padStart(2, "0")}`;
 
-// 引用图与分镜图用内联 SVG：getFileUrl 原样使用 data: 地址，不发请求，截图稳定。
 function portraitSvg(hue: number) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 90 160"><rect width="90" height="160" fill="hsl(${hue} 30% 22%)"/><circle cx="45" cy="62" r="20" fill="hsl(${hue} 35% 55%)"/><rect x="18" y="96" width="54" height="48" rx="6" fill="hsl(${hue} 30% 40%)"/></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
@@ -93,7 +91,6 @@ const scenes = Array.from({ length: SHOT_COUNT }, (_, i) => {
 });
 
 const API: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": {
     status: 200,
@@ -135,7 +132,6 @@ const API: ApiOverrides = {
   "POST /api/v1/projects/demo/script-items/E1S02/move": { status: 200, body: { success: true } },
 };
 
-// 时长弹层要有可选档位：录制的视频能力是解析失败，时长按钮因此禁用。
 const API_WITH_DURATIONS: ApiOverrides = {
   ...API,
   "GET /api/v1/projects/demo/video-capabilities": {
@@ -161,16 +157,10 @@ const detail = (page: Page) => page.getByRole("tabpanel");
 const agentToggle = (page: Page) => page.getByRole("button", { name: "Agent", exact: true });
 const storyboard = (page: Page) => page.getByRole("img", { name: "分镜 1 分镜图" });
 
-
-
-/** 弹层带入场动画，量尺寸、跑 axe 之前等它停下；进行中的转圈等循环动画不等。 */
-
 async function boardReady(page: Page) {
   await shotList(page).waitFor();
   await page.getByRole("heading", { name: "引用" }).waitFor();
 }
-
-/** 紧凑档 Agent 面板盖在画布右侧：先收起再点详情右侧的控件。 */
 
 defineRegionScenarios("分镜详情", [
   {
@@ -181,13 +171,11 @@ defineRegionScenarios("分镜详情", [
     act: async (page) => {
       await expect(shotList(page).getByRole("button", { name: /^分镜 1(?!\d)/ })).toHaveAttribute("aria-current", "true");
       const { width } = viewport(page);
-      // 1440 宽、Agent 面板展开时，引用与台词区同屏可见（提示词随内容撑高，长台词可能在首屏之下）
       if (width === 1440) {
         await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "true");
         await expect(page.getByRole("heading", { name: "引用" })).toBeInViewport();
         await expect(page.getByRole("heading", { name: "发声序列" })).toBeInViewport();
       }
-      // 1920 宽时媒体栏约 660px，分镜图与视频并排
       if (width === 1920) {
         const image = await box(storyboard(page));
         const video = await box(page.getByRole("heading", { name: "视频", exact: true }));
@@ -195,7 +183,6 @@ defineRegionScenarios("分镜详情", [
         expect(Math.abs(video.y - image.y)).toBeLessThan(80);
       }
       await expect(page.getByRole("button", { name: "对应原文与参考" })).toHaveAttribute("aria-expanded", "false");
-      // 区域截图不带紧凑档盖在画布上的 Agent 面板
       await clearAgentOverlay(page);
     },
     screenshot: { name: "shot-detail-board", target: detail },
@@ -287,7 +274,6 @@ defineRegionScenarios("分镜详情", [
     ready: boardReady,
     act: async (page) => {
       await page.getByRole("textbox", { name: "分镜图提示词" }).fill("雨停后的旧城街景");
-      // 焦点在输入框里时 J 是要输入的字符；移开焦点再按
       await page.getByRole("textbox", { name: "分镜图提示词" }).blur();
       await page.keyboard.press("j");
       const dialog = page.getByRole("alertdialog", { name: "「分镜 1」有未保存的修改" });
@@ -406,7 +392,6 @@ defineRegionScenarios("分镜详情", [
       await handle.scrollIntoViewIfNeeded();
       await handle.focus();
       const move = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/script-items/E1S500/move"));
-      // 拿起后立即方向键：同一事件循环内不等测量或播报。
       await handle.evaluate((el) => {
         for (const [key, code] of [[" ", "Space"], ["ArrowUp", "ArrowUp"]]) {
           el.dispatchEvent(new KeyboardEvent("keydown", { key, code, bubbles: true, cancelable: true }));

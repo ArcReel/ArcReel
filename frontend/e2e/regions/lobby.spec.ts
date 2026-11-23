@@ -108,7 +108,6 @@ defineRegionScenarios("项目大厅", [
       await expect(first.getByRole("heading", { level: 3 })).toBeInViewport({ ratio: 1 });
       await expect(first.getByText("制作中", { exact: true })).toBeInViewport({ ratio: 1 });
 
-      // 卡片最小宽 280px，2560 宽的窗口排 8 列
       if (page.viewportSize()?.width === 2560) {
         const lefts = await projectList(page)
           .getByRole("listitem")

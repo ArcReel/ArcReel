@@ -120,7 +120,6 @@ class TestDeclarativeVideoBackend:
 
         request = download.calls.last.request
         assert "Authorization" not in request.headers
-        # 签名 URL 的 query 是签名的一部分，附带 auth 节的 query 凭证会直接破坏它。
         assert request.url.query == b"sig=abc"
 
     async def test_artifact_on_the_fixed_submit_host_gets_credentials(self, tmp_path: Path):
@@ -308,7 +307,6 @@ class TestDeclarativeVideoBackend:
                 provider="custom-1",
             ).generate(_request(tmp_path))
 
-        # 定义指名的主机拿得到凭证；服务端把它引去的第三方主机拿不到。
         assert poll.calls.last.request.headers["X-API-Key"] == "secret"
         assert "X-API-Key" not in moved.calls.last.request.headers
 
@@ -632,7 +630,6 @@ class TestDeclarativeVideoBackend:
             )
             download = router.get(artifact_url).mock(return_value=httpx.Response(200, content=b"video"))
 
-            # 目的地不合规是确定性结果，不落可重试下载的 artifact_download_failed
             with pytest.raises(ArtifactDestinationRejectedError):
                 await DeclarativeVideoBackend(
                     api_key="secret",
@@ -753,7 +750,6 @@ class TestDeclarativeVideoBackend:
         assert old_host.call_count == 1
         assert new_host.call_count == 0
         assert result.video_path.read_bytes() == b"resumed"
-        # 同源判定跟着回放的域名走，凭证照常附上。
         assert download.calls.last.request.headers["Authorization"] == "Bearer secret"
 
     async def test_submit_persists_the_base_url_it_used(self, tmp_path: Path):
@@ -1149,8 +1145,6 @@ class TestDeclarativeVideoBackend:
                 return_value=httpx.Response(500, json={"error": "result exploded"})
             )
 
-            # 任务已成功、钱已花：二次取件的瞬态失败共用产物取件预算，耗尽后落可恢复的
-            # artifact_download_failed，而不是就地废掉一条已付费的成片。
             with pytest.raises(DeclarativeRuntimeError) as caught:
                 await DeclarativeVideoBackend(
                     api_key="secret",
@@ -1191,7 +1185,6 @@ class TestDeclarativeVideoBackend:
                 provider="custom-1",
             ).generate(_request(tmp_path))
 
-        # 断言范围限本模块写入的日志；httpx 自己的 `HTTP Request:` 行不在其内。
         logged = "\n".join(
             record.getMessage() for record in caplog.records if record.name == "lib.custom_provider.declarative_backend"
         )

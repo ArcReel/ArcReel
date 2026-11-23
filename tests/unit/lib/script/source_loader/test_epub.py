@@ -136,7 +136,6 @@ def test_epub_does_not_expand_external_entities(epub_factory, tmp_path):
     )
     result = EpubExtractor().extract(src)
     assert "TOP-SECRET" not in result.text
-    # 外部实体不被加载，NCX 视为损坏，标题退化为序号，正文照常抽取
     assert "# 第 1 章" in result.text
     assert "正文。" in result.text
 
@@ -273,7 +272,6 @@ def test_epub_with_corrupt_lzma_member_raises_corrupt(tmp_path):
     data = bytearray(src.read_bytes())
     with zipfile.ZipFile(src) as zf:
         info = zf.getinfo("META-INF/container.xml")
-    # LZMA 条目数据以 4 字节版本与长度头开头，其后是压缩属性，把属性改坏
     payload_start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
     for offset in range(payload_start + 4, payload_start + 9):
         data[offset] = 0xFF
@@ -287,7 +285,6 @@ def test_epub_with_undecodable_utf8_filename_raises_corrupt(tmp_path):
     src = tmp_path / "bad_name.epub"
     with zipfile.ZipFile(src, "w") as zf:
         zf.writestr("mimetype", "application/epub+zip")
-        # 非 ASCII 文件名会被自动标记为 UTF-8，再把它的字节改成非法 UTF-8
         zf.writestr("META-INF/章.xhtml", "<html/>")
     name = "章".encode()
     src.write_bytes(src.read_bytes().replace(name, b"\xff" * len(name)))
@@ -393,7 +390,6 @@ def _corrupt_member(src: Path, out: Path, name: str) -> Path:
     data = bytearray(src.read_bytes())
     with zipfile.ZipFile(src) as zf:
         info = zf.getinfo(name)
-    # 本地文件头固定 30 字节，其后是文件名与扩展字段，再往后才是压缩数据
     payload_start = info.header_offset + 30 + len(info.filename.encode()) + len(info.extra)
     for offset in range(payload_start + 4, min(payload_start + 24, payload_start + info.compress_size)):
         data[offset] ^= 0xFF

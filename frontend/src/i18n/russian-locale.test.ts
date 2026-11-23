@@ -55,7 +55,6 @@ describe("Russian locale", () => {
         const expected = placeholders(source);
         let actual = placeholders(text);
         const pluralBase = key.replace(/_(one|few|many|other)$/, "");
-        // Russian singular forms also cover 21 and 31, where English may spell out "this".
         if (`${pluralBase}_one` in english
           && placeholders(english[`${pluralBase}_other`]).includes("{{count}}")
           && !expected.includes("{{count}}")) {

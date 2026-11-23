@@ -73,8 +73,6 @@ async def test_inserted_bgm_takes_defaults_and_is_cut_at_the_timeline_end(
     assert [clip.id for clip in result.bgm] == ["b1", "b2"]
     readout = await service.read("demo", timeline_id)
     assert readout.duration == 3.0
-    # b1 只有 1.5 秒，默认各 1 秒的淡入淡出按比例缩短；b2 从 1.5 秒起放整首 2 秒，越过 3 秒的末尾，
-    # 截到末尾，截断处淡出 1 秒
     assert _rows(readout.bgm) == [
         ("b1", "雨夜", 0.0, 1.5, 0.0, 1.5, 0.25, 0.75, 0.75),
         ("b2", "雨夜", 1.5, 3.0, 0.0, 2.0, 0.4, 0.5, 1.0),
@@ -170,7 +168,6 @@ async def test_editing_a_bgm_clip_someone_else_just_changed_conflicts_on_that_cl
     assert raised.value.code == "revision_conflict"
     assert raised.value.params["conflicting_clip_ids"] == ["b1"]
 
-    # 只改视频片段的旧基线批次不受 BGM 改动影响
     result = await _edit(service, timeline_id, 2, {"op": "set_volume", "clip": "c2", "volume": 0.5})
     assert result.revision == 4
 

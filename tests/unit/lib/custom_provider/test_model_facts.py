@@ -63,7 +63,6 @@ class TestVideoOtherFacts:
             {"resolutions": ["720p"], "duration_constraints": {"by_resolution": {"720P": [4]}}},
         )
         assert facts.resolutions == ("720p",)
-        # 整维替换：没写的参考图约束随之消失，不与条目合并
         assert facts.duration_constraints == DurationConstraints(by_resolution={"720p": (4,)})
 
 

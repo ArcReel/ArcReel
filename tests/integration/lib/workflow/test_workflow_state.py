@@ -466,7 +466,6 @@ def test_media_paths_must_resolve_to_project_files_before_becoming_current(tmp_p
     )
     status = WorkflowStateService(pm).get_status("demo")
 
-    # 越界指针是硬阻断（不是「当作没生成」），项目内但未登记的指针才是 missing。
     assert status.artifacts["storyboards"]["state"] == "blocked"
     assert status.artifacts["storyboards"]["current_ids"] == []
     assert [blocker.code for blocker in status.issues] == ["artifact_path_invalid"]
@@ -534,7 +533,6 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     _register_produced_artifacts(project_path)
     video = service.get_status("demo")
     assert video.next_action.type == "generate_videos"
-    # 剪辑的准入：本集至少有一个可用视频。
     assert video.operations["create_edit_timeline"].model_dump(mode="json") == {
         "state": "refused",
         "reason": "no_available_video",
@@ -543,8 +541,6 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     script["segments"][0]["generated_assets"]["video_clip"] = _commit_media_version(project_path, "videos", "E1S01")
     atomic_write_json(script_path, script)
     _register_produced_artifacts(project_path)
-    # 视频齐备后进入剪辑：本集还没有剪辑时间线，下一步是新建剪辑时间线。
-    # 后期配音项目不报旁白配音缺口。
     editing = service.get_status("demo")
     assert editing.next_action.type == "create_edit_timeline"
     assert editing.next_action.args == {"episode_id": 1}
@@ -565,7 +561,6 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     assert ready.content is not None
     assert ready.content.episode_complete
 
-    # 剪辑时间线目录读不了时停在「剪辑」一步并报 issue，不让整个状态查询失败。
     if os.geteuid() != 0:
         edit_root = project_path / "edit_timelines"
         edit_root.chmod(0)
@@ -580,7 +575,6 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
         assert unreadable.blockers == []
         assert [issue.code for issue in unreadable.issues] == ["invalid_edit_timelines"]
 
-    # 已有一条可用时间线，另一条文件损坏时同样停在「剪辑」一步并报 issue。
     corrupt = project_path / "edit_timelines" / "episode_1" / "tl-0000beef.json"
     corrupt.write_text("{", encoding="utf-8")
     try:
@@ -606,7 +600,6 @@ def test_narration_progresses_through_storyboard_video_to_edit(tmp_path: Path) -
     )
     atomic_write_json(script_path, script)
     _register_produced_artifacts(project_path)
-    # 缺旁白配音只在 TTS 配音项目的 artifacts["audio"] 里如实报告，不推进状态机。
     still_ready = service.get_status("demo")
     assert workflow_finished(still_ready)
     assert still_ready.artifacts["audio"]["current_ids"] == ["E1S01"]
@@ -789,7 +782,6 @@ def test_project_is_complete_once_every_episode_has_an_edit_timeline_and_no_sour
     assert project.next_action.type == "none"
     assert project.content is not None
     assert project.content.project_complete
-    # 按集查询只陈述这一集，项目是否全部完成不在集的口径里。
     episode = service.get_status("demo", episode=1)
     assert episode.content is not None
     assert episode.content.episode_complete
@@ -955,8 +947,6 @@ def test_completed_first_episode_does_not_hide_later_incomplete_episode(
     status = WorkflowStateService(pm).get_status("demo")
 
     assert load_calls == 1
-    # 整本源文仍只读一次；自带原文的集的集文件计入源文修订号读一次，另被「本集有集原文」这条准入事实
-    # 读一次、比对 script_plan 基线时读一次。
     assert source_reads == {"novel.txt": 1, "episode_1.txt": 3}
     assert status.target is not None
     assert status.target.episode == 2
@@ -1009,7 +999,6 @@ def test_stale_episode_stays_out_of_the_next_step(tmp_path: Path) -> None:
     assert first.content is not None
     assert first.content.episode_complete
 
-    # 其余集都完成时，默认视图停在待重建的 stale 集上陈述现状，不报全部完成。
     status = service.get_status("demo")
     assert status.target is not None
     assert status.target.episode == 2
@@ -1930,7 +1919,6 @@ def test_identical_stale_script_plan_rebuild_advances_after_explicit_completion(
     still_pending = service.get_status("demo", 1)
     assert still_pending.content is not None
     assert still_pending.content.episode_plan_stale is True
-    # 制作计划给出带前缀的 revision，原样回传即可；早先拿到的裸 hex 写法同样被接受。
     expected = before.content.expected_stale_script_plan_revision
     assert expected is not None
     script_review.complete_stale_script_plan_rebuild(
@@ -1971,7 +1959,6 @@ def test_null_baseline_stale_rebuild_requires_confirming_the_rebuilt_script_plan
             "segments": [_valid_narration_segment()],
         },
     )
-    # 剧本的认领留存，但它所依据的 script_plan 已不在盘上——这正是待重建的祖传剧本形态。
     script_plan_path.unlink()
     service = WorkflowStateService(pm)
     awaiting_rebuild = service.get_status("demo", 1)

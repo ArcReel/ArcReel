@@ -50,7 +50,6 @@ def test_apply_unit_video_assets_stamps_video_generated_at():
     assert isinstance(first_stamp, str)
     assert first_stamp
 
-    # 重新生成（第二次写回）必须刷新时间戳，不能沿用旧值
     apply_unit_video_assets(script, "E1U1", video_uri=None, thumb_rel=None)
     second_stamp = script["video_units"][0]["generated_assets"]["video_generated_at"]
     assert isinstance(second_stamp, str)

@@ -370,7 +370,6 @@ def test_migrate_failed_entry_does_not_block_the_rest(
 
 def test_setup_logging_file_false_skips_file_handler(isolated_log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """模块导入期用 file=False 时不应挂 file handler、不应 mkdir 新目录。"""
-    # 注意：isolated_log_dir 指向的数据根日志目录尚未创建
     log_dir = isolated_log_dir
     assert not log_dir.exists()
 

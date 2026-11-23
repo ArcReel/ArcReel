@@ -369,7 +369,6 @@ class TestBuildOptionsLocalizedNames:
 
         assert zh["provider_names"]["ark"] == "火山方舟"
         assert en["provider_names"]["ark"] == "Volcengine Ark"
-        # 模型显示名取目录条目，不分语言；型号从目录取，免得随出厂快照更新失效
         model_id = catalog.default_model("ark", "text")
         assert model_id is not None
         model = catalog.get_model("ark", model_id)

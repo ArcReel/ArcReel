@@ -13,7 +13,6 @@ from arcreel_market_core.comfyui.validator import CURRENT_SCHEMA_VERSION, load_s
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from arcreel_market_core.endpoint_definition import load_schema as load_declarative_schema
 
-#: 两份 schema 逐字共用的构件：同一个 ``meta`` 决定「同一份定义」，同一个 ``auth`` 决定凭证怎么写。
 SHARED_DEFS = ("semver", "meta", "auth", "headerMap", "queryMap", "template")
 
 

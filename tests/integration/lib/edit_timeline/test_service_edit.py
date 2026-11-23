@@ -144,13 +144,11 @@ async def test_stale_base_still_applies_when_its_clips_were_untouched(service: E
         ({"op": "set_volume", "clip": "c2", "volume": 0.4}, {"op": "set_hold", "clip": "c2", "hold": 1}, ["c2"]),
         ({"op": "delete", "clip": "c2"}, {"op": "insert", "unit_id": "E1U3", "after": "c2"}, ["c2"]),
         ({"op": "move", "clip": "c3", "after": None}, {"op": "set_reason", "clip": "c3", "reason": "收尾"}, ["c3"]),
-        # 本批会顺带清掉 c1 上的转场，而他人刚改过这个转场
         (
             {"op": "set_transition", "clip": "c1", "transition": {"type": "fade_black", "duration": 0.4}},
             {"op": "insert", "unit_id": "E1U3", "after": "c1"},
             ["c1"],
         ),
-        # 他人在 c2 后插入片段，本批要加转场的 c2→c3 切点已不存在
         (
             {"op": "insert", "unit_id": "E1U1", "after": "c2"},
             {"op": "set_transition", "clip": "c2", "transition": {"type": "dissolve", "duration": 0.2}},
@@ -214,7 +212,6 @@ async def test_trim_is_voided_after_the_current_video_version_changes(
         ("trim_ignored", "info", ("c1",))
     ]
     assert readout.issues[0].params == {"basis_version": 1, "current_version": 2}
-    # 截取作废后暂用完整视频
     assert (readout.clips[0].duration, readout.duration) == (3.0, 5.0)
 
 
@@ -231,7 +228,6 @@ async def test_clips_report_the_full_length_of_their_current_video(
     readout = await service.read("demo", timeline_id)
 
     assert [(clip.duration, clip.source_duration) for clip in trimmed.clips] == [(1.25, 2.0)]
-    # 没有可用视频的片段按编排时长占位，全长未知
     assert [(clip.id, clip.source_duration) for clip in readout.clips] == [("c1", 2.0), ("c2", None), ("c3", 1.0)]
 
 
@@ -249,7 +245,6 @@ async def test_total_duration_adds_trims_and_holds_and_ignores_transitions(servi
         {"op": "set_transition", "clip": "c2", "transition": {"type": "push_left", "duration": 0.3}},
     )
 
-    # 1.0 + 0.75 + (0.5 + 2.5)
     assert result.duration == 4.75
     assert [(clip.id, clip.start, clip.duration) for clip in result.clips] == [
         ("c1", 0.0, 1.0),
@@ -265,7 +260,6 @@ async def test_total_duration_adds_trims_and_holds_and_ignores_transitions(servi
 async def test_transitions_must_fit_within_the_clips_they_straddle(service: EditTimelineService) -> None:
     timeline_id = await _create(service)
 
-    # c3 仅 0.5 秒：进出转场各占一半，最多容纳 1.0 秒的进场转场
     with pytest.raises(EditTimelineError) as excinfo:
         await _edit(
             service,
@@ -304,12 +298,10 @@ async def test_inserted_clips_reuse_units_with_voice_defaults_and_keep_one_narra
     ]
     readout = await service.read("demo", timeline_id)
     assert [clip.id for clip in readout.clips] == ["c5", "c1", "c3", "c4"]
-    # 旁白承载片段被删后改挂到该单元剩下的片段上，从它的起点开始
     narration = readout.clips[3].narration
     assert narration is not None
     assert (narration.start, narration.end) == (3.0, 3.8)
 
-    # 编号不复用：删除过的 c2 不会再分配出来
     again = await _edit(service, timeline_id, 2, {"op": "insert", "unit_id": "E1U3", "after": "c4"})
     assert [clip.id for clip in again.clips] == ["c6"]
 
@@ -327,7 +319,6 @@ async def test_cuts_whose_neighbours_change_fall_back_to_hard_cuts(service: Edit
 
     result = await _edit(service, timeline_id, 2, {"op": "move", "clip": "c2", "after": "c3"})
 
-    # c1→c2 与 c2→c3 两个切点都不复存在，各自恢复硬切；本批受影响片段一并返回
     assert [(clip.id, clip.transition_to_next) for clip in result.clips] == [("c1", None), ("c2", None)]
     readout = await service.read("demo", timeline_id)
     assert [clip.id for clip in readout.clips] == ["c1", "c3", "c2"]
@@ -538,7 +529,6 @@ async def test_a_moved_cut_is_reported_as_a_conflict_before_the_new_neighbour_is
     timeline_id = await _create(service)
     await _edit(service, timeline_id, 1, {"op": "insert", "unit_id": "E1U3", "after": "c1"})
 
-    # c1→c2 容得下 1.2 秒转场；他人插入的 c4 只有 0.5 秒，但本批看到的切点已不存在，应先报冲突。
     with pytest.raises(EditTimelineError) as excinfo:
         await _edit(
             service,
@@ -561,7 +551,6 @@ async def test_stale_transition_is_checked_against_the_latest_neighbour_lengths(
         service, timeline_id, 2, {"op": "set_trim", "clip": "c2", "trim": {"source_in": 0.0, "source_out": 1.5}}
     )
 
-    # 基准修订上 c2 只有 0.25 秒、放不下 0.8 秒转场；最新修订上 c2 已恢复整段，这批操作合法。
     result = await _edit(
         service,
         timeline_id,

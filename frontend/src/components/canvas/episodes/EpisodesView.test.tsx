@@ -195,10 +195,8 @@ describe("EpisodesView", () => {
     vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
     const { location } = renderView("/episodes?upload=episode");
 
-    // 打开对话框的状态在渲染期间从地址参数写入，与正文加载是两次独立的渲染，要等它出现。
     expect(await screen.findByRole("dialog", { name: "上传原文" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /逐集原文/ })).toBeChecked();
-    // 模态对话框打开期间背景对辅助技术隐藏（含之后才加载出的正文），按 hidden 查询确认正文照常加载。
     expect(await screen.findByRole("region", { name: "整本源文", hidden: true })).toBeInTheDocument();
     await waitFor(() => expect(location.history?.at(-1)).toBe("/episodes"));
   });
@@ -639,7 +637,6 @@ describe("EpisodesView", () => {
       renderView();
 
       const manuscript = await findManuscript();
-      // 14 落在第 2 集那一行中间，20 是第 2 集的结尾、新方案在这里不分集
       await waitFor(() => expect(manuscript.querySelectorAll("[data-replan-diff]")).toHaveLength(2));
       expect(within(manuscript).getAllByText("新旧分界不同")).toHaveLength(2);
       expect(manuscript.querySelectorAll('[data-replan-lane="new"]').length).toBeGreaterThan(0);

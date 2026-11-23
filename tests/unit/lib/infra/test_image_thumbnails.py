@@ -132,7 +132,6 @@ def test_cache_hit_reuses_file_without_decoding_source(tmp_path: Path) -> None:
     first = _thumb(source, tmp_path / "cache", 320)
     assert first is not None
     source_stat = source.stat()
-    # 源文件字节被换成不可解码的内容但 mtime / size 不变：命中缓存时不应再读源图
     source.write_bytes(b"x" * source_stat.st_size)
     os.utime(source, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
 
@@ -177,7 +176,6 @@ def _replace_source(source: Path, size: tuple[int, int], mtime_ns: int) -> None:
 
 
 def test_worker_holding_a_stale_source_stat_publishes_nothing(tmp_path: Path) -> None:
-    # 请求 A 拿到旧 stat 后源图被替换，请求 B 已发布新版本缩略图；A 随后才开始生成
     cache_dir = tmp_path / "cache"
     source = _write_image(tmp_path / "src" / "a.png", (1000, 500))
     os.utime(source, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
@@ -193,7 +191,6 @@ def test_worker_holding_a_stale_source_stat_publishes_nothing(tmp_path: Path) ->
 
 
 def test_pruning_keeps_the_version_the_source_currently_has(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # 请求 A 发布旧版本后、清理前，源图被替换且请求 B 发布了新版本：A 的清理不得删掉 B 的文件
     cache_dir = tmp_path / "cache"
     source = _write_image(tmp_path / "src" / "a.png", (1000, 500))
     os.utime(source, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))

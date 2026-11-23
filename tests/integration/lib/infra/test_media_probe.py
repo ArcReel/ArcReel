@@ -40,7 +40,6 @@ async def test_video_with_longer_audio_tail_reports_each_stream(tmp_path: Path):
     [
         ("tone.wav", ("-c:a", "pcm_s16le"), "wav", "pcm_s16le", 1e-6),
         ("tone.m4a", ("-c:a", "aac"), "m4a", "aac", 1e-6),
-        # mp3 末尾的编码器填充只在解码时裁掉，逐包时长最多多出一帧（1152 采样）。
         ("tone.mp3", ("-c:a", "libmp3lame"), "mp3", "mp3", 1152 / 44100),
     ],
 )

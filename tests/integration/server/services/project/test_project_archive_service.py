@@ -205,7 +205,6 @@ def _add_agent_runtime_symlinks(project_dir: Path) -> None:
     profile_md = project_root / "agent_runtime_profile" / "CLAUDE.md"
     profile_md.write_text("# Agent Runtime", encoding="utf-8")
 
-    # 清理新版 sync 物化的 .claude/CLAUDE.md/manifest，模拟老部署的 symlink 形态
     if (project_dir / ".claude").exists() or (project_dir / ".claude").is_symlink():
         if (project_dir / ".claude").is_symlink() or (project_dir / ".claude").is_file():
             (project_dir / ".claude").unlink()
@@ -213,8 +212,6 @@ def _add_agent_runtime_symlinks(project_dir: Path) -> None:
             shutil.rmtree(project_dir / ".claude")
     if (project_dir / "CLAUDE.md").exists() or (project_dir / "CLAUDE.md").is_symlink():
         (project_dir / "CLAUDE.md").unlink()
-    # legacy symlink 部署不会有 manifest，留着会让导入/导出逻辑读到 manifest 把
-    # "旧 symlink + 新 manifest" 当成正常态而非 legacy。
     manifest_path = project_dir / ".arcreel_profile_manifest.json"
     if manifest_path.exists() or manifest_path.is_symlink():
         manifest_path.unlink()
@@ -465,7 +462,6 @@ class TestProjectArchiveService:
 
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
-        # 清理新版物化产物后创建 broken symlink（模拟老版部署遗留 + profile 目录已删的状态）
         if (project_dir / ".claude").is_dir() and not (project_dir / ".claude").is_symlink():
             _shutil.rmtree(project_dir / ".claude")
         if (project_dir / "CLAUDE.md").exists():
@@ -607,7 +603,6 @@ class TestProjectArchiveService:
         crlf_bytes: dict[str, bytes] = {}
 
         def _write_script_with_crlf(name: str, content: bytes) -> bytes:
-            # 文本模式导出的形状：成员按平台换行落盘，信封摘要却按折叠后的 LF 字节计算。
             if name != "demo/scripts/episode_1.json":
                 return content
             crlf_bytes[name] = content.replace(b"\n", b"\r\n")
@@ -733,7 +728,6 @@ class TestProjectArchiveService:
         key = ArtifactKey.episode_script(1)
         before = ProjectArtifactManifestAdapter(project_dir).get_entry(key)
         assert before is not None
-        # 正式脚本不以脚本规划为依据：删掉脚本规划只撤它自己的登记，剧本登记与时效都不变。
         assert script_review.delete_script_plan_file(project_dir, 1, script_plan_path)
         assert ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.episode_script_plan(1)) is None
         assert ProjectArtifactManifestAdapter(project_dir).get_entry(key) == before
@@ -1470,7 +1464,6 @@ class TestProjectArchiveService:
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
 
-        # 改回 v1 形态 + legacy image_backend，模拟旧版本导出的归档
         pj = project_dir / "project.json"
         data = _json.loads(pj.read_text(encoding="utf-8"))
         data["schema_version"] = 1
@@ -1719,7 +1712,6 @@ class TestProjectArchiveService:
         )
         imported = result.project
         assert imported["episodes"][1]["ledger_status"] == "planned"
-        # 孤儿条目不写入位置记录：导出/导入往返不应凭空补出 source_range
         assert "source_range" not in imported["episodes"][1]
 
     def test_import_surfaces_unconvertible_source_encoding_as_warning(self, tmp_path, monkeypatch):
@@ -1955,7 +1947,6 @@ class TestProjectArchiveService:
         """
         from lib.agent.profile_manifest import MANIFEST_FILENAME
 
-        # 准备 profile：必须至少有一个可物化文件，否则 ProfileEmptyError
         profile_dir = tmp_path / "agent_runtime_profile"
         (profile_dir / ".claude" / "skills" / "demo").mkdir(parents=True)
         (profile_dir / ".claude" / "skills" / "demo" / "SKILL.md").write_text("demo")
@@ -1977,7 +1968,6 @@ class TestProjectArchiveService:
         claude_dir = imported_dir / ".claude"
         assert claude_dir.is_dir()
         assert not claude_dir.is_symlink()
-        # 导入触发 sync_agent_profile → 首次迁移分支 full reset → 写 manifest
         assert (imported_dir / MANIFEST_FILENAME).is_file()
         assert (claude_dir / "skills" / "demo" / "SKILL.md").read_text() == "demo"
 
@@ -2022,7 +2012,6 @@ class TestProjectArchiveService:
         project["style"] = "Stale"
         pm.save_project("demo", project)
 
-        # 让 sync_agent_profile 在 _install_project_dir 内（shutil.move 之后）抛错
         def boom(self_pm, target_dir, **kwargs):
             raise RuntimeError("profile sync failed")
 
@@ -2078,7 +2067,6 @@ class TestProjectArchiveService:
         with pytest.raises(RuntimeError, match="profile sync failed"):
             pm.create_project("ghost")
 
-        # 残缺目录已清，同名 create 应该能成功（fixture 已 stub sync 抛错，所以先 undo）
         monkeypatch.undo()
         assert not (pm.projects_dir / "ghost").exists()
         pm.create_project("ghost")
@@ -2151,7 +2139,6 @@ class TestProjectArchiveService:
                         "video_prompt": "vid",
                         "generated_assets": {
                             "storyboard_image": "storyboards/scene_E1S01.png",
-                            # 当前文件缺失但版本历史尚在 → 归档修复应从 versions/audio 回溯到 canonical
                             "narration_audio": "versions/audio/E1S01_v9.wav",
                             "status": "completed",
                         },
@@ -2164,7 +2151,6 @@ class TestProjectArchiveService:
 
         with zipfile.ZipFile(archive_path) as archive:
             exported_script = json.loads(archive.read("demo/scripts/episode_1.json"))
-            # 不仅改写 JSON 路径，还应把回溯出的当前文件物化进归档
             assert "demo/audio/segment_E1S01.wav" in archive.namelist()
 
         assert exported_script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
@@ -2205,7 +2191,6 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
 
-        # 报告非空：导入前请用户确认，项目还没有出现在项目列表里。
         assert exc_info.value.status_code == 409
         assert exc_info.value.extra["confirmation_required"] is True
         adjusted = exc_info.value.extra["migration_report"]["adjusted"]
@@ -2366,7 +2351,6 @@ class TestProjectArchiveService:
         result = service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip", confirm_report=True)
 
         assert "Missing" in result.project["props"]
-        # 占位进了导入前确认过的报告，导入成功后的诊断不再重复列出。
         report = load_migration_report(pm.get_project_path(result.project_name))
         assert report is not None
         assert ("placeholder_asset_added", {"asset_type": "prop", "name": "Missing"}) in [
@@ -2559,8 +2543,6 @@ class TestExportScope:
 
         with zipfile.ZipFile(archive_path) as archive:
             versions_content = json.loads(archive.read("demo/versions/versions.json"))
-            # 非 typed 当前文件直接从 canonical 路径导出，其历史快照未入包，
-            # 对应版本记录也不能留下悬空引用。
             assert "storyboards" not in versions_content
             vid_versions = versions_content["videos"]["E1S01"]["versions"]
             assert len(vid_versions) == 1
@@ -2635,7 +2617,6 @@ def test_an_archive_exported_at_schema_18_keeps_storyboards_and_grids_current_af
     """信封里的 claim 与原地升级一样经迁移链平移：v18→v19 改了分镜图与宫格的依据口径，导入后它们仍是 current。"""
     source = ProjectManager(tmp_path / "source")
     write_legacy_named_reference_bases_project(source.projects_dir, name="demo")
-    # 模拟 schema 18 发行版的导出器：它把 18 当作当前版本，把清单放进信封。只撤销这一处替换，其余 fixture 的替换保留。
     with pytest.MonkeyPatch.context() as exporter:
         exporter.setattr(project_archive_module, "project_schema_is_current", lambda _project: True)
         archive_path, _ = ProjectArchiveService(source).export_project("demo")

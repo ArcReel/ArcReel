@@ -49,7 +49,6 @@ class TestApiErrorStatusInStatusPayload:
         assert "api_error_status" not in payload
 
     def test_api_error_status_absent_when_field_missing(self):
-        # 老 SDK / 老消息没有 api_error_status 字段
         result_message: dict[str, Any] = {
             "type": "result",
             "subtype": "success",

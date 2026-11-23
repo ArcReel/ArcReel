@@ -38,16 +38,11 @@ PROJECT = {
     "props": {},
 }
 
-#: 一张场景资产都没登记的项目：正文没有场景可引用时不发「本单元未引用场景」，与场景无关的
-#: 语法 / 声音用例据此保持单一关注点。
 PROJECT_WITHOUT_SCENES = {**PROJECT, "scenes": {}}
 
-#: 带组合附加符的角色名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
-#: 与声音无关的用例用的声音档：``soft`` 有声、无参考音频。预览入口的 ``settings`` 必填，
-#: 这些用例照样要给一档，取字段默认即可。
 _SOFT = VoiceRenderSettings()
 
 
@@ -97,7 +92,6 @@ def test_blank_speaker_degrades_to_warning_instead_of_raising():
     """speaker 位空白不得构造非法 Utterance——只读派生要出 warning，不能抛校验错。"""
     preview = build_script_preview("中景。\n@[ ]：{我来了}", PROJECT_WITHOUT_SCENES, _SOFT)
     assert preview.utterances == []
-    # 未成记号 → 花括号未识别 warning；空白名同时作为未登记 mention 被点名。
     assert keys(preview) == [WARN_UNREGISTERED_MENTION, WARN_BRACES_NOT_SPEECH]
 
 
@@ -153,14 +147,10 @@ def test_script_without_dialogue_symbols_derives_nothing():
     assert [r.name for r in derive_references_from_text(text, PROJECT)[0]] == ["张三", "酒馆"]
 
 
-# ---------- speaker 位不计入参考图 ----------
-
-
 def test_speaker_position_is_excluded_from_references():
     text = "@[酒馆] 内景，人声嘈杂。\n@[张三]：{我来了}"
     preview = build_script_preview(text, PROJECT, _SOFT)
     assert [r.name for r in derive_references_from_text(text, PROJECT)[0]] == ["酒馆"]
-    # 纯画外角色没有参考图，但 utterance 照常
     assert [u.speaker for u in preview.utterances] == ["张三"]
 
 
@@ -242,7 +232,6 @@ def test_warn_unregistered_speaker():
     assert preview.warnings[0]["params"] == {"name": "王五"}
 
 
-#: 张三带一个已登记衍生的项目载荷（无场景，避免叠上「未引用场景」warning）。
 PROJECT_WITH_DERIVATIVE = {
     **PROJECT_WITHOUT_SCENES,
     "characters": {**PROJECT["characters"], "张三": {"derivatives": {"劲装": {}}}},
@@ -317,7 +306,6 @@ def test_warn_speaker_audio_unavailable_distinguished_from_unset():
         VoiceRenderSettings(
             voice_consistency="native",
             max_reference_audio=3,
-            # 张三字段有值、李四未设置；audio_ready 为空表示执行层一段都没解析出来。
             audio_ready=set(),
         ),
     )
@@ -347,7 +335,6 @@ def test_combining_char_speaker_binds_audio_in_every_encoding_pairing(registered
     )
     assert keys(preview) == []
 
-    # 执行层口径：audio_ready 由 resolve_reference_audio_paths 按资产表的 key 建，同样可能是任一形式
     bindings = derive_voice_bindings(
         preview.utterances,
         project["characters"],
@@ -448,9 +435,6 @@ def test_silent_model_notice_not_emitted_without_any_utterance():
     assert preview.warnings == []
 
 
-# ---------- 本集无声（requested_generate_audio=False） ----------
-
-
 def test_silent_episode_drops_audio_bindings_on_native_model():
     """无声开关关掉后，A 类模型也不再绑定参考音频——请求里不会带音频段。"""
     text = "开场。\n@[张三]：{我来了}"
@@ -533,7 +517,6 @@ def test_warning_messages_render_in_all_locales(locale: str, key: str):
     assert key in MESSAGES[locale]
     text = _(key, locale=locale, **WARNING_PARAMS[key])
     assert text != key
-    # 占位符全部被替换（转义的示例语法 `{{台词}}` 渲染成字面花括号，不算残留占位符）
     for param in WARNING_PARAMS[key]:
         assert f"{{{param}}}" not in text
 

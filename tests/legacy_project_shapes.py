@@ -524,7 +524,6 @@ def write_legacy_tts_narration_project(
         metadata_path = project_dir / "versions" / "versions.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         metadata["audio"][unit_id]["versions"][-1]["created_at"] = f"2026-04-0{index}T10:00:00Z"
-        # 0.33 及更早的版本记录没有内容指纹（v17→v18 补录）。
         metadata["audio"][unit_id]["versions"][-1].pop(VERSION_CONTENT_DIGEST)
         _write_json(metadata_path, metadata)
     _write_json(script_path, script)
@@ -601,7 +600,6 @@ def write_legacy_unregistrable_asset_sheet_project(root: Path, *, missing_produc
         (project_dir / relative).parent.mkdir(parents=True, exist_ok=True)
         (project_dir / relative).write_bytes(f"sheet-{relative}".encode())
     if missing_product_reference:
-        # 商品原图允许缺失，带声明但没有文件的角色原图会被归档校验拒绝。
         project["characters"]["张三"].pop("reference_image")
         project["products"]["茶"] = {
             "description": "冷泡茶",
@@ -927,7 +925,6 @@ def write_legacy_named_reference_bases_project(root: Path, name: str = "legacy-n
 
 ScriptPlanVariantName = Literal["drama", "narration", "reference_video"]
 
-#: 退役的条目指纹与整集指纹：样本里只要求字段在场，取值无关紧要。
 _LEGACY_ENTRY_REVISION = "sha256-legacy-entry-revision"
 _LEGACY_SCRIPT_REVISION = "sha256-legacy-script-revision"
 
@@ -970,11 +967,9 @@ def _legacy_script_entry(
 
     entry = dict(plan_entry)
     if variant == "reference_video":
-        # 旧参考单元不带对应原文。
         entry.pop("source_text")
     else:
         if variant == "drama":
-            # 旧 drama 分镜不带视觉改编描述。
             entry.pop("scene_description")
         entry["image_prompt"] = {"scene": "画面", "composition": {"shot_type": "Medium Shot"}} if authored else None
         entry["video_prompt"] = {"action": "动作"} if authored else None
@@ -1860,8 +1855,6 @@ def _write_legacy_sheet_collision_project(root: Path, *, schema_version: int, mi
         (project_dir / "characters/Bob.png").unlink()
         project_path = project_dir / "project.json"
         project = _load_json_object(project_path)
-        # 商品原图列表可包含悬空引用。Bob 的资产图副本将占用其中一项的路径，
-        # 旁边仍有一项可读原图，覆盖同一列表里两种状态。
         project["characters"]["Bob"].pop("reference_image")
         project["products"]["茶"] = {
             "description": "冷泡茶",
@@ -1934,7 +1927,6 @@ def _write_shared_asset_project(root: Path, *, modify: Callable[[Path], object])
     return project_dir
 
 
-# 每种旧项目样本在这里登记一次，原地迁移与带信封的归档导入共用。
 LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
     "storyboard": write_legacy_storyboard_project,
     "shared-product-originals": partial(_write_shared_asset_project, modify=share_reference_files),

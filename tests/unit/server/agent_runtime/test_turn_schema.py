@@ -34,7 +34,6 @@ class TestInferBlockType:
         assert infer_block_type({}) == ""
 
     def test_explicit_type_takes_precedence(self):
-        # Even if shape looks like tool_result, explicit type wins
         assert infer_block_type({"type": "text", "tool_use_id": "t1", "content": "x"}) == "text"
 
 

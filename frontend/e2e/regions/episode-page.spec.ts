@@ -4,9 +4,7 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 集页页头：集头与制作进度入口一行，视图 tab 与当前视图的批量动作一行。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -56,7 +54,6 @@ function runningTask(resourceId: string) {
   };
 }
 
-// 压力变体：长集名、条目多、计划里缺很多分镜图且有两张正在生成、配音走配音合成、费用多币种。
 const STRESS: ApiOverrides = {
   ...API,
   "GET /api/v1/projects/demo": {
@@ -118,8 +115,6 @@ const LONG_MESSAGE =
   "这个单元的参考图里有两位角色共用同一个名字，模型无法区分说话的人；请在分镜详情里给其中一位改名，或者删掉多余的参考图后再生成";
 const BLOCKED_VIDEOS = ids(40).slice(4);
 
-// 制作进度的内容压力：结构问题、正在生成的分镜图与大量过期产物、整批被拒的四十个视频单元。
-// 剧本放进这四十个分镜，问题按分镜在本集的当前位置指称。
 const stressProject = (STRESS["GET /api/v1/projects/demo"] as { body: RecordedProject }).body;
 const PROGRESS_STRESS: ApiOverrides = {
   ...STRESS,
@@ -228,7 +223,6 @@ const NO_SCRIPT_PLAN: ApiOverrides = {
   },
 };
 
-// 逐集上传的集：账本记为自带原文，原文很长，还带一段没有空格的长串。
 const LONG_SOURCE = `${"夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过。\n".repeat(120)}${"无空格长串".repeat(120)}`;
 const OWN_SOURCE: ApiOverrides = {
   ...API,
@@ -250,10 +244,6 @@ const viewArea = (page: Page) => page.getByRole("tabpanel");
 const progress = (page: Page) => page.getByTestId("workflow-panel");
 const progressPopover = (page: Page) => page.getByRole("dialog", { name: "制作进度" });
 
-
-
-/** 弹层带入场动画，量尺寸、跑 axe 之前等它停下；进行中的转圈等循环动画不等。 */
-
 async function pageReady(page: Page) {
   await viewTabs(page).waitFor();
   await progress(page).waitFor();
@@ -261,8 +251,6 @@ async function pageReady(page: Page) {
   // 等它落定再操作，免得 axe 在淡入途中取色
   await page.waitForLoadState("networkidle");
 }
-
-/** 紧凑档 Agent 面板盖在画布右侧，页头行尾的入口在它底下：先收起再操作。 */
 
 defineRegionScenarios("集页页头", [
   {
@@ -276,7 +264,6 @@ defineRegionScenarios("集页页头", [
     act: async (page) => {
       expect((await box(header(page))).height).toBeCloseTo(HEADER_HEIGHT, 0);
       await expect(viewTabs(page).getByRole("tab", { name: "分镜" })).toHaveAttribute("aria-selected", "true");
-      // 缺 36 张、2 张正在生成：只补剩下的 34 张
       await expect(page.getByRole("button", { name: "补齐分镜图 · 34" })).toBeEnabled();
       await expect(page.getByRole("button", { name: "视频已齐" })).toBeDisabled();
       await expect(page.getByRole("button", { name: "补齐旁白配音 · 148" })).toBeEnabled();
@@ -330,7 +317,6 @@ defineRegionScenarios("集页页头", [
       const script = popover.getByTestId("workflow-row-script");
       await expect(popover.getByText("这个单元同时有角色台词和旁白，需要拆开。")).toHaveCount(1);
       await expect(script.getByRole("img", { name: "分镜 2" })).toBeVisible();
-      // 正在生成的分镜图是进度，不是问题；不露出任务号与供应商
       const boards = popover.getByTestId("workflow-row-boards");
       await expect(boards.getByText("已提交给供应商，重试可能再次计费。")).toBeVisible();
       await expect(popover.getByText(/0f3c9a7e/)).toHaveCount(0);

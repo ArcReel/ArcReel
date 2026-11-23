@@ -40,7 +40,6 @@ def test_decode_gbk_via_charset_normalizer():
     raw = ("第一章 起点。" * 50).encode("gbk")
     text, enc = decode_txt(raw)
     assert "起点" in text
-    # charset-normalizer 通常返回 gbk / gb18030 / cp936 之一
     assert enc
     assert enc.lower() in {"gbk", "gb18030", "cp936"}
 
@@ -54,8 +53,6 @@ def test_decode_big5_via_charset_normalizer():
 
 
 def test_decode_random_bytes_raises():
-    # 使用固定种子的伪随机字节：charset-normalizer 无法给出可信结果，
-    # gb18030 errors='replace' 兜底也会产生远高于 5% 阈值的 \ufffd，触发 SourceDecodeError。
     rng = random.Random(42)
     raw = bytes(rng.randint(0, 255) for _ in range(4000))
     with pytest.raises(SourceDecodeError) as exc_info:
@@ -65,23 +62,16 @@ def test_decode_random_bytes_raises():
 
 
 def test_decode_clean_gb18030_without_replacements():
-    # Short, very few sinograms — charset-normalizer may not be confident
-    # (chaos >= 0.5 → falls through to gb18030 fallback). Decoding should
-    # still succeed cleanly (no \ufffd) and be labeled "gb18030" (not "-lossy").
     # 使用 GB18030 4 字节序列（U+20000 "𠀀"），绕过 GBK/Big5 的误检，
     # 要么被 charset-normalizer 正确识别为 gb18030，要么直接走 gb18030 干净兜底。
     raw = "𠀀".encode("gb18030")
     text, enc = decode_txt(raw)
     assert text == "𠀀"
-    # Either charset-normalizer correctly identified it (any variant) OR
-    # the gb18030 clean path was taken. Both are acceptable; what's NOT
-    # acceptable is the "-lossy" label for clean output.
     assert "lossy" not in enc
 
 
 def test_extractor_writes_via_decode(tmp_path):
     src = tmp_path / "novel.txt"
-    # 样本需足够长且具备真实中文分布，charset-normalizer 才能稳定识别为 gbk 系列
     src.write_bytes(("第一章 内容起点。" * 50).encode("gbk"))
     result = TxtExtractor().extract(src)
     assert "内容" in result.text
@@ -114,8 +104,6 @@ def test_gb18030_fallback_with_replacements_is_labeled_lossy(monkeypatch):
             return None
 
     monkeypatch.setattr(mod.charset_normalizer, "from_bytes", lambda _raw: _NoBest())
-    # Mostly valid GB18030 mixed with a handful of illegal 0x80 lead bytes
-    # (0x80 is not a valid GB18030 lead byte → replacement char)
     raw = ("一二三四" * 100).encode("gb18030") + b"\x80" * 5
     text, enc = mod.decode_txt(raw)
     assert "\ufffd" in text

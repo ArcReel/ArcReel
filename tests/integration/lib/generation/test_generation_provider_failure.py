@@ -74,7 +74,6 @@ async def test_bare_provider_without_default_keeps_failure_provider(db_factory, 
     assert failed is not None
     assert failed["status"] == "failed"
     assert failed["provider_id"] == "ark"
-    # 认领时供应商没有图片容量，按不支持该媒体类型失败；执行时解析到只写了供应商的项目字段，提示选定模型
     expected = (
         ("model_not_selected", {"provider": "ark"})
         if image_capacity

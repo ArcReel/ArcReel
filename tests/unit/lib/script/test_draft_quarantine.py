@@ -360,7 +360,6 @@ class TestCollectViolations:
         assert [v.code for v in violation_items(aggregate)] == ["a", "b"]
         assert "[a]" in str(aggregate)
         assert "[b]" in str(aggregate)
-        # 聚合体仍是 DraftViolation：调用方不必在「一条」与「多条」之间分叉出两套处置路径
         assert isinstance(aggregate, DraftViolation)
 
     def test_single_violation_flattens_to_itself(self):

@@ -10,7 +10,6 @@ from lib.episode.episode_ledger import (
 )
 from lib.episode.episode_sources import discover_sources
 
-#: 整本源文清单只登记 novel.txt 与 extra.txt 的项目。
 _PROJECT = {"whole_source_files": [{"source_file": "source/novel.txt"}, {"source_file": "source/extra.txt"}]}
 
 NOVEL = "第一章少年下山遇见老人。第二章城里起了大火人群四散。第三章一切归于平静少年远行。"

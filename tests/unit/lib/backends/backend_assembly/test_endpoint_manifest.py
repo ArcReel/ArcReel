@@ -24,7 +24,6 @@ def test_endpoint_manifest_matches_registry_and_provider_declarations():
         for provider_id, by_media in BUILTIN_PROVIDER_ENDPOINTS.items()
         for media_type, options in by_media.items()
     }
-    # 端点名的媒体类型取自端点注册表（与自定义供应商共用的端点）与内置专属端点表。
     code_endpoints = {
         endpoint: endpoint_media_type(endpoint)
         for declared in PROVIDER_ENDPOINTS.values()

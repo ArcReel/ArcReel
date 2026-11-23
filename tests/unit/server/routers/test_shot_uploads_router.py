@@ -140,7 +140,6 @@ class TestShotStoryboardUpload:
         assert ga["storyboard_image"] == "storyboards/scene_E1S01.png"
         assert ga["status"] == "storyboard_ready"
 
-        # JPEG 入参也统一落盘为 PNG（canonical 扩展名）
         target = pm.get_project_path("demo") / "storyboards" / "scene_E1S01.png"
         with Image.open(target) as img:
             assert img.format == "PNG"
@@ -592,7 +591,6 @@ class TestReferenceUnitVideoUpload:
 
         ga = pm.load_script("demo", "episode_1.json")["video_units"][0]["generated_assets"]
         assert ga["video_clip"] == "reference_videos/E1U1.mp4"
-        # 上传替换后旧 provider URI 不再对应本地文件，finalize 应清空
         assert "video_uri" not in ga
         assert ga["video_thumbnail"] == "reference_videos/thumbnails/E1U1.jpg"
         assert ga["status"] == "completed"

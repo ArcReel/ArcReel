@@ -207,13 +207,11 @@ async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolHarnes
     script["segments"].append({"segment_id": "E1S03", "novel_text": "   ", "video_prompt": {}, "generated_assets": {}})
     fake_ctx.pm.script_payload = script
 
-    # 扫描模式：空白段根本不是缺口，不进 requested，也不阻塞其余段
     batch = _CapturingBatch()
     out = await _generate(fake_ctx, {"script": "episode_1.json"}, batch)
     assert batch.resource_ids == ["E1S01"]
     assert "E1S03" not in read_generation_result(out).requested
 
-    # 显式点名空白段：该段按 blocked 上报，带稳定 code 与下一步动作
     batch = _CapturingBatch()
     out = await _generate(fake_ctx, {"script": "episode_1.json", "segment_ids": ["E1S03"]}, batch)
     assert batch.specs == []
@@ -222,7 +220,6 @@ async def test_generate_narration_audio_blank_text_reported(fake_ctx: ToolHarnes
     assert result.blocked == ["E1S03"]
     problem = result.items[0].problem
     assert problem is not None
-    # 发声准入自己的问题码原样透出，调用方不必读文本判断下一步。
     assert problem.code == "parse_failed"
     assert problem.action.value == "fix_input"
 
@@ -262,7 +259,6 @@ async def test_generate_narration_audio_rejects_mismatched_script(fake_ctx: Tool
 @pytest.mark.parametrize(
     "arguments",
     [
-        # 裸字符串会被逐字符迭代成 {'E','1','S'...}，必须显式拒绝。
         pytest.param({"script": "episode_1.json", "segment_ids": "E1S01"}, id="string-segment-ids"),
         pytest.param({"script": "episode_1.json", "segment_ids": []}, id="empty-segment-ids"),
         pytest.param({"script": "../etc/passwd"}, id="path-in-script"),
@@ -284,7 +280,6 @@ async def test_generate_narration_audio_rejects_a_malformed_request(
 async def test_generate_narration_audio_skips_segment_without_id(fake_ctx: ToolHarness) -> None:
     """缺 segment_id 的分镜不能让整批中断：无 ID 可寻址故不进契约，其余分镜照常入队。"""
     script = _narration_audio_script()
-    # 两个分镜都缺配音：本用例的主题是无 ID 分镜的可寻址性，不掺入已有配音的复用判定。
     script["segments"][1]["generated_assets"] = {}
     script["segments"].append({"novel_text": "有文本但缺 id 的片段。", "video_prompt": {}, "generated_assets": {}})
     fake_ctx.pm.script_payload = script

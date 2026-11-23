@@ -61,7 +61,7 @@ def _swap_dir(root: Path, project_name: str, *, rollback: bool) -> Path:
     if rollback:
         return new_rollback_dir(root / project_name)
     staging = new_staging_dir(root / project_name)
-    staging.rmdir()  # 命名端连带建目录，交回给各用例自己按需创建
+    staging.rmdir()
     return staging
 
 
@@ -109,7 +109,6 @@ def test_runtime_staging_dir_name_is_parsable_by_cleanup(tmp_projects: Path) -> 
 
     staging_suffix = staging.name.rpartition(".v6-")[2]
     assert staging_project_name(staging.name) == "demo"
-    # 两类中间目录的后缀同构，反解端才有单一口径可依。
     assert len(staging_suffix) == len(rollback.name.rpartition("rollback-")[2])
 
     _age(staging, _EIGHT_DAYS)

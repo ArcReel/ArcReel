@@ -70,7 +70,6 @@ async def _seed_call(
             output_path=output_path,
         )
         if unpriced:
-            # 结算只会把数值写成费用；未定价（NULL）的行直接改列，等价于内置供应商查不到单价的结算结果。
             await session.execute(
                 update(ApiCall).where(ApiCall.id == cid).values(cost_amount=None, unpriced_reason="missing_rate")
             )
@@ -221,7 +220,6 @@ class TestCostEstimationService:
             ("minimax", "MiniMax-Hailuo-2.3", "1080p", 6),
             ("kling", "kling-v3", "4k", 8),
             ("vidu", "viduq3-turbo", "1080p", 8),
-            # 视频 token 预估按官方换算公式；供应商回报的 token 数等于公式值时金额相等。
             ("ark", "doubao-seedance-2-0-260128", "1080p", 8),
         ],
     )
@@ -259,8 +257,6 @@ class TestCostEstimationService:
         assert estimate
         assert all(amount > 0 for amount in estimate.values())
 
-        # 结算侧：执行时发给调用通道的请求（分镜带首帧，宽高比取项目视频宽高比）与供应商回报的结果，
-        # 由调用通道按用量契约上报计量，再走与预估同一个目录查询与计算器。
         executed = await evaluate_video_request_facts(
             project,
             route=generation_mode,
@@ -464,8 +460,8 @@ class TestCostEstimationService:
         ("has_audio_track", "controllable", "requested", "expected"),
         [
             (True, False, False, True),
-            (True, True, False, False),  # 开关可控（Vertex，含放宽了音轨的用户添加型号）：跟随开关
-            (False, False, True, True),  # 恒无声：原样带出开关，由调用通道按型号计量
+            (True, True, False, False),
+            (False, False, True, True),
             (True, True, True, True),
         ],
     )
@@ -497,7 +493,6 @@ class TestCostEstimationService:
         )
 
         assert quote is not None
-        # 5 × 1280 × 720 × 24 / 1024 = 108000 token，720p 无输入视频 46 CNY / 百万 token
         assert (quote.amount, quote.currency, quote.unpriced_reason) == (pytest.approx(4.968), "CNY", None)
 
     async def test_video_tokens_without_an_estimate_are_unpriced_not_guessed(self, db_factory):
@@ -681,7 +676,6 @@ class TestCostEstimationService:
                 {"episode": 2, "title": "Ep2", "script_file": "ep2.json"},
             ],
         }
-        # ep2.json 不在 scripts 里：模拟剧本文件已丢失、集元数据仍在 project.json 的状态
         scripts = {"ep1.json": _make_reference_video_script(1, "narration", [("E1U1", 5)])}
 
         result = await service.compute(project_data, scripts, project_name="missing-script")
@@ -746,7 +740,6 @@ class TestCostEstimationService:
         result = await service.compute(project_data, scripts, project_name="null-segment")
 
         project_actual = result["project_totals"]["actual"]
-        # 资产图按类型单列，其余（other 图 + video + audio）归入未归属
         assert project_actual["characters"]["USD"] == pytest.approx(0.7)
         assert project_actual["unassigned"]["USD"] == pytest.approx(2.8)
         assert "unassigned" not in result["episodes"][0]["totals"]["actual"]
@@ -817,7 +810,6 @@ class TestCostEstimationService:
         ep_total_image = result["episodes"][0]["totals"]["actual"].get("image", {})
         assert ep_total_image.get("USD", 0) == pytest.approx(0.101, abs=1e-4)
 
-        # Project totals should NOT have a separate "grid" bucket
         assert "grid" not in result["project_totals"]["actual"]
         assert result["project_totals"]["actual"]["image"]["USD"] == pytest.approx(0.101, abs=1e-4)
 
@@ -1075,7 +1067,6 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        # 按张计价、与分辨率无关的条目：Grok Imagine 每张 0.02 USD
                         "entry_binding": "xai/grok-imagine-image",
                     },
                 ],
@@ -1104,7 +1095,6 @@ class TestCostEstimationService:
 
         total_4k = await _estimated_image_total("4K")
         assert total_4k > 0
-        # 12 个份额各自 round(…, 6)，两倍总数的累计舍入误差不超过 18e-6。
         assert await _estimated_image_total("2K") == pytest.approx(total_4k * 2, abs=2e-5)
         assert await _estimated_image_total(None) == pytest.approx(total_4k * 2, abs=2e-5)
 
@@ -1122,8 +1112,6 @@ class TestCostEstimationService:
             "content_mode": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
-            # 显式钉住按分辨率分档定价的型号：测试要验的是「计价档随解析结果走」，
-            # 不该依赖全局默认图片模型恰好是分档定价的
             "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -1142,7 +1130,6 @@ class TestCostEstimationService:
         total_4k = await _estimated_image_total("4K")
         assert total_2k > 0
         assert total_4k > total_2k
-        # 未配置分辨率时按保底档计价，与执行期下发的档位同源
         assert await _estimated_image_total(None) == pytest.approx(
             await _estimated_image_total(GRID_FALLBACK_RESOLUTION)
         )
@@ -1180,7 +1167,6 @@ class TestCostEstimationService:
             "title": "Test",
             "content_mode": "narration",
             "generation_mode": "storyboard",
-            # 按分辨率分档定价的型号，档位差异才可观测
             "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
@@ -1198,7 +1184,6 @@ class TestCostEstimationService:
         total_1k = await _estimated_image_total("1K")
         assert total_1k > 0
         assert await _estimated_image_total("4K") > total_1k
-        # 未配置分辨率：执行时不下发，价目表默认档是 1K
         assert await _estimated_image_total(None) == pytest.approx(total_1k)
 
     async def test_grid_estimate_duplicate_ids_across_groups_each_correct(self, db_factory):
@@ -1206,7 +1191,6 @@ class TestCostEstimationService:
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
-        # 前 9 条一组（grid_9，每条摊 1/9 张），第 10 条 segment_break 另起一组（grid_4，独占一张）
         seg_ids = [f"E1S{i:03d}" for i in range(1, 9)] + ["DUP", "DUP"]
         script = _make_script(1, seg_ids, [6] * 10)
         script["segments"][9]["segment_break"] = True
@@ -1277,7 +1261,6 @@ class TestCostEstimationService:
                 {"episode": 3, "title": "Ep3", "script_file": "ep3.json"},
             ],
         }
-        # ep2 segments 是 null(脏数据)→ get_storyboard_items 抛 ScriptEditError
         dirty_script = {
             "episode": 2,
             "title": "Dirty",
@@ -1326,7 +1309,6 @@ class TestCostEstimationService:
 
         assert result["models"]["audio"] == {"provider": "dashscope", "model": "qwen3-tts-flash"}
         segments = result["episodes"][0]["segments"]
-        # qwen3-tts-flash 按 ¥0.8/万字符、汉字计 2：100 个汉字计 200 字符 → 0.016 CNY
         assert segments[0]["estimate"]["audio"]["CNY"] == pytest.approx(0.016)
         assert segments[1]["estimate"]["audio"] == {}
         assert result["episodes"][0]["totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.016)
@@ -1410,7 +1392,6 @@ class TestCostEstimationService:
         for seg in segments:
             assert seg["estimate"]["image"], seg
             assert seg["estimate"]["video"], seg
-        # 视频估值随分镜时长变化（单个分镜级估值非整集平摊）
         assert segments[0]["estimate"]["video"] != segments[1]["estimate"]["video"]
         assert result["episodes"][0]["totals"]["estimate"]["image"]
         assert result["project_totals"]["estimate"]["video"]
@@ -1951,7 +1932,6 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, {}, project_name="test_split")
 
-        # T2I field should be the canonical image cost estimation anchor
         assert result["models"]["image"]["provider"] == "openai"
         assert result["models"]["image"]["model"] == "gpt-image-1"
 
@@ -1972,9 +1952,6 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, {}, project_name="test_no_t2i")
 
-        # 正向锁定：项目无 T2I 字段时走 resolver；空 DB 没有任何 image provider，
-        # cost_estimation 走 except 分支返回 ("unknown", "unknown")。
-        # 这个契约同时排除掉 i2i 槽（gpt-image-1-edit）和 legacy（gemini-2.0-...）。
         assert result["models"]["image"]["provider"] == "unknown"
         assert result["models"]["image"]["model"] == "unknown"
 
@@ -2000,12 +1977,8 @@ class TestCostEstimationService:
     @pytest.mark.parametrize(
         ("video_backend", "configured_generate_audio", "expected_usd"),
         [
-            # 未设分辨率时 Veo 按 720p 出片。AI Studio 无 audio-off 档，供应商恒按含音价出账：
-            # 无论开关状态，预估都须落在 veo-3.1-lite-generate-preview 720p 的含音价 0.05 USD/s。
             ("gemini-aistudio/veo-3.1-lite-generate-preview", True, 0.05),
             ("gemini-aistudio/veo-3.1-lite-generate-preview", False, 0.05),
-            # Vertex 有独立的 audio-off 档，不受 AI Studio 修正影响，预估随开关走
-            # （veo-3.1-fast-generate-001 720p：含音 0.10 / 无音 0.08 USD/s）。
             ("gemini-vertex/veo-3.1-fast-generate-001", True, 0.10),
             ("gemini-vertex/veo-3.1-fast-generate-001", False, 0.08),
         ],
@@ -2050,7 +2023,6 @@ class TestCostEstimationService:
             project_data, {"ep1.json": _make_script(1, ["E1S001"], [5])}, project_name="test"
         )
 
-        # kling-video-o1 默认 std：静音 ¥0.6/s；错误沿用项目开关会走有声 ¥0.8/s。
         assert result["episodes"][0]["segments"][0]["estimate"]["video"]["CNY"] == pytest.approx(3.0)
 
     async def test_disabled_custom_video_model_estimate_reports_unknown(self, db_factory):
@@ -2098,8 +2070,6 @@ class TestCostEstimationService:
         )
 
         assert result["models"]["video"] == {"provider": "unknown", "model": "unknown"}
-        # 身份解析不出时退到通用目录价，既不按被禁用模型（可灵 2.6 720p 0.3/s × 6 秒 × 30 → 54.0）也不按该
-        # 供应商默认启用模型（0.3/s × 6 秒 → 1.8）的条目价出数
         video_estimate = result["episodes"][0]["segments"][0]["estimate"]["video"]
         assert video_estimate.get("CNY") != pytest.approx(1.8)
         assert video_estimate.get("CNY") != pytest.approx(54.0)
@@ -2228,7 +2198,6 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="per-episode-bucket")
 
-        # 只有骨架与生成模式相符的 ep1 产生预估，且按项目生成模式的 i2v 桶算价。
         assert priced_models == ["kling-v3"]
         assert result["episodes"][1]["segments"] == []
         assert result["models"]["video"] == {"provider": "kling", "model": "kling-v3"}
@@ -2329,11 +2298,8 @@ class TestCostEstimationService:
 
         assert result["models"]["image"] == {"provider": "custom-1", "model": "img"}
         seg = result["episodes"][0]["segments"][0]
-        # image：绑定的条目按张计费，0.02 USD（不随 1K/2K 变化）
         assert seg["estimate"]["image"]["USD"] == pytest.approx(0.02)
-        # video：名字对上可灵 2.6，720p 无声 0.3 CNY/秒 × 6 秒 × 模型倍率 0.5 = 0.9 CNY
         assert seg["estimate"]["video"]["CNY"] == pytest.approx(0.9)
-        # audio：1 万个汉字按 2 计 → 2 万字符 / 1 万 × 2.0 = 4.0 CNY
         assert seg["estimate"]["audio"]["CNY"] == pytest.approx(4.0)
         assert result["project_totals"]["estimate"]["video"]["CNY"] == pytest.approx(0.9)
 
@@ -2352,7 +2318,6 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        # 按张计价、与分辨率无关的条目：Grok Imagine 每张 0.02 USD
                         "entry_binding": "xai/grok-imagine-image",
                     },
                 ],
@@ -2362,7 +2327,7 @@ class TestCostEstimationService:
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
-        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]  # 9 scenes → 1 张 grid_9
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 10)]
         project_data = {
             "title": "Test",
             "content_mode": "narration",
@@ -2375,7 +2340,6 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="test-grid-custom")
 
-        # 9 格拼成 1 张 grid，每张 0.02 USD 摊到 9 格
         segments = result["episodes"][0]["segments"]
         for seg in segments:
             assert seg["estimate"]["image"]["USD"] == pytest.approx(round(0.02 / 9, 6))
@@ -2397,7 +2361,6 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        # 按张计价、与分辨率无关的条目：Grok Imagine 每张 0.02 USD
                         "entry_binding": "xai/grok-imagine-image",
                     },
                 ],
@@ -2407,7 +2370,7 @@ class TestCostEstimationService:
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
-        seg_ids = [f"E1S{i:03d}" for i in range(1, 13)]  # 12 scenes，非 4K 上限 9 → 切 2 张
+        seg_ids = [f"E1S{i:03d}" for i in range(1, 13)]
         project_data = {
             "title": "Test",
             "content_mode": "narration",
@@ -2442,9 +2405,7 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="test-noprice")
 
-        # 断言解析到的仍是该自定义供应商/模型，排除 resolver 回落 unknown 导致的同结果假阳性
         assert result["models"]["image"] == {"provider": "custom-99", "model": "ghost"}
-        # 缺价 → calculate_cost 返回 0，_add_cost 过滤，image 估值为空且未抛错
         seg = result["episodes"][0]["segments"][0]
         assert seg["estimate"]["image"] == {}
 
@@ -2463,7 +2424,6 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="test-malformed-id")
 
-        # 断言解析到的仍是该畸形 provider/model，排除 resolver 回落 unknown 导致的同结果假阳性
         assert result["models"]["image"] == {"provider": "custom-abc", "model": "ghost"}
         seg = result["episodes"][0]["segments"][0]
         assert seg["estimate"]["image"] == {}
@@ -2512,7 +2472,6 @@ class TestUnpricedCosts:
         )
 
         unpriced_img = {"call_type": "image", "provider": "custom-1", "provider_name": "Relay", "model": "img"}
-        # 对应不上条目的图片模型记未定价；倍率设为 0 的视频模型是真实的 0，不算未计价
         assert result["unpriced"]["estimate"] == [{**unpriced_img, "count": 2}]
         assert result["unpriced"]["actual"] == [{**unpriced_img, "count": 1}]
         assert result["missing_local_calls"] is False
@@ -2586,7 +2545,6 @@ class TestUnpricedCosts:
             ("asset", None, True),
             ("storyboard", None, True),
             ("asset", ("image", "success"), False),
-            # 文本调用与失败的媒体调用都算不出产物的费用，不能让未知的已花变成真实的 0
             ("asset", ("text", "success"), True),
             ("asset", ("image", "failed"), True),
             (None, None, False),
@@ -2633,7 +2591,6 @@ class TestImageBatchEstimate:
         from server.services.admission.cost_estimation import estimate_image_batch_cost
         from tests.catalog_support import install_catalog, with_entry_facts
 
-        # 输出 token 按条目上的质量档基数估算；用例自己给出基数，不依赖出厂快照的收录情况
         bases = {"low": 16, "medium": 48, "high": 96}
         install_catalog(
             monkeypatch, with_entry_facts(query.factory_snapshot(), "openai", "gpt-image-2", output_token_bases=bases)
@@ -2650,7 +2607,6 @@ class TestImageBatchEstimate:
             project, ["t2i", "t2i"], aspect_ratio="1:1", resolver=ConfigResolver(db_factory), session_factory=db_factory
         )
 
-        # 1K → quality medium、1:1 → 1024x1024：官方计算器 1756 个输出 token × $30/百万；提示词文字 token 记 0
         assert estimated.total == {"USD": pytest.approx(2 * 1756 * 30 / 1_000_000)}
         assert estimated.unpriced_count == 0
 
@@ -2684,7 +2640,6 @@ class TestImageBatchEstimate:
             project, ["t2i", "t2i"], aspect_ratio="1:1", resolver=ConfigResolver(db_factory), session_factory=db_factory
         )
 
-        # 1K → medium、1:1 → 1024x1024：官方计算器（GPT Image 2.6）1449 个输出 token × $30/百万
         assert estimated.total == {"USD": pytest.approx(2 * 1449 * 30 / 1_000_000)}
         assert estimated.unpriced_count == 0
 
@@ -2732,7 +2687,6 @@ class TestImageBatchEstimate:
             project, ["t2i"], aspect_ratio="9:16", resolver=resolver, session_factory=db_factory
         )
         assert (t2i.total, t2i.unpriced_count) == ({"USD": pytest.approx(0.01)}, 0)
-        # 图生图只知道走参考图、不知道几张；Agnes 第 4 张起按张加价，算不出
         i2i = await estimate_image_batch_cost(
             project, ["i2i"], aspect_ratio="9:16", resolver=resolver, session_factory=db_factory
         )
@@ -2803,7 +2757,6 @@ class TestImageBatchEstimate:
         assert (estimated.total, estimated.unpriced_count) == ({}, 0)
 
 
-#: 自造的估算基数；9:16 下 low 在 1K（1008x1792）估出 138 个输出 token，在 2K（1440x2560）估出 205 个。
 _QUALITY_TOKEN_BASES = {"low": 16, "medium": 48, "high": 96}
 
 
@@ -2833,9 +2786,7 @@ class TestSelectedImageQuality:
         [
             ("1K", "low", ("low", "medium", "high"), 138),
             ("2K", "low", ("low", "medium", "high"), 205),
-            # 未选择画质：按档位推出（1K → medium）
             ("1K", None, ("low", "medium", "high"), 1234),
-            # 条目未收录画质取值：忽略存值，按档位推出（1K → medium）
             ("1K", "low", (), 1234),
         ],
     )
@@ -2935,7 +2886,6 @@ class TestSelectedImageQuality:
             result = await service.compute(project_data, scripts, project_name="proj")
             return result["episodes"][0]["totals"]["estimate"]["image"]["USD"]
 
-        # 9 个分镜：普通分镜图 9 张，宫格是 1 张 grid_9；宫格比例与项目比例只差横竖，像素总数相同
         images = 1 if grid else 9
         assert await _episode_image_usd({"resolution": "1K", "quality": "low"}) == pytest.approx(
             images * self._usd(138), abs=1e-5

@@ -205,7 +205,6 @@ def test_a_reference_audio_restored_to_a_new_name_does_not_relink_to_another_cha
     first, second = record_ids
     mp3 = "characters/refs_audio/Alice.mp3"
     media_trash_pm.install_character_reference_audio("demo", "Alice", mp3, b"current")
-    # 当前音色仍有效：先恢复的一份只作为未引用文件加回原位。
     project_trash.restore(project_dir, first)
     media_trash_pm.clear_character_reference_audio("demo", "Alice")
 

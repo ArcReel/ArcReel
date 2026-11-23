@@ -53,7 +53,6 @@ describe("PriceEditor", () => {
     await pickMenuItem(/按条件分价/, "分辨率");
     fireEvent.change(screen.getByRole("textbox", { name: "视频时长的单价（分辨率：720p）" }), { target: { value: "0.4" } });
     fireEvent.click(within(card("视频时长")).getByRole("button", { name: "添加一档" }));
-    // 新的一档沿用上一档的条件，点选条件标签改成 1080p
     const tags = within(card("视频时长")).getAllByRole("button", { name: /修改条件：分辨率：720p/ });
     fireEvent.click(tags[1]);
     fireEvent.click(screen.getByRole("button", { name: "1080p" }));
@@ -135,7 +134,6 @@ describe("PriceEditor", () => {
     await pickMenuItem("按条件分价", "服务档");
     fireEvent.click(within(card("输入")).getByRole("button", { name: "添加一档" }));
 
-    // 新的一档自动取了下一个服务档，两档都还没填单价
     expect(screen.getAllByText("请填写单价。")).toHaveLength(2);
     expect(screen.getByTestId("valid")).toHaveTextContent("false");
 
@@ -192,7 +190,6 @@ describe("PriceEditor", () => {
     );
     const prices = () => within(card("输入")).getAllByRole("textbox", { name: /^输入的单价/ });
     const last = prices()[2];
-    // 输入到一半的文字只存在于这一档自己的输入框里
     fireEvent.change(last, { target: { value: "3." } });
     last.focus();
 

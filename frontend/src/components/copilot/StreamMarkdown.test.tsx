@@ -8,7 +8,6 @@ import { StreamMarkdown } from "./StreamMarkdown";
 const URL_ATTRS = ["href", "src", "xlink:href", "action", "formaction", "srcdoc", "data"];
 const ACTIVE_TAGS = ["script", "iframe", "object", "embed", "form", "svg", "math", "style", "base", "meta", "link"];
 
-// 按浏览器 URL 解析规则归一：去掉首尾 C0 控制符与空白、剔除中间的制表与换行后取协议。
 function urlScheme(value: string): string {
   let start = 0;
   let end = value.length;
@@ -42,7 +41,6 @@ function collectActiveContent(root: HTMLElement): string[] {
   return findings;
 }
 
-// 链接按钮不带 href，地址只保存在点击回调里，DOM 属性检查看不到；PAYLOADS 不含允许的链接，完整渲染后不应出现可点击元素。
 function clickableElements(root: HTMLElement): string[] {
   return Array.from(
     root.querySelectorAll('a, button, [data-streamdown="link"]'),

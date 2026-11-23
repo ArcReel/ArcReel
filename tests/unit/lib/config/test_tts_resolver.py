@@ -8,7 +8,6 @@ from lib.config.recommended_models import FROZEN_SETTING_KEY
 from lib.config.resolver import ConfigResolver, NoAvailableProviderError, ProviderModel
 from lib.config.service import ProviderStatus
 
-#: 升级固化已完成、升级前的选择都能还原：没有默认模型设置时才会走到最后一层，而不是在固化标记处就报错。
 _FROZEN = {FROZEN_SETTING_KEY: "[]"}
 
 
@@ -53,7 +52,6 @@ class TestResolveAudioProviderModel:
         assert result == ProviderModel("dashscope", "qwen3-tts-flash")
 
     async def test_payload_untrusted_provider_ignored(self):
-        # 未知 provider 不予信任 → 回退 project
         resolver = ConfigResolver.__new__(ConfigResolver)
         result = await resolver._resolve_audio_provider_model(
             _FakeSvc(),
@@ -80,7 +78,6 @@ class TestResolveAudioProviderModel:
         assert result == ProviderModel("dashscope", "qwen3-tts-flash")
 
     async def test_unset_settings_do_not_pick_a_catalog_recommendation(self, db_session):
-        # 无 payload / project / 全局设置 → 不按就绪供应商的目录推荐挑选（docs/adr/0099）
         resolver = ConfigResolver.__new__(ConfigResolver)
         svc = _FakeSvc(settings=_FROZEN, ready=[_ready("dashscope", ["audio"])])
         with pytest.raises(NoAvailableProviderError):
@@ -160,7 +157,6 @@ class TestServiceDefaultAudioBackend:
 
 class TestServiceNarrationVoice:
     async def test_blank_setting_falls_back_to_default(self, db_factory):
-        # 全局 setting 被保存成空白时回退默认值，与项目级覆盖的 strip 语义一致
         from lib.config.service import ConfigService
 
         async with db_factory() as session:

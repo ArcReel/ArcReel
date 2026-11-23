@@ -11,7 +11,6 @@ const LONG_NAME = "旧城茶馆二楼临窗座位上总在午后出现的说书�
 const LONG_DESCRIPTION =
   "四十岁上下，瘦高，穿洗得发白的灰布长衫，袖口磨出了毛边；左眼角有一颗痣，说话时习惯用折扇轻敲桌面。每天午后准时出现在茶馆二楼临窗的位置，讲到紧要处会突然停下喝茶，让听众干着急。";
 
-// 内联 SVG 资产图：getFileUrl 原样使用 data: 地址，不发请求。
 function sheetSvg(hue: number) {
   return `data:image/svg+xml,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="1280" height="720" fill="hsl(${hue} 18% 20%)"/><circle cx="640" cy="300" r="120" fill="hsl(${hue} 14% 42%)"/><rect x="460" y="440" width="360" height="200" rx="40" fill="hsl(${hue} 14% 42%)"/></svg>`,
@@ -99,7 +98,6 @@ const RUNNING_TASKS = {
   },
 };
 
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，画廊停在替换的项目数据上。
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": projectWith(CHARACTERS),
@@ -243,7 +241,6 @@ function cards(page: Page) {
 
 async function galleryReady(page: Page) {
   await expect(cards(page).first()).toBeVisible();
-  // 等产物清单回来：沈砚的「已过期」标记来自它。
   await expect(page.getByRole("button", { name: /^已过期/ })).toContainText("1");
 }
 

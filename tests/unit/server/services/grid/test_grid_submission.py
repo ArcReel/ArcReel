@@ -88,7 +88,6 @@ async def _no_large_grid(_project: dict[str, Any]) -> bool:
 
 
 def _write_project(project_path: Path, project: dict[str, Any], script: dict[str, Any]) -> None:
-    # 产物清单的取证只读磁盘上的规范文件
     (project_path / "scripts").mkdir(exist_ok=True)
     (project_path / "project.json").write_text(json.dumps(project), encoding="utf-8")
     (project_path / "scripts" / "episode_1.json").write_text(json.dumps(script), encoding="utf-8")
@@ -185,7 +184,6 @@ async def test_missing_only_generates_every_group_without_storyboards(
     records = GridManager(project_path).list_all()
     assert sorted(g.id for g in records) == sorted(t.grid.id for t in tasks)
     assert [t.payload["scene_ids"] for t in tasks] == [GROUP_1, GROUP_2]
-    # 生成任务只产出联合图：payload 不再携带随任务落格的范围
     assert all("report_scene_ids" not in t.payload for t in tasks)
     assert all(t.payload["prompt"] == g.prompt for t, g in zip(tasks, records, strict=True))
 
@@ -442,7 +440,6 @@ async def test_submissions_of_one_project_take_turns(tmp_path: Path) -> None:
     await asyncio.sleep(0)
     assert entered == ["first"]
 
-    # 另一个项目不受这个临界区影响
     async with grid_submission_section(str(tmp_path / "other")):
         pass
 

@@ -155,11 +155,9 @@ def test_migration_assigns_stable_safe_names_and_cascades_everywhere(tmp_path: P
         {"type": "scene", "name": "Hero_scene"},
         {"type": "product", "name": "Hero_product"},
     ]
-    # 无类型 mention 按稳定优先级归 character，不被较低优先级资产抢走。
     assert shot["text"] == "@[Hero] beside @[café]"
     draft = _read_json(project_dir / "drafts" / "episode_1" / "quarantine.json")
     assert draft["units"][0]["references"] == [{"type": "product", "name": "Hero_product"}]
-    # 同容器唯一 typed reference 可判定归属，mention 随 product 级联。
     assert draft["units"][0]["text"] == "@[Hero_product]"
     assert draft["units"][1]["references"] == [{"type": "scene", "name": "Hero_scene"}]
     assert draft["units"][1]["shots"][0]["text"] == "@[Hero_scene] in view"

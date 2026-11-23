@@ -6,7 +6,6 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 const EXTERNAL_AGENT = "/app/settings?section=external-agent";
 const ACCESS_TOKENS = "/app/settings?section=access-tokens";
 
-// 压力变体：令牌多、名称长，永久、已过期、未过期与从未使用混在一起（固定时间是 2026-01-01）。
 const MANY_TOKENS: ApiOverrides = {
   "GET /api/v1/api-keys": {
     status: 200,
@@ -130,7 +129,6 @@ defineRegionScenarios("外部 Agent 接入与访问令牌", [
       await settingsReady(page);
       await page.getByRole("table", { name: "访问令牌列表" }).waitFor();
     },
-    // 只截令牌表：分区顶部的配置问题横幅不属于本区域，不进本区域的基线
     screenshot: { name: "access-tokens", target: (page) => page.getByRole("table", { name: "访问令牌列表" }) },
   },
   {

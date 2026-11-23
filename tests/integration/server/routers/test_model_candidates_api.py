@@ -58,14 +58,11 @@ def _custom_option(body: dict, model_id: str) -> str:
     return next(pid for pid in body["provider_names"] if pid.startswith("custom-")) + f"/{model_id}"
 
 
-# dashscope 视频模型（视频能力值取自 backend 声明，见模块 docstring）
-DS_I2V_ONLY = "dashscope/wan2.7-i2v"  # i2v ✓ / r2v ✗
-DS_T2V_ONLY = "dashscope/wan2.7-t2v"  # i2v ✗ / r2v ✗
-DS_R2V = "dashscope/wan2.7-r2v"  # i2v ✓ / r2v ✓
-# 图片模型：dashscope 的 t2i+i2i 样本，vidu 的 i2i-only 样本
+DS_I2V_ONLY = "dashscope/wan2.7-i2v"
+DS_T2V_ONLY = "dashscope/wan2.7-t2v"
+DS_R2V = "dashscope/wan2.7-r2v"
 DS_IMAGE_BOTH = "dashscope/qwen-image-2.0"
 DS_IMAGE_I2I_ONLY = "vidu/viduq1"
-# 无桶维度的媒体类型样本（audio 不设桶）
 DS_AUDIO = "dashscope/qwen3-tts-flash"
 
 
@@ -94,7 +91,6 @@ def _make_mock_svc(
                 capabilities=catalog.provider_capabilities(name),
                 required_keys=list(meta.required_keys),
                 credential_count=1 if name in ready else 0,
-                # 没有内置供应商模型状态行的实例：条目已下线的模型为停用
                 disabled_models=disabled[name] if model_states is not None else disabled_without_state(name),
             )
             for name, meta in PROVIDER_REGISTRY.items()
@@ -187,7 +183,6 @@ class TestBuiltinBucketFiltering:
     def test_default_tier_is_unfiltered(self, make_client):
         with make_client(["dashscope", "vidu"]) as client:
             body = client.get(CANDIDATES_URL).json()
-        # 默认层不承诺能力：无 i2v、无 r2v 的模型照样在列
         assert DS_T2V_ONLY in body["video"]["default"]
         assert DS_IMAGE_I2I_ONLY in body["image"]["default"]
 
@@ -267,7 +262,6 @@ class TestBuiltinBucketFiltering:
 
         all_candidates = {option for media in ("image", "video") for option in body[media]["default"]}
         all_candidates.update(body["model_names"])
-        # 出厂目录中已下线的 agnes 旧模型；agnes-image-2.1-flash 在目录中仍可用，只由迁移给老用户停用
         assert "agnes/agnes-2.0-flash" not in all_candidates
         assert "agnes/agnes-video-v2.0" not in all_candidates
 
@@ -278,7 +272,6 @@ class TestCustomProviderBucketFiltering:
     ):
         factory, _engine = session_factory_and_engine
         with make_client([]) as client:
-            # openai-video 系统判定 max_reference_images=1、first_frame=True
             await _seed_custom_models(
                 factory,
                 [{"model_id": "relay-sora", "display_name": "Sora 2", "endpoint": "openai-video", "is_enabled": True}],
@@ -307,7 +300,6 @@ class TestCustomProviderBucketFiltering:
             body = client.get(CANDIDATES_URL).json()
         option = _custom_option(body, "relay-sora")
         assert option not in body["video"]["buckets"]["r2v"]
-        # 覆盖只动了参考图维度，i2v 与默认层不受影响
         assert option in body["video"]["buckets"]["i2v"]
         assert option in body["video"]["default"]
 
@@ -334,11 +326,8 @@ class TestCustomProviderBucketFiltering:
     @pytest.mark.parametrize(
         ("endpoint", "model_id", "buckets"),
         [
-            # 端点两者都实现，条目只接受图生图
             ("dashscope-qwen-image", "viduq1", {"i2i"}),
-            # 端点只实现文生图，条目只接受图生图：没有两者都满足的组合
             ("openai-images-generations", "viduq1", set()),
-            # 对应不上条目：模型事实不加约束，按端点声明
             ("dashscope-qwen-image", "relay-image-x", {"t2i", "i2i"}),
         ],
     )
@@ -450,7 +439,6 @@ class TestFilteredCandidates:
         assert i2i["grok/grok-imagine-image"] == ["max_reference_images"]
         assert DS_IMAGE_BOTH not in t2i
         assert DS_IMAGE_BOTH not in i2i
-        # 滤掉的与列出的合起来正好是默认层
         for media_type, bucket in (("video", "i2v"), ("video", "r2v"), ("image", "t2i"), ("image", "i2i")):
             listed = set(body[media_type]["buckets"][bucket])
             assert listed.isdisjoint(_filtered(body, media_type, bucket))
@@ -667,7 +655,6 @@ class TestUnlistedReferenceNotices:
         ("model_name", "has_entry"),
         [
             pytest.param(lambda: "wan-retired-preview", False, id="no-entry"),
-            # 按名字对上的是仍可用的条目（如旧名留作后继条目的别名），模型却不在清单里，同样调不了
             pytest.param(lambda: catalog.default_model("ark", "video"), True, id="available-entry"),
         ],
     )
@@ -706,7 +693,6 @@ class TestCatalogDisplayNames:
             en = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()
         assert zh["provider_names"]["ark"] == "火山方舟"
         assert en["provider_names"]["ark"] == "Volcengine Ark"
-        # 模型显示名取目录条目，不分语言；型号从目录取，免得随出厂快照更新失效
         model_id = catalog.default_model("ark", "text")
         assert model_id is not None
         model = catalog.get_model("ark", model_id)
@@ -774,7 +760,7 @@ class TestBucketJudgement:
     @pytest.mark.parametrize(
         ("provider_id", "model_id"),
         [
-            ("vidu", "viduq3"),  # 只在 /reference2video 白名单内，提交首帧会在构造请求时报错
+            ("vidu", "viduq3"),
             ("dashscope", "happyhorse-1.0-r2v"),
         ],
     )
@@ -819,10 +805,8 @@ class TestBucketJudgement:
                 endpoint="ce-7", model_id="my-wan-workflow", endpoint_spec=comfyui_endpoint_spec("ce-7", definition)
             )
 
-        # 纯文生：i2v 桶按 has_image=True 判首帧，没有首帧格子就进不去。
         assert buckets(t2v) == frozenset()
         assert buckets(i2v) == frozenset({"i2v"})
-        # 尾帧是「支持」而非另一个桶：首尾帧 workflow 仍在 i2v，尾帧作为能力位单独透出。
         assert buckets(flf) == frozenset({"i2v"})
         assert comfyui_endpoint_spec("ce-7", flf).end_image_capable is True
         assert buckets(r2v) == frozenset({"r2v"})

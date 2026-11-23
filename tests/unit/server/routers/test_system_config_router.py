@@ -98,7 +98,6 @@ def _make_mock_svc(
                     capabilities=catalog.provider_capabilities(name),
                     required_keys=list(meta.required_keys),
                     credential_count=1 if name in ready else 0,
-                    # 没有内置供应商模型状态行的实例：条目已下线的模型为停用
                     disabled_models=disabled_without_state(name),
                 )
             )
@@ -297,8 +296,6 @@ class TestPatchSystemConfig:
         mock_session = AsyncMock()
         mock_session.commit = AsyncMock()
 
-        # PATCH 路由内部可能调用 session.execute()（兼容旧 setting key 写入路径）。
-        # 默认 stub：scalar_one_or_none() 返回 None；scalars() 返回空迭代器。
         _exec_result = MagicMock()
         _exec_result.scalar_one_or_none.return_value = None
         _exec_result.scalars.return_value = iter([])
@@ -510,7 +507,6 @@ class TestPatchSystemConfig:
         assert res.status_code == 422
 
     def test_patch_rejects_non_finite_narration_speed(self):
-        # Pydantic lax 模式会把 "nan"/"inf" 字符串转成 float，必须在卫生校验层拒绝
         mock_svc = _make_mock_svc()
         with TestClient(self._make_patch_app(mock_svc)) as client:
             for raw in ("nan", "inf", "-inf"):

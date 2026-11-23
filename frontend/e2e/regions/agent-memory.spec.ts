@@ -3,9 +3,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { waitForEntrance } from "../support/region-helpers.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 记忆编辑器：全局设置「Agent 记忆」（全出血档，二级栏列文件、详情栏是编辑器，两栏各自滚动）
-// 与项目设置「项目记忆」分页（限宽页里的文件列表加同一个编辑器，随页面主体滚动）。
-// 每个文件是一个编辑单元，未保存修改显示在编辑框下方的内联提示条里。
 
 const USER_MEMORY = "/api/v1/agent/memory";
 const PROJECT_MEMORY = "/api/v1/projects/demo/agent-memory";
@@ -46,7 +43,6 @@ const PROJECT_FILES = manyFiles(PROJECT_MEMORY, "/home/creator/.arcreel/data/pro
 
 const editor = (page: Page) => page.getByRole("textbox", { name: "MEMORY.md" });
 
-/** 二级栏（标准档或紧凑档，只有一份可见）。 */
 const rail = (page: Page) => page.getByRole("navigation", { name: "记忆文件" });
 
 async function scrollToBottom(locator: Locator) {
@@ -166,7 +162,6 @@ defineRegionScenarios("项目记忆", [
     act: async (page) => {
       await editIndex(page);
       await expect(page.getByRole("button", { name: "保存" })).toBeVisible();
-      // 记忆文件自己保存，外壳底行不出现项目设置的保存栏
       await expect(page.getByRole("button", { name: "保存" })).toHaveCount(1);
       await waitForEntrance(page.locator("body"));
       await page.getByRole("main").evaluate((el) => el.scrollTo({ top: el.scrollHeight }));

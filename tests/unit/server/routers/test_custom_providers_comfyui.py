@@ -117,7 +117,6 @@ class TestComfyuiProviderCreation:
         catalog = comfyui_client.get("/api/v1/custom-providers/endpoints").json()["endpoints"]
         entry = next(e for e in catalog if e["key"] == key)
         assert entry["media_type"] == "image"
-        # 夹具没有参考图绑定：这份 workflow 只走得通文生图那一条（``docs/adr/0082``）。
         assert entry["image_capabilities"] == ["text_to_image"]
 
 

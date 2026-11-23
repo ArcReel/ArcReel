@@ -20,7 +20,6 @@ function own(episode: number): EpisodeMeta {
   return { episode, title: "", script_file: `scripts/episode_${episode}.json`, source_origin: "own" };
 }
 
-// 播出顺序：切出集 1（a.txt 开头）、自带原文的集 5、切出集 2（a.txt 后段）、切出集 3（b.txt 开头）
 const episodes = [cut(1, "source/a.txt", 0), own(5), cut(2, "source/a.txt", 10), cut(3, "source/b.txt", 0)];
 
 describe("episodeMoveCheck", () => {

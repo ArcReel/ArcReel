@@ -50,7 +50,6 @@ describe("ShotDetail 媒体上传", () => {
   });
 
   it("上传后项目数据已刷新时报告上传完成", async () => {
-    // 提示里按本集位置称呼分镜：E1S01 排在第 2 位
     useProjectsStore.setState({
       currentScripts: {
         "episode_1.json": {

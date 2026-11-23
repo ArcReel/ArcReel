@@ -85,7 +85,6 @@ class TestDerivativeSheetGeneration:
         images = _sent_images(submit)
         assert len(images) == 1
         sent = decode_data_url_image(images[0])
-        # 送出去的就是本体资产图本身：尺寸与左右双色块都对得上（有损压缩后按容差比对）。
         assert sent.size == OWNER_SHEET_SIZE
         assert close_to(sent.convert("RGB").getpixel((8, 8)), OWNER_LEFT_RGB)
         assert close_to(sent.convert("RGB").getpixel((88, 40)), OWNER_RIGHT_RGB)
@@ -170,7 +169,6 @@ class TestDerivativeSheetCurrency:
         await self._generate(pm, project_path, monkeypatch)
         assert self._status(pm, project_path) is ArtifactStatus.CURRENT
 
-        # 本体资产图换了内容：衍生是对它的编辑，依据随即不再成立。
         write_two_tone_png(project_path / "characters/阿岚.png", left=(10, 10, 10), right=(240, 240, 240))
         assert self._status(pm, project_path) is ArtifactStatus.STALE
 
@@ -214,7 +212,6 @@ class TestDerivativeImageEdit:
 
         images = _sent_images(submit)
         assert len(images) == 1
-        # 编辑吃的是衍生自己的当前图（纯色），不是本体那张左右双色的资产图。
         sent = decode_data_url_image(images[0]).convert("RGB")
         assert close_to(sent.getpixel((4, 4)), RESULT_IMAGE_RGB)
         assert close_to(sent.getpixel((28, 28)), RESULT_IMAGE_RGB)

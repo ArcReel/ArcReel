@@ -439,7 +439,6 @@ describe("离开拦截", () => {
     it("保存在途时把字段改回原值再后退：不放行，等保存落定后再询问", async () => {
       const user = userEvent.setup();
       const saving = createDeferred<string | void>();
-      // 先于 guard 登记捕获监听器：被拦截的 popstate 会 stopImmediatePropagation。
       const popped = createDeferred<void>();
       window.addEventListener("popstate", () => popped.resolve(), { capture: true, once: true });
       renderInBrowser(["/elsewhere"], () => saving.promise);

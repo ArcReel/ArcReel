@@ -106,7 +106,7 @@ class TestCompressImageBytes:
 
     def test_normalize_uploaded_image_still_default(self):
         """normalize_uploaded_image 不传 subsampling，保持默认（回归）。"""
-        big = self._make_noise_png(3000, 2000)  # 噪声 PNG，体积 > 2MB 阈值，触发压缩分支
+        big = self._make_noise_png(3000, 2000)
         assert len(big) > 2 * 1024 * 1024
         processed, suffix = normalize_uploaded_image(big, ".png")
         assert suffix == ".jpg"

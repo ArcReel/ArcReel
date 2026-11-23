@@ -74,7 +74,6 @@ async def test_fake_client_records_current_task_per_method():
     async with client:
         await client.query("hello")
         await client.interrupt()
-    # disconnect 由 __aexit__ 触发
 
     current = asyncio.current_task()
     assert client.method_tasks["connect"] == [current]
@@ -254,8 +253,6 @@ async def test_all_sdk_calls_recorded_on_same_task():
     await i.done.wait()
     await _disconnect(actor, interrupt_first=True)
 
-    # 仅锁定 method 调用（原始帧流是 async generator iteration，
-    # 其 body 在子 task driven 是 asyncio 允许的，不属于 SDK 同 task 契约）
     sdk_methods = ("connect", "query", "interrupt", "disconnect")
     sdk_tasks: set = set()
     for m in sdk_methods:
@@ -352,7 +349,6 @@ async def test_actor_error_propagates_to_waiter():
     assert str(q.error) == "sdk boom"
     assert actor._fatal is q.error
 
-    # actor 已死亡；后续命令应 fast-fail
     q2 = _query("another")
     await actor.enqueue(q2)
     await q2.done.wait()
@@ -372,7 +368,6 @@ async def test_actor_fatal_drains_queued_commands():
     await actor.start()
 
     q = _query("hi")
-    # 排在后面的命令：在 _run 捕获异常后被 finally 的 drain 清理
     q_queued = _query("queued")
     await actor.enqueue(q)
     await actor.enqueue(q_queued)
@@ -431,7 +426,6 @@ async def test_interrupt_failure_still_wakes_waiter():
     try:
         i = SessionCommand(type="interrupt")
         await actor.enqueue(i)
-        # interrupt 抛异常，actor crash；cmd 仍应被唤醒并携带 error
         await asyncio.wait_for(i.done.wait(), timeout=1.0)
         assert i.error is not None
     finally:

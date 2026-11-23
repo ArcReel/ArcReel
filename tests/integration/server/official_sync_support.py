@@ -19,7 +19,6 @@ from lib.catalog import query as catalog
 from server import app as server_app
 from tests.http_capture import capture_http
 
-#: 比任何测试目录数据都新的数据集版本，同步一定会装入。
 NEWER = "2099-01-01T00:00:00Z"
 
 
@@ -63,7 +62,6 @@ async def sync_as_app_starts_it(
 
         return official_sync.start_official_sync(session_factory, http_client, on_applied=after_applied)
 
-    # 根 conftest 把应用启动的同步换成了不发请求的空任务，这里换回真实入口
     monkeypatch.setattr(server_app, "start_official_sync", start_sync)
     async with httpx.AsyncClient() as client:
         with capture_http() as router:

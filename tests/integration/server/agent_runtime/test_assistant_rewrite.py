@@ -193,7 +193,6 @@ class TestRewriteHappyPath:
         assert result["session_id"] != session_id
         assert result["origin_session_id"] == session_id
         assert result["queued_message"] is not None
-        # 改写后的消息作为新会话的输入被派发出去，无需用户再操作一步。
         assert [d["session_id"] for d in runtime.dispatched] == [result["session_id"]]
         assert runtime.dispatched[0]["prompt"] == "只改第 3 集"
 
@@ -223,7 +222,6 @@ class TestRewriteHappyPath:
         assert [e["type"] for e in entries] == ["user", "assistant", "user"]
         assert [e["seq"] for e in entries] == [0, 1, 2]
         assert entries[-1]["uuid"] == result["queued_message"]["id"]
-        # 被丢弃的分支不进新会话：原会话第二轮的回复不在时间线里。
         assert not any("批量改好了" in str(e) for e in entries)
 
     async def test_rewriting_the_first_message_starts_a_fresh_session(self, rewriting):
@@ -267,13 +265,11 @@ class TestRewriteHappyPath:
             images=[_image("AAAA"), _image("BBBB", "image/jpeg")],
         )
 
-        # 派发给 CLI 的是多模态内容，与普通带图发送同构：图在前、文本在后
         assert runtime.dispatched[0]["prompt"] == [
             _image_block("AAAA"),
             _image_block("BBBB", "image/jpeg"),
             {"type": "text", "text": "只改第 3 集"},
         ]
-        # 被接纳后落库的权威条目同样带图，刷新后时间线仍能渲染出这两张图
         await runtime.accept(result["session_id"])
         entries = await service.event_log.list_entries(result["session_id"], project_cwd)
         assert entries[-1]["content"] == [
@@ -453,7 +449,6 @@ class TestRewriteAdmission:
         rewrite = asyncio.create_task(_rewrite(service, session_id, SECOND_USER_ENTRY))
         await interrupted.wait()
 
-        # 发送读会话元数据的那一步在受理锁内：读没读过，判别它是否停在锁上
         meta_reads: list[str] = []
         get_meta = service.meta_store.get
 
@@ -463,7 +458,6 @@ class TestRewriteAdmission:
 
         service.meta_store.get = _get_meta
         send = asyncio.create_task(service.send_or_create(PROJECT_NAME, "第 5 镜删掉", session_id=session_id))
-        # 让发送跑到它的第一个挂起点
         await asyncio.sleep(0)
         assert meta_reads == []
         assert not send.done()
@@ -492,7 +486,6 @@ class TestRewriteDispatchFailure:
         listed = {meta.id for meta in await service.meta_store.list(project_name=PROJECT_NAME)}
         assert listed == {session_id}, "撤回后不留下顶替原会话的空转分支"
 
-        # 撤回后重试可以正常改写，用户不被卡死。
         runtime.send_failure = None
         result = await _rewrite(service, session_id, SECOND_USER_ENTRY)
         assert result["session_id"] != session_id

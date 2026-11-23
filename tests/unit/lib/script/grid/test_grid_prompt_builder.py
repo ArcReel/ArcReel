@@ -327,7 +327,6 @@ class TestBuildGridPrompt:
         assert prompt.count("空占位") == total - n_scenes
 
     def test_more_scenes_than_cells_fails_loud(self):
-        # 超员场景在成图中没有对应画格，调用方应先按 max_cell_count 切块
         scenes = [self._scene(f"S{i}", f"s{i}", f"a{i}") for i in range(1, 13)]
         with pytest.raises(ValueError, match="切块"):
             build_grid_prompt(

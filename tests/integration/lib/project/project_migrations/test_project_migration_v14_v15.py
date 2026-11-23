@@ -140,7 +140,6 @@ def _project_activity(project_dir: Path) -> datetime | None:
 def test_materializing_confirmed_episodes_leaves_the_project_activity_unchanged(
     tmp_path: Path, variant: ScriptPlanVariantName
 ) -> None:
-    # 转出的正式脚本记下的是创作者确认脚本规划的时间，不是迁移运行的时间。
     project_dir = write_legacy_script_plan_project(tmp_path / "projects", variant=variant, schema_version=7)
     stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC).timestamp()
     for path in project_dir.rglob("*"):
@@ -233,7 +232,6 @@ def test_unmaterializable_confirmed_episode_stays_out_of_the_migration_report(
         )
     migrate_project_dir(project_dir)
 
-    # 转不出正式脚本不是读不出的文件：该集回到待确认，不进「未能带入」（ADR 0098）。
     report = load_migration_report(project_dir)
     assert report is None or [item for item in report.skipped if item.episode == 2] == []
     assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
@@ -346,7 +344,6 @@ def test_canonical_bindings_are_left_verbatim(tmp_path: Path) -> None:
     migrate_project_dir(project_dir)
 
     assert [entry["script_file"] for entry in _read_json(project_dir / "project.json")["episodes"]] == before
-    # 第 2 集是确认后转出的正式脚本，其余剧本原地改写，不改名。
     assert sorted(path.name for path in (project_dir / "scripts").glob("*.json")) == sorted(
         [*scripts_before, "episode_2.json"]
     )
@@ -362,7 +359,6 @@ def test_every_reader_resolves_the_same_script_after_the_migration(tmp_path: Pat
     assert project["episodes"][0]["script_file"] == f"scripts/{confirmed}"
     assert prompt_authoring_generated(project_dir, project, 1) is True
 
-    # 从内容确认解析出的那份剧本里拿掉一个条目，提示词编写随之认不出它。
     asyncio.run(ScriptGenerator(project_dir).build_prompt(1, entry_ids=["E1S02"]))
     script_path = project_dir / "scripts" / confirmed
     script = _read_json(script_path)

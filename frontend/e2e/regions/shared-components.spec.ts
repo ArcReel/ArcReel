@@ -18,7 +18,6 @@ interface RecordedProject {
 const recordedProject = recorded<RecordedProject>("project-demo.json");
 const recordedScript = recordedProject.scripts["episode_1.json"];
 
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
 const BASE: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -27,13 +26,11 @@ const shotId = (n: number) => `E1S${String(n).padStart(2, "0")}`;
 const LONG_TEXT =
   "夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过，风把旗子吹得猎猎作响。沈砚停在拐角，听见护城河那边传来一声闷响，像是什么沉甸甸的东西落了水。";
 
-// 分镜图用内联 SVG：getFileUrl 原样使用 data: 地址，不发请求，截图稳定。
 function portraitSvg(hue: number) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="360" height="640" viewBox="0 0 90 160"><rect width="90" height="160" fill="hsl(${hue} 30% 22%)"/><circle cx="45" cy="62" r="20" fill="hsl(${hue} 35% 55%)"/><rect x="18" y="96" width="54" height="48" rx="6" fill="hsl(${hue} 30% 40%)"/></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
-// 四十条分镜的正式脚本，第一条已有分镜图：「编写提示词」的自选列表与查看大图都用它。
 const SHOT_COUNT = 40;
 const segments = Array.from({ length: SHOT_COUNT }, (_, i) => ({
   segment_id: shotId(i + 1),
@@ -98,7 +95,6 @@ function task(overrides: Record<string, unknown>) {
   };
 }
 
-// 上一次 AI 规划脚本因输出被截断失败，用的是自定义供应商的模型：提示给出去登记最大输出长度的链接。
 const TRUNCATED_FAILURE: ApiOverrides = {
   ...SCRIPTED,
   [TASKS]: {

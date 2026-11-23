@@ -223,7 +223,6 @@ class TestRestartRecovery:
         assert dispatcher_task is not None
         await asyncio.wait_for(dispatcher_task, timeout=5)
 
-        # 派发身份取 checkpoint 的 ark，而不是 task 投影列的 Grok 或 payload 里的当前配置
         assert [t["task_id"] for t in resumed] == ["ref-ready"]
         assert resumed[0]["provider_id"] == "ark"
         assert queue.failed == []
@@ -378,7 +377,6 @@ class TestRestartRecovery:
             async def list_orphan_tasks_on_start(self):
                 return stale_snapshot
 
-        # 行在扫描之后回到 queued：终态写入的守卫只放行 running，而打断兜底会把 queued 翻成 cancelled
         await seed_running_task(
             worker_db, "img-raced", task_type="storyboard", media_type="image", status="queued", started_at=None
         )
@@ -423,7 +421,6 @@ class TestRestartRecovery:
 
         await worker._recovery.handle_orphans()
 
-        # 用 checkpoint 的 Grok → [resume_unsupported]；若误用 advisory/payload 的 ark → 会派发 resume
         assert await task_status(worker_db, "ghost-orphan") == "running"
         assert resumed == []
         assert worker._recovery.orphan_dispatcher_task is None
@@ -478,13 +475,11 @@ class TestRestartRecovery:
             resume_executor=stub_executors.execute_resume,
         )
 
-        # 让 resume 执行入口 block 住——验证 fast path 不等它完成
         async def _block_forever(_task, *, job_id):
             await asyncio.Event().wait()
 
         monkeypatch.setattr(stub_executors, "resume", _block_forever)
 
-        # 超时只是防死锁护栏：fast path 若等 resume 完成会永远挂住，不是耗时断言。
         await asyncio.wait_for(worker._recovery.handle_orphans(), timeout=10)
         assert worker._recovery.orphan_dispatcher_task is not None
         assert not worker._recovery.orphan_dispatcher_task.done()
@@ -532,9 +527,6 @@ class TestRestartRecovery:
                 break
         assert _inflight() == 2, f"应只有 2 个 inflight，实际 {_inflight()}"
 
-        # 释放一个已 inflight 的 task：其 _run_one finally 会 release 占用 + sem，
-        # 腾出名额让 dispatcher 把第 3 个 promote 进来；主循环每 cycle 的 drain_finished
-        # 在生产中清理，这里调一次模拟（对 dispatcher sub-task 是 no-op，占用由 finally 释放）。
         gates[entered[0]].set()
         await asyncio.sleep(0)
         worker._slots.drain_finished()
@@ -543,7 +535,6 @@ class TestRestartRecovery:
             if _inflight() >= 2:
                 break
         assert _inflight() <= 2
-        # 每次 promote 进 VideoResumeRunner.run 时的 inflight 快照都 ≤ 容量（核心回归点）
         assert snapshots, "未采集到 inflight 快照"
         assert all(s <= 2 for s in snapshots), f"inflight 快照越过容量上限: {snapshots}"
 
@@ -671,7 +662,6 @@ class TestDispatcherFailFastAndPendingTracking:
         async with worker_db() as session:
             row = await session.get(ApiCall, call_id)
         assert (row.status, row.cost_amount) == ("failed", 0)
-        # 判死时没有异常对象可分类，只有一段原文：落 error_message，不落码
         assert row.error_message == f"resume unsupported: provider {provider_key} has no video capacity"
         assert (row.error_code, row.error_params) == (None, None)
 
@@ -705,7 +695,6 @@ class TestDispatcherFailFastAndPendingTracking:
         inflight, pending = _phase_ids(worker._slots, "ark", "video")
         assert len(inflight) == 1
         assert len(pending) == 1
-        # pending 计入容量：占用=2 ≥ cap=1 → 无空位，主循环不会超额 claim
         assert worker._slots.has_room("ark", "video", 1) is False
 
         gate.set()
@@ -783,10 +772,8 @@ class TestDispatcherFailFastAndPendingTracking:
         ]
         dispatcher = asyncio.create_task(worker._recovery.dispatch_provider_bucket("ark", tasks))
 
-        # 等 VideoResumeRunner.run 进入空窗（await pre_try_gate.wait() 期间）
         await asyncio.wait_for(acquired_event.wait(), timeout=1.0)
 
-        # 现在 task 在 acquired=True（已 promote 为 INFLIGHT）状态，但内部还没接管终态
         _active_task_named(worker._slots, "resume-video-orphan-pre-try").cancel()
 
         pre_try_gate.set()
@@ -848,9 +835,7 @@ class TestOrphanScanSelfPreemption:
 
         await worker._recovery.handle_orphans()
 
-        # dispatcher 句柄不应被设置（本进程仍在跑，无 resumable 任务进 dispatcher）
         assert worker._recovery.orphan_dispatcher_task is None
-        # 不应被标 [restart_lost] —— 本进程还在跑
         assert "img-active" not in {tid for tid, _ in queue.failed}
         fut.set_result(None)
 
@@ -879,7 +864,6 @@ class TestOrphanScanSelfPreemption:
 
         await worker._recovery.handle_orphans()
 
-        # dispatcher 句柄从未被创建 → 本进程 inflight 的 task 没有被重复 dispatch
         assert worker._recovery.orphan_dispatcher_task is None
         assert "vid-active" not in {tid for tid, _ in queue.failed}
         fut.set_result(None)
@@ -943,14 +927,11 @@ class TestOrphanDispatcherNonBlockingOverride:
         assert old_dispatcher is not None
         assert not old_dispatcher.done()
 
-        # 第 2 次扫描（模拟 lease flap 超阈值后重夺）：应直接覆盖句柄、不阻塞
         start = asyncio.get_event_loop().time()
         await worker._recovery.handle_orphans()
         elapsed = asyncio.get_event_loop().time() - start
-        # 应在 1s 内完成；旧 dispatcher 仍未 done 但句柄已被新的覆盖
         assert elapsed < 1.0, f"重夺时不应阻塞：elapsed={elapsed:.3f}s"
         assert worker._recovery.orphan_dispatcher_task is not old_dispatcher
-        # 旧 dispatcher 未被 cancel——in-flight resume 不应被错误中断
         assert not old_dispatcher.cancelled()
         assert not old_dispatcher.done()
 

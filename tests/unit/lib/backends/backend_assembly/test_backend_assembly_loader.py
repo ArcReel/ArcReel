@@ -45,7 +45,6 @@ class TestLoadBuiltinConfig:
         config = await _load_builtin_config(resolver, "ark", rate_limiter=None)
         assert config.credentials.get("api_key") == "ark-secret"
         assert config.credentials.get("base_url") == "https://relay.test/api/v3"
-        # registry meta 进信封：用于 default_base_url 回退
         assert config.provider_meta is not None
         assert config.provider_meta.default_base_url == "https://ark.cn-beijing.volces.com/api/v3"
 
@@ -79,7 +78,6 @@ class TestAssembleBuiltinEndToEnd:
             await assemble_backend(
                 provider_id="ark", media_type="image", model_id="doubao-seedream-5-0-lite-260128", resolver=resolver
             )
-        # 用户未配 base_url → 回落 registry default；凭证 overlay 经装载真进构造参数
         assert built == [
             {
                 "media": "image",
@@ -175,7 +173,6 @@ class TestAssembleBuiltinEndToEnd:
             await assemble_backend(provider_id="ark", media_type="audio", model_id="x", resolver=resolver)
 
     async def test_gemini_aistudio_image_end_to_end(self, db_factory):
-        # gemini 特例族：provider_id 直接决定 backend_type，凭证 overlay + 共享 rate_limiter 经装载进闭包
         await _seed_provider_config(db_factory, "gemini-aistudio", api_key="g-secret", base_url="https://g.relay.test")
         sentinel = object()
         resolver = ConfigResolver(db_factory)
@@ -202,7 +199,6 @@ class TestAssembleBuiltinEndToEnd:
         ]
 
     async def test_text_simple_end_to_end(self, db_factory):
-        # 文本简单族：凭证 overlay 经装载真进构造参数，base_url 回落 registry default
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
@@ -222,7 +218,6 @@ class TestAssembleBuiltinEndToEnd:
         ]
 
     async def test_text_dashscope_compat_end_to_end(self, db_factory):
-        # dashscope 文本 OpenAI-compat：base_url 经 helper 派生、透传 provider_name 计费归因，端到端经缝
         await _seed_provider_config(db_factory, "dashscope", api_key="ds-secret")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
@@ -277,7 +272,6 @@ class TestAssembleBuiltinEndToEnd:
         mock_patched.chat.completions.create_with_completion.assert_awaited_once()
 
     async def test_kling_image_api_model_name_decoupled_end_to_end(self, db_factory):
-        # kling 特例族：双 secret overlay 真进闭包；api_model_name 解耦从 registry models 读到（别名键）
         await _seed_provider_config(db_factory, "kling", access_key="ak-1", secret_key="sk-1")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
@@ -417,7 +411,6 @@ class TestAssembleCustomEndToEnd:
 
     @patch("lib.custom_provider.endpoints.OpenAITextBackend")
     async def test_custom_text_provider_delegates_to_loader(self, mock_cls, db_factory):
-        # 文本自定义路径与媒体共用 load_custom_backend：text media_type 同经统一缝
         from lib.custom_provider import make_provider_id
         from lib.custom_provider.backends import CustomTextBackend
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository

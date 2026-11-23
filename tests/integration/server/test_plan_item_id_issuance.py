@@ -59,7 +59,6 @@ async def test_promotion_keeps_ids_already_issued_to_the_plan(tmp_path: Path) ->
 
     await reissue_plan_item_ids(pm, "demo", 1, plan, keep=formal)
 
-    # 重复出现的已发编号只沿用第一次；不在已发编号里的一律换新号
     assert formal == ["E1S04", "E1S05"]
     assert [scene["scene_id"] for scene in plan["scenes"]] == ["E1S05", "E1S06", "E1S07"]
 

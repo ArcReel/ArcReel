@@ -113,9 +113,7 @@ class TestTextToImage:
         assert body["n"] == 1
         assert body["prompt_optimizer"] is False
         assert "subject_reference" not in body
-        # 默认 aspect_ratio=9:16 精确算、受单边 2048 收口
         assert (body["width"], body["height"]) == (1152, 2048)
-        # 端点：base host 派生 /v1 + /image_generation
         assert str(route.calls.last.request.url) == "https://api.minimax.io/v1/image_generation"
         assert route.calls.last.request.headers["Authorization"] == "Bearer sk"
         assert result.provider == PROVIDER_MINIMAX
@@ -176,7 +174,6 @@ class TestDimensions:
         assert await self._dims(tmp_path, aspect_ratio="9:16", image_size="1K") == (1008, 1792)
 
     async def test_custom_pixel_strips_embedded_ratio(self, tmp_path: Path):
-        # 自定义像素 16:9 的 1920*1080 只贡献 min=1080 当短边，比例仍由项目 aspect_ratio=9:16 决定
         w, h = await self._dims(tmp_path, aspect_ratio="9:16", image_size="1920*1080")
         assert w * 16 == h * 9
         assert w < h
@@ -190,14 +187,11 @@ class TestDimensions:
         assert h % 8 == 0
 
     async def test_extreme_ratio_short_edge_clamped_to_512(self, tmp_path: Path):
-        # 5:1 超出 4:1 可表达上限，短边自然算出 <512 → 夹到 512（仍 8 整除）
         w, h = await self._dims(tmp_path, aspect_ratio="5:1")
         assert h == 512
         assert w == 2040
 
     async def test_small_custom_size_preserves_ratio(self, tmp_path: Path):
-        # 自定义小尺寸（短边 <512）：短边先夹到 _MIN_EDGE，避免 aspect_size 出 <512 边后
-        # 被 _clamp_edge 独立夹取破坏比例（16:9 横屏退化成 512x512 的 1:1）
         w, h = await self._dims(tmp_path, aspect_ratio="16:9", image_size="320*180")
         assert w >= 512
         assert h >= 512
@@ -275,7 +269,6 @@ class TestSubjectReference:
                 )
             )
         assert ei.value.code == "image_reference_images_unreadable"
-        # 空路径用 locale 中性序号 #1，不漏中文占位
         assert ei.value.params["names"] == "#1"
 
     async def test_ref_read_oserror_raises_unreadable(self, tmp_path: Path):
@@ -299,7 +292,6 @@ class TestResponseHandling:
         b64 = base64.b64encode(raw).decode("ascii")
         download = AsyncMock()
         out = tmp_path / "o.png"
-        # download 接入路由，使末尾的 assert_not_called 真能证明 base64 路径独立落盘、不触下载
         with _generation_route(_b64_response(b64), download):
             from lib.backends.image_backends.minimax import MiniMaxImageBackend
 
@@ -367,7 +359,6 @@ class TestHttpErrors:
             b = MiniMaxImageBackend(api_key="sk")
             with pytest.raises(httpx.HTTPStatusError) as ei:
                 await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        # 保留 status_code 让咽喉层识别 413 走降档；单次 fail-fast
         assert ei.value.response.status_code == 413
         assert route.call_count == 1
         download.assert_not_called()
@@ -375,8 +366,6 @@ class TestHttpErrors:
 
 class TestRetryScope:
     async def test_download_failure_does_not_retrigger_generation(self, tmp_path: Path, poll_clock):
-        # 下载阶段瞬态失败只在下载层重试，绝不回退到重跑非幂等的生成 POST（防重复建图 + 重复计费）。
-        # 退避 sleep 打桩跳过，避免下载层重试真的等退避的秒级时间。
         from lib.backends.backend_runtime import VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 
         download = AsyncMock(side_effect=httpx.ConnectError("conn reset"))
@@ -384,10 +373,8 @@ class TestRetryScope:
             from lib.backends.image_backends.minimax import MiniMaxImageBackend
 
             b = MiniMaxImageBackend(api_key="sk")
-            # 共用预算耗尽后抛的是带最后一次原错误的 RuntimeError。
             with pytest.raises(RuntimeError, match="conn reset"):
                 await b.generate(ImageGenerationRequest(prompt="x", output_path=tmp_path / "o.png"))
-        # 生成 POST 恰好一次（计费一次）；重试全部发生在下载层
         assert route.call_count == 1
         assert download.call_count == VIDEO_POLL_MAX_CONSECUTIVE_FAILURES
 

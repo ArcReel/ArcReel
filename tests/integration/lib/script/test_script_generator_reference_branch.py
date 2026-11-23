@@ -64,7 +64,6 @@ def _idle_generator() -> MagicMock:
     return generator
 
 
-#: 与 ``SCRIPT_PLAN_UNIT`` 对应的合法提示词编写：无台词可改。
 PROMPT_AUTHORING_UNIT_TEXT = "镜头1：中景，平视。@[主角] 推开 @[酒馆] 的门，侧身跨过门槛。"
 
 
@@ -208,7 +207,6 @@ async def test_build_prompt_renders_pending_formal_units(reference_project: Path
     prompt = await gen.build_prompt(episode=1)
     assert "@[主角] 推开 @[酒馆] 的门" in prompt
     assert "（时长 4s）" in prompt
-    # unit_id 不下发给 prompt_authoring：产出按位对齐
     assert "E1U01" not in prompt
 
 
@@ -256,11 +254,8 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     out = await ScriptGenerator(reference_project, generator=fake_generator).generate(episode=1)
 
     data = _json.loads(out.read_text(encoding="utf-8"))
-    # 参考生视频剧本 content_mode 继承项目级 narration/drama；生成模式是项目级事实，
-    # 剧本不落盘任何生成模式标记。
     assert data["content_mode"] == "narration"
     assert "generation_mode" not in data
-    # 集总时长不落盘：它是逐 unit 求和的派生值，由项目摘要读时计算
     assert "duration_seconds" not in data
     assert len(data["video_units"]) == 1
     unit = data["video_units"][0]
@@ -270,7 +265,6 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
     assert "pending_authoring" not in unit
     assert extract_mentions(unit["text"]) == ["主角", "酒馆"]
 
-    # response_schema 是扁平形状，且不含 duration_seconds——时长没让 LLM 写
     schema = fake_generator.generate.await_args.args[0].response_schema
     assert schema is ReferencePromptAuthoringFlatScript
     assert "duration_seconds" not in _json.dumps(schema.model_json_schema())
@@ -685,11 +679,8 @@ async def test_script_plan_conversion_inherits_drama_content_mode(tmp_path: Path
     [
         (make_video_request_facts(route="reference_video", generation_type="r2v", max_reference_images=3), 3),
         (make_video_request_facts(route="reference_video", generation_type="r2v", max_reference_images=1), 1),
-        # 0 是显式上限（不接受参考图的 endpoint），原样下传触发裁剪为 0 张
         (make_video_request_facts(route="reference_video", generation_type="r2v", max_reference_images=0), 0),
-        # 事实未声明上限 → None
         (make_video_request_facts(route="reference_video", generation_type="r2v", max_reference_images=None), None),
-        # r2v 桶解析不出 → 按未声明处理，带图单元另在各检查点因事实缺失被拦
         (VideoRequestFactsFailure("reference_capability_unavailable", (("capability", "r2v"),)), None),
     ],
 )
@@ -850,7 +841,6 @@ def test_reference_script_plan_migration_carries_confirmation_forward(plan_only_
     平移到迁移后的值，否则仅加载一次规划就会让已确认分集重新等待确认。
     """
     drafts = plan_only_reference_project / "drafts" / "episode_1"
-    # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
     legacy = {"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4, "duration_override": True}]}
     script_plan_path = drafts / "script_plan_reference_units.json"
     script_plan_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
@@ -942,7 +932,6 @@ def test_reference_script_plan_migration_carries_confirmation_confirmed_after_co
     看不到这次确认，但迁移写回仍须正确搬移它——不能用这份旧快照做前置短路。
     """
     drafts = plan_only_reference_project / "drafts" / "episode_1"
-    # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
     legacy = {"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4, "duration_override": True}]}
     script_plan_path = drafts / "script_plan_reference_units.json"
     script_plan_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
@@ -950,7 +939,6 @@ def test_reference_script_plan_migration_carries_confirmation_confirmed_after_co
 
     gen = ScriptGenerator(plan_only_reference_project)
 
-    # 构造之后才发生确认（模拟并发的 ScriptReviewService.confirm()），self.project_json 不刷新。
     project_path = plan_only_reference_project / "project.json"
     project = _json.loads(project_path.read_text(encoding="utf-8"))
     project["episodes"][0]["script_plan_review"] = {"fingerprint": before, "confirmed_at": "2026-01-01T00:00:00Z"}
@@ -974,7 +962,6 @@ def test_reference_script_plan_migration_does_not_carry_confirmation_when_durati
     须重新等待确认，不能平移确认——取档后的秒数不是用户确认时看到的值。
     """
     drafts = plan_only_reference_project / "drafts" / "episode_1"
-    # duration_override 是随 per-shot 时长一同退役的标记，加载时被收编迁移剥掉。
     legacy = {"units": [{"unit_id": "E1U01", "text": "@[主角] 转身", "duration_seconds": 4, "duration_override": True}]}
     script_plan_path = drafts / "script_plan_reference_units.json"
     script_plan_path.write_text(_json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
@@ -986,14 +973,13 @@ def test_reference_script_plan_migration_does_not_carry_confirmation_when_durati
     project_path.write_text(_json.dumps(project, ensure_ascii=False), encoding="utf-8")
 
     gen = ScriptGenerator(plan_only_reference_project)
-    # 求和 4s 不是模型档位成员，取档改写为 8s——这一步产生 warning。
     gen._load_reference_script_plan(episode=1, supported_durations=[8])
 
     assert _json.loads(script_plan_path.read_text(encoding="utf-8"))["units"][0]["duration_seconds"] == 8
 
     after_project = _json.loads(project_path.read_text(encoding="utf-8"))
     review = after_project["episodes"][0]["script_plan_review"]
-    assert review["fingerprint"] == before  # 未被平移，仍是迁移前的旧指纹——照常判定为待确认
+    assert review["fingerprint"] == before
 
 
 @pytest.mark.asyncio
@@ -1058,7 +1044,6 @@ async def test_dialogue_overload_is_caught_before_the_paid_prompt_authoring_call
     with pytest.raises(PromptAuthoringUnitRejected, match="台词念完约需") as exc_info:
         await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
     generator.generate.assert_not_awaited()
-    # 问题码按输入问题归类，参数按界面上的位置称呼单元（第 2 个），而不是只分配不复用的单元 ID。
     rejection = exc_info.value
     assert rejection.code == "prompt_authoring_dialogue_overload"
     assert rejection.params["position"] == 2
@@ -1127,7 +1112,6 @@ async def test_prompt_authoring_violation_quarantines_instead_of_discarding(refe
     assert envelope["meta"]["base_fingerprint"] == baseline
     assert envelope["meta"]["unit_ids"] == ["E1U01"]
     assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset"]
-    # 草稿装的是扁平草稿结构（Agent 要改的是其中的正文）
     assert envelope["content"]["units"][0]["text"] == BAD_PROMPT_AUTHORING_UNIT_TEXT
 
 
@@ -1259,7 +1243,6 @@ async def test_prompt_authoring_preserves_output_when_formal_script_changes_duri
     generator.model = "mock"
 
     async def generate(_request, **_kwargs):
-        # 并发写方不在生成所在的事件循环上，改写放进工作线程。
         await asyncio.to_thread(formal.write_text, _json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
         return MagicMock(text=_prompt_authoring_response(PROMPT_AUTHORING_UNIT_TEXT, title="本次生成标题"))
 
@@ -1286,7 +1269,6 @@ async def test_prompt_authoring_violation_keeps_generation_start_formal_baseline
     generator.model = "mock"
 
     async def generate(_request, **_kwargs):
-        # 并发写方不在生成所在的事件循环上，改写放进工作线程。
         await asyncio.to_thread(formal.write_text, _json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
         return MagicMock(text=_prompt_authoring_response(BAD_PROMPT_AUTHORING_UNIT_TEXT, title="本次违约输出"))
 
@@ -1549,7 +1531,6 @@ async def test_prompt_authoring_duration_off_tier_after_merge_quarantines(
     assert _script_path(project).read_bytes() == formal_before
     envelope = _json.loads(_prompt_authoring_quarantine(project).read_text(encoding="utf-8"))
     assert [v["code"] for v in envelope["violations"]] == ["duration_off_tier"]
-    # 草稿装的仍是 Agent 要改的那一层正文，去掉 `@` 引用即可重新晋升
     assert envelope["content"]["units"][0]["text"] == with_reference_text
 
 
@@ -1580,7 +1561,6 @@ async def test_promote_prompt_authoring_draft_revalidates_edited_formal_unit(ref
 
     assert path.exists()
     assert formal.read_bytes() == formal_before
-    # 正文违约按界面位置称呼，具体原因随附，不带内部单元 ID
     assert (excinfo.value.code, excinfo.value.params) == ("draft_formal_unit_invalid", {"position": 1})
     assert "视频单元 1 引用了未登记的资产名" in str(excinfo.value)
     assert "E1U01" not in str(excinfo.value)

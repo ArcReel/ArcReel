@@ -71,7 +71,6 @@ async def _synthesize(server_replies: list[ScriptedReply], request: AudioSynthes
             result = await backend.synthesize(request)
         except Exception as exc:
             return server, None, exc
-    # 改投前的地址就是生产地址：没有改用别的接口
     assert set(layer.seen) <= {_URL}
     return server, result, None
 
@@ -151,7 +150,6 @@ def _rendered(error: Exception) -> list[str]:
     rendered: list[str] = []
     for locale in ("zh", "en"):
         text = render_failure(stored, partial(translate, locale=locale), make_display_names(locale))
-        # 渲染成本地化文案，而不是原样透传的结构化编码
         assert text is not None
         assert not text.startswith("[")
         rendered.append(text)
@@ -212,7 +210,6 @@ async def test_upstream_errors_never_become_artifacts_and_are_not_resubmitted(tm
     assert not (tmp_path / "o.wav").exists()
     for text in _rendered(error):
         assert str(code) in text
-        # 上游原文不进入用户可见信息
         assert "detail" not in text
         assert "exceed max limit" not in text
         assert "quota exceeded" not in text
@@ -327,7 +324,6 @@ def _assert_unreachable_without_raw_text(error: Exception | None) -> None:
     assert isinstance(error, ApiError)
     assert (error.key, error.params) == ("ark_agent_plan_tts_unreachable", {})
     stored = encode_task_failure_message(error)
-    # 任务失败、使用记录原文与完整 traceback 都不带底层异常原文；Key 也不出现
     surfaces = [stored, *_rendered(error), classify_call_failure(error).error_message]
     surfaces.append("".join(traceback.format_exception(error)))
     for text in surfaces:
@@ -361,19 +357,15 @@ async def test_connection_failures_become_a_localized_reason_after_retries(
     with pytest.raises(ApiError) as caught:
         await backend.synthesize(_request(tmp_path))
 
-    # 请求确定没有送达，重试策略不变：按默认上限重试后才失败
     assert layer.attempts == DEFAULT_MAX_ATTEMPTS
     assert not (tmp_path / "o.wav").exists()
     _assert_unreachable_without_raw_text(caught.value)
-    # 使用记录沿用通用分类：连接超时仍记为 timeout，其余落本后端的领域码
     assert classify_call_failure(caught.value).error_code == record_code
-    # 底层原文只进日志，日志里也没有 Key
     assert type(error).__name__ in caplog.text
     assert "plan-key" not in caplog.text
 
 
 async def test_local_protocol_error_is_not_retried_and_never_logs_its_text(tmp_path: Path, caplog, poll_clock):
-    # 本地协议错误的原文可能回显请求头（含 Key）；请求没有发出，不重试，日志只记类型
     layer = _RaiseOnSend(httpx.LocalProtocolError("Illegal header value b'plan-key'"))
     backend = ArkAgentPlanAudioBackend(api_key="plan-key", model=_MODEL, transport_layer=layer)
     with pytest.raises(ApiError) as caught:
@@ -389,7 +381,6 @@ async def test_local_protocol_error_is_not_retried_and_never_logs_its_text(tmp_p
 async def test_closed_port_on_the_wire_is_localized(tmp_path: Path, caplog, poll_clock):
     async with loopback_server([]) as closed:
         pass
-    # 替身已关闭，这个本机端口不再监听：连接被拒绝
     backend = ArkAgentPlanAudioBackend(api_key="plan-key", model=_MODEL, transport_layer=closed.redirect())
     with pytest.raises(ApiError) as caught:
         await backend.synthesize(_request(tmp_path))
@@ -421,7 +412,6 @@ async def test_tls_handshake_failure_on_the_wire_is_localized(tmp_path: Path, ca
         await server.wait_closed()
 
     _assert_unreachable_without_raw_text(caught.value)
-    # 握手失败属于建立连接失败，请求没有送达，照常重试
     assert attempts == DEFAULT_MAX_ATTEMPTS
     assert not (tmp_path / "o.wav").exists()
     assert "plan-key" not in caplog.text
@@ -445,7 +435,6 @@ async def test_concurrency_rejection_is_terminal_even_with_retryable_status(tmp_
     )
     server, _, error = await _synthesize([busy] * 3, _request(tmp_path))
 
-    # 明确的套餐并发拒绝优先于 HTTP 状态码，不再合成或改用其他接口
     assert isinstance(error, ApiError)
     assert (error.key, error.params) == ("ark_agent_plan_tts_access_denied", {"code": 45000000})
     assert [request.path for request in server.requests] == [_PATH]

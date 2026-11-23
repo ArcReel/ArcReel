@@ -13,7 +13,6 @@ import { episodeEditViewPath } from "@/app-routes";
 import { DEMO_PROJECT_NAME } from "@/onboarding/demo-project";
 import type { AdEpisodeScript, EpisodeScript, ProjectData } from "@/types";
 
-// 面板自身的行为在 WorkflowPanel.test.tsx 覆盖；这里只关心路由层递给它什么回调。
 vi.mock("@/components/workflow/WorkflowPanel", () => ({
   WorkflowPanel: ({
     onRegenerate,
@@ -27,7 +26,6 @@ vi.mock("@/components/workflow/WorkflowPanel", () => ({
   ),
 }));
 
-// 剪辑视图自己读取剪辑时间线，行为在 EditTimelineView.test.tsx 覆盖；这里只关心集页何时挂载它。
 vi.mock("./edit/EditTimelineView", () => ({
   EditTimelineView: ({ episode }: { episode: number }) => (
     <div data-testid="edit-timeline-view">episode {episode}</div>
@@ -203,8 +201,6 @@ vi.mock("./grid/GridImageToVideoCanvas", () => ({
   ),
 }));
 
-// 画廊替身为每个资产渲染一个生成按钮，路由测试经它触发资产图生成回调；
-// 版本恢复与重新加载按钮把回调的结算值写到 data-result 上。
 vi.mock("./lorebook/AssetGallery", () => ({
   AssetGallery: ({
     assetType,
@@ -247,7 +243,6 @@ vi.mock("./lorebook/AssetGallery", () => ({
 
 const REFRESH_FAILED = "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态";
 
-/** 服务端 video-capabilities 应答：时长收窄结果由服务端按项目分辨率与生成模式算好回传。 */
 function fakeVideoCapabilities(allowed: number[], raw: number[] = allowed) {
   return {
     provider_id: "gemini-aistudio",
@@ -391,9 +386,6 @@ describe("StudioCanvasRouter", () => {
   });
 
   it("keeps showing loading state on a deep link while the project detail request is still in flight", () => {
-    // 首屏加载先落地 currentProjectName（数据置空）再等 refreshProject 结算（见
-    // router.tsx）：currentProjectName 非空不代表详情已到达。直接打开 /characters 这类
-    // 深链时,若只看 currentProjectName 会把空集合渲染成可交互的「空项目」页面。
     useProjectsStore.setState({
       currentProjectName: "demo",
       currentProjectData: null,
@@ -463,9 +455,6 @@ describe("StudioCanvasRouter", () => {
     expect(await screen.findByTestId("overview-canvas")).toBeInTheDocument();
   });
 
-  // 同一 StudioCanvasRouter 实例从真实项目切到演示项目（路由 nest 下 projectName 参数
-  // 变化，组件不会重新挂载）时，上一个真实项目遗留的时长能力缓存必须清空，否则真实后端的
-  // 时长限制会继续套用到演示的虚构时长上，重新触发「不兼容」误报。
   it("clears cached provider/backend duration capabilities when switching from a real project into the demo route", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(fakeVideoCapabilities([5, 10]));
     useProjectsStore.setState({
@@ -479,8 +468,6 @@ describe("StudioCanvasRouter", () => {
       expect(screen.getByTestId("timeline-duration-options")).toHaveTextContent("5,10");
     });
 
-    // 原地切换到演示项目：不卸载组件，复刻同一实例从真实项目切入演示态的时序，
-    // 与 StudioWorkspace 的 effect 同步写入 store 一致。
     useProjectsStore.setState({
       currentProjectName: DEMO_PROJECT_NAME,
       currentProjectData: makeProjectData(),
@@ -493,8 +480,6 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  // 逐个分镜的时长候选取服务端按项目分辨率与生效 generation_mode 收窄后的结果：前端不再持有
-  // 收窄规则，也不把分辨率或集号带上——服务端按项目为实际执行模型保存的档位求值。
   it.each([
     ["1080p", [8]],
     ["720p", [4, 6, 8]],
@@ -514,21 +499,17 @@ describe("StudioCanvasRouter", () => {
 
     renderAtProjectRoute("real-project", "/episodes/1");
     await waitFor(() => {
-      // 精确比对而非包含：全集 "4,6,8" 也含子串 "8"
       expect(screen.getByTestId("timeline-duration-options")).toHaveTextContent(
         new RegExp(`^${allowed.join(",")}$`),
       );
     });
     expect(capabilitiesSpy).toHaveBeenCalledWith("real-project", expect.anything());
     const query = capabilitiesSpy.mock.calls[0]?.[1];
-    // 工作台由服务端按 generation_mode 解析真实 i2v/r2v 桶，不用默认层覆盖。
     expect(query?.videoBackend).toBeUndefined();
     expect(query?.resolution).toBeUndefined();
     expect(query?.usesReferenceImages).toBeUndefined();
   });
 
-  // demo→真实项目切换后路由已让 demoMode 变为 false，但 store 的 currentProjectName 还滞留
-  // 演示项目名；只看 demoMode 会对着后端不存在的演示项目发一次必然失败的 /video-capabilities。
   it("skips the video-capabilities lookup for the stale demo project name after navigating to a real project, before the store catches up", async () => {
     const capabilitiesSpy = vi
       .spyOn(API, "getVideoCapabilities")
@@ -546,8 +527,6 @@ describe("StudioCanvasRouter", () => {
       expect(screen.getByTestId("timeline-canvas")).toBeInTheDocument();
     });
 
-    // 原地切换到真实项目：只挪路由，store 的 currentProjectName 刻意留在演示项目名，
-    // 复刻 StudioWorkspace 的 effect 尚未执行完成的时间窗。
     view.navigate("/real-project/episodes/1");
 
     expect(capabilitiesSpy).not.toHaveBeenCalledWith(DEMO_PROJECT_NAME, expect.anything());
@@ -624,7 +603,6 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByRole("tab", { name: "分镜" })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(screen.getByRole("tab", { name: "剪辑" }));
 
-    // 剪辑视图按需加载，首次切入要等 chunk 到达
     expect(await screen.findByTestId("edit-timeline-view")).toHaveTextContent("episode 1");
     expect(screen.queryByTestId("timeline-canvas")).not.toBeInTheDocument();
     expect(screen.getByTestId("workflow-panel")).toBeInTheDocument();
@@ -634,7 +612,6 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByTestId("timeline-canvas")).toHaveAttribute("data-view", "board");
     expect(screen.getByRole("tabpanel", { name: "分镜" })).toContainElement(screen.getByTestId("timeline-canvas"));
 
-    // 方向键只移动焦点，切换视图要按下：剪辑视图会卸载画布，不随焦点经过就切走；Tab 只停在选中的那个
     const storyboard = screen.getByRole("tab", { name: "分镜" });
     expect(storyboard).toHaveAttribute("tabindex", "0");
     expect(screen.getByRole("tab", { name: "剪辑" })).toHaveAttribute("tabindex", "-1");
@@ -674,7 +651,6 @@ describe("StudioCanvasRouter", () => {
     expect(screen.getByTestId("grid-canvas")).toHaveAttribute("data-view", "grid");
     expect(history.at(-1)).toBe("/episodes/1?view=grid");
 
-    // 分镜是有剧本时的缺省视图：地址不带 view，剧本生成后停在缺省视图的页面才会自动落到分镜
     fireEvent.click(screen.getByRole("tab", { name: "分镜" }));
     expect(screen.getByTestId("grid-canvas")).toHaveAttribute("data-view", "board");
     expect(history.at(-1)).toBe("/episodes/1");
@@ -808,8 +784,6 @@ describe("StudioCanvasRouter", () => {
       expect(API.generateCharacter).toHaveBeenCalledWith("demo", "Hero");
       expect(useAppStore.getState().toast?.text).toContain("生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
-      // 入队成功后应立即乐观占用该角色，避免 SSE 轮询落地前的空窗被误判为空闲
-      // 而并发触发 image_edit（见 tasks-store.ts 乐观占用小节）。
       const { tasks, optimisticActive } = useTasksStore.getState();
       expect(selectActiveResourceIds(tasks, "character", "demo", optimisticActive).has("Hero")).toBe(true);
     });
@@ -969,9 +943,6 @@ describe("StudioCanvasRouter", () => {
     });
   });
 
-  // TimelineCanvas 的 ShotDetail.handleSave / handleRefsSave 靠 await 这个回调维持保存中
-  // 状态；handleUpdatePrompt 改回真实结果契约后若在此处包一层 voidPromise（丢弃返回值的
-  // 同时也让包装函数立即 resolve），await 会在 PATCH 真正落库前就提前结束。
   it("keeps the update-prompt callback pending until the underlying write settles", async () => {
     useProjectsStore.setState({
       currentProjectName: "demo",
@@ -1165,8 +1136,6 @@ describe("StudioCanvasRouter", () => {
       currentScripts: { "episode_1.json": script },
     });
 
-    // 移动接口成功，但项目刷新失败：本地 segments 仍是旧顺序，
-    // 必须报告失败，否则调用方会推进 selectedIndex 切到错误分镜
     vi.spyOn(API, "getProject").mockRejectedValue(new Error("network down"));
     vi.spyOn(API, "moveScriptItem").mockResolvedValue({ success: true });
 
@@ -1241,7 +1210,6 @@ describe("StudioCanvasRouter", () => {
     expect(canvas).toHaveAttribute("data-preprocess", "no");
     expect(canvas).toHaveAttribute("data-free-duration", "yes");
     expect(screen.queryByTestId("timeline-canvas")).not.toBeInTheDocument();
-    // 广告/短片没有脚本规划，「分镜」称作「视频单元」；恒单集，不给删除
     expect(screen.queryByRole("tab", { name: "脚本规划" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "视频单元" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("button", { name: "这一集的更多操作" })).not.toBeInTheDocument();
@@ -1253,8 +1221,6 @@ describe("StudioCanvasRouter", () => {
   });
 
   it("regenerates against the script file of the episode being viewed, not the first one loaded", async () => {
-    // 多集项目的 currentScripts 装着全部剧集。按第一个键重生，用户在第 2 集按下的
-    // 「重新生成」会打到第 1 集的剧本上，重做的是另一集已经付费的产物。
     const episode2 = { ...makeScript(), episode: 2, title: "EP2" };
     const projectData = makeProjectData({
       episodes: [
@@ -1315,8 +1281,6 @@ describe("StudioCanvasRouter", () => {
   });
 
   it("withholds the panel's regenerate entry on the reference route instead of wiring a dead button", async () => {
-    // 参考生视频的剧本是 video_units，本组件的逐单元入队回调解不出提示词。给出回调
-    // 只会长出一个按下去毫无反应的按钮，该生成模式的重生入口在单元卡上。
     const projectData = makeProjectData({ generation_mode: "reference_video" });
     useProjectsStore.setState({
       currentProjectName: "demo",

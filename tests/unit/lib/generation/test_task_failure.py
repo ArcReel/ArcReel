@@ -112,7 +112,6 @@ class TestRenderKnownCodes:
             ),
             ({"shutdown_date": "2026-11-24"}, "该模型已于 2026-11-24 下线；"),
             ({"successor": "openai/gpt-5.6-sol"}, "该模型已下线，官方建议改用 GPT-5.6 Sol；"),
-            # 目录里查不到后继条目时，回退为条目引用
             ({"successor": "acme/never-registered"}, "该模型已下线，官方建议改用 acme/never-registered；"),
             ({}, "该模型已下线；"),
         ],
@@ -193,7 +192,6 @@ class TestCascadeBlockedDependency:
             for locale in ("zh", "en", "vi")
         }
         for locale, text in rendered.items():
-            # 嵌套 reason 必须跟随外层同一 locale 渲染，而不是回落到别的语言。
             assert render_failure(inner, _translator(locale), make_display_names(locale)) in text
             assert "task-1" in text
             assert "[" not in text
@@ -320,7 +318,6 @@ class TestPassthrough:
         assert render_failure(legacy, _translator("en"), make_display_names("en")) == legacy
 
     def test_legacy_bracket_prefix_with_chinese_tail_passthrough(self):
-        # Old format: [code] followed by free Chinese text (non-JSON tail).
         legacy = "[restart_lost] image 任务无法接续，需手动重试以避免重复计费"
         assert render_failure(legacy, _translator("en"), make_display_names("en")) == legacy
 
@@ -337,7 +334,6 @@ class TestPassthrough:
         assert render_failure(msg, _translator("en"), make_display_names("en")) == msg
 
     def test_detail_with_braces_does_not_break_format(self):
-        # str(exc) can contain literal braces; they must not be re-interpreted by .format.
         encoded = encode_failure("resume_unsupported_detail", detail="weird {placeholder} text")
         rendered = render_failure(encoded, _translator("en"), make_display_names("en"))
         assert "weird {placeholder} text" in rendered

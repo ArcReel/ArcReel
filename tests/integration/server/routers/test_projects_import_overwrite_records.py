@@ -70,8 +70,6 @@ async def test_failed_overwrite_leaves_the_project_and_its_records(tmp_path, mon
     refused: list[Path] = []
 
     def _failing_rename(self: Path, target):
-        # existing-out：现有项目目录被占用、移不走（如 Windows 上有文件仍被打开）。
-        # import-in：现有项目已移走，导入内容移入项目名时失败。
         if not refused and (self == project_dir if failing_rename == "existing-out" else Path(target) == project_dir):
             refused.append(self)
             raise PermissionError(f"in use: {self}")

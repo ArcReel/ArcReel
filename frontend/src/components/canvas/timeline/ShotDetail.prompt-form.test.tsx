@@ -97,7 +97,6 @@ describe("ShotDetail 提示词形态切换", () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalled());
     expect(await screen.findByText("该分镜没有分镜图提示词")).toBeInTheDocument();
-    // 结构化编辑器留在原地：空正文的文本形态既丢原因、又只会在保存时被非空校验拒掉
     expect(screen.getByDisplayValue("雨夜街道")).toBeInTheDocument();
   });
 
@@ -120,7 +119,6 @@ describe("ShotDetail 结构化 → 文本切换在途", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "文本" })[0]);
 
-    // 返回后整体替换该侧提示词：在途期间对它的编辑会被静默覆盖
     expect(screen.getByDisplayValue("雨夜街道")).toHaveAttribute("readonly");
     expect(screen.getByRole("button", { name: /添加引用/ })).toBeDisabled();
     fireEvent.change(screen.getByDisplayValue("旁白正文"), { target: { value: "改过的旁白" } });

@@ -115,7 +115,6 @@ class TestSettlementDispatch:
                 },
             }
         ).price
-        # 3 元 / 万字符 × 7 字符
         assert price_usage(table, usage, multiplier=1.0) == Priced(pytest.approx(0.0021), "CNY")
 
     def test_video_transcribes_duration_to_billed(self) -> None:
@@ -133,7 +132,6 @@ class TestSettlementDispatch:
         ]
 
     def test_text_fallback_reports_one_usage_per_billed_request(self) -> None:
-        # 降级链上被丢弃的请求也已计费：各次请求各出一份用量，计费时逐次落上下文档
         kept = _text_result(input_tokens=100, output_tokens=50)
         merge_billed_usage(kept, _text_result(input_tokens=70, output_tokens=10, cache_read_tokens=30))
 
@@ -216,7 +214,6 @@ class TestRecordBracket:
             nonlocal write_done
             if kwargs.get("status") is CallStatus.SUCCESS:
                 outer.cancel()
-                # 让取消先送达外层，再让写入拖一拍：外层若不等写入就重抛，下面的断言会先于写入完成。
                 await asyncio.sleep(0.05)
             await real_finish_call(repo, *args, **kwargs)
             write_done = True
@@ -422,7 +419,6 @@ class TestRecordBracket:
 
         ledger = Ledger(session_factory=lambda: _dummy_session())
 
-        # 原异常是 ValueError；记账失败分支的 RuntimeError 被吞（仅记日志），ValueError 冒泡
         with pytest.raises(ValueError, match="original"):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic"):
                 raise ValueError("original")
@@ -510,7 +506,6 @@ class TestResumeAndAgentTurn:
         row = await _only_row(db_factory)
         assert row.status == "failed"
         assert row.error_message == str(expired)
-        # 过期异常不带 HTTP 状态也不带上游错误码，分类落空——读侧按原文显示。
         assert (row.error_code, row.error_params) == (None, None)
 
     async def test_resume_failed_classifies_the_exception_it_is_given(self, db_factory: async_sessionmaker) -> None:
@@ -568,7 +563,6 @@ class TestResumeAndAgentTurn:
         ledger = Ledger(session_factory=db_factory)
         await ledger.resume_success(call_id=call_id, result=_VideoResult())
 
-        # 二次 finalize 命中 0 行（WHERE status='pending' 幂等守卫），不抛异常
         affected = await ledger.resume_success(call_id=call_id, result=_VideoResult())
         assert affected == 0
 

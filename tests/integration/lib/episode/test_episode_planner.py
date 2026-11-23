@@ -35,7 +35,6 @@ from lib.episode.episode_sources import discover_sources as _real_discover_sourc
 from lib.episode.episode_sources import planning_start, source_snapshot_path
 from lib.infra.text_metrics import count_reading_units
 
-# 源文：三段剧情，句子互不重复，锚点可唯一定位
 SOURCE = (
     "第一章 山村少年。李恒在山村长大，自幼习得吐纳之法。"
     "一日他在后山偶得一枚古玉，玉中藏着剑诀。"
@@ -48,14 +47,12 @@ ANCHOR_EP1 = "玉中藏着剑诀。"
 ANCHOR_EP2 = "被追杀的少女。"
 ANCHOR_EP3 = "卷入漩涡之中。"
 
-#: 一次吃完整篇源文的三集草稿，多条「源文耗尽」路径的用例共用。
 _THREE_EPISODE_DRAFT = [
     {"title": "甲", "hook": "甲", "end_anchor": ANCHOR_EP1},
     {"title": "乙", "hook": "乙", "end_anchor": ANCHOR_EP2},
     {"title": "丙", "hook": "丙", "end_anchor": ANCHOR_EP3},
 ]
 
-#: 目标体量两个来源都未设置时的 prompt 行，逐字锁住「自行把握」这条现状措辞。
 _TARGET_VOLUME_UNSET_LINE = "- 每集目标体量：未设置，请按短视频节奏自行把握（以剧情弧完整优先）"
 
 
@@ -78,7 +75,6 @@ def _expected_planning_prompt(
         "# 项目信息",
         f"- 创作类型：{'剧情演绎（drama）' if content_mode == 'drama' else '旁白/解说（narration）'}",
         target_volume_line,
-        # 64000 token 上限：剧情演绎每批 64 集，旁白/解说每批 160 集
         f"- 本批最多规划 {64 if content_mode == 'drama' else 160} 集",
         "",
         "# 切分规则",
@@ -197,7 +193,6 @@ class TestFindAllOverlapping:
         assert _find_all_overlapping("aaaa", "aaa") == [0, 1]
 
     def test_empty_needle_returns_empty_without_hanging(self):
-        # 空 needle 防御边界：直接返回 []，不进入逐位滑动（调用方 anchor 受 min_length=2 约束）
         assert _find_all_overlapping("abcabc", "") == []
         assert _find_all_overlapping("", "") == []
 
@@ -405,7 +400,6 @@ class TestPlan:
             await EpisodePlanner(project_dir, generator=fake).plan()
 
         assert fake.requests == []
-        # 集文件不动：没有位置记录的集，其物理文件就是最终记录
         assert (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8") == "人工改过的内容。"
 
     async def test_own_and_no_source_episodes_do_not_block_planning_and_keep_their_place(self, tmp_path: Path):
@@ -539,7 +533,7 @@ class TestPlan:
                 _plan_response(
                     [
                         {"title": "甲", "hook": "甲", "end_anchor": "他继续赶路。"},
-                        {"title": "乙", "hook": "乙", "end_anchor": "山中清晨。"},  # 早于上一集结尾
+                        {"title": "乙", "hook": "乙", "end_anchor": "山中清晨。"},
                     ]
                 ),
                 _plan_response([{"title": "丙", "hook": "丙", "end_anchor": "他继续赶路。"}]),
@@ -567,13 +561,13 @@ class TestPlan:
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
         assert len(fake.requests) == 2
-        assert "2 次" in fake.requests[1].prompt  # 按允许重叠的口径计数
+        assert "2 次" in fake.requests[1].prompt
         assert [s.title for s in result.episodes] == ["乙"]
 
     async def test_plan_resolves_anchor_with_halfwidth_punctuation(self, tmp_path: Path):
         """锚点与源文仅差全/半角标点宽度（，→ , 与 。→ .）：折叠容错还原精确 NFC 偏移，一次通过不重试。"""
         project_dir = _write_project(tmp_path)
-        half_width_anchor = "古玉,玉中藏着剑诀."  # 源文是全角 ，与 。，模型回显成半角 , 与 .
+        half_width_anchor = "古玉,玉中藏着剑诀."
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "古玉藏诀", "hook": "玉中剑诀来历成谜", "end_anchor": half_width_anchor}])]
         )
@@ -651,7 +645,7 @@ class TestPlan:
 
         assert len(fake.requests) == 1
         eps = _load_project(project_dir)["episodes"]
-        end = source.index(nfc_anchor) + len(nfc_anchor)  # 精确 NFC 偏移
+        end = source.index(nfc_anchor) + len(nfc_anchor)
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
         ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
         assert ep1 == source[:end]
@@ -661,11 +655,9 @@ class TestPlan:
         """长度护栏：锚同时含 \\r\\n 与会改变长度的组合字符（NFD），两者都让锚比源文对应子串更长。
         归一副本走 normalize_source_text（NFC + 换行统一），end 跨度按归一锚长还原，断言源文偏移/
         切片逐字节落在归一坐标系上、不被 \\r 或组合字符撑长漂移；Tier1 仍逐字节不变。"""
-        # 源文已是存储坐标系形态（NFC + \n）；窗口与切片均在此坐标系上
         source = "Tôi yêu tiếng Việt.\nHôm nay trời đẹp lắm. Mọi thứ thật tuyệt vời."
         project_dir = _write_project(tmp_path, source_text=source)
         nfc_sub = "Tôi yêu tiếng Việt.\nHôm nay"
-        # 模型回显：组合字符分解（NFD，变长）+ 换行写成 \r\n（再 +1）
         crlf_nfd_anchor = unicodedata.normalize("NFD", nfc_sub).replace("\n", "\r\n")
         assert "\r\n" in crlf_nfd_anchor
         assert len(crlf_nfd_anchor) > len(nfc_sub)
@@ -678,10 +670,10 @@ class TestPlan:
 
         assert len(fake.requests) == 1
         eps = _load_project(project_dir)["episodes"]
-        end = source.index(nfc_sub) + len(nfc_sub)  # 归一坐标系下的精确末偏移（非锚原长）
+        end = source.index(nfc_sub) + len(nfc_sub)
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
         ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
-        assert ep1 == source[:end]  # 切片逐字节落在源文坐标上，未被 \r/组合字符撑长漂移
+        assert ep1 == source[:end]
         assert [s.title for s in result.episodes] == ["Mở đầu"]
 
     async def test_plan_resolves_anchor_with_curly_double_quote_mismatch(self, tmp_path: Path):
@@ -748,7 +740,7 @@ class TestPlan:
         """源文用 CJK 波浪号（U+301C），模型回显成全角波浪号（U+FF5E）：两者折叠后同归半角 ~。"""
         source = "古玉估价约〜百金，来历不明。少女转身离去。"
         cjk_anchor = "约〜百金，来历不明。"
-        fullwidth_anchor = "约～百金，来历不明。"  # 模型回显成 U+FF5E
+        fullwidth_anchor = "约～百金，来历不明。"
         project_dir = _write_project(tmp_path, source_text=source)
         fake = _FakeTextGenerator(
             [_plan_response([{"title": "估价成谜", "hook": "hook", "end_anchor": fullwidth_anchor}])]
@@ -762,7 +754,7 @@ class TestPlan:
         assert eps[0]["source_range"] == {"source_file": "source/novel.txt", "start": 0, "end": end}
         ep1 = (project_dir / "source" / "episode_1.txt").read_text(encoding="utf-8")
         assert ep1 == source[:end]
-        assert ep1.endswith("〜百金，来历不明。")  # 源文标点未被改写（仍是 CJK 波浪号）
+        assert ep1.endswith("〜百金，来历不明。")
         assert [s.title for s in result.episodes] == ["估价成谜"]
 
     async def test_plan_resolves_anchor_with_cjk_wave_dash_halfwidth_anchor(self, tmp_path: Path):
@@ -808,11 +800,11 @@ class TestPlan:
 
     async def test_plan_rejects_anchor_ambiguous_after_punctuation_folding(self, tmp_path: Path):
         """折叠后仍命中多处：维持「无法唯一定位」拒绝并重试，不静默挑第一处。"""
-        source = "他说好的。她说好的。后来他离开了。"  # 两处「说好的。」全角句号
+        source = "他说好的。她说好的。后来他离开了。"
         project_dir = _write_project(tmp_path, source_text=source)
         fake = _FakeTextGenerator(
             [
-                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "说好的."}]),  # 半角 .，折叠后命中两处
+                _plan_response([{"title": "甲", "hook": "甲", "end_anchor": "说好的."}]),
                 _plan_response([{"title": "乙", "hook": "乙", "end_anchor": "后来他离开了。"}]),
             ]
         )
@@ -890,7 +882,6 @@ class TestPlan:
 
         class _ConcurrentCommitGenerator(_FakeTextGenerator):
             async def generate(self, request, project_name=None):
-                # 模拟另一次 plan() 调用在本次锁外快照之后、锁内复核之前抢先提交了第 1 集
                 def _commit_concurrently(project: dict) -> None:
                     project["episodes"] = [_entry(1, 0, _end_of(ANCHOR_EP1))]
 
@@ -904,7 +895,6 @@ class TestPlan:
         with pytest.raises(PlanningConflictError, match="并发"):
             await EpisodePlanner(project_dir, generator=fake).plan()
 
-        # 账本逐字停留在并发提交后的状态：本次调用的集条目与源文指纹一个字节都没落盘
         assert (project_dir / "project.json").read_text(encoding="utf-8") == after_concurrent_commit[0]
         assert not list((project_dir / "source").glob("episode_*.txt"))
 
@@ -955,7 +945,6 @@ class TestPlan:
         with pytest.raises(PlanningOutputTruncatedError) as exc_info:
             await EpisodePlanner(project_dir, generator=fake).plan()
 
-        # 截断不重试：只发生一次调用，不像 schema/机械校验失败那样耗尽 max_attempts
         assert fake.call_count == 1
         assert (exc_info.value.provider_id, exc_info.value.model, exc_info.value.custom_model) == (
             "custom-3",
@@ -1111,14 +1100,12 @@ class TestPlan:
         await EpisodePlanner(novel_dir, generator=nov_fake).plan()
         nov_prompt = nov_fake.requests[0].prompt
 
-        # screenplay：尊重作者分集、一集止于下一集开头之前（整段 prompt 只定义一次）、无则按剧情弧切
         assert "保留作者原有的分集结构" in scr_prompt
         assert scr_prompt.count("下一集开头") == 1
         assert "固定标记" not in scr_prompt
         assert "正则" not in scr_prompt
         assert "剧情弧" in scr_prompt
         assert "剧本原文片段" in scr_prompt
-        # novel：仍是「切分为若干集」的创作口径，不含 screenplay 专属指令（回归）
         assert "保留作者原有的分集结构" not in nov_prompt
         assert "下一集开头" not in nov_prompt
         assert "小说原文片段" in nov_prompt
@@ -1152,7 +1139,7 @@ class TestPlan:
 
     async def test_plan_window_elasticity_extends_to_full_text_when_remainder_small(self, tmp_path: Path):
         """剩余全文不足窗口 1.2 倍时窗口直接延伸到全文末尾，避免残余被迫单独成集。"""
-        window_chars = len(SOURCE) - 8  # 小于全文长度，但剩余量仍在 1.2 倍窗口以内
+        window_chars = len(SOURCE) - 8
         project_dir = _write_project(tmp_path)
         last_anchor = "卷入漩涡之中。"
         fake = _FakeTextGenerator(
@@ -1249,7 +1236,7 @@ class TestPlan:
 
         result = await EpisodePlanner(project_dir, generator=fake).plan()
 
-        assert "第二部" in fake.requests[0].prompt  # 窗口取自下一个源文件
+        assert "第二部" in fake.requests[0].prompt
         project = _load_project(project_dir)
         eps = {e["episode"]: e for e in project["episodes"]}
         assert eps[2]["source_range"] == {"source_file": "source/novel2.txt", "start": 0, "end": len(source2)}
@@ -1353,7 +1340,6 @@ class TestPlan:
         prompt = fake.requests[0].prompt
         assert "# 附加指令" in prompt
         assert "严格按章节切分，一章一集" in prompt
-        # 遵循强度由附加指令正文自行表达，注入模板不添加任何强度限定词
         assert "必须全部落实" not in prompt
 
     async def test_plan_without_instructions_omits_section(self, tmp_path: Path):
@@ -1703,7 +1689,6 @@ class TestSourceFingerprintGate:
 
         project = _load_project(project_dir)
         assert [e["episode"] for e in project["episodes"]] == [1]
-        # 规划起点退到第 1 集原文范围末尾，指纹字段保留（部分重置已验证其与当前源文一致）
         assert planning_start(project, _real_discover_sources(project_dir, project)) == (
             "source/novel.txt",
             _end_of(ANCHOR_EP1),
@@ -1789,7 +1774,7 @@ class TestSourceFingerprintGate:
         def _mutating_discover_sources(project_path: Path, project: dict):
             nonlocal call_count
             call_count += 1
-            if call_count == 2:  # 入口快照(第1次)之后、耗尽补记闭包(第2次)读取之前改动源文
+            if call_count == 2:
                 source_path.write_text("耗尽补记窗口期间被换掉的原文。", encoding="utf-8")
             return _real_discover_sources(project_path, project)
 
@@ -1877,7 +1862,6 @@ class TestPlanGap:
     async def test_gap_is_planned_up_to_its_end_and_inserted_by_source_position(self, tmp_path: Path):
         project_dir = self._gap_project(tmp_path)
         a, b = _end_of(ANCHOR_EP1), _end_of(ANCHOR_EP2)
-        # 锚点取在空段中间，剩下的空白之外原文贴齐空段结尾
         fake = _FakeTextGenerator(
             [
                 _plan_response(

@@ -107,8 +107,6 @@ class TestAudioBackendVoices:
                 provider_model=ProviderModel("dashscope", "qwen3-tts-flash"),
                 backend_name="dashscope",
                 backend_model="qwen3-tts-flash",
-                # 生产口径：label 是 lib/i18n 翻译 key，不是直出文案（见
-                # lib/backends/audio_backends/dashscope.py 的 _VOICE_CATALOG 注释）。
                 voices=(VoiceOption(id="Cherry", label="voice_label_dashscope_cherry"),),
             ),
         )
@@ -134,8 +132,6 @@ class TestAudioBackendVoices:
         assert body["voices"] == [{"id": "Cherry", "label": "芊悦 · 阳光正向的自然年轻女声"}]
 
     def test_configured_localizes_label_by_accept_language(self, tmp_path, monkeypatch):
-        # DashScope 的 label 是翻译 key，未随请求 locale 渲染就是本条要防住的回归——
-        # en/vi 用户看到的下拉会是硬编码中文描述而非本地化文案。
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
         client = _client(monkeypatch, fake_pm, _FakeQueue())
         ctx = self._voices_ctx()
@@ -197,8 +193,6 @@ class TestGenerateCharacterVoiceSample:
         client = _client(monkeypatch, fake_pm, _FakeQueue())
 
         with client:
-            # 冒号是 Windows 保留字符，validate_asset_name 拒绝，但作为单段路径值本身合法，
-            # 不会在到达路由处理函数之前就被 ASGI 路由层拦成 404。
             res = client.post(
                 "/api/v1/projects/demo/characters/a%3Ab/voice-sample",
                 json={"text": "你好", "voice": "Cherry"},

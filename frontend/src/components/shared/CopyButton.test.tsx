@@ -45,7 +45,6 @@ describe("CopyButton", () => {
 
     act(() => vi.advanceTimersByTime(1500));
 
-    // 复位后才能再次给出「已复制」反馈，否则第二次复制无可见变化
     expect(screen.getByRole("button", { name: "复制消息" })).toBeInTheDocument();
   });
 

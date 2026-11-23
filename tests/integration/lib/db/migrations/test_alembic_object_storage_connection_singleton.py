@@ -84,7 +84,6 @@ def test_duplicates_keep_lowest_as_current_and_retire_only_referenced_ones(
         ]
         assert unreferenced not in {row[0] for row in rows}
 
-        # 唯一索引挡住第二条当前连接；删除的连接 ID 不回收。
         with pytest.raises(sa.exc.IntegrityError), engine.begin() as conn:
             _insert_connection(conn, "second-current", slot=1)
         with engine.begin() as conn:

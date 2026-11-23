@@ -31,7 +31,6 @@ describe("useDemoWorkbench", () => {
     expect(result.current).toBe(true);
 
     act(() => navigate("/real-project/episodes/1"));
-    // currentProjectName 仍是 store 里的 DEMO_PROJECT_NAME，模拟 StudioWorkspace 的 effect 还没追上路由。
     expect(result.current).toBe(false);
   });
 
@@ -41,7 +40,6 @@ describe("useDemoWorkbench", () => {
     expect(result.current).toBe(false);
 
     act(() => navigate(`/${DEMO_PROJECT_NAME}/episodes/1`));
-    // currentProjectName 仍是 store 里的 "real-project"，同样模拟同一帧内的判定滞后窗口。
     expect(result.current).toBe(true);
   });
 

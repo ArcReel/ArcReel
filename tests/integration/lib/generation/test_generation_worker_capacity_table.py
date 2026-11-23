@@ -22,7 +22,6 @@ class TestCapacityTable:
         assert table.get("known", "image") == 4
         assert table.get("known", "video") == 0
         assert table.get("known", "audio") == 0
-        # 完全未知 → 默认，且纯查询不写回
         assert table.get("unknown", "image") == 5
         assert table.get("unknown", "video") == 3
         assert "unknown" not in table._limits
@@ -47,10 +46,6 @@ class TestCapacityTable:
                 if lane not in catalog.provider_media_types(pid):
                     assert table.get(pid, lane) == 0
                 elif lane not in meta.default_concurrency:
-                    # 未声明出厂默认的 lane 必须落到硬编码全局默认。这条断言不读
-                    # meta.default_concurrency，故非重言——能抓住装载回退漂移。声明了默认的
-                    # lane（如 agnes video）由该 provider 的专项测试钉死字面值；此处不用 meta
-                    # 反推，否则对任何声明值都恒真，等于不设防。
                     assert table.get(pid, lane) == global_default
 
     def test_from_env_reads_env(self, monkeypatch):
@@ -226,7 +221,6 @@ class TestCapacityTable:
 
         table = await CapacityTable.from_db()
 
-        # 端点定义说这是图像端点，lane 就落在 image 上——键前缀不蕴含媒体类型。
         assert table.get("custom-1", "image") == 6
         assert table.get("custom-1", "video") == 0
 
@@ -331,7 +325,6 @@ class TestCapacityTable:
 
         table = await CapacityTable.from_db()
 
-        # 全局默认 image=5 / video=3（env 已在 _stub 中清除）
         assert table.get("custom-9", "image") == 5
         assert table.get("custom-9", "video") == 3
 
@@ -415,10 +408,8 @@ class TestCapacityTable:
 
         assert table.get("declared-video", "video") == 1
         assert table.get("declared-video", "image") == 5
-        # 支持 audio 且声明 audio=12 → 取声明默认（高于全局默认 10），audio lane 正向回退
         assert table.get("declared-audio", "audio") == 12
         assert table.get("plain-video", "video") == 3
-        # 声明了 image 默认但该 provider 不支持 image → 投影为 0（_lane_limits 不回归）
         assert table.get("declared-unsupported", "image") == 0
 
     async def test_from_db_declared_default_when_user_unconfigured(self, monkeypatch):

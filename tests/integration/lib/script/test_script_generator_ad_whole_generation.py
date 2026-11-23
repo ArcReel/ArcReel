@@ -232,7 +232,6 @@ async def test_regenerating_replaces_the_formal_script_after_the_loss_list_is_ac
 
     script = _script(project_dir)
     assert script["title"] == ""
-    # 整份重新生成一律发新号：模型给的 E1S01 已被上一版用过，落成 E1S03
     assert [shot["shot_id"] for shot in script["shots"]] == ["E1S03"]
     assert "阿杰" in _project(project_dir)["characters"]
 

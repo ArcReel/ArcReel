@@ -95,7 +95,6 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         encoding="utf-8",
     )
 
-    # 生产项目一律处于当前 schema，剧本连同其取证链（分集原文 → script_plan）都已登记进产物清单。
     (proj_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
     (proj_dir / "drafts" / "episode_1" / "script_plan_reference_units.json").write_text(
         json.dumps({"episode": 1, "video_units": []}, ensure_ascii=False),
@@ -111,7 +110,6 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     custom_pm = ProjectManager(tmp_path)
     use_project_manager(monkeypatch, custom_pm)
-    # 保留真实资产水合、定桶与时长投影，只隔离本用例不关心的 DB 能力查询。
     use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(3, 7)))
 
     app = FastAPI()
@@ -133,7 +131,6 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     unit = resp.json()["unit"]
     uid = unit["unit_id"]
 
-    # 正文原样落盘，参考图按正文读时派生
     assert unit["text"] == prompt
     assert unit["duration_seconds"] == 7
 
@@ -152,7 +149,6 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     assert captured["task_type"] == "reference_video"
     assert captured["resource_id"] == uid
 
-    # 3) mock backend：校验 prompt 里 @ 已替换为主体记号，正文提及顺序决定编号
     captured_backend_kwargs: dict = {}
 
     async def _fake_generate_video_async(**kwargs):
@@ -214,7 +210,7 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     assert "@张三" not in rendered
     assert "@酒馆" not in rendered
     assert "@长剑" not in rendered
-    assert "[图" not in rendered  # 对照表编号已废除
+    assert "[图" not in rendered
     assert "Style: 唐风水墨\nVisual style: 墨色晕染，留白构图\n" in rendered
     assert "Avoid: " in rendered
 

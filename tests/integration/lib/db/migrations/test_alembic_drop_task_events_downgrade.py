@@ -17,7 +17,6 @@ from alembic import command
 #: 建表迁移 b942e8c5d545 使用的 FK 约束名，downgrade 重建时必须一致。
 _FK_NAME = "fk_task_events_task_id"
 
-#: b942e8c5d545 的父 revision——下行到这里就跨过了按名 drop 约束的那一步。
 _BELOW_FK_MIGRATION = "ecbb53758daa"
 
 
@@ -41,8 +40,6 @@ def test_downgrade_rebuilds_task_events_with_named_fk(alembic_cfg: tuple[Config,
     finally:
         engine.dispose()
 
-    # 继续下行跨过 b942e8c5d545（按名 drop 该 FK）——名字对不上时这里抛
-    # ValueError: No such constraint。
     command.downgrade(cfg, _BELOW_FK_MIGRATION)
 
     command.upgrade(cfg, "head")

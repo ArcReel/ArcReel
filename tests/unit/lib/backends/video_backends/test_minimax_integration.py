@@ -74,7 +74,6 @@ class TestTextProviderBilling:
             result = await b.generate(TextGenerationRequest(prompt="x"))
         assert result.provider == "minimax"
         assert result.model == "MiniMax-M2.7"
-        # token 数须透传，否则「实际」费用汇总按 0 token 算不出 MiniMax CNY 费率
         assert result.input_tokens == 10
         assert result.output_tokens == 5
 
@@ -122,7 +121,6 @@ class TestCatalogPricing:
             {"uncached_input_tokens": 1_000_000, "output_tokens": 1_000_000},
         )
         assert cur == "CNY"
-        # ¥2.1 入 + ¥8.4 出
         assert amount == pytest.approx(10.5)
 
     @pytest.mark.parametrize(
@@ -164,7 +162,6 @@ class TestVideoRegistry:
         assert models["MiniMax-Hailuo-2.3"].default is False
         assert h3.supported_durations == list(range(4, 16))
         assert h3.resolutions == ["768p", "2k"]
-        # 两档分辨率共用同一段时长，无需 duration_resolution_constraints 门控。
         assert h3.duration_resolution_constraints == {}
 
         hailuo = models["MiniMax-Hailuo-2.3"]
@@ -172,8 +169,6 @@ class TestVideoRegistry:
         assert hailuo.supported_durations == [6, 10]
         assert hailuo.duration_resolution_constraints == {"1080p": [6]}
 
-        # 目录不声明视频输入模式，minimax 两个型号均无其他特性 token，故 capabilities 为空
-        # ——t2v / i2v 判定读 backend。
         assert hailuo.capabilities == []
         assert models["MiniMax-Hailuo-2.3-Fast"].capabilities == []
 

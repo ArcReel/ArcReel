@@ -34,9 +34,7 @@ from tests.catalog_support import (
 )
 from tests.legacy_project_shapes import write_legacy_bare_provider_project
 
-#: 升级前库里的 alembic revision：0.36.0。
 REVISION_0_36 = "f6d2a8c4b931"
-#: 0.36.0 出厂快照里的默认模型（升级前裸供应商补全成的模型）。
 VIDEO_0_36 = "doubao-seedance-2-0-mini-260615"
 IMAGE_0_36 = "gpt-image-2"
 TEXT_0_36 = "grok-4.3"
@@ -94,7 +92,6 @@ async def test_bare_providers_resolve_to_the_models_used_before_the_upgrade(
     )
     assert [path.name for path in project_dir.glob("project.json.bak.v19-*")]
 
-    # 用户口径：工作台显示的视频模型、生成用的图片与文本模型与升级前一致，制作状态不变
     resolver = ConfigResolver(session_factory)
     caps = await resolver.video_capabilities_for_project(migrated, generation_type="i2v")
     assert (caps["provider_id"], caps["model"]) == ("ark", VIDEO_0_36)

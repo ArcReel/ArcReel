@@ -44,7 +44,6 @@ const PROJECT = {
 describe("useTaskFailureNotifications", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
-    // connected=true：模拟首个成功 poll 已完成、基线可建立。
     useTasksStore.setState({ tasks: [], connected: true });
     useProjectsStore.setState({ currentProjectName: "demo", currentProjectData: PROJECT });
   });
@@ -111,8 +110,6 @@ describe("useTaskFailureNotifications", () => {
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
 
-  // 3 秒轮询下，任务可能在两次 poll 之间直接失败，首次被前端观测到时已是 failed。
-  // 基线建立后才首次出现的这类新任务应通知，否则后台快速失败会被漏报。
   it("notifies for a brand-new task that appears already-failed after the baseline", async () => {
     useTasksStore.setState({ tasks: [task({ task_id: "old", status: "failed" })] });
     render(<Harness project="demo" />);
@@ -151,9 +148,6 @@ describe("useTaskFailureNotifications", () => {
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(1);
   });
 
-  // 回归：切换项目（A→B→A）模拟用户离开再回到同一项目。useTasksSSE 的真实时序是
-  // cleanup setConnected(false) → 新 poll → setTasks(新项目) + setConnected(true)。
-  // 切回 A 后已通过 transition 通知过的历史 failed 不应被当作 fresh failure 再推一遍。
   it("does not re-notify historical failed tasks when leaving and returning to the project", async () => {
     useTasksStore.setState({ tasks: [task({ status: "running" })], connected: true });
     const { rerender } = render(<Harness project="demo" />);
@@ -162,8 +156,6 @@ describe("useTaskFailureNotifications", () => {
     });
     await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
 
-    // 切到另一个项目：projectName 先变，然后 useTasksSSE cleanup+setup 模拟
-    // setConnected(false) → setTasks(空) + setConnected(true)
     act(() => {
       rerender(<Harness project="other" />);
     });
@@ -210,8 +202,6 @@ describe("useTaskFailureNotifications", () => {
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
 
-  // 回归：项目首轮 poll 即使无任务也应建立基线，否则后续 task 在两 poll 间快速失败、
-  // 首次被观测即 failed 时，因 seeded=false 永远走不进 isFreshFailure 通道，永久漏报。
   it("notifies for fast failures in a project whose first poll had no tasks", async () => {
     useTasksStore.setState({ tasks: [], connected: true });
     render(<Harness project="demo" />);
@@ -224,9 +214,6 @@ describe("useTaskFailureNotifications", () => {
     expect(useAppStore.getState().workspaceNotifications[0].target).toMatchObject({ id: "E1S03" });
   });
 
-  // 回归：connected=false 期间切换项目（如网络抖动 + 用户切到别的项目），随后网络
-  // 恢复时第一个成功 poll 不能被误判为过渡 commit，否则永远不 seed，下一轮快速失败
-  // 任务将被永久漏报。
   it("notifies for fast failures after switching project while disconnected", async () => {
     useTasksStore.setState({ tasks: [], connected: true });
     const { rerender } = render(<Harness project="demo" />);

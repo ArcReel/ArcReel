@@ -213,10 +213,7 @@ class _Variant:
         self.plan_factory = plan_factory
         self.visual_factory = visual_factory
         self.entry_ids = entry_ids
-        #: 该变体脚本规划条目上带默认值、可以整个缺席的内容字段（drama 无草稿模型故为 None）。
         self.omissible_field = omissible_field
-        #: 两个条目各自在 prompt 里的可辨认串。参考生视频的 prompt 不渲染 unit_id（视觉层按位对齐），
-        #: 只能认正文。
         self.prompt_needles = prompt_needles or entry_ids
 
     def build(self, tmp_path: Path, *, texts: tuple[str, ...] | None = None) -> tuple[Path, Path]:
@@ -288,10 +285,8 @@ def variant(request) -> _Variant:
     return request.param
 
 
-#: 各变体在**脚本规划中间文件**里的条目数组键（剧本侧的键见 ``_Variant.items_key``）。
 _PLAN_ENTRIES_KEY = {"narration": "segments", "drama": "scenes", "reference_video": "units"}
 
-#: 用户手工成果与已付费产物引用：未变条目必须原样保留这些字段（见 issue 验收判据）。
 _USER_FIELDS: dict[str, Any] = {
     "note": "用户备注",
     "generated_assets": {"storyboard_image": "storyboards/scene.png", "status": "storyboard_ready"},
@@ -310,7 +305,6 @@ def _stamp_user_fields(project_dir: Path, variant: _Variant, entry_id: str) -> N
         if entry[variant.id_field] == entry_id:
             entry.update(_USER_FIELDS)
             if variant is not REFERENCE:
-                # 参考生视频单元没有尾帧字段。
                 entry["end_frame_image"] = "end_frames/scene.png"
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
@@ -361,7 +355,6 @@ async def _converted_and_authored(
     return project_dir, plan_path
 
 
-#: 各变体的视觉层字段：提示词编写只写这些字段（参考生视频改写单元正文）。
 _VISUAL_FIELDS = {
     "narration": ("image_prompt", "video_prompt"),
     "drama": ("image_prompt", "video_prompt"),
@@ -468,7 +461,6 @@ class TestPromptAuthoring:
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
         before = (project_dir / "scripts" / "episode_1.json").read_bytes()
 
-        # 不备响应：本轮若调用模型，AsyncMock 会 StopIteration。
         rewritten: list[str] = []
         await variant.generator(project_dir, []).generate(1, rewritten_entry_ids=rewritten)
 
@@ -902,7 +894,6 @@ class TestScriptPlanMaterialization:
 
         receipt = await _materialize(project_dir, plan_path)
 
-        # 正式身份一律从高水位后另发，旧剧本的两条都按移除处置。
         third = format_item_id(1, variant.items_key, 3)
         renewed = format_item_id(1, variant.items_key, 4)
         assert (receipt.entry_ids, receipt.removed) == ((third, renewed), (first, second))

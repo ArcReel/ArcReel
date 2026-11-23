@@ -26,15 +26,12 @@ class TestBaseUrlNormalization:
         assert ark_base_url(ARK_BASE_URL) == ARK_BASE_URL
 
     def test_whitespace_falls_back_to_default(self):
-        # 纯空白 base_url 是真值会绕过 or，须 strip 后回落默认值
         assert ark_base_url("   ") == ARK_BASE_URL
 
     def test_surrounding_whitespace_stripped(self):
         assert ark_base_url("  https://ark.cn-beijing.volces.com/api/v3/  ") == ARK_BASE_URL
 
     def test_non_standard_path_preserved(self):
-        # ark-agent-plan 走 /api/plan/v3 这类非标准路径，只去尾斜杠，不按已知后缀重建，
-        # 否则会拼出 .../api/plan/v3/api/v3 这种错误 URL。
         custom = "https://ark.cn-beijing.volces.com/api/plan/v3"
         assert ark_base_url(custom) == custom
         assert ark_base_url(custom + "/") == custom

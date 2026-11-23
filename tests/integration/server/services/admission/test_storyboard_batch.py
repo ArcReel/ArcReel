@@ -156,7 +156,6 @@ async def test_image_batch_targets_segments_without_a_usable_storyboard(
         BatchSkip("E1S04", BatchSkipReason.MISSING_PROMPT),
         BatchSkip("E1S05", BatchSkipReason.REFERENCE_UNAVAILABLE),
     )
-    # E1S03 接在上一张分镜图之后，走图生图；章节切分点另起一链，没有参考图时走文生图。
     assert dict(plan.lanes) == {"E1S03": "i2i", "E1S06": "t2i"}
 
 
@@ -315,7 +314,6 @@ async def test_video_batch_is_refused_whole_when_one_target_fails_admission(
     gap = _with_storyboard(board_projects, "E1S02")
     _write_episode(board_projects, [healthy, gap])
     _claim_storyboards(board_projects, "E1S01", "E1S02")
-    # 分镜图生成之后才补的引用：Alice 还没有资产图，这一条的视频不能提交。
     with board_projects.locked_script(PROJECT, "episode_1.json") as script:
         script["segments"][1]["characters_in_segment"] = ["Alice"]
 

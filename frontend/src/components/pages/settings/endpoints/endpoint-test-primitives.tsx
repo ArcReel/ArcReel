@@ -5,7 +5,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { PreviewedRequest } from "@/types";
 
-/** 端点测试的一张卡。`badge` 用于「产生一次调用费用」「占用 GPU」这类代价提示。 */
 export function TestCard({
   title,
   badge,
@@ -56,7 +55,6 @@ export interface TestSelectItem {
   disabled?: boolean;
 }
 
-/** 端点测试的下拉选择：标签与触发器以 `aria-labelledby` 关联，读屏与测试都按标签找到它。 */
 export function TestSelect({
   label,
   value,
@@ -101,7 +99,6 @@ export function TestSelect({
   );
 }
 
-/** 渲染并脱敏后的一节请求，按它真发出去的样子逐行摆开。长地址与请求体在自身框内滚动，不撑宽页面。 */
 export function RequestPreview({ label, request }: { label: string; request: PreviewedRequest }) {
   return (
     <div className="flex min-w-0 flex-col gap-1.5">

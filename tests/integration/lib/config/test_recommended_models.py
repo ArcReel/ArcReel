@@ -48,10 +48,8 @@ from tests.catalog_support import (
 
 Sessions = async_sessionmaker[AsyncSession]
 
-#: 升级前库里的 alembic revision：0.36.0，以及 0.34.0 与 0.35.0（两版库结构相同）。
 REVISION_0_36 = "f6d2a8c4b931"
 REVISION_0_34_0_35 = "b5d1e8f3a627"
-#: 0.36.0 出厂快照的数据集版本；比它新的同步数据才会被 0.36.0 的实例读到。
 SNAPSHOT_0_36 = "2026-11-04T23:26:27Z"
 NEWER_THAN_ALL_SNAPSHOTS = "2026-11-08T00:00:00Z"
 NEXT_IMAGE = "doubao-seedream-4-5-251128"
@@ -339,7 +337,6 @@ class TestFreezeEffectiveDefaults:
         """0.36.0 的实例读到的同步数据里，ark 的推荐图片模型要求 0.36.1：旧版跳过 ark、用 DashScope。
         升级到 0.37.0 后 ark 的推荐可用了，固化仍写 DashScope，生成用的模型与升级前一致。"""
         data = with_min_app_version(_synced(), "ark", _recommended("ark", "image"), "0.36.1")
-        # 新版本号先于数据装入：目录查询按装入的数据重建索引，用的就是新版本号
         monkeypatch.setattr(catalog, "app_version", lambda: "0.37.0")
         install_synced_catalog(request, data)
         assert catalog.default_model("ark", "image") is not None
@@ -362,7 +359,6 @@ class TestFreezeEffectiveDefaults:
 
         await _upgrade(session_factory, REVISION_0_36)
 
-        # 0.36.0 出厂快照里 ark 的图片默认模型
         assert (await _settings(session_factory))["default_image_backend"] == "ark/doubao-seedream-5-0-pro-260628"
 
     async def test_the_same_revision_for_two_releases_freezes_only_what_both_agree_on(
@@ -431,7 +427,6 @@ class TestFreezeEffectiveDefaults:
         assert (
             await ConfigResolver(session_factory).resolve_video_backend(None, None, generation_type="i2v") == expected
         )
-        # 推荐变了，提示由用户决定
         assert [change.media_type for change in await _changes(session_factory)] == ["video"]
 
     async def test_an_unknown_previous_revision_freezes_nothing(self, session_factory):
@@ -521,7 +516,6 @@ class TestFreezeEffectiveDefaults:
         assert await _resolve_image(session_factory) == ProviderModel("dashscope", _recommended("dashscope", "image"))
         settings = await _settings(session_factory)
         assert settings["default_video_backend"] == f"dashscope/{_recommended('dashscope', 'video')}"
-        # Ark 是升级后才加的：不记它的已知推荐，空着的媒体类型照常提示
         assert not any(key.startswith(f"{SEEN_KEY_PREFIX}ark:") for key in settings)
 
     async def test_runs_only_once(self, session_factory):

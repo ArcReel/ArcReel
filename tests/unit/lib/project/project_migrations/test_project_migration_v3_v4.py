@@ -100,7 +100,6 @@ class TestMigrateV3ToV4File:
         d = _write(tmp_path, {"schema_version": 4, "text_backend_script": "gemini-aistudio/pro"})
         migrate_v3_to_v4(d)
         data = _load(d)
-        # 已是 v4：不动（旧键残留由该版本自身负责，不重复迁移）
         assert data["text_backend_script"] == "gemini-aistudio/pro"
 
     def test_missing_project_json_is_noop(self, tmp_path: Path):

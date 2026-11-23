@@ -37,8 +37,6 @@ def _resp(json_body: dict, status_code: int = 200) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
     resp.json.return_value = json_body
-    # 与 httpx 一致：text 是响应体原文。>=400 的日志与拒因摘要都读它，留成 MagicMock 会
-    # 让替身在真实代码路径上的行为与真响应分叉。
     resp.text = json.dumps(json_body, ensure_ascii=False)
     resp.raise_for_status = MagicMock()
     return resp
@@ -287,7 +285,6 @@ class TestReferenceToVideo:
         assert body["parameters"]["ratio"] == "16:9"
         assert client.posts[-1]["url"].endswith("/api/v1/services/aigc/video-generation/video-synthesis")
         assert client.posts[-1]["headers"]["X-DashScope-Async"] == "enable"
-        # 计费时长取 usage.duration（非请求值 5）
         assert result.duration_seconds == 8
         assert result.provider == PROVIDER_DASHSCOPE
         assert result.task_id == "t-r2v"
@@ -344,7 +341,6 @@ class TestReferenceToVideo:
         assert ei.value.code == "video_reference_images_unsupported"
 
     async def test_start_image_rejected_when_model_has_no_first_frame(self, tmp_path: Path):
-        # 生效能力 first_frame=False（条目记录不接受首帧）时带首帧不静默丢弃：否则照常计费，成片没用上首帧
         post = AsyncMock(return_value=_resp(_submit()))
         client = _client(post=post, get=AsyncMock())
         p1, p2, p3 = _patches(client, AsyncMock())
@@ -365,7 +361,6 @@ class TestReferenceToVideo:
         post.assert_not_awaited()
 
     async def test_r2v_all_refs_missing_fail_loud(self, tmp_path: Path):
-        # r2v 参考图缺失/不可读（含空串过滤后仍有声明项）须 fail-loud 报错列名，不静默退化
         post = AsyncMock(return_value=_resp(_submit()))
         client = _client(post=post, get=AsyncMock())
         p1, p2, p3 = _patches(client, AsyncMock())
@@ -385,7 +380,6 @@ class TestReferenceToVideo:
         post.assert_not_called()
 
     async def test_r2v_no_refs_provided_raises(self, tmp_path: Path):
-        # r2v 模型但调用方完全未提供参考图（None/空）→ required 错误，不提交无 media 的 r2v 请求
         post = AsyncMock(return_value=_resp(_submit()))
         client = _client(post=post, get=AsyncMock())
         p1, p2, p3 = _patches(client, AsyncMock())
@@ -397,8 +391,6 @@ class TestReferenceToVideo:
         post.assert_not_called()
 
     async def test_r2v_partial_unreadable_refs_fail_loud(self, tmp_path: Path):
-        # 部分参考图 read 抛 OSError（is_file 通过但读失败）→ fail-loud 中止并列出不可读文件名，
-        # 不静默用可读子集生成（会产出错误结果且照常计费）
         post = AsyncMock(return_value=_resp(_submit("t-r2v")))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
@@ -426,7 +418,6 @@ class TestReferenceToVideo:
         post.assert_not_called()
 
     async def test_r2v_all_refs_unreadable_oserror_fail_loud(self, tmp_path: Path):
-        # 全部参考图 read 抛 OSError → fail-loud，不提交无 media 的 r2v 请求
         post = AsyncMock(return_value=_resp(_submit()))
         client = _client(post=post, get=AsyncMock())
         ra = _ref(tmp_path, "a.png")
@@ -450,7 +441,6 @@ class TestReferenceToVideo:
 
 class TestFirstFrameAndTextOnly:
     async def test_i2v_start_image_oserror_fail_loud(self, tmp_path: Path):
-        # 声明了首帧图却 read 抛 OSError（权限/IO）→ fail-loud 中止，不静默忽略首帧照常出片
         post = AsyncMock(return_value=_resp(_submit()))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
@@ -482,7 +472,6 @@ class TestFirstFrameAndTextOnly:
         media = client.posts[-1]["json"]["input"]["media"]
         assert media == [{"type": "first_frame", "url": media[0]["url"]}]
         assert media[0]["url"].startswith("data:image/png;base64,")
-        # 带首帧（图生视频）按首帧定宽高比：默认 aspect_ratio 非空也不得下传 ratio，否则上游拒绝
         assert "ratio" not in client.posts[-1]["json"]["parameters"]
 
     async def test_t2v_no_media(self, tmp_path: Path):
@@ -566,7 +555,6 @@ class TestUserRelaxedCapabilities:
             tmp_path, "wan2.7-i2v", reference_images=[_ref(tmp_path, "r.png")], video_capabilities=caps
         )
         assert [m["type"] for m in with_refs["input"]["media"]] == ["reference_image"]
-        # 放宽参考图上限不把 i2v 型号变成「必须带参考图」：只带首帧的请求照旧发出
         frame_only = self._build(tmp_path, "wan2.7-i2v", start_image=_ref(tmp_path, "s.png"), video_capabilities=caps)
         assert [m["type"] for m in frame_only["input"]["media"]] == ["first_frame"]
 
@@ -760,7 +748,6 @@ class TestSubmit413:
                         duration_seconds=5,
                     )
                 )
-        # 保留 status_code 让咽喉层识别 413；413 非 retryable → fail-fast 单次提交
         assert ei.value.response.status_code == 413
         assert len(client.posts) == 1
         download.assert_not_called()
@@ -770,7 +757,6 @@ class TestRetryStatusGating:
     """提交/轮询按 HTTP status_code 决定重试，消除字符串子串误判。"""
 
     async def test_submit_4xx_with_503_substring_no_retry(self, tmp_path: Path):
-        # 4xx 错误消息里带 "503" 子串（URL/task_id）：旧字符串兜底会误判重试，新谓词按 400 fail-fast。
         err = _http_error_503_in_message(400)
         assert "503" in str(err)
         bad = _resp({"code": "InvalidParameter"}, status_code=400)
@@ -801,7 +787,6 @@ class TestRetryStatusGating:
         assert result.task_id == "t-ok"
 
     async def test_submit_connect_error_retries(self, tmp_path: Path):
-        # 网络层错误（连接确定未送达）维持重试。
         post = AsyncMock(side_effect=[httpx.ConnectError("refused"), _resp(_submit("t-ok"))])
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
@@ -815,7 +800,6 @@ class TestRetryStatusGating:
         assert result.task_id == "t-ok"
 
     async def test_poll_timeout_retries(self, tmp_path: Path):
-        # 轮询（幂等 GET）网络层 Timeout 维持重试。
         post = AsyncMock(return_value=_resp(_submit("t-poll")))
         get = AsyncMock(side_effect=[httpx.TimeoutException("read timed out"), _resp(_succeeded())])
         client = _client(post=post, get=get)
@@ -855,7 +839,6 @@ class TestWan27ReferenceVoice:
     def test_r2v_declares_audio_capability(self):
         caps = _effective("wan2.7-r2v")
         assert caps.reference_audio_mode is ReferenceAudioMode.DIRECT
-        # 音频逐段挂参考素材项，段数上限即参考素材总数上限（条目记录）
         assert caps.max_reference_audio_count == 5
         assert caps.reference_audio_per_image is True
 
@@ -1129,7 +1112,6 @@ class TestWan3:
         assert caps.max_reference_audio_count == 5
         assert caps.max_reference_audio_total_seconds == 15.0
         assert caps.max_prompt_chars == 20000
-        # 音频是独立 media 条目，不挂在参考素材项上（与 wan2.7-r2v 相反）
         assert caps.reference_audio_per_image is False
 
     @pytest.mark.parametrize("model", ["wan-3-turbo", "wan3-turbo", "wan_3-turbo", "wan_3_turbo"])
@@ -1163,7 +1145,6 @@ class TestWan3:
         )
         types = [m["type"] for m in payload["input"]["media"]]
         assert types == ["first_frame", "last_frame"]
-        # 首帧在场即不下发 ratio（上游按首帧定比例）
         assert "ratio" not in payload["parameters"]
 
     def test_reference_audio_is_standalone_media_item(self, tmp_path):
@@ -1180,7 +1161,6 @@ class TestWan3:
         )
         media = payload["input"]["media"]
         assert [m["type"] for m in media] == ["reference_image", "reference_audio", "reference_audio"]
-        # 顺序即 prompt 中「音频N」的指认契约，不得重排
         assert media[1]["url"].startswith("data:audio/mpeg;base64,")
         assert media[2]["url"].startswith("data:audio/wav;base64,")
         assert "reference_voice" not in media[0]
@@ -1260,9 +1240,7 @@ class TestWan3:
 
     async def test_dedicated_base_url_used_for_submit_and_poll(self):
         b = self._backend(wan3_base_url="https://maas-cn-hangzhou.example.com/ws-123/api/v1/")
-        # 尾部斜杠归一，提交与轮询同域名（任务 id 只在创建它的 endpoint 上可查）
         assert b._request_base_url == "https://maas-cn-hangzhou.example.com/ws-123/api/v1"
-        # 断言实际发出的 POST/GET URL，而非只读属性——两处若改回固定 base_url，属性断言仍会绿
         post = AsyncMock(return_value=_resp(_submit("t-wan3")))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
@@ -1453,8 +1431,6 @@ class TestPollErrorRedaction:
     async def test_poll_4xx_message_drops_query_credentials(self):
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
-        # 轮询 4xx 的异常消息会经 str(exc) 落进 task.error_message 与日志；按 query 传的
-        # 凭证渲染在 raise_for_status 写进消息的那条 URL 里，须先脱敏再抛。
         backend = DashScopeVideoBackend(api_key="k")
         base_url = "https://dashscope.example/api/v1"
         with capture_http() as router:

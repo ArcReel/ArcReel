@@ -401,7 +401,6 @@ class TestFromProject:
 
         assert "角色" in zh.json()["detail"]
         assert "character" not in zh.json()["detail"]
-        # en 显示名与内部标识同形，区分不了裸透传，只能断言整句按 asset_type_* 渲染
         assert en.json()["detail"] == translate_message(
             "asset_source_resource_not_found",
             locale="en",
@@ -488,8 +487,6 @@ class TestFromProject:
         pm.add_project_character("demo", "王", "d", "")
 
         def _set_fields(project):
-            # 项目内真实存在、但不在 characters/refs_audio 下的文件——模拟经通用 PATCH
-            # 写入的越权路径。
             project["characters"]["王"]["reference_audio"] = "project.json"
 
         pm.update_project("demo", _set_fields)
@@ -1214,7 +1211,6 @@ class TestApplyToProject:
         assert target_audio.read_bytes() == b"audio-bytes"
         data = pm.load_project("target")
         assert data["characters"]["王"]["reference_audio"] == "characters/refs_audio/王.wav"
-        # 「资产即开关」：导入即视为该项目新设置了这个声音，存量过渡横幅计数须能感知到
         assert data["characters"]["王"]["voice_updated_at"]
 
     def test_image_copied_to_target_project(self, assets_env):

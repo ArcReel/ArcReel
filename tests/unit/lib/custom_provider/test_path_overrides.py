@@ -70,7 +70,6 @@ def test_layer_matches_base_url_paths_with_percent_escapes_and_keeps_them():
 
 @pytest.mark.parametrize("version", ["", "/v1"])
 async def test_resume_after_base_path_change_still_hits_the_overrides(tmp_path: Path, version: str):
-    # 提交时 base_url 是 relay.test/old，在途改成 /new 后重启续跑：轮询与取件按提交时的 base 命中覆盖
     overrides = {"poll": "/api/tasks/{{ task_id }}", "download": "/api/tasks/{{ task_id }}/file"}
     provider = SimpleNamespace(provider_id="cp", base_url=f"https://relay.test/new{version}", api_key="k")
     backend = ENDPOINT_REGISTRY["openai-video"].build_backend(cast("Any", provider), "sora-2", overrides)
@@ -126,9 +125,7 @@ async def test_dashscope_resume_restores_the_replaced_base_suffix(tmp_path: Path
 @pytest.mark.parametrize(
     ("current_base", "submitted_base", "sent", "expected"),
     [
-        # 归一化补了 /v1：提交时的原样路径按同一差量还原
         ("https://relay.test/new", "https://relay.test/old/v1", "/old/v1/v1/videos/t", "/old/tasks/t"),
-        # 原样值本身就带版本段：归一化不改路径
         ("https://relay.test/new/v1", "https://relay.test/old/v1", "/old/v1/v1/videos/t", "/old/v1/tasks/t"),
     ],
 )

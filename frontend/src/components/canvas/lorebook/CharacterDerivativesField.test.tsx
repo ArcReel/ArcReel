@@ -188,7 +188,6 @@ describe("角色详情的衍生区块", () => {
       "换上黑色重甲，披红斗篷",
     );
 
-    // 旧名随后被新衍生复用：两行各自显示，不因沿用的行标识撞在一起
     derivativesOf("林夕").战斗装 = { description: "换回便装" };
     await act(() => useProjectsStore.getState().refreshProject("demo"));
     expect(within(rowOf(sheet, "战斗装")).getByRole("textbox", { name: "「战斗装」的外观变化" })).toHaveValue("换回便装");
@@ -200,7 +199,6 @@ describe("角色详情的衍生区块", () => {
   it("follows the stored NFC name when the new derivative name was typed decomposed", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "renameCharacterDerivative").mockImplementation((_p, _c, from, to) => {
-      // 后端按 strip + NFC 规范化后落盘
       const table = derivativesOf("林夕");
       table[to.trim().normalize("NFC")] = table[from];
       delete table[from];

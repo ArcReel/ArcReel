@@ -104,12 +104,10 @@ describe("staysInEpisodeView", () => {
     const ad: EpisodeViewFacts = { ...SCRIPTED, isAd: true, hasDraft: false };
     expect(staysInEpisodeView("/episodes/1?view=setting&unit=2", "/episodes/1?view=setting", ad)).toBe(true);
     expect(staysInEpisodeView("/episodes/1", "/episodes/1?view=setting", ad)).toBe(false);
-    // 非广告项目没有故事设定 tab，view=setting 按缺省视图显示
     expect(resolveEpisodeView("setting", SCRIPTED)).toBe("board");
   });
 
   it("resolves a missing or unavailable view to the default view of the episode", () => {
-    // 参考生视频在中间稿阶段缺省停在脚本规划：去掉 view 就是离开视频单元
     const referenceDraft: EpisodeViewFacts = { ...SCRIPTED, route: "reference_video", hasScript: false };
     expect(staysInEpisodeView("/episodes/1", "/episodes/1?view=board", referenceDraft)).toBe(false);
     expect(staysInEpisodeView("/episodes/1?view=plan", "/episodes/1", referenceDraft)).toBe(true);

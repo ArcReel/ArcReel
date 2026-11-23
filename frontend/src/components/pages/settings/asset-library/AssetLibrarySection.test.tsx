@@ -283,7 +283,6 @@ describe("AssetLibrarySection", () => {
     const dialog = await screen.findByRole("alertdialog");
     const cleanup = within(dialog).getByRole("checkbox", { name: "同时删除 ArcReel 写入桶里的待删除文件" });
     expect(cleanup).toBeChecked();
-    // 勾选与不勾选的说明各自准确，主说明不对 ArcReel 写入的文件作不删除承诺
     expect(within(dialog).getByText(/勾选后，无引用的图片/)).toBeInTheDocument();
     expect(within(dialog).queryByText(/未勾选时/)).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/桶里已有的对象不会被删除/)).not.toBeInTheDocument();

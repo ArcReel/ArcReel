@@ -49,10 +49,8 @@ class TestReadMp4Layout:
                 Mp4Layout(major_brand=b"isom", moov_first=False),
                 id="largesize-mdat",
             ),
-            # 首个 box 不是 ftyp：老式 QuickTime
             pytest.param(_box(b"wide") + _MDAT + _MOOV, Mp4Layout(major_brand=None, moov_first=False), id="no-ftyp"),
             pytest.param(_FTYP_QT + _MDAT + _MOOV, Mp4Layout(major_brand=b"qt  ", moov_first=False), id="quicktime"),
-            # ftyp 装不下 major brand：不越界去读后一个 box 的字节
             pytest.param(_box(b"ftyp") + _MDAT + _MOOV, Mp4Layout(major_brand=None, moov_first=False), id="empty-ftyp"),
         ],
     )
@@ -66,7 +64,6 @@ class TestReadMp4Layout:
             pytest.param(b"x" * 1024, id="not-iso-bmff"),
             pytest.param(_FTYP + _MDAT, id="no-moov"),
             pytest.param(_FTYP + _MOOV, id="no-mdat"),
-            # size=0 的 mdat 延伸到文件尾，其后不可能再有 moov
             pytest.param(_FTYP + (0).to_bytes(4, "big") + b"mdat" + b"\x01" * 32, id="mdat-to-eof"),
             pytest.param(_FTYP + _MDAT[:-10] + _MOOV[:4], id="truncated"),
             pytest.param(_FTYP + (4).to_bytes(4, "big") + b"mdat" + _MOOV, id="size-below-header"),
@@ -139,7 +136,6 @@ class TestEnsureFaststart:
 
         assert video.read_bytes() == MOOV_FIRST
         assert _siblings(video) == [video]
-        # 无扩展名的 .part 也能重封装：封装格式显式给出
         args = calls[0]
         assert args[args.index("-f") + 1] == "mp4"
         assert args[args.index("-c") + 1] == "copy"
@@ -194,7 +190,6 @@ class TestEnsureFaststart:
     async def test_temp_cleanup_failure_keeps_the_remux_best_effort(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # 临时文件删不掉（如 Windows 上被其他进程占用）不能把尽力而为的优化变成失败
         video = _write(tmp_path, "clip.mp4", MOOV_LAST)
         spawn, _ = _remux_writing(MOOV_LAST)
 

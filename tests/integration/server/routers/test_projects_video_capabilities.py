@@ -61,7 +61,6 @@ class TestGetVideoCapabilities:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 422
             detail = resp.json()["detail"]
-            # 异常原文只进日志，不进用户可见响应（en/vi 界面不能混入未译英文原文）
             assert "model not found" not in detail
             assert detail == zh_errors.MESSAGES["video_capabilities_unresolved"].format(name="ready")
 
@@ -102,7 +101,6 @@ class TestGetVideoCapabilities:
 class TestRealResolverResponse:
     """成功路径走真实 ConfigResolver + registry + 内存 DB，覆盖响应体经 JSON 序列化后的实际形状。"""
 
-    #: registry 里声明了「1080p 只剩 8 秒」「参考图路径只剩 8 秒」的型号。
     VEO = "gemini-vertex/veo-3.1-generate-001"
 
     @pytest.mark.parametrize("fixed_bucket", ["i2v", "r2v"])
@@ -126,7 +124,6 @@ class TestRealResolverResponse:
         body = response.json()
         assert body["duration_endpoint_fixed"] is (fixed_bucket == "r2v")
         assert body["duration_endpoint_fixed_reason"] == ("endpoint" if fixed_bucket == "r2v" else None)
-        # 档位空集只给时间线；内容确认按剧本规划借用的档位选时长，与确认转换同一口径。
         constraints = body["duration_constraints"]
         assert constraints["allowed"] == ([] if fixed_bucket == "r2v" else [8])
         assert constraints["planning"] == (ENDPOINT_FIXED_PLANNING_DURATIONS if fixed_bucket == "r2v" else [8])
@@ -149,7 +146,6 @@ class TestRealResolverResponse:
         body = resp.json()
         assert body["model"] == "veo-3.1-generate-001"
         assert body["supported_durations"] == [4, 6, 8]
-        # excluded 在 Python 侧是 int 键；经 JSON 后只能是字符串键，前端按 String(duration) 查表。
         assert body["duration_constraints"] == {
             "resolution": "1080p",
             "uses_reference_images": False,

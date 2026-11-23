@@ -36,7 +36,6 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
 
 ITEM_ID = "E1S02"
 STORYBOARD_PAYLOAD = {"script_file": "episode_1.json", "prompt": "queued prompt"}
-#: fake_resolve_ctx 默认 image lane 的 backend_model；超限错误报的是它，不是 registry 里的 provider 名。
 FAKE_BACKEND_MODEL = "gpt-image-2"
 
 
@@ -73,7 +72,6 @@ class TestStoryboardReferenceLimit:
 
         await _run_storyboard(generator)
 
-        # 替身 PM 不把分镜图指针写回磁盘剧本：按正式提交后的形态持久化，规划器才有条目可重建
         pm.script["segments"][1]["generated_assets"] = {"storyboard_image": f"storyboards/scene_{ITEM_ID}.png"}
         persist_active_fake_project(pm, register_script=False)
         resolver = active_artifact_currency_resolver(project_path, pm.load_project("demo"))
@@ -94,7 +92,6 @@ class TestStoryboardReferenceLimit:
         assert len(call["reference_images"]) == 8
         assert "图7为场景参考图；图8为道具参考图。" in call["prompt"]
         assert "图1握着图8立在图7门口" in call["prompt"]
-        # 没丢图就没有 warning：结果不带该键，任务列表不会给用户空提示
         assert "warnings" not in result
 
     async def test_backend_without_a_declared_limit_never_clamps(self, tmp_path, monkeypatch):

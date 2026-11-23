@@ -46,7 +46,6 @@ def test_agent_startup_error_str_includes_stderr() -> None:
     rendered = str(exc)
     assert "Command failed with exit code 1" in rendered
     assert "Git for Windows" in rendered
-    # message 与 stderr 之间应留空行，方便前端展示
     assert "\n\n" in rendered
 
 
@@ -113,7 +112,6 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
             captured_stderr_cb.append(client_factory().options.stderr)
 
         async def start(self):
-            # 模拟 SDK 在 connect 阶段先喷 stderr 再退出
             cb = captured_stderr_cb[0]
             cb("Claude Code on Windows requires either Git for Windows (for bash) or PowerShell.")
             cb("Or set CLAUDE_CODE_GIT_BASH_PATH to your bash.exe location.")
@@ -133,7 +131,6 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
     err = exc_info.value
     assert "Git for Windows" in err.sdk_stderr
     assert "CLAUDE_CODE_GIT_BASH_PATH" in err.sdk_stderr
-    # __str__ 必须把两段拼出来，给 router/前端直接看
     text = str(err)
     assert "Command failed with exit code 1" in text
     assert "Git for Windows" in text
@@ -178,7 +175,6 @@ async def test_send_new_session_no_stderr_still_wraps(
 
     assert exc_info.value.sdk_stderr == ""
     assert "ENOENT" in str(exc_info.value)
-    # 原因链保留，便于 logger.exception 看到底层异常
     assert isinstance(exc_info.value.__cause__, OSError)
 
 
@@ -186,7 +182,6 @@ async def test_send_new_session_no_stderr_still_wraps(
 async def test_send_new_session_wraps_option_assembly_failure(
     seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # 凭证注入失败是 options 装配失败的真实来源，异常须原样浮到 send_new_session
     use_provider_env(monkeypatch, AsyncMock(side_effect=LookupError("credential missing")))
 
     with pytest.raises(AgentStartupError) as exc_info:

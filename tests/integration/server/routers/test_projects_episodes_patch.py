@@ -138,10 +138,9 @@ class TestProjectsRouter:
                         {
                             "episode": 1,
                             "script_file": "scripts/ep1_v2.json",
-                            "title": "新标题",  # title 不再可经 PATCH /projects 写入
-                            # 以下为项目摘要读时注入的统计字段，不应写入磁盘
+                            "title": "新标题",
                             "item_count": 999,
-                            "scenes_count": 999,  # 已退场的旧字段，同样不得落盘
+                            "scenes_count": 999,
                             "status": "completed",
                             "storyboards": {"total": 5, "available": 3, "stale": 0},
                             "videos": {"total": 5, "available": 5, "stale": 1},
@@ -154,7 +153,6 @@ class TestProjectsRouter:
             assert resp.status_code == 200
             ep1 = fake_pm.project_data["ready"]["episodes"][0]
             assert ep1["script_file"] == "scripts/ep1_v2.json"
-            # title 不可经此端点改写，保持原值（改名走 PATCH /episodes/{episode}）
             assert ep1["title"] == "原标题"
             assert "item_count" not in ep1
             assert "scenes_count" not in ep1
@@ -187,7 +185,6 @@ class TestProjectsRouter:
     def test_update_episode_title_renames_script_and_mirror(self, tmp_path, monkeypatch):
         """PATCH /episodes/{episode}：剧本顶层 title 与 project.json 镜像都反映新值，标题首尾空白被裁剪。"""
         fake_pm = _FakePM(tmp_path)
-        # 剧本带 episode 字段，触发 _apply_episode_sync 镜像（与真实生成剧本一致）
         fake_pm.scripts[("ready", "episode_1.json")]["episode"] = 1
 
         client = build_projects_client(monkeypatch, fake_pm)

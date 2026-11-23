@@ -60,7 +60,6 @@ def test_replaced_versions_reach_the_next_episode(
     versions_path.write_text(json.dumps(versions), encoding="utf-8")
     versions_parses = count_versions_parses(monkeypatch)
 
-    # 第二集视频的版本记录已从新内容里移除，执行事实缺失即判 stale。
     assert _compare_video(resolver_after_first_episode, 2) is ArtifactStatus.STALE
     assert versions_parses["parses"] == 1
 

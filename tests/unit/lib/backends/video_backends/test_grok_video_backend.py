@@ -49,7 +49,6 @@ class TestGrokVideoBackend:
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         backend = GrokVideoBackend(api_key="test-key")
-        # 通道实现了参考图且不设上限；各型号的上限来自条目
         assert backend.video_capabilities.max_reference_images is None
 
     @patch("lib.backends.video_backends.grok.create_grok_client")
@@ -228,15 +227,15 @@ class TestGrokVideoBackend:
         [
             (15, 15),
             ("15.0", 15),
-            (7.8, 8),  # 浮点 half-up 取整，与 dashscope 计费口径一致
+            (7.8, 8),
             (4.4, 4),
             (0, 5),
             (-10, 5),
-            (0.3, 5),  # 取整到 0 同样回落，保持结果恒为正
+            (0.3, 5),
             ("unknown", 5),
             (float("inf"), 5),
-            (1e100, 5),  # 超出合理上限回落请求时长，防 DB Integer 列溢出
-            (86400.9, 5),  # 上限基于取整前原始值：小数已超 24h 不得因取整落回上限内
+            (1e100, 5),
+            (86400.9, 5),
             (None, 5),
         ],
     )
@@ -319,7 +318,6 @@ class TestGrokVideo15Models:
         assert caps.text_to_video is True
         assert caps.first_frame is True
         assert caps.last_frame is True
-        # 官方参考生视频页给 1.5 的上限是 14（经典版 7），来自条目
         assert caps.max_reference_images == 14
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.audio_track is VideoAudioMode.CONTROLLABLE

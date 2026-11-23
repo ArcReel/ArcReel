@@ -1,8 +1,3 @@
-/**
- * 演示 Agent 面板演的是首次制作的时序，先后顺序是内容的一部分：用户发「开始制作」→ 已完成的
- * 工序 → Agent 汇报推进。顺序反了，引导第 7 步讲的流程就对不上，而这既不会让 typecheck 报错，
- * 也不会被锚点测试发现。
- */
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

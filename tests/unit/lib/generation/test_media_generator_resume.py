@@ -181,7 +181,6 @@ async def test_resume_does_not_open_record_bracket(tmp_path):
         task_id="T-1",
     )
 
-    # resume 不落新 pending 行：只走 resume_success/resume_failed 补账，不开记账括号
     assert gen.ledger.started == [], "resume 不应开记账括号"
 
 
@@ -200,8 +199,6 @@ async def test_resume_success_flips_pending_apicall_by_call_id(tmp_path):
     call = gen.ledger.resumed[0]
     assert call["call_id"] == 42
     assert call["status"] == "success"
-    # 成功补账不显式传 cost_amount，让 repo 按 ApiCall 行字段 auto-calc 算实际 cost
-    # （与 generate 路径记账等价）；cost_amount 不进 resume_success 的补账入参
     assert "cost_amount" not in call
 
 
@@ -240,9 +237,7 @@ async def test_resume_expired_flips_pending_to_failed(tmp_path):
     call = gen.ledger.resumed[0]
     assert call["call_id"] == 42
     assert call["status"] == "failed"
-    # 过期异常本身递交补账：失败原文与机器码的编码收在 ledger 内部，这里只锁「传了」这一步
     assert call["failure"] is expired
-    # 零费用不重扣的语义收在 ledger.resume_failed 内部（cost_amount=0.0），补账入参不显式承载
 
 
 @pytest.mark.asyncio
@@ -277,10 +272,8 @@ async def test_resume_calls_add_version_after_download(tmp_path):
         task_id="T-1",
     )
 
-    # add_version 必须发生在下载之后：进入 resume_video 时 add_calls 还是 0
     assert probe.add_calls_at_resume == 0
     assert len(gen.versions.add_calls) == 1
-    # 开头/末尾不调 ensure_current_tracked（避免错位登记残留文件）
     assert gen.versions.ensure_calls == []
 
 
@@ -405,7 +398,6 @@ async def test_resume_handles_float_string_duration(tmp_path):
         task_id="T-1",
     )
 
-    # add_version 应该收到 duration_seconds=10（int），不是 "10.0" 也不是 8
     assert len(gen.versions.add_calls) == 1
     add_call = gen.versions.add_calls[0]
     assert add_call["duration_seconds"] == 10
@@ -651,7 +643,7 @@ async def test_resume_passes_generate_audio_to_finalize(tmp_path):
         def __init__(self) -> None:
             self.video_uri = "video-uri-resume"
             self.usage_tokens = 1234
-            self.generate_audio = False  # provider 实际降级到无音频
+            self.generate_audio = False
             self.duration_seconds = 8
             self.seed = None
             self.provenance = None
@@ -698,7 +690,7 @@ async def test_resume_passes_billed_duration_to_finalize(tmp_path):
             self.video_uri = "video-uri-resume"
             self.usage_tokens = 0
             self.generate_audio = True
-            self.duration_seconds = 15  # 请求 8 秒，provider 按 15 秒计费
+            self.duration_seconds = 15
             self.seed = None
             self.provenance = None
             self.warnings = ()

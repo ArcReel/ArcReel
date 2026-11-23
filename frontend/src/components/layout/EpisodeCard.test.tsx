@@ -5,10 +5,6 @@ import { EpisodeCard } from "./EpisodeCard";
 import type { EpisodeMeta } from "@/types/project";
 import type { GenerationRoute } from "@/utils/generation-mode";
 
-/**
- * 剧集卡上的两个数字都来自项目摘要，口径是产物清单：可用 = current ∪ stale，
- * stale 另计。工作台读的是同一份计数，两处不得各说各话。
- */
 function makeEpisode(overrides: Partial<EpisodeMeta> = {}): EpisodeMeta {
   return {
     episode: 1,
@@ -32,7 +28,6 @@ function renderCard(ep: EpisodeMeta, route: GenerationRoute = "storyboard") {
 
 describe("EpisodeCard", () => {
   it("reports available videos against the total, not the script item count", () => {
-    // item_count 与 videos.total 刻意取不同值：读错字段的实现会显示 4/4 或裸 4。
     renderCard(makeEpisode({ item_count: 9 }));
 
     expect(screen.getByText(/3\/4/)).toBeInTheDocument();
@@ -46,7 +41,6 @@ describe("EpisodeCard", () => {
       }),
     );
 
-    // stale 不从可用里扣：4 件视频全部可用，另有 3 件产物比当前内容旧
     expect(screen.getByText(/4\/4/)).toBeInTheDocument();
     expect(screen.getByText("3 件产物比当前内容旧")).toBeInTheDocument();
   });
@@ -67,7 +61,6 @@ describe("EpisodeCard", () => {
   it("names the fallback count 分镜数 on the storyboard route", () => {
     renderCard(unplannedEpisode(), "storyboard");
 
-    // 名词进正文而不是 title：触屏没有悬停，读屏也不必依赖 tooltip
     expect(screen.getByText(/^4 分镜/)).toBeInTheDocument();
   });
 

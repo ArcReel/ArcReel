@@ -398,8 +398,6 @@ class TestImageDrop:
         definition = _reference_definition()
         definition["workflow"]["22"]["inputs"]["image2"] = ["20", 0]
         definition["bindings"]["reference_images"] = definition["bindings"]["reference_images"][:1]
-        # 合并节点的下游排在它前面：删节点那一遍扫到下游时合并还没摘，改接留下的死链没有第二次
-        # 机会被顺手清掉。反过来排的图上同一个缺陷会被后面那一跳掩盖，故这里固定这个次序。
         nodes = definition["workflow"]
         definition["workflow"] = {"30": nodes.pop("30"), **nodes}
 

@@ -80,5 +80,4 @@ async def test_only_final_cuts_behind_their_timeline_are_listed(
     await _touch(timeline_project, never_rendered, base_revision=1)
 
     behind = await episode_edit_overview(timeline_project, "demo", 1)
-    # 从未出片的那条不算落后。
     assert [(item.id, item.name) for item in behind.stale_final_cuts] == [(rendered, "完整版")]

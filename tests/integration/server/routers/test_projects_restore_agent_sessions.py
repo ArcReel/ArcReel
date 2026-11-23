@@ -96,12 +96,10 @@ async def test_renamed_restore_moves_session_transcripts_to_the_new_key(tmp_path
             await SessionRepository(session).create("demo", sid, title="旧会话")
     adapter = SdkTranscriptAdapter(store)
     event_log = EventLogService(EventLogStore(session_factory=session_factory), adapter)
-    # SID 已有事件日志（界面打开过）；OLD_ONLY_SID 只有 transcript（事件日志上线前的旧会话）
     assert len(await event_log.list_entries(SID, old_dir)) == 2
 
     async with _client(monkeypatch, manager, session_factory) as client:
         assert (await client.delete("/api/v1/projects/demo")).status_code == 200
-        # 同名新项目占用同一个存储键，它的会话不随恢复搬走
         _create(manager, "New")
         await store.append({"project_key": old_key, "session_id": NEW_DEMO_SID}, _transcript(NEW_DEMO_SID, old_dir))
         async with session_factory() as session:
@@ -124,11 +122,9 @@ async def test_renamed_restore_moves_session_transcripts_to_the_new_key(tmp_path
     assert len(await store.load({"project_key": old_key, "session_id": NEW_DEMO_SID}) or []) == 2
     assert await store.load({"project_key": new_key, "session_id": NEW_DEMO_SID}) is None
 
-    # 界面历史：已有事件日志的仍完整；只有 transcript 的旧会话按新路径懒生成，同样读得到
     assert len(await event_log.list_entries(SID, new_dir)) == 2
     assert len(await event_log.list_entries(OLD_ONLY_SID, new_dir)) == 2
 
-    # 续聊：SDK 按新路径派生的键从 store 物化 resume
     materialized = await materialize_resume_session(
         ClaudeAgentOptions(cwd=str(new_dir), resume=SID, session_store=store)
     )
@@ -219,7 +215,6 @@ async def test_moved_data_root_then_renamed_restore_keeps_both_projects_sessions
     async with session_factory() as session:
         await SessionRepository(session).create("demo", NEW_DEMO_SID)
 
-    # 启动迁移链使用真实实现：布局迁移 → 会话键对齐 → 本地 transcript 导入。
     await migrate_data_root_layout(new_root, session_factory=session_factory, sdk_config_dir=sdk_config_dir)
     await align_session_keys(
         session_factory,

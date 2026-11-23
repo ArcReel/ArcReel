@@ -29,7 +29,6 @@ class _Overview(BaseModel):
 
 
 def _backend(model: str = "gpt-5.5-pro"):
-    # host-only base_url：openai 族端点补 /v1 的接线一并覆盖
     provider = SimpleNamespace(base_url="https://relay.test", api_key="sk-test", provider_id="custom-1")
     return ENDPOINT_REGISTRY["openai-responses"].build_backend(provider, model)
 
@@ -108,7 +107,6 @@ async def test_structured_output_encodes_text_format(tmp_path):
         }
     ]
     assert json.loads(result.text) == {"title": "雪夜", "episode_count": 3}
-    # input_tokens 是含缓存命中的总输入，缓存命中另报
     assert (result.input_tokens, result.cache_read_tokens, result.output_tokens) == (1200, 1000, 40)
 
 
@@ -127,7 +125,6 @@ async def test_schema_violating_output_falls_back_to_prompt_injection():
     assert "text" not in fallback_body
     assert '"episode_count"' in fallback_body["input"][0]["content"]
     assert json.loads(result.text) == {"title": "雪夜", "episode_count": 3}
-    # 原生那次 200 调用已计费，并入降级结果
     assert (result.input_tokens, result.output_tokens) == (250, 22)
 
 

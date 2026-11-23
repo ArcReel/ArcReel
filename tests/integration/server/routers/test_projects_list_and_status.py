@@ -73,14 +73,11 @@ class TestProjectsRouter:
             resp = client.get("/api/v1/projects")
             assert resp.status_code == 200
 
-        # ready 只有 1 集 script_file="scripts/episode_1.json"：预加载一次。
-        # 若 cover + status 各自独立加载，这里会是 2 次。
         ready_calls = [c for c in calls if c[0] == "ready"]
         assert len(ready_calls) == 1, f"expected 1 shared load, got {ready_calls}"
 
         assert fake_summaries.last_preloaded_scripts is not None
         assert "scripts/episode_1.json" in fake_summaries.last_preloaded_scripts
-        # 列表只看清单登记与文件在场，不逐件比对规范状态
         assert set(fake_summaries.currencies) == {"registered"}
 
     def test_get_project_status_verifies_artifact_currency(self, tmp_path, monkeypatch):
@@ -105,7 +102,6 @@ class TestProjectsRouter:
         assert "phase" not in status
         assert "current_phase" not in status
         assert status["assets"]["character"] == {"total": 1, "available": 0, "stale": 0}
-        # 每集明细归项目详情端点，不驮在 N 个项目的列表里
         assert "episodes" not in status
 
     def test_get_project_status_comes_from_the_project_summary(self, tmp_path, monkeypatch):
@@ -134,7 +130,6 @@ class TestProjectsRouter:
         assert resp.status_code == 200
         episode = resp.json()["project"]["episodes"][0]
         assert (episode["title"], episode["script_file"]) == ("第一集", "scripts/ep1.json")
-        # 摘要侧字段按产物清单口径注入：可用 = current ∪ stale，stale 另计
         assert episode["script_status"] == "generated"
         assert episode["status"] == "in_production"
         assert episode["item_count"] == 1
@@ -142,7 +137,6 @@ class TestProjectsRouter:
         assert episode["duration_seconds"] == 8
         assert episode["storyboards"] == {"total": 1, "available": 1, "stale": 0}
         assert episode["videos"] == {"total": 1, "available": 0, "stale": 0}
-        # 每集明细只走 episodes[]，项目级 status 不重复驮一份
         assert "episodes" not in resp.json()["project"]["status"]
 
     def test_get_project_scripts_carry_no_derived_totals(self, tmp_path, monkeypatch):

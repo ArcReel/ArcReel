@@ -14,8 +14,6 @@ function toolUse(name: string, id: string): ContentBlock {
   return { type: "tool_use", name, id, input: {} };
 }
 
-// 前端投影层（entry-projection）把配对的 tool_result 条目回填进发起调用的 tool_use 块的
-// result/is_error 字段，完成的调用没有独立 tool_result 块。这是 UI 真实渲染的形状。
 function completedToolUse(name: string, id: string): ContentBlock {
   return { type: "tool_use", name, id, input: {}, result: "✅ done", is_error: false };
 }
@@ -121,9 +119,6 @@ describe("useScriptGenerationNotice", () => {
   });
 
   it("does not fire when a running session reloads a completed script call (result merged onto tool_use)", () => {
-    // 会话停在 AskUserQuestion 时后端 status 仍为 "running"。重新进入项目会重载快照，
-    // 其中已完成的剧本工具调用以「tool_use 带 result」形式回放（无独立 tool_result 块）。
-    // 该回放不应再弹「耗时」提示。
     useAssistantStore.setState({ sessionStatus: "running" });
     const spy = vi.spyOn(useAppStore.getState(), "pushToast");
     render(<Harness />);
@@ -143,8 +138,6 @@ describe("useScriptGenerationNotice", () => {
   });
 
   it("treats a failed-but-completed call (only is_error, no result) as completed", () => {
-    // 注释与 ContentBlock 契约把 result/is_error 都列为完成信号。即便回放一个仅带
-    // is_error 而无 result 的失败完成块，也不应被误判为进行中而弹「耗时」提示。
     useAssistantStore.setState({ sessionStatus: "running" });
     const spy = vi.spyOn(useAppStore.getState(), "pushToast");
     render(<Harness />);
@@ -191,7 +184,6 @@ describe("useScriptGenerationNotice", () => {
     act(() => {
       useAssistantStore.setState({ draftTurn: null, turns: [], sessionStatus: "idle" });
     });
-    // Switch back: snapshot reloads the still-running call (same id).
     act(() => {
       useAssistantStore.setState({
         sessionStatus: "running",

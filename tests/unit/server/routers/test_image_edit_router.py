@@ -67,7 +67,6 @@ def _script_dict() -> dict:
         "content_mode": "narration",
         "segments": [
             _segment("E1S01", "storyboards/scene_E1S01.png"),
-            # 旧宫格项目的指针指向非 canonical 路径
             _segment("E1S02", "storyboards/scene_E1S02_first.png"),
             _segment("E1S03", None),
         ],
@@ -113,7 +112,6 @@ def _prepare_files(tmp_path: Path) -> Path:
         json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
     )
     activate_artifact_target_state(project_path, bump_schema=True)
-    # 清单激活只落到清单版本，后续迁移把项目补到当前 schema，产物读路径才准入
     migrate_project_dir(project_path)
     return project_path
 
@@ -162,11 +160,9 @@ class TestEditImageEnqueue:
                 assert call["media_type"] == "image"
                 assert call["resource_id"] == resource_id
                 assert call["source"] == "webui"
-                # 顶层 resource_type 纳入 image_edit 去重键，避免不同资产类型同名互相误判去重
                 assert call["resource_type"] == resource_type
                 assert call["payload"]["resource_type"] == resource_type
                 assert call["payload"]["prompt"] == "把头发改成红色"
-                # i2i 槽在入队前已解析，provider_id 直接复用（限流池按 i2i 槽精确记账）
                 assert call["provider_id"] == "gemini-aistudio"
 
     def test_storyboard_enqueue_success_carries_script_file(self, tmp_path, monkeypatch):

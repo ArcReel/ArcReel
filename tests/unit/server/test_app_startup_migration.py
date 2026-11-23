@@ -39,7 +39,6 @@ async def test_startup_migrates_projects_and_reaps_stale_backups(tmp_path, monke
     data_root = tmp_path / "data"
     project_dir, stale_backup = _seed_stale_project(DataRootLayout(data_root).projects_dir)
 
-    # 数据目录指向 tmp：迁移与备份回收都照真实跑，落点是本用例种下的项目。
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
     monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(data_root))
     stub_lifespan_dependencies(monkeypatch)

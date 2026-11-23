@@ -43,11 +43,8 @@ function task(overrides: Partial<TaskItem> & { task_id: string }): TaskItem {
   };
 }
 
-// 乐观标记 key 的构造（与 tasks-store 内部编码一致）。seq 只用于区分同资源上的并发
-// 标记，单条标记的测试取固定值即可。
 const TASK_ID_SEP = "\u0001";
 
-/** 在途标记：请求已发出、后端 task_id 未知。 */
 function pendingKey(
   resourceKind: string,
   resourceId: string,
@@ -58,7 +55,6 @@ function pendingKey(
   return `${projectName}\0${resourceKind}\0${resourceId}\0${pendingTaskType}\0${seq}\0`;
 }
 
-/** 已兑现标记：等待这些 task_id 的真实行落库。 */
 function settledKey(
   resourceKind: string,
   resourceId: string,
@@ -101,7 +97,6 @@ describe("isActiveStatus", () => {
 
 describe("isOccupyingStatus", () => {
   it("counts queued/running as occupying", () => {
-    // 占用谓词与后端 ACTIVE_TASK_STATUSES 对齐：后端 dedupe 索引会把重复提交去重到既有任务上
     expect(isOccupyingStatus("queued")).toBe(true);
     expect(isOccupyingStatus("running")).toBe(true);
   });
@@ -166,8 +161,6 @@ describe("selectActiveResourceIds with image_edit", () => {
   });
 
   it("does not let a newer terminal edit hide a still-running generation task for the same resource", () => {
-    // 生成任务 running（较旧 updated_at）+ 编辑任务 failed（较新 updated_at）：
-    // 二者 task_type 不同，各自取最新行后按「任一活跃」判定，生成任务仍应算占用中
     const tasks = [
       task({
         task_id: "gen-A",
@@ -231,8 +224,6 @@ describe("selectActiveResourceIds optimistic occupancy", () => {
   });
 
   it("does not let another task row of the same resource supersede the marker", () => {
-    // 同一资源被反复编辑：上一次编辑遗留的终态行不是本次标记等待的行，
-    // 否则二次编辑期间会误判空闲
     const key = settledKey("character", "A", "image_edit", ["edit-A-second"]);
     const tasks = [
       task({
@@ -248,8 +239,6 @@ describe("selectActiveResourceIds optimistic occupancy", () => {
   });
 
   it("keeps an in-flight marker alive no matter what rows the poll brings back", () => {
-    // 晚到的旧轮询快照里不会有本次提交的任务行；在途标记更不该被它清掉，
-    // 否则请求往返窗口内资源会被误判为空闲、可重复入队
     const key = pendingKey("character", "A", "image_edit");
     const stale = [
       task({
@@ -271,8 +260,6 @@ describe("selectActiveResourceIds optimistic occupancy", () => {
   });
 
   it("does not let a same-resource_id task of a different resource kind supersede the marker", () => {
-    // character "A" 与 scene "A" 偶然同名(resource_id 相同)：scene 的真实行不该
-    // 让 character 的乐观标记失效
     const key = settledKey("character", "A", "image_edit", ["edit-char-A"]);
     const tasks = [
       task({
@@ -312,8 +299,6 @@ describe("useTasksStore.beginOptimisticActive", () => {
   });
 
   it("treats settling with no task ids as a rollback", () => {
-    // 后端没建任何任务行（如宫格按 scene_ids 过滤后无匹配分组）：标记若留下就永远
-    // 等不到真实行，资源被误判为永久占用
     useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
 
     const mark = useTasksStore.getState().beginOptimisticActive("proj", "character", "A", "image_edit");
@@ -343,9 +328,6 @@ describe("useTasksStore.beginOptimisticActive", () => {
   });
 
   it("releases immediately when the settled task row is already a terminal row in the store", () => {
-    // 去重命中既有任务：后端返回的是那条既有行的 task_id，它已在 store 里且已终态。
-    // 标记必须当场让位——按时间戳基线比较时这条行永远「不比基线新」，标记会永久残留、
-    // 把资源锁死到页面刷新为止。
     useTasksStore.setState({
       tasks: [
         task({
@@ -402,9 +384,6 @@ describe("useTasksStore.beginOptimisticActive", () => {
 
 describe("useTasksStore.setTasks prunes stale optimistic markers", () => {
   it("removes a marker released by its task row even without a new mark call", () => {
-    // store 只保留最近 200 条任务：真实行落地后若被更晚的大量新任务挤出该窗口，
-    // 仅靠打标时的顺带清理不会再触发——轮询写回本身也要清理，否则这条已完结的旧
-    // 标记会永久残留，把资源误判为占用中直到页面刷新。
     useTasksStore.setState({
       tasks: [],
       optimisticActive: new Set([settledKey("character", "A", "image_edit", ["edit-A"])]),
@@ -497,9 +476,6 @@ describe("selectHasActiveTaskForScriptFile", () => {
   });
 
   it("normalizes an optional scripts/ prefix before comparing, either side", () => {
-    // router 入队路径可能传入带 scripts/ 前缀的 script_file，Agent 工具路径经
-    // validate_script_filename 强制裸文件名；两种任务行格式都要能被两种调用方式
-    // 传入的 scriptFile（带或不带前缀）匹配到，不依赖调用方预先裁剪。
     const prefixedTaskTasks = [
       task({
         task_id: "grid-prefixed",
@@ -565,8 +541,6 @@ describe("selectHasActiveTaskForScriptFile", () => {
     });
 
     it("releases only after all of the marker's rows land", () => {
-      // 一次宫格入队会建多条任务行；只落地一条就交回真实数据的话，「首条已终态、
-      // 其余尚未进入快照」的窗口里 scriptFile 会被误判为空闲。
       const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1", "grid-2"]);
       const landedOne = [
         task({
@@ -715,8 +689,6 @@ describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers
   });
 
   it("多条任务行分两轮落地也让位，不要求同一快照里同时出现", () => {
-    // 轮询每次只取最新 200 行，单次入队产生的任务行数没有上限：若要求所有 task_id
-    // 在同一快照里同时出现，超出窗口的批次会永久残留、锁死分镜编辑直到刷新页面。
     const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1", "grid-2"]);
     useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set([key]) });
 
@@ -748,8 +720,6 @@ describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers
   });
 
   it("一次提交建多条任务行时，只落地其中一条不让位", () => {
-    // 宫格按分组逐条入队：首条已快速失败、其余尚未进入快照的窗口里，若按「任一落地」
-    // 让位，scriptFile 既无乐观标记也无活跃真实行，分镜编辑会短暂解禁并与后续切割竞争。
     const key = settledScriptFileKey("grid", "episode_1.json", ["grid-1", "grid-2"]);
     useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set([key]) });
 
@@ -763,7 +733,6 @@ describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers
         updated_at: "2026-07-16T00:00:00Z",
       }),
     ]);
-    // 已落地的 grid-1 被扣除，标记仍在等 grid-2——占用按 selector 断言，不比对 key 字面量
     expect(
       selectHasActiveTaskForScriptFile(
         useTasksStore.getState().tasks,
@@ -798,7 +767,6 @@ describe("useTasksStore.setTasks prunes stale optimisticActiveScriptFile markers
 
 describe("selectLatestTaskByResource", () => {
   it("keeps the row with the newest updated_at per resource, ignoring array order", () => {
-    // 旧失败行排在新重试行之前：store 不保证顺序，须按 updated_at 归并
     const tasks = [
       task({ task_id: "old", resource_id: "unit-1", status: "failed", updated_at: "2026-07-16T00:00:00Z" }),
       task({ task_id: "new", resource_id: "unit-1", status: "running", updated_at: "2026-07-16T01:00:00Z" }),
@@ -847,7 +815,6 @@ describe("selectActiveResourceIds", () => {
   });
 
   it("does not report a resource active when its newest row is a terminal retry outcome", () => {
-    // 旧 running + 新 failed：最新行胜出 → 不活跃（朴素 some 会误判活跃）
     const tasks = [
       task({ task_id: "old", resource_id: "u1", status: "running", updated_at: "2026-07-16T00:00:00Z" }),
       task({ task_id: "new", resource_id: "u1", status: "failed", updated_at: "2026-07-16T01:00:00Z" }),
@@ -879,15 +846,12 @@ describe("isResourceBusy", () => {
   });
 
   it("reads the store snapshot at call time rather than a captured one", () => {
-    // 该函数存在的全部理由：调用方在提交那一刻拿到的必须是最新占用态，
-    // 而非渲染期（或上一次调用时）捕获的快照。
     expect(isResourceBusy("reference_video", "proj", "u1")).toBe(false);
     useTasksStore.setState({ tasks: [task({ task_id: "a", resource_id: "u1", status: "running" })] });
     expect(isResourceBusy("reference_video", "proj", "u1")).toBe(true);
   });
 
   it("counts the optimistic in-flight markers held in the store", () => {
-    // 入队动作层在请求发出前打的标记也要被看到，否则同 tick 内的连点会漏过
     useTasksStore.setState({ optimisticActive: new Set([pendingKey("character", "A", "image_edit")]) });
     expect(isResourceBusy("character", "proj", "A")).toBe(true);
   });
@@ -908,7 +872,6 @@ describe("isScriptFileBusy", () => {
   });
 
   it("reads the store snapshot at call time", () => {
-    // 与 isResourceBusy 同理：提交那一刻必须拿最新占用态，而非渲染期捕获的快照。
     expect(isScriptFileBusy("grid", "episode_1.json", "proj")).toBe(false);
     useTasksStore.setState({
       tasks: [
@@ -919,7 +882,6 @@ describe("isScriptFileBusy", () => {
   });
 
   it("normalizes the scripts/ prefix on both sides", () => {
-    // episode 元数据带 scripts/ 前缀、任务行不一定带，两边都要归一后再比。
     useTasksStore.setState({
       tasks: [
         task({ task_id: "g1", task_type: "grid", script_file: "episode_1.json", status: "running" }),
@@ -994,8 +956,6 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
   });
 
   it("轮询看到参考生视频任务转成功时失效单元缓存，且不重复失效", async () => {
-    // 成片重拉此前只挂在项目事件 SSE 的终态分支上：SSE 断线或丢掉这条事件时，任务状态还能
-    // 靠轮询兜底恢复，成片却一直不出现。轮询走同一次失效补上这个缺口。
     useAppStore.setState({ referenceVideoUnitsRevision: 0 });
     useTasksStore.getState().setRefreshScope({ projectName: "proj" });
 
@@ -1013,8 +973,6 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
   });
 
   it("轮询看到参考单元旁白配音任务转成功时失效单元缓存", async () => {
-    // SSE 是完成事件主通道；它静默失速时，任务轮询也必须让新写入剧本的旁白路径出现在
-    // reference-video-store，否则播放器会一直持有生成前的旧 unit 快照。
     useAppStore.setState({ referenceVideoUnitsRevision: 0 });
     useTasksStore.getState().setRefreshScope({ projectName: "proj" });
 
@@ -1029,8 +987,6 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
   });
 
   it("整个生命周期落在两次轮询之间的参考生视频任务也算完成", async () => {
-    // 空闲档间隔较长，provider 命中缓存时任务可能在一个间隔内走完：它是首次以 succeeded
-    // 出现的，若要求上一轮见过就会漏掉，画布仍看不到成片。
     useAppStore.setState({ referenceVideoUnitsRevision: 0 });
     useTasksStore.getState().setRefreshScope({ projectName: "proj" });
 
@@ -1072,7 +1028,6 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
   });
 
   it("在途期间到达的多次调用合并为结束后再跑一轮", async () => {
-    // 两个入口（轮询 + SSE 任务终态）同时刷新时不各自发请求：首轮 1 次 + 合并轮 1 次。
     const releases: Array<() => void> = [];
     const listSpy = vi.spyOn(API, "listTasks").mockImplementation(
       () =>
@@ -1368,8 +1323,6 @@ describe("selectNeedsFastPolling", () => {
   });
 
   it("别的项目残留的乐观标记不把当前作用域钉在高频档", () => {
-    // 在项目 A 打标后、真实任务行落地前切到项目 B：A 的标记再也等不到同项目任务行来修剪，
-    // 若计入判据，B 即便完全空闲也会一直 3 秒轮询。
     expect(
       selectNeedsFastPolling({
         ...idle,
@@ -1381,9 +1334,6 @@ describe("selectNeedsFastPolling", () => {
   });
 
   it("统计尚未反映的在途任务行也让判据留在高频档", () => {
-    // 任务列表与统计是两个并发请求、不是同一快照：别处恰在本轮刷新期间入队时，统计可能
-    // 读到零活跃而列表已含那条 queued 行。只看统计会把这一轮判成空闲，该任务的中间态要
-    // 等满一个空闲间隔才出现在界面上。
     expect(
       selectNeedsFastPolling({
         ...idle,

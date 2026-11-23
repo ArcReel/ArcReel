@@ -162,7 +162,6 @@ class TestAssistantRoutes:
         [("resend_queued_message", "/resend"), ("send_queued_message_now", "/send-now")],
     )
     def test_queued_message_reconnect_failures_explain_the_cause(self, service_method: str, path: str):
-        # 对「未发送」消息的重新发送与立即发送都会重建会话连接
         with (
             patch.object(
                 assistant.assistant_service, service_method, new=AsyncMock(side_effect=SessionCapacityError("full"))

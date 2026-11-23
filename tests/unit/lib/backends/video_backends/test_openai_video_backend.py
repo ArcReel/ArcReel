@@ -288,7 +288,6 @@ class TestOpenAIVideoBackend:
             with pytest.raises(RuntimeError, match="Sora 视频生成失败"):
                 await backend.generate(request)
 
-        # 失败应该在轮询阶段抛出，不会进入下载
         mock_client.videos.download_content.assert_not_called()
 
     async def test_duration_passthrough(self, tmp_path: Path):
@@ -418,7 +417,6 @@ class TestOpenAIVideoBackend:
                 output_path=output_path,
                 duration_seconds=8,
             )
-            # 共用的产物下载预算耗尽后抛的是带最后一次原错误的 RuntimeError。
             with pytest.raises(RuntimeError, match="Failed to resolve Vertex video URL"):
                 await backend.generate(request)
 
@@ -600,7 +598,6 @@ class TestOpenAIVideoBackend:
         """resume_video 仅 poll + 下载,不调 videos.create (ADR 0007)。"""
         video_data = b"resumed-content"
         mock_client = AsyncMock()
-        # 不 stub create —— 调到就 fail
         mock_client.videos.create = AsyncMock(side_effect=AssertionError("resume 不应调 create"))
         mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
         mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(video_data))
@@ -818,12 +815,9 @@ class TestFailureMessage:
             (VideoCreateError(code="moderation_blocked", message="content policy"), "content policy"),
             ({"code": 500, "message": "upstream down"}, "upstream down"),
             ({"code": "billing_hard_limit_reached"}, "billing_hard_limit_reached"),
-            # 数字错误码同样是原因，别因为不是字符串就丢掉
             ({"code": 500}, "500"),
             ("boom", "boom"),
-            # 只给 status 不给 error 的网关：说不出原因，也不能写出一句 "None"
             (None, "unknown"),
-            # 认不出的形态：宁可说不知道，也不把对象自身的 repr 写给用户
             ({"detail": "internal"}, "unknown"),
             (SimpleNamespace(), "unknown"),
         ],
@@ -846,7 +840,6 @@ class TestFailureMessage:
                     VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", duration_seconds=8)
                 )
 
-        # 逐字断言：错误文本原样落 task.error_message，内部类型的 repr 不该出现在里面
         assert str(ei.value) == f"Sora 视频生成失败: {expected}"
 
 
@@ -894,7 +887,6 @@ class TestSubmittedBaseUrlReplay:
         assert [(r["job_id"], r["base_url"]) for r in persisted] == [("vid-a", _RELAY_A)]
 
     async def test_resume_polls_and_downloads_from_submitted_base_url(self, tmp_path: Path):
-        # 提交时域名为 A，续跑前配置已改成 B：任务与成片只在 A 上可取，凭据沿用当下这套
         from lib.backends.video_backends.openai import OpenAIVideoBackend
 
         with capture_http() as router, bounded_poll_clock():

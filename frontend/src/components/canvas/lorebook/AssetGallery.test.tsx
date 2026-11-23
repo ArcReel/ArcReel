@@ -161,7 +161,6 @@ describe("AssetGallery", () => {
     const user = userEvent.setup();
     renderGallery();
     const menu = await openMenu(user, "庭院");
-    // 菜单打开之后，该场景被 Agent 入队占用，菜单应即时禁用写入入口。
     act(() => useTasksStore.setState({
       tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "庭院", status: "running" })],
     }));
@@ -439,7 +438,6 @@ describe("AssetGallery", () => {
     async function openViewer(user: ReturnType<typeof userEvent.setup>, name: string) {
       await user.click(within(await openMenu(user, name)).getByRole("menuitem", { name: "查看大图" }));
       const viewer = await screen.findByRole("dialog", { name });
-      // 菜单关闭时会把焦点还给触发按钮，等查看器接过焦点再操作
       await waitFor(() => expect(viewer).toContainElement(document.activeElement as HTMLElement));
       return viewer;
     }
@@ -450,7 +448,6 @@ describe("AssetGallery", () => {
 
       let viewer = await openViewer(user, "庭院");
       expect(within(viewer).getByText("1 / 2")).toBeInTheDocument();
-      // 书房没有资产图，→ 直接跳到卧室
       await user.keyboard("{ArrowRight}");
       viewer = await screen.findByRole("dialog", { name: "卧室" });
       expect(within(viewer).getByText("2 / 2")).toBeInTheDocument();
@@ -522,14 +519,12 @@ describe("AssetGallery", () => {
       renderGallery();
       const viewer = await openViewer(user, "庭院");
       const current = within(viewer).getByRole("img", { name: "「庭院」的资产图，第 2 版" });
-      // 大图区域（版本条另有缩略图）
       const stage = current.closest("span")?.parentElement as HTMLElement;
       fireEvent.load(current);
 
       await user.click(await within(viewer).findByRole("button", { name: "第 1 版" }));
       fireEvent.error(within(viewer).getByRole("img", { name: "「庭院」的资产图，第 1 版" }));
 
-      // 第 1 版读不出来：显示占位，不能让第 2 版的画面冒充第 1 版
       expect(stage.querySelector("img")).toBeNull();
     });
 

@@ -188,7 +188,6 @@ async def test_retry_tool_returns_details_then_unblocks_once_repaired(tmp_path: 
     ctx = ToolHarness(project_name="demo", data_root=tmp_path, pm=ProjectManager(str(tmp_path)))
 
     blocked = await run_declared_tool(RETRY_PROJECT_MIGRATION, ctx, {})
-    # 与被拦截的生成工具同一个回执形状：一份 problem，不是第二套 error/reason 信封
     assert blocked.problem is not None
     assert blocked.problem.code == MIGRATION_FAILURE_CODE
     assert blocked.problem.params is not None
@@ -226,7 +225,6 @@ def test_web_retry_reports_the_reason_then_unblocks_once_repaired(tmp_path: Path
 
     assert refused.status_code == 422
     diagnostic = refused.json()["diagnostic"]
-    # 失败原文经 Web 呈现边界改写集指称，其余原样。
     assert "not valid UTF-8 JSON" in diagnostic["reason"]
     assert diagnostic["details"][0]["file"] == "scripts/episode_1.json"
 
@@ -480,8 +478,6 @@ def test_a_verdict_that_cannot_be_persisted_fails_loud(tmp_path: Path) -> None:
     with pytest.raises(IsADirectoryError, match=r"Is a directory"):
         migrate_project_with_verdict(project_dir)
 
-    # 启动期一个项目写不下裁决，不拖垮同一轮里其它项目：healthy 排在 demo 之后，
-    # 只有循环真的继续了它才会被迁移。
     seed_root = tmp_path / "seed"
     seed_root.mkdir()
     healthy_dir, *_ = _project(seed_root)

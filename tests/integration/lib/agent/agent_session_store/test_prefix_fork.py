@@ -182,7 +182,6 @@ async def test_subagent_metadata_entry_is_carried(seeded):
     metadata = [e for e in sub if e["type"] == "agent_metadata"]
     assert len(metadata) == 1
     assert metadata[0]["sessionId"] == new_id
-    # transcript 行才带溯源标记，旁车文件不该多出字段。
     assert "forkedFrom" not in metadata[0]
 
 
@@ -241,7 +240,6 @@ async def test_subagent_started_after_the_anchor_is_not_carried(seeded):
     store, project_key, session_id, _, _ = seeded
     main = await store.load({"project_key": project_key, "session_id": session_id})
     assert main is not None
-    # 次轮的用户消息：前缀有首轮对话，但 Task 尚未发出。
     new_id, result = await _copy(seeded, anchor=main[2]["uuid"])
 
     assert result.entries_copied == 2

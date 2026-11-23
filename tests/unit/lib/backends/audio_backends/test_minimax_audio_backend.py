@@ -28,7 +28,6 @@ def _ok(audio: bytes) -> httpx.Response:
 async def test_synthesize_decodes_hex_audio_to_file(tmp_path: Path):
     with capture_http() as router:
         route = router.post(_T2A_URL).mock(return_value=_ok(b"RIFFwavbytes"))
-        # 用户填 host 不带 /v1 也应补齐
         b = MiniMaxAudioBackend(api_key="sk", base_url="https://api.minimaxi.com", model="speech-2.8-hd")
         out = tmp_path / "o.wav"
         result = await b.synthesize(
@@ -75,11 +74,9 @@ def test_declares_speed_and_voice_catalog():
 @pytest.mark.parametrize(
     ("model", "listed"),
     [
-        # t2a_v2 的 voice_id 引用同一份系统音色列表，没有按型号区分；model 取值是官方枚举里的型号
         ("speech-2.8-turbo", True),
         ("speech-02-hd", True),
         ("speech-01-turbo", True),
-        # 同端点但不在官方枚举里：认不出是哪个模型，不借用系统音色
         ("speech-2.9-hd", False),
         ("speech-1.5", False),
     ],

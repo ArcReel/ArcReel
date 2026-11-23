@@ -25,7 +25,6 @@ function renderText() {
   );
 }
 
-// 全文提示出现时，页面上同时有截断的原文与弹出的全文两份文字。
 const shownTimes = () => screen.queryAllByText(PATH).length;
 
 describe("TruncatedText", () => {

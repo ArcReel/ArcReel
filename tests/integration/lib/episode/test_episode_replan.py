@@ -32,7 +32,6 @@ from lib.script.script_review import STALE_SCRIPT_PLAN_REVISION_FIELD
 
 CH = ("第一章。少年下山。", "第二章。城里起火。", "第三章。夜雨相逢。", "第四章。重逢离别。")
 SOURCE = "".join(CH)
-#: 各章在源文里的起点；最后一项是源文结尾。
 CUTS = [sum(len(c) for c in CH[:i]) for i in range(len(CH) + 1)]
 
 
@@ -395,7 +394,6 @@ class TestAdoption:
         assert result.deleted == [2]
         assert _order(project_dir) == [1, 3]
         assert not (project_dir / "scripts" / "episode_2.json").exists()
-        # 退下的集连同集原文进项目回收站：恢复时这段原文是它的源文
         record = episode_trash_record(project_dir, 2)
         assert record is not None
         assert {"source/episode_2.txt", "scripts/episode_2.json"} <= set(record.files)

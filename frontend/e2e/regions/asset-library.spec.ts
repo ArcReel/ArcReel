@@ -4,8 +4,6 @@ import { clearAgentOverlay, waitForEntrance } from "../support/region-helpers.ts
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 资产库：铺满档的页面外壳，类型标签带计数，网格滚动到底自动加载下一页；点卡片打开右侧详情 Sheet。
-// 项目画廊里的「从资产库导入」选择器与「加入资产库」预览对话框也在这里探测。
 
 const LIBRARY_PATH = "/app/assets";
 const GALLERY_PATH = "/app/projects/demo/characters";
@@ -17,7 +15,6 @@ const LONG_NAME = "旧城茶馆二楼临窗座位上总在午后出现的说书�
 const LONG_DESCRIPTION =
   "四十岁上下，瘦高，穿洗得发白的灰布长衫，袖口磨出了毛边；左眼角有一颗痣，说话时习惯用折扇轻敲桌面。每天午后准时出现在茶馆二楼临窗的位置，讲到紧要处会突然停下喝茶，让听众干着急。年轻时据说在码头扛过包，后来不知怎么成了说书人，没人知道他的真名。";
 
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，画廊停在录制的项目数据上。
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -42,7 +39,6 @@ function listPage(items: unknown[], total: number) {
   return { status: 200, body: { items, total, counts: { character: total, scene: 1280, prop: 36 } } };
 }
 
-// 压力变体：75 个名字与描述都很长的角色，分两页返回。
 const MANY_ASSETS: ApiOverrides = {
   [FIRST_PAGE]: listPage(
     Array.from({ length: 60 }, (_, i) => asset(i + 1)),
@@ -54,7 +50,6 @@ const MANY_ASSETS: ApiOverrides = {
   ),
 };
 
-// 会撑高的详情：长描述、参考音频与 8 个衍生。
 const RICH_ASSET = asset(1, {
   name: LONG_NAME,
   audio_path: "global_assets/character/voice.wav",
@@ -79,12 +74,10 @@ async function openDetail(page: Page, name: string): Promise<Locator> {
   return sheet;
 }
 
-// 内联 SVG 资产图：getFileUrl 原样使用 data: 地址，不发请求。
 const SHEET_SVG = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720"><rect width="1280" height="720" fill="#2a2d3a"/><circle cx="640" cy="300" r="120" fill="#5b5f7a"/><rect x="460" y="440" width="360" height="200" rx="40" fill="#5b5f7a"/></svg>',
 )}`;
 
-// 画廊里有一个角色，供「加入资产库」预览。
 function projectWithCharacter() {
   const recorded = loadRecordedResponses().get(recordedKey("GET", "/api/v1/projects/demo"));
   if (!recorded) throw new Error("没有录制 GET /api/v1/projects/demo");

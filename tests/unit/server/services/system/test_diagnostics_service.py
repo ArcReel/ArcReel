@@ -52,7 +52,6 @@ def test_collect_masks_db_query_secrets(monkeypatch: pytest.MonkeyPatch, tmp_pat
     db_line = next(line for line in text.splitlines() if line.startswith("Database URL:"))
     assert "topsecret" not in db_line
     assert "abc123" not in db_line
-    # 精确匹配脱敏后完整 URL（key 顺序由 parse_qsl→urlencode 保留输入顺序）。
     assert (
         db_line
         == "Database URL: postgresql://host.example.com/arcreel?sslmode=require&password=%E2%80%A2%E2%80%A2&token=%E2%80%A2%E2%80%A2"

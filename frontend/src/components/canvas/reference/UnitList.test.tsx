@@ -39,7 +39,6 @@ describe("UnitList", () => {
         onAdd={vi.fn()}
       />,
     );
-    // 单元按本集里的位置称呼，条目 ID 不出现在界面上
     expect(screen.getByTestId("unit-row-E1U4")).toContainElement(screen.getByRole("img", { name: "视频单元 1" }));
     expect(screen.getByTestId("unit-row-E1U9")).toContainElement(screen.getByRole("img", { name: "视频单元 2" }));
     expect(screen.queryByText(/U4|U9/)).not.toBeInTheDocument();
@@ -111,7 +110,6 @@ describe("UnitList", () => {
 
       screen.getByRole("button", { name: "调整「视频单元 1」的顺序", description: /空格|space/i }).focus();
       await userEvent.keyboard(" ");
-      // dnd-kit 拿起后要等测量完成才响应方向键
       await waitFor(() => expect(screen.getByText(/已拿起|picked up/i)).toBeInTheDocument());
       await userEvent.keyboard("{ArrowDown}");
       await waitFor(() => expect(screen.getByText(/移到第 2 项|moved to position 2/i)).toBeInTheDocument());

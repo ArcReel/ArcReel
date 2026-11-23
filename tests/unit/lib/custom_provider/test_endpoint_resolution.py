@@ -59,15 +59,12 @@ class TestSpecFromRow:
 
         assert spec.key == f"ce-{endpoint_id}"
         assert spec.media_type == "video"
-        # 来源决定 catalog 分组与「可否编辑删除」；家族不取键首段（那会得到 "ce"），
-        # 用户定义的协议由定义自身描述、没有可归属的外部家族。
         assert spec.source == "custom"
         assert spec.family == "custom"
         assert spec.kind == "declarative"
         assert spec.display_name == "示例端点"
         assert spec.display_name_key == ""
         assert spec.request_method == "POST"
-        # base_url 由 provider 提供，目录展示的是接口路径
         assert spec.request_path_template == "/v1/video/create"
 
     async def test_capabilities_reach_the_spec(self, db_session: AsyncSession):
@@ -224,7 +221,6 @@ class TestKindDispatch:
         no_fps["workflow"]["5"]["inputs"]["length"] = 81
         no_fps["bindings"].pop("fps")
         no_fps["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
-        # 50 帧 @ 16fps：帧率读得到，但折成 3 秒再写回是 49 帧，这一档报不出来。
         no_whole_second = comfyui_endpoint_definition()
         no_whole_second["workflow"]["5"]["inputs"]["length"] = 50
         no_whole_second["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
@@ -390,7 +386,6 @@ class TestKindDispatch:
         落结构化失败、读侧按语言渲染——落一段裸文本的话，非中文用户在任务列表里看到的是一句中文。
         """
         definition = comfyui_endpoint_definition(media_type="image")
-        # 绕过 schema 直接改库才会出现的形状，故不过 validate_definition。
         definition["media_type"] = "audio"
         row = SimpleNamespace(id=7, definition=definition)
         provider = SimpleNamespace(provider_id="custom-1", base_url="https://comfy.test", api_key="")

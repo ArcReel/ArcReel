@@ -85,7 +85,6 @@ def _stage_inputs(project_path: Path) -> tuple[ProviderMediaInput, ...]:
     )
 
 
-#: 旧版检查点记录的旁白交付事实；新版不再记录，旧载荷只为校验 request_digest 原样保留。
 _LEGACY_NARRATION = {
     "delivery": "use_tts",
     "tts_status": "current",
@@ -706,7 +705,6 @@ def test_provider_asset_references_are_bound_to_staged_reference_images(tmp_path
     with pytest.raises(ValueError, match="request_digest"):
         ReferenceSubmissionCheckpoint.from_json(json.dumps(raw))
 
-    # 下标 1 是参考音频，不能以素材引用代替。
     with pytest.raises(ValueError, match="staged reference image"):
         replace(checkpoint, provider_asset_references=(replace(ref, media_index=1),))
     with pytest.raises(ValueError, match="asset://"):

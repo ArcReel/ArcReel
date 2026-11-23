@@ -5,9 +5,6 @@ import pytest
 from lib.i18n import _ as translate_message
 from lib.project.asset_types import ASSET_SPECS, localize_asset_type
 
-# 独立于被测 helper 与 translate_message 内部实现的显式期望值——若某个 asset_type_*
-# key 缺失，translate_message 会回退成 key 本身，用它自己再算一遍期望值会让测试对
-# 漏翻译失明，因此这里手写字面量作为 oracle。
 _EXPECTED_DISPLAY_NAMES = {
     "zh": {"character": "角色", "scene": "场景", "prop": "道具", "product": "商品"},
     "en": {"character": "character", "scene": "scene", "prop": "prop", "product": "merchandise"},

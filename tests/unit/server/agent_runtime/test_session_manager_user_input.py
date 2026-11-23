@@ -31,7 +31,6 @@ async def _seed(session_manager, meta_store, *, frames=None, status="idle"):
     meta = await meta_store.create("demo", "sdk-user-input")
     await meta_store.update_status(meta.id, status)
 
-    # 读取回调用 SessionManager 的生产实现，result 收尾与 CLI 状态帧都走真实路径。
     callbacks: list = []
 
     def _on_message(m, msg):
@@ -49,7 +48,6 @@ async def _seed(session_manager, meta_store, *, frames=None, status="idle"):
     managed.resolved_sdk_id = meta.id
     managed.sdk_id_event.set()
     session_manager.sessions[meta.id] = managed
-    # spawn inbox processor so _finalize_turn runs on result messages
     managed._process_task = asyncio.create_task(
         session_manager._process_inbox(managed),
         name=f"inbox-{meta.id}",
@@ -85,7 +83,6 @@ class TestSessionManagerUserInput:
             accepted = await session_manager.send_message(meta.id, "hello realtime")
 
             assert client.sent_queries == ["hello realtime"]
-            # 不广播本地合成消息：CLI 开始处理它之前只作为排队消息下发
             assert _drain(queue) == [{"type": "queued_message", "op": "upsert", "message": accepted["queued_message"]}]
         finally:
             await _finish(managed)
@@ -103,7 +100,6 @@ class TestSessionManagerUserInput:
             client.push_frame(assistant_frame({"type": "text", "text": "看到了"}, uuid="a-1"))
             broadcast = [await asyncio.wait_for(queue.get(), timeout=1.0)]
 
-            # 回放不作为用户消息广播，下一条广播就是 Agent 的回复
             assert [message.get("type") for message in broadcast] == ["assistant"]
         finally:
             await _finish(managed)
@@ -121,7 +117,6 @@ class TestSessionManagerUserInput:
         try:
             await session_manager.send_message(meta.id, "hi")
 
-            # send_message 在 prompt 送入 SDK 即返回；等 actor 后台 drain 与 inbox 处理完成。
             for _ in range(200):
                 await asyncio.sleep(0)
                 if managed.status != "running" and managed._inbox.empty():
@@ -169,8 +164,6 @@ class TestSessionManagerUserInput:
                     cmd.error = RuntimeError("SDK 拒绝了这次投递")
                     cmd.done.set()
                 elif cmd.type == "disconnect":
-                    # 模拟 SDK 侧挂起：投递就卡住，send_disconnect 连 cmd.done 都等不到，
-                    # 只有 asyncio.wait_for 的超时能让 _cleanup_on_error 脱身。
                     await asyncio.Event().wait()
                 else:
                     cmd.done.set()
@@ -197,7 +190,6 @@ class TestSessionManagerUserInput:
 
         assert "disconnect" in seen_commands
         assert any("超时" in r.getMessage() for r in caplog.records)
-        # 断开挂起时 actor 必须被取消，否则协程随失败的会话一起泄漏。
         assert cancelled == [True]
         assert session_manager.sessions == {}
 
@@ -224,8 +216,6 @@ class TestSessionManagerUserInput:
 
             async def enqueue(self, cmd):
                 if cmd.type == "query":
-                    # 投递成功：status 落到 "running"，但 SDK 始终不回 init 消息，
-                    # 会话卡在等 sdk_session_id，最终由超时走进 _cleanup_on_error。
                     captured_sessions.extend(session_manager.sessions.values())
                     cmd.done.set()
                 elif cmd.type == "disconnect":
@@ -309,15 +299,12 @@ class TestSessionManagerUserInput:
             await _finish(managed)
 
     async def test_interrupt_session_requests_interrupt_and_keeps_consumer_alive(self, session_manager, meta_store):
-        # 替身不发 result 帧，这一轮在 interrupt 前后都保持在途
         meta, managed, client = await _seed(session_manager, meta_store, status="running")
         try:
             await session_manager.send_message(meta.id, "prompt")
 
             new_status = await session_manager.interrupt_session(meta.id)
 
-            # interrupt_session returns whatever managed.status is after send_interrupt.
-            # Without a result message, status stays "running".
             assert client.interrupted
             assert managed.interrupt_requested
             assert new_status in ("running", "interrupted")
