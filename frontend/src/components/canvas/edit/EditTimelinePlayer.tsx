@@ -18,7 +18,6 @@ interface EditTimelinePlayerProps {
   plan: PlaybackPlan;
   playback: TimelinePlayback;
   aspect: PreviewAspect;
-  /** 当前片段；定格与占位期间同样有值，没有可播放片段时为 undefined。 */
   current: EditClip | undefined;
   positions: ReadonlyMap<string, number>;
   trimIgnored: boolean;
@@ -27,10 +26,6 @@ interface EditTimelinePlayerProps {
   onToggleSubtitles: () => void;
 }
 
-/**
- * 播放画面与播放控制：两个 `<video>` 叠放，只显示当前那一个；字幕按剪映草稿的样式比例叠在画面上。
- * 画面按所在格子的宽高缩放：舞台是尺寸容器，画框取「容器宽」与「容器高 × 画幅比」中较小的一个。
- */
 export function EditTimelinePlayer({
   plan,
   playback,
@@ -72,7 +67,6 @@ export function EditTimelinePlayer({
                 key={slot}
                 ref={ref}
                 playsInline
-                // 播放过之前只拉元数据与定位处的画面；开始播放后整段缓冲，切换片段才能无缝
                 preload={playback.started ? "auto" : "metadata"}
                 data-testid={`edit-player-video-${slot}`}
                 className="absolute inset-0 size-full object-contain opacity-(--stage-opacity)"

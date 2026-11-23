@@ -26,27 +26,11 @@ interface EndFrameRowProps {
   aspectRatio: "9:16" | "16:9";
   endFramePath: string | null;
   readOnly?: boolean;
-  /** 提交在途状态回传：供父级同步禁用同卡片的视频生成 / 上传 / 恢复控件。 */
   onSubmittingChange?: (submitting: boolean) => void;
-  /** 视频卡的手动上传占用：同一分镜的视频文件正在上传时反向禁用本行的写入通道，避免与其共享的资产落盘并发冲突。 */
   videoUploadBusy?: boolean;
-  /** 本分镜的修改正在保存：「保存并生成」落定后紧接着入队视频，期间改尾帧会让视频用上旧尾帧。 */
   shotSaving?: boolean;
 }
 
-/**
- * 分镜尾帧设置行：收起显示摘要（未设置 / 已设置），展开为预览 + 说明 + 更换 / 清除。
- *
- * 占用态按仓库规范做三项检查：本分镜视频任务占用时两个写入控件同步禁用（开窗校验 +
- * 兄弟控件同步），提交时刻再从 store 直读一次最新占用态（打开面板后状态可能已变化）。
- * 源图侧零占用——尾帧是快照复制，与源图的生成任务无关；分镜 / 宫格任务同样不参与判定。
- *
- * 能力不支持不阻断控件，改由常驻的行内警告承载：模型不支持尾帧且本分镜已设过尾帧时，
- * 折叠头下方显示告警 + 「清除」一键修正入口，收起状态也可见——这条尾帧会让视频生成在
- * 执行期被后端拒绝，藏在折叠面板里等于让用户逐个失败后才知道。能力值经 useModelCapabilities
- * 取 `lastFrame` 生效值（已含用户覆盖），前端不自建判定；查询失败时按「未知」处理，
- * 不谎报不支持。改模型 / 改能力覆盖由该管线自动失效重取，警告的增减不依赖展开面板。
- */
 export function EndFrameRow({
   projectName,
   lastFrame,
@@ -73,18 +57,12 @@ export function EndFrameRow({
   const effectiveLastFrame = lastFrame === undefined ? standaloneCapabilities.lastFrame : lastFrame;
   const capsLoading = capabilitiesLoading ?? standaloneCapabilities.loading;
 
-  // 未查到能力（加载中 / 失败）时不谎报不支持：仅明确的 false 才门控。
   const unsupported = effectiveLastFrame === false;
 
   const videoBusyIds = useActiveResourceIds("video", projectName);
-  // 占用不区分来源（任务队列在跑 / 视频卡手动上传在途）：二者都在写同一份 project.json，
-  // 并发写入都要拦。能力不支持不在此列——它不禁用任何控件，只出警告。
   const videoBusy = videoBusyIds.has(segmentId) || videoUploadBusy;
   const fp = useProjectsStore((s) => (endFramePath ? s.getAssetFingerprint(endFramePath) : null));
 
-  // 兄弟控件同步：更换 / 清除 / 选图器的提交入口共读这一个值。
-  // 只含占用维度——能力维度（不支持、以及「尚未查到」）一律不参与门控：既然不支持都不
-  // 拦，等待查询结果更没有可拦的理由，否则换模型后又会凭能力管线短暂灰掉写入控件。
   const controlsDisabled = videoBusy || shotSaving || submitting || viewOnly;
 
   const disabledHint = viewOnly
@@ -97,10 +75,6 @@ export function EndFrameRow({
 
   const showUnsupportedNotice = unsupported && !!endFramePath;
 
-  /**
-   * 提交时刻复核最新占用态：面板 / 选图器打开后本分镜可能已被入队，只查开窗时刻会留
-   * 一个竞态窗口。命中则拒绝并给出可见反馈。
-   */
   const rejectIfDisabled = (): boolean => {
     if (shotSaving) {
       useAppStore.getState().pushToast(t("common:save_status_saving"), "info");
@@ -134,10 +108,6 @@ export function EndFrameRow({
       updateSubmitting(false);
     }
     setPickerOpen(false);
-    // 快照路径固定、换图原地覆盖，须重取项目数据拿新的资产指纹才能 cache-bust。
-    // refreshProject 内部吞掉请求错误、以返回值表达结果（从不 reject）：写入已经成功，
-    // 刷新失败要单独提示，不能把它误报成尾帧写入失败；刷新被项目切换取消则不代表出错，
-    // 静默跳过，否则设置尾帧后立刻切项目会误报一条刷新失败。
     const refreshResult = await useProjectsStore.getState().refreshProject(projectName);
     if (refreshResult === "failed") {
       useAppStore.getState().pushToast(t("end_frame_refresh_failed"), "error");
@@ -155,8 +125,6 @@ export function EndFrameRow({
 
   const previewUrl = endFramePath ? API.getFileUrl(projectName, endFramePath, fp, { width: 160 }) : null;
 
-  // 摘要只说尾帧本身设没设：能力不支持由下方警告条承载，混进摘要会盖掉「已设置」，
-  // 让用户看不出自己设过一张待清除的尾帧。
   const summary = capsLoading
     ? t("end_frame_capability_checking")
     : endFramePath
@@ -188,7 +156,6 @@ export function EndFrameRow({
           />
         )}
         <span
-          // 摘要随能力查询异步变化（检查中 → 已设置 / 未设置），朗读器需要跟上
           aria-live="polite"
           className={cn("text-xs", endFramePath ? "text-primary" : "text-muted-foreground")}
         >
@@ -196,7 +163,6 @@ export function EndFrameRow({
         </span>
       </button>
 
-      {/* 常驻警告：收起状态也可见，让「已设尾帧后切到不支持的模型」在入队前就暴露。 */}
       {showUnsupportedNotice && (
         <InlineWarning
           className="px-3 pb-2"
@@ -205,8 +171,6 @@ export function EndFrameRow({
             viewOnly
               ? undefined
               : {
-                  // 展开时面板内另有一个「清除」，两个按钮同屏：这里用全称，
-                  // 否则屏幕阅读器读到两个同名按钮无从区分。
                   label: t("end_frame_clear_end_frame"),
                   onClick: handleClear,
                   disabled: controlsDisabled,
@@ -241,8 +205,6 @@ export function EndFrameRow({
           </div>
           <div className="flex flex-1 flex-col gap-2">
             <p className="text-xs leading-relaxed text-muted-foreground">{t("end_frame_description")}</p>
-            {/* 展开面板讲恢复路径（改模型 / 调能力覆盖），与警告条的「后果 + 清除」互补；
-                未设尾帧时也给，让用户在动手设之前就知道这个模型设了也白设。 */}
             {unsupported && (
               <p className="text-xs leading-relaxed text-muted-foreground">{t("end_frame_unsupported_hint")}</p>
             )}

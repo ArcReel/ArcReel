@@ -89,7 +89,6 @@ export function withAuth(endpoint: string, options: RequestInit = {}): RequestIn
   return { ...options, headers };
 }
 
-/** SSE 建连请求头：与 {@link withAuth} 同一套凭证与语言，每次重建前重新取。 */
 export function sseHeaders(): HeadersInit {
   const headers: Record<string, string> = { "Accept-Language": i18n.language || "zh" };
   const token = getToken();
@@ -111,7 +110,6 @@ export function parseSseJson(data: string, label: string): Record<string, unknow
   }
 }
 
-/** 事件流被服务端以 401 拒绝时与普通请求同样处理：清凭证并回登录页。 */
 export function sseErrorHandler(onError?: (error: SseStreamError) => void) {
   return (error: SseStreamError) => {
     if (error.status === 401) {

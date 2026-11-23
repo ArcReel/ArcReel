@@ -13,7 +13,6 @@ import {
 
 export const MAX_ATTACHED_IMAGES = 5;
 
-/** 转码失败原因到提示文案的映射；`gif` 与文件类型闸门共用同一条 GIF 提示。 */
 const TRANSCODE_FAILURE_HINTS = {
   oversized: "image_still_too_large_hint",
   gif: "image_gif_unsupported_hint",
@@ -167,7 +166,6 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     processNextRef.current = processNext;
   }, [processNext]);
 
-  // 初始附图超预算时，先同步进入转码态，再在挂载后把工作放进同一个串行队列。
   useEffect(() => {
     const generation = generationRef.current;
     if (initialState.pending.length > 0 && initialQueuedGenerationRef.current !== generation) {
@@ -176,7 +174,6 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
       processNext();
     }
     return () => {
-      // 卸载后排队中的图片再解码也没人收：清空队列，别让关掉的面板继续占着解码与内存。
       generationRef.current += 1;
       queueRef.current = [];
     };
@@ -187,8 +184,6 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     const generation = generationRef.current;
     const imageFiles = files.filter((file) => {
       if (!file.type.startsWith("image/")) return false;
-      // GIF 不进 canvas：重编码只会留下首帧，动画内容被静默丢弃；原样上传又会让它
-      // 成为唯一绕开单张预算的格式。明确拒绝，让用户自己转成 PNG / JPEG。
       if (file.type === "image/gif") {
         setError(t("image_gif_unsupported_hint", { name: file.name }));
         return false;
@@ -209,11 +204,9 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     setPendingTranscodes((current) => current + filesToTranscode.length);
     queueRef.current.push(...filesToTranscode.map((file) => ({ kind: "append" as const, file, generation })));
 
-    // 逐张串行：同时解码多张大图会在移动端撑爆内存。
     processNext();
   }, [images.length, processNext, t]);
 
-  // 退回输入框的图片已经过发送时的转码，原样追加；超过上限也全部保留，由用户自己挑掉多出的
   const appendImages = useCallback((appended: AttachedImage[]) => {
     if (appended.length > 0) setImages((current) => [...current, ...appended]);
   }, []);
@@ -223,7 +216,6 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     setError(null);
   }, []);
 
-  // 发送受理后移除已发出的图片；发送途中追加的图片不在其中，保留
   const removeImages = useCallback((ids: string[]) => {
     const removed = new Set(ids);
     setImages((current) => current.filter((image) => !removed.has(image.id)));

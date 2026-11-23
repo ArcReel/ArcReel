@@ -10,7 +10,6 @@ import { TooltipIconButton } from "./TooltipIconButton";
 interface DialogueListEditorProps {
   dialogue: Dialogue[];
   onChange: (dialogue: Dialogue[]) => void;
-  /** 只读展示（引导演示项目）：对白可读，不能增删改。 */
   readOnly?: boolean;
 }
 
@@ -21,7 +20,6 @@ interface DialogueRowProps {
   readOnly?: boolean;
 }
 
-/** 一条「说话人 + 台词」。台词随内容撑高折行，长台词完整可见。 */
 function DialogueRow({ value, onUpdate, onRemove, readOnly }: DialogueRowProps) {
   const { t } = useTranslation("dashboard");
 
@@ -39,7 +37,6 @@ function DialogueRow({ value, onUpdate, onRemove, readOnly }: DialogueRowProps) 
         value={value.line}
         onChange={(e) => onUpdate({ line: e.target.value })}
         onKeyDown={(e) => {
-          // 一条台词只占一段：回车不换行，只折行显示长文本；输入法用回车确认候选时放行。
           if (e.key === "Enter" && !e.nativeEvent.isComposing) {
             e.preventDefault();
           }
@@ -59,8 +56,6 @@ function DialogueRow({ value, onUpdate, onRemove, readOnly }: DialogueRowProps) 
   );
 }
 
-/** 下一个稳定 key：取现有 key 数字后缀最大值 +1；空序列从 d0 起，与初始化命名对齐。
- *  纯函数，StrictMode 双调用幂等。 */
 function nextKey(keys: string[]): string {
   if (keys.length === 0) return "d0";
   const max = keys.reduce((m, k) => Math.max(m, Number(k.slice(1)) || 0), 0);
@@ -74,12 +69,8 @@ export function DialogueListEditor({
 }: DialogueListEditorProps) {
   const { t } = useTranslation("dashboard");
 
-  // 数据模型无 id：在编辑态派生与条目一一绑定的稳定 key，增删时同步搬运，使受控输入
-  // 节点按条目（而非按位置）复用，避免删除中间行后焦点跳行、编辑内容串到相邻行。
   const [keys, setKeys] = useState<string[]>(() => dialogue.map((_, i) => `d${i}`));
 
-  // 外部整体替换（挂载后 adopt / revision 静默刷新）导致条目数与 key 数漂移时对齐：按位复用
-  // 已有 key、尾部补新 key、裁掉多余。本地增删已同步搬运 key，长度恒等，不触发此分支。
   let renderKeys = keys;
   if (keys.length !== dialogue.length) {
     renderKeys = keys.slice(0, dialogue.length);

@@ -30,7 +30,6 @@ const KIND_META: Record<ThumbnailAssetKind, KindMeta> = {
 
 type BadgeKey = KindMeta["badgeKey"] | "segment_refs_badge_character_derivative";
 
-/** 引用名带衍生段时改用衍生徽标：浮层里显示的是这套外观，不是本体那条资产。 */
 function badgeKeyFor(kind: ThumbnailAssetKind, name: string): BadgeKey {
   if (kind === "character" && splitDerivativeReference(name)[1]) {
     return "segment_refs_badge_character_derivative";
@@ -93,10 +92,6 @@ function RefPreview({
   );
 }
 
-/**
- * 引用的缩略头像：有资产图时显示资产图，否则显示名称首字；悬停显示资产预览。
- * 常放在可点击的引用摘要里，自身不进入 Tab 顺序，名称由图片的替代文本或外层按钮提供。
- */
 export function RefThumbnail({
   kind,
   name,

@@ -11,16 +11,10 @@ import { episodeAgentRef } from "@/utils/episode-display";
 
 export interface ScriptPlanSubmit {
   submitting: boolean;
-  /** 直接 AI 规划：本集已有进行中的规划时提示并不提交。返回是否已提交。 */
   submit: (instructions: string) => Promise<boolean>;
-  /** 交给 Agent：先按集保存附加指令，再把规划请求预填进 Agent 输入框并打开面板。返回是否已交接。 */
   handOff: (instructions: string) => Promise<boolean>;
 }
 
-/**
- * 「AI 规划脚本」的两种提交方式，起步区与「重新规划脚本」对话框共用这一份实现。
- * `replacing` 表示新规划会整份替换未确认的规划或待修复草稿：交给 Agent 时在预填里写明修改会丢失。
- */
 export function useScriptPlanSubmit(projectName: string, episode: number, replacing = false): ScriptPlanSubmit {
   const { t } = useTranslation("dashboard");
   const ledger = useEpisodeLedger();

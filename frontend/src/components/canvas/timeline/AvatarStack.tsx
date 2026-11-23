@@ -23,7 +23,6 @@ export function AvatarStack({
   return (
     <div className="flex items-center -space-x-2">
       {visible.map((name) => (
-        // 名字可以是 `本体/衍生`：取该形态自己的条目，头像与浮层因此是这套外观的资产图与变化描述。
         <RefThumbnail
           key={name}
           kind="character"

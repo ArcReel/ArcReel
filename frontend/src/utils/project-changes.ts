@@ -9,10 +9,6 @@ export type EventsT = TFunction<"events">;
 
 export type EpisodeLedger = readonly Pick<EpisodeMeta, "episode" | "title">[];
 
-// 完成事件：一次生成跑完的信号。同时承担两种用途——
-// 一、通知类别（action 本身即类别，与 entity_type 无关）：优先级查表、导航行为、通知文案均不按
-//     entity_type 拆分，五类骨架/任务共用同一套判定；
-// 二、计费信号：生成完成即可能产生供应商费用，命中即重拉成本。
 export const COMPLETION_ACTIONS: ReadonlySet<ProjectChange["action"]> = new Set([
   "storyboard_ready",
   "video_ready",
@@ -59,12 +55,8 @@ export function groupChangesByType(
   return [...groups.values()];
 }
 
-// 条目 ID 带集前缀（E1S01）的实体；资产名是自由文本，形似条目 ID 也按原名显示。
 const EPISODE_ITEM_ENTITY_TYPES = new Set(["segment", "drama_scene", "shot", "reference_unit", "grid"]);
 
-// 事件携带的稳定 label_key + label_params 是文案真相源；label 是后端按默认语言渲染的兜底，
-// 只在事件来自不认识该 key 的旧发布方时兜住，不参与常规渲染。
-// 集 ID 与带集前缀的条目 ID 不直接露给创作者：集换成标题（或播出位置），条目换成「标题 · 5」（本集里的当前位置）。
 function resolveChangeLabel(change: ProjectChange, t: EventsT, episodes: EpisodeLedger, scripts: ProjectScripts): string {
   if (!change.label_key) {
     return change.label;

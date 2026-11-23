@@ -9,11 +9,9 @@ import { PromptFieldSelect } from "./PromptFieldSelect";
 interface VideoPromptEditorProps {
   prompt: VideoPrompt;
   onUpdate: (patch: Partial<VideoPrompt>) => void;
-  /** 只读展示（引导演示项目）：字段可读不可改。 */
   readOnly?: boolean;
 }
 
-/** 结构化的视频提示词：动作描述加可折叠的镜头运动与环境音效。台词在分镜详情的台词区单独编辑。 */
 export function VideoPromptEditor({ prompt, onUpdate, readOnly }: VideoPromptEditorProps) {
   const { t } = useTranslation("dashboard");
 

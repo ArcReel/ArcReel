@@ -89,7 +89,6 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, posit
               <dd className="text-subtle-foreground">
                 {clip.trim ? (
                   trimIgnored ? (
-                    // 作废的截取划掉显示，读屏读作删除内容
                     <del className="text-muted-foreground">{trimText(clip.trim)}</del>
                   ) : (
                     <span>{trimText(clip.trim)}</span>
@@ -127,18 +126,15 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, posit
   );
 }
 
-/** 「问题」列表标题的元素 ID，showIssues 据此把焦点带到列表。 */
 export const ISSUE_LIST_HEADING_ID = "edit-view-issues-title";
 
 interface IssueListProps {
   issues: readonly EditTimelineIssue[];
-  /** 可选中的剪辑片段 ID；BGM 片段（如 b1）不在其中，相关 issue 不带定位按钮。 */
   clipIds: ReadonlySet<string>;
   positions: ReadonlyMap<string, number>;
   onSelectClip: (clipId: string) => void;
 }
 
-/** 「问题（N）」列表：每条带片段编号或视频单元的位置，指向剪辑片段的点击选中该片段。 */
 export function IssueList({ issues, clipIds, positions, onSelectClip }: IssueListProps) {
   const { t, i18n } = useTranslation("dashboard");
   return (

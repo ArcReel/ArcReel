@@ -11,15 +11,6 @@ interface Options {
   onEditReferences?: (unitId: string) => void;
 }
 
-/**
- * 该 unit 此刻是否仍该入队，由调用方按当前入口的语义提供，须实时读取而非渲染期快照：
- * 预检与用户思考都是 await 窗口，其间同一 unit 可能已被其它入口或 Agent 占用。
- *
- * 判定按入口而非按闸门统一——批量入口的作用对象是「还没有成片的单元」，弹窗停留期间
- * 完成的要剔除（任务完成后它不再 busy，队列去重也只看 queued/running，
- * 放过去就是第二次计费并覆盖刚出的成片）；而单元入口的「重新生成」本就要覆盖已有成片，
- * 同一条判定会把它一并挡掉。
- */
 type CanEnqueue = (unitId: string) => boolean;
 
 interface PendingConfirm {
@@ -30,18 +21,13 @@ interface PendingConfirm {
 type ConfirmedDurations = ReadonlyMap<string, number>;
 type Commit = (unitIds: string[], confirmedDurations: ConfirmedDurations) => Promise<void>;
 
-/** 实际申请时长发生变化时请求确认。超出参考图上限时展示原因，并提供编辑入口。 */
 export function useReferenceDurationGate({ projectName, episode, onEditReferences }: Options) {
   const { t } = useTranslation("dashboard");
   const [pending, setPending] = useState<PendingConfirm | null>(null);
-  // 入队回调随 run 一起捕获：确认发生在 run 之后的任意时刻，不能从渲染期闭包重取
   const commitRef = useRef<Commit | null>(null);
-  // 复核判定同理随 run 捕获：它按入口语义而定，确认时刻要用的是发起这一轮的那个入口的
   const canEnqueueRef = useRef<CanEnqueue | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // 项目/剧集切换即作废在途预检与未决弹窗：二者都绑定切换前那一份数据，留到切换后
-  // 确认就会把上一个剧集的单元入队。
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
@@ -59,9 +45,6 @@ export function useReferenceDurationGate({ projectName, episode, onEditReference
       canEnqueue: CanEnqueue,
     ) => {
       if (unitIds.length === 0) return;
-      // 接管方轮换 controller：新一轮预检作废前任，未决的确认弹窗随之被新一轮替换。
-      // 弹窗与 commit 必须在此刻一并清掉，不能等新一轮的结果来覆盖——新一轮若全部无需
-      // 确认（直接 commit 返回），旧弹窗会留在屏幕上，用户点确认就按上一轮的清单入队。
       abortRef.current?.abort();
       setPending(null);
       commitRef.current = null;
@@ -111,7 +94,6 @@ export function useReferenceDurationGate({ projectName, episode, onEditReference
         }
         ok.push(result);
       }
-      // 预检失败的单元不入队：无从判断成片时长是否与请求基准一致，静默按档位生成会烧掉配额
       if (admissionMessages.size > 0) {
         useAppStore.getState().pushToast(Array.from(admissionMessages).join("\n"), "error");
       }
@@ -122,9 +104,6 @@ export function useReferenceDurationGate({ projectName, episode, onEditReference
       }
       if (ok.length === 0) return;
 
-      // 弹窗打开时刻复核：预检这段 await 窗口里同一 unit 可能已被别处入队或已生成完成，
-      // 把它列进确认清单等于请用户为一件做不成（或不该再做）的事拍板。
-      // 静默跳过而非报错——与批量入口「把还能生成的都排上」同口径。
       const available = ok.filter((item) => canEnqueue(item.unitId));
       if (available.length === 0) return;
 
@@ -151,13 +130,8 @@ export function useReferenceDurationGate({ projectName, episode, onEditReference
     commitRef.current = null;
     canEnqueueRef.current = null;
     if (!current || !commit) return;
-    // 提交时刻再复核一次：弹窗停留期间（用户思考时长，可以很长）清单里的单元可能已被
-    // 别处入队，批量场景下还可能已经生成完成——按冻结清单原样提交会重复计费。
     const targets = canEnqueue ? current.unitIds.filter(canEnqueue) : current.unitIds;
     if (targets.length === 0) return;
-    // commit 自身已按入口口径提示失败，这里只兜住漏出的意外异常
-    // 只为取档偏离的单元声明已确认档位：仅因非阻断问题进清单的单元没有档位要拍板，
-    // 替它声明一个等于让服务端跳过自己那道取档校验。
     const confirmedDurations = new Map(
       current.items
         .filter((item) => item.precheck.needs_confirmation)

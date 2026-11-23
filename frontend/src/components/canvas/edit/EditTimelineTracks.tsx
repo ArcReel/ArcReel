@@ -19,9 +19,7 @@ import { formatSeconds, rulerStep, unitHue, unitPositionLabel } from "./timeline
 function percentOf(seconds: number, duration: number): string {
   return duration > 0 ? `${(seconds / duration) * 100}%` : "0%";
 }
-/** 每秒至少占这么宽，长时间线横向滚动而不是把片段挤成细条。 */
 const MIN_PIXELS_PER_SECOND = 14;
-/** 轨道名一列的宽度，与下方 `pl-16` / `-left-16` 一致。 */
 const LABEL_WIDTH = 64;
 
 
@@ -33,7 +31,6 @@ interface EditTimelineTracksProps {
   activeClipId: string | null;
   trimIgnored: ReadonlySet<string>;
   unusedUnits: readonly string[];
-  /** 视频单元 ID → 它在本集里的当前位置；轨道上以位置称呼单元。 */
   positions: ReadonlyMap<string, number>;
   thumbnails: ReadonlyMap<string, string>;
   narration: readonly NarrationSpan[];
@@ -43,10 +40,6 @@ interface EditTimelineTracksProps {
   onSeek: (t: number) => void;
 }
 
-/**
- * 横向时间线：标尺，视频、旁白、字幕与 BGM 四条轨道，以及未使用的视频单元。每条轨道是一个 TrackRow；BGM 轨带上传入口。
- * 高度固定、不随条目增多而变高：长时间线与很多未使用的视频单元都在各自一行里横向滚动。
- */
 export function EditTimelineTracks({
   projectName,
   readout,
@@ -132,7 +125,6 @@ export function EditTimelineTracks({
         </div>
       </div>
 
-      {/* 视图矮时不显示这一行：未使用的视频单元同时列在详情栏的问题里 */}
       {unusedUnits.length > 0 && (
         <div
           role="region"
@@ -159,7 +151,6 @@ export function EditTimelineTracks({
   );
 }
 
-/** 未使用单元的小缩略图；单独订阅这张图的指纹，指纹变化只重渲这一张。 */
 function UnusedUnitThumbnail({ projectName, path }: { projectName: string; path: string }) {
   const fingerprint = useProjectsStore((s) => s.getAssetFingerprint(path));
   return (
@@ -213,10 +204,6 @@ function TrackRow({ label, height, action, children }: TrackRowProps) {
 
 const BGM_ACCEPT = ".mp3,.wav,.m4a,audio/mpeg,audio/wav,audio/mp4";
 
-/**
- * 上传一首 BGM 到项目。按下按钮不触发轨道的跳转；上传后由 Agent 把 BGM 摆进剪辑时间线。
- * 上传成功后界面上没有别的变化，所以仍用提示告诉创作者下一步。
- */
 function BgmUploadButton({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
   const input = useRef<HTMLInputElement>(null);
@@ -273,10 +260,6 @@ interface VideoClipsProps {
   onSelectClip: (clipId: string) => void;
 }
 
-/**
- * 片段宽度与时长成比例；已删除单元的片段时长为 0，画成切点上的红色标记。播放头每帧移动，片段不随之重绘。
- * 叠放靠渲染顺序，不写 z-index：片段在下，转场与删除标记在上，播放头最后渲染、盖在最上面。
- */
 const VideoClips = memo(function VideoClips({
   clips,
   duration,
@@ -356,7 +339,6 @@ interface ClipBlockProps {
   selected: boolean;
   active: boolean;
   trimIgnored: boolean;
-  /** 片段所用单元在本集里的当前位置。 */
   position: number | null;
   onSelect: () => void;
 }
@@ -398,17 +380,12 @@ function ClipBlock({ clip, left, width, selected, active, trimIgnored, position,
           </span>
           {trimIgnored && <AlertTriangle aria-hidden className="size-3 shrink-0 text-warn" />}
         </span>
-        {/* 视图矮时轨道变矮，只留第一行；时长仍在悬停提示里 */}
         <span className="tabular-nums edit-short:hidden">{t("edit_view_seconds", { value: formatSeconds(clip.duration) })}</span>
       </span>
     </button>
   );
 }
 
-/**
- * 旁白按实际起止画在轨上，可以越过承载片段；重叠的旁白分两行。TTS 项目没有旁白配音的按承载片段占位，画成虚线；
- * 后期配音项目的旁白画成中性占位，提示由后期配音、预览不出声。
- */
 const NarrationBlocks = memo(function NarrationBlocks({
   spans,
   duration,

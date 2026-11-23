@@ -5,12 +5,6 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
-/**
- * 分镜详情的栏位：页头在上，中间是「编辑栏 + 媒体栏」两栏，各自滚动，未保存提示条在最下方。
- * 不做拖拽调宽，按分镜详情自身的宽度切换：窄于 480px 时（如演示工作台在紧凑档里，Agent 面板
- * 不覆盖画布）上下排成一栏、整体滚动；480–860px 编辑栏占满、媒体栏 300px；
- * 再宽时编辑栏 360–560px，多出的宽度全部给媒体栏。
- */
 export function ShotDetailLayout({
   header,
   footer,
@@ -18,7 +12,6 @@ export function ShotDetailLayout({
   media,
 }: {
   header: ReactNode;
-  /** 两栏下方横跨整宽的未保存提示条：出现时不推动正在编辑的字段。 */
   footer?: ReactNode;
   main: ReactNode;
   media: ReactNode;

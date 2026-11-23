@@ -2,16 +2,7 @@ import { createParser } from "eventsource-parser";
 
 import i18n from "@/i18n";
 
-/**
- * 以 `fetch` 消费 `text/event-stream` 的流式客户端。
- *
- * 浏览器原生 `EventSource` 带不了 `Authorization` header，这里用 `fetch` 自带 header 建连，
- * 并自行承担 `EventSource` 原本提供的两件事：断线后按指数退避自动重建，重建时携带
- * `Last-Event-ID` 让服务端从游标续传。每次重建都重新取一遍 headers，凭证刷新后自然生效。
- */
-
 export interface SseMessage {
-  /** 服务端 `event:` 字段；未声明时与浏览器行为一致，视为 `message`。 */
   event: string;
   data: string;
   id?: string;
@@ -19,7 +10,6 @@ export interface SseMessage {
 
 export class SseStreamError extends Error {
   readonly status: number | null;
-  /** false 表示服务端明确拒绝（认证失败、资源不存在等），客户端不再重连。 */
   readonly retryable: boolean;
 
   constructor(message: string, options: { status?: number | null; retryable: boolean; cause?: unknown }) {
@@ -35,9 +25,7 @@ export interface SseStreamOptions {
   headers?: () => HeadersInit;
   onMessage: (message: SseMessage) => void;
   onOpen?: () => void;
-  /** 连接失败或中断时调用；`error.retryable` 为 true 时随后按退避重连。 */
   onError?: (error: SseStreamError) => void;
-  /** 首次退避延迟（毫秒），服务端 `retry:` 字段可覆盖。 */
   initialRetryDelayMs?: number;
   maxRetryDelayMs?: number;
 }
@@ -45,14 +33,12 @@ export interface SseStreamOptions {
 export interface SseStreamHandle {
   close(): void;
   readonly closed: boolean;
-  /** 最近一次收到的事件 id，重连时作为 `Last-Event-ID` 发送。 */
   readonly lastEventId: string | null;
 }
 
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 1000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 30_000;
 
-/** 这些状态是服务端对请求本身的否定，重试不会改变结果。 */
 const NON_RETRYABLE_STATUSES = new Set([400, 401, 403, 404, 410]);
 
 function isAbortError(error: unknown): boolean {
@@ -90,11 +76,6 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
     }, delay);
   };
 
-  /**
-   * 后台标签页的长连接常被系统或代理断开，重连在后台反复失败会把退避推到上限。用户切回时
-   * 抢占剩余等待并把退避归零：切回前台是「网络条件已变」的强信号，等待剩下的几十秒只会让
-   * 页面继续停在旧数据上。连接中或已连接（`retryTimer` 为空）时不做任何事。
-   */
   const handleVisibilityChange = () => {
     if (closed || retryTimer === null) return;
     if (document.visibilityState !== "visible") return;
@@ -106,7 +87,6 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
 
   const visibilityHost = typeof document === "undefined" ? null : document;
 
-  /** 两条终态路径共用：`close()` 与不可重试的失败都必须摘掉监听，否则句柄已死仍挂在 `document` 上。 */
   const stopWatchingVisibility = () => {
     visibilityHost?.removeEventListener("visibilitychange", handleVisibilityChange);
   };
@@ -129,8 +109,6 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
         lastEventId = id === "" ? null : id;
       },
       onEvent(message) {
-        // 收到事件才算这条连接真的可用，退避从此归零。只按 2xx 响应头归零的话，
-        // 「接受连接后立刻断流」的坏代理会让每次重连都停留在首个退避档，客户端按秒重连不止。
         attempt = 0;
         options.onMessage({ event: message.event ?? "message", data: message.data, id: message.id });
       },
@@ -145,7 +123,6 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
         const { value, done } = await reader.read();
         if (done) break;
         parser.feed(decoder.decode(value, { stream: true }));
-        // 连接可能在处理事件的回调里被关闭；关闭后不再解析后续分块。
         if (closed) break;
       }
     } finally {
@@ -184,7 +161,6 @@ export function openSseStream(options: SseStreamOptions): SseStreamHandle {
       return;
     }
     if (closed) return;
-    // 服务端正常关流：与 EventSource 一致，视为断线并按退避重建。
     fail(new SseStreamError(i18n.t("errors:event_stream_ended"), { retryable: true }));
   };
 

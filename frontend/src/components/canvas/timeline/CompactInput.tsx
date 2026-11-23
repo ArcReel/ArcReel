@@ -6,7 +6,6 @@ interface CompactInputProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  /** 只读展示：保留可选中的文本，但不接受输入。 */
   readOnly?: boolean;
 }
 
