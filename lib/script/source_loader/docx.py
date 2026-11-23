@@ -12,7 +12,6 @@ from .errors import CorruptFileError
 
 logger = logging.getLogger(__name__)
 
-# mammoth 输出的 Markdown 语法标记：仅去除会污染字符计数的标记，保留段落结构
 _MD_MARK_PATTERN = re.compile(r"(\*\*|__|\#{1,6}\s+|`+)")
 
 

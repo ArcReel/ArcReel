@@ -104,7 +104,6 @@ async def _align_store_records(
         sessions_by_move: dict[tuple[str, str], list[str]] = defaultdict(list)
         for session_id, keys in keys_by_session.items():
             target = target_by_session.get(session_id)
-            # 当前键下已有记录即可续聊；别处的副本 SessionRekey 也不会合并，留着不动
             if target is None or target in keys:
                 continue
             if len(keys) > 1:

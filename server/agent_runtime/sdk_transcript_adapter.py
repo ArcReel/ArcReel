@@ -78,11 +78,6 @@ class SdkTranscriptAdapter:
             )
             return []
 
-        # SDK 0.1.71 SessionMessage has no timestamp field — backfill from the
-        # store payload we wrote in append() (preserves SDK's payload.timestamp
-        # verbatim). This keeps optimistic-turn dedup stable across rounds.
-        # toolUseResult（CLI 的结构化工具结果，如 AskUserQuestion 的答案）
-        # 同样只存在于 payload，一并按 uuid 回填。
         payload_by_uuid = await self._load_payload_index_from_store(sdk_session_id, project_cwd)
         return [self._adapt(msg, payload_by_uuid) for msg in (messages or [])]
 
@@ -181,8 +176,6 @@ class SdkTranscriptAdapter:
                 exc_info=True,
             )
             return {}
-        # 各 subagent 的 store 读取相互独立，并发拉取避免 N 个 subagent 时
-        # 冷读路径按 N 次网络/磁盘往返的延迟串行叠加。
         results = await asyncio.gather(
             *(
                 self._read_one_subagent_timeline(sdk_session_id, project_cwd, agent_id, anchors.get(agent_id))
@@ -277,9 +270,6 @@ class SdkTranscriptAdapter:
         if get_session_messages is None:
             return []
         try:
-            # SDK reader walks the JSONL transcript synchronously; offload so
-            # SSE streaming and other coroutines aren't blocked while we wait
-            # on disk I/O for large histories.
             sdk_messages = await asyncio.to_thread(get_session_messages, sdk_session_id)
         except Exception:
             logger.warning(
@@ -288,7 +278,6 @@ class SdkTranscriptAdapter:
                 exc_info=True,
             )
             return []
-        # Legacy SDK messages may carry timestamps directly; no map needed.
         return [self._adapt(m) for m in sdk_messages]
 
     @staticmethod
@@ -328,7 +317,6 @@ class SdkTranscriptAdapter:
         if isinstance(tool_use_result, dict):
             result["tool_use_result"] = tool_use_result
 
-        # 压缩续接摘要的结构化标记只在原始载荷上，写入点据此给条目打标记。
         if payload is not None and payload.get("isCompactSummary") is True:
             result["is_compact_summary"] = True
 

@@ -50,8 +50,6 @@ _SIGNED_QUERY_RE = re.compile(
 )
 _URL_PASSWORD_RE = re.compile(r"(?i)([a-z][a-z0-9+.-]*://[^/@\s:]*:)([^@/\s]+)(@)")
 _API_KEY_VALUE_RE = re.compile(r"(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]{8,}")
-# 散文里的凭证：上游 4xx 常把密钥连同一句话回显（"Incorrect API key provided: <key>"），
-# 标签与值之间隔着普通词，键值型规则匹配不到。标签后最多跨两个词再遇到 : / = 即遮蔽其后的值。
 _PROSE_CREDENTIAL_RE = re.compile(
     r"(?i)(\b(?:api|access|secret|auth|private|signing)[ _-]?(?:key|token)s?\b(?:[ \t]+[A-Za-z]+){0,2}[ \t]*[:=]\s*)"
     r"([\'\"]?)[^\s,;&\'\"]+\2"
@@ -67,10 +65,7 @@ def _is_sensitive_key(key: str | None) -> bool:
     return bool(key and (_SENSITIVE_KEY_RE.fullmatch(key) or _CAMEL_SENSITIVE_KEY_RE.fullmatch(key)))
 
 
-#: 用量计数的键形：``prompt_tokens`` / ``total_tokens`` 之类以 token(s) 收尾的名字同时落在
-#: 敏感键形里，而它们带的是数字。
 _TOKEN_COUNT_KEY_RE = re.compile(r"(?i)(?:[A-Za-z0-9]+[_-])*tokens?")
-#: 直接限定 token 的凭证词：``access_token`` 一类无论值是什么都按凭证处理。
 _CREDENTIAL_TOKEN_QUALIFIERS = frozenset(
     {"access", "auth", "bearer", "refresh", "id", "api", "secret", "private", "signing", "session", "csrf"}
 )
@@ -172,11 +167,7 @@ def _summarize_image_like(obj: Any) -> str | None:
 
 
 def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
-    # 敏感 key 命中时整体脱敏：避免 {"api_key": {"value": "secret"}} 这类嵌套结构
-    # 在递归到 "value" 子键时，因为 key_hint 不再敏感而泄漏 secret。
     if _is_sensitive_key(key_hint):
-        # None 透传以便区分"未配置"和"已配置但脱敏"；其他任何类型（含 int/bool/float）
-        # 都整体替换为 ••••，避免 {"password": 123456} 这类用数字当 secret 的场景泄漏。
         if obj is None:
             return None
         if isinstance(obj, str):
@@ -243,6 +234,4 @@ def format_kwargs_for_log(payload: Any) -> str:
         safe = _to_safe(payload)
         return json.dumps(safe, ensure_ascii=False, default=str)
     except Exception:
-        # 不能回退到 repr(payload)：原始对象未经脱敏，可能把敏感字段
-        # 字面量重新带回日志，绕过前面所有的脱敏逻辑。固定占位符更安全。
         return "<unserializable>"

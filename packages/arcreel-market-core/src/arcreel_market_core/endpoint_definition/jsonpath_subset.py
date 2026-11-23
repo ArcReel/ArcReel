@@ -18,7 +18,6 @@ from enum import StrEnum
 
 from arcreel_market_core.definition_diagnostics import DefinitionErrorCode
 
-#: 与引号种类无关的转义字符；``'`` 与 ``"`` 只能在同种引号的串里转义，逐串另加。
 _ESCAPES = frozenset({"n", "t", "r", "b", "f", "/", "\\"})
 _COMPARISON_OPERATORS = ("==", "!=", "<=", ">=", "<", ">")
 _LITERAL_KEYWORDS = ("true", "false", "null")
@@ -195,7 +194,6 @@ class _Parser:
         self._pos += 1
         while not self._eof() and self._peek() != quote:
             if self._peek() != "\\":
-                # 落单的代理码位不是合法码点：JSON 解码后它以裸字符到达，转义检查看不到。
                 if self._peek() < " " or "\ud800" <= self._peek() <= "\udfff":
                     raise self._fail(DefinitionErrorCode.JSONPATH_SYNTAX)
                 self._pos += 1
@@ -329,8 +327,6 @@ class _Parser:
     def _parse_singular_query(self) -> None:
         self._pos += 1
         while True:
-            # RFC 的 `singular-query-segments = *(S (name-segment / index-segment))`：段前允许空白。
-            # 不是段起始时把游标退回去，后面的空白归调用方处理（比较运算符前的那一段）。
             before_blank = self._pos
             self._skip_whitespace()
             if self._peek() not in {".", "["}:
@@ -354,7 +350,6 @@ class _Parser:
                 else:
                     raise self._fail(DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR)
                 self._skip_whitespace()
-                # 名字/下标之后的 `:` 是切片、`,` 是联合，两者都产出多值，与 `@.*` 同属非单值。
                 if self._peek() in {":", ","}:
                     raise self._fail(DefinitionErrorCode.JSONPATH_FILTER_NON_SINGULAR)
                 if self._peek() != "]":

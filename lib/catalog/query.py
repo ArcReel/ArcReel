@@ -52,20 +52,15 @@ logger = logging.getLogger(__name__)
 
 SNAPSHOT_DIR = Path(__file__).parent / "snapshot"
 
-#: 能力 token 的封闭词汇表，由条目事实推出：仅收录有消费方的 token，词汇与各媒体 backend 能力枚举
-#: （TextCapability / ImageCapability / AudioCapability）同名同义。视频模型的输入模式、参考图上限与音轨形态不在
-#: 这里，真相源是各 backend 的 VideoCapabilities 与请求期 gate。
 ModelCapability = Literal[
     "text_generation",
-    "structured_output",  # 消费点：文本 backend 结构化输出探测
-    "vision",  # 消费点：文本解析的 vision 闸（lib/config/resolver.py）
-    "text_to_image",  # 消费点：图片任务类型桶判定（lib/backends/generation_type_buckets.py）
-    "image_to_image",  # 消费点：同上
+    "structured_output",
+    "vision",
+    "text_to_image",
+    "image_to_image",
     "text_to_speech",
 ]
 
-#: 两栖模型沿用的旧模型键。目录数据里供应商模型的身份是（API 模型名, 条目媒体类型），同一 API 模型名的
-#: 两个供应商模型在这里各取一个键；不在表中的供应商模型以 API 模型名为键。设置与项目里已存的键靠它保持可解析。
 _LEGACY_MODEL_KEYS: Mapping[tuple[str, str, str], str] = {
     ("kling", "kling-v3", "image"): "kling-v3-image",
     ("kling", "kling-v3-omni", "image"): "kling-v3-omni-image",
@@ -110,7 +105,6 @@ def factory_snapshot() -> CatalogData:
 
 _synced: list[CatalogData | None] = [None]
 
-# 按（出厂快照, 同步数据）对象缓存的官方数据；同步数据换上新的一份时重建。
 _official_cache: list[tuple[CatalogData, CatalogData, CatalogData]] = []
 
 
@@ -292,7 +286,6 @@ def _official_models(data: CatalogData, provider_id: str, current_version: str) 
         if key in models or key in version_gated:
             logger.warning("内置供应商 %s 的模型键 %s 重复，已跳过后一个", provider_id, key)
             continue
-        # 低于最低应用版本的实例不启用它，只在设置页列出；它被指定为默认时，按没有默认处理（docs/adr/0103）。
         callable_here = meets_min_app_version(model.min_app_version, current_version)
         default = callable_here and listing.defaults.get(entry.media_type) == model.api_model_name
         (models if callable_here else version_gated)[key] = _IndexedModel(
@@ -384,8 +377,6 @@ def _build_index(
     }
     for user in user_models:
         provider = index.setdefault(user.provider_id, _ProviderIndex({}, {}))
-        # 官方数据收录了同一模型键时，换成官方版本，只保留启用状态（docs/adr/0099）。官方版本因应用版本不够
-        # 用不了时，保留用户添加的那个，设置页也只列它。
         if user.model_id not in provider.models:
             provider.models[user.model_id] = _user_added_model(data, user)
             provider.version_gated.pop(user.model_id, None)
@@ -394,12 +385,10 @@ def _build_index(
 
 _user_added: list[tuple[UserAddedModel, ...]] = [()]
 
-# 按快照对象缓存的索引：快照每进程只加载一次，索引随之只建一次；用户添加的模型变化时清空重建。
 _index_cache: list[tuple[CatalogData, dict[str, _ProviderIndex]]] = []
 
 _user_entries: list[tuple[tuple[CatalogEntry, ...], frozenset[EntryKey]]] = [((), frozenset())]
 
-# 按官方数据对象缓存的合成结果；用户副本变化时清空重建。
 _composed_cache: list[tuple[CatalogData, ComposedCatalog]] = []
 
 
@@ -590,19 +579,12 @@ class ProviderModelView:
     model: CatalogModel
     entry: CatalogEntry | None
     official: bool
-    #: 供应商模型倍率：官方收录的随官方数据下发，用户添加的由用户填写。
     multiplier: float
-    #: 未叠加能力覆盖的目录信息：条目的值，对应不上条目时为运行时回落的值。
     base_model: CatalogModel | None = None
-    #: 用户添加的模型的能力覆盖（已滤掉不合法的键值）；官方收录的模型没有。
     capability_overrides: Mapping[str, object] = field(default_factory=dict)
-    #: 所对应条目在今天的生命周期；对应不上条目时为可用。
     lifecycle: Lifecycle = AVAILABLE
-    #: 用户添加的模型记下的内置调用端点；官方收录的模型与没有记下端点的为 ``None``。
     endpoint: str | None = None
-    #: 官方收录的模型标注的最低应用版本；没有标注、或是用户添加的模型时为 ``None``。
     min_app_version: str | None = None
-    #: 应用版本达到 ``min_app_version``。不满足的只出现在 :func:`version_gated_models` 里。
     min_app_version_satisfied: bool = True
 
 

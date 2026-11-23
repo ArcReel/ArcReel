@@ -25,7 +25,6 @@ from arcreel_market_core.definition_diagnostics import (
 )
 from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 
-#: 自动包装时写进 ``meta`` 的占位值：原始 workflow 里没有作者与名称可取，保存前由用户改写。
 PLACEHOLDER_META_NAME = "ComfyUI workflow"
 PLACEHOLDER_META_AUTHOR = "unknown"
 PLACEHOLDER_META_VERSION = "1.0.0"
@@ -34,11 +33,8 @@ PLACEHOLDER_META_VERSION = "1.0.0"
 class ImportShape(StrEnum):
     """一份导入载荷的形状。"""
 
-    #: 带 ``kind`` 的端点定义，按它自己的 kind 校验。
     ENDPOINT_DEFINITION = "endpoint_definition"
-    #: ComfyUI「Export (API)」的节点表，自动包成 ComfyUI 端点定义。
     COMFYUI_API_WORKFLOW = "comfyui_api_workflow"
-    #: ComfyUI「Export」的画布存档，提交不了，拒绝并让用户改用 Export (API)。
     COMFYUI_UI_WORKFLOW = "comfyui_ui_workflow"
 
 

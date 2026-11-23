@@ -22,15 +22,11 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# 缺分辨率但必需尺寸来控制比例时的兜底短边（720P）。
 DEFAULT_SHORT_EDGE = 720
 
-# 跨后端统一的档位 → 短边像素。各后端按自身约束（max_long_edge / max_total_pixels）夹取。
-# 图片：512px / 1K / 2K / 4K；DashScope wan 的 1K/2K/4K 复用本表。
 IMAGE_TIER_SHORT_EDGE: dict[str, int] = {"512px": 512, "1K": 1024, "2K": 1440, "4K": 2160}
 VIDEO_TIER_SHORT_EDGE: dict[str, int] = {"480p": 480, "720p": 720, "1080p": 1080, "4K": 2160}
 
-# 默认比例：来源受控（项目固定竖屏短剧居多），无法解析时回退竖屏 9:16，最小惊讶。
 _DEFAULT_ASPECT: tuple[int, int] = (9, 16)
 
 _WH_RE = re.compile(r"^\s*(\d+)\s*[xX×*]\s*(\d+)\s*$")
@@ -92,13 +88,10 @@ def aspect_size(
 
     t = max(1, round(short_edge / short_unit))
 
-    # 长边像素上限夹取。上限连最小合法尺寸（t=1）都容不下时，仍取 t=1（最小合法尺寸），
-    # 不取 0——宁可略超上限交 API 判定，也不产出非法的 0 尺寸。
     if max_long_edge is not None:
         max_t_long = max_long_edge // (round_to * long_comp)
         t = min(t, max(1, max_t_long))
 
-    # 总像素预算夹取：总像素 = aw·ah·round_to²·t² ≤ max_total_pixels（同样 t≥1 floor）
     if max_total_pixels is not None:
         denom = aw * ah * round_to * round_to
         max_t_pixels = math.isqrt(max_total_pixels // denom) if denom > 0 else 0

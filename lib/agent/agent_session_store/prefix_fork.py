@@ -20,8 +20,6 @@ from claude_agent_sdk import SessionKey, SessionListSubkeysKey, SessionStoreEntr
 SUBAGENT_SUBPATH_ROOT = "subagents/"
 SUBAGENT_LEAF_PREFIX = "agent-"
 
-# 会话条目类型：前缀里没有任何一条即视为空前缀。transcript 开头常有
-# file-history-snapshot 之类的非会话元数据行，行数非零不等于有对话。
 _CONVERSATION_ENTRY_TYPES = frozenset({"user", "assistant"})
 
 
@@ -108,9 +106,6 @@ def _prefix_before_anchor(entries: list[SessionStoreEntry], anchor_uuid: str) ->
         if _entry_type(entry) != "user":
             raise InvalidAnchorError(f"anchor {anchor_uuid} is a {_entry_type(entry)!r} entry, not a user message")
         if _carries_tool_result(entry):
-            # transcript 把工具回执也写成 type:"user" 的条目，其中混排文本的那种
-            # 从条目类型上与真用户消息无从区分。以它作锚点会把配对的 tool_use
-            # 留在前缀末尾悬空，因此按非法锚点拒绝。
             raise InvalidAnchorError(f"anchor {anchor_uuid} carries tool results, not a plain user message")
         return entries[:index]
     raise InvalidAnchorError(f"anchor {anchor_uuid} is not on the main timeline of session")
@@ -157,7 +152,6 @@ def _rebind(entry: SessionStoreEntry, *, new_session_id: str, origin: dict[str, 
     return rebound
 
 
-# 历史 payload 的 type 不保证是字符串，读取时按 object 看待。
 def _entry_type(entry: Mapping[str, object]) -> str:
     entry_type = entry.get("type")
     return entry_type if isinstance(entry_type, str) else ""

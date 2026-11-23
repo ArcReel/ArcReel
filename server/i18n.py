@@ -47,8 +47,6 @@ def get_translator(request: Request) -> Callable[..., str]:
 
 Translator = Annotated[Callable[..., str], Depends(get_translator)]
 
-#: 请求语言本身。取译名需要「键缺失时回退到数据源里的原名」的地方（见 translate_or）用它，
-#: 常规成文仍用 Translator。
 Locale = Annotated[str, Depends(get_locale)]
 
 
@@ -69,7 +67,6 @@ async def load_display_names_or_builtin(session: AsyncSession, locale: str) -> D
     try:
         return await load_display_names(session, locale)
     except Exception:
-        # 会话由整个请求共用：回滚失败的查询，路由自己的查询不受牵连。
         await session.rollback()
         return _builtin_display_names(locale)
 

@@ -24,7 +24,6 @@ from server.routers._file_responses import guess_media_type
 
 router = APIRouter(prefix="/projects/{project_name}/file-view")
 
-#: 文本类文件按 UTF-8 文本返回，便于预览；其余按扩展名推断。
 _TEXT_SUFFIXES = frozenset({".txt", ".md", ".json", ".py", ".yaml", ".yml", ".srt", ".log", ".csv"})
 
 
@@ -81,7 +80,6 @@ async def read_file_view_content(project_name: str, path: str = Query(...), down
             raise NotFoundError("file_not_found", path=path) from exc
         return handle, info.st_size, content_media_type(name)
 
-    # 打开之后句柄不随清理失效，使用登记只需覆盖到打开为止
     async with local_file(project_dir, path):
         handle, size, media_type = await asyncio.to_thread(_sync)
     return stream_file(handle, size, name, media_type, download=download)
@@ -100,7 +98,6 @@ def stream_file(handle: BinaryIO, size: int, name: str, media_type: str, *, down
         "Content-Disposition": f"{disposition}; filename*=utf-8''{quote(name)}",
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
-        # 项目里可能有 Agent 写下的 HTML / SVG，直接打开时不让其中的脚本以本站身份运行。
         "Content-Security-Policy": "sandbox",
     }
     return StreamingResponse(iter_file_chunks(handle), media_type=media_type, headers=headers)

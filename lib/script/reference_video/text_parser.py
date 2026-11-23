@@ -24,8 +24,6 @@ from lib.script.script_models import ReferenceResource
 #: BOM 在正文里没有语义，解析入口一次性去掉，两条派生路径回到同一口径。
 _BOM = "﻿"
 
-#: 说话人 mention 与 ``{`` 之间允许出现的分隔冒号（中英各一）。只允许一个：写了第二个
-#: 就说明这不是「``@[角色]：{台词}``」的形态，此时宁可不成记号，也不静默降级成画外音。
 _SPEAKER_SEPARATORS = "：:"
 
 
@@ -169,7 +167,6 @@ def split_speech_line(line: str) -> list[str | SpeechMark]:
             break
         inner = text[open_index + 1 : close_index]
         if "{" in inner:
-            # 嵌套 / 漏闭合：外层 ``{`` 不成记号，从内层重新扫描。
             scan = open_index + 1
             continue
         if not inner.strip():

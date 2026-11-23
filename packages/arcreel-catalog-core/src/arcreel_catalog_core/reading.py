@@ -46,7 +46,6 @@ from .vocabulary import (
     is_valid_dimension_value,
 )
 
-#: 数据集版本是 UTC 时间戳，定长，字符串顺序即时间顺序。
 DATASET_VERSION_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _CONTEXT_TIER = "context_tier"
@@ -569,7 +568,7 @@ class CatalogReader:
         by_casefold = {resolution.casefold(): resolution for resolution in resolutions}
         for meter_index, meter in enumerate(price.meters):
             if "resolution" not in meter.dims:
-                continue  # 未声明的维度已报 dimension_not_declared
+                continue
             meter_path = _at(path, f"meters[{meter_index}]")
             selections = [(_at(meter_path, f"rows[{i}].when"), row.when) for i, row in enumerate(meter.rows)]
             selections.append((_at(meter_path, "defaults"), meter.defaults))
@@ -703,7 +702,7 @@ class CatalogReader:
                 default_entry = listed.get((api_model_name, media_type))
                 if default_entry is None:
                     if api_model_name in unresolved:
-                        continue  # 引用问题已在清单条目上报告
+                        continue
                     self.flag(default_path, "unknown_default_model", "默认模型不在这个供应商这一媒体类型的清单中")
                 elif default_entry.discontinued:
                     self.flag(default_path, "default_model_discontinued", "默认模型已下线")

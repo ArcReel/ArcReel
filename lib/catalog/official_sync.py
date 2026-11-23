@@ -53,7 +53,6 @@ CATALOG_URL = f"{_REPO_RAW}/{CATALOG_FILENAME}"
 
 SYNC_INTERVAL_SECONDS = 24 * 60 * 60
 _MANIFEST_MAX_BYTES = 64 * 1024
-#: 远高于数据文件的实际体积，给数据增长留足余量；发版工作流抓取出厂快照用同一上限。
 _CATALOG_MAX_BYTES = 8 * 1024 * 1024
 _FETCH_DEADLINE_SECONDS = 60.0
 _ERROR_MAX_CHARS = 1000
@@ -68,13 +67,11 @@ class SyncStatus:
     last_error: str | None = None
 
 
-# 进程内的同步状态，与官方同步表一致；诊断信息在线程里同步读取，不查库。单元素列表当信箱。
 _status: list[SyncStatus] = [SyncStatus()]
 
 
 def _status_of(row: CatalogOfficialSync) -> SyncStatus:
     at = row.last_success_at
-    # SQLite 读回的时间不带时区，存的都是 UTC
     return SyncStatus(at.replace(tzinfo=UTC) if at is not None and at.tzinfo is None else at, row.last_error)
 
 
@@ -168,7 +165,6 @@ async def sync_once(
         return
     await _record(session_factory, error=None, applied=(data.dataset_version, stored))
     catalog.install_synced_data(data)
-    # 回调在首次让出事件循环前失效缓存，避免按旧数据构造的实例写回新缓存。
     if on_applied is not None:
         await on_applied()
     logger.info("官方同步已应用数据集 %s", data.dataset_version)
@@ -184,7 +180,6 @@ async def _sync_loop(
             await sync_once(session_factory, http_client, on_applied)
         except Exception as exc:
             logger.warning("官方同步异常，等下一轮", exc_info=True)
-            # 只更新进程内状态：异常可能就出在数据库上。诊断信息照样能看到这次失败
             _status[0] = replace(_status[0], last_error=(str(exc) or type(exc).__name__)[:_ERROR_MAX_CHARS])
         # 抓取建立连接时，关停的取消可能被 anyio 吞掉、这一轮照常跑完；在这里生效，免得带着取消请求睡满一整天
         raise_if_cancel_absorbed()

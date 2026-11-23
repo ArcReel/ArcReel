@@ -25,10 +25,8 @@ from server.i18n import Translator
 
 router = APIRouter(prefix="/comfyui", tags=["Custom Endpoints"])
 
-#: 请求体即载荷原样，与导入入口同形；不声明成 ``dict`` 以便非对象输入也走结构化诊断。
 InferBody = Annotated[Any, Body()]
 
-#: 粘进来的是原始 workflow 时，由导入方指定它产图还是产视频。
 ImportMediaType = Literal["image", "video"]
 
 
@@ -55,7 +53,6 @@ class CandidatePayload(BaseModel):
     signals: list[SignalPayload]
     selected: bool
     origin: str
-    # 产物候选的上游链长度，用于解释「为什么是这一个」；其余语义键为 null。
     depth: int | None = None
 
 
@@ -69,12 +66,10 @@ class KeyInferencePayload(BaseModel):
 
 class InferResponse(BaseModel):
     media_type: str
-    # 照这份结果直接落盘能不能过校验：任何键歧义或待确认、提示词与产物没着落都不行。
     savable: bool
     bindings: dict[str, KeyInferencePayload]
     notes: list[NotePayload]
     import_shape: ImportShape
-    # 原始 API workflow 的包装结果；载荷本就是定义时为 null，客户端继续用手上那份。
     wrapped_definition: dict[str, Any] | None = None
 
 

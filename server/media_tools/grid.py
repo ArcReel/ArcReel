@@ -261,8 +261,6 @@ async def generate_grid(
             )
 
         project, script = await run_sync_transaction(load_inputs)
-        # ``list_only`` 与生成同样先过闸门：未开宫格的项目靠预览拿到成功响应，调用方会误以为
-        # 该工具适用于当前项目。
         try:
             ensure_grid_submittable(project, script)
         except ApiError as exc:
@@ -430,14 +428,11 @@ def _collect_results(
     report_ids_by_grid = committed.report_ids_by_grid
     grid_id_by_result = committed.grid_id_by_result
     reused_grid_ids = committed.reused_grid_ids
-    # resolver 首次比较时按当时的宫格记录规划目标态、此后不再重读；上面观测未切分宫格时已用过它，
-    # 本批出图结果须换一个按出图后记录规划的 resolver 判定
     resolver = active_artifact_currency_resolver(committed.project_path, plan.project)
     ready: list[str] = []
     for result in [*successes, *failures]:
         grid_id = grid_id_by_result[result.resource_id]
         report_ids = report_ids_by_grid[grid_id]
-        # 联合图一次生成，任务的 warning 属于整张宫格：逐格照录
         grid_warnings = generation_warnings_from_result(result.result)
         if result.status != "succeeded":
             _fail_scenes(
@@ -495,14 +490,12 @@ async def _submit(
     caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[GridToolValue]:
-    # 落地宫格记录要写正式文件：已开始的线程事务先结算再响应取消
     committed = await run_sync_transaction(_commit_submission, plan, scope.project_name, services, caller.source)
     if isinstance(committed, ToolOutcome):
         return committed
 
     submitted = await submit_media_generation(
         scope=scope,
-        # 入队完成即离开提交临界区：等联合图生成期间，同一项目的其他提交照常进行
         caller=caller.waiting_with(on_enqueued=plan.section.end),
         services=services,
         operation=_OPERATION,
@@ -564,7 +557,6 @@ async def split_grids(
             return GridManager(services.projects.get_project_path(scope.project_name))
 
         gm = await asyncio.to_thread(open_grids)
-        # 逐张顺序切分：每张都在项目元数据锁内提交，并发不会更快
         results = [
             await _split_one(
                 scope.project_name,
@@ -601,7 +593,6 @@ async def _split_one(
         try:
             grid = await asyncio.to_thread(gm.get, grid_id)
         except Exception as exc:
-            # 非法 ID 视同不存在；JSON 损坏、缺字段等记录读不出来时只记这一张失败，同批其余宫格照常切分
             if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError):
                 grid = None
             else:
@@ -621,7 +612,6 @@ async def _split_one(
         except GridImageNotReadyError:
             return {"grid_id": grid_id, "status": "not_ready", "detail": "尚无可用的联合图，先生成或在面板上传"}
         except Exception:
-            # 单张失败不吞掉同批已切分的结果：切分整张原子回滚，逐张报告
             logger.exception("宫格切分落格失败: grid_id=%s", grid_id)
             return {
                 "grid_id": grid_id,

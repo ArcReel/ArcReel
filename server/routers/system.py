@@ -30,8 +30,6 @@ def _write_diagnostics_zip(spooled: IO[bytes], log_dir: Path) -> None:
     with zipfile.ZipFile(spooled, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         if log_dir.exists():
             for path in sorted(log_dir.glob(_LOG_GLOB)):
-                # 跳过 symlink：防止有人在 logs/ 下放符号链接指向目录外的敏感文件，
-                # 通过诊断包外泄。
                 if path.is_symlink() or not path.is_file():
                     continue
                 size = path.stat().st_size
@@ -55,7 +53,6 @@ async def download_logs(_t: Translator) -> StreamingResponse:
 
     spooled = tempfile.SpooledTemporaryFile(max_size=_SPOOL_MAX)  # noqa: SIM115 -- 句柄要活过本函数、随 StreamingResponse 流式读完才关，不能收进 with
     try:
-        # 打包与诊断采集（子进程、读日志）在线程里完成；取消时等线程写完再关句柄
         await run_sync_transaction(_write_diagnostics_zip, spooled, log_dir)
     except BaseException:
         spooled.close()

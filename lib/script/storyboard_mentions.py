@@ -16,7 +16,6 @@ from lib.references.reference_catalog import build_reference_catalog
 from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.storyboard_sequence import get_storyboard_items
 
-#: 画面描述里的 ``@[名称]`` 未登记为资产或不在该分镜引用字段中，将按裸名发送。
 WARN_STORYBOARD_MENTION_UNBOUND = "storyboard_warn_mention_unbound"
 
 _REFERENCE_LIST_FIELDS: tuple[str, ...] = tuple(

@@ -57,10 +57,8 @@ from .template_engine import enum_map_key
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
 
-#: 定义格式自身的版本；写入时不改写文件里的 ``schema_version``，校验器也不做定义迁移。
 CURRENT_SCHEMA_VERSION = "1.2.0"
 
-#: 视频定义请求模板里随时可用的保留变量。``width`` / ``height`` 由比例与分辨率派生，不接受参数。
 BASE_VARIABLES = frozenset(
     {
         "base_url",
@@ -76,14 +74,8 @@ BASE_VARIABLES = frozenset(
     }
 )
 
-#: 视频定义里只能做枚举映射的变量：供应商侧改名的都是这几个档位参数，prompt 之类改名没有意义。
 ENUM_MAP_VARIABLES = frozenset({"duration", "aspect_ratio", "resolution", "generate_audio"})
 
-#: 视频定义里可声明缺省值的变量与各自的宿主类型：调用方可以不填的那几个档位参数。base_url /
-#: model / prompt 每次调用都带，width / height 由比例与分辨率派生，给它们声明缺省值只会掩盖
-#: 真正的缺参。类型即 ArcReel 侧参数类型——缺省值渲染前原样进上下文，错型的 aspect_ratio /
-#: resolution 会让宽高派生拿不到档位（引用 {{ width }} 的定义每次未指定参数都渲染失败），
-#: 错型的 duration / generate_audio 则把整值占位符保留原生类型的语义带歪。
 DEFAULT_VALUE_TYPES: dict[str, type] = {
     "duration": int,
     "aspect_ratio": str,
@@ -109,12 +101,8 @@ class MediaTypeRules:
     default_value_types: Mapping[str, type]
     input_sources: frozenset[str]
     capabilities: frozenset[str]
-    #: 产物提取键，按运行时取用的先后排列。产物所在节（无 ``result`` 节时为 ``poll``，否则为
-    #: ``result``）的 ``extract`` 至少写一项。
     artifact_keys: tuple[str, ...]
-    #: ``extract`` 可否写 ``usage``（计费时长）。
     usage_extract: bool
-    #: 至少一项须声明为真的能力；为空表示不要求。
     required_capabilities: tuple[str, ...]
 
 
@@ -141,19 +129,13 @@ MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
     ),
 }
 
-#: 任一媒体类型可用的保留变量：不在其中的名字才是真正未声明的变量。
 _ALL_VARIABLES = frozenset().union(*(rules.variables for rules in MEDIA_TYPE_RULES.values()))
 _ALL_ENUM_MAP_VARIABLES = frozenset().union(*(rules.enum_map_variables for rules in MEDIA_TYPE_RULES.values()))
 _ALL_DEFAULTABLE_VARIABLES = frozenset().union(*(rules.default_value_types for rules in MEDIA_TYPE_RULES.values()))
 _ALL_ARTIFACT_KEYS = frozenset().union(*(rules.artifact_keys for rules in MEDIA_TYPE_RULES.values()))
 
-#: 列表型素材来源：只能经 ``$each`` 展开，直接内插会把整个列表串化进请求。
 LIST_INPUT_SOURCES = frozenset({"reference_images", "reference_audio_files"})
 
-#: 图片型素材来源（``inputs.*.source`` 枚举中除参考音频外的全部）。声明为必需的图输入意味着该
-#: 请求形状必须带图，``capabilities.text_to_video`` 由这份集合推导；校验器与
-#: :mod:`lib.custom_provider.capabilities` 的合成共用同一份，两处不得各存一份——集合漂移会让
-#: 保存期放行的声明在合成期得出相反的 ``text_to_video``。
 IMAGE_INPUT_SOURCES = frozenset({"start_image", "end_image", "reference_images"})
 
 
@@ -173,7 +155,6 @@ def requires_image_input(inputs: Mapping[str, Any] | None) -> bool:
     )
 
 
-#: 声明式能产出的状态档位。``expired`` 不由声明式产生，过期语义映射到 ``failed``。
 CANONICAL_STATUSES = frozenset(
     {
         ProviderJobStatus.QUEUED.value,
@@ -183,7 +164,6 @@ CANONICAL_STATUSES = frozenset(
     }
 )
 
-#: 能力位与素材来源的配对：两向一致性检查逐对跑，谎报与漏报都拦。
 CAPABILITY_SOURCE_PAIRS: tuple[tuple[str, str], ...] = (
     ("first_frame", "start_image"),
     ("last_frame", "end_image"),
@@ -191,7 +171,6 @@ CAPABILITY_SOURCE_PAIRS: tuple[tuple[str, str], ...] = (
     ("reference_audio_mode", "reference_audio_files"),
 )
 
-#: 格式不接受、但写定义的人容易写出来的字段名 → 其去处：单独报「字段已移除」比笼统的「未知字段」好用。
 REMOVED_FIELD_REASONS: Mapping[str, str] = {
     "query": "val_ce_removed_reason_request_query",
     "success_status_codes": "val_ce_removed_reason_status_codes",
@@ -244,14 +223,11 @@ def _validate_declarative(document: Mapping[str, Any]) -> DefinitionDiagnostics:
     return DefinitionDiagnostics(errors=tuple(checker.errors), warnings=tuple(checker.warnings))
 
 
-#: ``kind`` → 该 kind 的校验实现。键集即校验层认得的全部 kind，容器层的枚举由它派生，两者不会分叉。
 _KIND_VALIDATORS: Mapping[str, Callable[[Mapping[str, Any]], DefinitionDiagnostics]] = {
     DECLARATIVE_KIND: _validate_declarative,
     COMFYUI_KIND: validate_comfyui_definition,
 }
 
-#: ``kind`` → 该 kind 的定义格式当前版本。两种 kind 各有一条版本线，拿一条去比另一条只会在完全
-#: 合规的定义上报出假的版本落差。
 _CURRENT_SCHEMA_VERSION_BY_KIND: Mapping[str, str] = {
     DECLARATIVE_KIND: CURRENT_SCHEMA_VERSION,
     COMFYUI_KIND: COMFYUI_SCHEMA_VERSION,
@@ -446,10 +422,8 @@ class _SemanticChecker:
             self._scan_node(value, join_path(path, key), scope)
 
     def _scan_each(self, directive: Mapping[str, Any], path: str, scope: _Scope, *, in_array: bool) -> None:
-        # 数组位置铺元素、对象位置铺键值对：两种展开的产物形状不同，写反了没有可执行语义。
         if in_array != ("item" in directive):
             self._error(path, DefinitionErrorCode.EACH_POSITION_MISMATCH)
-        # 循环体内 `index` 恒为序号：拿它当元素别名，两个值就再也分不开。
         if directive.get("as") == "index":
             self._error(join_path(path, "as"), DefinitionErrorCode.EACH_ALIAS_RESERVED, name="index")
         name = str(directive.get("in", "")).removeprefix("inputs.")
@@ -550,7 +524,6 @@ class _SemanticChecker:
                 )
                 continue
             expected = value_types[name]
-            # bool 是 int 的子类：True 会冒充合法的 duration / seed，反向单判。
             if not isinstance(value, expected) or (isinstance(value, bool) and expected is not bool):
                 self._error(
                     join_path("defaults", name),
@@ -559,8 +532,6 @@ class _SemanticChecker:
                     expected=expected.__name__,
                 )
                 continue
-            # 缺省值写的是 ArcReel 侧的值，渲染时照常过 enum_maps：查不到表就等于每次未指定参数
-            # 的请求都在渲染期失败，这种定义不该存得下来。
             mapping = enum_maps.get(name)
             if mapping is not None and enum_map_key(value) not in mapping:
                 self._error(
@@ -647,7 +618,6 @@ class _SemanticChecker:
                 source="reference_images",
             )
 
-        # 参考图上限是 i2i 的一部分：编排层按它裁剪参考图，缺了它 i2i 请求带几张图就没有边界。
         has_limit = _capability_is_on("max_reference_images", capabilities.get("max_reference_images"))
         if image_to_image and not has_limit:
             self._error(
@@ -664,7 +634,6 @@ class _SemanticChecker:
                 requirement="image_to_image = true",
             )
 
-        # 文生图请求不带参考图：必需的参考图输入会让每一次文生图在提交前就判缺素材失败。
         if capabilities.get("text_to_image") is True and requires_image_input(self._inputs):
             self._error(
                 "capabilities.text_to_image",
@@ -731,7 +700,6 @@ class _SemanticChecker:
 
 def _capability_is_on(capability: str, value: object) -> bool:
     if capability == "max_reference_images":
-        # 与 schema 的 integer 同口径：1.0 这类整数值浮点数按整数计，布尔值不算数。
         return isinstance(value, int | float) and not isinstance(value, bool) and value == int(value) and value > 0
     if capability == "reference_audio_mode":
         return value is not None and value != "none"
@@ -742,6 +710,4 @@ def _url_query_names(url: object) -> set[str]:
     if not isinstance(url, str) or "?" not in url:
         return set()
     query = url.split("?", 1)[1].split("#", 1)[0]
-    # 按服务端解析后的名字比对：`%74oken`、`api+key` 与 `token`、`api key` 分别是同一个参数，
-    # 原样比对会漏掉重名。解码口径取 parse_qsl，与查询串的通行解析一致。
     return {name for name, _ in parse_qsl(query, keep_blank_values=True)}

@@ -15,8 +15,6 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
-
-# pydantic 顶层不 re-export ErrorDetails，只能直接依赖 pydantic-core。
 from pydantic_core import ErrorDetails
 
 from arcreel_market_core.validation_messages import ValidationMessage
@@ -75,7 +73,6 @@ def validate_script_structure(script: dict[str, Any]) -> ValidationResult:
     try:
         model.model_validate(script)
     except ValidationError as exc:
-        # Pydantic 报错已是成品文本（无可翻译结构），经 literal 通道并入同一消息载体。
         return ValidationResult(
             valid=False,
             error_messages=[ValidationMessage.literal(_format_error(e)) for e in exc.errors()],

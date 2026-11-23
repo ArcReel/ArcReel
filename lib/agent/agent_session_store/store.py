@@ -36,7 +36,6 @@ def _normalize_key(key: SessionKey) -> tuple[str, str, str]:
     return key["project_key"], key["session_id"], key.get("subpath", "") or ""
 
 
-# 条目来自 SDK 或本地 JSONL 导入，字段类型不受校验，读取时按 object 看待。
 def _entry_type(entry: Mapping[str, object]) -> str:
     t = entry.get("type")
     return t if isinstance(t, str) else ""
@@ -94,9 +93,6 @@ class DbSessionStore:
                     subpath or "<main>",
                     exc,
                 )
-                # Jittered exponential backoff capped at ~50ms — keeps SQLite's
-                # writer-lock contention from amplifying under high concurrency
-                # while staying well below the busy_timeout.
                 delay = random.uniform(0, min(_APPEND_BACKOFF_CAP_S, 0.001 * (2**attempt)))
                 await asyncio.sleep(delay)
 
@@ -138,8 +134,6 @@ class DbSessionStore:
 
             await self._insert_entries(session, rows)
 
-            # Maintain per-session summary for list_session_summaries fast path.
-            # Per SDK protocol: skip for subagent transcripts (subpath != "").
             if subpath == "":
                 await self._fold_summary_locked(session, project_key, session_id, entries, now_ms, now_dt)
 

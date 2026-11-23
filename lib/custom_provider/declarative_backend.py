@@ -92,7 +92,6 @@ def _url_without_auth_query(rendered: RenderedRequest) -> str:
     return f"{head}?{'&'.join(kept)}" if kept else head
 
 
-#: 超过该长度且全由 base64 字符组成的字符串按素材摘要处理。真实提示词带空格与标点，不会命中。
 _BASE64_LOG_THRESHOLD = 256
 _BASE64_PATTERN = re.compile(r"[A-Za-z0-9+/=\r\n]+")
 
@@ -215,7 +214,6 @@ class JobState:
 
     body: object
     status: ProviderJobStatus
-    #: 供应商原样回报的状态串。状态由 ``failure`` 判定或由调用方给定时为 ``None``。
     provider_status: str | None
     error: str | None
     result_id: str | None
@@ -392,8 +390,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         self._base_url = normalize_declarative_base_url(base_url, definition)
         self._source_definition = definition
         self._model = model
-        # 有覆盖的节改写成相对原样 base_url 的地址，不经归一化（docs/adr/0101）；是否剥版本段
-        # 仍按原定义判定，没有覆盖的节行为不变。
         self._definition = apply_path_overrides(definition, path_overrides)
         self._provider = provider
         self._read_state = read_state
@@ -432,8 +428,6 @@ class DeclarativeJobEngine[StateT: JobState]:
             if assets.get("end_image") is not None and "end_image" not in declared_sources:
                 raise VideoCapabilityError("video_last_frame_unsupported", provider=self._provider, model=self._model)
         try:
-            # 素材读盘也在守卫内：文件在任务准备与执行之间被删掉时抛的是 OSError，落在守卫外
-            # 就会绕过稳定错误码，让 worker 存下一段没有译文的裸文本。
             references = assets.get("reference_images")
             paths = references if isinstance(references, list) else []
             if definition_media_type(self._definition) == "image":
@@ -460,8 +454,6 @@ class DeclarativeJobEngine[StateT: JobState]:
                 else:
                     loaded[name] = None
             encoded = encode_inputs(declarations, loaded)
-            # 声明为必需的素材缺席时就地失败：模板会把整串占位符的键直接删掉，请求照样发得出去，
-            # 于是供应商收到一个残缺请求、照常建任务照常计费。
             missing = (
                 [name for name, value in encoded.items() if declarations[name].get("required") and not value]
                 if require_declared_inputs
@@ -559,8 +551,6 @@ class DeclarativeJobEngine[StateT: JobState]:
             raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=exc.message) from exc
         except (TypeError, ValueError) as exc:
             raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
-        # accept="scalar" 的定义可以命中数字或布尔，格式说明的口径是「按字符串化交给下游」；
-        # 这里按 str 收，与产物地址、result_id 的取值口径一致。
         task_id = str(job_id).strip() if job_id is not None and not isinstance(job_id, (list, dict)) else ""
         if not task_id:
             raise DeclarativeRuntimeError(
@@ -588,7 +578,6 @@ class DeclarativeJobEngine[StateT: JobState]:
                 }
             ),
         )
-        # 提交 / 轮询 / 二次取件都带着渲染出的 auth 节：重定向必须自己逐跳跟随，跨源卸凭证。
         return await request_with_scoped_credentials(
             client,
             rendered.method,
@@ -613,11 +602,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         :class:`ResumeExpiredError`。产物字段是否齐全由组装方判定。
         """
         poll_context = {**context, "task_id": job_id}
-        # 定义可以把端点写在与 base_url 不同的主机上，产物地址往往就出自那些主机。信任集只收
-        # 真实带凭证访问的请求源：提交源进入轮询前已带凭证访问过（续跑时它同样是任务所在的
-        # 供应商源），轮询与二次取件的源在各自成功取件后加入（见 fetch）。全绝对地址定义下
-        # 配置的 base_url 可能从未被请求，凭配置信任会把凭证发给一个从没验证过的源；其余
-        # （对象存储 / CDN）裸请求。
         trusted_origins = {
             url_origin(self._render({"method": "GET", "url": self._definition["submit"]["url"]}, context).url)
         }
@@ -647,8 +631,6 @@ class DeclarativeJobEngine[StateT: JobState]:
 
         async def poll_once() -> StateT:
             return self._extract_state(
-                # 缺省 true（404=任务已不存在，续跑一击判过期）；供应商对在跑任务可能瞬时 404 的
-                # 定义写 false，按瞬态错误重试到预算耗尽。
                 await fetch(
                     self._definition["poll"],
                     poll_context,
@@ -661,8 +643,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         final = await poll_with_retry(
             poll_fn=poll_once,
             is_done=lambda state: state.status is ProviderJobStatus.SUCCEEDED,
-            # 终态失败必须给出非空理由：返回 None 会让 poll_with_retry 认为任务仍在进行，
-            # 一路轮询到 max_wait 才超时，而供应商早已判负。
             is_failed=lambda state: _failure_reason(state) if state.status is ProviderJobStatus.FAILED else None,
             max_wait=call.poll_timeout_seconds,
             retry_if=should_retry_poll,
@@ -707,8 +687,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         try:
             body = response.json()
         except ValueError as exc:
-            # 2xx 但不是 JSON（网关的 HTML 错误页、被截断的响应）：原文先留痕再抛。诊断字段
-            # 若停在上一次轮询的响应上，正好在最需要看到这次响应的场合给出误导。
             await _notify(call, stage, response.text)
             raise DeclarativeRuntimeError(
                 "declarative_response_extract_failed", detail="provider response was not valid JSON"
@@ -737,9 +715,6 @@ class DeclarativeJobEngine[StateT: JobState]:
         trusted_origins: Collection[Origin],
     ) -> None:
         """把产物地址下载到 ``output_path``，体积超过 ``max_bytes`` 即中止。"""
-        # 与已携带凭证访问过的某个源同源，才按 auth 节渲染凭证；其余（对象存储 / CDN 的
-        # 签名 URL）裸请求——附带凭证会破坏签名、并把 query 凭证写进第三方访问日志。
-        # 凭证的作用域取产物地址自身的源，一路带到重定向跟随处，换源即卸。
         credential_origin = url_origin(url)
         rendered = (
             self._render({"method": "GET", "url": url}, context) if credential_origin in trusted_origins else None
@@ -766,7 +741,6 @@ class DeclarativeJobEngine[StateT: JobState]:
             raise
         except Exception as exc:
             raise DeclarativeRuntimeError("artifact_download_failed", detail=str(exc)) from exc
-        # 重封装在下载预算之外进行，不让它的耗时把已下载成功的产物拖成下载超时
         await faststart_video_artifact(output_path)
 
 
@@ -811,7 +785,6 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
-        # 延迟导入：能力合成模块经 endpoints.py 反向依赖本模块，模块级导入会成环。
         from lib.custom_provider.capabilities import video_capabilities_from_definition
 
         return video_capabilities_from_definition(self._definition)
@@ -832,8 +805,6 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         context = await asyncio.to_thread(self._request_context, request, require_declared_inputs=True)
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             job_id = await self._engine.submit(client, context, _job_call(request))
-            # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
-            # 把一笔已付费的任务误判成过期丢掉。
             await self._persist_provider_job_id(
                 request, job_id, provider=self._provider, endpoint=self._engine.base_url
             )

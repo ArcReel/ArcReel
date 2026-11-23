@@ -25,9 +25,6 @@ from lib.episode.episode_target_duration import project_episode_target_duration
 from lib.infra.text_metrics import reading_unit_noun
 from lib.speech.speech_rate import project_speech_rate_override, speech_rate_units_per_second
 
-#: 每集目标体量在 ``project.json`` 的顶层字段名（阅读单位，按 ``source_language`` 解读）。
-#: 该字段名同时写死在 ``manage-project`` skill 的 ``patch_project`` 白名单说明里（机器契约），
-#: 由镜像测试防漂移。
 EPISODE_TARGET_UNITS_FIELD: str = "episode_target_units"
 
 

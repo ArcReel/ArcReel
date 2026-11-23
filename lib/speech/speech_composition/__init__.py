@@ -210,8 +210,6 @@ class SpeechComposition:
         return SpeechPreparation(snapshot.unit_id, mode, tuple(utterances), tuple(problems))
 
 
-#: 说话人位为空的台词（``@[ ]：{台词}``）。发声记号的说话人位必须非空，这一形态因此不成记号、
-#: 整段留在描述残余里；在此单独识别，让准入报「没指定说话人」而不是笼统的解析失败。
 _EMPTY_SPEAKER_LINE = re.compile(r"^\s*@\[\s*\]\s*[:：]\s*\{([^{}]+)\}\s*$")
 _MISSING = object()
 
@@ -296,9 +294,6 @@ def _append_video_prompt_dialogue(
     video_prompt: object,
 ) -> None:
     if isinstance(video_prompt, str) or video_prompt is None:
-        # 存量 narration / ad 允许直接存供应商 prompt 字符串；机械转换后的条目在补写前为 None
-        # （待生成）。两种形状都没有可解析的结构化角色台词，发声仍只取各自的
-        # novel_text / voiceover_text。
         return
     if not isinstance(video_prompt, Mapping):
         problems.append(_parse_problem(unit_id, SpeechFieldLocation(("video_prompt",))))
@@ -381,8 +376,6 @@ def adapt_drama_scene(scene: Mapping[str, object]) -> SpeechUnitSnapshot:
                 speaker_location=SpeechFieldLocation(("utterances", index, "speaker")),
             )
     elif raw_entries is _MISSING:
-        # load_script 返回的存量 drama JSON 不经过 Pydantic 读时迁移；与 DramaScene 的兼容
-        # 语义一致，从旧 video_prompt.dialogue + voiceover 读取，但位置仍指向真实旧字段。
         video_prompt = legacy_video_prompt
         dialogue = video_prompt.get("dialogue") if isinstance(video_prompt, Mapping) else None
         if isinstance(dialogue, list):

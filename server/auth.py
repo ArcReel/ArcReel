@@ -51,8 +51,6 @@ TOKEN_EXPIRY_SECONDS = 7 * 24 * 3600
 
 _ANONYMOUS_USER_SUB = "local"
 
-# 视为"关闭认证"的 env 取值。空串不在内 —— .env 误写 `AUTH_ENABLED=` 应回退到默认（开启），
-# 避免静默 fail-open。
 _AUTH_DISABLED_VALUES = frozenset({"false", "0", "no", "off"})
 
 
@@ -343,9 +341,6 @@ def ensure_auth_password(env_path: str | None = None) -> str:
 API_KEY_PREFIX = "arc-"
 API_KEY_CACHE_TTL = 300
 
-# LRU 缓存：key_hash → (payload_dict | None, expires_at_timestamp)
-# payload 为 None 表示 key 不存在或已过期（负缓存）
-# 使用 OrderedDict 实现 LRU：命中时 move_to_end，淘汰时 popitem(last=False)
 _api_key_cache: OrderedDict[str, tuple[dict | None, float]] = OrderedDict()
 _API_KEY_CACHE_MAX = 512
 
@@ -426,7 +421,6 @@ async def verify_api_key(token: str) -> dict | None:
             if datetime.now(UTC) >= exp_dt:
                 _set_api_key_cache(key_hash, None)
                 return None
-            # 将过期时刻转换为 monotonic 时间戳，供缓存 TTL 上界计算
             remaining_secs = (exp_dt - datetime.now(UTC)).total_seconds()
             expires_at_monotonic = time.monotonic() + remaining_secs
         except (ValueError, TypeError):
@@ -435,7 +429,6 @@ async def verify_api_key(token: str) -> dict | None:
     payload = {"sub": f"apikey:{row['name']}", "via": "apikey"}
     _set_api_key_cache(key_hash, payload, expires_at_ts=expires_at_monotonic)
 
-    # 异步更新 last_used_at（不阻塞，保存引用防止 GC）
     import asyncio
 
     async def _touch():
@@ -507,7 +500,6 @@ async def get_current_user(
 
 CurrentUser = Annotated[CurrentUserInfo, Depends(get_current_user)]
 
-#: 内嵌 Agent 调用本地服务所用令牌的 sub（见 ``server/agent_runtime/options_assembler.py``）。
 EMBEDDED_AGENT_SUB = "embedded-agent"
 
 

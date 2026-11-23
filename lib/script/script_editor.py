@@ -77,36 +77,25 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
     if not parts or any(not p for p in parts):
         raise ScriptEditError(f"非法字段路径: {field_path!r}")
     if parts[0] == "generated_assets":
-        # patch 是纯字段 setter，资产生命周期与剧本编辑解耦（见 ADR-0003）。
         raise ScriptEditError("patch_episode_script 不可改 generated_assets；资产的生成/重生是独立的显式动作")
     if parts[0] == "needs_replan":
         raise ScriptEditError("patch_episode_script 不可直接改重规划标记；修改 unit 规划内容后由系统重算")
     if parts[0] == PENDING_AUTHORING_FIELD:
-        # 待编写标记随视觉层是否写齐变化；放行 patch 会让缺视觉层的条目被伪装成已编写。
         raise ScriptEditError(
             f"patch_episode_script 不可改 {PENDING_AUTHORING_FIELD}；它由新增条目置位，写齐视觉层或提示词编写写回时清除"
         )
     if parts[0] == "end_frame_image":
-        # 尾帧字段的值是本服务写出的快照相对路径，只由尾帧设置/清除端点写入。放行 patch
-        # 会让原样写入的任意字符串绕过快照复制，重新引入悬空引用与越界路径。
         raise ScriptEditError("patch_episode_script 不可改 end_frame_image；尾帧的设置/清除是独立的显式动作")
     if value is None and parts in (["image_prompt"], ["video_prompt"]):
-        # 提示词的 None 是「待生成」态，只由脚本规划机械转换写入；剧本模型接受 None 后，
-        # 这里是 patch 把已有提示词清空的唯一关口。要重写提示词就给新值，要让模型补写走
-        # generate_episode_script(entry_ids=…)。
         raise ScriptEditError(
             f"patch_episode_script 不可把 {parts[0]} 清成 null；待生成态只由脚本规划机械转换写入，"
             "要重写请给出新的提示词"
         )
     if parts[0] in {"segment_id", "scene_id", "unit_id", "shot_id"}:
-        # patch 不可改分镜 id：id 由 insert/split 分配，结构校验不查 id 唯一性，
-        # Agent 改 id 后会让其他依赖 id 定位的 helper（update_scene_asset 等）回写到错误分镜
-        # 或产生重复 id 歧义。增减分镜走 patch_episode_script 的 insert / split / remove operation。
         raise ScriptEditError(
             f"patch_episode_script 不可改分镜 id 字段 ({parts[0]})；id 由 insert/split 分配，不允许直接修改"
         )
     cur: Any = obj
-    # 三类异常分别报告，让 Agent 错误信息更精确（拼写错误 vs 类型错误 vs 中间节点不存在）。
     for p in parts[:-1]:
         if not isinstance(cur, dict):
             raise ScriptEditError(f"父节点非对象 (类型 {type(cur).__name__}): {field_path!r}")
@@ -117,11 +106,6 @@ def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
         cur = cur[p]
     if not isinstance(cur, dict):
         raise ScriptEditError(f"父节点非对象: {field_path!r}")
-    # 叶子(最后一段)允许不存在:LLM 漏写的 optional 字段(video_prompt.dialogue / note 等
-    # 在 Pydantic 模型里有 default 或 default_factory,JSON 序列化时可能被省略)Agent 应能补,
-    # 而不是被迫走 remove+insert 重生整个分镜。父节点(中间路径段)不存在仍 fail-loud——那是
-    # 真的拼写错误(如 image_prompt.scen 应为 image_prompt.scene),不该在 dict 上凭空新建
-    # 中间节点。结构上的错误最终由写盘统一入口的「不更坏」结构校验兜住。
     cur[parts[-1]] = value
 
 
@@ -180,7 +164,6 @@ def insert_segment(
     item = deepcopy(new_item)
     item[id_field] = new_item_id(script, floor=floor)
     item["generated_assets"] = {}
-    # 尾帧快照按分镜 id 命名，新 id 名下还没有快照；Agent 自带的值只会指向别人的快照或空路径。
     item.pop("end_frame_image", None)
     items.insert(idx + 1, item)
     return script
@@ -233,15 +216,9 @@ def split_segment(
         part = deepcopy(raw)
         if offset == 0:
             part[id_field] = str(item_id)
-            # 锚点延续:保留原分镜的 generated_assets(若 Agent 在 parts[0] 自带了
-            # generated_assets,以原分镜实际值为准,不让 Agent 凭空写资产路径)。
             if isinstance(anchor_assets, dict):
                 part["generated_assets"] = deepcopy(anchor_assets)
             else:
-                # 锚点 generated_assets 形态异常(非 dict,如 list/str 等脏数据)→ 退化为空 dict。
-                # Agent 在 parts[0] 自带的 generated_assets(deepcopy(raw) 已拷入 part)也会被这里
-                # 覆盖丢弃。warning 让运维知道,符合 ADR-0003 增补「禁止零信号成功」原则。
-                # anchor_assets is None 视为"原本就没有"正常态,不 warn。
                 if anchor_assets is not None:
                     logger.warning(
                         "split_segment: 锚点 %r generated_assets 形态异常(%s),退化为空 dict",
@@ -249,7 +226,6 @@ def split_segment(
                         type(anchor_assets).__name__,
                     )
                 part["generated_assets"] = {}
-            # 尾帧同锚点延续：以原分镜实际值为准，不让 Agent 在 parts[0] 凭空改写快照路径。
             if anchor_end_frame is None:
                 part.pop("end_frame_image", None)
             else:
@@ -257,7 +233,6 @@ def split_segment(
         else:
             part[id_field] = next(fresh_ids)
             part["generated_assets"] = {}
-            # 新 id 名下没有快照，Agent 自带的值只会指向锚点的快照。
             part.pop("end_frame_image", None)
         new_parts.append(part)
 

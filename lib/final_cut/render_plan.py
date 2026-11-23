@@ -249,7 +249,6 @@ def _join(previous: PlannedClip, following: PlannedClip, profile: OutputProfile)
             replace(previous, fade_out=Fade(min(before, previous.frames), preset.fade_color)),
             replace(following, fade_in=Fade(min(after, following.frames), preset.fade_color)),
         )
-    # 带定格延长的片段以静帧收尾，转场窗口里延续这一静帧。
     tail_us = 0 if previous.hold_frames else previous.clip.media_duration_us - previous.clip.source_out_us
     return (
         replace(previous, trail=borrow_frames(after, tail_us, profile.fps)),

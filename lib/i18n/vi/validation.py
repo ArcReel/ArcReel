@@ -444,7 +444,6 @@ MESSAGES = {
     "val_market_cli_check_failed": "Kiểm tra nguồn chợ không đạt: {count} vấn đề",
     "val_market_cli_generate_written": "Đã ghi {path} ({count} mục)",
     "val_market_cli_generate_failed": "Không tạo được chỉ mục: {count} vấn đề",
-    # Draft diagnostics; Agent reports retain their original messages.
     "draft_violation_source_text_empty": "{label}: source_text trống. Sao chép đoạn văn gốc cho đơn vị video này.",
     "draft_violation_source_text_not_verbatim": "{label}: source_text không khớp nguyên văn: {excerpt}. Sao chép nguyên văn, không viết lại hoặc dịch.",
     "draft_violation_fullwidth_braces": "{label}: có dấu ngoặc nhọn toàn chiều rộng trong {excerpt}. Dùng ngoặc nhọn ASCII cho thoại và lời ngoài hình.",
@@ -468,7 +467,6 @@ MESSAGES = {
     "draft_violation_blank_novel_text": "{label}: novel_text trống. Mỗi cảnh phải có lời dẫn sao chép nguyên văn từ bản gốc.",
     "draft_violation_novel_text_coverage": "novel_text các cảnh không bao phủ nguyên văn đầy đủ và đúng thứ tự. Nguồn: {source}. Sao chép và nối theo thứ tự; nếu phạm vi nguồn của bản nháp sai, hãy cập nhật trước.",
     "draft_violation_schema_invalid": "{path} của bản nháp không đúng cấu trúc đầu ra: {detail}. Kiểm tra trường bắt buộc, kiểu và giá trị.",
-    # Draft schema reasons by pydantic error type, rendered into draft_violation_schema_invalid's {detail}.
     "draft_schema_narration_dialogue_forbidden": "phân đoạn thuyết minh không được chứa lời thoại; thuật lại lời nhân vật trong nội dung thuyết minh",
     "draft_schema_dialogue_speaker_required": "lượt lời dialogue phải có speaker không trống",
     "draft_schema_voiceover_speaker_forbidden": "lượt lời voiceover không được có speaker",

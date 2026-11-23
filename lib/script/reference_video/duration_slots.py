@@ -15,8 +15,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-# 取档相对请求时长基准的偏移方向。前端 `types/reference-video.ts` 的字面量联合与此对齐，
-# 用 Literal 而非裸 str 让类型检查兜住 `warning()` 与预检响应里的分支判等。
 Adjustment = Literal["exact", "up", "down", "unconstrained"]
 
 EXACT: Adjustment = "exact"
@@ -77,8 +75,6 @@ def resolve_duration_slot(total_seconds: int | float, supported_durations: Seque
     return DurationSlot(seconds=chosen, total_seconds=total_seconds, adjustment=adjustment)
 
 
-#: 共享时长投影给出的问题类别。调用方按自己的信封映射成 problem code：类别是判定，
-#: code 与文案属各路线的对外契约。
 DurationProblem = Literal[
     "supported_durations_missing",
     "needs_replan",

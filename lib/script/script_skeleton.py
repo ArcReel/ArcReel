@@ -34,8 +34,6 @@ logger = logging.getLogger(__name__)
 
 STORYBOARD_ITEM_ID_PATTERN = re.compile(r"^E\d+S\d+(?:_\d+)?$")
 
-# 集号前缀：仅匹配 `E{数字}` + 紧随 S/U（segment/scene 用 S，video_unit 用 U），
-# 保留后缀（如 `E1S03_2` → `E2S03_2`）。设计契约见 lib/script/script_models.py。
 _EPISODE_PREFIX_RE = re.compile(r"^E\d+(?=[SU])")
 
 
@@ -73,9 +71,6 @@ SKELETONS: dict[str, Skeleton] = {
     "video_units": Skeleton("unit_id", None),
 }
 
-# 条目标签的 i18n key 按骨架种类派生——驱动分镜级事件与任务完成事件共用的通知文案
-# （如「分镜「E1S01」」）。文案本身按语言存放在 lib/i18n 的 ``event_label_*``，此处只登记
-# 稳定标识。两套事件路径必须读同一张表，不各自维护一份。
 SKELETON_ITEM_LABEL_KEYS: dict[str, str] = {
     "segments": "skeleton_segments",
     "scenes": "skeleton_scenes",
@@ -83,9 +78,6 @@ SKELETON_ITEM_LABEL_KEYS: dict[str, str] = {
     "video_units": "skeleton_video_units",
 }
 
-# 事件的实体类型按骨架种类推导，与 ``SKELETON_ITEM_LABEL_KEYS`` 同源。驱动前端分组标签映射
-# （``ENTITY_LABELS``）：三种分镜骨架统一显示「分镜」，参考生视频骨架显示「视频单元」。取值与既有
-# ``entity_type`` 枚举不冲突（drama 用 ``drama_scene`` 避免与命名实体 ``scene`` 撞组）。
 SKELETON_ENTITY_TYPES: dict[str, str] = {
     "segments": "segment",
     "scenes": "drama_scene",
@@ -93,9 +85,6 @@ SKELETON_ENTITY_TYPES: dict[str, str] = {
     "video_units": "reference_unit",
 }
 
-# 事件的锚点类型按骨架种类推导，取值与前端各画布的滚动目标类型守卫对齐：video_units 归
-# ``reference_unit``（参考生视频画布按此选中并高亮对应视频单元），其余归 ``segment``
-# （narration/drama/ad 共用时间线分镜视图，按 id 选中条目）。
 SKELETON_ANCHOR_TYPES: dict[str, str] = {
     "segments": "segment",
     "scenes": "segment",
@@ -112,7 +101,6 @@ def _validate_registry() -> None:
     for kind, skeleton in SKELETONS.items():
         if not skeleton.id_field:
             raise RuntimeError(f"SKELETONS[{kind!r}].id_field 非法：{skeleton.id_field!r}")
-        # chars_field 为 None 合法（video_units 显式缺位）；空串非法。
         if skeleton.chars_field is not None and not skeleton.chars_field:
             raise RuntimeError(f"SKELETONS[{kind!r}].chars_field 非法：{skeleton.chars_field!r}")
     for name, table in (
@@ -178,8 +166,6 @@ def resolve_script_kind(script: dict[str, Any]) -> str:
     if content_mode == "drama":
         return "scenes"
     if content_mode == "narration":
-        # 畸形脚本兼容：content_mode=narration 但数据实际落在 scenes 键下（无 segments 键）的
-        # 历史遗留状态——回退去读 scenes，而非按 content_mode 字面映射到不存在的 segments。
         if "segments" not in script and "scenes" in script:
             return "scenes"
         return "segments"
@@ -207,9 +193,6 @@ def resolve_kind_items(script: dict[str, Any], *, kind: str | None = None) -> tu
     return script.get(resolved_kind), SKELETONS[resolved_kind].id_field, resolved_kind
 
 
-# 生成模式要求的骨架族：参考生视频要 ``video_units``，其余模式要分镜族骨架
-# （``segments`` / ``scenes`` / ``shots``）。族内差异（如 narration 数据落 ``scenes`` 键的历史
-# 形态）不构成失配，只有跨族才是——跨族意味着生成侧要读的数组根本不在剧本里。
 _REFERENCE_ROUTE_SKELETON = "video_units"
 _STORYBOARD_ROUTE_SKELETONS = ("segments", "scenes", "shots")
 

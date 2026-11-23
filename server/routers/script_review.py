@@ -59,7 +59,6 @@ def _attach_overwrite_text(state: dict, _t: Translator) -> dict:
     return state
 
 
-#: 结构校验原因的文案 key 前缀，后接 pydantic 错误类型码或本仓的形状码。
 _SCHEMA_ERROR_MESSAGE_PREFIX = "draft_schema_"
 
 
@@ -219,7 +218,6 @@ async def confirm_script_review(
     """
     try:
         service = ScriptReviewService(get_project_manager())
-        # 确认会写正式脚本并登记新资产；不标来源时变更按 filesystem 广播，前端当作外部改动跳到资产窗格。
         with project_change_source("webui"):
             state = await service.confirm(
                 project_name, episode, overwrite_revision=req.overwrite_revision if req is not None else None

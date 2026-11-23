@@ -53,11 +53,6 @@ from lib.project.project_activity import record_project_activity
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.script.draft_violation import DraftViolation, render_violation_report
 
-#: 草稿的产出来源。``content`` 与该来源那一步的模型输出 schema 同形：参考生视频 script_plan 是
-#: ``{units: [{duration_seconds, source_text, text}]}``、prompt_authoring 是 ``{title, units: [{text}]}``，
-#: drama script_plan 是 ``{title, scenes: [...]}``（即 ``DramaNormalizedScript`` 去掉机器派生的
-#: ``needs_replan``），narration script_plan 是 ``{segments: [...]}``（即 ``NarrationScriptPlanDraft``，
-#: 该变体没有机器派生字段，草稿层与落盘层同形）。
 QUARANTINE_KIND_SCRIPT_PLAN = "reference_video_script_plan"
 QUARANTINE_KIND_PROMPT_AUTHORING = "reference_video_prompt_authoring"
 QUARANTINE_KIND_DRAMA_SCRIPT_PLAN = "drama_script_plan"
@@ -70,13 +65,8 @@ _QUARANTINE_FILENAMES: dict[str, str] = {
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN: NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
 }
 
-#: 全部草稿文件名，供不关心 kind、只需按文件名定位草稿的消费方取用（如资产级联重命名的
-#: 改写清单）。从上表派生而非另列一份：新增一种来源只在上表加一行，漏登记会让草稿在改写清单
-#: 外静默漂移——草稿承载引用数组与 ``@[名称]`` 正文，漏改后晋升会卡在「引用未登记」上。
 QUARANTINE_FILENAMES: frozenset[str] = frozenset(_QUARANTINE_FILENAMES.values())
 
-#: 报告里「改哪个字段」的指引按来源分流：草稿正文的形状各不相同，指引落到不存在的字段名
-#: 会把 Agent 引到它改不动的地方。与文件名同表登记，新增一种来源只在本模块加一行。
 _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
     QUARANTINE_KIND_SCRIPT_PLAN: (
         "script_plan 拆分",
@@ -94,22 +84,14 @@ _QUARANTINE_REPORT_HINTS: dict[str, tuple[str, str]] = {
     ),
 }
 
-#: 本代码写出的隔离草稿信封版本，落在 ``meta.schema_version``。改动任一现有 ``meta`` 键的语义
-#: 时递增它，届时读侧才有据可依地分辨新旧草稿；只加键、不改既有键语义则不必动。
 QUARANTINE_SCHEMA_VERSION = 1
 
 _SCHEMA_VERSION_KEY = "schema_version"
 
-#: 晋升工具名。报告里的处置指引要指名它，写死在这里而非各调用点各写一遍。
 PROMOTE_TOOL_NAME = "promote_draft"
 
-#: 取回正式 script_plan 供编辑的工具名。正式 script_plan 与 Web 端保存、迁移、重拆分共享一把 per-path 锁，
-#: Agent 的 Write/Edit 在沙箱内跑、取不到这把锁，故对它的修改一律改走「取回草稿 → 改 → 晋升」：
-#: 写盘只发生在晋升侧，与另三条路径同一把锁。写禁策略的拒绝消息也要指名它，故同样收在这里。
 OPEN_DRAFT_TOOL_NAME = "open_draft"
 
-#: 草稿 meta 标记：这份草稿是 Agent 经 ``open_draft`` 从正式内容取回的可编辑草稿，不是生成留下的待修复
-#: 草稿。已确认的脚本规划只读，编辑副本的修改与晋升按它拒绝；Web 只展示可编辑草稿的状态、不展示内容。
 FORMAL_EDIT_META_KEY = "formal_edit"
 
 DRAFT_OWNER_USER = "user"
@@ -404,7 +386,6 @@ def quarantine_and_report(
     出现「报告说去改某个文件、而那个文件没被写出来」的分叉。
     """
     path = write_quarantine(project_path, episode, kind, content=content, violations=violations, meta=meta)
-    # 报告会原样回给（可能在远程的）Agent：草稿只按项目内相对路径指名，不外泄服务端目录布局。
     return render_report(path.relative_to(project_path), kind, violations, episode=episode)
 
 

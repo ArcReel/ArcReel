@@ -35,7 +35,6 @@ from lib.custom_provider.declarative_image_backend import ImageJobState, decode_
 
 from .errors import EndpointTestDefinitionError
 
-#: 可验证的三节。``result`` 只有定义声明了二次取件节时才存在。
 STAGES = ("submit", "poll", "result")
 
 _STATE_READERS: dict[str, StateReader[Any]] = {
@@ -74,7 +73,6 @@ class StageReport:
     status: str | None
     video_url: str | None
     image_url: str | None
-    #: 按 ``image_b64`` 取到的图片解码后的字节数；没取到或解不出图片为 ``None``。
     image_bytes: int | None
     error: str | None
     result_id: str | None
@@ -103,8 +101,6 @@ def check_response(definition: Mapping[str, Any], stage: str, response_body: obj
     extract = section["extract"]
     fields = tuple(_field_reports(extract, response_body))
     values = {field.key: field.value for field in fields}
-    # 提交节没有状态可读：任何 2xx 都算提交成功，判据是能不能取到 task_id。二次取件节则由运行时
-    # 按「已成功」读——那一节只在轮询判成功之后才发得出去。
     try:
         state = _runtime_state(definition, stage, extract, response_body)
     except DeclarativeRuntimeError as exc:
@@ -220,7 +216,6 @@ def _field_report(key: str, spec: object, body: object) -> FieldExtraction:
     value: object | None = None
     for item in paths:
         try:
-            # 逐条走同一个 extract_value：优先级语义、json_decode 后缀与 accept 过滤都只有一份实现。
             hit = extract_value({"paths": [item], "accept": accept}, body)
         except JsonPathEvaluationError as exc:
             raise EndpointTestDefinitionError.from_render_failure(key, exc) from exc

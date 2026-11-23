@@ -63,8 +63,6 @@ async def assemble_backend(
     if is_custom_provider(provider_id):
         from lib.custom_provider.loader import load_custom_backend
 
-        # 借 resolver 的 session（bound 时复用其事务上下文）：自定义装载与简单族装载共用同一
-        # session_factory，调用方在 resolver.session() 内构造时复用同一连接，避免另开 factory。
         async with resolver._open_session() as (session, _):
             return await load_custom_backend(
                 session=session,
@@ -76,7 +74,6 @@ async def assemble_backend(
             )
     get_provider_endpoints(provider_id, media_type)
     model_id = await _callable_builtin_model(provider_id, media_type, model_id, resolver, submitted_job=submitted_job)
-    # 先定下供应商模型挂接的内置调用端点，再由端点构造：供应商给凭证，端点决定请求
     endpoint = builtin_endpoint or builtin_model_endpoint(provider_id, media_type, model_id)
     spec = PROVIDER_ENDPOINT_SPECS[(provider_id, endpoint)]
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
@@ -176,7 +173,6 @@ def _with_model_entry(backend: Any, provider_id: str, model_id: str) -> Any:
 class OutputLimitFacts:
     """模型在请求输出上限与截断出路上需要的事实。"""
 
-    #: 模型登记的最大输出长度（单位 token）；未登记时 None。
     registered_max_output_tokens: int | None
     custom_model: bool
 

@@ -47,12 +47,8 @@ from server.media_tools.context import (
 from server.services.tasks.image_edit_tasks import EDITABLE_RESOURCE_TYPES, resolve_usable_image_edit_source
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest, submit_media_generation
 
-# 编辑始终是显式选择：一次编辑必须携带自己的指令，没有可由 Manifest 推导的
-# "缺失的编辑"，因此本工具不提供 missing-only 选择。
 _OPERATION = "edit_images"
 
-# Display label for tool output only; storyboard isn't an ASSET_SPECS member so this
-# can't reuse that dict directly (mirrors assets._EMOJI's separate table).
 _LABEL_ZH: dict[str, str] = {
     "character": "角色",
     "scene": "场景",
@@ -82,8 +78,6 @@ async def _i2i_unavailable_problem(
             code=exc.code, detail=str(exc), action=GenerationAction.CONFIGURE_PROVIDER, params=dict(exc.params)
         )
     except ValueError:
-        # 复用 lib.generation.task_failure 已登记的 i2i 缺能力码（同一失败在
-        # HTTP 端点的执行期路径下就是这个码），不新造未登记码。
         return GenerationProblem(
             code="image_capability_missing_i2i",
             detail="当前项目图片供应商不支持图生图（i2i），无法执行编辑；请提示用户前往设置更换支持 i2i 的供应商",
@@ -161,8 +155,6 @@ def _build_specs(
             )
             continue
         except ArtifactManifestError as exc:
-            # Manifest 判定本条编辑的产物状态时 fail-loud：这是单条编辑自己的问题，
-            # 不该把整批已经算出的其它 ID 结果一起吞进 handler 级文本错误。
             builder.block(
                 resource_id,
                 problem=GenerationProblem(
@@ -265,9 +257,6 @@ async def edit_images(
 
         i2i_problem = await _i2i_unavailable_problem(project, config_resolver=services.capabilities)
         if i2i_problem is not None:
-            # 拦截在入队前：不是某个 ID 的产物问题，是整批共享的前置条件不满足，
-            # 但调用方仍按逐 ID 契约读结果，因此每个请求到的 ID 各记一条 blocked，
-            # 而不是只回一段无法编程消费的文本。
             seen: set[str] = set()
             for edit in edits:
                 resource_id = edit.id.strip()
@@ -308,9 +297,6 @@ async def edit_images(
         if submitted.successes is None or submitted.failures is None:
             return generation_batch_submission_outcome(submitted.batch)
         if specs:
-            # 编辑产物不写回 Manifest（编辑意图不可推导，见模块顶部说明），
-            # 因此这里不带 resolver：产物时效轴如实留空而不是假装已知。states 只
-            # 用来在失败时把未被触碰的编辑源图路径带回结果，不参与时效判断。
             record_batch_outcomes(
                 builder,
                 successes=submitted.successes,

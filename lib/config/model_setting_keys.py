@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-#: 全局 system_settings 与项目 project.json 同名的文本 backend 字段。
 TEXT_BACKEND_SETTING_KEYS: tuple[str, ...] = (
     "default_text_backend",
     "text_backend_simple",
@@ -31,7 +30,6 @@ PROJECT_MODEL_SETTING_KEYS: tuple[str, ...] = (
     "audio_backend",
 )
 
-#: 引用模型的设置字段（全局与项目）→ 所引模型的媒体类型。写入时据此校验模型的媒体类型，读出引用时据此对应条目。
 MODEL_SETTING_MEDIA_TYPES: dict[str, str] = {
     "video_backend": "video",
     "video_provider_i2v": "video",

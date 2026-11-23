@@ -60,7 +60,6 @@ class SourceLoader:
             if not candidate_norm.exists() and not candidate_raw.exists():
                 return True, candidate_stem
             idx += 1
-        # 理论上不可达（用户需在 dst 造 10k 同 stem 文件）。明确抛错而非静默死循环。
         raise ConflictError(
             existing=f"{stem}.txt",
             suggested_name=f"{stem}_{_MAX_CONFLICT_ITER}",
@@ -140,8 +139,6 @@ class SourceLoader:
             if on_conflict == "rename":
                 target_stem = suggested_stem
                 effective_filename = f"{suggested_stem}{ext}"
-            # on_conflict == "replace" → 沿用原 stem，覆盖。旧文件与同主干的原始上传件由调用方先移入项目回收站
-            # （lib.episode.source_trash），否则「下载原始格式」会指向被覆盖前的内容。
 
         extracted = _EXTRACTORS[ext]().extract(src)
         normalized_path = safe_join(dst_dir, f"{target_stem}.txt")
@@ -158,7 +155,6 @@ class SourceLoader:
                 effective_filename=effective_filename,
             )
         except Exception:
-            # raw 备份失败：回滚已写入的 normalized，避免孤儿文件误导后续 detect_conflict
             # hard-delete: rollback -- 原始上传件备份失败时移除目标路径的规范化文本；replace 时被覆盖的旧内容不会恢复
             normalized_path.unlink(missing_ok=True)
             raise
@@ -180,9 +176,6 @@ class SourceLoader:
         dst_dir: Path,
         effective_filename: str,
     ) -> Path | None:
-        # 仅当 normalized .txt 与原始字节等价时跳过备份（纯 UTF-8 无 BOM）。
-        # 任何编码转换（BOM 剥离、GBK→UTF-8、docx/epub/pdf 解析）都视为 lossy，
-        # 需保留 raw 以支持前端"下载原始格式"按钮与 QA 回放。
         if ext in {".txt", ".md"} and extracted.used_encoding == "utf-8":
             return None
         raw_dir = safe_join(dst_dir, "raw")

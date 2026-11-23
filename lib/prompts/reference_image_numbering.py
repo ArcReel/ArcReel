@@ -21,14 +21,12 @@ from lib.backends.image_errors import ImageCapabilityError
 from lib.project.asset_types import asset_name_comparison_key
 from lib.script.reference_video.text_parser import render_mentions
 
-#: 类型声明行的 YAML 键，插在 ``Style`` 与 ``Scene`` 之间。
 REFERENCE_IMAGES_KEY = "Reference_Images"
 
 PREVIOUS_STORYBOARD_ROLE = "previous_storyboard"
 
 PREVIOUS_STORYBOARD_REFERENCE_DESCRIPTION = "只参考构图与色调"
 
-#: 按资产类型的类型说明；商品条目并入保真要求。
 _TYPE_DESCRIPTIONS: dict[str, str] = {
     "product": "商品参考图，画面中的商品须与之完全一致",
     "character": "角色参考图",
@@ -93,7 +91,6 @@ def require_reference_image_limit(
         model=model,
         count=len(references),
         limit=max_reference_images,
-        # 一个资产可能贡献多张图片，超出的参考按资产名列一次。
         names=", ".join(dict.fromkeys(names)),
         **previous,
     )

@@ -64,9 +64,7 @@ EntryService = Annotated[MarketEntryService, Depends(get_market_entry_service)]
 AppVersionReader = Annotated[Callable[[], str], Depends(get_app_version_reader)]
 OfficialService = Annotated[OfficialServiceGateway, Depends(get_official_service_gateway)]
 
-#: icon 地址由前端带上条目版本作查询参数，版本变了地址就变，故浏览器可缓存较久。
 ICON_CACHE_CONTROL = "private, max-age=86400"
-#: SVG 可内嵌脚本：直接打开 icon 地址时也不让它执行、不让它加载外部资源。
 ICON_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
 _MISSING_KEYS = {
@@ -102,9 +100,7 @@ class MarketSourceResponse(BaseModel):
     fetched_at: str | None
     created_at: str | None
     updated_at: str | None
-    #: 快照中本客户端认识的条目数（未知 ``type`` 不计）。
     entry_count: int
-    #: 快照索引的顶层信息；从未成功抓取时为 null。
     index: MarketIndexSummary | None
 
 
@@ -124,10 +120,8 @@ class MarketEntryResponse(BaseModel):
     media_type: str
     description: str | None
     homepage: str | None
-    #: 索引里的 icon 相对路径；非 null 时经 ``/market/sources/{id}/entries/{slug}/icon`` 取图。
     icon: str | None
     min_app_version: str | None
-    #: 当前应用版本满足 ``min_app_version``；无要求或读不到应用版本时为 true。
     min_app_version_satisfied: bool
     installation: EntryInstallationResponse | None = None
 
@@ -151,10 +145,8 @@ class MarketEntrySourceSummary(BaseModel):
 class MarketEntryAggregateResponse(BaseModel):
     source_id: int
     slug: str
-    #: 官方服务取整后的展示值，原样展示。
     installs: int
     rating_count: int
-    #: 评分人数不足官方服务的阈值时为 null，只展示人数。
     rating_average: float | None
 
 
@@ -173,10 +165,8 @@ class MarketEntryDetailResponse(BaseModel):
 
 
 class MarketEntryDefinitionResponse(BaseModel):
-    #: 市场源里的定义文件按 JSON 解析后的原文，未经定义校验。
     definition: Any
     entry_matches_definition: bool
-    #: 定义是 JSON 对象时的摘要；安装时须原样带回，证明确认的就是这份定义。
     definition_digest: str | None
 
 
@@ -522,7 +512,6 @@ async def get_entry_icon(source_id: int, slug: str, service: EntryService) -> Re
 
 
 class InstallMarketEntryRequest(BaseModel):
-    #: 确认页展示的定义摘要。安装时重新抓取，内容与用户核对过的不同即拒装。
     definition_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     overwrite_endpoint_id: int | None = Field(default=None, gt=0)
 

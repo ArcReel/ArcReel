@@ -83,7 +83,6 @@ class _Unset(Enum):
     UNSET = "unset"
 
 
-#: ``edited_entry`` 的 ``price`` 缺省值：不改价目表。``None`` 是有意义的取值（清除价目表）。
 UNSET: Final = _Unset.UNSET
 
 

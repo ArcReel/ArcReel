@@ -18,10 +18,8 @@ if TYPE_CHECKING:
 
 Tier = Literal["model", "haiku", "sonnet", "opus", "subagent"]
 
-#: 档位的固定顺序：主模型在前。同一模型名出现在几个档位时，取第一个带绑定的档位。
 TIERS: tuple[Tier, ...] = ("model", "haiku", "sonnet", "opus", "subagent")
 
-#: Anthropic 官方预设：留空的档位由 CLI 自行解析，不替用户填成主模型。
 OFFICIAL_PRESET_ID = "anthropic-official"
 
 _CREDENTIAL_FIELDS: Mapping[Tier, str] = {
@@ -32,7 +30,6 @@ _CREDENTIAL_FIELDS: Mapping[Tier, str] = {
     "subagent": "subagent_model",
 }
 
-#: 档位在系统设置里的旧键：凭证上的档位留空时以它兜底（凭证之前的配置方式）。
 TIER_SETTING_KEYS: Mapping[Tier, str] = {
     "model": "anthropic_model",
     "haiku": "anthropic_default_haiku_model",
@@ -70,7 +67,6 @@ class AgentPricing:
 
     credential_id: int | None = None
     multiplier: float = 1.0
-    #: 带绑定的档位，按 :data:`TIERS` 的顺序：（档位实际调用的模型名，条目绑定「模型厂商/官方模型名」）。
     tier_bindings: tuple[tuple[str, str], ...] = ()
 
     def entry_binding_for(self, model: str) -> str | None:
@@ -118,7 +114,6 @@ def tier_statuses(credential: AgentAnthropicCredential, settings: Mapping[str, s
         bound = catalog.find_bound_entry(ref, "text") if ref else None
         stale = bool(ref) and bound is None
         if not name:
-            # 档位留空时绑定不生效，但仍存着：照实报出，用户才清得掉。
             statuses.append(
                 TierStatus(tier, None, None, manually_bound=bound is not None, binding_stale=stale, priced=False)
             )

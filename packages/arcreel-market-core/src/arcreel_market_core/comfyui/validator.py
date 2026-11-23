@@ -33,11 +33,8 @@ from .workflow import is_link, node_inputs
 
 SCHEMA_PATH = Path(__file__).parent / "schema.json"
 
-#: ComfyUI 定义格式自身的版本，与声明式定义的版本线互不相干。
 CURRENT_SCHEMA_VERSION = "1.0.0"
 
-#: 声明式定义有、ComfyUI 定义没有的字段 → 其去处。照声明式的样子写一份 ComfyUI 定义时最容易写出
-#: 这一个，笼统的「不认识的字段」说不清它为什么不在。
 REMOVED_FIELD_REASONS: Mapping[str, str] = {
     "capabilities": "val_ce_removed_reason_comfyui_capabilities",
 }

@@ -60,40 +60,18 @@ def safe_join(
         TypeError: ``parts`` 含非路径类型（如 project.json 里的脏数据）。
     """
     base_real = _realpath(base)
-    # 预先补齐末尾分隔符：base 恰为文件系统根 / Windows 盘符根时 base_real 本身已带
-    # 分隔符（如 "/"、"C:\\"），再拼一次会变成 "//"/"C:\\\\"，导致任何合法子路径都
-    # 无法匹配前缀而被误判越界。
     base_prefix = base_real if base_real.endswith(os.sep) else base_real + os.sep
-    # os.path.join 本身接受 PathLike 参数（内部会调 os.fspath），不需要预先转换；
-    # 额外包一层生成器表达式只会在 CodeQL 的 dataflow 里插入不必要的中间节点。
-    #
-    # parts 来自不可信输入，可能含文件系统非法字符（如内嵌 NUL 字节）：这类值 JSON
-    # 可表达但会让 os.path.realpath 直接抛出原生 ValueError/OSError。调用方普遍只捕获
-    # PathTraversalError，在这里统一转换，避免每个调用点各自补漏、遗漏的会退化成 500。
     try:
         candidate_real = os.path.realpath(os.path.join(base_real, *parts))
     except (OSError, ValueError) as exc:
         raise PathTraversalError(f"路径解析失败：{parts!r}") from exc
 
-    # candidate_real == base_real 单独判支：base 为文件系统根 / 盘符根时
-    # base_prefix == base_real，相等的候选路径也会通过下面的 startswith 分支，
-    # 若把 allow_base 判断合并进该分支会让根目录下的 allow_base=False 被绕过。
     if candidate_real == base_real:
         if not allow_base:
             raise PathTraversalError(f"路径越界：{candidate_real!r} 不在 {base_real!r} 内")
     elif not candidate_real.startswith(base_prefix):
         raise PathTraversalError(f"路径越界：{candidate_real!r} 不在 {base_real!r} 内")
 
-    # is_file/exists 直接查 candidate_real（携带 barrier 的字符串），而不是先包进
-    # Path 再查：Path() 包装同样会打断上面这层识别。
-    #
-    # 下方两处 CodeQL 仍判定为未经校验的 sink，已通过 GitHub code scanning UI
-    # dismiss（false positive，理由见对应 alert 的 dismiss comment，含 PR 链接）：
-    # 越界校验逻辑与本仓库迁移前已被 CodeQL 判定安全的写法（server/app.py
-    # spa_deep_link 的越界校验）同构，防护强度未变，
-    # 且 tests/unit/lib/infra/test_path_safety.py 有专门的路径穿越用例（含符号链接逃逸）锁定；
-    # 本函数自身作为该仓库唯一的越界校验实现，其内部操作的正是未净化的候选路径，
-    # 判定为 CodeQL 对 sanitizer 自身跨分支合流后的 sink 归因存在识别缺口。
     if require_file and not os.path.isfile(candidate_real):
         raise FileNotFoundError(candidate_real)
     if must_exist and not os.path.exists(candidate_real):
@@ -121,7 +99,6 @@ def try_safe_join(
             require_file=require_file,
         )
     except (OSError, ValueError, TypeError):
-        # TypeError：片段来自 project.json 原始字段，脏数据（dict/int）按「不存在」处理
         return None
 
 

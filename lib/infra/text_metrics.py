@@ -18,11 +18,8 @@ from __future__ import annotations
 
 import re
 
-# zh: CJK Unified Ideographs(基本区 + 扩展 A) + CJK 兼容汉字 + CJK 符号与标点 +
-# 全角符号区 + SIP 平面 CJK Ext B-H(罕用 / 古籍 / 人名地名生僻字,U+20000-U+323AF)
 _ZH_UNIT_PATTERN = re.compile("[㐀-鿿豈-﫿　-〿＀-￯𠀀-𲎯]")
 
-# en / vi / ru 等按词计的语言走 unicode word-boundary（\w 在 re.UNICODE 下含拉丁与西里尔字母）
 _LATIN_WORD_PATTERN = re.compile(r"\b\w+\b", re.UNICODE)
 
 

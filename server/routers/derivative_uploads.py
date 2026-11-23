@@ -52,7 +52,6 @@ async def upload_derivative_sheet(
             resolve_derivative_upload_target, get_project_manager(), project_name, char_name, derivative_name
         )
 
-        # 限定读入内存的字节数：Content-Length 缺失或被绕过时不至于 OOM
         content = await file.read(max_bytes + 1)
         if len(content) > max_bytes:
             raise UploadTooLargeError(max_bytes)
@@ -81,6 +80,5 @@ async def upload_derivative_sheet(
     except (HTTPException, ApiError):
         raise
     except Exception as e:
-        # 不回传 str(e)：未预期异常的消息可能含服务器路径等内部细节，堆栈进日志即可
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from e

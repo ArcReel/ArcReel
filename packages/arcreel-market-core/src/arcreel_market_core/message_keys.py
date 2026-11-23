@@ -16,7 +16,6 @@ from arcreel_market_core.market.issues import MarketIssueCode
 from arcreel_market_core.market.issues import message_key as market_message_key
 from arcreel_market_core.validation_messages import LITERAL_KEY
 
-#: 端点定义诊断用到的全部消息键：诊断码、「字段已移除」的去处说明与 jsonschema 约束细节。
 DEFINITION_MESSAGE_KEYS: frozenset[str] = frozenset(
     {definition_message_key(code) for code in DefinitionErrorCode}
     | set(DECLARATIVE_REMOVED_FIELD_REASONS.values())
@@ -24,7 +23,6 @@ DEFINITION_MESSAGE_KEYS: frozenset[str] = frozenset(
     | set(SCHEMA_CONSTRAINT_KEYS)
 )
 
-#: 市场源诊断用到的全部消息键。
 MARKET_MESSAGE_KEYS: frozenset[str] = frozenset(
     {market_message_key(code) for code in MarketIssueCode}
     | {
@@ -36,5 +34,4 @@ MARKET_MESSAGE_KEYS: frozenset[str] = frozenset(
     }
 )
 
-#: 本包能产出的全部消息键，含透传成品文本的 ``LITERAL_KEY``。
 MESSAGE_KEYS: frozenset[str] = DEFINITION_MESSAGE_KEYS | MARKET_MESSAGE_KEYS | {LITERAL_KEY}

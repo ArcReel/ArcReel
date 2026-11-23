@@ -7,11 +7,8 @@ from typing import Any
 
 from .kinds import COMFYUI_KIND, DECLARATIVE_KIND
 
-#: 声明式定义不写 ``media_type`` 时的媒体类型。不写该字段的已有定义与随版定义都是视频定义，
-#: 缺省必须是视频。
 DEFAULT_DECLARATIVE_MEDIA_TYPE = "video"
 
-#: ``kind`` → 从定义读媒体类型。两种 kind 都由定义自己声明，ComfyUI 定义必须写。
 _MEDIA_TYPE_BY_KIND: Mapping[str, Callable[[Mapping[str, Any]], str]] = {
     DECLARATIVE_KIND: lambda definition: str(definition.get("media_type", DEFAULT_DECLARATIVE_MEDIA_TYPE)),
     COMFYUI_KIND: lambda definition: str(definition["media_type"]),

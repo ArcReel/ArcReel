@@ -77,13 +77,9 @@ class ManualSplitError(ValueError):
 class ManualSplitImpact:
     """一次手工切分波及的集（集 ID，按播出顺序）。"""
 
-    #: 原文范围变了且有产物，标 stale。
     restaled: list[int] = field(default_factory=list)
-    #: 被替换下来、有产物，转为无原文的集并标 stale，移到播出顺序末尾。
     retired: list[int] = field(default_factory=list)
-    #: 被替换下来、没有产物，直接移除。
     removed: list[int] = field(default_factory=list)
-    #: 与下一集合并时并入的两集之间未切分原文的体量（阅读单位）；其余命令为 0。
     merged_units: int = 0
 
     @property
@@ -121,16 +117,12 @@ ManualSplitOutcome = ManualSplitResult | ManualSplitConfirmationRequired
 class _Edit:
     """一次手工切分对账本的改动，由落位推出，提交时照此改写。偏移是整本源文的全局位置（见 :class:`_Layout`）。"""
 
-    #: 改动原文范围（有新集或范围变了）时为 True；只移除切分时为 False。
     touches_source: bool = False
     ranges: dict[int, tuple[int, int]] = field(default_factory=dict)
-    #: 新的一集：原文范围、标题，以及插在第几个条目之前（下标指改动前的 ``episodes``）。
     new_range: tuple[int, int] | None = None
     new_title: str = ""
     insert_before: int = 0
-    #: 被替换下来的旧切出集，按播出顺序。
     dropped: list[int] = field(default_factory=list)
-    #: 并入的未切分原文的体量（阅读单位）。
     merged_units: int = 0
 
 
@@ -148,7 +140,6 @@ class _Layout:
     entries: list[dict[str, Any]]
     placements: dict[int, CutPlacement]
     language: str | None = None
-    #: 源文件类型切换处的全局位置：一集的原文范围不跨过它。
     kind_walls: tuple[int, ...] = ()
 
     @property
@@ -401,7 +392,6 @@ def _write_derived(project_dir: Path, episode: int, text: str, *, fresh: bool) -
     if path.is_symlink() and not fresh:
         raise ManualSplitError("episode_source_symlink", f"集（id={episode}）的集文件是符号链接，拒绝写入")
     if fresh and (path.exists() or path.is_symlink()):
-        # 新集 ID 的同名文件不在账本里，不是任何一集的原文，先改名留底
         path.rename(archive_episode_file_path(path))
     path.write_text(text, encoding="utf-8", newline="\n")
 
@@ -485,7 +475,6 @@ def _run(
             return True
         return any(episode not in confirmed for episode in impact.episodes_with_products)
 
-    # 锁外预演只为确认与快速失败：拒绝或需要确认时零写入返回
     project = pm.load_project(project_name)
     layout = _layout(project_dir, project)
     edit = plan(layout)
@@ -502,7 +491,6 @@ def _run(
     committed: dict[str, Any] = {}
 
     def _commit(p: dict[str, Any]) -> None:
-        # 锁内按最新账本重新推演：确认清单与落位都是锁外读取时刻的快照
         locked_layout = _layout(project_dir, p)
         locked_edit = plan(locked_layout)
         locked_impact = _impact(project_dir, locked_layout, locked_edit)

@@ -32,7 +32,6 @@ class AdmissionState(StrEnum):
 
     ADMITTED = "admitted"
     REFUSED = "refused"
-    #: 该操作对此类项目不适用（如广告/短片没有分集规划），不是缺了什么输入。
     NOT_APPLICABLE = "not_applicable"
 
 
@@ -70,11 +69,6 @@ NOT_APPLICABLE = OperationAdmission(state=AdmissionState.NOT_APPLICABLE, reason=
 
 def _refused(reason: AdmissionReason) -> OperationAdmission:
     return OperationAdmission(state=AdmissionState.REFUSED, reason=reason)
-
-
-# ---------------------------------------------------------------------------
-# 事实函数：制作状态与操作入口取同一条事实的唯一口径
-# ---------------------------------------------------------------------------
 
 
 def whole_source_present(docs: Iterable[SourceDoc]) -> bool:

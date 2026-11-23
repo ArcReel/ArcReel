@@ -23,10 +23,6 @@ _ERROR_STATUS: dict[str, int] = {
     "conflict": 409,
     "speech_admission": 409,
 }
-# 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 raise_review_error 单独处理。
-# 只读拒绝（script_plan_confirmed）与确认转换的错误码（overwrite_required / invalid_new_assets /
-# unregistered_references / duration_off_tier / conversion_refused / conversion_conflict / video_request_facts / foreign_formal_script）
-# 带诊断或专用状态，同样在 raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
     "no_script_plan": "script_review_no_script_plan",
@@ -50,7 +46,6 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
     if exc.code == "conversion_refused":
         raise UnprocessableError("script_review_conversion_refused").with_diagnostic(exc.message)
     if exc.code == "video_request_facts" and exc.problem is not None:
-        # 视频请求事实的问题码与参数就是持久化的失败契约，与预检、执行同码呈现。
         raise UnprocessableError(exc.problem.code, **exc.problem.parameters())
     if exc.code == "foreign_formal_script":
         raise ConflictError("script_review_foreign_formal_script", episode=episode, filename=exc.script_filename or "")

@@ -88,24 +88,16 @@ from lib.script import script_review
 
 logger = logging.getLogger(__name__)
 
-# 单批源文窗口字数，不是创作者参数，Web、Agent 与项目设置都不能覆盖
 PLANNING_WINDOW_CHARS = 50000
 
-# 每集在结构化输出里占用的 token 估算（标题、钩子、锚点；剧情演绎另含故事节点与下集预告语），
-# 按偏大口径取值；剧情演绎实际约 250–450 token
 _EPISODE_OUTPUT_TOKENS = {"drama": 500, "narration": 200}
 
-# 输出上限里留给分集条目的比例：推理型模型的思考 token 与 JSON 包装也计入同一上限
 _OUTPUT_SAFETY_FACTOR = 0.5
 
-# LLM 输出未通过 schema / 机械校验时的总尝试次数（含首次）
 _MAX_PLAN_ATTEMPTS = 3
 
-# 注入 prompt 的已规划上下文条数上限（保持续写连贯，不膨胀 prompt）
 _CONTEXT_EPISODES_LIMIT = 5
 
-# 缺位置记录的集号在拒绝信息里最多逐个列出的条数（整本老项目可能每一集都缺，逐个列
-# 会把错误信息撑成几百集的清单）
 _MISSING_RANGE_LISTED_LIMIT = 10
 
 
@@ -223,15 +215,10 @@ class _Window:
     text: str
     start: int
     limit: int
-    #: ``limit`` 之后再没有待规划的原文：整本源文的最后一个文件，或规划空段时的空段结尾。
     reaches_end: bool
-    #: ``limit`` 之后紧接着已有的集（规划空段）：最后一窗要规划到 ``limit``，不留尾巴。
     followed_by_episode: bool = False
 
     def end(self, window_chars: int) -> int:
-        # 窗口弹性：剩余全文不足 1.2 倍窗口时直接吃到底，避免下一批只剩孤儿残余
-        # 被迫单独成集（畸小集的机械成因）。系数 1.2 换来的浮动幅度足够小，
-        # 不会让常规批次显著超出窗口设置的预期体量。
         return self.limit if self.limit - self.start <= window_chars * 1.2 else self.start + window_chars
 
     def is_final(self, window_chars: int) -> bool:
@@ -282,8 +269,6 @@ class _DraftRejected(Exception):
         self.reasons = reasons
 
 
-# 全/半角标点折叠表：把同一标点的全角 / 表意形态映射到半角规范形，仅供匹配时构造
-# 折叠副本用，绝不落库。逐字符 1:1 映射（长度不变），折叠坐标即 NFC 精确坐标。
 _PUNCT_FOLD: dict[str, str] = {
     "。": ".",
     "．": ".",
@@ -295,7 +280,7 @@ _PUNCT_FOLD: dict[str, str] = {
     "（": "(",
     "）": ")",
     "～": "~",
-    "〜": "~",  # U+301C CJK 波浪号（与 U+FF5E 同族，一并折向半角 ~）
+    "〜": "~",
     "“": '"',
     "”": '"',
     "‘": "'",
@@ -303,8 +288,6 @@ _PUNCT_FOLD: dict[str, str] = {
     "＂": '"',
     "＇": "'",
 }
-# 折叠值必须是单字符：_fold_for_match 的逐字符 1:1 等长依赖于此。一旦某条映射折成多字符，
-# 折叠串偏移就相对 NFC 原文漂移，end = start + len(anchor) 会算出错误切点。导入期即拦截违例。
 assert all(len(dst) == 1 for dst in _PUNCT_FOLD.values()), "折叠表的值必须是单字符以保证等长映射"
 
 
@@ -375,11 +358,6 @@ def _resolve_boundaries(
         starts = _find_all_overlapping(window, anchor)
         matched_by_fold = False
         if not starts:
-            # 精确落空：退化到容错匹配。对「匹配用的锚副本」施加与 window 完全相同的归一
-            # （normalize_source_text：NFC + 换行统一，window 本就经它产出），再折叠标点全/半角
-            # 与空白宽度，在对 window 等长的折叠副本上定位精确偏移；Tier1 字节级行为与源文坐标
-            # 不变。normalize_source_text 非长度保持，故 end 跨度取归一后锚长 match_len（不是原
-            # anchor 长），与归一坐标系对齐，避免 \r / 组合字符撑长导致偏移漂移、损坏切片坐标。
             if folded_window is None:
                 folded_window = _fold_for_match(window)
             normalized_anchor = normalize_source_text(anchor)
@@ -393,8 +371,6 @@ def _resolve_boundaries(
             continue
         if len(starts) > 1:
             if matched_by_fold:
-                # 折叠路径的「出现 N 次」是标点 / 空白折叠对齐后的计数；模型按字面 anchor 逐字数
-                # 往往是 0 次，必须点明计数口径，否则模型对不上、可能反复重交同一 anchor 耗尽重试
                 reasons.append(
                     f"第 {idx} 条的 end_anchor 在原文窗口中按归一（NFC 与换行统一）及标点全/半角、空白折叠对齐后出现 {len(starts)} 次"
                     f"（逐字精确匹配可能为 0 次），无法唯一定位，请改用更长或更独特、与原文逐字一致的片段: {anchor!r}"
@@ -471,7 +447,6 @@ def _language_of(project: Mapping[str, Any]) -> str | None:
     return language if isinstance(language, str) else None
 
 
-#: 从第一个切出集起重新规划的两个入口：Web 与 Agent 都会看到规划失败的原因。
 _REPLAN_FROM_FIRST = "在「分集」视图选中第一个切出集，选「从这一集开始重新规划」；或由 Agent 调用 reset_episode_planning（不带 episode_id）"
 
 
@@ -564,9 +539,6 @@ class EpisodePlanner:
             self._check_source_fingerprints(project, sources=sources)
             return project, sources, compute_source_fingerprints(sources)
 
-        # 提交时复核的基线只留指纹摘要，不为暂不参与本批规划的源文件常驻其全文：
-        # discover_sources 已读入整本源文全部文件的原文用于计算这批指纹，本函数下方
-        # 显式释放该列表，避免大型多源项目在跨模型调用的等待期间叠加持有整套原文
         project, pre_call_sources, used_fingerprints = await asyncio.to_thread(snapshot)
         source_order = [doc.rel_path for doc in pre_call_sources]
 
@@ -597,7 +569,6 @@ class EpisodePlanner:
             source_rel, start = next_rel, 0
             text = next(doc.text for doc in pre_call_sources if doc.rel_path == source_rel)
             limit = len(text)
-        # 全局进度只在有附加指令时注入 prompt；后续文件的体量在释放原文前算好
         later_units = (
             sum(
                 count_reading_units(doc.text, _language_of(project))
@@ -633,13 +604,10 @@ class EpisodePlanner:
 
         summaries: list[EpisodePlanSummary] = []
         committed: dict[str, Any] = {"stale": []}
-        # 派生文件的事务保护路径按锁外快照预算，锁内分配出的集 ID 必须与之一致
         next_num = episode_id_high_water(project) + 1
         protected_ids = list(range(next_num, next_num + len(drafts)))
 
         def _commit(p: dict) -> None:
-            # 锁内复核：模型调用期间账本与源文件都可能被并发改动（新登记的旧拆分存量集、外部改动的
-            # 源文），与锁外预检查同一套逃生口，复用同一错误提示——重试只会再次命中同一比对，须先重置
             self._check_source_ranges(p)
             current_sources = discover_sources(self.project_path, p)
             self._check_source_fingerprints(p, sources=current_sources)
@@ -648,16 +616,11 @@ class EpisodePlanner:
             )
             if locked_start != start_ref:
                 raise PlanningConflictError("规划期间账本进度被并发修改，本次结果作废；请重新调用规划")
-            # 指纹比对只覆盖「已记录」的文件，存量项目补记路径上恒为空；而切分坐标与派生
-            # 文件都基于本次调用读入的 used_fingerprints，故直接比指纹堵住补记路径裸露的窗口——
-            # 本次调用读入的任一源文若在模型调用期间被改动，同样会被这里拦下
             current_fingerprints = compute_source_fingerprints(current_sources)
             changed = sorted(rel for rel, fp in used_fingerprints.items() if current_fingerprints.get(rel) != fp)
             if changed:
                 raise _source_changed_error(changed)
             episodes_list = [e for e in (p.get("episodes") or []) if e is not None]
-            # 新集一律分配历史最高号之后的集 ID，紧接在最后一个切出集之后（没有切出集时排在末尾）；
-            # 规划空段时按源文位置插在空段两侧的切出集之间
             if gap is None:
                 insert_at = next(
                     (
@@ -682,8 +645,6 @@ class EpisodePlanner:
                 entry = _ledger_entry_from_draft(
                     draft_ep, num=num, source_rel=source_rel, start=prev, end=abs_end, status="planned"
                 )
-                # 新集 ID 在磁盘上已有剧本/script_plan 产物（历史最高号之外的手工残留），说明该 ID
-                # 实际已被消费过；标 stale 提示主 Agent 需重做下游产物，产物本身不删除
                 if has_downstream_products(self.project_path, num, entry):
                     script_review.mark_ledger_stale(self.project_path, p, entry, num)
                     committed["stale"].append(num)
@@ -731,8 +692,6 @@ class EpisodePlanner:
             source_exhausted=exhausted,
             stale_episodes=list(committed["stale"]),
             total_planned=_count_planned_episodes(final_project),
-            # 全局核对材料只在末批即耗尽时附上；常规批次只报「累计已规划 N 集」，
-            # 避免主 Agent 上下文被逐批膨胀（工具层渲染 total_planned 的那一行）
             ledger_stats=await asyncio.to_thread(self._compute_ledger_stats, final_project) if exhausted else None,
         )
 
@@ -883,9 +842,6 @@ class EpisodePlanner:
             DramaPlanDraft if content_mode == "drama" else NarrationPlanDraft
         )
         language = _language_of(project)
-        # 全局进度仅在有 instructions 时算、仅在有 instructions 时注入 prompt：
-        # 无指令路径的 prompt 必须逐字保持不变：分批规划要求同一批次内的无附加指令路径行为可复现，
-        # 注入全局进度会改写 prompt，因此只在有 instructions 时才计算并注入。
         progress: _PlanningProgress | None = None
         if instructions:
             progress = _PlanningProgress(
@@ -894,7 +850,6 @@ class EpisodePlanner:
                 window_units=count_reading_units(window_text, language),
             )
 
-        # 窗口只取一个文件里的原文，一个窗口内只有一种源文件类型
         source_kind = whole_source_file_kind(project, window.source_rel) or DEFAULT_SOURCE_KIND
 
         def _prompt(failure: list[str] | None) -> str:
@@ -960,7 +915,6 @@ class EpisodePlanner:
             except TextOutputTruncatedError as exc:
                 raise PlanningOutputTruncatedError(exc) from exc
             except StructuredOutputExhaustedError as exc:
-                # 后端的降级链已把各档与档内重试都走完，本层再重试只是重复同一条必败路径。
                 raise EpisodePlanningError(str(exc)) from exc
             try:
                 draft = self._parse_draft(result.text, draft_model)
@@ -1105,7 +1059,6 @@ class EpisodePlanner:
         提交（账本写回随之回滚，集文件未动）。
         """
         source_dir = self.project_path / "source"
-        # source/ 是符号链接时拒绝写入：派生文件会落到链接目标（可能在项目外）
         if source_dir.is_symlink():
             raise EpisodePlanningError("source/ 不能是符号链接，拒绝派生集文件")
         writes: list[tuple[Path, str]] = []
@@ -1125,7 +1078,6 @@ class EpisodePlanner:
                         text_cache[rel] = self._load_normalized_source(rel)
                     except EpisodePlanningError as exc:
                         raise EpisodePlanningError(f"集（id={num}）集文件写入失败，提交已中止：{exc}") from exc
-            # Python 切片对负值/越界静默容忍，脏坐标会写出与账本不符的内容，必须显式拦截
             content = span_text(text_cache, order, span)
             if content is None:
                 raise EpisodePlanningError(
@@ -1139,7 +1091,6 @@ class EpisodePlanner:
                 for alias in aliases:
                     alias.rename(archive_episode_file_path(alias))
         for episode_path, content in writes:
-            # 派生文件的字节与账本切片文本一致：不做平台换行翻译，Manifest 依据按字节重算才稳定。
             episode_path.write_text(content, encoding="utf-8", newline="\n")
         remaining = source_dir / "_remaining.txt"
         if remaining.is_file():

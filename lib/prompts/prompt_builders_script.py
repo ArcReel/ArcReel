@@ -76,16 +76,6 @@ def outline_slot(outline: object) -> dict | None:
     return projected if any(projected.values()) else None
 
 
-# ---------------------------------------------------------------------------
-# 两段式分层文案（见 ADR 0080）：script_plan（normalize）= 内容、prompt_authoring（drama）= 视觉。
-#
-# 内容抽取前移到 script_plan：分镜边界、出场资产、逐字口播 utterances、原文锚 source_text、
-# 视觉改编描述 scene_description 一次定稿，并按 source_kind 切「改编 / 提取」口径。
-# prompt_authoring 只补视觉层（image_prompt / video_prompt），按 scene_id 透传内容、不再识别口播、
-# 不分 source_kind——故 prompt_authoring 文案无 novel/screenplay 分支。
-# ---------------------------------------------------------------------------
-
-
 def neutralize_tags(value: str) -> str:
     """中和动态文本里的尖括号：novel_text / 资产名出现 </segments> 等标签序列时，避免打散
     标签化 prompt 的块结构。属 prompt 鲁棒性——prompt_authoring 输出仍由 response_schema 强制，无安全边界。
@@ -108,7 +98,6 @@ def _format_narration_script_plan_segments(script_plan_segments: list[dict]) -> 
         chars = neutralize_tags("、".join(seg.get("characters_in_segment") or []) or "无")
         scene_names = neutralize_tags("、".join(seg.get("scenes") or []) or "无")
         prop_names = neutralize_tags("、".join(seg.get("props") or []) or "无")
-        # 多行 novel_text 续行缩进进原文块，避免 flush-left 溢出 <segments>；尖括号一并中和防注入
         novel_block = neutralize_tags(seg.get("novel_text") or "").replace("\n", "\n  ")
         lines.append(
             f"- {sid}（时长 {dur}s{brk}）｜出场角色：{chars}｜场景：{scene_names}｜道具：{prop_names}\n  原文：{novel_block}"
@@ -183,7 +172,6 @@ def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
             f"出场资产：角色 [{neutralize_tags(', '.join(chars) or '无')}]、"
             f"场景 [{neutralize_tags(', '.join(scenes_ref) or '无')}]、道具 [{neutralize_tags(', '.join(props_ref) or '无')}]"
         )
-        # 视觉改编描述由内容确认转换透传进正式脚本；存量正式脚本可能不带它，缺席时不渲染这一行。
         raw_scene_desc = scene.get("scene_description")
         if raw_scene_desc:
             scene_desc = neutralize_tags(str(raw_scene_desc)).replace("\n", "\n  ")
@@ -310,14 +298,12 @@ def build_normalize_prompt(
     ``episode_target_duration`` / ``episode_outline`` / ``next_episode_outline`` / ``instructions`` 为
     ``None`` 或空时不渲染对应分节。
     """
-    # 空集合或 default 不在集合内都会产出自相矛盾的提示词，生成前失败更便于诊断。
     normalized_durations = sorted({int(d) for d in supported_durations})
     if not normalized_durations:
         raise ValueError("supported_durations 不能为空：必须提供模型支持的秒数集合")
     if default_duration is not None and int(default_duration) not in normalized_durations:
         raise ValueError(f"default_duration={default_duration} 不在 supported_durations={normalized_durations} 内")
 
-    # source_language 来自 project.json，可能是非字符串脏数据，下游 .strip() 会崩。
     source_language = source_language if isinstance(source_language, str) else None
     return builtin_templates.render(
         "text/drama_script_plan",

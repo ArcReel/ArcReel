@@ -32,11 +32,8 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# 心跳间隔（秒），守护线程默认按同样的间隔醒来检查。
 HEARTBEAT_INTERVAL_SECONDS = 1.0
-# 事件循环停滞多久后记录调用栈（秒）。
 STALL_THRESHOLD_SECONDS = 2.0
-# 同一调用栈的重复停滞在这段时间内合并计数（秒）。
 REPEAT_WINDOW_SECONDS = 300.0
 
 _StackKey = tuple[tuple[str, str], ...]
@@ -68,7 +65,6 @@ class LoopStallProbe:
         self._check_interval = check_interval
         self._repeat_window = repeat_window
         self._clock = clock
-        # (心跳序号, 心跳时刻)；整体赋值，守护线程读到的两项总是同一次心跳的。
         self._beat: tuple[int, float] = (0, clock())
         self._reported_beat: int | None = None
         self._repeats: dict[_StackKey, _RepeatedStall] = {}
@@ -81,7 +77,6 @@ class LoopStallProbe:
         now = self._clock()
         self._flush_repeats(now)
         beat, beat_at = self._beat
-        # 停滞可能始于两次心跳之间的任一时刻，确定的停滞只从下一次心跳该到时算起。
         stalled_for = now - beat_at - self._heartbeat_interval
         if stalled_for <= self._stall_threshold or beat == self._reported_beat:
             return

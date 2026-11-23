@@ -48,7 +48,6 @@ def authenticated_caller() -> CallerContext:
     token = get_access_token()
     if token is None:
         raise RuntimeError("authenticated MCP request has no access token")
-    # API-key subjects identify credentials; the supported single-operator model persists queue ownership as default.
     return CallerContext(user_id=DEFAULT_USER_ID, source="mcp")
 
 

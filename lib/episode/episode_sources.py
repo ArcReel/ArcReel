@@ -41,24 +41,17 @@ logger = logging.getLogger(__name__)
 
 SOURCE_ORIGIN_FIELD = "source_origin"
 
-#: ``project.json`` 顶层字段：整本源文的文件清单，元素形如 ``{"source_file": "source/novel.txt"}``。
 WHOLE_SOURCE_FILES_KEY = "whole_source_files"
 
-#: 规范化文本快照所在目录（相对项目根）。
 SOURCE_SNAPSHOTS_DIR = "source/snapshots"
 
-#: ``project.json`` 顶层字段：整本源文是否还有未规划成集的原文（:func:`source_remaining` 的结论）。
-#: ``ProjectManager`` 写 ``project.json`` 时按当时的源文记下，项目列表据此判「已完成」而不读源文；
-#: 源文在 ArcReel 之外被改动、账本尚未更新时，它与制作状态可能短暂不一致。
 SOURCE_REMAINING_KEY = "source_remaining"
 
 
 class SourceOrigin(StrEnum):
     """一集的集原文来源。"""
 
-    #: 由分集规划从整本源文切出一段范围。
     WHOLE_SOURCE = "whole_source"
-    #: 创作者逐集上传或直接填写的一份原文，集文件就是该集的源文。
     OWN = "own"
     NONE = "none"
 
@@ -173,7 +166,6 @@ def append_whole_source_file(project: dict[str, Any], rel: str, *, index: int | 
     items = list(raw) if isinstance(raw, list) else []
     position = len(items)
     if index is not None and index < len(files):
-        # 清单里可能夹着形状非法或重复的元素，按合法文件定位到原始列表里的插入处
         anchor = files[max(index, 0)]
         position = next(
             i for i, item in enumerate(items) if isinstance(item, Mapping) and item.get("source_file") == anchor

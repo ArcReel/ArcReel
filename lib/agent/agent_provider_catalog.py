@@ -214,7 +214,6 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
 }
 
 
-# 显示顺序：显式定义,Anthropic Official 永远第一,ArcReel 第二,其余按区域归组
 PRESET_ORDER: tuple[str, ...] = (
     "anthropic-official",
     "arcreel",

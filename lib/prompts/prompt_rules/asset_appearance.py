@@ -15,7 +15,6 @@ from typing import Any
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD
 from lib.references.reference_catalog import derivative_reference
 
-#: 衍生外观描述的引导词，接在本体描述之后单起一行。面向 LLM 的 prompt 文本，按仓库口径豁免 i18n。
 CURRENT_FORM_PREFIX = "当前形态："
 
 

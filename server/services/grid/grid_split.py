@@ -143,8 +143,6 @@ async def _apply_grid_split(
             source_key, source_entry, source_status = _registered_grid_source()
             project_snapshot = frozen_project
 
-        # 比例取记录冻结值：项目 aspect_ratio 改过之后再切历史联合图，按新比例中心裁切
-        # 会把每格削掉大半（横版图按竖版切）。存量记录无该字段，回退到项目当前设置。
         video_aspect_ratio = grid.video_aspect_ratio or get_aspect_ratio(project_snapshot, "videos")
 
         def _snapshot_and_split() -> tuple[Path, list[Any]]:
@@ -175,10 +173,6 @@ async def _apply_grid_split(
             storyboards_dir = project_path / "storyboards"
             storyboards_dir.mkdir(parents=True, exist_ok=True)
 
-            # batch_update_scene_assets 在任一 scene_id 未命中时整批 fail-loud 回滚——避免
-            # cell.save() 已写 PNG 落盘后又因 KeyError 整批回滚留下 orphan PNG,这里先 load
-            # 当前剧本拿 valid id 集合,frame_chain 中已不存在的分镜(grid plan 生成后 agent
-            # split/remove 改动了剧本)跳过 cell PNG 保存 + 收集到 missing 列表 + warning。
             items, id_field, _kind = resolve_items(script)
             valid_ids = {str(item.get(id_field)) for item in items if isinstance(item, dict)}
 
@@ -187,8 +181,6 @@ async def _apply_grid_split(
             missing_ids: list[str] = []
             cell_assignments: list[tuple[int, str, str]] = []
 
-            # Cells stay invisible until the script, complete version batch, grid
-            # record, and complete Manifest claim set can all commit.
             for cell, frame in zip(cells, grid.frame_chain, strict=True):
                 if frame.frame_type == "placeholder":
                     continue

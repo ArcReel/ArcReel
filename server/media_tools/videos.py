@@ -94,11 +94,6 @@ from server.tool_runtime import (
 
 logger = logging.getLogger(__name__)
 
-#: 已退役的入参名 → 该怎么写。键都是曾经真实存在、或与视频单元旧结构同名的写法：
-#: 前三个是点名目标的旧 id 参数，``shots`` 与参考清单是视频单元已删除的字段，
-#: ``narration_delivery`` 是已删除的按请求交付方式。视频单元现在只持有 ``text`` 与
-#: ``duration_seconds``，参考图在执行期从正文的 ``@[名称]`` 首次提及顺序派生；
-#: 旁白交付方式是项目配置，不影响视频请求。
 _RETIRED_PARAMS: dict[str, str] = {
     "resume": "查询 durable batch，并用 selected scope、force=false 只重发未成功的 ID",
     "shot_ids": "改用 target.ids，并选择 scene（单个）或 selected（批量）scope",
@@ -216,7 +211,6 @@ class _VideoCall:
     scope: ProjectScope
     caller: CallerContext
     services: Services
-    #: 只预检、不入队：走到整批准入为止，把结论折成报价单返回。
     preview: bool = False
 
     @property
@@ -340,8 +334,6 @@ def _preview_outcome(
 def _confirmation_lines(admission: BatchAdmission) -> list[str]:
     lines = ["以下 unit 将改用不同的视频时长档位，需先向用户确认，本次未入队任何任务："]
     for tier in admission.confirmation_tiers():
-        # 档位解析不出来时该组没有可确认的秒数，照实说明；插值出 "None s 档位" 会让调用方
-        # 以为存在一个叫 None 的档位。
         tier_label = (
             f"{tier.request_duration_seconds}s 档位" if tier.request_duration_seconds is not None else "档位待定"
         )
@@ -357,7 +349,6 @@ def _confirmation_lines(admission: BatchAdmission) -> list[str]:
             continue
         planned = ticket.problems[0].params.get("script_duration")
         requested = ticket.request_duration_seconds
-        # 与剧本计划时长的差值直接给出：档位数字本身不说明成片会变长还是变短。
         delta = ""
         if isinstance(planned, int) and isinstance(requested, int) and requested != planned:
             direction = "更长" if requested > planned else "更短"
@@ -477,14 +468,10 @@ def _build_reference_specs(
     skip_set = set(skip_ids or [])
     specs: list[TaskSpec] = []
     refused: list[UnitAdmissionTicket] = []
-    # 进到这里的 unit 已经过筛查 / 点名选取，unit_id 必为非空标量：不再为记名留兜底名字。
     for unit in units:
         unit_id = str(unit["unit_id"])
         if unit_id in skip_set:
             continue
-        # 任一 unit 不合法（没有 shots、空提示词、或 from_request 对空 resource_id 抛的
-        # 裸 ValueError）都记为受阻，不让一个坏 unit 中断整批。TaskSpecValidationError
-        # 是 ValueError 子类，捕 ValueError 同时覆盖两者。
         try:
             spec = reference_unit_task_spec(unit, script_filename)
         except SpeechAdmissionError as exc:
@@ -569,10 +556,6 @@ async def _generate_reference_units(
                 try:
                     reusable = reuse_existing(unit)
                 except ArtifactManifestError:
-                    # 复用判定（点名强制路线传入的 ``reuse_existing`` 恒为 False，不会走到
-                    # ``artifact_is_usable``；只有整集路线的复用判定会查 Manifest）对
-                    # BLOCKED 状态 fail-loud：一张已存在的成片若比对读不出来，不能让它把
-                    # 整批生成打成 tool_error，而是逐 unit 记为受阻，交回去修复侧车。
                     refused.append(
                         refused_ticket(
                             unit_id,
@@ -593,8 +576,6 @@ async def _generate_reference_units(
                     artifact_status=state.status,
                 )
 
-        # 可入队性先判：能否构造 TaskSpec 是本批目标集合的边界，不可入队的 unit 带着自己的
-        # 问题码进入准入，既不被解析、也不被静默丢弃。
         specs, spec_refused = build_specs(units, [*already_done, *manifest_blocked])
         return project_dir, refused, specs, spec_refused
 
@@ -748,8 +729,6 @@ async def _run_reference_episode(
     episode = _reference_episode(project, script, script_filename)
     units = script.get("video_units")
     if "video_units" in script and not isinstance(units, list):
-        # 生成模式闸门只问键在不在、不问值的类型，容器校验落在这里：不拦的话脏值（导入 / 外部编辑
-        # 产生的 dict、字符串）会一路下传到 unit 迭代，报出无从定位的 TypeError。
         logger.debug("第 %d 集 video_units 类型非法: %s (%s)", episode, type(units).__name__, script_filename)
         raise ValueError(f"{describe_episode_for_agent(project, episode)} 的 video_units 必须是数组：{script_filename}")
     if not units:
@@ -998,7 +977,6 @@ class _StoryboardBatch:
         """按本次请求的目标条目构造分镜图生视频的 TaskSpec。"""
 
         voice_characters = await resolve_voice_context(self.sb.project, self.sb.content_mode)
-        # 按文件内容判定分镜参考图与首尾帧的时效，是同步文件读写与哈希
         return await asyncio.to_thread(
             build_storyboard_video_specs,
             items=items,
@@ -1033,7 +1011,6 @@ class _StoryboardBatch:
     ) -> ToolOutcome[Any]:
         """整批准入后提交；准入未通过则零任务入队地转述拒绝，预检则只报价。"""
 
-        # 准入与预检报价读同一份视频请求事实，两次求值之间配置一变，报价就不再是准入认的那一个。
         facts = (
             await storyboard_video_request_facts(self.sb.project, self.call.services.capabilities) if specs else None
         )
@@ -1125,7 +1102,6 @@ async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log
         return resolver, video_target_states(items, id_field, episode=episode, resolver=resolver)
 
     currency, states = await asyncio.to_thread(load_states)
-    # 整集生成只补缺失，从不强制重生：仍可用的旧分镜（含 stale 与上传的视频）原样保留。
     already_done = _missing_only_reusable_ids(states)
     builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.MISSING_ONLY)
     batch = _StoryboardBatch(
@@ -1144,11 +1120,6 @@ async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log
         state = _state_for(states, str(done_id))
         builder.skip(state)
 
-    # currency 之外的第三态：Manifest 读不出该分镜的产物状态（BLOCKED），既不能
-    # 判定为可复用（进 already_done）也不能安全当作缺失去入队——不可读不等于没有，
-    # 花钱重生可能覆盖一份实际仍然可用的分镜。all scope 走
-    # select_generation_targets 已经把这一态折进 selection.unavailable，这里是
-    # 同一场判定手写的另一条腿，必须同步处理。
     already_done_set = set(already_done)
     blocked_states = [
         state
@@ -1204,8 +1175,6 @@ async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: li
         return resolver, states, selection
 
     currency, states, selection = await asyncio.to_thread(select_targets)
-    # 产物状态不可读的目标由准入报告（折成准入票），结果契约里不重复记录：
-    # 同一个 unit 记两次会让结果构造器 fail loud。
     unavailable_tickets = artifact_state_tickets(selection.unavailable)
     builder = GenerationResultBuilder.from_selection(_OPERATION, replace(selection, unavailable=()))
     batch = _StoryboardBatch(
@@ -1241,14 +1210,9 @@ async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: li
             batch_id=submitted.batch.batch_id,
         )
 
-    # 与 ``_video_target_states`` 用同一套 ID 回退规则：条目若缺 ``id_field``
-    # 但带 ``scene_id``/``segment_id``，selection 已按回退 ID 记为 target，
-    # 这里若只认 ``id_field`` 会把它筛没——进了 requested 却永远不入队。
     target_id_set = set(selection.target_ids)
     pending = [item for item in items if str(storyboard_item_id(item, id_field) or "") in target_id_set]
     specs, refused = await batch.build_specs(items=pending, skip_ids=None)
-    # 产物状态不可读的分镜被选目标环节排除在 targets 之外，但它属于这次请求：
-    # 不带进准入，同批健康的分镜会照常入队并计费，剩下这一个被无声略过。
     refused.extend(unavailable_tickets)
     refused.extend(screen_refused)
     if not specs and not refused:
@@ -1291,8 +1255,6 @@ async def _generate_selected(
 
     items_by_id: dict[str, dict[str, Any]] = {}
     for item in items:
-        # 按同一份「能寻址到它的写法」建索引：直接拿原值当键，脏剧本里的 list / dict
-        # 别名会抛 TypeError，逐目标的结论就塌成一句通用报错。
         for alias in storyboard_item_aliases(item, id_field):
             items_by_id[alias] = item
 
@@ -1300,13 +1262,9 @@ async def _generate_selected(
     selected: list[dict[str, Any]] = []
     refused: list[UnitAdmissionTicket] = []
     seen_canonical: set[str] = set()
-    # ``items_by_id`` 同时按 ``id_field`` 与 ``scene_id`` 索引同一个 item，
-    # 调用方若把两个值都列入 ``scene_ids`` 会让同一分镜重复入队——必须按
-    # 规范 ``id_field`` 再去一次重。
     screened_ids = {ticket.unit_id for ticket in screen_refused}
     for sid in scene_ids:
         if sid in screened_ids:
-            # 筛查已经按这个名字记过一条结论，重复记名会撞上结果契约的唯一性。
             continue
         if sid not in items_by_id:
             refused.append(
@@ -1380,7 +1338,6 @@ async def generate_videos(
             return await _generate_episode(call, context, log)
         if isinstance(target, AllTarget):
             return await _generate_all(call, context, log)
-        # 去重以避免同一 ID 重复入队；保留首次出现顺序便于人读日志。
         scene_ids = normalize_requested_ids(target.ids, field="target.ids") or []
         return await _generate_selected(call, context, log, scene_ids=scene_ids, force=args.force)
     except SpeechAdmissionError as exc:

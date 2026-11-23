@@ -133,7 +133,6 @@ async def _duration_us(path: Path | None, *, video: bool) -> int | None:
         return None
     probe = probe_existing_video_duration_seconds if video else probe_existing_audio_duration_seconds
     seconds = await probe(path)
-    # 实测时长保留微秒精度，输出时再规整为秒，避免逐段舍入累积漂移。
     return round(seconds * MICROSECONDS_PER_SECOND) if seconds is not None and seconds > 0 else None
 
 

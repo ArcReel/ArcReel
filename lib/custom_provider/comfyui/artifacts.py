@@ -23,29 +23,16 @@ from lib.backends.container_sniff import sniff_container
 
 from .failures import EXECUTION_ERROR, INTERRUPTED, ComfyuiError
 
-#: ``media_type`` → 该媒体类型的产物允许的扩展名。
-#:
-#: 图像这一侧刻意不含 ``.gif`` / ``.apng``：两者是动图，一份图像端点产出它们意味着产物绑定指
-#: 错了节点（多半指在了视频合成节点上），当成分镜图入库会得到一张只有首帧的图。视频这一侧同理
-#: 不含它们——动图不是成片容器。
-#:
-#: 视频这三个扩展名同属 ISO BMFF 容器家族，与参考视频上传收的那三个（见
-#: ``server.services.currency.upload_finalize.UPLOAD_VIDEO_EXTENSIONS``）是同一份口径：成片落
-#: 在 ``lib.project.resource_paths`` 的规范 ``.mp4`` 路径上，字节原样搬运，故只收能装进这个名字
-#: 的容器。``.webm`` 不在其中——它的字节装进 ``.mp4`` 的名字后，扩展名与下发 MIME 都在说谎。
 ARTIFACT_SUFFIXES_BY_MEDIA_TYPE: Mapping[str, frozenset[str]] = {
     "image": frozenset({".png", ".jpg", ".jpeg", ".webp"}),
     "video": frozenset({".mp4", ".mov", ".m4v"}),
 }
 
-#: ``media_type`` → 该媒体类型的产物允许的容器 MIME，与上表的扩展名一一对上：视频那三个扩展名
-#: 同属 ISO BMFF（一律嗅成 ``video/mp4``），故视频只有一项。
 ARTIFACT_CONTAINERS_BY_MEDIA_TYPE: Mapping[str, frozenset[str]] = {
     "image": frozenset({"image/png", "image/jpeg", "image/webp"}),
     "video": frozenset({"video/mp4"}),
 }
 
-#: history 条目里可能挂产物的三个键。只读这三个，且只读 ``output`` 绑定的那个节点。
 _ARTIFACT_KEYS = ("images", "gifs", "audio")
 
 _EXECUTION_ERROR_EVENT = "execution_error"

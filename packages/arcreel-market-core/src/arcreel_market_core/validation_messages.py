@@ -15,8 +15,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-#: ``ValidationMessage.literal`` 用的透传 key：消息体本身已是成品文本（Pydantic 报错、
-#: 第三方异常文案），没有可翻译的结构，占位后原样输出。
 LITERAL_KEY = "val_literal"
 
 type Translator = Callable[..., str]

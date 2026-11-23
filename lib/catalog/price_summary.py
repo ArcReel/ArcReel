@@ -8,7 +8,6 @@ from typing import Final
 
 from arcreel_catalog_core import METERS, MediaType, PriceTable
 
-#: 每种媒体类型按顺序挑选的计费项；价目表里有的取前两个，都没有时退到调用次数。
 _SUMMARY_METERS: Final[Mapping[MediaType, tuple[str, ...]]] = {
     "text": ("uncached_input_tokens", "output_tokens"),
     "image": ("output_images", "image_output_tokens", "uncached_input_tokens", "output_tokens"),

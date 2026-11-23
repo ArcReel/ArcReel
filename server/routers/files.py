@@ -107,15 +107,8 @@ SourceUploadRole = Literal["whole_source", "episode"]
 
 _IMAGE_EXTS: tuple[str, ...] = IMAGE_FILE_EXTENSIONS
 
-# 公开端点：前端经 <img src> / <video src> / <audio src> 加载，浏览器原生请求带不了
-# Authorization header。按 ADR 0071「静态媒体维持匿名可读」，公开端点只放行媒体：
-# 路径先经 safe_join 收在根目录内，再须同时满足下方的目录白名单与扩展名白名单。
 public_router = APIRouter()
 
-# 公开端点可读的媒体范围，是 ADR 0071「静态媒体」在实现上的唯一定义处。
-# 目录：项目内由生成/上传流程写入、前端以媒体元素直接引用的子目录，含其嵌套子目录
-# （characters/refs、characters/refs_audio、characters/derivatives、products/refs、
-# reference_videos/thumbnails、renders/episode_N/<剪辑时间线> 等，bgm 是项目级 BGM）；versions/ 下只放行这些目录各自的快照桶。
 PUBLIC_MEDIA_DIRS: frozenset[str] = frozenset(
     {
         "storyboards",
@@ -169,18 +162,8 @@ def _require_filename(file: UploadFile, _t: Callable[..., str]) -> str:
     return file.filename
 
 
-# 落盘文件名策略
-#   stable_png — 稳定单图名 `{name}.png`（实际后缀由图片归一化结果决定）
-#   keep_ext   — 稳定单图名，保留上传的原扩展名（音频不转码）
-#   sequenced  — 多图累积，按序号取唯一名
-#   delegated  — 主流程不参与命名，由该类型的专用分支决定
 Naming = Literal["stable_png", "keep_ext", "sequenced", "delegated"]
 
-# 落盘前的内容处理
-#   normalize_image — 校验并按阈值压缩，可能改写扩展名
-#   validate_image  — 仅校验可解码，保留原件字节
-#   audio           — 校验时长，不转码（体积由 max_bytes 独立把关）
-#   delegated       — 主流程不处理内容，由该类型的专用分支决定
 ContentCheck = Literal["normalize_image", "validate_image", "audio", "delegated"]
 
 MetadataSetter = Callable[[ProjectManager, str, str, str], object]
@@ -204,16 +187,11 @@ class UploadSpec:
     unsupported_ext_key: str = "unsupported_image_type"
     max_bytes: int | None = None
     metadata_setter: MetadataSetter | None = None
-    # 非空表示文件挂在宿主资产的字段下、该字段是文件的唯一指针：宿主不存在就拒收
-    # （含并发删除的窗口期），避免落下界面上不可见的孤儿文件。单图类型路径确定、
-    # 可容忍资产后建，不设此约束。
     host_bucket: str | None = None
     host_not_found_key: str = ""
-    # 参考音频的字节替换与字段写回须走 ProjectManager 的项目锁事务；提交后再清理旧扩展名文件
     tracks_stale_audio: bool = False
 
     def __post_init__(self) -> None:
-        # 宿主约束与其 404 文案必须成对登记，否则拒收路径会拿空 key 去取翻译
         if (self.host_bucket is None) != (not self.host_not_found_key):
             raise ValueError("host_bucket 与 host_not_found_key 必须成对登记")
         if self.tracks_stale_audio and self.host_bucket is None:
@@ -274,7 +252,6 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         content_check="normalize_image",
         metadata_setter=ProjectManager.update_product_sheet,
     ),
-    # 项目级 BGM：由 BgmLibraryService 全权接管（实测响度、原子落盘并按字节登记），表项只提供类型校验与扩展名白名单。
     "bgm": UploadSpec(
         allowed_exts=BGM_EXTENSIONS,
         subdir=(BGM_DIR,),
@@ -287,8 +264,6 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         allowed_exts=_IMAGE_EXTS,
         subdir=(ASSET_SPECS["product"].subdir, "refs"),
         naming="sequenced",
-        # 商品原图是保真验收锚点（ADR 0034）：仅校验可解码，保留原件字节与扩展名，
-        # 不做阈值压缩/重编码。请求体上限由生成发送前的参考压缩环节独立保障。
         content_check="validate_image",
         metadata_setter=ProjectManager.add_product_reference_image,
         host_bucket=ASSET_SPECS["product"].bucket_key,
@@ -298,7 +273,6 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
 
 _FORMAL_SHEET_UPLOAD_TYPES = frozenset(ASSET_SPECS)
 
-# 允许的文件类型（前端 frontend/src/utils/source-files.ts 镜像了 source 一项）
 ALLOWED_EXTENSIONS = {upload_type: list(spec.allowed_exts) for upload_type, spec in UPLOAD_SPECS.items()}
 
 
@@ -327,8 +301,6 @@ async def serve_project_file(
             project_manager = get_project_manager()
             project_dir = project_manager.get_project_path(project_name)
 
-            # 安全检查先于存在性检查：越界路径一律 403，不让 404/403 的差异成为
-            # 项目目录外的文件存在性探针
             try:
                 file_path = safe_join(project_dir, path)
             except PathTraversalError as exc:
@@ -337,14 +309,10 @@ async def serve_project_file(
             return project_manager, project_dir, file_path, relative_parts
 
         def _sync(project_manager: ProjectManager, project_dir: Path, file_path: Path, relative_parts: tuple[str, ...]):
-            # 媒体范围按解析后的真实路径判定（symlink 指向非媒体文件同样拒绝）；
-            # 非媒体与文件不存在同形返回 404
             stat_result = _regular_file_stat(file_path) if is_public_media_path(relative_parts) else None
             if stat_result is None:
                 raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
 
-            # ?w= 只对栅格图生效：缩略图按解析后的真实路径缓存在项目目录之外；
-            # 原图不宽于目标宽度或无法解码时仍返回原图
             if thumbnail_width is not None and is_thumbnail_source(file_path):
                 thumbnail = ensure_image_thumbnail(
                     file_path,
@@ -356,7 +324,6 @@ async def serve_project_file(
                 if thumbnail is not None:
                     thumbnail_path, thumbnail_stat = thumbnail
                     return thumbnail_path, thumbnail_stat, guess_media_type(thumbnail_path)
-                # 生成期间源文件可能已被替换：回退原图时按此刻的文件计算长度与 ETag
                 stat_result = _regular_file_stat(file_path)
                 if stat_result is None:
                     raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
@@ -368,13 +335,11 @@ async def serve_project_file(
         holds.enter_context(hold_work_file(resolved_path))
         holds.enter_context(hold_work_file(project_dir.joinpath(*relative_parts)))
         if is_public_media_path(relative_parts):
-            # 远端内容版本的工作文件被清理后，从对象存储取回再服务；取回失败返回明确的错误
             await ensure_work_file(project_dir, "/".join(relative_parts))
         file_path, stat_result, media_type = await asyncio.to_thread(
             _sync, project_manager, project_dir, resolved_path, relative_parts
         )
 
-        # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable，其余每次再验证
         immutable = bool(request.query_params.get("v")) or path.startswith("versions/")
         return cached_file_response(
             file_path,
@@ -405,8 +370,6 @@ async def serve_global_asset(
     def _resolve() -> tuple[Path, Path]:
         project_manager = get_project_manager()
         root = project_manager.get_global_assets_root()
-        # 防御性检查：即使 filename 通过了字符串校验，也要确保解析后的路径仍在 root 之内
-        # （防御 symlink / URL 编码等边界场景）
         try:
             return project_manager.data_root, safe_join(root, asset_type, filename)
         except PathTraversalError as exc:
@@ -421,11 +384,9 @@ async def serve_global_asset(
     data_root, resolved_path = await asyncio.to_thread(_resolve)
     holds.enter_context(hold_work_file(resolved_path))
     holds.enter_context(hold_work_file(data_root / GLOBAL_ASSETS_DIRNAME / asset_type / filename))
-    # 库里远端图片的工作文件被清理后，从对象存储取回再服务
     await ensure_global_image(data_root, f"{GLOBAL_ASSETS_DIRNAME}/{asset_type}/{filename}")
     path, stat_result, media_type = await asyncio.to_thread(_sync, resolved_path)
 
-    # 文件名是 uuid，前端以 ?fp=<updated_at> 作版本键（?v= 同义）；带版本键即 immutable
     query = request.query_params
     immutable = bool(query.get("fp") or query.get("v"))
     return cached_file_response(
@@ -477,8 +438,6 @@ async def upload_file(
             detail=_t(spec.unsupported_ext_key, ext=ext, allowed=", ".join(spec.allowed_exts)),
         )
 
-    # name 会被拼进落盘路径，路径不安全的名字（分隔符 / .. / 控制字符）在边界即拒绝；
-    # 未提供时按原文件名 stem 回落，不做校验。
     if name:
         try:
             name = validate_asset_name(name)
@@ -486,7 +445,6 @@ async def upload_file(
             raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=name)) from exc
 
     if upload_type == "source":
-        # 源文登记写的是当前 schema 的字段；迁移没完成的项目先写进去，重试迁移时会把旧整本源文漏登
         await asyncio.to_thread(assert_project_migration_ok, project_name)
         if role == "episode":
             return await _handle_episode_source_upload(
@@ -535,18 +493,15 @@ async def upload_file(
 
             if spec.host_bucket is not None:
                 hosts = manager.load_project(project_name).get(spec.host_bucket) or {}
-                # name 已经过 validate_asset_name 落到 NFC，存量宿主 key 可能是 NFD，按坐标系解析存在性
                 if not name or resolve_asset_key(hosts, name) is None:
                     raise HTTPException(status_code=404, detail=_t(spec.host_not_found_key, name=name or ""))
 
             target_dir = project_dir.joinpath(*spec.subdir)
-            # 稳定文件名（避免 jpg/png 不一致导致版本还原/引用异常）；未指定 name 时用原文件名主干
             stem = name or Path(original_filename).stem
             filename = f"{stem}.png" if spec.naming == "stable_png" else f"{stem}{ext}"
 
             target_dir.mkdir(parents=True, exist_ok=True)
 
-            # 保存文件（大于 2MB 时压缩为 JPEG，否则校验后原样保存）
             nonlocal content
             if spec.content_check == "normalize_image":
                 try:
@@ -561,8 +516,6 @@ async def upload_file(
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
 
             if spec.naming == "sequenced":
-                # 按序号取唯一文件名，用原子独占创建占位：并发上传同一宿主资产时
-                # 两个请求各拿到不同序号，避免静默互相覆盖。
                 seq = 1
                 while True:
                     candidate = target_dir / f"{stem}_{seq}{ext or '.png'}"
@@ -604,14 +557,11 @@ async def upload_file(
                                 spec.metadata_setter(manager, project_name, name, relative_path)
                         except KeyError as exc:
                             if spec.host_bucket is not None:
-                                # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
-                                # 已落盘的文件一并清理避免孤儿
                                 # hard-delete: rollback -- 宿主资产已消失时移除刚上传的文件
                                 target_path.unlink(missing_ok=True)
                                 raise HTTPException(
                                     status_code=404, detail=_t(spec.host_not_found_key, name=name)
                                 ) from exc
-                            # 单图类型：资产不存在时忽略，文件路径确定，资产后建仍可引用
 
             return {
                 "success": True,
@@ -621,7 +571,6 @@ async def upload_file(
             }
 
         if upload_type in _FORMAL_SHEET_UPLOAD_TYPES and name:
-            # 资产图成品按新内容版本的全局保存位置写入（缺省本地）
             async with formal_commit(project_name):
                 return await run_sync_transaction(_sync)
         return await run_sync_transaction(_sync)
@@ -779,10 +728,6 @@ async def _handle_source_upload(
     loaded: dict[str, NormalizeResult] = {}
 
     def _sync() -> SourceFileChangeOutcome:
-        # 流式写入 tmp，避免把上传 body 整体拉进 Python 堆；
-        # UploadFile.file 是 SpooledTemporaryFile，此处已是请求体完整到位状态。
-        # 在 with 外包 try/finally：即使 copyfileobj 抛异常（如磁盘满），
-        # 也要清理已创建的 tmp 文件，避免 /tmp 泄漏（delete=False 不会自动清）。
         with tempfile.NamedTemporaryFile(suffix=Path(original_filename).suffix, delete=False) as tmp:
             tmp_path = Path(tmp.name)
         try:
@@ -791,7 +736,6 @@ async def _handle_source_upload(
 
             def _write(source_dir: Path, undo: ExitStack) -> str:
                 if on_conflict == "replace":
-                    # 被替换的旧文件连同原始上传件进项目回收站，事务失败时撤回原处。
                     trash_source_file(project_dir, f"source/{normalized_name}", undo)
                 result = SourceLoader.load(
                     tmp_path,
@@ -818,9 +762,6 @@ async def _handle_source_upload(
     try:
         outcome = await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
-        # 竞态窗口：get_project_path 通过后项目目录被并发删除，SourceLoader 写入时才炸。
-        # 不映射会落到 app 级兜底的泛化 resource_not_found，丢失项目语义。
-        # 仅在项目目录确实消失时转换：tmp 文件/加载器内部的文件缺失不是项目问题，继续上抛
         if await asyncio.to_thread(project_dir.exists):
             raise
         raise NotFoundError("project_not_found", name=project_name) from exc
@@ -948,7 +889,6 @@ async def list_project_files(project_name: str, _t: Translator):
                 if subdir == "source":
                     raw_dir = subdir_path / "raw"
                     if raw_dir.exists():
-                        # sorted 保证多个 raw 同 stem 时的确定性（后者覆盖前者，字典序末位胜出）
                         for raw_f in sorted(raw_dir.iterdir()):
                             if raw_f.is_file():
                                 raw_by_stem[raw_f.stem] = raw_f.name
@@ -1073,7 +1013,6 @@ async def update_source_file(
                     register_whole_source_file(project, rel)
             return {"success": True, "path": f"source/{filename}"}
 
-        # 两个分支都标 webui：未登记文件的新建经 locked_source_registration 改写登记，同样会广播。
         with project_change_source("webui"):
             return await run_sync_transaction(_sync)
 
@@ -1121,11 +1060,9 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
                 if not source_path.exists():
                     raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
                 unregister_source_file(project, f"source/{filename}")
-                # 源文件连同原始上传件（同主干）成为一条删除记录；写回登记失败时撤回。
                 trash_source_file(project_dir, f"source/{filename}", undo)
             return {"success": True}
 
-        # 两个分支都标 webui：删除自带原文的集文件会改写集元数据，删除记录的发起方也按来源记为用户。
         with project_change_source("webui"):
             return await run_sync_transaction(_sync)
 
@@ -1142,7 +1079,6 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-#: 草稿端点的阶段路径段。目前只有脚本规划一段走草稿读写；提示词编写没有可直编的中间态。
 _SCRIPT_PLAN_STAGE = "script_plan"
 
 
@@ -1163,9 +1099,6 @@ def _stage_files(content_mode: str, generation_mode: str | None = None) -> dict[
     return {_SCRIPT_PLAN_STAGE: SCRIPT_PLAN_FILENAMES.get(content_mode, SCRIPT_PLAN_FILENAMES["drama"])}
 
 
-# 按 primary 文件名分组的优先候选（mode 感知）：先在本模式自家候选里回落，再兜底其他模式遗留文件。
-# 每模式的结构化 .json + 旧版 .md 取自单一真相源；reference_video 优先结构化 .json、再旧版 .md
-# （读取 / 浏览层兼认存量在制品，写盘与生成侧不认——与 narration / drama 的 legacy 语义同口径）。
 _SCRIPT_PLAN_FAMILY: dict[str, list[str]] = {
     SCRIPT_PLAN_FILENAMES[mode]: list(script_plan_read_candidates(mode)) for mode in SCRIPT_PLAN_FILENAMES
 }
@@ -1174,10 +1107,6 @@ _SCRIPT_PLAN_FAMILY[REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME] = [
     REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
 ]
 
-# script_plan 实际文件候选 —— 主文件不存在时用于 fallback 探测。
-# 结构化 .json 与旧 .md 候选均由单一真相源派生；各自保留旧 .md 以便存量在制品仍可浏览。
-# 跨模式遗留回落的探测优先级固定为 reference_video → narration → drama（保持历史 tie-break，
-# 避免收敛后跨模式选到的遗留文件与旧实现不一致）；未登记于此序列的未来 content_mode 附加在后。
 _SCRIPT_PLAN_PROBE_ORDER = [
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
     SCRIPT_PLAN_FILENAMES["narration"],
@@ -1264,27 +1193,16 @@ async def update_draft_content(
             if stage not in stage_files:
                 raise HTTPException(status_code=400, detail=_t("invalid_draft_stage", stage=stage))
 
-            # 写入始终落到当前模式的目标文件；fallback 仅用于读取/删除（兼容跨模式切换的旧 script_plan）。
-            # 若写入 fallback 到老文件，切模式后后续子智能体读 stage_files[stage] 仍为空，
-            # 导致"前端保存成功但生成报缺少 script_plan"。
             return project_dir, content_mode, episode_drafts_dir(project_dir, episode) / stage_files[stage]
 
         project_dir, content_mode, draft_path = await asyncio.to_thread(_resolve_target)
 
-        # 用户在 Web 端的保存：草稿事件与连带的写入（参考模式清掉的提示词编写草稿）都按 webui 广播，
-        # 前端不把它当成外部改动去通知或跳转。
         with project_change_source("webui"):
             if draft_path.name == REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME:
-                # 参考生视频正式 script_plan 不走本端点的裸文本直写：它的写盘统一收敛在
-                # ScriptReviewService.save_content 的单一出口（结构校验、references 重派生、
-                # per-path 锁与 prompt_authoring 草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
-                # 本端点无基线指纹可传，不做并发基线比对（同其余无基线的直连调用）。
                 try:
                     parsed = json.loads(content)
                 except json.JSONDecodeError as exc:
                     raise BadRequestError("script_review_invalid_content").with_diagnostic(str(exc)) from exc
-                # 存在性探测同其余同步文件 I/O 卸到线程：本函数由请求协程直接 await，
-                # 裸 exists() 会跑在事件循环上阻塞并发请求。
                 is_new = not await asyncio.to_thread(draft_path.exists)
                 try:
                     await ScriptReviewService(get_project_manager()).save_content(project_name, episode, parsed)
@@ -1295,7 +1213,6 @@ async def update_draft_content(
                     _write_plain_draft, project_name, project_dir, episode, draft_path, content, _t
                 )
 
-            # 发射 draft 事件通知前端：正式脚本规划不在事件服务的轮询范围内，这一批是它唯一的变更信号。
             action = "created" if is_new else "updated"
             draft_label_key = "draft_segment_splitting" if content_mode == "narration" else "draft_normalized_script"
             change = {
@@ -1358,8 +1275,6 @@ def _write_plain_draft(
                 "expected a JSON object with a non-empty 'scenes' array of objects, each with a non-empty 'scene_id'"
             )
 
-    # 与 ScriptGenerator / ScriptReviewService 共享同一把 per-path 锁：
-    # 草稿文件的迁移读改写与 Web 端保存相互串行化。
     pm = get_project_manager()
     with pm.file_lock(draft_path):
         project = pm.load_project(project_name)
@@ -1451,13 +1366,9 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         style_description = result.text
 
         def _sync_save():
-            # 更新 project.json：整段 RMW 在单一 _project_lock 内完成，避免覆盖并发写入的其它字段
             def _mutate(project_data: dict) -> None:
                 project_data["style_image"] = style_filename
                 project_data["style_description"] = style_description
-                # 强互斥：自定义参考图与模版二选一。除了清 template_id，
-                # 还需清掉之前由模板展开写入的 `style` prompt，否则生成链路会把
-                # 模板 prompt 与 style_description 同时喂给 LLM，破坏二选一语义。
                 project_data.pop("style_template_id", None)
                 project_data["style"] = ""
 
@@ -1478,7 +1389,6 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
     except HTTPException:
         raise
     except NoAvailableProviderError as exc:
-        # 没有文本默认模型（有没有配置供应商都一样）：指引到默认模型设置，不是供应商页
         raise BadRequestError("text_default_model_not_set").with_diagnostic(
             {"code": "text_default_model_not_set"}
         ) from exc

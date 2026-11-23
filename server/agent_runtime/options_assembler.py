@@ -137,7 +137,6 @@ class OptionsAssembler:
         self._provider_env_loader = provider_env_loader
         self._session_factory_provider = session_factory_provider or (lambda: None)
         self._user_id_provider = user_id_provider or (lambda: DEFAULT_USER_ID)
-        # session store 单例缓存：每个 assembler 一份，避免每次 build 都新建 store。
         self._cached_session_store: DbSessionStore | None = None
         self._session_store_resolved = False
 
@@ -298,10 +297,6 @@ class OptionsAssembler:
 
         project_cwd = await asyncio.to_thread(self._resolve_project_cwd, project_name)
 
-        # Build PreToolUse hooks — file access control MUST use hooks because
-        # Read/Glob/Grep are matched by allow rules (step 4 in the SDK
-        # permission chain) before reaching can_use_tool (step 5).  Hooks
-        # (step 1) fire for ALL tool calls and can override allow rules.
         hooks: dict[HookEvent, list[HookMatcher]] | None = None
         hook_callbacks: list[Any] = [
             self._subagent_tool_hook,
@@ -312,8 +307,6 @@ class OptionsAssembler:
             # can_use_tool.
             hook_callbacks.insert(0, self._keep_stream_open_hook)
 
-        # Shared dict: PreToolUse saves file backup, PostToolUse restores
-        # on corruption.  Keyed by tool_use_id.
         json_backups: dict[str, tuple[Path, str]] = {}
 
         hooks = {
@@ -345,8 +338,6 @@ class OptionsAssembler:
         provider_env.update(
             {
                 "ARCREEL_EMBEDDED_AGENT": "1",
-                # 订阅 session_state_changed 帧：后台子智能体结束后 CLI 还欠一轮时持续报 running，
-                # 与 SDK 判定 run 是否结束的依据相同；会话层据此决定能否断开 CLI。
                 "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
                 "ARCREEL_API_BASE": (os.environ.get("ARCREEL_API_BASE") or "http://127.0.0.1:1241/api/v1").rstrip("/"),
                 "ARCREEL_API_TOKEN": (
@@ -359,29 +350,18 @@ class OptionsAssembler:
         user_id = self._user_id_provider()
 
         def _build_sandbox_and_mcp_server() -> tuple[dict[str, Any], McpSdkServerConfig]:
-            # 两者都会扫盘/建目录（sandbox 敏感路径解析、MCP 服务的 ProjectManager），合并一次卸到线程。
             sandbox = policy.build_sandbox_settings(project_cwd)
-            # 内置 ArcReel in-process MCP server — handler 跑在主进程，绕过 sandbox。
             server = build_arcreel_mcp_server(project_name=project_name, data_root=self.data_root, user_id=user_id)
             return sandbox, server
 
         sandbox_typed, arcreel_server = await asyncio.to_thread(_build_sandbox_and_mcp_server)
 
-        # Windows 回退：sandbox 关闭时 Bash 系列被剥离出 allowed_tools，
-        # 让 _can_use_tool 接管 prefix 白名单匹配。
         allowed_tools = policy.filter_allowed_tools(self._allowed_tools)
-        # 通配符让后续新增 tool 不必同步改 allowed_tools。
         allowed_tools.append("mcp__arcreel__*")
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
             setting_sources=self._setting_sources,
-            # 项目记忆：把原生 auto memory 的目录从「按 git 仓库根派生」重定向到项目目录内，
-            # 否则同一台机器上所有 ArcReel 项目与开发者的交互会话共用一份 MEMORY.md。
-            # 走 JSON 串而非物化 settings 文件：路径按会话变化，落盘会与 profile manifest 的
-            # 「未改内置文件」判定打架（ADR 0074）。settings 落 flag settings 层，优先级高于
-            # 项目 .claude/settings.json；SDK 随后把 ``sandbox`` 并进同一份 JSON。
-            # 不显式设 autoMemoryEnabled：原生默认即开启。
             settings=json.dumps({"autoMemoryDirectory": str(project_memory_dir(project_cwd))}),
             allowed_tools=allowed_tools,
             max_turns=self._max_turns_provider(),
@@ -389,8 +369,6 @@ class OptionsAssembler:
                 type="preset",
                 preset="claude_code",
                 append=await self._build_append_prompt(project_name, locale=locale),
-                # 会话首轮记录系统提示，之后每轮（含 resume）原样沿用：记忆等动态段的变化
-                # 不再打断 prompt cache。代价是 append 在会话内固定，resume 不会按新 locale 重建。
                 snapshot=True,
             ),
             include_partial_messages=True,
@@ -499,7 +477,6 @@ class OptionsAssembler:
                     file_path,
                     tool_name,
                     project_cwd,
-                    # 与 policy 同为现取：user_id 决定用户记忆目录，随会话所属用户变化。
                     user_id=self._user_id_provider(),
                 )
                 if not allowed:
@@ -547,7 +524,7 @@ class OptionsAssembler:
             if not file_path or not file_path.endswith(".json"):
                 return {}
 
-            _CURLY_QUOTES = "“”„‟"  # ""„‟
+            _CURLY_QUOTES = "“”„‟"
 
             def _has_curly_quotes(text: str) -> bool:
                 """Return True if *text* contains Unicode curly/smart quotes."""
@@ -612,7 +589,6 @@ class OptionsAssembler:
                     json_backups[_tool_use_id] = (resolved, current)
 
                 if old_string not in current:
-                    # Edit tool will fail on its own; no need to intervene.
                     logger.info(
                         "JSON 校验 hook: tool=Edit file=%s skip=old_string未匹配 old_len=%d new_len=%d file_len=%d",
                         file_path,
@@ -714,7 +690,6 @@ class OptionsAssembler:
             if not file_path or not file_path.endswith(".json"):
                 return {}
 
-            # Pop the backup regardless of outcome to avoid memory leaks
             backup = json_backups.pop(tool_use_id, None) if tool_use_id else None
 
             try:

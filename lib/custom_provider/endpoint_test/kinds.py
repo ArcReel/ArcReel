@@ -57,11 +57,8 @@ class KindTestSupport:
     """一种 kind 的端点测试实现。"""
 
     preview: PreviewFn
-    #: 这份定义要 ``base_url`` / ``api_key`` 吗。两者皆否的定义不必带凭证即可调用。
     credential_needs: Callable[[Mapping[str, Any]], tuple[bool, bool]]
     trial_target: TrialTargetFn
-    #: 测试连接的结果体里放不放一段渲染后的提交请求（它同时充当提交前的渲染闸）。
-    #: ComfyUI 不放：实发 workflow 的种子与素材引用名要到提交那一刻才定下来。
     trial_run_request_preview: bool
 
 
@@ -85,7 +82,6 @@ _SUPPORT_BY_KIND: Mapping[str, KindTestSupport] = {
 }
 
 
-#: 有端点测试实现的全部 kind。与 :data:`.modes.TESTABLE_KINDS` 一致。
 SUPPORTED_KINDS = frozenset(_SUPPORT_BY_KIND)
 
 

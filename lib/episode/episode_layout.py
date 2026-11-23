@@ -53,14 +53,10 @@ class LayoutSegment:
     start: int
     end: int
     text: str
-    #: ``kind == "episode"`` 时是集 ID。
     episode: int | None = None
-    #: 未切分段排在按源文位置最后一个切出集之前（夹在切出集之间，或在第一个切出集之前）。
     gap: bool = False
     units: int = 0
-    #: 集段接着上一个文件里的同一集（这一集跨文件，起点在前面的文件里）。
     continued: bool = False
-    #: 集段在下一个文件里接着（这一集跨文件，终点在后面的文件里）。
     continues: bool = False
 
 
@@ -70,18 +66,13 @@ class LayoutFile:
 
     source_file: str
     name: str
-    #: 上传时的原始文件名；上传内容与规范化文本逐字节相同、没有留原件备份时为 None。
     original_filename: str | None
-    #: 文件读不到（不存在、符号链接、非 UTF-8）时为 True，此时没有分段。
     missing: bool
-    #: 规范化全文的字符数，是文件内偏移的上界；读不到时为 0。
     length: int
     units: int
     cut_units: int
     segments: list[LayoutSegment] = field(default_factory=list)
-    #: 源文件类型；只有剧情演绎项目有。
     source_kind: SourceKind | None = None
-    #: 文件在服务之外被改动过、还没有更新分集账本（已记录的源文指纹或快照与当前文本不符）。
     changed_outside: bool = False
 
 
@@ -92,16 +83,12 @@ class LayoutEpisode:
     episode: int
     origin: SourceOrigin
     placed: bool
-    #: 原文范围起点所在的整本源文文件（仅 ``placed``）。
     source_file: str | None
-    #: 读不到原文（无原文的集，或集文件缺失）时为 None。
     units: int | None
     spoken_seconds: float | None
     first_sentence: str
     last_sentence: str
-    #: 源文件类型：自带原文的集取条目记录，切出集取范围起点所在文件；无原文的集与非剧情演绎项目为 None。
     source_kind: SourceKind | None = None
-    #: 原文范围终点所在的整本源文文件（仅 ``placed``）；不跨文件时与 ``source_file`` 相同。
     end_file: str | None = None
 
 
@@ -111,7 +98,6 @@ class UnregisteredFile:
 
     name: str
     size: int
-    #: 文件名能直接登记为整本源文（非下划线前缀，也不是 ``episode_N.txt``）。
     can_join_whole_source: bool
 
 

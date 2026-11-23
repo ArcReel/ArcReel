@@ -31,25 +31,17 @@ _STRICT_CONFIG = ConfigDict(extra="forbid")
 
 LedgerStatus = Literal["planned", "consumed", "stale"]
 
-#: 当前状态集，供校验层识别「不在当前状态集内」的取值（容忍放行，仅记诊断日志）
 LEDGER_STATUSES: tuple[str, ...] = get_args(LedgerStatus)
 
-# 仅 ASCII 数字：\d 会放行全角等 Unicode 数字，把非流水线产物误判为派生集文件
 _EPISODE_FILE_RE = re.compile(r"episode_([0-9]+)\.txt")
 _SCRIPT_FILE_RE = re.compile(r"episode_([0-9]+)\.json")
 _DRAFT_DIR_RE = re.compile(r"episode_([0-9]+)")
 
-# 「什么后缀算源文本文件」的唯一定义，整本源文清单与其他源文读取方共用
 SOURCE_TEXT_SUFFIXES = {".txt", ".md"}
 
-# project.json 顶层源文指纹字段（源文相对路径 → 归一化文本 sha256）。账本坐标绑定
-# 具体源文内容，指纹是「原文未变」的证据；全量重置把账本清空，指纹随之失效清除。
 SOURCE_FINGERPRINTS_KEY = "source_fingerprints"
 
 
-# 字段校验失败的原因以翻译键携带：Pydantic 只能把原因传成字符串，DataValidator 在
-# 汇总报错时据此还原为可翻译片段，用户按请求语言看到失败原因（见
-# ``lib.project.data_validator._pydantic_error_summary``）。
 LEDGER_SOURCE_FILE_NOT_RELATIVE_KEY = "val_ledger_source_file_not_relative"
 LEDGER_SOURCE_FILE_ESCAPES_KEY = "val_ledger_source_file_escapes"
 LEDGER_START_AFTER_END_KEY = "val_ledger_start_after_end"
@@ -105,9 +97,6 @@ class EpisodeOutline(BaseModel):
     next_episode_teaser: str | None = None
 
 
-#: 从这一 schema 起，下集大纲取播出顺序中紧接的那一集，且没有规划数据时退为只给标题。
-#: 更早的项目只在迁移链中出现：v15→v16 之前的激活沿用「集号 + 1、没有规划数据就不给」的
-#: 口径，由 v15→v16 按新旧口径各规划一次，改写只因下集大纲变了的脚本规划登记。
 NEXT_EPISODE_OUTLINE_BY_ORDER_SCHEMA_VERSION = 16
 
 
@@ -133,8 +122,6 @@ def episode_outline_context(
         raw_outline = entry.get("outline")
         outline = raw_outline if isinstance(raw_outline, Mapping) else {}
         raw_beats = outline.get("story_beats")
-        # 非 list 形状（手编损坏）按缺失处理；list 内非字符串项一并过滤——避免字符串被逐字符渲染、
-        # 或数字 / None 等脏数据原样进 script_plan prompt（与 helper 的 fail-soft 同口径）。
         story_beats = [beat for beat in raw_beats if isinstance(beat, str)] if isinstance(raw_beats, list) else []
         ctx: dict[str, Any] = {
             "title": entry.get("title"),
@@ -318,9 +305,6 @@ def discover_product_episode_nums(project_dir: Path) -> set[int]:
     if drafts_dir.is_dir():
         for path in drafts_dir.iterdir():
             match = _DRAFT_DIR_RE.fullmatch(path.name)
-            # 目录存在不等于有产物：files.py::update_draft_content 会在校验草稿内容前
-            # 先建目录，一次被拒绝的无效保存就会留下空目录；只有真正落了 script_plan_* 才算
-            # 下游产物，与 has_downstream_products() 的口径保持一致
             if match and path.is_dir() and any(path.glob("script_plan_*")):
                 nums.add(int(match.group(1)))
     return nums
@@ -337,8 +321,6 @@ def has_downstream_products(project_dir: Path, episode_num: int, entry: Mapping[
     if (project_dir / episode_script_relpath(episode_num)).is_file():
         return True
     drafts_dir = episode_drafts_dir(project_dir, episode_num)
-    # script_plan_* 匹配任意格式（结构化 .json / 旧版 .md / reference_units.md），format-agnostic 地
-    # 覆盖所有 content_mode 的 script_plan 产物：只要拆过段就算已有下游，避免被重规划覆盖。
     return drafts_dir.is_dir() and any(drafts_dir.glob("script_plan_*"))
 
 

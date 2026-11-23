@@ -757,8 +757,6 @@ _TEXT_DRAMA_SCRIPT_PLAN = "text_drama_script_plan"
 _TEXT_NARRATION_SCRIPT_PLAN = "text_narration_script_plan"
 _TEXT_REFERENCE_SCRIPT_PLAN = "text_reference_script_plan"
 _TEXT_EPISODE_PLAN = "text_episode_plan"
-#: 嵌入式宿主在本进程内提交、并在本进程内等待的文本任务：worker 沿用提交方的数据根与服务。
-#: 只在内存里，不进任务载荷；没有登记的任务（MCP 提交、重启后的存量任务）按当前配置解析。
 _TEXT_TASK_SERVICES: dict[str, tuple[ProjectScope, Services]] = {}
 
 
@@ -1661,8 +1659,6 @@ async def repair_draft(
     )
 
 
-#: 草稿命令错误码 → 任务失败的文案 key，与草稿 REST 的错误映射一致。写回草稿之前的失败已归为
-#: ``draft_repair_failed``；未列出的错误来自正文写回草稿之后的重判与晋升，归为保存未完成。
 _DRAFT_REPAIR_FAILURE_KEYS: dict[str, str] = {
     "draft_not_found": "draft_not_found",
     "invalid_request": "draft_doc_type_not_applicable",
@@ -1689,10 +1685,8 @@ async def _execute_draft_repair(
         notice_as_problem=True,
     )
     if outcome.problem is not None and outcome.problem.action is not None:
-        # 带修复指引的问题（输出截断、视频模型配置、正式剧本单元没过晋升预判）原样透出：问题码即文案 key，失败原因按真实原因呈现。
         return ToolOutcome(problem=outcome.problem)
     if outcome.problem is not None:
-        # 任务失败原因按问题码本地化呈现：换成草稿命令对应的错误文案 key，Agent 面向的 detail 只作诊断。
         key = _DRAFT_REPAIR_FAILURE_KEYS.get(outcome.problem.code, "draft_save_failed")
         params = {"episode": request.episode_id} if key == "draft_not_found" else None
         return ToolOutcome(problem=ToolProblem(key, outcome.problem.detail, params=params))
@@ -1928,9 +1922,7 @@ class EditSourceTextRequest(BaseModel):
 
 class SourceChangeResult(BaseModel):
     message: str
-    #: 为 True 时没有写入，等待用户确认受影响集清单后带 ``revision`` 重新调用。
     confirmation_required: bool
-    #: 受影响集清单（集 ID，按类分组）；改自带原文的集时为 None。
     impact: dict[str, list[int]] | None = None
     revision: str | None = None
 
@@ -2040,7 +2032,6 @@ async def upload_source(
 
             def _write(source_dir: Path, undo: contextlib.ExitStack) -> str:
                 if value.on_conflict == "replace":
-                    # 被替换的旧文件连同原始上传件进项目回收站，事务失败时撤回原处。
                     trash_source_file(source_dir.parent, f"source/{Path(value.filename).stem}.txt", undo)
                 result = SourceLoader.load(
                     source_path, source_dir, original_filename=value.filename, on_conflict=value.on_conflict
@@ -2241,7 +2232,6 @@ async def get_image_capabilities(
         except ModelNotInCatalogError as exc:
             result[bucket] = {"problem": model_not_in_catalog_problem(exc).model_dump()}
         except Exception as exc:
-            # 其余解析失败只影响这一个桶，另一桶的能力照常返回。
             result[bucket] = {"problem": {"code": "capabilities_unresolved", "detail": str(exc)}}
         else:
             result[bucket] = {
@@ -2635,7 +2625,6 @@ class ResetEpisodePlanningResult(ToolMessage):
     deleted_files: list[str] = Field(default_factory=list)
     archived_files: list[str] | list[tuple[str, str]] = Field(default_factory=list)
     consumed_episodes: list[int] = Field(default_factory=list)
-    #: 转为无原文的集并标 stale 的集（确认清单里是将要转换的集）。
     retired_episodes: list[int] = Field(default_factory=list)
 
 
@@ -2861,8 +2850,6 @@ def _render_ledger_stats(stats: LedgerStats, project: Mapping[str, Any]) -> list
     if stats.median_units is not None:
         lines.append(f"全账本体量中位数：约 {stats.median_units}")
     if (volume := stats.target_volume) is not None:
-        # 折算来源须与显式设置区分：主 Agent 核对体量偏差时，折算值叠了一层语速估算，
-        # 不能当成用户给定的硬指标。
         derived = f"（按单集目标时长 {volume.seconds} 秒折算）" if volume.source == "duration" else ""
         lines.append(f"每集目标体量设置：约 {volume.units}{derived}")
     lines.append("若用户给过总集数、按章节对齐等结构性偏好，请对照以上分布核实，有偏差须向用户明确说明。")
@@ -2870,7 +2857,6 @@ def _render_ledger_stats(stats: LedgerStats, project: Mapping[str, Any]) -> list
 
 
 def _format_plan(result: PlanResult, project: Mapping[str, Any], *, gap: bool = False) -> str:
-    # 规划未切分的空段时，``source_exhausted`` 只表示这段原文规划完了，整本源文后面可能还有未规划的原文
     done = "这段未切分的原文已全部规划完毕" if gap else "源文已全部规划完毕"
     if not result.episodes and result.source_exhausted:
         lines = [f"{done}，没有可规划的新内容。"]
@@ -2921,7 +2907,6 @@ class _PlanningChain:
             if self.task.get("resource_id") == EPISODE_PLANNING_SLOT
             else EPISODE_PLANNING_SLOT
         )
-        # 下一窗由正在执行的 worker 排入，worker 必然在线
         next_window = await self.services.queue.enqueue_task(
             project_name=str(self.task["project_name"]),
             task_type=_TEXT_EPISODE_PLAN,
@@ -2997,7 +2982,6 @@ async def _execute_plan_episodes(
                 )
             )
         except Exception as exc:
-            # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
             outcome = ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
         else:
             project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
@@ -3113,7 +3097,6 @@ async def start_episode_planning(
 
 
 class ReplanWindowResult(ToolMessage):
-    #: 本批追加的候选集数、候选的集数，以及候选是否已覆盖到整本源文结尾。
     planned: int
     total: int
     complete: bool
@@ -3181,7 +3164,6 @@ async def start_episode_replan(
         return ToolOutcome(problem=_replan_refused(exc))
     outcome = await _submit_replan_window(candidate_id, request.value.instructions, scope, caller, services)
     if outcome.problem is not None:
-        # 首窗没能排进队列：候选还是空的，撤掉它，不留下挡住规划的空候选
         with contextlib.suppress(ReplanError):
             await _run_sync_transaction(discard_replan_candidate, project_path, candidate_id)
     return outcome
@@ -3295,7 +3277,6 @@ async def _draft_replan_window(
                 )
             )
         except Exception as exc:
-            # 供应商调用失败等未预期异常与规划自身的失败同码，界面按用户语言显示通用失败，原因留在 detail 给 Agent
             outcome = ToolOutcome(problem=ToolProblem("episode_planning_failed", str(exc) or type(exc).__name__))
         else:
             done = "，已覆盖到整本源文结尾" if result.source_exhausted else ""
@@ -3326,7 +3307,6 @@ def _planning_gap(raw: object) -> tuple[str, int] | None:
 @dataclass(frozen=True, slots=True)
 class StopEpisodePlanningResult:
     cancelled: list[str]
-    #: 仍在执行的窗口：执行中的窗口不可取消，会照常完成并提交。
     running: list[str]
 
 

@@ -55,7 +55,6 @@ def take_episode(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Res
 
     def append(project: dict[str, Any]) -> None:
         if find_episode(project, number) is not None:
-            # 集 ID 不复用，原 ID 总是空闲；仍被占用时不合并进别的集。
             raise ConflictError("trash_restore_failed", id=str(number))
         if own:
             record_episode_kind(project, restored, kind)
@@ -72,7 +71,6 @@ def take_episode(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Res
             versions.attach_resources(content.versions)
             projects.update_project_locked(project_dir.name, append)
             if claims:
-                # 补录：登记取自删除前（迁移后）的清单，依据摘要不变，输入此后变过的照常读为过期。
                 register_artifact_entries_atomically(project_dir, claims)
         return obj
 

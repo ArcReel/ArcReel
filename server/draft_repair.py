@@ -108,7 +108,6 @@ def merge_repair(content: dict[str, Any], scope: RepairScope, response: object) 
     if scope.indices is None:
         if not isinstance(items, list) or not items:
             raise ValueError(f"模型回复缺少非空的 {scope.root} 数组")
-        # 只取原草稿已有的顶层字段与条目数组，模型自造的字段不进草稿。
         return {**content, **{key: value for key, value in reply.items() if key in content or key == scope.root}}
     if not isinstance(items, list) or len(cast(list[Any], items)) != len(scope.indices):
         raise ValueError(f"模型回复的 {scope.root} 条目数与待修复条目数（{len(scope.indices)}）不符")
@@ -205,7 +204,6 @@ class DraftRepair:
         try:
             content = await self._repaired_content(episode, doc_type, base_revision, instructions)
         except (DraftWorkflowError, TextOutputTruncatedError, ModelNotInCatalogError, NoAvailableProviderError):
-            # 模型配置问题保留身份，由调用方给出对应的设置入口。
             raise
         except Exception as exc:
             raise DraftWorkflowError("draft_repair_failed", f"AI 修复未完成：{exc}") from exc

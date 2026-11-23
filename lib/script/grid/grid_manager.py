@@ -17,7 +17,6 @@ from lib.script.grid.models import GridGeneration
 
 logger = logging.getLogger(__name__)
 
-# 与 lib/script/grid/models.py::GridGeneration.create 的生成格式一致
 _GRID_ID_RE = re.compile(r"grid_[0-9a-f]{12}")
 
 
@@ -73,7 +72,7 @@ class GridManager:
         with self._record_lock(path), formal_write_transaction(path):
             try:
                 grid = self._get_unlocked(path)
-            except Exception:  # best-effort：可选恢复语义只作用于读取
+            except Exception:
                 if not ignore_invalid:
                     raise
                 if on_miss is not None:
@@ -139,8 +138,7 @@ class GridManager:
             try:
                 grid = self._get_unlocked(path)
             except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
-                grid = None  # 读不出的旧记录没有可证明的清单登记
-            # 回收站的落地规则依赖 ProjectManager，顶层导入会成环。
+                grid = None
             from lib.project.media_trash import trash_grid
 
             trash_grid(self._project_dir, grid_id, grid.episode if grid is not None else None)

@@ -45,7 +45,6 @@ def _single(endpoint: str) -> ProviderEndpointOptions:
     return ProviderEndpointOptions((endpoint,), endpoint)
 
 
-#: 内置供应商可挂接的内置调用端点：端点名 → 媒体类型与起始版本。清单首次发布时已有的端点都是基线端点。
 BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
     {
         **_baseline(
@@ -123,7 +122,6 @@ BUILTIN_ENDPOINTS: Final[Mapping[str, BuiltinEndpoint]] = MappingProxyType(
 _SEEDREAM = ProviderEndpointOptions(("ark-seedream-3", "ark-seedream-4"), "ark-seedream-4")
 _SEEDANCE = ProviderEndpointOptions(("ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5"), "ark-seedance-2")
 
-#: 内置供应商 → 媒体类型（``MEDIA_TYPES`` 之一）→ 可选端点与默认端点。官方收录的供应商模型只能挂接所在供应商这一媒体类型的可选端点。
 BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOptions]]] = MappingProxyType(
     {
         "agnes": {
@@ -227,7 +225,6 @@ BUILTIN_PROVIDER_ENDPOINTS: Final[Mapping[str, Mapping[str, ProviderEndpointOpti
     }
 )
 
-#: 实例开始读取端点声明的应用版本。在此之前的实例按 API 模型名选端点。
 ENDPOINT_DECLARATIONS_SINCE: str | None = "0.35.1"
 
 _APP_VERSION = re.compile(r"\d+(\.\d+){0,2}")

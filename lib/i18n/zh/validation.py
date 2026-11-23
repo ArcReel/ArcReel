@@ -319,7 +319,6 @@ MESSAGES = {
     "val_market_cli_check_failed": "市场源校验未通过，共 {count} 个问题",
     "val_market_cli_generate_written": "已写入 {path}（{count} 个条目）",
     "val_market_cli_generate_failed": "无法生成索引，共 {count} 个问题",
-    # Draft diagnostics; Agent reports retain their original messages.
     "draft_violation_source_text_empty": "{label} 的原文为空。复制该视频单元所依据的原文片段",
     "draft_violation_source_text_not_verbatim": "{label} 的原文不是小说原文的逐字片段：{excerpt}。原样复制原文，不要转述",
     "draft_violation_fullwidth_braces": "{label} 使用了全角花括号：{excerpt}。台词与画外音须使用半角花括号",
@@ -343,7 +342,6 @@ MESSAGES = {
     "draft_violation_blank_novel_text": "{label} 的 novel_text 为空。每个分镜须携带逐字取自原文的旁白",
     "draft_violation_novel_text_coverage": "各分镜的 novel_text 未按序、逐字、完整覆盖原文。源文件：{source}。原样复制并按序拼接；草稿的源文范围有误时，先更新源文范围",
     "draft_violation_schema_invalid": "草稿的 {path} 不符合产出结构：{detail}。检查必填字段、类型和取值",
-    # Draft schema reasons by pydantic error type, rendered into draft_violation_schema_invalid's {detail}.
     "draft_schema_narration_dialogue_forbidden": "旁白/解说片段不写台词，角色说的话由旁白在正文里转述",
     "draft_schema_dialogue_speaker_required": "dialogue 发声条目必须带非空 speaker",
     "draft_schema_voiceover_speaker_forbidden": "voiceover 发声条目不得带 speaker",

@@ -94,7 +94,7 @@ def normalize_block(block: Any) -> dict[str, Any]:
     elif block_type == "tool_result":
         normalized["content"] = stringify_content(normalized.get("content", ""))
     elif block_type == "image":
-        pass  # image blocks pass through as-is (source field preserved by deepcopy)
+        pass
 
     return normalized
 

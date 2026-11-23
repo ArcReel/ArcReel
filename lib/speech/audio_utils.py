@@ -14,13 +14,10 @@ from lib.infra.path_safety import safe_resolve
 
 logger = logging.getLogger(__name__)
 
-# 角色参考音频约束（上传与 TTS 生成样本同口径）：wav/mp3、2-10 秒、≤15MB。
-# 出处见 lib/backends/audio_backends/dashscope.py 与 server/routers/files.py 引用处。
 AUDIO_REFERENCE_MAX_BYTES = 15 * 1024 * 1024
 AUDIO_REFERENCE_MIN_SECONDS = 2.0
 AUDIO_REFERENCE_MAX_SECONDS = 10.0
 
-# 上传校验在请求内同步执行，损坏文件不能长时间占住请求。
 _UPLOAD_PROBE_DEADLINE_SECONDS = 10.0
 
 # 探测出的容器格式是一组候选 demuxer 名（如 m4a 为 mov,mp4,m4a,3gp,3g2,mj2），
@@ -95,7 +92,6 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
         ValueError: 无法解析、探测超时、容器内没有音频流（如把视频文件改名为 .wav/.mp3
             上传），或容器格式与扩展名不符（如把 m4a/aac 改名为 .wav 上传）。
     """
-    # 取消落在写临时文件那一程时返回值会丢，靠登记的路径回收。
     created: list[Path] = []
     try:
         tmp_path = await run_sync_transaction(_write_probe_temp_file, content, suffix, created)

@@ -38,16 +38,12 @@ from lib.infra.retry import retry_async
 
 logger = logging.getLogger(__name__)
 
-#: 上传素材统一落在服务端 ``input`` 区的这个子目录下，不与用户自己传的图混在一起。
 UPLOAD_SUBFOLDER = "arcreel"
 
-#: 提交时带上的客户端标识前缀，便于在 ComfyUI 的队列界面上认出是谁发的。
 CLIENT_ID_PREFIX = "arcreel-"
 
-#: ComfyUI 的 ``type`` 维度：``input`` 是可被读图节点引用的输入区。
 _INPUT_TYPE = "input"
 
-#: 留痕回调：与声明式运行时同一形状（阶段 + 原文），由 backend 接到任务的诊断列上。
 RecordResponse = Callable[[ProviderResponseStage, object], Awaitable[None]]
 
 
@@ -289,12 +285,10 @@ class ComfyuiClient:
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            # 地址带着按 query 传的凭证，裸 HTTPStatusError 的消息会把它原样写进日志。
             raise redacted_status_error(exc) from None
         body = response.json()
         system = body.get("system") if isinstance(body, Mapping) else None
         version = system.get("comfyui_version") if isinstance(system, Mapping) else None
-        # 非字符串一律当读不到：调用方据此走低版本路径，那条路在新版本上同样有效。
         return version.strip() or None if isinstance(version, str) else None
 
     async def cancel_job(self, http: httpx.AsyncClient, prompt_id: str) -> None:
@@ -361,7 +355,6 @@ class ComfyuiClient:
             )
 
         await with_artifact_retry(once, label="comfyui artifact download", max_wait=max_wait)
-        # 重封装在下载预算之外进行，不让它的耗时把已下载成功的产物拖成下载超时
         await faststart_video_artifact(output_path)
 
 

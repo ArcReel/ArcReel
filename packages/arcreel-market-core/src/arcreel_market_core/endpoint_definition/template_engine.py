@@ -25,7 +25,6 @@ _PLACEHOLDER = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9
 _WHOLE_PLACEHOLDER = re.compile(r"^\s*{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*}}\s*$")
 _DROP = object()
 
-#: 媒体类型 → 分辨率档位的短边像素表：图片与视频的档位名与像素各成一套。
 _TIER_SHORT_EDGE_BY_MEDIA_TYPE: Mapping[str, dict[str, int]] = {
     "image": IMAGE_TIER_SHORT_EDGE,
     "video": VIDEO_TIER_SHORT_EDGE,
@@ -55,8 +54,6 @@ class RenderedRequest:
     url: str
     headers: dict[str, str]
     body: object | None = None
-    #: auth 节按 query 渲染出的凭证，已经拼在 ``url`` 上；单列一份是因为重定向会用
-    #: ``Location`` 整体替换查询串，同源续跳时要把它们重新贴回去。
     auth_query: dict[str, str] = field(default_factory=dict)
 
 

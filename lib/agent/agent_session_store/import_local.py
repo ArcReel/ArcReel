@@ -51,10 +51,6 @@ async def migrate_local_transcripts_to_store(
     if projects_dir.exists():
         for project_cwd in list_project_dirs(projects_dir):
             try:
-                # list_sessions stat-walks SDK transcript dirs synchronously;
-                # offload so the lifespan doesn't block the event loop.
-                # include_worktrees=False matches service.list_sessions() so we
-                # don't pull other worktrees' transcripts into this project_key.
                 sessions = await asyncio.to_thread(
                     list_sessions,
                     directory=str(project_cwd),

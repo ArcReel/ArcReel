@@ -25,15 +25,10 @@ from arcreel_market_core.definition_diagnostics import DefinitionErrorCode, Defi
 
 API_KEY_VARIABLE = "api_key"
 
-#: 合法占位符：``{{ 变量名 }}``，变量名允许点号分段（``inputs.first_frame``）。
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
 
-#: 模板里每一处 ``{{``。不落在 :data:`PLACEHOLDER` 起点上的即写法不合法：格式只认裸变量，
-#: 过滤器、下标、表达式与未闭合的开括号都不是占位符，渲染时会原样发给供应商。
 _PLACEHOLDER_OPEN = re.compile(r"\{\{")
 
-#: 凭证长相：20+ 位含数字的 token 串（API key / JWT / base64 的公共形态）。版本号、固定
-#: 字段这类短静态值不命中；误报的代价只是一条不拦保存的 warning。
 _CREDENTIAL_TOKEN = re.compile(r"[A-Za-z0-9+/_=-]{20,}")
 
 _AUTH_GROUPS = ("headers", "query")

@@ -38,13 +38,11 @@ class DataRootMigrationContext:
 
     layout: DataRootLayout
     session_factory: async_sessionmaker[AsyncSession]
-    #: Claude SDK 配置目录（``CLAUDE_CONFIG_DIR`` 或 ``~/.claude``），SDK 本地会话数据在其下。
     sdk_config_dir: Path
 
 
 MigrationStep = Callable[[DataRootMigrationContext], Awaitable[None]]
 
-#: 旧布局中名为 ``projects`` 的项目在项目目录建出前暂用的名字；不是合法项目名，不会被当作旧项目搬动。
 _PROJECTS_NAMESAKE_STAGING = ".projects-namesake-migrating"
 
 
@@ -204,7 +202,6 @@ async def _rewrite_session_store_keys(context: DataRootMigrationContext) -> None
         logger.info("数据根布局迁移：%d 个 Agent 会话改用新项目目录的存储键", len(rewritten))
 
 
-#: POSIX 绝对路径、Windows 盘符路径与 UNC 路径的开头。
 _ABSOLUTE_PATH_PREFIX = re.compile(r"^(?:[\\/]|[A-Za-z]:[\\/])")
 
 
@@ -268,7 +265,6 @@ async def _relativize_call_output_paths(context: DataRootMigrationContext) -> No
         logger.info("数据根布局迁移：%d 条调用记录的产物路径改为项目内相对路径", rewritten)
 
 
-#: 旧布局的全局资产库目录名；资产记录里的路径以它为前缀。
 _LEGACY_GLOBAL_ASSETS_DIRNAME = "_global_assets"
 
 
@@ -333,9 +329,7 @@ async def _rename_global_assets_dir(context: DataRootMigrationContext) -> None:
         logger.info("数据根布局迁移：%d 处全局资产路径改到 %s", rewritten, current_prefix)
 
 
-#: 旧布局的数据根内部目录（相对数据根），其下 ``users/`` 是用户数据。
 _LEGACY_INTERNAL_DIR = ".arcreel"
-#: 旧布局平放在数据根下的运行时状态（相对数据根）。
 _LEGACY_SESSION_IMPORT_MARKER = ".session_store_migration_done"
 _LEGACY_PROJECT_MIGRATION_ERROR_LOG = "_migration_errors.log"
 _LEGACY_GENERATION_ADMISSION_LOCKS_DIR = ".generation-admission-locks"
@@ -495,8 +489,6 @@ async def _move_vertex_credentials_into_data_root(context: DataRootMigrationCont
 
 
 _STEPS: tuple[MigrationStep, ...] = (
-    # 项目搬迁排在系统条目各步之前：users、runtime 等是合法项目名，同名旧项目先搬走，
-    # 同一次迁移里的后续步骤才能就位。
     _move_projects_into_projects_dir,
     _rewrite_session_store_keys,
     _relativize_call_output_paths,

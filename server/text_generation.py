@@ -122,8 +122,6 @@ from server.services.tasks.video_caps import reference_request_facts_lookup, sto
 
 logger = logging.getLogger(__name__)
 
-# Agent 附加 instructions 的长度上限：超长会失控 token 用量并稀释模型对原文的处理，超限按参数错误提前拒绝。
-# 上限对附加指令文本足够宽松，仅挡病态输入；文本生成与分集规划共用。
 MAX_INSTRUCTIONS_LEN = 4000
 
 SCOPE_REMOVED_MESSAGE = (
@@ -138,19 +136,14 @@ class TextGenerationRequest:
     source: str | None = None
     instructions: str | None = None
     dry_run: bool = False
-    #: 提示词编写的范围；为空时是全部待编写条目。
     entry_ids: tuple[str, ...] = ()
-    #: 提示词编写显式重写范围内条目的全部视觉层；为 False 时只补缺失的视觉层字段。
     rewrite: bool = False
-    #: 用户认可覆盖的正式脚本指纹，取自 ``prompt_overwrite.revision``；整份重做时取自 ``script_overwrite.revision``。
     overwrite_revision: str | None = None
     regenerate: bool = False
 
     def __post_init__(self) -> None:
         if not is_int(self.episode, minimum=1):
             raise ValueError("episode must be a positive integer")
-        # 队列 payload 经 JSON 往返后 entry_ids 是 list：在此归一为 tuple，让「从工具入口构造」
-        # 与「从 payload 还原」两条路径得到同一个值，任务事实比对才不会因容器类型分叉。
         entry_ids = tuple(self.entry_ids)
         if any(not is_str(entry_id) or not entry_id for entry_id in entry_ids):
             raise ValueError("entry_ids must be non-empty strings")
@@ -169,11 +162,8 @@ class TextGenerationRequest:
 @dataclass(frozen=True, slots=True)
 class TextGenerationResult:
     message: str
-    #: locale-neutral 的 ``{"key", "params"}`` 提示条目（如画面描述里没绑定参考图的 ``@[名称]``），
-    #: 与任务 ``result.warnings`` 同一形态，读侧按语言渲染。
     warnings: list[dict[str, Any]] = dataclass_field(default_factory=list)
     new_assets: list[dict[str, str]] = dataclass_field(default_factory=list)
-    #: 提示词编写没有待编写的条目、未调用文本模型；Web 据此提示用户勾选覆盖后重写。
     no_pending_authoring: bool = False
 
 
@@ -537,15 +527,10 @@ def load_novel_source(project_path: Path, source: str | None, *, episode: int) -
         raise ValueError("源文件路径不能为空")
     resolved = episode_source_relpath(episode) if source is None else source
     try:
-        # 缺省路径由集号拼出、并非不可信输入，但仍走 safe_join：派生文件可能是指向项目外的
-        # 符号链接，两条分支共用同一道越界校验才不留下只有缺省路径才踩得到的缝。
         source_path = safe_join(project_path, resolved)
     except PathTraversalError as exc:
         raise ValueError(f"路径超出项目目录: {resolved}") from exc
     if not source_path.is_file():
-        # 存在但不是文件（如指向目录）同样按「未找到源文件」处理：直接 read_text() 对目录
-        # 会抛 IsADirectoryError，落进本函数调用方一律只接的 ValueError 之外，在内容确认的
-        # 读时重算里会变成未处理的 500。
         if source is not None:
             raise ValueError(f"未找到源文件: {source_path}")
         raise ValueError(
@@ -799,8 +784,6 @@ async def generate_episode_script(
     except PromptAuthoringUnitRejected as exc:
         raise PromptAuthoringInputError(str(exc), code=exc.code, params=exc.params) from exc
     except PromptAuthoringTargetError as exc:
-        # 点名的条目不在正式剧本内是调用方的错：报「拒绝生成」而不是让它冒成 internal_error，
-        # 后者会引导 Agent 原样重试同一份必然失败的参数。
         raise TextGenerationError(f"❌ 编写范围无效: {exc}") from exc
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
@@ -847,7 +830,6 @@ def _rewritten_mention_warnings(
         project = projects.load_project(project_name)
         script = projects.load_script_readonly(project_name, result_path.name)
     except (OSError, ValueError):
-        # 剧本已落盘，回执不能因为读回失败（文件缺失、I/O 故障、JSON 不合法）而失败。
         return []
     return storyboard_mention_warnings(project, script, unit_ids=rewritten)
 
@@ -1003,7 +985,6 @@ async def generate_drama_script_plan(
 
         draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         script_plan_path = episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["drama"]
-        # 构造 ProjectManager 会建目录，放到线程里。
         draft_locks = await asyncio.to_thread(ProjectManager.for_project_dir, project_path)
         async with draft_locks.async_file_lock(draft_path):
             draft_baseline, formal_baseline = await asyncio.to_thread(
@@ -1179,7 +1160,6 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
     的修复闭环，不该退回丢弃重抽。
     """
     if not has_references and caps.text_problem is not None:
-        # 无图桶的视频模型配置问题：按问题码陈述原因与出路，Web 视图按问题码与参数本地化。
         failure = caps.text_problem
         params: dict[str, Any] = failure.parameters()
         raise DraftViolation(
@@ -1247,7 +1227,6 @@ def collect_reference_flat_violations(
     正文里的 ``@[名称]`` 须已登记或在本次新增项中：校验对着叠加了新增项的项目视图判，新增项
     自身的处理决定另行收进整集违约。
     """
-    # 台词口播量的语速与 prompt 侧同源：项目级覆盖优先，否则按语言默认。
     speech_rate_override = project_speech_rate_override(project)
     planning = planning_project(project, new_assets)
     hydrations = hydrate_reference_units(planning, project_path, flat_units)
@@ -1320,8 +1299,6 @@ def build_reference_units_from_flat(
     return units
 
 
-#: 落盘照常、只随产物呈现的容忍 warning（声音降级）。其余 warning 键（未登记 mention /
-#: 说话人、语法误用）在机器产物这条路上是阻断违约，不走容忍分支。
 _TOLERATED_VOICE_WARNINGS = (
     WARN_SPEAKER_WITHOUT_AUDIO,
     WARN_REFERENCE_AUDIO_OVERFLOW,
@@ -1457,7 +1434,6 @@ def _reference_soft_violation_lines(
     )
 
 
-#: 晋升被违约挡下时，软违约段的处置说明：草稿仍在场、这些提示不是要修的违约。
 SOFT_VIOLATION_NOTE_QUARANTINED = "非违约、无需为此重改，草稿仍在场"
 SOFT_VIOLATION_NOTE_COMMITTED = "产物已落盘"
 
@@ -1629,17 +1605,10 @@ def collect_narration_violations(
         )
 
     allowed = {int(d) for d in supported_durations}
-    # 已登记名字取自引用目录（与 rv 侧 ``validate_unit_text`` 同一入口）：``project.json`` 里的
-    # 名字与模型写回的名字可能是同一名称的不同 Unicode 形式，目录已把两侧收敛到同一比对坐标系，
-    # 不同形不会把一个已登记的资产判成未登记。目录在循环外取一次，逐分镜只查表。
     catalog = build_reference_catalog(planning_project(project, new_assets))
     for index, segment in enumerate(segments):
         label = _narration_segment_label(segment, index)
 
-        # 静态 ``NarrationScriptPlanSegment.novel_text`` 的 ``min_length=1`` 只校验原始字符串长度，纯
-        # 空白（如单个空格）能满足该约束却不携带任何旁白内容；此类分镜在覆盖校验中经
-        # ``_normalize_for_coverage`` 折叠为空字符串后不消耗任何字符，覆盖校验同样拦不住，会
-        # 落成「有时长但无旁白」的哑分镜。
         if not str(segment.get("novel_text") or "").strip():
             violations.append(
                 DraftViolation(
@@ -1652,10 +1621,6 @@ def collect_narration_violations(
                 )
             )
 
-        # 静态 ``NarrationScriptPlanSegment.duration_seconds`` 是 ``ge=1, le=60`` 的开区间（复用既有分镜
-        # schema，不在 schema 层枚举硬约束），故超出当前档位的时长能过 schema 校验；此处按现值
-        # 档位补成员校验，与 ``ScriptGenerator._load_narration_script_plan`` 同口径——只有经此校验的
-        # 内容才写盘成为 script_plan 真值源，杜绝把非法时长拖到 prompt_authoring / 最终 save_script 才暴露。
         duration = segment.get("duration_seconds")
         if not isinstance(duration, int) or duration not in allowed:
             violations.append(
@@ -1669,8 +1634,6 @@ def collect_narration_violations(
                 )
             )
 
-        # 与 rv 侧 ``validate_unit_text`` 对 ``@[名称]`` 的登记校验同口径：只信已登记或本次新增的资产名，
-        # 不允许模型发明或拼错的名称被当真值写盘、被 prompt_authoring 视觉层只读消费。
         violations.extend(
             _unregistered_reference_violations(
                 "narration",
@@ -1682,11 +1645,6 @@ def collect_narration_violations(
             )
         )
 
-    # 分镜边界处的空白存在与否天然歧义——模型选择的切分点可能落在源文空格上（该空格被切分本身
-    # 「消耗」，不落在任一分镜自身文本里），也可能落在无空格的 CJK / 标点邻接处，两者从拼接后的
-    # 字符串本身无法可靠区分。因此仅在分镜交界处允许可选的单个空格；分镜自身文本内部与源文其余
-    # 部分一律要求折叠后逐字相等，不能让边界宽容掩盖分镜内部真实的删减、改写或词间空格丢失。
-    # 判定是全集级的（拼接 vs 整篇源文），没有单分镜归属，故不带 label。
     parts = [_normalize_for_coverage(str(s.get("novel_text") or "")) for s in segments]
     if not _covers_source_verbatim(parts, _normalize_for_coverage(novel_text)):
         violations.append(
@@ -1765,7 +1723,6 @@ async def generate_reference_script_plan(
 
         draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
         formal_script_plan_path = script_review.official_reference_script_plan_path(project_path, episode)
-        # 构造 ProjectManager 会建目录，放到线程里。
         draft_locks = await asyncio.to_thread(ProjectManager.for_project_dir, project_path)
         async with draft_locks.async_file_lock(draft_path):
             draft_baseline, formal_baseline = await asyncio.to_thread(
@@ -1820,14 +1777,11 @@ async def generate_reference_script_plan(
                     request.source,
                     formal_baseline,
                 )
-            # 产出即违约这条路同样带上软违约段：草稿在场、Agent 这一轮就在改它，降级提示留到晋升
-            # 那一刻才第一次出现的话，它已经按不完整的信息改过一遍了。处置说明与晋升被挡下时同口径。
             raise DraftQuarantinedError(
                 report + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED),
                 len(violations),
             )
 
-        # 编号只分配、不复用：落盘前由服务端发本集从没用过的编号，回执里的降级提示按发出的编号定位。
         unit_ids = await run_sync_transaction(
             projects.reserve_item_ids, project_name, episode, "video_units", len(flat_units)
         )
@@ -1935,7 +1889,6 @@ async def generate_narration_script_plan(
 
         draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
         script_plan_path = narration_script_plan_path(project_path, episode)
-        # 构造 ProjectManager 会建目录，放到线程里。
         draft_locks = await asyncio.to_thread(ProjectManager.for_project_dir, project_path)
         async with draft_locks.async_file_lock(draft_path):
             draft_baseline, formal_baseline = await asyncio.to_thread(

@@ -144,13 +144,10 @@ class WorkflowActionType(StrEnum):
     GENERATE_VIDEOS = "generate_videos"
     CREATE_EDIT_TIMELINE = "create_edit_timeline"
 
-    # 数据升级失败的项目在任何阶段都只报这一个动作
     RETRY_PROJECT_MIGRATION = "retry_project_migration"
 
-    # ``build_workflow_plan`` 投影时注入的动作
     PATCH_EPISODE_SCRIPT = "patch_episode_script"
 
-    # ``GenerationAction`` 闭集；整批准入判定与任务失败把它原样交回成 next_action
     RETRY = "retry"
     FIX_INPUT = "fix_input"
     GENERATE_DEPENDENCY = "generate_dependency"
@@ -218,13 +215,9 @@ class WorkflowContent(BaseModel):
     script_item_count: int | None = None
     pending_authoring_ids: list[str] = Field(default_factory=list)
     needs_replan_ids: list[str] = Field(default_factory=list)
-    #: 本集引用、但没有资产图的角色 / 场景 / 道具（含衍生），与生成入口同一判定（ADR 0073）。
     referenced_assets_without_sheet: list[str] = Field(default_factory=list)
-    #: 本集引用、但没有登记的名字；生成入口会据此拒绝。
     unregistered_references: list[str] = Field(default_factory=list)
-    #: 本集引用、资产图过期的资产（含衍生）。只陈述，不进建议的下一步。
     referenced_asset_sheets_stale: list[str] = Field(default_factory=list)
-    #: 本集引用、缺描述因而不能生成资产图的资产（含衍生）。只陈述，不进建议的下一步。
     referenced_assets_without_description: list[str] = Field(default_factory=list)
     episode_complete: bool = False
     project_complete: bool = False
@@ -258,11 +251,8 @@ class WorkflowStatus(BaseModel):
     """上一次迁移调整了什么、没能带入什么，用户尚未确认过时才给出；只作说明，不影响状态与阻断。"""
 
 
-#: 剪辑时间线目录读不出、或有时间线文件无法解析时记下的 issue 码。
 INVALID_EDIT_TIMELINES_CODE = "invalid_edit_timelines"
-#: 一集完成且集内没有别的建议动作时 ``next_action`` 的理由；此时下一步为 ``none``。
 EPISODE_COMPLETE_REASON = "episode has an edit timeline"
-#: 查询范围内每一集都完成、源文也已排布完时 ``next_action`` 的理由。
 ALL_EPISODES_COMPLETE_REASON = "every episode has an edit timeline"
 
 
@@ -279,12 +269,9 @@ def workflow_finished(status: WorkflowStatus) -> bool:
     }
 
 
-#: 每集脚本的产物态派生值：正式脚本可用即 generated，只有 script_plan 即 segmented。
 EpisodeScriptStatus = Literal["none", "segmented", "generated"]
 
-#: 每集在广度视图上的粗粒度进度，由该集产物计数派生。
 EpisodeProductionStatus = Literal["draft", "scripted", "in_production", "completed"]
-#: 项目摘要的产物判定口径：``verified`` 与规范状态逐件比对；``registered`` 只看清单登记与文件在场。
 ProjectSummaryCurrency = Literal["verified", "registered"]
 
 
@@ -327,8 +314,6 @@ class EpisodeSummary(BaseModel):
     episode: int
     script_status: EpisodeScriptStatus
     status: EpisodeProductionStatus
-    # 该集的内容规模：分镜图生视频报分镜数、参考生视频报视频单元数，
-    # 三种创作类型同一口径。读时按脚本条目数算，不落盘。
     item_count: int
     duration_seconds: int
     storyboards: ArtifactCount
@@ -368,11 +353,9 @@ class ProjectSummary(BaseModel):
     schema_version: Literal[2] = 2
     needs_repair: bool
     repair_reason: str | None
-    #: 按 ``ASSET_SPECS`` 的资产类型键给出资产图计数，新增资产类型自动进入投影。
     assets: dict[str, ArtifactCount]
     episodes_summary: EpisodesSummary
     episodes: list[EpisodeSummary]
-    #: 整本源文还有未规划的原文：已有的集全部完成也不算项目完成，下一步是继续分集规划。
     source_remaining: bool
 
 
@@ -382,7 +365,6 @@ class EpisodeNextStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     episode: int
-    #: 该集的集规划已失效（原文已重新规划），下一步为 ``none``，等待重建。
     plan_stale: bool
     next_action: WorkflowNextAction
 
@@ -676,7 +658,6 @@ class WorkflowStateService:
             issues.append(WorkflowBlocker(code="invalid_project_mode", path="content_mode", reason=str(exc)))
             return {"state": "blocked", "path": path}, [], None
         raw_items, id_field, _kind = resolve_kind_items(script, kind=kind)
-        # 空的正式脚本合法（见 docs/adr/0091）：「非空」只留在各 AI 生成动作的产出验收里。
         if not isinstance(raw_items, list) or not all(isinstance(item, dict) for item in raw_items):
             issues.append(
                 WorkflowBlocker(
@@ -889,8 +870,6 @@ class WorkflowStateService:
                 else ArtifactCurrencyResolver(project_path)
             )
         except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError):
-            # 清单读不出来时不退回「文件存在即产物存在」：本投影一律按 0 件可用报告，
-            # 与工作台把它记成 artifact_currency_unavailable 阻断同一口径。
             resolver = None
         assets = self._asset_counts(project_path, project, resolver)
         episode_summaries = [
@@ -1012,8 +991,6 @@ class WorkflowStateService:
         try:
             return self.pm.load_script_readonly(project_name, script_file)
         except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
-            # 列出项目不因一集剧本损坏而失败：该集按 0 件产物报告，损坏本身由工作台的
-            # 制作状态查询报成 invalid_script 阻断。
             return None
 
     def _episode_script_status(
@@ -1041,8 +1018,6 @@ class WorkflowStateService:
         if script_plan is None:
             return "none"
         if script_review.script_plan_quarantined(project_path, project, number):
-            # 草稿在场即已分段：首轮拆分失败时正式文件从未写过，报 none 会把用户
-            # 路由回源文审阅页，见不到草稿详情与修复入口。
             return "segmented"
         if resolver is None:
             return "none"
@@ -1138,9 +1113,6 @@ class WorkflowStateService:
                         reason="ad workflow does not support grid storyboards",
                     )
                 )
-        # ``get_status`` refuses an unmigrated project before reaching here, so the
-        # only way to arrive without a resolver is a damaged sidecar — a blocker,
-        # never permission to classify artifacts by filesystem existence instead.
         currency: ArtifactCurrencyResolver | None = None
         try:
             currency = ArtifactCurrencyResolver(project_path)
@@ -1610,8 +1582,6 @@ class WorkflowStateService:
                 "state": "confirmed" if review == "confirmed" else "pending",
                 "revision": artifacts["script_plan"].get("revision"),
             }
-            # 已有正式脚本在用时，重跑的规划未确认只陈述为待确认，不进下一步；集规划 stale 的集
-            # 旧脚本已不可用，重建的规划仍须确认。
             formal_in_use = entry.get("ledger_status") != "stale" and script_review.prompt_authoring_generated(
                 project_path, project, number
             )
@@ -1671,9 +1641,6 @@ class WorkflowStateService:
                 resolver=shared.currency,
                 issues=issues,
             )
-            # 旁白配音只作为信息报告，不参与下一步：缺 TTS 不拦剪辑，补 TTS 由用户显式发起（见
-            # generate_narration_audio）；后期配音项目不需要 TTS，不报缺口。读不出的配音状态只落在集合的
-            # state 上，不进 issues。
             artifacts["audio"] = (
                 self._media_collection(
                     project_path,
@@ -1695,7 +1662,6 @@ class WorkflowStateService:
             )
         content.pending_authoring_ids = pending_ids
         content.needs_replan_ids = replan_ids
-        # 剪辑时间线只陈述这一类内容：视频是否齐全不影响列出已有的几条。
         timeline_ids = self._edit_timeline_ids(project_name, number, artifacts, issues) if formal_present else []
         videos = artifacts["videos"]
         operations[WorkflowActionType.CREATE_EDIT_TIMELINE] = admit_edit_timeline(

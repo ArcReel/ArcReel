@@ -12,28 +12,20 @@ from PIL import Image, ImageOps
 
 _COMPRESS_THRESHOLD = 2 * 1024 * 1024
 _MAX_LONG_EDGE = 2048
-# 解码后的像素总数上限（8192×8192）。字节上限拦不住这一层：低熵 PNG 能把上亿像素压进
-# 30MB 以内；PIL 自带的 MAX_IMAGE_PIXELS 也只在超过其两倍时才抛 DecompressionBombError，
-# 介于一倍与两倍之间（约 8900 万至 1.78 亿像素）仅告警放行，而一份 RGBA 缓冲即数百 MB。
-# 宫格联合图最高档位为 4K 见方（约 1700 万像素），此处留出数倍余量后显式拒绝。
 MAX_UPLOAD_PIXELS = 8192 * 8192
 _JPEG_QUALITY = 85
 # sentinel：意为「不向 PIL 传 subsampling」。PIL 的 subsampling=-1 仅在 JPEG→JPEG 时表示
 # “保持源色度”，对 PNG/其它源解码后再编码不合法，故默认用本 sentinel 拦掉，保证缺省行为不变。
 _SUBSAMPLING_KEEP = -1
 
-# EXIF Orientation tag（ImageOps.exif_transpose 读取的字段）
 _EXIF_ORIENTATION = 0x0112
 
 
-#: 可以上传、导入并按原格式保存的图片格式。键是 PIL 识别出的格式名，值是该格式的文件后缀，
-#: 首项是按内容确定后缀时保存使用的后缀。
 IMAGE_FORMAT_SUFFIXES: dict[str, tuple[str, ...]] = {
     "PNG": (".png",),
     "JPEG": (".jpg", ".jpeg"),
     "WEBP": (".webp",),
 }
-#: 上述格式的全部文件后缀；上传校验、文件服务与路径识别都以此为准。
 IMAGE_FILE_EXTENSIONS: tuple[str, ...] = tuple(suffix for group in IMAGE_FORMAT_SUFFIXES.values() for suffix in group)
 
 
@@ -102,7 +94,6 @@ def normalize_storyboard_upload(content: bytes, *, max_long_edge: int | None = _
     """
     try:
         with Image.open(BytesIO(content)) as probe:
-            # 尺寸来自文件头，此时尚未分配像素缓冲
             _ensure_pixel_budget(probe.size)
             if (
                 probe.format == "PNG"
@@ -119,7 +110,6 @@ def normalize_storyboard_upload(content: bytes, *, max_long_edge: int | None = _
             img.save(out, format="PNG")
             return out.getvalue()
     except ImagePixelLimitError:
-        # 图片本身可解析，只是过大——保留该类型，让调用方给出可操作的提示
         raise
     except Exception as e:
         raise ValueError("Invalid image") from e

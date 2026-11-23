@@ -73,9 +73,7 @@ class InspectedImage:
     id: str
     version: int | None
     status: ImageStatus
-    #: 该项现有的全部版本号，用来发现还没看过的历史版本。
     available_versions: tuple[int, ...] = ()
-    #: 生成该版本时登记的提示词；手动上传等没有登记提示词的版本为 None。
     prompt: str | None = None
     detail: str | None = None
     jpeg: bytes | None = None
@@ -95,7 +93,6 @@ def _storyboard_images(services: Services, project_name: str) -> dict[str, str |
             script = services.projects.load_script_readonly(project_name, script_name)
             items, id_field, *_ = get_storyboard_items(script)
         except (ScriptEditError, ValueError, OSError):
-            # 读不出的剧本无法证明分镜存在，跳过；其余剧本照常判定
             logger.warning("查找分镜时跳过无法读取的剧本: %s", script_name, exc_info=True)
             continue
         for item in items:
@@ -121,7 +118,6 @@ def _resolve_ids(
         try:
             resolved.append(resolve_current_image_pointer(project, resource_type, item_id, None))
         except KeyError:
-            # 包括不合「本体名/衍生名」格式的衍生 ID
             missing.append(item_id)
     return resolved, missing
 
@@ -194,7 +190,6 @@ async def inspect_images(
                     if version is not None
                     else None
                 )
-                # 仅当前产物归档可省略历史；无版本时只读登记的当前图，不补写版本记录。
                 if version is None and pointer:
                     current_path = try_safe_join(project_path, pointer, require_file=True)
                     found = (current_path, {}) if current_path is not None else None
@@ -236,7 +231,6 @@ async def inspect_images(
                             files.append(file)
             return project_path, files
 
-        # 要看的版本快照是缓存已清理的远端内容版本时先取回，读图期间登记使用
         project_path, files = await asyncio.to_thread(snapshot_files)
         async with local_work_files(project_path, files):
             inspected = await asyncio.to_thread(inspect_all)

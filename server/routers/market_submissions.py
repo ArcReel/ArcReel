@@ -49,7 +49,6 @@ OfficialService = Annotated[OfficialServiceGateway, Depends(get_official_service
 
 class SubmissionIcon(BaseModel):
     filename: Literal["icon.png", "icon.webp", "icon.svg"]
-    #: 标准 base64。
     content: str
 
 
@@ -75,7 +74,6 @@ class CheckSubmissionResponse(BaseModel):
 
 
 SubmissionState = Literal["open", "merged", "closed"]
-#: 库里的状态写入前已按官方服务的状态集合校验。
 _STATUSES: dict[str, SubmissionState] = {"open": "open", "merged": "merged", "closed": "closed"}
 
 
@@ -87,7 +85,6 @@ class MarketSubmissionResponse(BaseModel):
     slug: str
     status: SubmissionState
     pr_url: str
-    #: 本次没能从官方服务取回状态，展示的是上次保存的值。
     stale: bool
 
 
@@ -107,7 +104,6 @@ async def _files_of(session: AsyncSession, body: CheckSubmissionRequest) -> tupl
     if body.icon is not None:
         try:
             icon = (body.icon.filename, base64.b64decode(body.icon.content, validate=True))
-        # 非 ASCII 字符抛 ValueError，其余非法编码抛其子类 binascii.Error。
         except ValueError as exc:
             raise UnprocessableError("market_submission_icon_encoding_invalid") from exc
     return endpoint, submission_files(endpoint.definition, icon)
@@ -223,7 +219,6 @@ async def list_submissions(
             reachable = False
             stale.add(endpoint_id)
     for endpoint_id, token, status in refreshed:
-        # 刷新期间该端点已有新提交时令牌已变，旧令牌的结果不再写入。
         await session.execute(
             update(MarketSubmission)
             .where(MarketSubmission.custom_endpoint_id == endpoint_id, MarketSubmission.token == token)

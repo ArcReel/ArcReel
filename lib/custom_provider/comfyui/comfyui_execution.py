@@ -44,8 +44,6 @@ logger = logging.getLogger(__name__)
 
 HTTP_TIMEOUT_SECONDS = 60
 
-#: 叫停远端用的超时。比生成路径的短得多：这几个请求发在任务已被取消之后，一台不响应的
-#: ComfyUI 不该把 worker 的关停拖上几分钟。
 _STOP_TIMEOUT_SECONDS = 15
 
 #: 从这一版起 ``POST /api/jobs/{id}/cancel`` 一个动作同时覆盖排队中与执行中；更早的版本
@@ -142,8 +140,6 @@ class ComfyuiExecution:
     ) -> Mapping[str, Any]:
         """轮询到 history 里出现这次执行的记录，并按记录判成败；失败即抛失败码。"""
 
-        # 单元素列表包住这一轮的执行记录：``poll_with_retry`` 按 is_done 判终态，而「有没有记录」
-        # 正是终态本身，空列表即「还没轮到」。
         async def poll_once() -> list[Mapping[str, Any]]:
             entry = await self._client.fetch_history(http, prompt_id)
             if entry is None:
@@ -264,7 +260,6 @@ class ComfyuiExecution:
         try:
             return await self._client.server_version(http)
         except Exception:
-            # 版本读不到不是失败：老版本与部分代理本就不回这一字段，走低版本那条路一样能停下来。
             logger.info("ComfyUI 版本读取失败，按低版本路径叫停", exc_info=True)
             return None
 

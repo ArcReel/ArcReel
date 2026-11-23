@@ -65,8 +65,6 @@ def register_derivative_status_routes(
                         derivative_artifact_key(asset_name_comparison_key(owner_key), asset_name_comparison_key(name)),
                         artifact_path=sheet_path,
                     )
-                    # 只有「登记在案但已不等于规范状态」才是过期；缺失或被阻断另有其表现
-                    # （图根本渲染不出来），不折进同一个标记。
                     stale = comparison.status is ArtifactStatus.STALE
                     artifact_status = comparison.status
                 derivatives[name] = {

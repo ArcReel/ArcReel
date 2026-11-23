@@ -282,7 +282,6 @@ class _Batch:
         in_range = 0 <= spec.source_in < spec.source_out <= whole + 0.001
         in_us = seconds_to_microseconds(spec.source_in) if in_range else 0
         out_us = seconds_to_microseconds(spec.source_out) if in_range else 0
-        # 出点按毫秒规整后可能比实测时长多出至多 1 毫秒，规整回视频末尾。
         if whole_us < out_us <= whole_us + 1_000:
             out_us = whole_us
         allowed = (

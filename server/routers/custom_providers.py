@@ -85,21 +85,13 @@ def _validate_endpoint(value: str) -> str:
     return value
 
 
-# 写入路径上的 endpoint 字段统一走运行时校验，键集合自动跟随 ENDPOINT_REGISTRY；
-# 响应路径不需校验，直接 str。
 EndpointType = Annotated[str, AfterValidator(_validate_endpoint)]
 DiscoveryFormatLiteral = Literal["openai", "google", "comfyui"]
 
-# 并发上限定型字段：可空正整数（≥1）；None = 未设置 → 容量装载回退全局默认。
 MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
-# 开放给用户覆盖的能力维度（docs/adr/0104）：模型事实（文本的图片输入、结构化输出、最大输出 token；图片的
-# 文生图、图生图；视频的可选时长、分辨率与时长联动约束）与视频的通道事实（输入模式、参考上限、提示词长度
-# 上限、音轨形态）。每个维度整体替换、优先级最高。未列入的键即便是合法字段名也不落库。
 CAPABILITY_OVERRIDE_ALLOWLIST = CHANNEL_FACT_OVERRIDE_KEYS | ALL_MODEL_FACT_OVERRIDE_KEYS
 
-#: 音轨形态两维的系统判定不回显：自定义供应商的音轨在没有覆盖时按「无信号不收紧」处理、不参与派生
-#: （见 ``lib.config.resolver``），把调用通道的静态声明摆到设置页会让用户以为它对自定义模型生效。
 _AUDIO_TRACK_FIELDS = AUDIO_TRACK_OVERRIDE_KEYS
 
 
@@ -125,7 +117,6 @@ router = APIRouter(prefix="/custom-providers", tags=["Custom Providers"])
 
 _CONNECTIVITY_CHECK_TIMEOUT = 15
 
-#: ComfyUI 的连通性探针路径。零鉴权的本体上它也可匿名访问，故它同时是「地址对不对」的判据。
 _COMFYUI_SYSTEM_STATS_PATH = "/system_stats"
 
 _BACKEND_SETTING_KEYS = (
@@ -139,11 +130,6 @@ _BACKEND_SETTING_KEYS = (
     "text_backend_complex",
 )
 
-# project.json 中的项目级覆盖键（与全局键名不同：resolver 按媒体读 video_backend /
-# audio_backend / image_provider_*，文本档位键与项目默认模型键与全局同名），清理项目悬空引用时用此集合。
-# 刻意不含视频桶键（video_provider_i2v / video_provider_r2v）：视频桶的悬空引用由解析闸
-# _ensure_video_bucket_capability 报错兜底，写入侧不级联清理（docs/adr/0054）；图片桶无对应能力闸，
-# 故仍在此清理
 _PROJECT_BACKEND_KEYS = (
     "video_backend",
     "audio_backend",
@@ -155,8 +141,6 @@ _PROJECT_BACKEND_KEYS = (
     "default_text_backend",
 )
 
-# 全局 DB settings 中可能引用自定义模型的全部键，模型改 ID 时据此改写引用。与 _BACKEND_SETTING_KEYS
-# 分开维护：后者界定删除时的级联清理范围，视频桶键按 ADR 0054 不在清理之列，但改 ID 仍要跟随。
 _GLOBAL_BUCKET_REFERENCE_KEYS = (
     *_BACKEND_SETTING_KEYS,
     "default_video_backend_i2v",
@@ -171,11 +155,7 @@ class ModelInput(BaseModel):
     is_default: bool = False
     is_enabled: bool = True
     resolution: str | None = None
-    # 稀疏覆盖字典：模型事实维度与视频通道事实维度（docs/adr/0104）；None 或键缺席 = 跟随条目与通道声明。
-    # 保存模型列表是整体替换语义，本字段必须随列表回传，否则存量覆盖被清空。
     capability_overrides: dict[str, object] | None = None
-    # 路径覆盖：请求名 → 整条替换的路径（docs/adr/0101），与 capability_overrides 一样须随列表回传。
-    # 空字典收敛为 None。
     path_overrides: dict[str, str] | None = None
 
     @field_validator("path_overrides")
@@ -183,9 +163,7 @@ class ModelInput(BaseModel):
     def _empty_path_overrides_to_none(cls, value: dict[str, str] | None) -> dict[str, str] | None:
         return value or None
 
-    # 供应商模型倍率（docs/adr/0100），与供应商倍率相乘后作用在整笔参考费用上。
     multiplier: float = Field(default=1.0, ge=0, allow_inf_nan=False)
-    # 条目绑定（docs/adr/0105）：「模型厂商/官方模型名」；None = 按名字对应条目。与覆盖同理须随列表回传。
     entry_binding: str | None = None
 
     @field_validator("entry_binding")
@@ -268,14 +246,12 @@ class FullUpdateProviderRequest(BaseModel):
     base_url: str
     api_key: str | None = None
     models: list[ModelInput] | None = None
-    # 并发上限随 PUT 全量提交（空输入 → None → 全局默认）；None 即清除，非"不修改"。
     image_max_workers: MaxWorkers
     video_max_workers: MaxWorkers
     audio_max_workers: MaxWorkers
 
 
 class ConnectivityCheckRequest(BaseModel):
-    # 连通性检查故意接受任意字符串，由 _run_connectivity_check 软失败返回 200 + success=False。
     discovery_format: str
     base_url: str
     api_key: str
@@ -285,7 +261,6 @@ class EndpointRequestDescriptor(BaseModel):
     """调用端点发出的一条可覆盖路径的请求，与 lib.custom_provider.path_overrides.EndpointRequest 对齐。"""
 
     name: str
-    # 前端 i18n key（dashboard ns）。
     display_name_key: str
     default_path: str
     placeholders: list[str]
@@ -300,25 +275,16 @@ class ModelResponse(BaseModel):
     is_default: bool
     is_enabled: bool
     resolution: str | None = None
-    # 系统判定值（四字段全量），video endpoint 才有；非 video 或 endpoint 声明异常时为 None。
     system_capabilities: dict[str, object] | None = None
-    # 已求值的音轨视图，供全局与项目设置读取，不由前端合并覆盖。
     audio_track: VideoAudioMode | None = None
     reference_route_audio_track: VideoAudioMode | None = None
     voice_consistency: VoiceConsistency | None = None
     capability_overrides: dict[str, object] | None = None
-    # 生效的路径覆盖（docs/adr/0101）：端点定义里已不存在的请求名不回显，下次保存随之丢弃。
     path_overrides: dict[str, str] | None = None
-    # 当前端点可覆盖路径的请求（请求名、显示名 key、默认路径），供界面渲染请求地址。
     requests: list[EndpointRequestDescriptor] = []
-    # 供应商模型倍率与条目绑定，原样回显供整表 PUT 回传。
     multiplier: float = 1.0
     entry_binding: str | None = None
-    # 对应到的条目摘要（maker / name / media_type / display_name / priced）；对应不上条目时为 None，
-    # 这个模型的调用记为未定价。
     matched_entry: dict[str, object] | None = None
-    # 图片模型的有效画质可选值（条目的画质取值与调用端点是否接受显式画质两侧求值，见
-    # lib.backends.image_capabilities.custom_image_quality_options），按条目里的顺序；没有或端点解析不出时为空。
     qualities: list[str] = []
 
 
@@ -343,9 +309,6 @@ class ConnectivityCheckResponse(BaseModel):
 
 class DiscoverResponse(BaseModel):
     models: list[dict] = []
-    # 该协议没有可枚举的模型列表。ComfyUI 的「模型」是 workflow 里的节点选择，服务端给不出
-    # 与模型行对应的清单——回一个空列表会被读成「一个都没发现」，前端据此显示「请检查凭证」。
-    # 前端据本位用一段说明替代「发现模型」按钮。
     not_applicable: bool = False
     reason: str | None = None
 
@@ -361,33 +324,17 @@ class EndpointDescriptor(BaseModel):
     key: str
     media_type: str
     family: str
-    # 实现形态："python"（backend 代码）| "declarative"（声明式定义）| "comfyui"（workflow
-    # 与节点绑定）。前端据此决定「复制为我的 / 查看定义」是否可见（只对声明式端点成立），并
-    # 按供应商协议过滤端点选择器的选项。
     kind: str
-    # 端点来源：内置（随版发布，不可编辑删除）或用户自定义（落 custom_endpoint 表）。
-    # 前端据此分组，并只对 custom 开放编辑与删除。
     source: Literal["builtin", "custom"] = "builtin"
     display_name_key: str
-    # 声明式端点的显示名（定义里的 meta.name，专有名词不翻译）；Python 内置为 None，
-    # 由前端按 display_name_key 取 i18n 文案。两者恰有其一，前端取名时先看本字段。
     display_name: str | None = None
     request_method: str
     request_path_template: str
     image_capabilities: list[str] | None = None
-    # 该 endpoint 的执行层是否真的下传尾帧约束；仅 video 类有意义。前端据此收窄 last_frame
-    # 覆盖控件里「强制开」的可选范围——否则用户只能撞上写入侧的 422 才知道这条路不通。
     end_image_capable: bool = False
-    # 参数约束四项，只有 ComfyUI 端点会取非默认值（``docs/adr/0082``）：尺寸 / 时长这两维由节点
-    # 绑定决定 ArcReel 驱不驱动得了，驱动不了时对应的选择器禁用并明示；native_resolution 是不选
-    # 档位时这份 workflow 实际会出的那一档，用作分辨率选择器的空值占位。
     size_fixed: bool = False
     duration_fixed: bool = False
-    # 档位为空的第二种成因：frames 绑了却读不到帧率来源。与 duration_fixed 同为「只挑文案」的一位。
     duration_frame_rate_missing: bool = False
-    # 档位根本给不出来（frames 未绑定、绑了却没有帧率来源，或帧率有但换算不出整秒档位）：时长
-    # 这一维不由 ArcReel 驱动，模型行的档位编辑区只读、项目页的时长控件不渲染。上面两位都是它的
-    # 子集，只决定文案说「天生固定」「缺帧率来源、补一处」还是「换算不出整秒时长」。
     duration_tier_empty: bool = False
     native_resolution: str | None = None
     requests: list[EndpointRequestDescriptor] = []
@@ -723,8 +670,6 @@ def _check_capability_overrides(
     resolved_spec = spec or get_endpoint_spec(endpoint)
     media_type = resolved_spec.media_type
     if resolved_spec.kind == COMFYUI_KIND:
-        # ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），覆盖值在执行层没有对应物；唯一的例外是视频行的
-        # 可选时长，它是用户在 workflow 原生时长之外增删的偏好（docs/adr/0104）。
         if not overrides.keys() <= _comfyui_override_keys(media_type):
             raise HTTPException(
                 status_code=422,
@@ -754,8 +699,6 @@ def _check_capability_overrides(
                     capability=key,
                 ),
             )
-        # 值类型判定复用读取侧的同一函数：两边各写一份会漂移，届时写入侧放行的值被合成
-        # 静默忽略，正是本能力覆盖链路要消灭的「界面允许、执行反悔」。
         valid, expected_name = override_value_check(media_type, key, value)
         if not valid:
             raise HTTPException(
@@ -767,8 +710,6 @@ def _check_capability_overrides(
                     expected=expected_name,
                 ),
             )
-        # 图片的文生图 / 图生图覆盖替换的是模型事实一侧，生效能力仍要与通道声明取交集：端点没实现的
-        # 能力覆盖为开启也打不开，拒在这里而不是让界面显示已开启。
         if key in _IMAGE_CAPABILITY_BY_OVERRIDE_KEY and value is True:
             implemented = resolved_spec.image_capabilities or frozenset()
             if _IMAGE_CAPABILITY_BY_OVERRIDE_KEY[key] not in implemented:
@@ -781,8 +722,6 @@ def _check_capability_overrides(
                         capability=key,
                     ),
                 )
-        # last_frame 覆盖为 True 时，endpoint 的 delegate.generate() 必须真的会读取
-        # end_image 下传尾帧约束——否则覆盖只是让合成层宣称支持，执行层仍静默生成无约束视频。
         if key == "last_frame" and value is True and not resolved_spec.end_image_capable:
             raise HTTPException(
                 status_code=422,
@@ -792,7 +731,6 @@ def _check_capability_overrides(
                     endpoint=endpoint,
                 ),
             )
-        # 同构：把音色模式覆盖成 direct 要求 endpoint 真的会下传 reference_audio_files。
         if (
             key == "reference_audio_mode"
             and value == ReferenceAudioMode.DIRECT.value
@@ -807,9 +745,6 @@ def _check_capability_overrides(
                 ),
             )
 
-    # 合并后不变式：两维各自合法、合起来无意义的组合（支持音色输入却限 0 段）在这里拒，
-    # 而不是留给执行期静默降级——降级后用户会拿到「最多支持 0 段」这种无从遵循的提示。
-    # 稀疏覆盖只写其中一维也能凑出该组合，故按系统判定补齐未覆盖的那一维再判。
     if any(key in overrides for key in AUDIO_OVERRIDE_KEYS):
         mode, count = resolve_audio_pair(
             overrides, endpoint=endpoint, model_id=model_id, endpoint_spec=resolved_spec, entry_binding=entry_binding
@@ -967,14 +902,11 @@ def _check_unique_defaults(models: list[ModelInput], specs: dict[str, EndpointSp
 
     duplicates: dict[str, list[str]] = {mt: ids for mt, ids in text_video_defaults.items() if len(ids) > 1}
 
-    # image：按 capability 反向索引，任一槽位有 >1 个默认即视为冲突（O(n) 替代 O(n²) 两两 caps 求交）
     cap_to_ids: dict[ImageCapability, list[str]] = {}
     for mid, caps in image_defaults:
         for c in caps:
             cap_to_ids.setdefault(c, []).append(mid)
     conflict_ids = [mid for ids in cap_to_ids.values() if len(ids) > 1 for mid in ids]
-    # 能力集为空即「这个端点没说自己能做什么」：它与任何一个 image 默认都分不开，只要还有别的
-    # image 默认就算冲突。放两个进去保存期看着没事，取默认模型时会一次查出两行、在生成期炸掉。
     if len(image_defaults) > 1 and any(not caps for _mid, caps in image_defaults):
         conflict_ids = [mid for mid, _caps in image_defaults]
     if conflict_ids:
@@ -1076,7 +1008,6 @@ async def update_custom_model(
     try:
         target = _row_to_input(row, patch)
     except ValidationError as exc:
-        # 请求模型已校验倍率等取值，这里只剩调用端点与条目绑定的形状会被拒
         raise _model_input_rejected(exc, patch.get("endpoint"), patch.get("entry_binding"), _t) from exc
     if not target.model_id:
         raise HTTPException(status_code=422, detail=_t("model_id_required"))
@@ -1206,7 +1137,6 @@ async def add_custom_model(
 
     specs = await _resolve_model_endpoint_specs(session, [target], _t)
     _check_protocol_constraints([target], provider.discovery_format, specs, _t)
-    # 关联的条目要在目录里、且与调用端点同媒体类型；对不上的关联读取与计费时都会被忽略
     if entry_binding and find_bound_entry(entry_binding, specs[target.endpoint].media_type) is None:
         raise HTTPException(status_code=422, detail=_t("provider_model_binding_not_found", binding=entry_binding))
     default_rows = [r for r in rows if r.is_default]
@@ -1425,9 +1355,6 @@ async def full_update_provider(
     ``models`` 不传时只更新元数据与并发上限，模型原样不动。
     """
     repo = CustomProviderRepository(session)
-    # 协议是创建时定下、之后不可改的，故读库里这一行而非请求体。取行排在写入之前：协议约束要
-    # 先于覆盖校验判定，comfyui 行才拿得到「该协议不支持覆盖」这条专用文案，而不是被通用的
-    # 「endpoint 不支持尾帧」抢先拒掉。
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
@@ -1488,7 +1415,6 @@ async def delete_provider(
     await _clear_global_provider_refs(session, provider_id)
     await session.commit()
     await invalidate_provider_caches(request)
-    # 清理引用该 provider 的项目级配置（同步文件 I/O，放到线程池避免阻塞事件循环）
     await run_sync_transaction(_cleanup_project_refs, prefix, _PROJECT_BACKEND_KEYS)
 
 
@@ -1532,7 +1458,6 @@ async def discover_anthropic_models_endpoint(
         try:
             base_url = validate_anthropic_base_url(base_url)
         except InvalidAnthropicBaseUrlError as exc:
-            # 文案固定，不回显输入：地址里可能带着用户误填的 api_key
             raise HTTPException(status_code=422, detail=_t("agent_base_url_invalid")) from exc
 
     return await _run_discover("anthropic", base_url, api_key, _t)
@@ -1615,12 +1540,10 @@ async def _run_discover(
             base_url=base_url or None,
             api_key=api_key,
         )
-        # 含点段的 ID 添加会被拒，不放进可添加列表
         return DiscoverResponse(models=[m for m in models if not has_dot_segment(str(m.get("model_id", "")))])
     except UnsupportedDiscoveryFormatError as exc:
         raise BadRequestError("invalid_discovery_format", discovery_format=discovery_format) from exc
     except InvalidAnthropicBaseUrlError as exc:
-        # 入口校验拒绝的地址不是上游故障：与 /discover-anthropic 同样 422，文案不回显输入。
         raise HTTPException(status_code=422, detail=_t("agent_base_url_invalid")) from exc
     except Exception as exc:
         err_msg = str(exc)
@@ -1652,7 +1575,6 @@ async def _run_connectivity_check(
                 timeout=_CONNECTIVITY_CHECK_TIMEOUT,
             )
         elif is_comfyui_protocol(discovery_format):
-            # 不进 to_thread：ComfyUI 探针走 httpx 直调，本就是协程，另外两条是同步 SDK 调用。
             result = await asyncio.wait_for(
                 _check_comfyui(base_url, api_key, _t),
                 timeout=_CONNECTIVITY_CHECK_TIMEOUT,
@@ -1755,7 +1677,6 @@ async def _check_comfyui(
     payload = resp.json()
     system = payload.get("system") if isinstance(payload, dict) else None
     version = system.get("comfyui_version") if isinstance(system, dict) else None
-    # 版本缺失仍算可达：老版本与部分代理不回这一字段，据此判失败会把能用的部署拦在外面。
     message = (
         _t("connectivity_check_comfyui_ok", version=str(version))
         if version
