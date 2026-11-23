@@ -195,8 +195,6 @@ def screen_script_entries(
     }
     named = set(requested_ids) if requested_ids is not None else None
     if named is not None:
-        # 点名的 ID 也占着记名空间：调用方点了一个剧本里没有的名字时，上游还会为它记一条
-        # 「不存在」，诊断名与它同名同样会把两条并成一条。
         taken |= named
     for index, entry in enumerate(entries):
         detail: str | None = None
@@ -248,8 +246,6 @@ def storyboard_item_aliases(item: dict[str, Any], id_field: str) -> set[str]:
     点名都要指到同一个条目，否则同一个名字在不同入口指向不同条目。
     """
 
-    # 先按类型过滤再进集合：脏剧本里的 list / dict 别名不可哈希，直接建集合会抛 TypeError，
-    # 逐目标的拒绝契约就塌成一句通用报错。
     aliases = (item.get(id_field), item.get("scene_id"))
     return {alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()}
 
@@ -286,8 +282,6 @@ def screen_storyboard_items(
     }
     named = set(requested_ids) if requested_ids is not None else None
     if named is not None:
-        # 点名的 ID 也占着记名空间：点到剧本里没有的名字时上游还会记一条「不存在」，
-        # 诊断名与它同名会把两条并成一条。
         taken |= named
     refused_names: set[str] = set()
     for index, item in enumerate(items):
@@ -314,8 +308,6 @@ def screen_storyboard_items(
                     )
                 )
             elif isinstance(item, dict):
-                # 点名点中的正好是这个脏条目：按点名的写法给结论，否则调用方只收到一句
-                # 「不存在」，而这个名字在剧本里明明有条目。
                 for name in sorted(storyboard_item_aliases(item, id_field) & named):
                     if name in refused_names:
                         continue
@@ -347,10 +339,6 @@ def screen_storyboard_items(
     if named is None:
         return clean, tickets
 
-    # 点名可以用规范 ID，也可以用 ``scene_id`` 别名，两者在剧本里可以不同；执行期按规范 ID
-    # 定位目标。因此一个名字指到几个条目，要把「直接被它寻址的条目」连同「与之共用规范 ID
-    # 的兄弟」一起数：只按名字数会漏掉别名不同、规范 ID 相同的那种，各入口按各自的查法分别
-    # 选中头一个或末一个，同一次点名在不同入口做的是不同条目。
     by_canonical: dict[str, list[dict[str, Any]]] = {}
     for item, item_id in addressable:
         by_canonical.setdefault(item_id, []).append(item)
@@ -409,8 +397,6 @@ def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
     不能各自维护一份、由此产生分歧（如预检放行了入队会拒绝的空提示词 unit）。
     """
 
-    # 用 .get 归一化：缺失 unit_id 的坏数据（Agent 可裸写 script JSON）会被 from_request
-    # 当作空 resource_id 拒绝，而不是在此抛 KeyError 中断整批。
     if not isinstance(unit, dict):
         raise ValueError("unit 必须是对象")
     unit_id = str(unit.get("unit_id") or "")
@@ -418,9 +404,6 @@ def reference_unit_task_spec(unit: object, script_file: str) -> TaskSpec:
         require_script_unit_admitted("video_units", unit)
     text = unit.get("text")
     if not isinstance(text, str):
-        # 容器校验落在入队校验这一处：脏值（导入 / Agent 裸写 script 产生的 dict、数字）
-        # 不拦就会在下游拼接提示词时抛出 TypeError，把整批打成 500，而不是让这个 unit
-        # 带着自己的问题码进入准入结论。
         raise ValueError(f"text 必须是字符串，当前为 {type(text).__name__}")
     if not text.strip():
         raise ValueError("正文为空")
@@ -592,7 +575,6 @@ async def admit_reference_video_batch(
 
     resolver = config_resolver or ConfigResolver(async_session_factory)
     request_facts_lookup = configured_reference_request_facts(project, resolver)
-    # 整批共用一份供应商素材关联核对：每个执行模型只装配一次调用通道。
     asset_links = configured_asset_link_check(project_path=project_path, resolver=resolver)
     unit_ids = [str(unit.get("unit_id") or "") for unit in units if str(unit.get("unit_id") or "")]
     conflicts = await _active_conflicts(
@@ -606,13 +588,9 @@ async def admit_reference_video_batch(
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
     seen_ids: set[str] = set()
-    # 整批单元共用一份可用性判定，在同一份清单快照上判定；首个需要投影的单元才构造，构造失败下个单元重试。
     shared_assets = functools.cache(lambda: CurrentReferenceAssets(project_path, project))
     for index, unit in enumerate(units):
         unit_id = str(unit.get("unit_id") or "")
-        # 脏数据（缺 unit_id、同一个 id 出现多次）不能被悄悄丢出目标集合：剩下的健康 unit
-        # 会独自入队并计费，正是这道门要防的部分成批。缺 id 的按诊断 id 记名报告，重复的
-        # 拒收副本，两者都让整批停在这里由用户去修剧本。
         if not unit_id:
             tickets.append(
                 refused_ticket(
@@ -673,8 +651,6 @@ async def admit_reference_video_batch(
             )
             continue
         except ValueError as exc:
-            # 投影读的是剧本上的值（如 duration_seconds）：脏值在这里抛出去会让整个请求塌成
-            # 一句通用错误，其余 unit 的结论无从得知。按逐 unit 的可入队性问题如实报告。
             tickets.append(
                 refused_ticket(
                     unit_id,
@@ -771,7 +747,6 @@ async def admit_storyboard_video_batch(
             continue
         reference_problems = reference_admission_problems(admit_storyboard_item(catalog, item), unit_id=resource_id)
         if isinstance(video_request_facts, VideoRequestFactsFailure):
-            # 事实失败与引用缺口同属这一目标的已知问题，一次报全：用户改完模型配置不该再撞见引用缺口。
             tickets.append(
                 UnitAdmissionTicket(
                     unit_id=resource_id,
@@ -830,8 +805,6 @@ def storyboard_video_prompt(
     if not isinstance(prompt, (dict, str)):
         item_id = item.get("segment_id") or item.get("scene_id")
         raise TypeError(f"分镜 video_prompt 类型无效（期望 str 或 dict）: {item_id}")
-    # 与执行路径共用 render_storyboard_video_prompt：入队快照与实发文本同构，反向约束尾词
-    # 由该出口统一追加（执行期对已带尾词的字符串幂等）。
     return render_storyboard_video_prompt(prompt, item, content_mode=content_mode, voice_characters=voice_characters)
 
 
@@ -925,8 +898,6 @@ def build_storyboard_video_specs(
         try:
             require_script_unit_admitted(skeleton_kind, item)
         except SpeechAdmissionError as exc:
-            # 逐 ID 契约与既有 speech_admission 载荷并存：前者说「这个 ID 没做成、
-            # 下一步做什么」，后者带着准入自己的完整定位信息。
             refused.append(speech_admission_ticket(str(item_id), exc))
             continue
 
@@ -940,7 +911,6 @@ def build_storyboard_video_specs(
                 resolver=resolver,
             )
         except (OSError, ValueError) as exc:
-            # 分镜图本身不可用是最常见的一种，给出下一步该跑什么，而不是只报路径。
             advice = "，请先运行 generate_storyboards" if isinstance(exc, StoryboardImageUnavailable) else ""
             refused.append(
                 refused_ticket(
@@ -965,17 +935,11 @@ def build_storyboard_video_specs(
             )
             continue
 
-        # duration 是能力维度，留待执行层在 provider 解析后校验（见 ADR-0001）；
-        # 原样透传调用方显式指定的值，不在入队侧做 int() 截断式归一化（否则会把
-        # 本应被执行层拒绝的非法值静默修正）。缺省由执行层按 caps 收口默认。
         extra_payload: dict[str, Any] = {}
         duration = item.get("duration_seconds")
         if duration is not None:
             extra_payload["duration_seconds"] = duration
 
-        # 构造 TaskSpec 本身也是可入队性判定（空提示词等，``TaskSpecValidationError``
-        # 是 ValueError 子类）：不接住就会让一个坏条目把整批打成一句通用报错，
-        # 其余条目的结论无从得知。
         try:
             spec = TaskSpec.from_request(
                 task_type="video",
@@ -1064,8 +1028,6 @@ async def admit_storyboard_video_request(
     )
     if conflict is None:
         return admission
-    # 音频开关冲突与投影侧的缺口写进同一批票：短路返回只会报出这一条，用户改完配置
-    # 重试才撞见下一个已知缺口，正是这道门要免掉的逐条试探。
     target_ids = {spec.resource_id for spec in specs}
     return replace(
         admission,

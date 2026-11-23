@@ -27,13 +27,9 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-# /v1/audio/speech 支持的输出格式（官方 schema），用于按落盘扩展名选 response_format。
 _SUPPORTED_RESPONSE_FORMATS = frozenset({"mp3", "opus", "aac", "flac", "wav", "pcm"})
 _FALLBACK_RESPONSE_FORMAT = "wav"
 
-# 官方内置音色（gpt-4o-mini-tts，含 tts-1/tts-1-hd legacy 子集），出处见
-# docs/api-docs/endpoints/openai-tts.md 所列 OpenAI 官方文档。
-# 官方文档未给出性别/描述信息，故 label 仅取 id 本身——不编造。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=voice_id)
     for voice_id in (
@@ -53,10 +49,7 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     )
 )
 
-# legacy 模型（tts-1 / tts-1-hd）只支持其中 9 个音色，出处同上文档（「Voice availability depends on the model」）。
 _LEGACY_UNSUPPORTED_VOICE_IDS = frozenset({"ballad", "verse", "marin", "cedar"})
-# 官方型号页（https://developers.openai.com/api/docs/models/gpt-4o-mini-tts）的 Snapshots 列出别名 gpt-4o-mini-tts
-# 指向 gpt-4o-mini-tts-2025-12-15，两者是同一个模型；更早的 2025-03-20 快照没有音色依据，不列。别名改指向时同步更新这里。
 _VOICES_BY_MODEL: dict[str, tuple[VoiceOption, ...]] = {
     "gpt-4o-mini-tts": _VOICE_CATALOG,
     "gpt-4o-mini-tts-2025-12-15": _VOICE_CATALOG,
@@ -84,13 +77,11 @@ class OpenAIAudioBackend:
         model: str,
         provider_name: str = PROVIDER_OPENAI,
     ) -> None:
-        # 禁用 SDK 内置重试，由本层 synthesize() 统一管理重试策略
         self._client = create_openai_client(
             api_key=api_key, base_url=base_url, max_retries=0, transport_layer=transport_layer
         )
         self._official_host = is_official_openai_base_url(base_url)
         self._model = model
-        # 复用 OpenAI 兼容协议的 provider（自定义供应商包装层覆盖 name）须用真实 provider 记账
         self._provider_name = provider_name
 
     @property
@@ -106,15 +97,11 @@ class OpenAIAudioBackend:
         return {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
 
     def list_voices(self) -> list[VoiceOption]:
-        # 只有请求发往 api.openai.com 时，型号名才确定指 OpenAI 的模型：兼容 /v1/audio/speech 的第三方服务
-        # 与中转常沿用 tts-1 等型号名，音色却各不相同。认不出时不列候选，音色照常手填。
         if not self._official_host:
             return []
         return list(_VOICES_BY_MODEL.get(self._model, ()))
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        # language_type 是 DashScope 特有字段，/v1/audio/speech 无对应参数（语种随输入文本），不发送。
-        # 计费调用与写盘分离：重试只包 API 调用，写盘瞬态失败绝不回头重跑会再次计费的合成请求。
         audio_bytes = await self._request_speech(request)
         await run_noninterruptible_sync(request.output_path.write_bytes, audio_bytes)
 
@@ -150,7 +137,5 @@ class OpenAIAudioBackend:
         async with self._client.audio.speech.with_streaming_response.create(**kwargs) as response:
             content = await read_body_capped(response.http_response, max_bytes=AUDIO_ARTIFACT_MAX_BYTES)
         if not content:
-            # 宽松 shim 可能 200 + 空体；不落 0 字节文件、不计成功。该次合成已在供应商侧
-            # 发生，重试等于再次计费，故直接抛错交由任务层失败（重生成廉价）。
             raise RuntimeError("OpenAI 兼容语音合成返回空响应体")
         return content

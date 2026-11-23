@@ -43,12 +43,9 @@ class CallErrorCode(StrEnum):
     CONTENT_POLICY = "content_policy"
     TIMEOUT = "timeout"
     DOWNLOAD_FAILED = "download_failed"
-    # 进程重启把这次调用截断在 pending：没有异常对象可分类，由启动收口按「没有任务身份」写入。
     INTERRUPTED = "interrupted"
 
 
-# 上游错误体里表示「内容被策略拦下」的 ``code``。OpenAI 兼容协议（官方、Azure、各中转）把它
-# 放在错误体的 code 字段并由 SDK 挂到异常上，是机器字段而非消息文本。
 CONTENT_POLICY_PROVIDER_CODES: frozenset[str] = frozenset(
     {
         "content_filter",
@@ -61,8 +58,6 @@ _TIMEOUT_STATUS_CODES: frozenset[int] = frozenset({408, 504})
 
 _RATE_LIMIT_STATUS_CODE = 429
 
-# 「产物下载耗尽」的稳定码。内置 backend 抛 ``ArtifactDownloadError``，自定义声明式 backend 抛
-# 带同一 ``code`` 的 ``DeclarativeRuntimeError``——按码认而不按类型认，两条链路落同一个分类。
 _ARTIFACT_DOWNLOAD_FAILED_CODE = ArtifactDownloadError.code
 
 
@@ -97,16 +92,13 @@ def classify_call_failure(exc: BaseException | str) -> CallFailure:
         if classified is not None:
             code, params = classified
             return CallFailure(message, code, params)
-    # params 区分本仓库领域错误与只带上游 code 的 SDK 异常；供应商分类仍优先。
     code = exc.key if isinstance(exc, ApiError) else getattr(exc, "code", None)
     raw_params = getattr(exc, "params", None)
     if isinstance(code, str) and isinstance(raw_params, dict):
         try:
             params = json.loads(json.dumps(raw_params, default=str, allow_nan=False))
-            # 与任务侧的完整信封预算一致，虽分列落库也计入 code。
             budget = params_budget(code, FAILURE_MESSAGE_LIMIT)
             if len(json.dumps(params, ensure_ascii=False, sort_keys=True)) > budget:
-                # 与任务侧 bound_reason 同一口径：容器先转文本，嵌套诊断保留 key/params 信封，收窄最长字符串。
                 params = shrinkable_copy(params)
                 shrinkable = [(params, key) for key, value in params.items() if isinstance(value, str)]
                 shrinkable.extend(nested_detail_slots(params))
@@ -121,14 +113,10 @@ def classify_call_failure(exc: BaseException | str) -> CallFailure:
 def _classify_single(exc: BaseException) -> tuple[CallErrorCode, dict[str, Any]] | None:
     status = _http_status(exc)
     if status == _RATE_LIMIT_STATUS_CODE:
-        # 429 覆盖 openai.RateLimitError（响应挂在异常上）与 google 的 ResourceExhausted
-        # （状态码挂在异常自身的 code 上），无需按各家 SDK 的类型逐一枚举。
         return CallErrorCode.RATE_LIMITED, _retry_after_params(exc)
     if _provider_error_code(exc) in CONTENT_POLICY_PROVIDER_CODES:
         return CallErrorCode.CONTENT_POLICY, {}
     if isinstance(exc, TimeoutError | httpx.TimeoutException | APITimeoutError) or status in _TIMEOUT_STATUS_CODES:
-        # TimeoutError 覆盖内置与 asyncio 别名（视频轮询超时抛的就是它）；httpx 与 openai 的
-        # 超时异常各有自己的基类，不继承 TimeoutError，须显式列出。
         return CallErrorCode.TIMEOUT, {}
     return None
 
@@ -159,8 +147,6 @@ def _retry_after_params(exc: BaseException) -> dict[str, Any]:
     if headers is None:
         return {}
     raw = headers.get("Retry-After")
-    # HTTP-date 形式的 Retry-After 不解析：读侧要的是「等多少秒」，把一个绝对时刻算成秒数需要
-    # 知道响应时刻，那不是这里能可靠拿到的。
     if not isinstance(raw, str) or not raw.strip().isdigit():
         return {}
     return {"retry_after_seconds": int(raw.strip())}
@@ -173,7 +159,6 @@ def _http_status(exc: BaseException) -> int | None:
         return status
     for attr in ("code", "status_code"):
         value = getattr(exc, attr, None)
-        # bool 是 int 子类，排掉；``code`` 在本仓库的能力异常上是字符串，isinstance 一并挡住。
         if isinstance(value, int) and not isinstance(value, bool):
             return value
     return None

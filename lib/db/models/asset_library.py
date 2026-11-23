@@ -22,7 +22,7 @@ class AssetLibraryAccount(TimestampMixin, Base):
     __table_args__ = ({"sqlite_autoincrement": True},)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    site: Mapped[str] = mapped_column(String(16), nullable=False)  # "volcengine" | "byteplus"
+    site: Mapped[str] = mapped_column(String(16), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     region: Mapped[str] = mapped_column(String(64), nullable=False)
     project_name: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -92,28 +92,22 @@ class ProviderAssetLink(TimestampMixin, Base):
     project_name: Mapped[str] = mapped_column(String(255), nullable=False)
     content_version_id: Mapped[str] = mapped_column(String(64), nullable=False)
     content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    # 发起时的资源与版本号，供展示与诊断；资源改名后不再准确，查找关联只按内容版本身份。
     resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
     resource_id: Mapped[str] = mapped_column(Text, nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
-    # 提交时内容版本的持久定位（项目内相对路径）；入库读取时按 content_digest 校验。
     locator_path: Mapped[str] = mapped_column(Text, nullable=False)
-    origin: Mapped[str] = mapped_column(String(16), nullable=False)  # "upload" / "import"
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
     account_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    # 提交或导入时账号所属云账号的身份摘要（lib.asset_library.bindings.account_identity），不含任何密钥。
     account_identity: Mapped[str] = mapped_column(String(64), nullable=False)
     site: Mapped[str] = mapped_column(String(16), nullable=False)
     region: Mapped[str] = mapped_column(String(64), nullable=False)
     provider_project_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    # pending / submitting / processing / active / failed / uncertain，见 lib.asset_library.links
     state: Mapped[str] = mapped_column(String(16), nullable=False)
     provider_asset_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider_group_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 提交入库时的素材名称，请求结果不确定时按它在素材组里查回素材 ID；导入的关联记录所选素材的名称。
     submit_name: Mapped[str] = mapped_column(String(64), nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 最近一次状态查询自身失败的原因（网络、鉴权等），不改变入库状态。
     check_error: Mapped[str | None] = mapped_column(String(128), nullable=True)
     selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     unlinked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

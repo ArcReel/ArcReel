@@ -39,7 +39,6 @@ def upgrade() -> None:
     bind = op.get_bind()
     is_pg = bind.dialect.name == "postgresql"
 
-    # 1. Clean orphan task_events before adding FK constraint
     op.execute(sa.text("DELETE FROM task_events WHERE task_id NOT IN (SELECT task_id FROM tasks)"))
 
     # 2. Convert String timestamp columns → DateTime(timezone=True)
@@ -96,8 +95,6 @@ def downgrade() -> None:
     with op.batch_alter_table("api_calls") as batch_op:
         batch_op.alter_column("generate_audio", server_default="1")
 
-    # 3. Revert DateTime(timezone=True) → String
-    #    SQLite: no-op (column type was never changed; see upgrade comment).
     if is_pg:
         for table, columns in TIMESTAMP_COLUMNS.items():
             for col in columns:

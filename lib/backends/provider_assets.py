@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-#: 参考生视频的参考图槽位；首帧、尾帧不在此列，见 :func:`provider_asset_roles`。
 REFERENCE_IMAGE_ROLE = "reference_image"
 
 
@@ -49,7 +48,6 @@ def provider_asset_roles(backend: object) -> frozenset[str]:
     return value if isinstance(value, frozenset) else frozenset()
 
 
-#: 方舟「输入图片未通过审核」类错误码的前缀，如 ``InputImageSensitiveContentDetected.PrivacyInformation``。
 _INPUT_IMAGE_REJECTION_PREFIX = "InputImageSensitiveContentDetected"
 
 

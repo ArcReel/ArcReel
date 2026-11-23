@@ -79,7 +79,6 @@ def backfill_content_digests(project_dir: Path) -> None:
         atomic_write_json(versions_path, versions)
     try:
         expected = {key: stored[key] for key in proven}
-        # 没写入也可能是上一次中断的重跑已经写过同样的事实；只有清单真被改动过才算冲突。
         if not adapter.replace_entries_if_matches_atomically(
             expected=expected, replacements=proven
         ) and not same_entry_records({key: adapter.get_entry(key) for key in proven}, proven):

@@ -25,13 +25,6 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-# Seedream `size` 参数：不传时 4.x/5.x 默认 2048x2048（1:1），3.0-t2i 默认 1024x1024（1:1）。
-# 不显式传 size 会让项目设置的 aspect_ratio 完全失效。
-#
-# Ark 官方推荐宽高像素值（方式 2）：
-#   - 4.x/5.x 系列 2K 档（总像素须 ≥ 3_686_400）
-#   - 3.0-t2i 系列 1K 档（单边 ∈ [512, 2048]）
-# 参考：https://www.volcengine.com/docs/82379/1666946
 _SEEDREAM_2K_SIZE_MAP: dict[str, str] = {
     "1:1": "2048x2048",
     "4:3": "2304x1728",
@@ -58,7 +51,6 @@ class ArkImageBackend:
     """Ark (火山方舟) Seedream 图片生成后端。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # 通道本身不限参考图张数：Seedream 各代的上限是模型事实，记在条目上。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     SIZE_MAP: ClassVar[dict[str, str]] = _SEEDREAM_2K_SIZE_MAP
@@ -112,9 +104,6 @@ class ArkImageBackend:
             "prompt": request.prompt,
         }
 
-        # Seedream 不显式传 size 时默认输出 1:1（4.x/5.x: 2048x2048；3.0-t2i: 1024x1024），
-        # 项目设置的 aspect_ratio 会被静默忽略。优先使用 caller 显式传入的 image_size
-        # （如 grid 路径会传 "2K"/"4K"），否则按官方推荐表从 aspect_ratio 推导宽高。
         kwargs["size"] = self._size(request.image_size, request.aspect_ratio)
         reference_count = 0
 
@@ -126,7 +115,6 @@ class ArkImageBackend:
                 ]
             )
             reference_count = len(data_uris)
-            # 单张传字符串，多张传列表
             kwargs["image"] = data_uris[0] if len(data_uris) == 1 else data_uris
 
         if request.seed is not None:
@@ -140,7 +128,6 @@ class ArkImageBackend:
 
         data = getattr(response, "data", None) or []
         if not data:
-            # 空 data 通常是内容安全过滤命中或上游网关异常，给出清晰错误便于排查
             raise RuntimeError(f"Ark 图片生成响应 data 为空 (model={self._model})，可能触发内容安全过滤或上游服务异常")
         await save_image_from_response_item(data[0], request.output_path)
 
@@ -148,7 +135,6 @@ class ArkImageBackend:
             image_path=request.output_path,
             provider=PROVIDER_ARK,
             model=self._model,
-            # 按生成张数计费：响应里每张图一项。
             usage=per_image_usage(
                 output_images=len(data), input_images=reference_count, dimensions={"resolution": kwargs["size"]}
             ),

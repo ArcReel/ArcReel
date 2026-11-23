@@ -43,17 +43,11 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-# Sora 的 input_reference 只收单个文件，首帧与参考图共用这一槽位；能力声明与提交前检查都读它。
 _INPUT_REFERENCE_SLOTS = 1
 
 
-# 端点接受两组 size；各型号可用的分辨率记录在条目上。
-# SDK 的 VideoSize Literal 滞后（只列 720/1024 档、漏 1080），以官方模型页为准；
-# 合法档不含 1024x1792 / 1792x1024（4:7，违背比例优先，1080p 精确档已覆盖该用途）。
-# 非任意 WxH，只能吸附合法档：比例优先选档，分辨率档只决定 720p vs 1080p 子集（清晰度其次）。
 _SORA_SIZES_720P: tuple[str, ...] = ("720x1280", "1280x720")
 _SORA_SIZES_1080P: tuple[str, ...] = ("1080x1920", "1920x1080")
-# 向后兼容的并集导出（外部/测试引用「全部合法档」）。
 _SORA_LEGAL_SIZES: tuple[str, ...] = _SORA_SIZES_720P + _SORA_SIZES_1080P
 _SORA_1080P_MIN_SHORT = 1080
 
@@ -88,10 +82,8 @@ def _video_error_message(video: object) -> str:
     for value in candidates:
         if isinstance(value, str) and value.strip():
             return value.strip()
-        # 数字错误码（网关常见的裸 HTTP 码）也是原因，别因为不是字符串就丢掉
         if isinstance(value, int) and not isinstance(value, bool):
             return str(value)
-    # 认不出的形态说不出原因就说 unknown：把对象自身的 repr 写进任务面板等于没说
     return "unknown"
 
 
@@ -100,8 +92,6 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entr
     aw, ah = parse_aspect_ratio(aspect_ratio)
     target = aw / ah
     short = resolution_to_short_edge(resolution, tier_map=VIDEO_TIER_SHORT_EDGE)
-    # 按条目里的分辨率上限取合法短边档，再选最近档（等距取更高档），避免把
-    # short=1000 这类自定义分辨率值无故降到 720p（floor 会误降，最近档不会）。
     from lib.backends.video_capabilities import entry_video_facts
     from lib.catalog import query as catalog
 
@@ -126,8 +116,6 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entr
         return abs(w / h - target), -(w * h)
 
     chosen = min(legal, key=_score)
-    # 9:16 / 16:9 精确命中；其它比例（如 1:1 / 21:9）sora 无对应档，吸附后比例必然偏差，
-    # 与上游协议无关地告警，避免静默产出错比例视频（图片路径同样在超界时告警）。
     cw, ch = (int(x) for x in chosen.split("x"))
     if abs(cw / ch - target) > 0.01:
         logger.warning(
@@ -135,7 +123,6 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entr
             aspect_ratio,
             chosen,
         )
-    # 后置不变量：只返回 sora 合法档全集内的尺寸，防止未来改档逻辑时静默产出非法 size。
     assert chosen in _SORA_LEGAL_SIZES, f"_resolve_size produced illegal sora size: {chosen}"
     return chosen
 
@@ -229,12 +216,10 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             .has_audio_track
         ):
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
-        # Sora 请求体没有尾帧与参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
         if request.end_image:
             raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
-        # 首帧与参考图合计超过槽位时，超出部分会被丢弃或被上游拒绝，付费前拒绝。
         input_count = bool(request.start_image) + len(request.reference_images or [])
         if input_count > _INPUT_REFERENCE_SLOTS:
             raise VideoCapabilityError(
@@ -254,7 +239,6 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             "model": self._model,
             "seconds": str(request.duration_seconds),
         }
-        # 始终下传合法 size 以锁定比例（sora 固定档，不传则上游用自家默认比例）
         kwargs["size"] = _resolve_size(
             self._model,
             request.resolution,
@@ -262,7 +246,6 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             entry=self._catalog_entry,
         )
 
-        # 收集所有参考图（start_image + reference_images）：存在性检查与读图都是阻塞 I/O，整体卸载到线程
         refs = await asyncio.to_thread(_encode_input_references, request, self._model)
         if refs:
             (kwargs["input_reference"],) = refs
@@ -271,16 +254,11 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         logger.info("调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
 
         video = await self._create_video(**kwargs)
-        # submit 成功立即持久化 job_id；持久化失败抛 → finally mark_failed。
-        # 非 worker 路径（grid / 直生 / 测试）request.task_id 为 None，统一点内跳过持久化。
-        # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
         await self._persist_provider_job_id(
             request, video.id, provider=PROVIDER_OPENAI, endpoint=self._request_base_url
         )
         final = await self._poll_until_complete(self._client, video.id, request.poll_timeout_seconds)
 
-        # generate 路径下 expired 是「provider 异常 / 输入参数过期」类失败，
-        # 抛 RuntimeError 让 worker mark_failed（不带 [resume_expired] 前缀）。
         if _video_status(final) is ProviderJobStatus.EXPIRED:
             raise RuntimeError(f"OpenAI Sora job expired during generate: {final.id}")
 
@@ -296,8 +274,6 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
                 raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_OPENAI) from exc
             raise
 
-        # resume 路径下 expired = provider 端已忘 / 输入资产过期，归类
-        # [resume_expired] 让 worker 错误前缀化、不再尝试重启自愈
         if _video_status(final) is ProviderJobStatus.EXPIRED:
             raise ResumeExpiredError(
                 job_id=job_id,
@@ -342,12 +318,6 @@ class OpenAIVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         不复用 SDK 的 client.videos.poll：它仅识别 in_progress/queued/completed/failed，
         对接返回非标状态（如 NOT_START）的 OpenAI 兼容网关时会提前退出，导致下载未就绪任务。
         """
-        # is_done 是纯谓词：成功 / 失败 / 过期三档都视为「已终态」让 poll 返回。
-        # caller (generate / resume_video) 拿到 result 后再分流：
-        #   - succeeded → 下载
-        #   - failed    → is_failed 已抛 RuntimeError
-        #   - expired   → 在 caller 处按 generate vs resume 上下文抛 RuntimeError / ResumeExpiredError
-        # 关键不变量：is_failed 不识别 expired，避免覆盖 caller 分流。
         return await poll_with_retry(
             poll_fn=lambda: client.videos.retrieve(video_id),
             is_done=lambda v: _video_status(v) in TERMINAL_PROVIDER_STATUSES,

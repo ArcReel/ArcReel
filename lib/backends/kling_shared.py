@@ -28,18 +28,13 @@ import jwt
 from lib.config.url_utils import strip_base_url_version
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 
-# 官方 base（含 /v1），对齐 ark_shared.ARK_BASE_URL 约定。国内调用域名官方已由 api.klingai.com
-# 迁移至 api-beijing.klingai.com（旧域名仍可用，未强制下线）；此处只影响未显式配置 base_url 的
-# 新用户，registry.default_base_url 同步该值（两处保持一致，单一真相源）。
 KLING_BASE_URL = "https://api-beijing.klingai.com/v1"
-# 新版 API 的调用域名不带版本段，请求路径直接是 /text-to-video/<模型名>、/tasks（官方「接口鉴权」页）。
 KLING_MODEL_PATH_BASE_URL = "https://api-beijing.klingai.com"
 
-_TOKEN_TTL_SECONDS = 1800  # 约 30 分钟过期（官方）。
-_TOKEN_NBF_SKEW_SECONDS = 5  # nbf 略提前，容忍 client/server 轻微时钟偏移。
-_TOKEN_REFRESH_MARGIN_SECONDS = 60  # 距过期 <60s 即重签，避免长任务途中 token 失效。
+_TOKEN_TTL_SECONDS = 1800
+_TOKEN_NBF_SKEW_SECONDS = 5
+_TOKEN_REFRESH_MARGIN_SECONDS = 60
 
-# 异步视频任务终态：succeed / failed；中间态 submitted / processing 继续轮询。
 KLING_STATUS_SUCCEED = "succeed"
 KLING_STATUS_FAILED = "failed"
 _TERMINAL_STATES = frozenset({KLING_STATUS_SUCCEED, KLING_STATUS_FAILED})
@@ -216,7 +211,6 @@ def kling_task_failure_reason(payload: dict) -> str | None:
 
     succeed / 中间态返回 None（中间态由 is_terminal 判定为未完成继续轮询）。
     """
-    # 顶层 code 硬错误（如 task_id 不存在 / 鉴权失败）优先暴露。
     err = kling_response_error(payload)
     if err is not None:
         return err
@@ -260,7 +254,6 @@ def extract_kling_image_urls(payload: dict) -> list[str]:
     raise RuntimeError(reason or f"Kling 图像任务完成但缺少图片 URL: {payload}")
 
 
-# 新版 API 的任务状态：submitted / processing / succeeded / failed。
 KLING_MODEL_PATH_SUCCEEDED = "succeeded"
 _MODEL_PATH_TERMINAL_STATES = frozenset({KLING_MODEL_PATH_SUCCEEDED, KLING_STATUS_FAILED})
 

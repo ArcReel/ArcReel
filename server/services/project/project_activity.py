@@ -59,7 +59,6 @@ def _metadata_updated_at(doc: Mapping[str, Any]) -> datetime | None:
         parsed = datetime.fromisoformat(raw)
     except ValueError:
         return None
-    # 无时区的旧数据按本机时间解释。
     return parsed.astimezone(UTC)
 
 

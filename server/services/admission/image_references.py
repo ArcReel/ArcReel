@@ -40,7 +40,6 @@ async def reference_image_limit(
     except ImageBucketCapabilityError as exc:
         return 0, exc.model_id
     except Exception as exc:
-        # 未配置生成通道的项目仍允许只读预览，执行器会报告配置缺口。
         logging.getLogger(__name__).info("无法解析图生图通道：%s", exc)
         return None, ""
     return lane.max_reference_images, lane.backend_model
@@ -76,7 +75,6 @@ def check_asset_image_limit(
     if maximum is None:
         return
     if owner is not None:
-        # 衍生固定使用一张本体资产图，批内同时生成本体时也要为它预留位置。
         visuals = [VisualReference(project_path, "asset_sheet", "character", owner)]
     else:
         assembled = asset_sheet_input(

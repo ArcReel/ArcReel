@@ -134,9 +134,6 @@ logger = logging.getLogger(__name__)
 
 PROJECT_SLUG_SANITIZER = re.compile(r"[^a-zA-Z0-9]+")
 
-# 生成模式（generation_mode）：二值必填，创建即定、之后不可变（可变性由 PATCH 模型结构保证）。
-# 宫格不是生成模式：它由独立的 grid_storyboard 布尔表达，仅 `storyboard` 生成模式有意义。
-# 存量三值 "grid" 已由 v4→v5 迁移重编码为 storyboard + grid_storyboard=true。
 VALID_GENERATION_MODES: frozenset[str] = frozenset({"storyboard", "reference_video"})
 _DEFAULT_GENERATION_MODE = "storyboard"
 
@@ -277,9 +274,6 @@ class ProjectOverview(BaseModel):
     genre: str = Field(description="题材类型，如：古装宫斗、现代悬疑、玄幻修仙")
     theme: str = Field(description="核心主题，如：复仇与救赎、成长与蜕变")
     world_setting: str = Field(description="时代背景和世界观设定，100-200字")
-    # language 是 LLM 输出存档字段；唯一真相源是顶层 project["source_language"]，
-    # 由 generate_overview 在落盘时同步写入。所有度量/切分调用方一律读顶层字段，
-    # 不要直接读 overview.language。
     language: Literal["zh", "en", "vi", "ru"] = Field(description="小说源语言代码")
 
 
@@ -316,7 +310,6 @@ def _rename_agnostic_errors(
     return folded
 
 
-#: 删除预览借重命名扫描计数时的改写目标：任何资产名都不会与它判等，命中的引用一律计入。
 _DELETION_SCAN_TARGET = "\x00"
 
 
@@ -324,11 +317,8 @@ _DELETION_SCAN_TARGET = "\x00"
 class _AssetReferenceScan:
     """一次资产引用扫描的结果：改写后的剧本与草稿，以及按集归属的引用处数。"""
 
-    #: ``(剧本文件名, 改写后载荷, 改写前载荷)``
     scripts: list[tuple[str, dict, dict]] = field(default_factory=list)
-    #: ``(草稿路径, 改写后载荷, 改写前指纹)``
     drafts: list[tuple[Path, dict, str]] = field(default_factory=list)
-    #: 集目录名（``episode_N``）→ 引用处数；剧本取文件 stem，草稿取所在目录名。
     episode_references: Counter[str] = field(default_factory=Counter)
 
     @property
@@ -459,7 +449,6 @@ class ProjectManager:
         except FileExistsError as exc:
             raise FileExistsError(f"项目 '{name}' 已存在") from exc
 
-        # 单步调用默认持久化 content_mode；组合创建流程可延迟到完整 metadata 一次发布。
         try:
             for subdir in self.SUBDIRS:
                 (project_dir / subdir).mkdir(exist_ok=True)
@@ -467,17 +456,11 @@ class ProjectManager:
                 atomic_write_json(project_dir / self.PROJECT_FILE, {"content_mode": content_mode})
             self.sync_agent_profile(project_dir, content_mode=content_mode)
         except Exception:
-            # sync 失败时回滚 project_dir，避免残缺目录阻塞重试（同名 create 撞 FileExistsError）
             shutil.rmtree(project_dir, ignore_errors=True)  # hard-delete: rollback -- 创建项目失败时移除刚建的项目目录
             raise
 
         return project_dir
 
-    # 并发读者（如 ProjectEventService 的轮询扫描）触发的 _project_lock 可能在
-    # rmtree 清空目录内容之后、移除目录本身之前重新 touch 出锁文件：POSIX 上表现为
-    # rmdir 因目录非空失败（ENOTEMPTY），Windows 上锁文件仍被对端进程持有的文件锁
-    # 占用，表现为访问被拒（PermissionError / EACCES）。两者都是同一竞态的平台
-    # 特定症状，重试让锁文件在下一轮清理中一并删除。
     _DELETE_RETRYABLE_ERRNOS = (errno.ENOTEMPTY, errno.EACCES)
 
     def delete_project_directory(self, name: str) -> None:
@@ -492,9 +475,6 @@ class ProjectManager:
                 shutil.rmtree(project_dir)  # hard-delete: rollback -- 撤销创建失败的项目
                 return
             except FileNotFoundError:
-                # 目录已不存在——上一次重试已经成功,或并发的另一次删除已经完成,
-                # 删除目的已达成,无需继续重试或报错。目录还在时，是并发的残余目录清理
-                # （remove_project_directory_residue）先删掉了其中的空目录，接着重试。
                 if not project_dir.exists():
                     return
                 if attempt == attempts - 1:
@@ -635,13 +615,10 @@ class ProjectManager:
                     if key in result:
                         totals[key] = totals.get(key, 0) + result[key]
             except (ProfileMissingError, ProfileEmptyError, ProfileMisconfiguredError) as e:
-                # 部署级错误（profile 路径错 / volume 挂载失败）→ 全部跳过，
-                # 不要 fallback 到"假装 profile 是空"的破坏行为
                 logger.error("profile sync ABORTED for ALL projects: %s", e)
                 totals["aborted"] = True
                 break
             except ValueError as e:
-                # 单个项目 content_mode 非法 → 跳过，不影响其它项目
                 logger.warning("Skip sync for %s: %s", project_dir.name, e)
                 totals["failed_projects"] += 1
             except Exception:
@@ -820,7 +797,6 @@ class ProjectManager:
                         removed_resource_ids=tuple(set(previous_resource_ids) - set(resource_ids)),
                         basis=artifact_basis,
                     )
-                    # 项目锁内、写入之前：删除记录的快照要改写前的剧本与 project.json。
                     before_files = {
                         rel: path.read_bytes()
                         for rel, path in ((f"scripts/{filename}", script_path), (self.PROJECT_FILE, project_file))
@@ -828,8 +804,6 @@ class ProjectManager:
                     }
 
                     def _register_manifest(_script_path: Path) -> None:
-                        # 被移除的旧条目移进项目回收站，再撤登记；仍持剧本锁，新条目的媒体不能先落盘。
-                        # 覆盖时旧剧本里的条目都按结构移除建记录（ADR 0080），没有媒体的也能找回。
                         trash_entries(
                             project_path,
                             episode=episode,
@@ -969,16 +943,12 @@ class ProjectManager:
         real = self._safe_subpath(scripts_dir, filename)
         output_path = Path(real)
 
-        # 结构校验守卫（「不更坏」语义），置于落盘前，避免脏数据潜伏到 worker 执行层才暴露。
         if validate:
             before_script = self._load_script_or_none(output_path) if isinstance(before, _Unset) else before
             self._guard_no_worse(before_script, script)
 
-        # 再做 filename/内部 episode 一致性校验，避免写盘后才在 sync 阶段抛错，
-        # 造成"脚本文件已落盘、project.json 未同步"的部分提交。
         self.require_filename_episode_consistency(script, filename)
 
-        # 更新元数据（兼容旧脚本：可能缺少 metadata，或 narration 使用 segments）
         now = datetime.now(UTC).isoformat()
         metadata = script.get("metadata")
         if not isinstance(metadata, dict):
@@ -988,11 +958,8 @@ class ProjectManager:
         metadata.setdefault("status", "draft")
         metadata["updated_at"] = now
 
-        # 原子写（含路径遍历防护，output_path 已在守卫前解析），避免并发 PATCH 导致 JSON 损坏
         self._persist_script_json(output_path, script)
 
-        # 同步到 project.json，保证 script 写入与元数据同步是单一事务
-        # （sync 走的是 `_project_lock`，与外层 `_script_lock` 不同锁，不会冲突）。
         if sync_project and self.project_exists(project_name) and isinstance(script.get("episode"), int):
             self.sync_episode_from_script(project_name, filename)
 
@@ -1041,7 +1008,6 @@ class ProjectManager:
         """
         norm = self.normalize_script_filename(script_filename)
         with self._script_lock(project_name, norm):
-            # 已持锁，走 unlocked 变体取剧本（迁移结果随写回落盘）
             script, _migrated = self._read_script_unlocked(project_name, norm)
             before = copy.deepcopy(script) if validate else None
             yield script
@@ -1139,9 +1105,6 @@ class ProjectManager:
         临界区原子恢复旧字节。hook 必须把自身写入设计为「成功后不再抛错」，否则它已经落下的
         外部状态无法由本方法推断如何撤销。
         """
-        # 候选解析只用于确定脚本锁身份，锁外只读不写；命令若随后因 revision / schema 等预检
-        # 被拒，project.json 必须保持逐字不变。成功提交时，迁移会在下方项目锁内与脚本、索引
-        # 一起落盘并受同一份旧字节快照补偿。
         candidate = resolve_script_file(self.load_project(project_name))
         norm = self.normalize_script_filename(candidate)
         with self._script_lock(project_name, norm), self._project_lock(project_name):
@@ -1167,7 +1130,6 @@ class ProjectManager:
                     before=before,
                     emit_change=False,
                 )
-                # 在已持项目锁内联同步 project.json（等价 update_project 写路径，但不二次取锁）
                 if isinstance(script.get("episode"), int):
                     self._apply_episode_sync(project, script, norm)
                 self._migrate_legacy_resolution_on_save(project)
@@ -1313,8 +1275,6 @@ class ProjectManager:
                 `episode` 字段不一致时抛出，避免错误的脚本数据覆盖真实集号条目
                 （例如 episode_10.json 内部错写为 episode=1，会覆盖第 1 集）。
         """
-        # 走 unlocked 变体：本方法被写盘统一入口在持有 `_script_lock` 时调用，
-        # `load_script` 的迁移回写会二次取同一把锁而自死锁。
         script, _migrated = self._read_script_unlocked(project_name, script_filename)
         return self.update_project_reconciling_episode_bindings(
             project_name, lambda project: self._apply_episode_sync(project, script, script_filename)
@@ -1327,7 +1287,6 @@ class ProjectManager:
         （在已持 `_project_lock` 的临界区内）共用，避免重复实现集元数据同步逻辑。
         """
         base_name = self.normalize_script_filename(script_filename)
-        # 防御纵深：SSE 扫描路径直接调用此函数（不经 save_script），同样需要校验
         self.require_filename_episode_consistency(script, base_name)
 
         script_episode = script.get("episode")
@@ -1335,17 +1294,13 @@ class ProjectManager:
         episode_title = script.get("title", "")
         script_file = f"scripts/{base_name}"
 
-        # 查找或创建 episode 条目（整段 RMW 在单一 _project_lock 内完成，避免并发同步丢失）
         episodes = project.setdefault("episodes", [])
         episode_entry: dict[str, Any] | None = next((ep for ep in episodes if ep["episode"] == episode_num), None)
         if episode_entry is None:
-            # 剧本先于账本条目落盘的集没有登记过集原文
             episode_entry = {"episode": episode_num, SOURCE_ORIGIN_FIELD: SourceOrigin.NONE.value}
             episodes.append(episode_entry)
-        # 同步核心元数据（不包含统计字段，统计字段由项目摘要读时计算）
         episode_entry["title"] = episode_title
         episode_entry["script_file"] = script_file
-        # 条目编号只分配、不复用：落盘的剧本里出现过的编号都记进本集用过的最大号
         try:
             items, id_field, _kind = resolve_items(script)
         except ScriptEditError:
@@ -1404,16 +1359,10 @@ class ProjectManager:
             剧本字典
         """
         norm = self.normalize_script_filename(filename)
-        # 先无锁读一次：绝大多数剧本早已完成收编，这条路径不取锁、不建 lock 文件，读剧本的
-        # 并发度与文件系统副作用与迁移前一致（剧本不存在也在建锁文件之前就 fail-loud）。
         script, migrated = self._read_script_unlocked(project_name, norm)
         if not migrated:
             return script
         with self._script_lock(project_name, norm):
-            # 锁内重读一次再回写：读-改-写须在同一把剧本锁内完成，否则并发写者在无锁读与回写
-            # 之间落盘的内容会被迁移结果覆盖。不走
-            # _write_script_unlocked：迁移只是格式收编，不应刷新 metadata.updated_at、
-            # 不触发 project.json 同步与变更提示。
             script, migrated = self._read_script_unlocked(project_name, norm)
             if migrated:
                 real = Path(self._safe_subpath(self.get_project_path(project_name) / "scripts", norm))
@@ -1440,7 +1389,6 @@ class ProjectManager:
         real = Path(self._safe_subpath(project_dir / "scripts", filename))
 
         if self._script_reader is None:
-            # 存在性检查只对文件系统这条路径成立；剧本是否存在由实际读取方判定。
             if not real.exists():
                 raise FileNotFoundError(f"剧本文件不存在: {real}")
             with open(real, encoding="utf-8") as f:
@@ -1472,11 +1420,9 @@ class ProjectManager:
 
     def update_character_sheet(self, project_name: str, script_filename: str, name: str, sheet_path: str) -> dict:
         """更新角色资产图路径"""
-        # 资产回写热路径：只动运行时字段，结构不可能因此变坏，豁免结构校验。
         with self.locked_script(project_name, script_filename, validate=False) as script:
             key = resolve_asset_key(script.get("characters"), name)
             if key is None:
-                # 在锁内抛出，locked_script 跳过写回
                 raise KeyError(f"角色 '{name}' 不存在")
             script["characters"][key]["character_sheet"] = sheet_path
         return script
@@ -1566,9 +1512,6 @@ class ProjectManager:
                 if key not in scene["audio"]:
                     scene["audio"][key] = template["audio"][key]
 
-        # 补全 generated_assets 字段
-        # generated_assets 来自磁盘剧本 JSON，外部编辑可能损坏成非 dict（None/字符串等）；
-        # 先经 get_generated_assets 归一化，避免下面的成员检查/赋值抛 TypeError。
         assets = get_generated_assets(scene)
         assets_template = self.create_generated_assets()
         for key in assets_template:
@@ -1608,8 +1551,6 @@ class ProjectManager:
         Returns:
             更新后的状态值
         """
-        # generated_assets 来自磁盘剧本 JSON，外部编辑可能损坏成非 dict（None/字符串等）；
-        # get_generated_assets 归一化为空 dict 按「未生成」处理，避免 .get() 链式访问抛 AttributeError。
         assets = get_generated_assets(scene)
 
         has_image = bool(assets.get("storyboard_image"))
@@ -1649,13 +1590,6 @@ class ProjectManager:
         Returns:
             更新后的剧本
         """
-        # 资产回写热路径：只动 generated_assets，结构不可能因此变坏，豁免结构校验。
-        # 但「分镜数组键损坏（如 segments: null）」是更严重的损坏，写入侧必须 fail-loud——
-        # 静默 no-op 等于把数据丢失藏起来：worker 写完 N 个 video_clip 还以为成功了，UI 却
-        # 看不到任何回写。让 ScriptEditError 上冒，worker 层负责降级（记 task 失败、人工修复）。
-        # `resolve_items` 对三种剧本结构的判别与 `_write_script_unlocked` / 读取 helper 共用同一源，
-        # 避免参考生视频落到 drama 兜底
-        # 取 "scenes" 键、静默返回 [] 然后 KeyError 报"分镜不存在"的根因被掩盖路径。
         with self.locked_script(
             project_name,
             script_filename,
@@ -1677,8 +1611,6 @@ class ProjectManager:
         content_mode = script.get("content_mode", "narration")
         items, id_field, _kind = resolve_items(script)
         for item in items:
-            # 损坏脚本的非 dict 元素跳过（镜像 script_editor._find_index 的 isinstance 守卫），
-            # 避免 item.get(id_field) 抛 AttributeError；未命中仍走下方 KeyError fail-loud。
             if not isinstance(item, dict):
                 continue
             if str(item.get(id_field)) != str(scene_id):
@@ -1714,7 +1646,6 @@ class ProjectManager:
         restoring blanket snapshots over a concurrent script edit.
         """
 
-        # 点名的剧本里文件名为规范名的全部上锁并改写；其余不属于任何一集，不动。
         normalized = tuple(
             sorted(
                 {
@@ -1758,7 +1689,6 @@ class ProjectManager:
                         before=before,
                         emit_change=False,
                     )
-                    # 只同步账本确实绑着这份剧本的那一集：写盘不借恢复改绑。
                     script_episode = script.get("episode")
                     if isinstance(script_episode, int) and resolve_episode_script_binding(
                         project, script_episode, name, require_indexed=True
@@ -1809,12 +1739,6 @@ class ProjectManager:
         if not updates:
             return {}
 
-        # 资产回写热路径：只动 generated_assets，结构不可能因此变坏，豁免结构校验。
-        # 分镜数组键损坏（resolve_items 抛 ScriptEditError）与 id 未命中两类错误都 fail-loud：
-        # 静默 no-op 等于把 worker 写完的 N 个 clip 路径丢弃但 SSE 仍广播「all updated」、UI
-        # 永远 pending。id 未命中收集一轮再统一抛，让 worker 看到完整失败集合而不是只看到首个；
-        # locked_script 在 with 体内抛异常时整体不写回（与 update_scene_asset 单个版本对齐）。
-        # resolve_items 让参考生视频 worker 也能正确按 unit_id 索引 video_units。
         with self.locked_script(
             project_name,
             script_filename,
@@ -1825,8 +1749,6 @@ class ProjectManager:
             content_mode = script.get("content_mode", "narration")
             items, id_field, _kind = resolve_items(script)
 
-            # 建立 scene_id → item 索引，避免 O(N*M) 查找。损坏脚本的非 dict 元素过滤掉
-            # （镜像 script_editor.new_item_ids），命中这类 id 的 update 会落 missing → KeyError fail-loud。
             item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items if isinstance(item, dict)}
             missing: list[str] = []
 
@@ -1867,19 +1789,11 @@ class ProjectManager:
         """
         script = self.load_script(project_name, script_filename)
 
-        # `_resolve_items_or_warn` 对三种剧本结构统一判别，并对脏数据 warn-and-skip 降级——读取侧 silent
-        # 比写入侧 silent 安全（UI 渲染空列表好过 5xx 阻塞页面），但 warning 给可观测信号；
-        # 写入侧（update_scene_asset / batch_update_scene_assets）则用 `resolve_items` 直接
-        # 抛 ScriptEditError 保证数据损坏永远有显式信号。参考生视频也能正确返回
-        # video_units，不会静默落到 drama 兜底丢失参考生视频数据。
         items = _resolve_items_or_warn(script, script_filename=script_filename)
 
-        # item.generated_assets 缺失 / null / 非 dict 一律视为"未生成"——读取侧脏数据容错，
-        # 经 get_generated_assets 归一化，与写入侧 update_scene_asset 的 isinstance check mirror。
         def _missing(item: dict) -> bool:
             return not get_generated_assets(item).get(asset_type)
 
-        # 损坏脚本的非 dict 元素直接剔除（镜像 script_editor.new_item_ids 的过滤），UI 不渲染垃圾项。
         return [item for item in items if isinstance(item, dict) and _missing(item)]
 
     def get_source_path(self, project_name: str, filename: str) -> Path:
@@ -1915,14 +1829,11 @@ class ProjectManager:
         """
         script = self.load_script(project_name, script_filename)
 
-        # 同 get_pending_scenes：resolve_items 三模式判别 + warn-and-skip 降级 +
-        # get_generated_assets 归一化容错。
         items = _resolve_items_or_warn(script, script_filename=script_filename)
 
         def _missing_storyboard(item: dict) -> bool:
             return not get_generated_assets(item).get("storyboard_image")
 
-        # 同 get_pending_scenes：非 dict 元素剔除，镜像 script_editor.new_item_ids。
         return [item for item in items if isinstance(item, dict) and _missing_storyboard(item)]
 
     def _get_project_file_path(self, project_name: str) -> Path:
@@ -1997,7 +1908,6 @@ class ProjectManager:
             undo = ExitStack()
             try:
                 yield source_dir, project, undo
-                # 块内可能只改了源文文本、没动登记：源文是否还有未规划的原文每次都按盘上源文重记
                 record_source_remaining(source_dir.parent, project)
                 if json.dumps(project, sort_keys=True, ensure_ascii=False) != before:
                     self._apply_project_mutation_unlocked(project_name, project, lambda _project: None)
@@ -2021,7 +1931,6 @@ class ProjectManager:
         """Cancellation-safe async counterpart of :meth:`file_lock`."""
         lock_path = path.parent / f".{path.name}.lock"
 
-        # 句柄一打开就登记：取消落在打开那一程时返回值会丢，靠它关闭。
         handles: list[BinaryIO] = []
 
         def _open_lock_file() -> BinaryIO:
@@ -2289,12 +2198,9 @@ class ProjectManager:
 
         if self._requires_unique_asset_namespace(project):
             ensure_project_asset_namespace(project)
-        # 变更可能把条目移出账本：先让历史最高号记下变更前的集 ID
         raise_episode_id_high_water(project)
         planning_inputs = source_planning_inputs(project)
         mutate_fn(project)
-        # 分集规划、手工切分、重新规划采纳、重置与删集都经由这里改账本：账本或源文登记变了，
-        # 就按盘上源文重记源文是否还有未规划的原文，项目列表读它而不读源文
         if source_planning_inputs(project) != planning_inputs:
             record_source_remaining(self.get_project_path(project_name), project)
         if self._requires_unique_asset_namespace(project):
@@ -2357,8 +2263,6 @@ class ProjectManager:
                 self._migrate_legacy_resolution_on_save(project)
                 self._touch_metadata(project)
 
-                # mutate_fn 可在锁内完成最终名称规划并填充 copies；因此目标唯一性也必须
-                # 在回调之后、仍持有同一把项目锁时校验。
                 replacement_destinations = [destination for _source, destination in copies] + [
                     destination for _content, destination in writes
                 ]
@@ -2460,14 +2364,12 @@ class ProjectManager:
         if not legacy:
             project.pop("video_model_settings", None)
 
-    # 广告/短片项目恒单集：episodes 恒为第 1 集单条，剧本即第 1 集脚本文件
     AD_SINGLE_EPISODE: ClassVar[dict[str, str | int]] = {
         "episode": 1,
         "title": "",
         "script_file": episode_script_relpath(1),
         SOURCE_ORIGIN_FIELD: SourceOrigin.NONE.value,
     }
-    # 创建入口未传 target_duration 时的数据层兜底（与创建向导默认档位同值）
     AD_DEFAULT_TARGET_DURATION = 60
 
     def create_project_metadata(
@@ -2506,7 +2408,6 @@ class ProjectManager:
         project_title = str(title).strip() if title is not None else ""
         resolved_mode = content_mode or "narration"
 
-        # 数据层守卫：模式专属字段互斥。路由层已返回 400，这里再兜一道防非路由调用方。
         if resolved_mode == "ad":
             if default_duration is not None:
                 raise ValueError("广告/短片项目不持有 default_duration（分镜时长按 target_duration 预算逐个分镜规划）")
@@ -2522,14 +2423,10 @@ class ProjectManager:
             if brief is not None:
                 raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
 
-        # schema_version 与 CURRENT_SCHEMA_VERSION 对齐：新项目即最新形态，
-        # 避免被启动迁移误处理（如 v0→v1 在"未含 clues 字段"时误清空 scenes/props）。
         from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 
         project = {
             "schema_version": CURRENT_SCHEMA_VERSION,
-            # 允许空字符串:前端会以 i18n「未命名项目」兜底显示,避免把 slug
-            # 风格的 project_name 固化为用户可见的标题。
             "title": project_title,
             "content_mode": resolved_mode,
             "aspect_ratio": aspect_ratio or "9:16",
@@ -2569,12 +2466,8 @@ class ProjectManager:
         if style_template_id is not None:
             project["style_template_id"] = style_template_id
         if extras:
-            # 数据层守卫：退役的单字段 image_backend 不得写入（解析链不读取，写回只会
-            # 重新制造被静默忽略的 legacy 形态）。路由层已返回 400，这里再兜一道防非路由调用方。
             if "image_backend" in extras:
                 raise ValueError("image_backend 已废弃，请改用 image_provider_t2i / image_provider_i2i")
-            # extras 只许追加可选字段，不得覆盖上方已校验/已构造的核心字段——
-            # 否则非路由调用方可借 extras 绕过模式互斥守卫（如 ad 项目写回 default_duration）。
             reserved = set(project) | {
                 "default_duration",
                 EPISODE_TARGET_DURATION_FIELD,
@@ -2587,8 +2480,6 @@ class ProjectManager:
                 raise ValueError(f"extras 不允许覆盖核心字段: {sorted(forbidden)}")
             project.update(extras)
 
-        # 生成模式与宫格开关：路由层已做必填二值校验与 ad 互斥（400/422），这里再兜一道防非路由
-        # 调用方；未传时按数据层默认补写显式值，保证新项目落盘即含两字段（与 schema v5 形态对齐）。
         generation_mode = project.setdefault("generation_mode", _DEFAULT_GENERATION_MODE)
         if not isinstance(generation_mode, str) or generation_mode not in VALID_GENERATION_MODES:
             raise ValueError(f"generation_mode 值无效: {generation_mode!r}，必须是 {sorted(VALID_GENERATION_MODES)}")
@@ -2616,13 +2507,11 @@ class ProjectManager:
         """
 
         def _mutate(project: dict) -> None:
-            # 已存在则更新，否则追加（整段 RMW 在单一 _project_lock 内完成）
             for ep in project["episodes"]:
                 if ep["episode"] == episode:
                     ep["title"] = title
                     ep["script_file"] = script_file
                     return
-            # 新剧集接在播出顺序末尾（不包含统计字段，由项目摘要读时计算）
             project["episodes"].append({"episode": episode, "title": title, "script_file": script_file})
 
         return self.update_project(project_name, _mutate)
@@ -2651,13 +2540,6 @@ class ProjectManager:
         )
         return self.load_project(project_name)
 
-    # ================ 项目级资产统一 API（character / scene / prop / product） ================
-    #
-    # 这一节的 6 个私有方法按 lib.project.asset_types.ASSET_SPECS 驱动，统一处理 character /
-    # scene / prop 三类项目级资产的桶级读写。下方的 public 方法（add_project_scene /
-    # add_prop / get_scene / update_*_sheet 等）全部委托给这些私有方法，签名与异常
-    # 100% 兼容旧调用方。
-
     def _add_asset(self, asset_type: str, project_name: str, name: str, entry: dict) -> bool:
         """新增 entry 到 project[bucket][name]。同类型已存在时返回 False。
 
@@ -2674,7 +2556,6 @@ class ProjectManager:
         def _mutate(project):
             nonlocal added
             bucket = project.setdefault(spec.bucket_key, {})
-            # 存量 key 可能是 NFD，按坐标系解析后判冲突，避免视觉同名的第二条资产
             if resolve_asset_key(bucket, name) is not None:
                 logger.debug("%s '%s' 已存在于 project.json，跳过", spec.label_zh, name)
                 return
@@ -2697,9 +2578,6 @@ class ProjectManager:
             ProjectAssetNameConflictError: 任一名称已被其它资产类型占用，或与已有资产只差大小写。
         """
         spec = ASSET_SPECS[asset_type]
-        # 与 upsert_assets 同口径：规范化（strip + NFC）后等价的 key（{"李白", "  李白  "}
-        # 或 NFC/NFD 双形态）不允许静默互相覆盖，整批 fail-loud 不落盘，让调用方感知
-        # collision 并去重。
         normalized_entries: dict[str, dict] = {}
         raw_keys_by_normalized: dict[str, str] = {}
         for raw_name, entry in entries.items():
@@ -2747,21 +2625,14 @@ class ProjectManager:
         但纯 silent 让 Agent 误以为 reference_image / sheet_field 写入成功；返回诊断让工具层
         把忽略原因明示给 Agent，避免 Agent 重复尝试同样会被丢的字段。
         """
-        # data_validator 在模块级 import 本模块（VALID_GENERATION_MODES），故惰性 import 破环。
         from lib.project.asset_derivatives import merge_agent_derivatives, normalize_agent_derivatives
         from lib.project.data_validator import DataValidator
 
         asset_type = self._resolve_asset_type(table)
-        # entries 类型错误与空对象需要不同提示，便于 Agent 精确修正输入。
         if not is_shape(entries, dict):
             raise ValueError(f"entries 必须是对象（dict），当前为 {type(entries).__name__}")
         if not entries:
             raise ValueError("entries 不能为空（至少需要一个 name → attrs 条目）")
-        # 规范化 name：strip + NFC 后非空，且须是路径安全的单段组件（validate_asset_name，
-        # 名称会被拼进文件路径与单段路由参数）。Agent 误传 "  李白  " 这种带空格的 name 会让
-        # 后续按 name 索引查找（角色生成等）因空格差异 mismatch。非法 name fail-loud。
-        # 同时检测规范化后冲突：{"李白": {...}, "  李白  ": {...}} 或 NFC/NFD 双形态规范化后
-        # key 相同 → 后者会 silent overwrite 前者；fail-loud 让 Agent 明确感知 collision 并去重。
         normalized_entries: dict[str, dict] = {}
         raw_keys_by_normalized: dict[str, str] = {}
         for raw_name, attrs in entries.items():
@@ -2780,17 +2651,7 @@ class ProjectManager:
             raw_keys_by_normalized[name] = raw_name
 
         spec = ASSET_SPECS[asset_type]
-        # 字段白名单走 spec 的「Agent 权限维度」`agent_editable_extra_fields`，**不复用** schema 维度
-        # `extra_string_fields`——后者包括 `reference_image` 这类系统/用户路径字段（与 sheet_field
-        # 同性质，更新走 `update_character_reference_image` 专用 API），不该被 Agent patch_project 直改。
-        # 不允许的字段同样含 `sheet_field`（character_sheet / scene_sheet / prop_sheet，资产生成流水线
-        # 在图像就绪后通过 `_update_asset_sheet` 专用 API 回写）以及 spec 之外的任意 key。
-        # `_strip_legacy_asset_fields` 处理 type/importance 等历史字段，这层再加白名单形成「最小特权」。
-        # 白名单里的 `derivatives`（开启该能力的类型才有）归一与合并走 `lib.project.asset_derivatives` 的
-        # Agent 写入口径：只写得动变化描述，资产图路径由生成流水线保留。
         allowed_fields = spec.agent_writable_fields
-        # 收集白名单丢字段 / 历史字段丢弃 给 caller 用于明示 Agent。silent drop 仍是设计意图,
-        # 但通过返回 dict 把"被丢了什么"显式告诉工具层,工具层据此告知 Agent,避免 LLM 重复尝试。
         cleaned: dict[str, dict[str, Any]] = {}
         dropped_fields: dict[str, list[str]] = {}
         dropped_legacy: dict[str, list[str]] = {}
@@ -2830,30 +2691,20 @@ class ProjectManager:
             before_errors = set(validator.validate_project_payload(project).errors)
             bucket = project.setdefault(spec.bucket_key, {})
             if not isinstance(bucket, dict):
-                # 历史脏数据：bucket_key 已存在却非 dict（如 list/str）。继续会让下方
-                # bucket.get/bucket[name].update 抛含糊的 AttributeError，故先 fail-loud
-                # 给出意外类型与 offending key（mutation 物理上无法对非 dict 施加，与「不更坏」无关）。
                 raise ValueError(f"project[{spec.bucket_key!r}] 必须是对象，当前为 {type(bucket).__name__}")
             for name, attrs in cleaned.items():
-                # 存量 entry 的 key 可能是 NFD：解析真实 key 就地更新，而非按 NFC 名新建第二条
                 match = find_project_asset_name(project, name)
                 if match is not None and not match.is_entry(asset_type, name):
                     raise ProjectAssetNameConflictError(name, match, asset_type)
                 key = match.name if match is not None else name
                 existing = isinstance(bucket.get(key), dict)
-                # 衍生表按名合并（同名改描述、新名加入、未提及的留下），整表替换会抹掉
-                # 未提及衍生的资产图；本体条目的其余字段仍是整值覆盖。空表不算改动，
-                # 与「全字段被丢空」同归 no-op。
                 derivatives = attrs.get(DERIVATIVES_FIELD) or {}
                 body_attrs = {k: v for k, v in attrs.items() if k != DERIVATIVES_FIELD}
-                # 仅对已存在 entry 检测 no-op:全字段被白名单/legacy strip 丢空时 update({})
-                # 实际不变,归到 noop 而非 merged 避免「合并 1 个」误报。新 entry 即使
-                # cleaned 空也照常建条目,description 缺省记为空串——描述只在生成资产图时必需。
                 if existing and not body_attrs and not derivatives:
                     noop.append(name)
                     continue
                 if existing:
-                    bucket[key].update(body_attrs)  # 改：合并字段，保留 sheet 路径等既有字段
+                    bucket[key].update(body_attrs)
                     merged.append(name)
                 else:
                     bucket[key] = self._build_asset_entry(asset_type, body_attrs.get("description", ""), body_attrs)
@@ -2861,12 +2712,6 @@ class ProjectManager:
                 if derivatives:
                     merge_agent_derivatives(bucket[key], derivatives)
             after_errors = set(validator.validate_project_payload(project).errors)
-            # 「不更坏」按 error set diff 判定：after 不应比 before 多任何 errors。
-            #   - 改前合法、改后非法 → new_errors=全部 after errors → 拒
-            #   - 改前已脏、改后相同脏 → new_errors=∅ → 放行（允许带历史脏数据的项目继续 patch）
-            #   - 改前已脏、改后引入新错误（如 entries 的 description 不是字符串）→ new_errors≠∅ → 拒
-            #   - 改前已脏、改后修复了部分 → new_errors=∅ → 放行（允许 patch 改进历史脏数据）
-            # 比单纯比 valid 标志更严：堵住「带历史脏数据的项目里新 entry 的结构错误 piggyback 落盘」。
             new_errors = after_errors - before_errors
             if new_errors:
                 raise ValueError("project.json 结构校验失败: " + "; ".join(sorted(new_errors)))
@@ -2973,11 +2818,6 @@ class ProjectManager:
         """剔除旧式 type/importance 字段（schema 演进遗留），返回新 dict。"""
         return {k: v for k, v in attrs.items() if k not in cls._LEGACY_ASSET_FIELDS}
 
-    #: 级联重命名须一并改写的 script_plan 正式内容、可编辑草稿与待修复草稿文件名（结构化 JSON——它们承载
-    #: 引用数组 / ``@[名称]`` 正文，晋升后会回流为正式内容）。草稿部分取
-    #: ``lib.script.draft_quarantine`` 的登记表全集而非逐个列举：漏一种来源就会让那条路线的草稿留着
-    #: 旧名，晋升时被「引用未登记」判违约、直到人工改草稿才解得开。旧版 ``.md`` 自由文本别名
-    #: 不在列：读取层仅兼认浏览，写盘与生成侧已不认。
     _RENAME_DRAFT_FILENAMES = frozenset(
         {
             *SCRIPT_PLAN_FILENAMES.values(),
@@ -3060,7 +2900,6 @@ class ProjectManager:
         ``project`` 是将随这批改写提交的 project.json 载荷。不平移时确认指纹与改写后的规划对不上，
         用户只改了个名字，那一集就退回待确认、被引向覆盖正式脚本的确认操作。
         """
-        # script_review 在模块级 import 本模块，惰性 import 破环。
         from lib.script.script_review import (
             carry_confirmation_through_migration,
             content_fingerprint_of_data,
@@ -3093,7 +2932,6 @@ class ProjectManager:
             AssetRenameFileCollisionError: 某个关联文件的迁移目标已被孤儿文件占用。
             AssetRenameHistoryCollisionError: 新名下已有属于别的资产的版本历史。
         """
-        # data_validator 在模块级 import 本模块，惰性 import 破环（与 upsert_assets 同理）。
         from lib.artifacts.version_manager import VersionManager
         from lib.project.asset_derivative_rename import (
             owner_derivative_renames,
@@ -3188,7 +3026,6 @@ class ProjectManager:
                 exclude_name=old_key,
             )
 
-            # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
             scan = self._scan_asset_references(project_name, script_files, draft_files, asset_type, old_key, new_clean)
             changed_scripts = scan.scripts
             changed_drafts = scan.drafts
@@ -3196,8 +3033,6 @@ class ProjectManager:
             moves = plan_asset_file_renames(project_dir, spec, old_key, new_clean)
             version_manager = VersionManager(project_dir)
             version_files = version_manager.rename_resource(spec.bucket_key, old_key, new_clean, dry_run=True)
-            # 名下衍生的图、版本快照与清单键都以本体名为第一段，随本体一起搬（见
-            # lib/project/asset_derivative_rename）；无衍生时规划为空，落盘期什么也不做。
             derivative_renames = (
                 owner_derivative_renames(project[spec.bucket_key][old_key]) if spec.supports_derivatives else ()
             )
@@ -3209,7 +3044,6 @@ class ProjectManager:
                 renames=derivative_renames,
             )
 
-            # project.json 变更先在副本上应用并做「不更坏」校验：校验失败整体拒绝、任何一处不落盘。
             mutated = copy.deepcopy(project)
             validator = DataValidator(str(self.projects_dir))
             before_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), old_key, new_clean)
@@ -3249,7 +3083,6 @@ class ProjectManager:
             if dry_run:
                 return report
 
-            # —— 落盘（每步幂等，中途失败重跑同一次重命名即可收敛）——
             for filename, script, before in changed_scripts:
                 self._write_script_unlocked(
                     project_name,
@@ -3375,7 +3208,6 @@ class ProjectManager:
             old_reference = derivative_reference(base_key, old_key)
             new_reference = derivative_reference(base_key, new_clean)
 
-            # —— 扫描（与 rename_asset 同形：先在内存改齐，再按 剧本 → 草稿 → project.json 落盘）——
             changed_scripts: list[tuple[str, dict, dict]] = []
             for filename in script_files:
                 script, _migrated = self._read_script_unlocked(project_name, filename)
@@ -3391,8 +3223,6 @@ class ProjectManager:
                 if rewrite_payload_references(payload, asset_type, old_reference, new_reference):
                     changed_drafts.append((path, payload, fingerprint))
 
-            # 衍生资产图的三样坐标（图、版本快照、清单键）都含衍生名，与条目键一起搬；
-            # 规划先于任何写入，冲突在此整体拒绝、零字节落盘。
             relocation = plan_derivative_sheet_relocation(
                 project_dir,
                 manifest_adapter=self._artifact_manifest_adapter(project_dir),
@@ -3459,7 +3289,6 @@ class ProjectManager:
             AssetRenameFileCollisionError: 迁移衍生资产图的目标已被孤儿文件占用。
             AssetRenameHistoryCollisionError: 迁移衍生的目标 id 下已有别的版本历史。
         """
-        # 衍生与产物模块经产物规划反向依赖本模块，惰性 import 破环（与 rename_asset 同理）。
         from lib.project import asset_trash
         from lib.project.asset_derivative_rename import (
             plan_derivative_sheet_relocation,
@@ -3507,15 +3336,12 @@ class ProjectManager:
             if not isinstance(source_entry, dict) or not isinstance(target_entry, dict):
                 raise ValueError(f"project asset {spec.bucket_key} entries must be objects")
 
-            # 被并角色的衍生：迁到保留方名下的随图、版本与清单键一起搬，并入已有同名衍生的整套清掉。
-            # 引用改写要用到规划出的衍生名（并入只差大小写的已有衍生时改用它的名字），故先于扫描规划。
             derivative_plan = (
                 plan_derivative_merge(source_entry, target_entry, source, as_derivative=as_derivative)
                 if spec.supports_derivatives
                 else DerivativeMergePlan()
             )
 
-            # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
             impacts: dict[int, dict[str, int]] = {}
 
             def tally(episode: int | None, **counts: int) -> None:
@@ -3599,10 +3425,8 @@ class ProjectManager:
                 carry_unlisted=False,
             )
 
-            # project.json 变更先在副本上应用并做「不更坏」校验：校验失败整体拒绝、任何一处不落盘。
             mutated = copy.deepcopy(project)
             validator = DataValidator(str(self.projects_dir))
-            # 合并不改任何留存资产的名字，错误指纹按原文比对（折叠是恒等的）。
             before_errors = _rename_agnostic_errors(validator.validate_project_payload(mutated), target, target)
             merged_bucket = mutated[spec.bucket_key]
             discarded = merged_bucket.pop(source)
@@ -3657,8 +3481,6 @@ class ProjectManager:
             self._carry_script_plan_confirmations(project_dir, mutated, changed_drafts)
             for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
-            # 随图迁来的衍生只换了名字，宫格记录冻结的名字与路径一并改写，与改名同一条级联；
-            # 并入已有衍生的换成了另一张图，记录不改指，宫格照常判过期。
             self._rename_grid_references(
                 project_dir,
                 asset_type,
@@ -3668,8 +3490,6 @@ class ProjectManager:
             relocation.relocate()
             self._touch_metadata(mutated)
             project_file = self._get_project_file_path(project_name)
-            # 被并方的资产图、版本历史、按名命名的文件与并入已有同名衍生的那些衍生进项目回收站：留在原处
-            # 会让以后同名的资产接上不属于它的历史。迁到保留方名下的衍生此时已搬走，记录不收它们。
             with formal_write_transaction(*asset_trash.state_paths(project_dir)):
                 atomic_write_json(project_file, mutated)
                 relocation.commit_manifest()
@@ -3810,7 +3630,6 @@ class ProjectManager:
 
         def _mutate(project: dict) -> None:
             bucket = project["characters"]
-            # 覆盖写也要落在存量真实 key 上（可能是 NFD），否则会残留视觉同名的旧条目
             match = find_project_asset_name(project, name)
             if match is not None and not match.is_entry("character", name):
                 raise ProjectAssetNameConflictError(name, match, "character")
@@ -3820,7 +3639,6 @@ class ProjectManager:
                 description,
                 {"voice_style": voice_style or "", "character_sheet": character_sheet or ""},
             )
-            # 覆盖写只换本体字段：衍生挂在本体条目内，整条替换会连同已登记的衍生一起抹掉。
             previous = bucket.get(key)
             if isinstance(previous, dict):
                 inherited = previous.get(DERIVATIVES_FIELD)
@@ -3937,7 +3755,6 @@ class ProjectManager:
 
         rel = f"characters/refs_audio/{stale.name}"
         if owns_named_file(ASSET_SPECS["character"], character, rel) and stale.is_file() and not stale.is_symlink():
-            # 回收站的落地规则依赖本模块，顶层导入会成环。
             from lib.project.media_trash import trash_reference_audio
 
             trash_reference_audio(project_dir, character, rel)
@@ -4180,11 +3997,8 @@ class ProjectManager:
             TextTaskType.OVERVIEW, project_name, purpose=CallPurpose.PROJECT_OVERVIEW
         )
 
-        # 调用 TextGenerator（Structured Outputs）。全部源文都是剧本时翻为「提取优先」：
-        # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳；混合时按小说口径。
         project_data = await asyncio.to_thread(self.load_project, project_name)
         source_kind = project_overview_source_kind(project_data)
-        # source_language 来自 project.json，可能是非字符串脏数据；非字符串或空串回退默认语言
         raw_source_language = project_data.get("source_language")
         target_language = (
             raw_source_language if isinstance(raw_source_language, str) and raw_source_language.strip() else "中文"
@@ -4204,7 +4018,6 @@ class ProjectManager:
         overview_dict = overview.model_dump()
         overview_dict["generated_at"] = datetime.now(UTC).isoformat()
 
-        # 保存到 project.json（RMW 在单一 _project_lock 内完成，避免并发覆盖其它字段）
         def _mutate(project: dict) -> None:
             project["overview"] = overview_dict
             project["source_language"] = overview_dict["language"]
@@ -4217,7 +4030,6 @@ class ProjectManager:
 
 @functools.cache
 def _project_manager_singleton() -> ProjectManager:
-    # 构造时会确保项目目录存在；无参缓存保证每个进程只执行一次
     return ProjectManager(app_data_dir())
 
 

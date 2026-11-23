@@ -255,8 +255,6 @@ async def project_video_caps(
     except (ValueError, SQLAlchemyError) as exc:
         logger.info("无法解析 video_capabilities，%s：%s", degraded_to, exc)
         caps: dict = {}
-        # requested_generate_audio 不依赖能力接口，独立解析：能力解析失败不能连带把用户的
-        # 无声意图丢回默认值 True，否则预览会漏发 ref_warn_silent_episode、与执行层脱节。
         try:
             caps["requested_generate_audio"] = await resolver.video_generate_audio_for_project(project)
         except (ValueError, SQLAlchemyError) as inner_exc:

@@ -61,7 +61,6 @@ class KlingBackendBase:
     装配（image 的 ``api_model_name`` 与静态 capability 集、video 的能力位查表）。
     """
 
-    # 进度日志的媒体名词（"图像" / "视频"），由子类声明；仅用于 operator 日志，不影响行为。
     _media_label: ClassVar[str] = ""
 
     def __init__(
@@ -107,9 +106,6 @@ class KlingBackendBase:
         assert self._static_api_key is not None
         return kling_bearer_headers(self._static_api_key)
 
-    # ── 响应解读（子类按所走的 API 设计标准重写） ──────────────────────────
-    # 默认是旧版 API（``model_name`` 作参数）的信封：``data.task_id``、``data.task_status``、终态 ``succeed``。
-
     def _task_id_from(self, submit_payload: dict) -> str:
         return extract_kling_task_id(submit_payload)
 
@@ -134,9 +130,6 @@ class KlingBackendBase:
         payload: dict,
         request: VideoGenerationRequest | None = None,
     ) -> str:
-        # 非幂等「建任务 + 计费」POST：submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败，
-        # 避免重试重复建任务 + 重复计费；>=400 抛 HTTPStatusError 交 should_retry_submit 按状态码分流。
-        # ``request`` 只有视频通道传（图片通道不做供应商响应留痕）。
         resp = await submit_post(
             lambda: client.post(
                 f"{self._base_url}/{endpoint_path}",

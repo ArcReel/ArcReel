@@ -79,9 +79,6 @@ class TaskExecutor(Protocol):
 
 logger = logging.getLogger(__name__)
 
-# Lease 丢失超过 ``lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT`` 才认为是真切换 owner
-# （另一个 worker 进程曾持过 lease 且写入了新 orphan），需要重扫；短 flap（续约抖动）
-# 不触发。lease_ttl 默认 10s → 阈值 30s。常量化便于单测注入与调参。
 _ORPHAN_RESCAN_LEASE_LOST_MULT = 3
 
 DEFAULT_PROVIDER = "gemini-aistudio"
@@ -98,7 +95,6 @@ def _read_int_env(name: str, default: int, minimum: int = 1) -> int:
     return max(minimum, value)
 
 
-#: ComfyUI 协议供应商每条 lane 的缺省并发：一台 ComfyUI 服务后面通常只有一张显卡。
 COMFYUI_LANE_DEFAULT = 1
 
 
@@ -225,8 +221,6 @@ class CapacityTable:
             all_configs = await svc.get_all_provider_configs()
             for provider_id, meta in PROVIDER_REGISTRY.items():
                 config = all_configs.get(provider_id, {})
-                # 用户未配某条 lane 时，_parse_lane_max 回退到此处给的 default——
-                # 即声明默认（若有）→ 否则全局默认；用户配了则解析值覆盖之
                 image_max = _parse_lane_max(
                     config, "image_max_workers", cls._lane_default(meta, "image", default_image), provider_id
                 )
@@ -236,18 +230,15 @@ class CapacityTable:
                 audio_max = _parse_lane_max(
                     config, "audio_max_workers", cls._lane_default(meta, "audio", default_audio), provider_id
                 )
-                # _lane_limits 统一负责"不支持的 lane → 0"，三个装载路径共用同一投影点
                 limits[provider_id] = cls._lane_limits(
                     catalog.provider_media_types(provider_id), image_max, video_max, audio_max
                 )
 
             repo = CustomProviderRepository(session)
             get_custom_endpoint = CustomEndpointRepository(session).get
-            # 同一端点可能挂在多行乃至多个供应商上，媒体类型按端点键缓存，整张表只读一次库。
             media_type_by_endpoint: dict[str, str] = {}
             for provider, models in await repo.list_providers_with_models():
                 pid = provider.provider_id
-                # 模型行可以挂 ce- 端点，媒体类型写在它那份定义里，只能解析 spec 取。
                 media_types: set[str] = set()
                 for m in models:
                     if not m.is_enabled:
@@ -257,14 +248,10 @@ class CapacityTable:
                         try:
                             media_type = (await resolve_endpoint_spec(m.endpoint, get_custom_endpoint)).media_type
                         except ValueError:
-                            # 端点已不在：该行发起生成必然失败，不凭它开 lane，也不作废整张表的刷新。
                             logger.warning("无法解析模型 endpoint，容量表跳过该行: endpoint=%r", m.endpoint)
                             continue
                         media_type_by_endpoint[m.endpoint] = media_type
                     media_types.add(media_type)
-                # 自定义供应商不在内置注册表，无声明默认层 → 两层回退：列有值取列值，
-                # 列为 NULL 取协议默认（见 _custom_lane_default）。投影仍交给 _lane_limits
-                # 统一处理不支持的 lane。
                 image_max = cls._custom_lane_default(provider, provider.image_max_workers, default_image)
                 video_max = cls._custom_lane_default(provider, provider.video_max_workers, default_video)
                 audio_max = cls._custom_lane_default(provider, provider.audio_max_workers, default_audio)
@@ -408,8 +395,6 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     raw_payload = task.get("payload")
     payload = raw_payload if isinstance(raw_payload, dict) else {}
     if task.get("task_type") == "reference_video" and isinstance(task.get("script_file"), str):
-        # Task.script_file is the immutable queue coordinate. The payload copy is retained only for old/direct
-        # callers and must not be able to redirect claim-time current-state projection to a different script.
         payload = {**payload, "script_file": task["script_file"]}
     is_text = task.get("media_type") == "text"
     is_video = task.get("media_type") == "video" or task.get("task_type") in ("video", "reference_video")
@@ -419,8 +404,6 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     if task.get("media_type") == RENDER_MEDIA_TYPE:
         return RENDER_PROVIDER_ID
 
-    # 整体兜底：含项目加载（队列里可能残留指向已删除/不可读项目的任务，load_project 会抛
-    # FileNotFoundError）在内的任何失败都回退 DEFAULT_PROVIDER，绝不冒泡阻断认领循环（见 docstring）。
     try:
         project: dict | None = None
         if project_name:
@@ -466,15 +449,12 @@ class GenerationWorker:
         settle_interrupted_calls: InterruptedCallSettler | None = None,
     ):
         self.queue = queue or get_generation_queue()
-        # 按项目现状推算 provider：只用于没有记录的存量任务、provider 固定的文本与渲染通道，以及重启自愈。
         self._provider_projection = provider_projection
         self._executor = executor
         self._lanes = lanes
         self.lease_name = lease_name
         self.owner_id = f"worker-{uuid.uuid4().hex[:10]}"
 
-        # 容量表（上限，用户配置驱动）与占用台账（运行时记账）分离：前者是配置真相，
-        # reload 只换它的数字；后者承载 inflight/pending，占用容器引用恒定不被重建。
         self._capacity: CapacityTable = capacity or CapacityTable.from_env()
         self._slots: SlotTable = slots or SlotTable()
         logger.info("Worker 初始容量表: %s", self._capacity._limits)
@@ -487,11 +467,7 @@ class GenerationWorker:
         self._stop_event = asyncio.Event()
         self._wake_event = asyncio.Event()
         self._owns_lease = False
-        # 一次性扫描开关：单 lease 互斥架构下，进程一旦扫过 orphan 就不再重扫；
-        # 配合 _lease_lost_monotonic 阈值在「真切换 owner」时清零、「短 flap」不清零。
         self._orphan_handled_once: bool = False
-        # 本 worker 的构造时刻：早于 web 层开始接受请求。首次收口只收口在此之前发起的无任务
-        # 调用行——之后发起的还在本进程里跑；后续重扫发生在进程存活期间，无任务行一律不碰。
         self._constructed_at = datetime.now(UTC)
         self._startup_settled: bool = False
         self._lease_lost_monotonic: float | None = None
@@ -509,7 +485,6 @@ class GenerationWorker:
             reload_limits=lambda: self.reload_limits(),
             provider_projection=provider_projection,
             resume=self._resume,
-            # 启动收口入口（记账层的公开方法）。默认走队列同一处落库接线。
             settle_interrupted_calls=settle_interrupted_calls or self._settle_interrupted_calls_via_ledger,
         )
 
@@ -552,7 +527,6 @@ class GenerationWorker:
         self._wake_event.set()
 
     async def _wait_for_wake(self, timeout: float) -> None:  # noqa: ASYNC109 -- 本地唤醒的等待上限，由 asyncio.wait_for 实现；仓库无 trio/anyio cancel scope
-        # No local wake is normal; cross-process work is discovered on the polling timeout.
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
         self._wake_event.clear()
@@ -563,14 +537,7 @@ class GenerationWorker:
                 try:
                     await self._run_cycle()
                 except Exception:
-                    # 一轮里任何一步（续约 lease、收尾、认领）抛错都不能让主循环退出：退出会在 finally 里
-                    # 释放 lease，进程里再没有 worker，所有入队请求都报 worker offline，直到重启进程。
-                    # 典型来源是负载高峰时连接池取连接超时，等一个心跳间隔重试即可恢复。
                     logger.exception("worker 主循环本轮出错，%.1fs 后重试", self.heartbeat_interval)
-                    # 出错那一轮可能留下 running 行：认领后、登记进槽位前抛错的任务不在本进程槽位里；
-                    # 续约连续出错期间另一进程可能接过 lease 后崩溃。下一次持有 lease 时重扫孤儿收口它们，
-                    # 本进程槽位里的任务由 handle_orphans 排除。_startup_settled 不动：进程存活期间的
-                    # 重扫只收口绑定了任务的调用行。
                     self._orphan_handled_once = False
                     await self._wait_for_wake(self.heartbeat_interval)
 
@@ -596,8 +563,6 @@ class GenerationWorker:
 
         await self._drain_finished_tasks()
 
-        # Lease 状态变化跟踪：首次失去 lease 时打点；重夺 lease 后判断
-        # 「真切换 owner」（>= 3× ttl）→ 重置开关；「续约 flap」（< 3× ttl）→ 保持。
         if had_lease and not self._owns_lease and self._lease_lost_monotonic is None:
             self._lease_lost_monotonic = time.monotonic()
         if self._owns_lease and self._lease_lost_monotonic is not None:
@@ -612,13 +577,8 @@ class GenerationWorker:
                 self._orphan_handled_once = False
             self._lease_lost_monotonic = None
 
-        # 一次性扫描：进程持 lease 后只扫一次 orphan；后续主循环不再重扫。
-        # 单 lease 互斥保证不会与另一个 worker 同时扫；跨进程接管由上述阈值兜底。
         if self._owns_lease and not self._orphan_handled_once:
             await self._recovery.handle_orphans()
-            # 首次收口是进程启动：构造时刻之前发起的无任务 pending 行（文本调用、端点试跑）
-            # 没人接续，一并翻终态。lease 长时间丢失触发的重扫发生在进程存活期间，无任务行
-            # 可能正在本进程里跑，只收口绑定了任务的行。
             await self._recovery.settle_interrupted_calls(
                 taskless_started_before=None if self._startup_settled else self._constructed_at
             )
@@ -694,9 +654,6 @@ class GenerationWorker:
                     continue
 
                 if not self._slots.has_room(provider_id, media_type, cap):
-                    # 认领后推算出的 provider 躲过了 SQL 过滤（NULL 存量任务等）且池满
-                    # → 回队等下个 cycle（FIFO 顺序由 queued_at 维持）。
-                    # 绝不能 mark_failed：NULL 不等于"无效任务"，这条路径必须保持可重试。
                     logger.info(
                         "供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
                         provider_id,
@@ -782,14 +739,7 @@ class GenerationWorker:
 
     async def _drain_finished_tasks(self) -> None:
         for task_id, finished_task in self._slots.drain_finished():
-            # 同步判定取消/异常：drain_finished() 只返回 done() 的 task，无需 await。
-            # 不 await 就没有挂起点，自然不会误吞针对 _run_loop 自身的取消信号。
             if finished_task.cancelled():
-                # 子任务被进程级原因打断。正常路径 _process_task 已落终态并 re-raise；
-                # 但打断可能落在 _process_task 进入 try 之前（协程尚未开始执行），那一刻
-                # 子任务来不及落终态。drain 端兜底——
-                # SQL 守卫只放行 queued / running，已落终态则 0 rows 无副作用，避免任务
-                # 永久停在 running 被重启自愈反复拉起。
                 try:
                     await self.queue.mark_task_interrupted(task_id)
                 except Exception:
@@ -837,16 +787,12 @@ class GenerationWorker:
                 task["video_poll_timeout_seconds"] = await read_video_poll_timeout_seconds()
             result = await self._executor(task, claimed_provider_id=provider_id)
         except asyncio.CancelledError:
-            # 进程级打断：用户取消不会打到执行中的任务。
             await asyncio.shield(self.queue.mark_task_interrupted(task_id))
             raise
         except DispatchProviderChanged as exc:
             if claim.revoked:
                 await fail_task_of_deleted_project(self.queue, task)
                 return
-            # 执行入口按项目现状解析 provider；若已从认领时的槽漂移，
-            # 不得占着旧槽提交到新 provider。刷新 advisory 列并回队，让下一 cycle 在新槽
-            # 完成容量校验后再执行。此处尚未调用 provider，不会造成重复扣费。
             try:
                 await asyncio.shield(self.queue.persist_execution_provider_id(task_id, exc.actual_provider_id))
             except Exception:
@@ -896,19 +842,14 @@ class GenerationWorker:
         try:
             await asyncio.shield(self.queue.mark_task_succeeded(task_id, result))
         except asyncio.CancelledError:
-            # mark_succeeded 期间被进程级打断：shield 让 inner 跑完；inner 已落 succeeded 时
-            # 兜底命中终态返回 0 rows，无副作用。
             await asyncio.shield(self.queue.mark_task_interrupted(task_id))
             raise
         except Exception:
-            # mark_succeeded 自身抛错（DB 超时 / OperationalError）：上层 _drain_finished_tasks
-            # 只吞掉异常 debug 日志，stack trace 会丢失，因此在这里显式 logger.exception 保留现场。
             logger.exception("标记任务成功失败 %s", task_id)
             raise
         logger.info("任务完成 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
     async def _settle_interrupted_calls_via_ledger(self, *, taskless_started_before: datetime | None) -> int:
-        # 与队列共用同一处 session factory：任务行与它的调用行必须落在同一个库里。
         ledger = Ledger(session_factory=self.queue.session_factory)
         return await ledger.settle_interrupted_calls(taskless_started_before=taskless_started_before)
 

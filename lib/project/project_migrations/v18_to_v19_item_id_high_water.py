@@ -48,9 +48,7 @@ from lib.script.item_ids import raise_item_id_high_water
 
 TARGET_SCHEMA_VERSION = 19
 
-#: 依据改为不记资产名的产物种类（切格分镜与单张分镜图共用分镜图键）。
 _NAME_FREE_KINDS = frozenset({ArtifactKind.EPISODE_STORYBOARD, ArtifactKind.EPISODE_GRID})
-#: 冻结依据可能记着资产名的版本记录桶。
 _NAME_FREE_VERSION_BUCKETS = ("storyboards", "grids")
 
 
@@ -198,7 +196,6 @@ def _rebase_name_free_bases(
     except BaseException as original_error:
         restored = adapter.replace_entries_if_matches_atomically(expected=rebased, replacements=expected)
         if not restored and any(adapter.get_entry(key) != entry for key, entry in expected.items()):
-            # 清单回滚不完整时版本记录保持已改写：两者一起停在新口径，重跑时不会分裂。
             raise RuntimeError("artifact manifest dependency drifted and rollback was incomplete") from original_error
         restore_versions()
         raise

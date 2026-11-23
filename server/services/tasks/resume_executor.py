@@ -122,7 +122,6 @@ async def execute_resume_video_task(
     resolver_payload = {
         f"video_provider_{checkpoint.generation_type}": f"{checkpoint.provider_id}/{checkpoint.provider_model_id}"
     }
-    # 厂商侧的任务已经提交（可能已经计费），续跑只轮询它：模型在提交之后下线，结果也要照常取回。
     video_request = VideoLaneRequest(generation_type=checkpoint.generation_type, submitted_job=True)
 
     project, project_path = await asyncio.to_thread(
@@ -134,8 +133,6 @@ async def execute_resume_video_task(
 
     artifact_committer: VideoArtifactCommitter | None = None
     try:
-        # Only the project snapshot remains live here, and solely to resolve credentials/backend construction.
-        # A submitted reference job's prompt, duration, script locator, endpoint and model all come from checkpoint.
         ctx = await resolve_generation_context(
             project_name,
             resolver_payload,
@@ -173,7 +170,6 @@ async def execute_resume_video_task(
             prompt=prompt_text,
         )
 
-        #: 续跑期 backend 产生的非阻断提示，与首跑同一条通道落进任务 result。
         warnings: list[dict[str, Any]] = []
         with project_change_source("worker"):
             try:
@@ -196,7 +192,6 @@ async def execute_resume_video_task(
                     **optional_kwargs,
                 )
             except GenerationTargetDeletedError as deleted:
-                # 结果已进项目回收站，任务照常成功；没有写回任何资源，不发生成成功事件。
                 return deleted.result
             output_path, version, _, video_uri = resumed
 

@@ -43,22 +43,15 @@ DEFAULT_MODEL = "qwen-image-2.0"
 
 _IMAGE_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 
-# 缺分辨率时各族默认短边。比例永远来自 aspect_ratio，由 arcreel_market_core.aspect_size 在各族像素约束内
-# 算精确比例（见 docs/adr/0011），不用带比例偏差的静态像素表：
-#   - qwen 融合系列 native 默认 2048²；wan 默认 2K 档；编辑系列由 max_long_edge 自然收口。
 _DEFAULT_WAN_BUDGET = "2K"
 _DEFAULT_SHORT_FUSION = 2048
 _DEFAULT_SHORT_WAN = 1440
 _DEFAULT_SHORT_EDIT = 2048
 
-# 标准档总像素预算（非 pro / 非文生图上限）= 2048×2048；超出须 wan2.7-image-pro 文生图（4K=4096×4096）
 _STANDARD_PIXEL_BUDGET = 2048 * 2048
 _FOURK_PIXEL_BUDGET = 4096 * 4096
-# 编辑系列（qwen-image-edit-plus / -max）宽高均 ∈ [512, 2048]
 _EDIT_MAX_LONG_EDGE = 2048
-# DashScope 生成系列比例支持区间 1:8 ~ 8:1
 _DASHSCOPE_MAX_RATIO = 8.0
-# 编辑系列因宽高均 ∈ [512, 2048]，可表达的比例上限为 2048/512 = 4:1（比生成系列更窄）
 _EDIT_MAX_RATIO = 4.0
 
 
@@ -66,7 +59,6 @@ class DashScopeImageBackend:
     """阿里百炼图像后端（同步 multimodal 端点）。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # 通道本身不限参考图张数：qwen 系与 wan 系的上限是模型事实，记在条目上。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
@@ -136,7 +128,6 @@ class DashScopeImageBackend:
         parameters: dict = {
             "n": 1,
             "watermark": False,
-            # ArcReel 剧本 prompt 已是 LLM 精炼描述，关闭智能改写保留原意
             "prompt_extend": False,
             "size": size,
         }
@@ -156,10 +147,6 @@ class DashScopeImageBackend:
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
-            # 同步图像生成是非幂等的「建图 + 计费」POST：submit_post 把歧义传输错误（请求可能已送达
-            # 但响应在途丢失）转 AmbiguousSubmitError 终态失败，避免自动重试重复计费；>=400 落 body
-            # 日志 + 抛 HTTPStatusError（保留 status_code 供咽喉层识别 413 降档），交 should_retry_submit
-            # 按状态码分流——4xx fail-fast、5xx/429 重试。
             resp = await submit_post(
                 lambda: client.post(
                     f"{self._base_url}{_IMAGE_ENDPOINT}",
@@ -212,9 +199,6 @@ class DashScopeImageBackend:
     def _build_content(self, request: ImageGenerationRequest, has_refs: bool) -> list[dict]:
         content: list[dict] = []
         if has_refs:
-            # fail-loud：任一声明的参考图缺失（含目录/空串解析出的 "."）或读取失败（权限/并发删除
-            # → OSError）即中止生成并报错列出文件名，让用户感知到有图未被使用，而非静默丢弃、用子集
-            # 生成出错误结果还照常计费。
             data_uris = [
                 image.data_uri()
                 for image in read_reference_images((ref.path for ref in request.reference_images), self.model)
@@ -230,7 +214,6 @@ class DashScopeWanImageBackend(DashScopeImageBackend):
     def _resolve_size(self, request: ImageGenerationRequest, has_refs: bool) -> str:
         explicit = (request.image_size or "").strip()
         aspect = request.aspect_ratio
-        # 模型可选分辨率来自条目；带参考图的请求一律不超过标准预算。
         budget_word = explicit or _DEFAULT_WAN_BUDGET
         exceeds = self._exceeds_standard_budget(budget_word)
         if exceeds and has_refs:

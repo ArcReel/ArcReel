@@ -64,29 +64,19 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "agnes-video-2.5-flash"
 
 _VIDEOS_ENDPOINT = "/videos"
-# 成片查询端点，挂在网关根（不在 /v1 下），按 video_id 查询。
 _VIDEO_QUERY_ENDPOINT = "/agnesapi"
 
-# fps 固定 24；num_frames 必须形如 8n+1。时长按秒 × fps 取整后对齐到最近的 8n+1，不截断：
-# 超出上游帧数上限的请求由上游拒绝，而不是静默生成更短的成片。1–3s 会落到 81 帧以下（25/49/73），
-# 文档允许的合法值。
 _FPS = 24
 _FRAME_STEP = 8
 
 _V25_ASPECT_RATIOS = frozenset({"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"})
 _V25_RESOLUTIONS = {"720P": "720P", "1080P": "1080P", "2K": "2K"}
-# v2.0 契约的参考图（多图主体）上限，是这份请求结构一次能承载的张数（通道事实）。2.5 契约不在通道一侧限张数，
-# flash 与完整版各接受几张记在模型条目上（docs/adr/0104）。
 _MAX_REFERENCE_IMAGES = 4
 
-# 尺寸约束：长宽被 8 整除、长边收口 1920（保守值，覆盖上游 480p/720p/1080p 三档标准化）。
-# 缺 resolution 时按 720p 短边兜底。像素上限未经 Agnes console 核对，不硬编当既成事实。
 _VIDEO_ROUND_TO = 8
 _MAX_LONG_EDGE = 1920
 
-# submit 超时 ~300s：覆盖上游争用时的长阻塞，避免可重试的繁忙被 ReadTimeout 包成终态歧义失败。
 _SUBMIT_TIMEOUT_SECONDS = 300.0
-# 轮询 / 下载用较短超时（幂等 GET 正常秒级返回）。
 _POLL_HTTP_TIMEOUT_SECONDS = 60.0
 
 _KEYFRAMES_MODE = "keyframes"
@@ -94,11 +84,8 @@ _V25_TEXT_MODE = "text"
 _V25_KEYFRAME_MODE = "keyframe"
 _V25_REFERENCE_MODE = "reference"
 
-# 失败终态集合：除文档化的 failed 外，纳入 error / cancelled / canceled，避免上游以非标准失败态
-# 收尾时被当「仍在进行」轮询到超时。
 _FAILED_STATUSES = ("failed", "error", "cancelled", "canceled")
 
-# 进日志的安全标量白名单；image / extra_body 内的 base64 一律不入日志。
 _SAFE_LOG_KEYS = (
     "model",
     "height",
@@ -112,12 +99,8 @@ _SAFE_LOG_KEYS = (
     "seed",
 )
 
-# 完成态响应中可能承载成片 URL 的权威字段，按优先级探测（顶层与 metadata 同权，顶层优先）。
 _PRIMARY_URL_FIELDS = ("url", "video_url")
 
-# remix 来源视频 ID 字段。语义不是 URL（非 URL 形态时不当下载地址），列在此处仅为兼容部分
-# 网关把成片 URL 直接回填在该字段的行为；优先级低于 _PRIMARY_URL_FIELDS——顶层与 metadata
-# 的权威字段任一命中都优先于本字段，避免它抢在真正的成片 URL 前面被当下载地址。
 _COMPAT_URL_FIELD = "remixed_from_video_id"
 
 
@@ -207,7 +190,6 @@ def _extract_task_id(body: dict, *, prefer_video_id: bool) -> str:
         value = body.get(key)
         if isinstance(value, str) and value:
             return value
-    # 仅暴露字段名，不回显整串响应（可能含 prompt / 签名 URL 等敏感字段，与 _safe_body_for_log 同口径）。
     raise RuntimeError(f"Agnes 视频提交返回体缺少 task_id（字段: {sorted(body)}）")
 
 
@@ -298,11 +280,8 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
-        # 读盘 + 编码（首尾帧最多 2 张、参考图最多 8 张，可能数 MB）offload 到线程，
-        # 避免阻塞共享 worker 事件循环（与 image 后端及 grok/gemini 视频后端一致）。
         payload = await asyncio.to_thread(self._build_payload, request)
         logger.info(
             "调用 %s 视频 API model=%s body=%s",
@@ -420,7 +399,6 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         images = read_video_images(request, self.model)
         if reference_images:
-            # 张数上限是模型事实（flash 5、完整版 8，记在模型条目上），由 gate_video_request 按生效能力在付费前校验。
             payload["mode"] = _V25_REFERENCE_MODE
             payload["images"] = [images[Path(p)].data_uri() for p in reference_images]
         elif start_image is not None:
@@ -476,9 +454,6 @@ class AgnesVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
     async def _create_task(
         self, client: httpx.AsyncClient, payload: dict, request: VideoGenerationRequest | None = None
     ) -> str:
-        # 非幂等的「建任务 + 计费」POST：submit_post 把歧义传输错误转 AmbiguousSubmitError 终态失败，
-        # 避免重试重复建任务 + 重复计费；>=400 抛 HTTPStatusError 交 should_retry_submit 按状态码分流
-        # （5xx/408/429 重试——含上游繁忙 503；确定性 4xx 快失败）。submit 用长超时覆盖上游长阻塞。
         resp = await submit_post(
             lambda: client.post(
                 f"{self._base_url}{_VIDEOS_ENDPOINT}",

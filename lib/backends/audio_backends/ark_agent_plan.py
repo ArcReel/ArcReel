@@ -44,35 +44,25 @@ logger = logging.getLogger(__name__)
 
 _TTS_URL = "https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional"
 
-# Agent Plan 文档写明资源 ID 固定为 seed-tts-2.0；它同时决定效果版本与计费商品，不随模型名变化。
 _RESOURCE_ID = "seed-tts-2.0"
 
-# 上游请求体没有模型字段，这是 ArcReel 的本地标识：用于目录条目、记账和选择模型，与资源 ID 同名。
 DEFAULT_MODEL = "seed-tts-2.0"
 
 _CHUNK_CODE = 0
 _SUCCESS_CODE = 20000000
-#: 音色鉴权失败或并发超限：官方错误码表里两种拒因共用这一个 code。
 _ACCESS_DENIED_CODE = 45000000
 _ACCESS_DENIED_STATUSES = frozenset({401, 403})
 
-# 单次合成的读超时。合成是计费请求，超时后不能重试，所以留足余量。
 _HTTP_TIMEOUT_SECONDS = 300.0
 
-# speech_rate 取值 [-50, 100]：-50 为 0.5 倍速、100 为 2.0 倍速、0 为原速。
 _MIN_SPEED = 0.5
 _MAX_SPEED = 2.0
 
 _SAMPLE_RATE = 24000
-# 流式场景下 wav 会多次返回文件头，官方建议改用 pcm。资源路径约定 .wav，所以请求 pcm 再在本地封装 WAV 头。
-# pcm 按 16 bit 单声道封装。
 _PCM_SAMPLE_WIDTH = 2
 _PCM_CHANNELS = 1
 _FORMAT_BY_SUFFIX = {"mp3": "mp3", "ogg": "ogg_opus", "opus": "ogg_opus", "pcm": "pcm"}
 
-# 官方音色列表中「豆包语音合成模型 2.0」的中文音色子集，出处见 docs/api-docs/endpoints/ark-agent-plan-tts.md。
-# 请求按固定资源 ID 调用这一个模型，没有模型字段，这张表属于端点本身，任何本地模型标识都用它。
-# 新建项目预填列表首项，首项取 Agent Plan 文档示例里的音色。label 是 lib/i18n 翻译 key。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=f"zh_{voice}_uranus_bigtts", label=f"voice_label_ark_agent_plan_{voice.split('_', 1)[1]}")
     for voice in (
@@ -93,7 +83,6 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
 @dataclass(frozen=True)
 class _Synthesis:
     audio: bytes
-    #: 上游回报的计费字符数（``usage.text_words``）；结束对象没带用量时为 ``None``。
     billed_characters: int | None
 
 
@@ -163,7 +152,6 @@ def _parse_stream(body: bytes) -> _Synthesis:
 
 
 def _business_error(code: int | None) -> BadGatewayError:
-    # 业务码是八位整数，不把任意大小的上游值带进任务失败参数。
     if code is None or not 0 <= code <= 99999999:
         return BadGatewayError("ark_agent_plan_tts_incomplete")
     if code == _ACCESS_DENIED_CODE:
@@ -208,7 +196,6 @@ def _encode_artifact(audio: bytes, *, wrap_wav: bool) -> bytes:
     if not wrap_wav:
         return audio
     if len(audio) % (_PCM_SAMPLE_WIDTH * _PCM_CHANNELS):
-        # 16 bit pcm 的字节数必为偶数；奇数说明音频被截断。
         raise _IncompleteStream("pcm 音频字节数不是整帧")
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wav:
@@ -232,7 +219,6 @@ class ArkAgentPlanAudioBackend:
         if api_key is None or not api_key.strip():
             raise ValueError("请到系统配置页填写方舟 Agent Plan API Key")
         self._api_key = api_key.strip()
-        # 非法请求头会让 HTTP 客户端在异常里回显 Key，必须在构造请求前拒绝。
         if not self._api_key.isascii() or not self._api_key.isprintable():
             raise ValueError("请到系统配置页填写有效的方舟 Agent Plan API Key")
         self._model = model or DEFAULT_MODEL
@@ -254,21 +240,17 @@ class ArkAgentPlanAudioBackend:
         return list(_VOICE_CATALOG)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        # 越界语速在发出计费请求前报错，不静默改成边界值。
         if request.speed is not None and not _MIN_SPEED <= request.speed <= _MAX_SPEED:
             raise UnprocessableError(
                 "narration_tts_speed_out_of_range", speed=request.speed, minimum=_MIN_SPEED, maximum=_MAX_SPEED
             )
         upstream_format, wrap_wav = _format_for(request.output_path)
-        # 计费调用与写盘分离：重试只包 API 调用，写盘失败绝不回头重跑会再次计费的合成请求。
         try:
             artifact, billed_characters = await self._request_speech(request, upstream_format, wrap_wav)
         except httpx.HTTPStatusError as exc:
-            # 429、5xx 等可重试状态在重试用尽后仍要落成可读的失败原因；状态码留在因果链上供使用记录分类
             raise _rejection(exc.response) from exc
         except httpx.RequestError as exc:
             raise _not_sent(exc) from _timeout_cause(exc)
-        # 供应商已计费返回，写盘不可被取消打断，结果照常成为产物
         await run_noninterruptible_sync(request.output_path.write_bytes, artifact)
         logger.info("方舟 Agent Plan 语音合成完成: %s", request.output_path)
         return AudioSynthesisResult(
@@ -303,7 +285,6 @@ class ArkAgentPlanAudioBackend:
         )
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, transport_layer=self._transport_layer) as client:
             try:
-                # 合成是计费 POST：submit_post 把歧义传输错误（含读到一半断开的流）转终态失败，>=400 交状态码分流
                 resp = await submit_post(
                     lambda: client.post(_TTS_URL, json=payload, headers=headers),
                     provider=self.name,
@@ -311,7 +292,6 @@ class ArkAgentPlanAudioBackend:
                     log_response_body=False,
                 )
             except AmbiguousSubmitError as exc:
-                # HTTP framing 错误可能回显响应字节；只保留超时类型供记账分类，不保留上游异常原文。
                 raise AmbiguousSubmitError(provider=self.name) from _timeout_cause(exc.__cause__)
             except httpx.HTTPStatusError as exc:
                 rejection = _rejection(exc.response)
@@ -321,7 +301,6 @@ class ArkAgentPlanAudioBackend:
                     raise
                 raise rejection from exc
         try:
-            # 供应商已计费返回：整段响应的解析与解码放进线程且不可被取消打断
             synthesis = await run_noninterruptible_sync(lambda: _parse_stream(resp.content))
             if not synthesis.audio:
                 raise _IncompleteStream("合成成功结束，但没有音频")

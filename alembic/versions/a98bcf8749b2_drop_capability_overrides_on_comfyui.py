@@ -42,5 +42,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 清除的覆盖在执行层本就不生效，回退不恢复。
     pass

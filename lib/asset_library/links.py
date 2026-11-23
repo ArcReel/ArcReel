@@ -58,14 +58,12 @@ from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 
 LinkState = Literal["pending", "submitting", "processing", "active", "failed", "uncertain"]
 
-#: 还没有定论、后台仍会推进或查询的状态。
 IN_FLIGHT_STATES: frozenset[str] = frozenset({"pending", "submitting", "processing", "uncertain"})
 
 UPLOADABLE_RESOURCE_TYPES: frozenset[str] = frozenset(
     {"characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE}
 )
 
-#: 入库请求里素材名称的上限（供应商限制 64 个字符）。
 _NAME_LIMIT = 64
 
 
@@ -400,7 +398,6 @@ async def copy_usable_links(
     return copies
 
 
-#: 归档导入的关联不经本实例的任何账号记录提交或查询，账号记录 ID 记为 0；账号记录 ID 从 1 起，不会与它相等。
 ARCHIVED_LINK_ACCOUNT_ID = 0
 
 _ARCHIVED_ORIGINS = frozenset({"upload", "import"})
@@ -589,7 +586,7 @@ async def adopt_archived_links(
         try:
             await _insert_selected(session, copy)
         except ConflictError:
-            continue  # 包里同一内容版本在同一范围有两条关联：先写入的一条为准
+            continue
         adopted.append(copy)
     return adopted
 

@@ -158,10 +158,8 @@ from lib.speech.speech_presentation import presentation_artifact_paths
 
 TARGET_SCHEMA_VERSION = 16
 
-#: 按项目名查任务与调用记录里出现过的最大集 ID（没有记录为 0）。数据库在项目目录之外，由应用装配处注入。
 RecordedEpisodeIds = Callable[[str], int]
 
-#: 剧本条目上退役的转场字段名。历史事实，写死在这一步。
 _TRANSITION_FIELD = "transition_to_next"
 
 
@@ -254,7 +252,6 @@ def _rebase_video_duration_entries(
         raise RuntimeError("artifact manifest changed while rebasing video duration entries")
 
 
-#: 可上传、且由选中的上传版本决定依据的产物种类与它们的版本资源类型。
 _UPLOAD_RESOURCE_TYPES: Mapping[ArtifactKind, tuple[str, ...]] = {
     ArtifactKind.EPISODE_STORYBOARD: ("storyboards",),
     ArtifactKind.EPISODE_VIDEO: ("videos", "reference_videos"),

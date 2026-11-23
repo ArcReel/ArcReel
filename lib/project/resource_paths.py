@@ -27,21 +27,12 @@ class ResourcePattern:
     id_segments: int = 1
 
 
-# 尾帧快照的资源类型名。独立导出到这个无反向依赖的纯函数模块，供
-# server/services/project/end_frame.py（写侧）与 generation_tasks.py（读侧）共用，避免二者互相
-# import 对方所在的 server.services 包造成循环依赖；同时作为 `_PATTERNS` 对应 key 的唯一
-# 来源，防止两处字面量各自维护后读写侧路径口径分叉。
 END_FRAME_RESOURCE_TYPE = "end_frames"
 
-#: 角色衍生资产图的资源类型名。衍生共享本体的身份，资源 id 写作 ``本体名/衍生名``，
-#: 因此它不能落在 ``characters/`` 下（本体可以叫 ``derivatives``），单列一层子目录。
-#: 与 END_FRAME_RESOURCE_TYPE 同理导出到这个无反向依赖的模块，供写侧、版本管理与
-#: 产物规划共用一个字面量。
 CHARACTER_DERIVATIVE_RESOURCE_TYPE = "character_derivatives"
 
 _PATTERNS: dict[str, ResourcePattern] = {
     "storyboards": ResourcePattern("storyboards", ".png", prefix="scene_"),
-    # 尾帧快照与分镜图、分镜视频同按分镜 id 命名，故共用 scene_ 前缀。
     END_FRAME_RESOURCE_TYPE: ResourcePattern(END_FRAME_RESOURCE_TYPE, ".png", prefix="scene_"),
     "videos": ResourcePattern("videos", ".mp4", prefix="scene_"),
     "characters": ResourcePattern("characters", ".png"),

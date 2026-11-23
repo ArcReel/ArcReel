@@ -38,7 +38,6 @@ depends_on: str | Sequence[str] | None = None
 
 logger = logging.getLogger("alembic.runtime.migration")
 
-# 回填迁移 4c643f3ff5b9 写入存量行时用的预设表（原样抄录）。
 _BACKFILL_PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     (re.compile(r"^sora-2(-pro)?(-\d{4}-\d{2}-\d{2})?$", re.I), [4, 8, 12]),
     (re.compile(r"sora.*pro", re.I), [6, 10, 12, 16, 20]),
@@ -215,7 +214,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 旧价格已丢弃，回退后为空；能力覆盖保留，旧版本同样按「覆盖优先」读取它们。
     with op.batch_alter_table("custom_provider_model", schema=None) as batch_op:
         batch_op.drop_column("entry_binding")
         batch_op.drop_column("multiplier")

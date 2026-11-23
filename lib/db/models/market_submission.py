@@ -19,7 +19,6 @@ class MarketSubmission(Base):
     token: Mapped[str] = mapped_column(String(64), nullable=False)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
     slug: Mapped[str] = mapped_column(String(64), nullable=False)
-    #: ``open`` / ``merged`` / ``closed``，官方服务不可达时保留上次取回的值。
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     pr_url: Mapped[str] = mapped_column(Text, nullable=False)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)

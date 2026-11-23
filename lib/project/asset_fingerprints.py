@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-# 扫描的媒体子目录：与公开媒体端点（``server.routers.files.PUBLIC_MEDIA_DIRS``）对齐，
-# 只差 ``renders/``——成片按版本键定址，不参与 cache-bust。
 _MEDIA_SUBDIRS = (
     "storyboards",
     "end_frames",
@@ -21,9 +19,6 @@ _MEDIA_SUBDIRS = (
 
 _ROOT_MEDIA_SUFFIXES = frozenset((".png", ".jpg", ".jpeg", ".webp", ".mp4"))
 
-#: 版本快照桶的目录名。快照落在项目根的 ``versions/{subdir}/``（见
-#: ``lib.project.resource_paths.version_snapshot_dir``），本就不在 ``_MEDIA_SUBDIRS`` 里；这条跳过
-#: 管的是媒体子目录内的同名目录。快照按版本号定址、不参与 cache-bust，扫到只是白算。
 _VERSIONS_DIR = "versions"
 
 
@@ -52,8 +47,6 @@ def compute_asset_fingerprints(project_path: Path) -> dict[str, int]:
 
     for subdir in _MEDIA_SUBDIRS:
         dir_path = project_path / subdir
-        # 软链在这一层与树内各层同口径跳过：`is_dir()` 跟随软链，媒体子目录自身是软链时
-        # 会把链接目标的文件写成本项目的指纹键并遍历整棵外部目录。
         if dir_path.is_dir() and not dir_path.is_symlink():
             _scan_media_tree(subdir, dir_path, fingerprints)
 

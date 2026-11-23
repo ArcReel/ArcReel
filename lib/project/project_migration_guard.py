@@ -30,8 +30,6 @@ def project_migration_failure(project_name: str, pm: ProjectManager | None = Non
     try:
         project_dir = pm.get_project_path(project_name)
     except (FileNotFoundError, ValueError):
-        # A project that cannot be located is not blocked by migration; the caller's
-        # own not-found handling owns that verdict.
         return None
     return load_migration_verdict(project_dir)
 

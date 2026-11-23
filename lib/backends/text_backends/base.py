@@ -19,9 +19,6 @@ from lib.infra.text_utils import strip_json_code_fences
 
 _logger = logging.getLogger(__name__)
 
-# Chat Completions 输出上限参数名：官方 OpenAI 端点已弃用 max_tokens（推理模型
-# 直接拒绝），改用 max_completion_tokens；第三方兼容端点对新参数支持情况不一，
-# 须保守沿用 max_tokens。由调用方按端点选择。
 TokenParam = Literal["max_tokens", "max_completion_tokens"]
 
 
@@ -110,8 +107,6 @@ class StructuredOutputExhaustedError(NonRetryableError):
         super().__init__(f"{provider}/{model} 的结构化输出能力不足：{reason}。请更换文本模型或供应商后重试。")
 
 
-# 诊断日志里模型原始输出的截断长度：够看清结构性问题（是散文还是 JSON、顶层是对象还是数组、
-# 哪个字段缺了），又不至于把整份生成内容写进日志。
 RAW_OUTPUT_LOG_LIMIT = 500
 
 
@@ -170,10 +165,6 @@ def strip_json_code_fence(text: str) -> str:
     return "\n".join(lines[1:-1]).strip()
 
 
-# 文本输出上限：非约束安全阀，仅防模型退化性 runaway，不是功能预算——分集规划、剧本生成、
-# drama script_plan 规范化三处的正常输出体量由各自 schema/内容天然约束，永远不会触碰这个高位值；
-# 只有病态超大批量，或用户配置了输出能力偏低的模型时才会命中。三处共用同一常量，调整只改
-# 这一处（见 docs/adr/0044）。
 DEFAULT_MAX_OUTPUT_TOKENS = 64000
 
 
@@ -235,8 +226,6 @@ class TextTaskTier(StrEnum):
     COMPLEX = "complex"
 
 
-# TextTaskType → 档位的唯一映射。新增任务类型必须在此显式归档，
-# 缺档在模块导入时即失败（另有穷举测试兜底）。
 TEXT_TASK_TIERS: dict[TextTaskType, TextTaskTier] = {
     TextTaskType.SCRIPT: TextTaskTier.COMPLEX,
     TextTaskType.OVERVIEW: TextTaskTier.SIMPLE,
@@ -246,7 +235,6 @@ TEXT_TASK_TIERS: dict[TextTaskType, TextTaskTier] = {
 if _missing := set(TextTaskType) - set(TEXT_TASK_TIERS):
     raise RuntimeError(f"TextTaskType 成员未归档到 TEXT_TASK_TIERS: {sorted(m.value for m in _missing)}")
 
-# 需要图像输入（vision）能力的任务。解析出的模型不支持 vision 时直接报错，不静默换模型。
 VISION_REQUIRED_TASKS: frozenset[TextTaskType] = frozenset({TextTaskType.STYLE_ANALYSIS})
 
 
@@ -387,7 +375,6 @@ class _ModelFacingJsonSchema(GenerateJsonSchema):
         return super().generate_inner(schema)
 
     def handle_ref_overrides(self, json_schema: JsonSchemaValue) -> JsonSchemaValue:
-        # Pydantic 会去掉与被引用定义同文的字段 description；定义上的 docstring 说明随后被剥除，字段说明须留下。
         reduced = super().handle_ref_overrides(json_schema)
         if "description" in json_schema and "description" not in reduced:
             reduced = {**reduced, "description": json_schema["description"]}
@@ -504,10 +491,8 @@ def structured_fallback_reason(text: str, response_schema: dict | type | None, *
     既有行为，不额外收紧。response_schema 为 None（无结构化输出诉求）直接视为无需降级。
     """
     if response_schema is None:
-        # 纯文本生成无结构化诉求，原生输出直接采用，不能按「非 JSON」误判触发降级。
         return None
     if isinstance(response_schema, type) and issubclass(response_schema, BaseModel):
-        # model_validate_json 单次解析即同时覆盖「非 JSON」与「违反 schema」两种情况。
         try:
             response_schema.model_validate_json(text, strict=strict)
         except ValidationError as exc:
@@ -518,8 +503,6 @@ def structured_fallback_reason(text: str, response_schema: dict | type | None, *
     return None
 
 
-# prompt 注入降级的最大调用次数：首次注入 schema + 一次带校验错误反馈的重试。
-# 每次都是计费调用；schema 注入后仍两连败的模型/代理网关，再多重试收益趋零。
 PROMPT_JSON_FALLBACK_MAX_ATTEMPTS = 2
 
 

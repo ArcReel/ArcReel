@@ -57,9 +57,6 @@ def resolve_project_cover(
     """
 
     def _url(rel: str) -> str:
-        # 统一走 files 静态路由，不直接拼盘路径；相对路径原样透传给 FileResponse。
-        # 文件在场时附 ?v=<mtime_ns> 作版本键（与资产指纹同口径），封面被重新生成后 URL 随之变化，
-        # 大厅可长期缓存；文件缺失或路径非法时不附版本键，由 files 路由按原样回 404。
         url = f"/api/v1/files/{project_name}/{rel.lstrip('/')}"
         try:
             project_dir = manager.get_project_path(project_name)
@@ -74,9 +71,6 @@ def resolve_project_cover(
             return url
         return f"{url}?v={mtime_ns}"
 
-    # 第一趟：遍历所有 episode 的 script，先整体扫 video_thumbnail，再整体扫
-    # storyboard_image。两趟分开而不是在同一 item 上并列判断，是为了保证
-    # "任何一集有视频首帧" 都胜过 "仅有分镜图"，而不是被 episode 顺序锁死。
     scripts: list[dict] = []
     for ep in project.get("episodes") or []:
         script_file = ep.get("script_file")
@@ -88,17 +82,10 @@ def resolve_project_cover(
         try:
             scripts.append(manager.load_script(project_name, script_file))
         except (OSError, ValueError) as e:
-            # 剧本文件缺失 / 损坏 / 路径越界不阻塞项目列表；仅记 debug，继续尝试其他集。
-            # OSError 覆盖 FileNotFoundError 等 I/O 失败；ValueError 覆盖 JSONDecodeError
-            # 与 ProjectManager._safe_subpath 的非法路径校验。与 list_projects 的外层
-            # preload except 口径保持一致。
             logger.debug("加载剧本失败 project=%s script=%s err=%s", project_name, script_file, e)
             continue
 
     def _iter_items(script: dict) -> list[dict]:
-        # 按 SKELETONS 登记的全部骨架（segments / scenes / shots / video_units）合并条目，不经
-        # 取证解析只挑一种：多种键共存或其中一方为空壳时，任一结构都不能遮蔽另一结构的真实资产。
-        # 非 list 数组与非 dict 条目按缺失跳过；资产路径只认非空字符串，空壳 item 与脏值一并忽略。
         items: list[dict] = []
         for kind in SKELETONS:
             raw = script.get(kind)

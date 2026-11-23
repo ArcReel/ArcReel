@@ -33,8 +33,6 @@ class ArkTextBackend:
         model: str | None = None,
         base_url: str | None = None,
     ):
-        # Instructor 要求 openai.OpenAI 实例；Ark SDK client 类型不兼容，
-        # 但 Ark API 是 OpenAI 兼容的，因此额外创建原生 OpenAI 客户端供降级使用。
         resolved_key = resolve_ark_api_key(api_key)
         effective_base_url = ark_base_url(base_url)
         self._client = create_ark_client(api_key=resolved_key, base_url=effective_base_url)
@@ -47,14 +45,11 @@ class ArkTextBackend:
         from lib.catalog import query as catalog
 
         base = {TextCapability.TEXT_GENERATION, TextCapability.VISION}
-        # 同一 backend 类同时服务 ark 与 ark-agent-plan，模型 ID 命名格式不同，
-        # 任一 provider 命中即可解析 STRUCTURED_OUTPUT。
         for provider_id in ("ark", "ark-agent-plan"):
             model_info = catalog.get_model(provider_id, self._model)
             if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
                 base.add(TextCapability.STRUCTURED_OUTPUT)
                 break
-        # 未注册模型不加 STRUCTURED_OUTPUT：宁可走 Instructor 降级也不调用会报错的原生 API
         return base
 
     @property
@@ -121,16 +116,11 @@ class ArkTextBackend:
             try:
                 native = await self._call_chat_completions(kwargs, structured=True)
             except TextOutputTruncatedError:
-                # 截断是可操作硬错误，不是"原生通道不兼容"——降级到 Instructor 重发同一份
-                # 必然再截断的请求毫无意义，直接冒泡让调用方感知并换模型/调小规模。
                 raise
             except Exception as exc:
                 logger.warning("原生 response_format 调用或解析失败 (%s)，降级到 Instructor/json_object 路径", exc)
                 return await self._structured_fallback(request, messages)
 
-            # 成功路径复验：HTTP 200 后校验返回是否真满足 schema，违例（非 JSON / 违反 schema）则降级。
-            # 不严格强制 schema 的模型/代理网关会返回违例 JSON，若直接放行会一路漏到下游校验才报错。
-            # ark 原生 response_format 未声明 strict，复验同样用 strict=False，避免对可强转值误判违例。
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
                 from lib.backends.text_backends.base import truncate_for_log
@@ -141,7 +131,6 @@ class ArkTextBackend:
                     truncate_for_log(native.text),
                 )
                 result = await self._structured_fallback(request, messages)
-                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果。
                 merge_billed_usage(result, native)
                 return result
             return native

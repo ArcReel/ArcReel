@@ -33,7 +33,6 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-# Responses 以 status=incomplete + incomplete_details.reason 表达截断，不用 finish_reason。
 _TRUNCATION_REASONS = ("max_output_tokens",)
 
 
@@ -49,7 +48,6 @@ class OpenAIResponsesTextBackend:
         transport_layer: TransportLayer | None = None,
         provider_name: str = PROVIDER_OPENAI,
     ):
-        # 禁用 SDK 内置重试，由本层 _generate_once() 统一管理重试策略
         self._client = create_openai_client(
             api_key=api_key, base_url=base_url, max_retries=0, transport_layer=transport_layer
         )
@@ -89,7 +87,6 @@ class OpenAIResponsesTextBackend:
             return await self._prompt_json_fallback(request)
 
         if structured:
-            # 原生请求不声明 strict（见 _generate_once），复验同样用 strict=False，容忍可强转值。
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
                 logger.warning(
@@ -98,7 +95,6 @@ class OpenAIResponsesTextBackend:
                     truncate_for_log(native.text),
                 )
                 result = await self._prompt_json_fallback(request)
-                # 这次原生 200 调用已被计费，把它的 token 并入降级结果。
                 merge_billed_usage(result, native)
                 return result
 
@@ -119,17 +115,13 @@ class OpenAIResponsesTextBackend:
         ``structured`` 按本次 generate() 的原始诉求传入：prompt 注入降级把 ``response_schema``
         置空后复用本方法，那仍是一次结构化输出尝试，截断要硬错误而非仅告警。
         """
-        # 带图请求要读本地图片编码 data URI，放线程里构建，避免阻塞事件循环
         input_items = await asyncio.to_thread(_build_input, request)
-        # store=False：与 Chat Completions 的默认一致，不在 OpenAI 侧留存对话。
         kwargs: dict = {"model": self._model, "input": input_items, "store": False}
         if request.system_prompt:
             kwargs["instructions"] = request.system_prompt
         if request.max_output_tokens is not None:
             kwargs["max_output_tokens"] = request.max_output_tokens
         if request.response_schema:
-            # 不声明 strict：strict 要求每个属性都进 required、对象都禁 additionalProperties，
-            # 业务 schema 的可选字段与默认值普遍不满足，声明了只会整次被拒收。是否合规由复验判定。
             kwargs["text"] = {
                 "format": {
                     "type": "json_schema",
@@ -141,7 +133,6 @@ class OpenAIResponsesTextBackend:
         logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         response = await self._client.responses.create(**kwargs)
         if response.status == "failed":
-            # 部分网关以 200 + status=failed 回报失败，output_text 为空，不能当成功结果
             detail = response.error.message if response.error else "unknown error"
             raise RuntimeError(f"Responses 调用失败 (model={self._model}): {detail}")
 
@@ -160,7 +151,6 @@ class OpenAIResponsesTextBackend:
             text=response.output_text,
             provider=self._provider_name,
             model=self._model,
-            # Responses 的 input_tokens 是总输入，其中缓存命中的部分在 input_tokens_details.cached_tokens。
             input_tokens=usage.input_tokens if usage else None,
             output_tokens=output_tokens,
             truncated=truncated,

@@ -44,16 +44,8 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-# 参考音频的 data URI MIME：官方接受 wav / mp3 两种格式，要求 `data:audio/<格式>;base64,<内容>`
-# 且格式小写。资产上传期已按同一组格式收窄，此处按扩展名回填，未知扩展名不猜测直接拒绝。
-# 与 dashscope 侧的同名表刻意各存一份：mp3 在这里按官方示例写 audio/mp3，dashscope 走标准
-# 的 audio/mpeg——供应商各自的接受口径，合并成一张共享表会让其中一家收到没验证过的 MIME。
 _REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mp3"}
 
-# Seedance 视频 token 的官方估算公式（《模型价格》视频生成一节）：
-#   (输入视频时长 + 输出视频时长) × 输出视频的宽 × 高 × 帧率 / 1024
-# 帧率与各「分辨率 × 宽高比」的输出像素取自《创建视频生成任务 API》：输出帧率 24；2.5 与 2.0 系列只有 480p 的
-# 16:9 / 9:16 两格不同，2.5 没有 4k。分辨率不发送时 API 默认 720p。结算以供应商回报的 completion_tokens 为准。
 _SEEDANCE_FPS = 24
 _SEEDANCE_DEFAULT_RESOLUTION = "720p"
 _SEEDANCE_2_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
@@ -100,10 +92,8 @@ class SeedanceEndpoint:
     """
 
     key: str
-    #: 请求体是否带 ``service_tier``：只有 1.x 接受；2.0 在参考生视频下以 400 拒绝该参数，2.5 按同代口径不带。
     sends_service_tier: bool
     token_pixels: Mapping[tuple[str, str], tuple[int, int]] | None
-    #: 参考图槽位是否接受 ``asset://`` 素材引用：官方《Seedance 人像素材使用指南》只给出 2.0 / 2.5 的契约。
     reference_image_asset: bool
     first_frame_ratio_adaptive_only: bool
 
@@ -232,7 +222,6 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
         self._transport_layer = transport_layer
-        # 续跑回放提交域名时要按同一份凭据另建 client（SDK 在构造时绑定 base_url，没有换域名的公开方法）。
         self._api_key = api_key
         self._base_url = ark_base_url(base_url)
         if not model:
@@ -351,7 +340,6 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             if rejection is not None:
                 raise rejection from exc
             raise
-        # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
         await self._persist_provider_job_id(request, provider_task_id, provider=PROVIDER_ARK, endpoint=self._base_url)
         return await self._poll_until_done(provider_task_id, request)
 
@@ -373,17 +361,9 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         """创建 Ark 视频生成任务（带重试保护）。"""
         content: list[dict[str, Any]] = [{"type": "text", "text": request.prompt}]
 
-        # Ark 视频 API 要求每个 image_url 条目在顶层带 `role` 字段
-        # （first_frame / last_frame / reference_image），否则 400 InvalidParameter。
-        # 存在性检查与读图编码都是阻塞 I/O，整体卸载到线程。
         content.extend(await asyncio.to_thread(self._build_image_content, request))
 
         if request.reference_audio_files:
-            # 音频条目与图片条目同列 content 数组，各自按类型独立编号：prompt 里的「音频N」
-            # 指的是第 N 个 type="audio_url" 条目（官方《快速入门》提示词规则）。故这里必须
-            # 保持 reference_audio_files 的原始顺序、不跳过任何一段——跳过会让编排层拼好的
-            # 指认文本整体错位，把 A 角色的音色安到 B 角色头上。gather 按入参顺序返回，
-            # 并发不影响该编号。读整段音频做 base64 编码是阻塞 I/O，逐段卸载到线程。
             audio_data_uris = await asyncio.gather(
                 *[
                     asyncio.to_thread(
@@ -404,9 +384,6 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                 for data_uri in audio_data_uris
             )
 
-        # 2. Build API params
-        # 比例优先：ratio 是独立 SDK 字段，由 aspect_ratio 直接决定；resolution 仅清晰度档位，
-        # 与比例正交（SDK 内部按 ratio×resolution 算像素），不把比例压进像素 size，故无尺寸 bug。
         create_params = {
             "model": self._model,
             "content": content,

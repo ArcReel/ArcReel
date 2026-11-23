@@ -24,7 +24,6 @@ class FrozenImageReferences:
     reference_images: list[object] | None
     visual_references: tuple[VisualReference, ...]
     _directory: Path | None
-    #: Snapshot path to original source, for durable usage-record locators.
     source_paths: Mapping[str, Path] = field(default_factory=dict)
 
     def cleanup(self) -> None:

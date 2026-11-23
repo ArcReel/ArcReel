@@ -70,7 +70,6 @@ def move_in(layout: DataRootLayout, project_dir: Path, tombstone: str) -> Path:
     layout.deleted_projects_dir.mkdir(parents=True, exist_ok=True)
     if target.exists():
         raise FileExistsError(target)
-    # 改名失败（如 Windows 上项目里仍有文件被打开）时原样抛出，调用方回滚记录，项目留在原处。
     project_dir.rename(target)
     return target
 
@@ -113,7 +112,6 @@ def move_out(layout: DataRootLayout, entry_id: str) -> Path:
     """把已删除项目整体移回项目目录，返回恢复后的项目目录：原名空闲则沿用，被占用则加 ``-2``、``-3`` 后缀。"""
     source, name = _require(layout, entry_id)
     candidate, suffix = name, 2
-    # 大小写不敏感的盘上 exists() 同样认出只差大小写的现有项目。
     while (layout.projects_dir / candidate).exists():
         candidate, suffix = f"{name}-{suffix}", suffix + 1
     target = layout.projects_dir / candidate

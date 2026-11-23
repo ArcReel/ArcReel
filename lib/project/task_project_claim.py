@@ -24,8 +24,6 @@ class ProjectDeletedDuringTaskError(RuntimeError):
         self.project_name = project_name
 
 
-# 已作废认领的任务。删除项目时任务可能已被认领、但还没进入执行上下文，作废记录因此按任务
-# 保存，由任务退出执行上下文时移除。
 _revoked_task_ids: set[str] = set()
 _revoked_lock = threading.Lock()
 

@@ -30,15 +30,12 @@ logger = logging.getLogger(__name__)
 
 VIDU_BASE_URL = "https://api.vidu.cn/ent/v2"
 
-# 仅重试瞬态网络错误：HTTPError 涵盖 HTTPStatusError，会让 401/404 等业务错误持续
-# 重试到超时浪费 API 配额；这里只取 NetworkError + TimeoutException。
 VIDU_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     *BASE_RETRYABLE_ERRORS,
     httpx.NetworkError,
     httpx.TimeoutException,
 )
 
-# Vidu 文档限制单次请求体 ≤ 20MB；base64 自带 ~33% 膨胀，留 2MB 余量给非 images 字段。
 VIDU_MAX_BODY_BYTES = 18 * 1024 * 1024
 
 _IMAGE_MIME_TYPES: dict[str, str] = {
@@ -80,7 +77,6 @@ def image_to_data_uri(image_path: Path) -> str:
     return _image_to_data_uri(image_path, _IMAGE_MIME_TYPES)
 
 
-# 日志输出仅允许的字段白名单（避免 CodeQL 担心 body 里其他字段含敏感数据）。
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
     {"model", "duration", "resolution", "aspect_ratio", "seed", "audio", "off_peak"}
 )
@@ -156,7 +152,6 @@ def test_vidu_connection(config: dict[str, str]) -> None:
     api_key = resolve_vidu_api_key(config.get("api_key"))
     base_url = (config.get("base_url") or VIDU_BASE_URL).rstrip("/")
     headers = {"Authorization": f"Token {api_key}"}
-    # 用一个语法上合法但极不可能存在的数字 id（避开整数解析失败的 400 CODEC）
     with httpx.Client(timeout=10.0) as client:
         resp = client.get(f"{base_url}/tasks/0/creations", headers=headers)
     if resp.status_code == 404:

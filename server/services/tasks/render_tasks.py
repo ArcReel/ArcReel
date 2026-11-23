@@ -124,7 +124,6 @@ type RenderTaskExecutor = Callable[[dict[str, Any], ProjectManager], Awaitable[d
 
 
 async def execute_final_cut_task(task: dict[str, Any], projects: ProjectManager) -> dict[str, Any]:
-    # 旁白与字幕取自呈现模型读侧，执行时才导入。
     from server.services.presentation.timeline_units import TimelineUnitMaterials
 
     payload: Mapping[str, Any] = task.get("payload") or {}
@@ -140,7 +139,6 @@ async def execute_final_cut_task(task: dict[str, Any], projects: ProjectManager)
 
 
 async def execute_jianying_draft_task(task: dict[str, Any], projects: ProjectManager) -> dict[str, Any]:
-    # 剪映草稿服务依赖 pyJianYingDraft 与呈现模型读侧，执行时才导入。
     from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
 
     payload: Mapping[str, Any] = task.get("payload") or {}

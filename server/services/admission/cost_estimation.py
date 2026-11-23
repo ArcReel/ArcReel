@@ -78,18 +78,12 @@ logger = logging.getLogger(__name__)
 
 CostBreakdown = dict[str, float]
 ActualBySegment = dict[str, dict[str, CostBreakdown]]
-#: 没有价格的预估项或调用，按 (call_type, provider, model) 计数。
 UnpricedCounts = Counter[tuple[str, str, str]]
-# 费用页展示的记账类型；text 类调用不写 segment_id，只会落在项目级汇总里。
 ACTUAL_COST_TYPES = ("image", "video", "audio")
 
 
-#: 读侧定桶要枚举的全部视频任务类型桶。分镜图生视频项目整体走 i2v 桶；参考生视频由公共
-#: request projection 按每个 unit 当前实际可用资产分桶。两个桶都在这里预解析，省去按
-#: 生成模式与分镜分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoGenerationType, ...] = ("i2v", "r2v")
 
-#: 剧本条目 ``generated_assets`` 里代表已生成媒体的字段，用于识别「有产物却没有本机调用记录」。
 _GENERATED_MEDIA_FIELDS = ("storyboard_image", "video_clip", "narration_audio")
 _SCRIPT_ITEM_KEYS = ("segments", "scenes", "shots", "video_units")
 
@@ -231,7 +225,6 @@ def _storyboard_aspect_ratio(project: dict[str, Any]) -> str:
         return raw_ar
     if isinstance(raw_ar, dict):
         return raw_ar.get("storyboards", "9:16")
-    # narration/ad 默认竖屏，drama（含未知值的历史兜底）默认横屏
     return "9:16" if project.get("content_mode", "narration") in {"narration", "ad"} else "16:9"
 
 
@@ -425,17 +418,11 @@ class CostEstimationService:
         episodes_meta = project_data.get("episodes", [])
         is_reference_video = is_reference_video_project(project_data)
 
-        # Resolve current model config（共享单一 session）。估价以 T2I 为准（T2I/I2I 是正交能力槽，
-        # T2I 缺失不应回落 I2I —— 那会拿错误能力的价目算费用）。
-        # image/video 的项目覆盖优先级由 ConfigResolver 统一解析，与执行路径共用同一套
-        # payload>project>全局默认 链路，此处 payload 传 None（预估无历史任务 payload 可排空）。
         request_facts_lookup = configured_reference_request_facts(project_data, self._resolver)
         reference_facts: dict[VideoGenerationType, VideoRequestFacts] = {}
         end_frame_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
         if is_reference_video:
             for generation_type in _VIDEO_BUCKETS:
-                # 真正使用该 bucket 的 unit 会由 projector 返回结构化 blocker；未使用 bucket
-                # 的配置问题不应拖垮整份费用页。
                 evaluated = await request_facts_lookup(generation_type)
                 if isinstance(evaluated, VideoRequestFacts):
                     reference_facts[generation_type] = evaluated
@@ -471,22 +458,10 @@ class CostEstimationService:
             except (ValueError, SQLAlchemyError):
                 image_provider, image_model = "unknown", "unknown"
 
-            # T2I 槽分辨率档：与路由入队、Agent 工具共用 ``grid_resolution`` 的取档，估算的宫格
-            # 张数才不会与实际入队张数漂移；同一档位又是两路分镜图的计价档——宫格图未配置时按
-            # ``grid_image_size`` 取保底档（与 ``execute_grid_task`` 下发的档位同源），普通
-            # 分镜图未配置时与执行侧一样不下发分辨率，按价目表的默认档计。解析在两路之前，宫格
-            # 与非宫格项目共用这一次 IO。计价与执行取的是同一个 T2I 槽、同一套项目配置，但身份
-            # 键不同（此处 registry ``model_id``，执行侧构造后的 backend 型号），两者分叉的供应
-            # 商上估价档位可能与实际渲染档位不一致。
             image_resolution = await resolve_image_resolution(r, project_data)
-            # 画质与分辨率同一个 T2I 槽身份；是否生效在 ``_quote_image`` 里与执行同一个函数判定。
             image_quality = project_image_quality(project_data, image_provider, image_model)
             grid_allow_large = large_grid_allowed(image_resolution)
 
-            # 视频按任务类型桶解析（``docs/adr/0054``），与执行扣费同一个模型：图生视频 / 宫格算
-            # i2v 桶的价；参考生视频逐 unit 水合当前资产后分桶。两个桶都在这里
-            # 解析出来（见 ``_VIDEO_BUCKETS``），分辨率与
-            # generate_audio 随各自的模型身份求值。
             video_identity: dict[VideoGenerationType, tuple[str, str, str | None, bool]] = {}
             for generation_type in _VIDEO_BUCKETS:
                 bucket_facts = reference_facts.get(generation_type)
@@ -505,8 +480,6 @@ class CostEstimationService:
                         bucket_provider, bucket_model = resolved_video.provider_id, resolved_video.model_id
                     except (ValueError, SQLAlchemyError):
                         bucket_provider, bucket_model = "unknown", "unknown"
-                    # 事实解析不出的桶只保留模型展示坐标；分镜按分镜返回阻断问题，参考生视频逐 unit
-                    # 的阻断由 request projector 给出，两者都不产生视频报价。
                     bucket_audio = await r.video_pricing_generate_audio(bucket_provider, bucket_model, project_data)
                     try:
                         bucket_resolution = await r.resolve_resolution(
@@ -523,8 +496,6 @@ class CostEstimationService:
                     bucket_audio,
                 )
 
-            # 旁白配音（TTS）模型取项目快照，不读全局默认；后期配音项目或没有快照时回落 unknown，
-            # 该维度预估为空
             tts_settings = (
                 project_tts_settings(project_data) if project_narration_delivery(project_data) == USE_TTS else None
             )
@@ -534,14 +505,12 @@ class CostEstimationService:
                 else ("unknown", "unknown")
             )
 
-        # Get actual costs + 自定义供应商模型的报价来源（与实际记账同源预查 DB）
         async with self._session_factory() as session:
             actual_by_segment = await UsageRepository(session).get_actual_costs_by_segment(project_name)
             image_price = await load_custom_price_source(session, image_provider, image_model)
             image_multiplier = await get_provider_multiplier(session, image_provider)
             audio_price = await load_custom_price_source(session, audio_provider, audio_model)
             audio_multiplier = await get_provider_multiplier(session, audio_provider)
-            # 两个桶常解析到同一个模型，按身份去重后再查单价，不重复打 DB。
             video_prices: dict[tuple[str, str], VideoPriceSource] = {}
             price_identities = [
                 (bucket_provider, bucket_model) for bucket_provider, bucket_model, _, _ in video_identity.values()
@@ -569,18 +538,12 @@ class CostEstimationService:
                 bucket_audio,
             ) in video_identity.items()
         }
-        # 项目层展示的视频模型按项目 generation_mode 定桶：``models`` 回答的是「当前项目配置」
-        # 的生成模式主桶；参考生视频内无参考图视频单元的逐 unit 降级计价在集级估算路径内完成，不改变项目层
-        # 展示身份。
         project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
         grid_enabled = grid_storyboard_enabled(project_data)
         aspect_ratio = _storyboard_aspect_ratio(project_data)
-        # 视频请求发出的画面比例，与生成任务同一个解析；方舟按它换算视频 token
         video_aspect_ratio = resolve_video_aspect_ratio(project_data)
 
-        # 预计算普通分镜图单价（按配置的分辨率档，估价以文生图为准，不带参考图）。宫格图按每张宫格的比例
-        # 在集内逐张估价，分辨率未配置时与执行侧同经 ``grid_image_size`` 取档。
         image_unit_cost = _quote_image(
             image_provider,
             image_model,
@@ -609,7 +572,6 @@ class CostEstimationService:
 
         episodes_result = []
         proj_est: dict[str, CostBreakdown] = {}
-        # 应当有预估、却因模型没有价格而没算进去的项；与实际侧一起让前端区分「0」与「未知」
         estimate_unpriced: UnpricedCounts = Counter()
         proj_act: dict[str, CostBreakdown] = {}
         claimed_actual: set[tuple[str, str]] = set()
@@ -633,21 +595,13 @@ class CostEstimationService:
                 proj_est[cost_type] = _merge_breakdowns(proj_est.get(cost_type, {}), ep_est.get(cost_type, {}))
                 proj_act[cost_type] = _merge_breakdowns(proj_act.get(cost_type, {}), ep_act.get(cost_type, {}))
 
-        # 参考生视频路径跳过分镜步骤，所有创作类型都按自包含 reference_unit 计费与展示。
-        #
-        # 生成路径以项目生成模式为唯一真相源，整个项目同一种生成模式、逐集不变（剧本不携带生成模式信息）；
-        # 参考生视频内的定桶再由 request projection 按当前资产逐 unit 分流。
         availability: ReferenceAssetAvailability = _AssumeResolvedAssetsAvailable()
         expansion: ReferenceExpansionCache | None = None
-        # 供应商素材关联与准入同一规则核对：关联尚未可用或入库失败的单元报阻断问题，不给出预估。没有项目目录
-        # （只按声明估价）时没有可核对的图片。
         asset_links: ReferenceAssetLinkCheck | None = None
         if is_reference_video and self._project_path is not None:
             asset_links = configured_asset_link_check(project_path=self._project_path, resolver=self._resolver)
-            # 整次估算共用一份判定：构造时读一份清单快照，只读，放进工作线程。
             current = await asyncio.to_thread(CurrentReferenceAssets, self._project_path, project_data)
             availability = MemoizedReferenceAssets(current)
-            # 引用目录与候选路径解析同样整次估算共用一份，不随单元数重复构造。
             expansion = ReferenceExpansionCache(project_data, self._project_path)
 
         for ep_meta in episodes_meta:
@@ -678,7 +632,6 @@ class CostEstimationService:
                 _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
                 continue
 
-            # 分镜路径固定用 i2v 桶；参考路径已在上方的 unit 投影分支完成定桶。
             episode_video = video_pricing["i2v"]
 
             try:
@@ -687,18 +640,12 @@ class CostEstimationService:
                 logger.warning("费用估算跳过脏脚本 %s: %s", script_file, exc)
                 raw_segments, id_key = [], "segment_id"
 
-            # 宫格装配：预计算每个 segment 的图片分摊费用。份额以条目在 ``raw_segments`` 中的
-            # 位置为身份，与下方实付均摊同口径（理由见该处）；分组由
-            # ``group_scenes_by_segment_break`` 按顺序切出、连续且不重不漏，故位置即组内序号
-            # 加上前序各组的长度。
             grid_cost_per_index: dict[int, tuple[float, str]] = {}
             grid_unpriced_indices: set[int] = set()
             if grid_enabled:
                 group_offset = 0
                 for group in group_scenes_by_segment_break(raw_segments, id_key):
                     n = len(group)
-                    # 宫格张数与实际入队同源（plan_grid_chunks）：超上限分组按切块后的
-                    # 张数计费，避免估算与执行漂移。
                     plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=grid_allow_large)
                     quotes = [_grid_quote(layout.grid_aspect_ratio) for _, layout in plans]
                     indices = range(group_offset, group_offset + n)
@@ -710,18 +657,12 @@ class CostEstimationService:
                         grid_unpriced_indices.update(indices)
                     group_offset += n
 
-            # --- Grid actual cost apportionment ---
-            # 均摊份额以条目在 raw_segments 中的位置为身份，而非条目 ID：ADR 0053 接受一张
-            # 宫格覆盖的多个条目共用同一 ID，位置唯一而 ID 不唯一，只有按位置组织才能让每个
-            # 条目（含同 ID 条目）恰好消费一次自己的份额。
             grid_to_indices: dict[str, list[int]] = {}
             for idx, seg in enumerate(raw_segments):
                 gid = get_generated_assets(seg).get("grid_id")
                 if gid and seg.get(id_key, ""):
                     grid_to_indices.setdefault(gid, []).append(idx)
 
-            # 逐宫格算出每个位置的份额；``_split_cost_across`` 的余数补偿保证各份之和与冻结
-            # 实付分文不差。
             grid_actual_per_index: dict[int, CostBreakdown] = {}
             for gid, indices in grid_to_indices.items():
                 grid_cost = _claim_actual(actual_by_segment, claimed_actual, gid, ("image",)).get("image", {})
@@ -759,7 +700,6 @@ class CostEstimationService:
                 else:
                     _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
-                # 剧本上的秒数可能被外部编辑成非整数：单条脏数据只让该分镜没有视频报价，不进计价。
                 if isinstance(unit_facts, VideoRequestFacts) and is_int(duration, minimum=1):
                     try:
                         video_quote = quote_video_request_from_price(
@@ -778,7 +718,6 @@ class CostEstimationService:
                     except ValueError:
                         logger.debug("无法计算 video 预估 for %s", seg_id, exc_info=True)
 
-                # 旁白配音按 novel_text 估价（仅旁白/解说 segment 携带原文）
                 novel_text = seg.get("novel_text")
                 narration_text = novel_text.strip() if isinstance(novel_text, str) else ""
                 narration_chars = len(narration_text)
@@ -851,11 +790,7 @@ class CostEstimationService:
 
             _accumulate_episode(ep_meta, segments_result, ep_est, ep_act)
 
-        # 当前剧本没有认领到的历史记账仍是真实支出。规范 segment/unit ID 自带 E{n}
-        # 前缀，可回填对应集；无法识别或对应集已不存在的记录仍纳入项目合计。
         episodes_by_number = {ep["episode"]: ep for ep in episodes_result}
-        # 剧本文件缺失或尚未生成的集不进入估算结果，但它的历史支出仍属于这一集。按需补一条
-        # 只含实付的集结果，让这笔钱显示在集行上，而不是静默退到项目合计。
         meta_by_number = {ep_meta.get("episode"): ep_meta for ep_meta in episodes_meta}
 
         def _attribution_target(episode_number: int) -> dict[str, Any] | None:
@@ -891,21 +826,18 @@ class CostEstimationService:
                         episode_actual.get("unassigned", {}),
                         amounts,
                     )
-        # 补出来的集结果追加在末尾，重排回 project.json 的集顺序，让费用页集行不跳序。
         meta_order = {ep_meta.get("episode"): i for i, ep_meta in enumerate(episodes_meta)}
         episodes_result.sort(key=lambda ep: meta_order.get(ep["episode"], len(meta_order)))
 
         async with self._session_factory() as session:
             usage_repo = UsageRepository(session)
             project_image_by_type = await usage_repo.get_project_image_costs_by_asset_type(project_name)
-            # 成功调用里费用为 NULL 的即未定价；定价为零（0）的调用是真实的 0，不在其中。
             actual_unpriced: UnpricedCounts = Counter()
             for call_type, provider, model, calls in await usage_repo.get_unpriced_calls_by_model(project_name):
                 actual_unpriced[call_type, provider, model] += calls
             provider_names = await usage_repo.provider_display_names(
                 {provider for _, provider, _ in (*estimate_unpriced, *actual_unpriced)}
             )
-            # 有产物却没有本机的媒体调用记录（如导入的项目、在别的机器上生成）：实际费用无从统计
             missing_local_calls = not await usage_repo.has_media_calls(project_name) and _has_generated_media(
                 project_data, scripts
             )
@@ -913,9 +845,6 @@ class CostEstimationService:
             bucket = project_image_by_type.get(asset_type)
             if bucket:
                 proj_act[asset_type] = bucket
-        # segment_id 为空的记账里，资产图已按类型单列，剩下的仍是真实支出：无法按 output_path
-        # 归类的图，以及 segment_id 列回填前的历史 video/audio 行。它们没有集归属线索，只并入
-        # 项目级「未归属」。
         project_level_actual = actual_by_segment.get(PROJECT_LEVEL_SEGMENT_KEY, {})
         for amounts in (
             project_image_by_type.get("other", {}),
@@ -990,30 +919,20 @@ class CostEstimationService:
         projector = ReferenceUnitRequestProjector(request_facts_lookup, availability, asset_links)
 
         def _screen_candidates() -> list[tuple[dict[str, Any], str, bool]]:
-            # (unit, unit_id, 可入队)；先筛出有效 unit，水合只对可入队的做。
             candidates: list[tuple[dict[str, Any], str, bool]] = []
             for unit in units:
                 if not isinstance(unit, dict):
                     continue
-                # unit_id 必须原本就是字符串：入队执行时按该字符串与剧本原始（未转型）值比较定位
-                # unit（``execute_reference_video_task``），数字/布尔等裸写 truthy 值 str() 后能通过
-                # 这里的估算，但执行时永远因类型不等找不到 unit——估算不能展示一笔实际跑不起来的费用。
                 raw_unit_id = unit.get("unit_id")
                 if not isinstance(raw_unit_id, str) or not raw_unit_id:
                     continue
-                # text 非字符串（如裸写 "text": true/1）同样不能让单条脏数据中断整次估算。
                 text = unit.get("text")
                 enqueueable = isinstance(text, str) and bool(text.strip()) and not video_unit_replan_problems(unit)
                 candidates.append((unit, raw_unit_id, enqueueable))
             return candidates
 
-        # Agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
-        # 单个 unit 的无效内容不应让整个项目估算失败，因此资产解析、水合与 request projection
-        # 的 ValueError/TypeError 只跳过该 unit。能力解析错误由 projector 转为结构化 blocker，
-        # 正常保留在该 unit 的报价结果中。
         def _hydrate_episode() -> tuple[list[tuple[dict[str, Any], str, bool]], list[ReferenceUnitHydration | None]]:
             candidates = _screen_candidates()
-            # 与 candidates 逐项对齐；不可入队或水合失败的位置为 None。
             hydrations: list[ReferenceUnitHydration | None] = []
             for unit, unit_id, enqueueable in candidates:
                 hydration = None
@@ -1045,8 +964,6 @@ class CostEstimationService:
                 hydrations.append(hydration)
             return candidates, hydrations
 
-        # 逐 unit 解析台词与提及是大块 CPU 工作，展开候选与可用性判定碰文件系统；
-        # 筛选与水合整集一次进工作线程，不按 unit 逐个排队。
         candidates, hydrations = await asyncio.to_thread(_hydrate_episode)
 
         for (unit, unit_id, enqueueable), hydration in zip(candidates, hydrations, strict=True):

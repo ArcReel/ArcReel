@@ -60,7 +60,6 @@ _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
 _PREVIOUS_CURRENT_VERSION = "_previous_current_version"
 MANUAL_UPLOAD_VERSION_SOURCE = "manual_upload"
-# 版本记录里该版本输出（即版本快照）的裸 sha256 hexdigest；内容版本的摘要，见 ``lib.material.storage``。
 VERSION_CONTENT_DIGEST = CONTENT_DIGEST
 logger = logging.getLogger(__name__)
 
@@ -247,7 +246,6 @@ class VersionManager:
     可以在事件循环上进行。
     """
 
-    # 支持的资源类型与扩展名均派生自单一真相源 lib.project.resource_paths，避免副本漂移。
     RESOURCE_TYPES = _RESOURCE_TYPES
     EXTENSIONS: ClassVar[dict[str, str]] = {rt: resource_extension(rt) for rt in _RESOURCE_TYPES}
 
@@ -284,7 +282,6 @@ class VersionManager:
         ensure_task_project_claim(self.project_path.name)
         self.versions_dir.mkdir(parents=True, exist_ok=True)
         for resource_type in self.RESOURCE_TYPES:
-            # 快照桶目录取自路径真相源：多段 id 的类型（角色衍生）落在嵌套子目录下。
             (self.project_path / version_snapshot_dir(resource_type)).mkdir(parents=True, exist_ok=True)
 
     def _persist_snapshot(
@@ -1001,7 +998,6 @@ class VersionManager:
                     ) from history_rollback_errors[0]
                 raise
 
-            # 付费历史已持久化；即使随后选中失败，历史内容仍然新增。
             record_project_activity(self.project_path)
             try:
                 should_select = (
@@ -1208,7 +1204,6 @@ class VersionManager:
             )
             if not current:
                 return current
-            # 账本是项目全局的，不进回滚集合：逐条拒绝不记账，整批提交后记一次
             with formal_write_transaction(
                 self.versions_file,
                 *(Path(rejections[identity][1]) for identity in current),
@@ -1258,7 +1253,6 @@ class VersionManager:
             if key is None or not isinstance(bucket.get(key), dict):
                 return 0
             record = bucket[key]
-            # 解析到 key 自身说明只是编码形式或大小写变化，那是同一份历史，放行。
             existing_new_key = resolve_asset_key(bucket, new_id)
             if existing_new_key is not None and existing_new_key != key:
                 raise AssetRenameHistoryCollisionError(new_id)
@@ -1268,7 +1262,6 @@ class VersionManager:
                 return len(versions)
 
             self._ensure_dirs()
-            # 快照文件名只带 id 的末段（多段 id 的前置段是目录层级），故前缀与新名都取末段。
             old_stem = normalize_asset_name(old_id).rpartition("/")[2]
             new_parent, _, new_stem = new_id.rpartition("/")
             bucket_dir = self.project_path / version_snapshot_dir(resource_type)
@@ -1284,8 +1277,6 @@ class VersionManager:
                     dst.parent.mkdir(parents=True, exist_ok=True)
                     src.replace(dst)
                 version["file"] = dst.relative_to(self.project_path).as_posix()
-            # 视觉同名的等价 key（NFC / NFD 并存）一并收编到新 id 下，留一条会顶着旧名残留、
-            # 之后被重建的同名资产接上。被合并掉的那条记录，其快照文件留在盘上，避免静默删除用户的历史。
             rekey_equivalent_entries(bucket, old_id, new_id)
             self._save_versions(data)
             record_project_activity(self.project_path)
@@ -1439,7 +1430,6 @@ class VersionManager:
         调用方持有项目锁（``project_metadata_lock``）。资源选择与结算期间拒绝删除，保留回退目标。
         恢复时它作为该资源的一条历史版本加回。
         """
-        # 回收站模块依赖本模块（恢复时加回历史版本），只能在这里导入。
         from lib.project import project_trash
 
         with self._lock:
@@ -1453,7 +1443,6 @@ class VersionManager:
                         if record.get("version") == resource_data.get("current_version"):
                             raise ConflictError("version_delete_current", path=snapshot_path)
                         with ExitStack() as admission:
-                            # 删除已持项目锁与版本锁：非阻塞取准入锁，避免与结算的取锁顺序互等。
                             try:
                                 admission.enter_context(
                                     generation_admission_lock_sync(
@@ -1479,7 +1468,6 @@ class VersionManager:
                                 "metadata": {
                                     key: value
                                     for key, value in record.items()
-                                    # 摘要随记录保留：远端内容版本加回时据此确认字节仍是原对象的内容
                                     if key not in {"version", "file", "prompt", _PREVIOUS_CURRENT_VERSION}
                                 },
                             }
@@ -1734,7 +1722,6 @@ class VersionManager:
         """
         if resource_type not in self.RESOURCE_TYPES:
             raise ValueError(f"不支持的资源类型: {resource_type}")
-        # 内容版本的三项事实只在保存时写下，元数据补写不改动它们
         protected = {CONTENT_VERSION_ID, CONTENT_DIGEST, STORAGE} & metadata.keys()
         if protected:
             raise ValueError(f"version metadata cannot overwrite {sorted(protected)}")

@@ -63,9 +63,7 @@ __all__ = [
 ]
 
 TRASH_DIRNAME = "trash"
-#: 删除记录按删除时间保留 30 天。
 RETENTION = timedelta(days=30)
-#: 删除记录本身的格式版本；与项目 schema 版本（``schema_version``）无关。
 RECORD_FORMAT = 1
 
 _RECORD_FILE = "record.json"
@@ -75,7 +73,6 @@ _RECORD_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 
 Origin = Literal["user", "agent"]
 
-#: 回收站变化的项目变更条目：与任务终态、记账结算一样是刷新信号，不进通知与聚焦。
 TRASH_ENTITY_TYPE = "trash"
 
 
@@ -95,7 +92,6 @@ class TrashRecord:
     origin: Origin
     size: int
     has_snapshot: bool = False
-    #: 降级恢复后剩下的结构文件只能下载，不能再恢复。
     download_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -145,9 +141,7 @@ class RestoreResult:
         }
 
 
-#: 结构快照收的单个文件：``project.json``、产物清单与版本历史记录。
 _STRUCTURE_FILES = ("project.json", ".arcreel_artifacts.json", "versions/versions.json")
-#: 结构快照收的目录与其中的文件后缀：剧本、规划草稿、剪辑时间线与源文文本。
 _STRUCTURE_TREES: Mapping[str, frozenset[str]] = {
     "scripts": frozenset({".json"}),
     "drafts": frozenset({".json", ".md", ".txt"}),
@@ -215,10 +209,9 @@ def record_deletion(
     moved: list[tuple[Path, Path]] = []
     try:
         size = 0
-        stored.mkdir(parents=True)  # 没有被删文件的结构删除也有这个目录：恢复流水线从这里铺设
+        stored.mkdir(parents=True)
         if snapshot:
             deleted = set(files)
-            # 最后一条登记被移除时清单文件会消失，删除前的结构文件仍须进入快照。
             for rel in sorted(set(structure_files(project_dir)).union(before or ())):
                 if rel not in deleted and is_structure_file(rel):
                     target = record_dir / SNAPSHOT_DIRNAME / rel
@@ -247,7 +240,6 @@ def record_deletion(
             size=size,
             has_snapshot=snapshot,
         )
-        # record.json 最后写：没有它的目录不算记录，列出时跳过。
         atomic_write_json(record_dir / _RECORD_FILE, {"format": RECORD_FORMAT, **record.to_dict()})
     except BaseException:
         for target, source in reversed(moved):
@@ -290,7 +282,6 @@ def restore(project_dir: Path, record_id: str) -> RestoreResult:
     if record.download_only:
         raise ConflictError("trash_restore_download_only", id=record.id)
     if record.has_snapshot:
-        # 恢复流水线经各对象的落地规则依赖领域模块，顶层导入会成环。
         from lib.project.trash_restore import restore_structural
 
         result = restore_structural(project_dir, record)
@@ -343,7 +334,6 @@ def keep_for_download(project_dir: Path, record_id: str, files: Sequence[str]) -
         has_snapshot=False,
         download_only=True,
     )
-    # record.json 先改：之后清理中断时，记录照样只列出剩下的文件。
     atomic_write_json(record_dir / _RECORD_FILE, {"format": RECORD_FORMAT, **kept.to_dict()})
     shutil.rmtree(record_dir / SNAPSHOT_DIRNAME, ignore_errors=True)
     for rel in record.files:
@@ -353,7 +343,6 @@ def keep_for_download(project_dir: Path, record_id: str, files: Sequence[str]) -
 
 def open_record_file(project_dir: Path, record_id: str, rel: str) -> tuple[BinaryIO, os.stat_result]:
     """以不跟随符号链接的方式打开记录里的一个被删文件，供下载；调用方负责关闭句柄。"""
-    # 文件视图依赖本模块，顶层导入会成环。
     from lib.project.file_view import open_project_file
 
     record = require_record(project_dir, record_id)
@@ -455,7 +444,6 @@ def check_restore_target(project_dir: Path, rel: str) -> None:
     """恢复落点 ``rel`` 的途经目录不能是符号链接，否则抛 ``trash_restore_target_blocked``。"""
     target = project_dir / rel
     if any(parent.is_symlink() for parent in target.parents if parent.is_relative_to(project_dir)):
-        # 删除之后有人把途经的目录换成了符号链接：不跟着它写到别处。
         raise ConflictError("trash_restore_target_blocked", path=rel)
 
 
@@ -465,7 +453,6 @@ def _land_file(
     """加回一个文件；搬出记录的 ``(记录内位置, 落点)`` 追加到 ``moved``，供失败时搬回。"""
     target = project_dir / rel
     if obj.get("kind") == "version" and obj.get("resource_type") in VersionManager.RESOURCE_TYPES:
-        # 被删的历史版本重新登记进版本历史：只把快照放回原路径，版本历史里不会有它。
         resource_type, resource_id = str(obj["resource_type"]), str(obj["resource_id"])
         path = VersionManager(project_dir).add_history_version(
             resource_type,
@@ -490,7 +477,6 @@ def _land_file(
         suffix = f" ({n}){path.suffix}"
         stem = path.stem
         if obj.get("kind") == "memory":
-            # 记忆存储依赖回收站，文件名约束在落地时读取，避免顶层循环依赖。
             from lib.agent.agent_memory_store import FILENAME_MAX_LENGTH
 
             stem = stem[: FILENAME_MAX_LENGTH - len(suffix)]

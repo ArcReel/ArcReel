@@ -55,7 +55,6 @@ from lib.infra.retry import with_retry_async
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "viduq3-turbo"
-# 参考音频的 data URI：官方只收 mp3，内容类型字符串按官方参考生视频示例写 data:video/mp3。
 _REFERENCE_AUDIO_MIME_TYPES = {".mp3": "video/mp3"}
 
 
@@ -146,7 +145,6 @@ VIDU_Q1_CLASSIC = ViduEndpoint("vidu-video-q1-classic", False, {"/img2video": (5
 VIDU_2 = ViduEndpoint(
     "vidu-video-2", False, {"/img2video": (4, 8), "/start-end2video": (4, 8), "/reference2video": (4,)}
 )
-# viduq4-preview：没有文生与首尾帧；参考生视频收 1～15 张参考图与 0～3 段参考音频，提示词上限 20000。
 VIDU_Q4 = ViduEndpoint(
     "vidu-video-q4",
     True,
@@ -156,10 +154,7 @@ VIDU_Q4 = ViduEndpoint(
     max_reference_prompt_chars=20000,
     max_reference_audio=3,
 )
-# Q3 行业与均衡型号只走参考生视频，请求契约按官方参考生视频文档逐型号声明，不沿用 viduq3 的参数：
-# 提示词上限都是 20000，参考图 1～7 张，都不收错峰。
 _Q3_WIDE_ASPECT_RATIOS = frozenset({"1:1", "16:9", "9:16", "3:4", "4:3", "auto"})
-# viduq3-drama：带音轨开关，收 0～3 段参考音频（sounds），时长 2～16 秒、默认 8 秒，比例只有 16:9、9:16 与 auto。
 VIDU_Q3_DRAMA = ViduEndpoint(
     "vidu-video-q3-drama",
     True,
@@ -169,7 +164,6 @@ VIDU_Q3_DRAMA = ViduEndpoint(
     default_duration=8,
     reference_aspect_ratios=frozenset({"16:9", "9:16", "auto"}),
 )
-# viduq3-mix：文档没有音轨开关与参考音频字段，型号说明写明音画同出，成片固定有声；时长 3～15 秒。
 VIDU_Q3_MIX = ViduEndpoint(
     "vidu-video-q3-mix",
     False,
@@ -178,7 +172,6 @@ VIDU_Q3_MIX = ViduEndpoint(
     native_audio=True,
     reference_aspect_ratios=_Q3_WIDE_ASPECT_RATIOS,
 )
-# viduq3-ad：文档没有音轨开关与参考音频字段，也没有声明音画同出，按无声处理；时长 3～15 秒。
 VIDU_Q3_AD = ViduEndpoint(
     "vidu-video-q3-ad",
     False,
@@ -253,7 +246,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         endpoint, body = await asyncio.to_thread(self._build_request, request)
-        # _build_request 已把 duration 归一化到 body["duration"]，统一使用以避免 None 崩溃及结果不一致。
         coerced_duration = int(body["duration"])
 
         async with create_vidu_client(
@@ -284,7 +276,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
                 ),
             )
             url = extract_vidu_url(final)
-            # credits=0 是合法值，不能用 `or` 合并；显式判 None 兜底为顶层 credits。
             final_credits = final.get("credits")
             actual_credits = final_credits if final_credits is not None else credits
 
@@ -307,7 +298,6 @@ class ViduVideoBackend(EntryBoundCapabilities):
     def _build_request(self, request: VideoGenerationRequest) -> tuple[str, dict]:
         endpoint = self._select_endpoint(request)
 
-        # 0) 端点发不出的输入付费前拒绝，不静默丢弃：能力被用户覆盖放宽时 gate 会放行它们。
         profile = self.endpoint
         audio_files = [Path(p) for p in request.reference_audio_files or []]
         if audio_files:
@@ -344,16 +334,8 @@ class ViduVideoBackend(EntryBoundCapabilities):
         if endpoint == "/text2video" and request.end_image is not None:
             raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
 
-        # 1) 型号接不接受这条端点的输入由模型条目与通道两侧求值后在 gate_video_request 处判定（docs/adr/0104），
-        #    这里不按型号拒绝；条目未收录的输入由上游判定。
-
         duration = _coerce_duration(profile, endpoint, request.duration_seconds)
 
-        # 3) prompt 长度（上限按端点与子路径声明）
-        # 超限一律拒绝，不再客户端截断：截断会产出与意图不符的成片却照常计费、用户无从知情，
-        # 与 gate_video_request 「同一种违约只有硬失败、没有静默降级」的口径一致。model 级上限
-        # （video_capabilities_for_model 声明的那个）已由 gate 在付费前拦下；此处是端点级更窄
-        # 上限的执行期防御——多端点 model 走 /reference2video 时 gate 的静态声明覆盖不到。
         prompt = request.prompt or ""
         prompt_max = profile.prompt_limit(endpoint)
         if len(prompt) > prompt_max:
@@ -371,14 +353,12 @@ class ViduVideoBackend(EntryBoundCapabilities):
             "duration": duration,
         }
 
-        # 4) resolution 以模型目录条目为准，原样透传；越界档位由上游拒绝（docs/adr/0104）
         if request.resolution:
             body["resolution"] = request.resolution
 
         if request.seed is not None:
             body["seed"] = request.seed
 
-        # 6) audio 只发给文档声明了音轨开关的端点；固定有声端点发不出静音请求，提交前拒绝
         if self.endpoint.audio:
             body["audio"] = bool(request.generate_audio)
         elif (
@@ -390,12 +370,10 @@ class ViduVideoBackend(EntryBoundCapabilities):
         ):
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
-        # 7) aspect_ratio 仅 text2video / reference2video 接受
         if endpoint in _ENDPOINTS_WITH_ASPECT_RATIO and request.aspect_ratio:
             body["aspect_ratio"] = request.aspect_ratio
 
         images = read_video_images(request, self._model)
-        # 8) images 按端点形态填充；参考音频按请求顺序放进 sounds，prompt 里的「参考音频N」按这个顺序编号
         if endpoint == "/reference2video":
             body["images"] = [images[Path(p)].data_uri() for p in _reference_images(request)]
             if audio_files:
@@ -491,7 +469,6 @@ def _coerce_duration(profile: ViduEndpoint, endpoint: str, requested: int | None
     """按调用端点在各子路径的合法集合，把请求时长校正到最近值。"""
     allowed = profile.durations.get(endpoint)
     if not allowed:
-        # 表里无项时不强校（让接口按默认处理），但若给了值就透传
         return int(requested) if requested else 5
     if requested is None:
         default = profile.default_duration

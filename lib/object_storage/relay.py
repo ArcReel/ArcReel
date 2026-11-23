@@ -33,15 +33,10 @@ from lib.object_storage.connection import config_from_connection
 
 logger = logging.getLogger(__name__)
 
-#: 中转副本的对象 key 前缀，与正式素材对象分开。
 RELAY_PREFIX = "arcreel-relay/"
-#: 签发给供应商的下载地址有效期。供应商文档没有给出取图时限，取一天覆盖排队；TOS 预签名上限为 7 天。
 RELAY_URL_TTL = timedelta(hours=24)
-#: 入库任务有定论后副本的最短保留时间（自副本写入起算）。
 RELAY_MIN_RETENTION = timedelta(hours=1)
-#: 下载地址过期之后再保留的时间。
 RELAY_EXPIRED_GRACE = timedelta(hours=1)
-#: 没有签发下载地址的副本的保留时间。
 RELAY_UNSIGNED_GRACE = timedelta(minutes=30)
 
 _RETRY_BASE = timedelta(minutes=5)
@@ -56,7 +51,6 @@ def relay_object_key(suffix: str, *, now: datetime | None = None) -> str:
 
 
 def _retry_delay(attempts: int) -> timedelta:
-    # 指数先封顶再乘：重试次数累积多了，timedelta 乘法会溢出，min 来不及截断
     return min(_RETRY_BASE * (2 ** min(max(attempts - 1, 0), 16)), _RETRY_CAP)
 
 

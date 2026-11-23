@@ -27,7 +27,6 @@ from lib.references.reference_admission import (
 )
 from lib.references.reference_catalog import build_reference_catalog
 
-#: 语义缺口的对象在各自文案里的参数名。
 _SUBJECT_PARAMS: dict[str, str] = {
     PROMPT_PENDING_CODE: "segment_id",
     ASSET_DESCRIPTION_REQUIRED_CODE: "name",

@@ -44,16 +44,11 @@ class OpenAITextBackend:
         transport_layer: TransportLayer | None = None,
         provider_name: str = PROVIDER_OPENAI,
     ):
-        # 禁用 SDK 内置重试，由本层 generate() 统一管理重试策略
         self._client = create_openai_client(
             api_key=api_key, base_url=base_url, max_retries=0, transport_layer=transport_layer
         )
         self._model = model or DEFAULT_MODEL
-        # 复用 OpenAI 兼容协议的 provider（如 dashscope）须用真实 provider 记账，
-        # 否则计费查表会命中 OpenAI 的 USD 费率而非自身定价。
         self._provider_name = provider_name
-        # 官方端点已弃用 max_tokens（推理模型直接拒绝），用 max_completion_tokens；
-        # 第三方兼容端点（自定义供应商、dashscope 等）不保证支持新参数，保守沿用 max_tokens
         self._max_tokens_param: TokenParam = (
             "max_completion_tokens" if is_official_openai_base_url(base_url) else "max_tokens"
         )
@@ -93,7 +88,6 @@ class OpenAITextBackend:
         失败会连带重放已成功的原生调用（重试叠乘），且降级异常消息含模型侧动态文本，
         可能误中重试判定的字符串模式。
         """
-        # 带图请求要读本地图片编码 data URI，放线程里构建，避免阻塞事件循环
         messages = await asyncio.to_thread(_build_messages, request)
         if request.response_schema and TextCapability.STRUCTURED_OUTPUT not in self._capabilities:
             logger.info("%s/%s 未声明原生结构化输出，直接走 Instructor", self._provider_name, self._model)
@@ -133,7 +127,6 @@ class OpenAITextBackend:
                     provider=self._provider_name,
                     token_param=self._max_tokens_param,
                 )
-                # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果。
                 merge_billed_usage(result, native)
                 return result
 
@@ -180,8 +173,6 @@ class OpenAITextBackend:
         choice = response.choices[0]
         output_tokens = usage.completion_tokens if usage else None
         raw_text = choice.message.content or ""
-        # 思考模型默认把思考块内嵌在 content 开头，正文（结构化输出即 JSON）跟在其后；
-        # 复验与返回都只看正文，思考块不进结果。
         text = strip_leading_think_block(raw_text)
         if text != raw_text:
             logger.info(
@@ -246,7 +237,6 @@ def _is_schema_error(exc: BaseException) -> bool:
     """
     if isinstance(exc, BadRequestError):
         return True
-    # 代理可能把上游 schema 错误包装成非 400 状态码
     error_str = str(exc)
     return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
 

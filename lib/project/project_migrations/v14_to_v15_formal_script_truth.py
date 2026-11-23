@@ -68,15 +68,12 @@ from lib.script.script_structure_validator import validate_script_structure
 
 TARGET_SCHEMA_VERSION = 15
 
-#: 存量剧本上退役的两个指纹字段名。历史事实，写死在这一步。
 _ENTRY_REVISION_FIELD = "script_plan_entry_revision"
 _SCRIPT_REVISION_FIELD = "script_plan_revision"
 
-#: 分镜形态条目的视觉层字段；参考生视频单元的视觉层是正文本身，不按「为空」判待编写。
 _STORYBOARD_KINDS = ("segments", "scenes", "shots")
 _VISUAL_FIELDS = ("image_prompt", "video_prompt")
 
-#: 剧本 basis 的历史版本：v2 以脚本规划内容为输入，无计划依据的版本只含集号。
 _LEGACY_SCRIPT_BASIS_KIND = "structured-content/episode-script"
 _LEGACY_PLANLESS_SCRIPT_BASIS_KIND = "structured-content/episode-script-without-plan"
 
@@ -196,7 +193,6 @@ def _materialize(
     )
     if not validate_script_structure(script).valid:
         return None, "materialized script from the confirmed script_plan fails structure validation"
-    # 与 ``ProjectManager.save_script`` 写盘时补的默认状态一致。
     script["metadata"].setdefault("status", "draft")
     _stamp_confirmation_time(script["metadata"], stored_review(project, episode).get("confirmed_at"))
     return script, None
@@ -236,8 +232,6 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         if not is_episode_number(entry_episode):
             continue
         if entry_episode in seen_episodes:
-            # 同一集号出现两次时账本认不出哪一条是这一集。旧形态规整已在链上先行去重，这里只拦
-            # 漏网的形态：在只读预检里拒绝，裁决写明集号与绑定。
             raise ProjectMigrationError(
                 "ledger has more than one entry for this episode",
                 episode=entry_episode,
@@ -246,7 +240,6 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         seen_episodes.add(entry_episode)
         raw_binding = entry.get("script_file")
         if isinstance(raw_binding, str) and raw_binding and not _is_canonical_binding(raw_binding, entry_episode):
-            # 非规范绑定已由旧形态规整改成规范路径；漏网的一律不认，把集号与绑定写进裁决。
             raise ProjectMigrationError(
                 "script binding is not this episode's canonical script", episode=entry_episode, file=raw_binding
             )
@@ -261,7 +254,6 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         binding_path = try_safe_join(project_dir, canonical)
         plan_path = script_plan_path(project_dir, migrated, episode) if kind is not None else None
         plan_document = _load_object(plan_path) if plan_path is not None else None
-        # 读不成对象的规划文件没有可转换或回填的条目，也不据它记确认基线。
         plan_fingerprint = (
             content_fingerprint(plan_path) if plan_path is not None and plan_document is not None else None
         )

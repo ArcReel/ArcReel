@@ -64,12 +64,8 @@ TEXT_TO_VIDEO = "text-to-video"
 IMAGE_TO_VIDEO = "image-to-video"
 TASKS_PATH = "tasks"
 
-# 持久化 job_id 的前缀：新版 API 只有一个按 id 查询的 /tasks，不需要像旧版那样把子路径编进去；
-# 前缀用来认出旧版通道写下的 ``text2video:<id>:<audio>`` 一类 job_id，避免把它们发到新版查询端点。
 _JOB_ID_PREFIX = "tasks:"
 
-# 未指定分辨率时下发 720p：kling-4.0、kling-4.0-flash、kling-3.0-turbo 都接受，
-# 也避免上游按各自默认值（kling-4.0 默认 1080p）出片，与计量的分辨率档位对不上。
 _DEFAULT_RESOLUTION = "720p"
 
 _CHANNEL_CAPABILITIES = VideoCapabilities(
@@ -124,7 +120,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         transport_layer: TransportLayer | None = None,
     ) -> None:
         if auth_mode != "bearer":
-            # 官方「接口鉴权」：Access Key / Secret Key 只适用于旧版设计标准的 API，新版只收 API Key。
             raise ValueError("可灵新版 API 只支持 API Key 鉴权，请到系统配置页填写可灵 Kling 的 API Key")
         super().__init__(
             auth_mode=auth_mode,
@@ -195,7 +190,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         if request.reference_images:
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
-        # 请求体没有音轨开关；直接调用也须在付费前拒绝无法下发的静音请求。
         if (
             not request.generate_audio
             and (request.video_capabilities or self.video_capabilities)
@@ -226,7 +220,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
             if not caps.last_frame:
                 raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
             contents.append({"type": "last_frame", "url": images[Path(cast(Path, request.end_image))].base64()})
-        # 图生视频没有 aspect_ratio 字段，画面比例跟随首帧。
         return model_path, {"contents": contents, "settings": settings}
 
     @staticmethod
@@ -255,7 +248,6 @@ class KlingModelPathVideoBackend(EntryBoundCapabilities, KlingBackendBase, Provi
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._submit_task(client, path, payload, request)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
-            # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
             await self._persist_provider_job_id(
                 request, encode_job_id(task_id), provider=PROVIDER_KLING, endpoint=self._base_url
             )

@@ -46,8 +46,6 @@ async def retry_migration(name: str, user: CurrentUser):
                 Services.defaults(pm),
             )
         finally:
-            # 升级链直接改写 project.json 与剧本，不发 hint；在这里补发，升级带来的变更按 webui 广播，
-            # 而不是等定时轮询发现、按 filesystem 广播。
             emit_project_change_hint(name)
     if outcome.problem is not None:
         params = outcome.problem.params or {}
@@ -58,7 +56,6 @@ async def retry_migration(name: str, user: CurrentUser):
 
 
 class AcknowledgeReportRequest(BaseModel):
-    #: 用户看过的那份报告的生成时间。盘上已换成另一份报告（之后又升级过）时不确认，新报告照常提示。
     migrated_at: str
 
 

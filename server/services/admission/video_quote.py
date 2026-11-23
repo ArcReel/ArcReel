@@ -28,11 +28,8 @@ from server.services.admission.cost_estimation import quote_video_request
 class VideoQuoteOutcome(StrEnum):
     """正式提交时这个单元会怎样。"""
 
-    #: 会入队生成（档位变化的单元在带上确认档位之后）。
     GENERATE = "generate"
-    #: 已有可用视频，正式提交会原样复用、不收费。
     REUSE = "reuse"
-    #: 有确认档位之外的缺口，修复前整批都不会入队。
     BLOCKED = "blocked"
 
 
@@ -96,7 +93,6 @@ class VideoQuoteSheet:
     def submittable(self) -> bool:
         """带上确认档位正式提交时整批能入队。"""
 
-        # 只因参考图超限受阻的单元单独剔除；带有其他缺口的单元仍扣下整批（docs/adr/0061 修订）。
         blocked = [unit for unit in self.units if unit.outcome is VideoQuoteOutcome.BLOCKED]
         return not blocked or (
             any(unit.outcome is VideoQuoteOutcome.GENERATE for unit in self.units)

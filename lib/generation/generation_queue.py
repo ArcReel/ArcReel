@@ -55,7 +55,6 @@ _VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provide
 _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
 
 
-#: 旧版本入队的文本任务在载荷里带着入队时的数据根；执行按当前配置解析，判同也不计它。
 _LEGACY_TEXT_PAYLOAD_KEYS = frozenset({"projects_root"})
 
 
@@ -307,8 +306,6 @@ async def _derive_execution_model_for_enqueue(
     is_audio = media_type == "audio" or task_type == "tts"
     video_generation_type: VideoGenerationType | None = None
     try:
-        # 局部导入：lib.config 的解析链会拉进 backend 与自定义供应商装配层，入队路径不为此
-        # 付模块级导入代价。
         from lib.config.resolver import ConfigResolver, get_project_manager
         from lib.db import async_session_factory
 
@@ -333,8 +330,6 @@ async def _derive_execution_model_for_enqueue(
         elif is_audio:
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
-            # image_edit / 衍生资产图必然 i2i 且入队即知（唯一例外，见 docs/adr/0001），按 i2i
-            # 槽解析；其余 image 任务的任务类型执行时才定，取 t2i 作代表性 provider。
             generation_type = "i2i" if task_type in I2I_ONLY_TASK_TYPES else "t2i"
             resolved = await resolver.resolve_image_backend(project, payload or {}, generation_type=generation_type)
     except ModelNotInCatalogError as exc:
@@ -349,9 +344,6 @@ async def _derive_execution_model_for_enqueue(
     return resolved, video_generation_type
 
 
-#: 必然走 i2i 且入队即知的图片任务类型（见 ``docs/adr/0001`` 的唯一例外）：图片编辑以当前图
-#: 为唯一输入，衍生资产图以本体资产图为唯一输入。入队派生与 worker 的限流路由据此按 i2i 槽
-#: 精确解析，其余图片任务取 t2i 作代表性 provider。
 I2I_ONLY_TASK_TYPES: frozenset[str] = frozenset({"image_edit", DERIVATIVE_TASK_TYPE})
 
 ACTIVE_TASK_STATUSES = ("queued", "running")
@@ -418,9 +410,6 @@ class GenerationQueue:
         batch_unit_id: str | None = None,
         batch_unit_ids: tuple[str, ...] = (),
     ) -> dict[str, Any]:
-        # Every Web, Agent and batch generation entry reaches the queue through this
-        # method, so a project whose migration failed is refused here once instead of
-        # at each caller. Nothing is created and nothing is billed.
         await self.assert_project_migration_ok(project_name)
 
         script_file = _normalized_script_file(script_file)
@@ -428,9 +417,6 @@ class GenerationQueue:
         if task_type == "reference_video":
             payload = reference_video_enqueue_payload(payload, script_file=script_file)
 
-        # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
-        # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 推算。
-        # 派生成功只把 provider_id 作为 claim/rate-limit advisory；视频 model 不在入队时冻结。
         if provider_id is None:
             derived = await _derive_execution_model_for_enqueue(
                 project_name=project_name,
@@ -442,8 +428,6 @@ class GenerationQueue:
             if derived is not None:
                 execution_model, _video_generation_type = derived
                 provider_id = execution_model.provider_id
-                # Video provider/model is only an advisory claim projection until the worker materializes the
-                # current request and persists its pre-submit checkpoint. Enqueue payload never freezes identity.
 
         requested_facts = _reference_request_facts(task_type, payload)
         text_request_facts = _text_request_facts(task_type, payload)
@@ -485,9 +469,6 @@ class GenerationQueue:
                     dedupe_guard=_guard_deduped,
                 )
 
-        # Audio restoration observes active TTS/video consumers while holding the
-        # same per-unit admission guard.  Keeping the guard here makes every Web,
-        # Agent, and batch enqueue entry participate without duplicating checks.
         if task_type in {"tts", "video", "reference_video"} and script_file:
             async with generation_admission_lock(
                 project_name=project_name,
@@ -497,9 +478,6 @@ class GenerationQueue:
                 result = await _enqueue()
         else:
             result = await _enqueue()
-        # The unique index intentionally protects one active task per resource. A matching
-        # video task is reusable only when its durable narration request facts also match;
-        # current TTS evidence and other mutable generation intent are re-read by the worker.
         result.pop("_existing_payload", None)
         if not result.get("deduped"):
             logger.info("任务入队 task_id=%s type=%s", result["task_id"], task_type)
@@ -553,7 +531,6 @@ class GenerationQueue:
             batch = await repo.get_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
         if batch is None:
             raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
-        # 读模型按产物清单与内容摘要判定成员产物时效，读盘、等清单锁都放进工作线程。
         return await asyncio.to_thread(
             build_generation_batch_read_model, batch, batch["memberships"], batch["queue_depth"], resolver
         )
@@ -825,5 +802,4 @@ def read_queue_poll_interval() -> float:
     return max(0.1, float(TASK_POLL_INTERVAL_SEC))
 
 
-# 调用通道提交后的供应商任务 id 经本队列落库。按名字取单例，打桩本模块的 get_generation_queue 照常生效。
 install_provider_job_id_store(lambda: get_generation_queue())

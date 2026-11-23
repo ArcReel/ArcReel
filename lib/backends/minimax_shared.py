@@ -24,7 +24,6 @@ from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
 MINIMAX_BASE_URL = "https://api.minimaxi.com/v1"
 MINIMAX_INTL_BASE_URL = "https://api.minimax.io/v1"
 
-# 单一已知路径后缀，归一化 host 时剥除以容忍用户填入完整 base。
 _V1_SUFFIX = "/v1"
 _V2_SUFFIX = "/v2"
 
@@ -32,8 +31,6 @@ MINIMAX_STATUS_SUCCESS = "Success"
 MINIMAX_STATUS_FAIL = "Fail"
 _TERMINAL_VIDEO_STATES = frozenset({MINIMAX_STATUS_SUCCESS, MINIMAX_STATUS_FAIL})
 
-# v2 任务状态取值与 v1 完全不同（小写、多出取消态），且成功响应直接给下载 URL、无 file_id
-# 取回步骤，故两套状态机各自独立，不在 v1 判定里加分支。
 MINIMAX_V2_STATUS_SUCCEEDED = "succeeded"
 MINIMAX_V2_STATUS_FAILED = "failed"
 MINIMAX_V2_STATUS_CANCELLED = "cancelled"
@@ -41,12 +38,8 @@ _TERMINAL_V2_VIDEO_STATES = frozenset(
     {MINIMAX_V2_STATUS_SUCCEEDED, MINIMAX_V2_STATUS_FAILED, MINIMAX_V2_STATUS_CANCELLED}
 )
 
-# 轮询间隔（秒）：海螺视频生成通常数十秒至数分钟，10s 一次平衡时延与请求量。
 MINIMAX_VIDEO_POLL_INTERVAL_SECONDS = 10.0
 
-# 图片后缀 → MIME（first_frame_image 接受 data URI）。本表为 MiniMax 视频系列共用，取各型号
-# 受理格式的并集，heic/heif 仅 H3 受理（出处：
-# https://platform.minimaxi.com/docs/api-reference/video-generation-v2-create.md）。
 _IMAGE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -66,8 +59,6 @@ def resolve_minimax_api_key(api_key: str | None = None) -> str:
 
 def _minimax_host(configured: str | None) -> str:
     """从配置的 base_url 提取 host 段（剥除 `/v1` 后缀），缺省回落国内站 host。"""
-    # 先 strip 再判空：纯空白串（"   "）是真值会绕过 or，回落必须在 strip 之后，
-    # 否则 base 变空串、派生出 "/v1" 这类非法相对 URL。
     base = ((configured or "").strip() or MINIMAX_BASE_URL).rstrip("/")
     if base.endswith(_V1_SUFFIX):
         return base[: -len(_V1_SUFFIX)]
@@ -150,8 +141,6 @@ def minimax_failure_reason(payload: object) -> str | None:
     return None
 
 
-# 仅允许进日志的标量字段白名单；prompt 仅记长度、subject_reference 仅计数，
-# base64/URL 一律不入日志（对齐 CodeQL clear-text-logging 约束）。
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
     {
         "model",
@@ -228,7 +217,6 @@ def minimax_video_failure_reason(payload: dict) -> str | None:
             f"MiniMax 视频任务失败 task_id={payload.get('task_id')} "
             f"status_code={base.get('status_code')}: {base.get('status_msg', '')}"
         ).strip()
-    # 顶层 base_resp 硬错误（如 task_id 不存在 / 鉴权失败），非 0 即失败。
     return _base_resp_error(payload)
 
 

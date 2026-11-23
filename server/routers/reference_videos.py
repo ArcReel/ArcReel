@@ -99,20 +99,15 @@ class ScriptPreviewRequest(BaseModel):
 
 
 class AddUnitRequest(BaseModel):
-    # extra="forbid"：正文是单元的唯一真相，参考图执行期才派生。旧客户端仍带着
-    # ``references`` 调用时要拿到 422 而不是被静默丢弃——被丢弃的话它会以为自己
-    # 指定的参考图生效了。
     model_config = ConfigDict(extra="forbid")
 
     prompt: str
     duration_seconds: int | None = Field(default=None, ge=1)
     note: str | None = None
-    #: 新单元插在这个单元之后；缺省时追加到末尾。
     after_unit_id: str | None = Field(default=None, min_length=1)
 
 
 class GenerateUnitRequest(BaseModel):
-    # 旁白交付方式是项目配置，不影响视频请求；已删除的按请求交付字段按未知字段拒收。
     model_config = ConfigDict(extra="forbid")
 
     confirmed_request_duration_seconds: int | None = Field(default=None, gt=0)
@@ -303,8 +298,6 @@ async def add_unit(
     project, current, script_file = await _read_episode_script(project_name, episode, _t)
     request_facts = reference_request_facts_lookup(project)
 
-    # 时长是 unit 级单一真相：请求未给出时取这条 unit 所落桶的默认档位（异步 IO 不进项目锁临界区）。
-    # 桶按可用参考图判定，与响应里的逐单元结论及执行期投影同一判据。
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
         (hydration,) = await asyncio.to_thread(
@@ -315,7 +308,6 @@ async def add_unit(
     units = current.get("video_units") if isinstance(current.get("video_units"), list) else []
     if req.after_unit_id is not None:
         _find_unit(current, req.after_unit_id, _t)
-    # 编号只是占位：批量编辑提交时由服务端另发本集从没用过的编号，回读按结果里的编号取。
     unit = _build_unit_dict(
         unit_id=new_item_id(current),
         prompt=req.prompt,
@@ -346,7 +338,6 @@ async def add_unit(
 
 
 class PatchUnitRequest(BaseModel):
-    # extra="forbid" 同 ``AddUnitRequest``。
     model_config = ConfigDict(extra="forbid")
 
     prompt: str | None = None
@@ -425,7 +416,6 @@ async def delete_unit(
 class MoveUnitRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: 移到这个单元之后；为 null 时移到最前。
     after_unit_id: str | None = Field(min_length=1)
 
 
@@ -597,8 +587,6 @@ async def generate_unit(
     )
     _raise_projection_blocker(projection, _t, names, allow_duration_confirmation=False)
 
-    # 经统一守卫点构造：空提示词的结构校验在此当场拒绝（400），与 SDK 入队路径一致，
-    # 不再漏到执行层失败（见 ADR-0001）。
     try:
         spec = TaskSpec.from_request(
             task_type="reference_video",
@@ -649,16 +637,11 @@ async def _admit_units_batch(
     except ValueError as exc:
         raise BadRequestError("ref_batch_empty_selection") from exc
 
-    # 容器原样交给筛查：`or []` 会把假值（false / 0 / ""）变成合法的空数组，那次请求就会
-    # 报成「通过且零任务」，而不是如实说剧本的 video_units 坏了。成不了目标的条目（非对象、
-    # 缺 unit_id、id 不是标量、id 重复，来自外部编辑或 Agent 裸写）在「缺失即生成」的目标
-    # 集合里属于这次请求：悄悄略过就等于让同批健康的 unit 独自入队计费。
     units, malformed = screen_script_entries(script.get("video_units", []), requested_ids=requested_ids)
 
     project_path = await _project_path(project_name)
 
     def _resolve_targets() -> tuple[list[dict[str, Any]], GenerationSelection]:
-        # 读产物清单（含等清单锁）与内容摘要，只读，放进工作线程。
         artifact_episode = (
             resolve_artifact_episode(project=project, script=script, script_filename=script_file) or episode
         )
@@ -695,8 +678,6 @@ async def _admit_units_batch(
         ),
         confirmed_request_durations=body.confirmed_request_durations,
         spec_check=lambda unit: reference_unit_task_spec(unit, script_file),
-        # 产物状态不可读的 unit 被选目标环节排除在外，但它属于这次请求：不带进准入，
-        # 同批健康的 unit 会照常入队，剩下这一个被无声略过。
         extra_tickets=[*unmatched, *malformed, *artifact_state_tickets(selection.unavailable)],
         user_id=user_id,
         queue=get_generation_queue(),
@@ -765,8 +746,6 @@ async def generate_units_batch(
     specs = [reference_unit_task_spec(unit, script_file) for unit in targets if unit["unit_id"] in admitted_ids]
     for spec in specs:
         spec.source = "webui"
-        # 确认过的档位按 unit 记进请求事实：它是本次请求的一部分，而不是全批共用的一个值。
-        # 复用准入用的那份推导，两处各算一遍才是口径分叉的来源。
         options = request_options_for_unit(
             ReferenceRequestOptions(),
             spec.resource_id,
@@ -782,12 +761,8 @@ async def generate_units_batch(
         user_id=user.id,
         queue=get_generation_queue(),
     )
-    # 入队中断不撤销已创建的任务：它们是准入通过的完整付费单元，照常执行。没轮到的目标
-    # 逐 ID 报出来，界面据此释放乐观占用标记，下次「缺失即生成」只补这些。
     payload["enqueue_failures"] = [enqueue_failure_payload(failure, _t) for failure in enqueue_failures]
     payload["task_ids"] = [item.task_id for item in enqueued]
-    # 逐 unit 给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每个 unit
-    # 都等到全批落库为止。
     payload["task_ids_by_unit"] = {item.resource_id: item.task_id for item in enqueued}
     payload["deduped"] = bool(enqueued) and all(item.deduped for item in enqueued)
     return payload
@@ -815,7 +790,6 @@ async def upload_unit_video(
             project, script, script_file = _load_episode_script(project_name, episode, _t)
             _find_unit_for_project(project, script, unit_id, _t)
             project_path = get_project_manager().get_project_path(project_name)
-            # 路径遍历防护：unit_id 拼出的绝对路径不得逃出项目目录（与 versions.py 对齐）
             try:
                 safe_join(project_path, relative_path)
             except PathTraversalError as exc:
@@ -828,8 +802,6 @@ async def upload_unit_video(
         with project_change_source("webui"):
             staged_video = await stage_uploaded_video_stream(file.file, target, max_bytes=max_bytes)
 
-            # 上传流可达数百 MB、耗时数秒，期间 episode→script 绑定可能被并发重绑
-            # （PATCH / agent 同步剧本）。staging 后重解析绑定，确保元数据写进当前生效的剧本。
             def _recheck_binding() -> str:
                 project2, script2, script_file2 = _load_episode_script(project_name, episode, _t)
                 _find_unit_for_project(project2, script2, unit_id, _t)
@@ -863,8 +835,6 @@ async def upload_unit_video(
                 )
             finally:
                 await asyncio.to_thread(staged_video.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
-            # emit 内部会读剧本解析 episode 并计算指纹，放线程池避免阻塞事件循环；
-            # 返回的指纹直接复用进响应体，免二次计算
             fingerprints = await run_sync_transaction(
                 emit_generation_success_batch,
                 task_type="reference_video",
@@ -882,18 +852,13 @@ async def upload_unit_video(
     except UploadValidationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=_t(exc.key, **exc.params)) from exc
     except FileNotFoundError as exc:
-        # 不回传 str(exc)：load_script 的异常信息含服务器绝对路径
         raise NotFoundError("ref_script_missing") from exc
     except KeyError as exc:
-        # finalize 写回时 unit 已被并发删除（落盘后绑定重查到锁内写回之间的窄竞态）
         raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=unit_id)) from exc
     except ScriptEditError as exc:
         raise HTTPException(status_code=400, detail=script_edit_detail(exc, _t)) from exc
     except (HTTPException, ApiError):
-        # ApiError 与 HTTPException 并列：_load_episode_script 抛出的 NotFoundError
-        # 不是 HTTPException 子类，不并入这里会被下面的 except Exception 吞成 500
         raise
     except Exception as exc:
-        # 不回传 str(exc)：未预期异常的消息可能含服务器路径等内部细节，堆栈进日志即可
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc

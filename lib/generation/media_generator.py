@@ -141,8 +141,6 @@ def _is_413(exc: BaseException) -> bool:
         or getattr(getattr(exc, "response", None), "status_code", None)
         or getattr(exc, "code", None)
     )
-    # 防御性 int 转换：个别 SDK / mock 可能把状态码给成字符串 "413"，
-    # 直接 ``== 413`` 会恒 False；非数字状态码落回下方短语匹配。
     try:
         if status is not None and int(status) == 413:
             return True
@@ -152,11 +150,6 @@ def _is_413(exc: BaseException) -> bool:
     return "request entity too large" in msg or "payload too large" in msg
 
 
-# 记账 segment_id 判定：resource_id 可否作 segment_id 按 call_type 各自的 resource_type
-# 白名单收敛于此单点，image/video/audio 三条记账路径均经由它。
-# 前端 `frontend/src/components/usage/usage-record-view.ts` 的 `SEGMENT_RESOURCE_TYPES`
-# 持有同一份白名单，用于给进行中的任务行判定分镜标签；这里增删资源类型时一并改那一处，
-# 否则任务进行中与落库后的目标标签会对不上。
 _SEGMENT_ID_ALLOWED_RESOURCE_TYPES: dict[CallType, frozenset[str]] = {
     "image": frozenset({"storyboards", "videos", "grids"}),
     "video": frozenset({"storyboards", "videos", "reference_videos"}),
@@ -190,7 +183,6 @@ def _project_relative_path(
         return None
     path = (reference_sources or {}).get(str(value), Path(value))
     try:
-        # 两边都取绝对路径再求相对：项目根或素材路径任一为相对路径（本地调试、CLI）时同样能归一。
         return path.absolute().relative_to(project_path.absolute()).as_posix()
     except ValueError:
         return path.name if external_name_only else path.as_posix()
@@ -338,8 +330,6 @@ class MediaGenerator:
         if task_id is None:
             raise ValueError("formal video output requires a task_id")
         staged_output_path = task_video_staging_path(output_path, task_id)
-        # A process can die after the backend starts writing. Reusing one task-addressable path bounds crash residue
-        # and removes the prior attempt before normal generation or resume writes the same provider result again.
         _remove_task_video_staging_path(staged_output_path)
         return staged_output_path, staged_output_path
 
@@ -354,8 +344,6 @@ class MediaGenerator:
 
         if not formal_output:
             return None, output_path
-        # 直接调用（非队列任务）没有队列身份：给一次性 staging 身份，不伪造一个 task_id
-        # ——记账写的 task_id 必须能在 tasks 里查到，编不出来就留空。
         staging_token = task_id or f"inline-{uuid.uuid4().hex}"
         staged_output_path = task_image_staging_path(output_path, staging_token)
         _remove_task_staging_path(staged_output_path)
@@ -627,8 +615,6 @@ class MediaGenerator:
         async def _call_once(compressed: "list[CompressedRef]") -> Any:
             nonlocal submit_boundary_crossed
             if not submit_boundary_crossed:
-                # Mark before awaiting so cancellation/failure cannot cause a later retry to rewrite an immutable
-                # checkpoint. The caller must abort the whole request when this hook fails.
                 submit_boundary_crossed = True
                 if before_submit is not None:
                     await before_submit()
@@ -645,12 +631,6 @@ class MediaGenerator:
         limits = await self._reference_limits(provider_id)
         step = 0
         while True:
-            # 压缩是 CPU 密集的 PIL 解码/编码 + 写盘，清理临时目录要遍历删除，两头都放进线程，
-            # 避免阻塞 worker 事件循环（心跳 / SSE / 另一并发通道）。手动驱动上下文管理器：
-            # __enter__ 在线程里一完成就登记，取消落在压缩那一程时返回值会丢，finally 按登记清理。
-            # 清理不可打断：供应商已返回时，清理期间到达的取消不能丢掉付费结果。
-            # 预检 floor 在 __enter__ 内抛出，此时临时目录尚未创建（select_ladder_step 先于写盘），
-            # 不登记、直接冒泡。
             cm = compressed_reference_payload(specs, limits=limits, start_step=step)
             entered: list[tuple[int, list[CompressedRef]]] = []
 
@@ -665,12 +645,9 @@ class MediaGenerator:
                 except Exception as e:
                     if not _is_413(e) or (provider_resubmit_is_unsafe is not None and provider_resubmit_is_unsafe()):
                         raise
-                    # 从「实际落定档位 landed」续档，而非请求值 step——主动预检可能已因字节超限
-                    # 降到 landed>step，必须 landed+1 才严格更小、保证降档单调。
                     if landed < LADDER_STEPS:
                         step = landed + 1
                         continue
-                    # 已在地板仍 413 → 耗尽 → 用户可见硬错误（保 413 cause）
                     raise ReferencePayloadFloorError() from e
             finally:
                 if entered:
@@ -713,7 +690,6 @@ class MediaGenerator:
 
         if formal_output and commit_formal_output is None:
             raise ValueError("formal image output requires an artifact commit callback")
-        # 1. 定位输出、清理本任务残留的 staging；非正式输出时若已存在，确保旧文件被记录。
         output_path, staged_output_path, backend_output_path = await run_sync_transaction(
             self._prepare_image_target_sync,
             resource_type=resource_type,
@@ -727,19 +703,14 @@ class MediaGenerator:
         if self._image_backend is None:
             raise RuntimeError("image_backend not configured")
 
-        # 保留每个声明的槽位；空路径由共享读取器按 #序号报告。
         ref_images: list[ReferenceImage] = []
         for ref in reference_images or ():
             source = ref.get("image") if isinstance(ref, dict) else ref
             path = os.fspath(source) if isinstance(source, (str, os.PathLike)) else ""
             ref_images.append(ReferenceImage(path=path))
 
-        # Capability gating：调用通道实现了、且模型条目接受的才放行，与任务类型桶的候选同一个结果；参考图上限与
-        # 编排层准入读同一个生效值（lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，
-        # 这里按实际请求形态把关。
         from lib.backends.image_capabilities import gate_image_request
 
-        # 成对不变量保证 backend 非 None 时 provider_id 亦非 None。
         await gate_image_request(
             self._image_backend,
             provider_id=cast(str, self._image_provider_id),
@@ -747,8 +718,6 @@ class MediaGenerator:
             reference_paths=((reference_sources or {}).get(str(ref.path), ref.path) for ref in ref_images),
         )
 
-        # 2. 记账括号：进入落 pending，成功以 call.success(result) 递交 backend 结果对象，
-        #    Exception 自动翻 failed 后重抛，CancelledError 结算 cancelled 后重抛。
         async with _remove_staged_output_on_error(staged_output_path):
             async with self.ledger.record(
                 project_name=self.project_name,
@@ -757,7 +726,6 @@ class MediaGenerator:
                 prompt=prompt,
                 resolution=image_size,
                 aspect_ratio=aspect_ratio,
-                # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
                 provider=cast(str, self._image_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("image", resource_type, resource_id),
@@ -775,7 +743,6 @@ class MediaGenerator:
                 from lib.references.reference_compression import ReferenceSpec, RefRole
 
                 image_backend = self._image_backend
-                # 所有图像参考图都走数组角色（完整基线 + 降档梯子 + 字节预算）。
                 specs = [ReferenceSpec(source=Path(r.path), role=RefRole.ARRAY) for r in ref_images]
 
                 def _call_image(compressed: "list[CompressedRef]"):
@@ -867,19 +834,14 @@ class MediaGenerator:
         if self._audio_backend is None:
             raise RuntimeError("audio_backend not configured")
 
-        # 后端只写同目录唯一 staging 文件。只有同步合成完整成功且确实产出普通文件后，
-        # 才以原子 replace 提升为 canonical；失败或取消均不会触碰旧付费音频。
         output_path, staged_path = await run_sync_transaction(self._prepare_audio_staging_sync, resource_id)
 
-        # audio 合成字符数 → 计费 token 的语义转写已收进 ledger union 分发（_settlement_from_result），
-        # 此处仅把 backend 结果对象递交给 call.success。
         try:
             async with self.ledger.record(
                 project_name=self.project_name,
                 call_type="audio",
                 model=self._audio_backend.model,
                 prompt=text,
-                # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
                 provider=cast(str, self._audio_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("audio", resource_type, resource_id),
@@ -901,7 +863,6 @@ class MediaGenerator:
                 if before_submit is not None:
                     await before_submit()
                 result = await self._audio_backend.synthesize(request)
-                # 供应商已返回：核对产物不引入新的取消点，免得付费结果没记成 success。
                 if not await run_noninterruptible_sync(staged_path.is_file):
                     raise RuntimeError("audio backend completed without a regular output file")
                 call.success(result)
@@ -1015,17 +976,11 @@ class MediaGenerator:
         Returns:
             (output_path, version_number, video_ref, video_uri) 四元组
         """
-        # 先把 duration 归一为 int：上游可能传 "8.0" 浮点字符串，直接 int("8.0") 会 ValueError
-        # 走兜底分支静默掉真实值（"10.0" 会被吞成 8）。先 float() 再 int() 保留语义。
-        # 提前到所有 ensure_current_tracked / add_version / VideoGenerationRequest 之前，
-        # 让版本元数据与 provider 请求里的 duration_seconds 类型一致（都是 int），
-        # 避免 versions.json 落字符串而 ApiCall 落 int 的类型漂移。
         try:
             duration_int = int(float(duration_seconds)) if duration_seconds else DEFAULT_PLANNED_DURATION_SECONDS
         except (ValueError, TypeError):
             duration_int = DEFAULT_PLANNED_DURATION_SECONDS
 
-        # 1. 若已存在，确保旧文件被记录（只登记未知来源的旧文件，见 _prepare_video_target_sync）。
         output_path = await run_sync_transaction(
             self._prepare_video_target_sync,
             resource_type,
@@ -1036,17 +991,11 @@ class MediaGenerator:
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
 
-        # 空串 end_image 归一为 None：遗留/直接 Python 调用者可能以 "" 表示无尾帧
-        # （kling _build_payload 的真值判断锁定了这个兼容语义，见
-        # tests/integration/lib/backends/video_backends/test_kling_video_backend.py::test_image2video_empty_end_frame_is_omitted）。
-        # 下方 gating 用 is not None 判空，"" 若不归一会被误判成真尾帧。
         if not end_image:
             end_image = None
 
         model_name = self._video_backend.model
 
-        # 能力校验与槽位组装先于记账括号：能力不被支持时硬失败要"不扣费"，
-        # 在括号内抛虽也不结算，却会留一条 failed ApiCall 行；两者均无副作用，前置最干净。
         from lib.backends.backend_assembly.specs import effective_builtin_video_capabilities
         from lib.backends.video_frame_slots import (
             gate_video_request,
@@ -1056,21 +1005,13 @@ class MediaGenerator:
         )
         from lib.custom_provider import is_custom_provider
 
-        # prompt 长度校验对每个请求都适用（不像尾帧/参考图/参考音频那样可选），故能力查询不
-        # 按可选路径惰性触发。查询是纯读后端声明的同步调用，没有 I/O 开销。
         video_caps = resolve_video_capabilities(
             self._video_backend,
             service_tier=version_metadata.get("service_tier", "default"),
             resolution=resolution,
         )
-        # 内置供应商：档位感知的通道声明与模型条目两侧求值，用户添加的模型再叠加能力覆盖，与规划层同一口径
-        # （docs/adr/0104）。自定义供应商的生效能力已由 CustomVideoBackend 按同一规则求得。
         if self._video_provider_id is not None and not is_custom_provider(self._video_provider_id):
             video_caps = effective_builtin_video_capabilities(video_caps, self._video_provider_id, model_name)
-        # 总时长校验需要读音频元数据，只能在这层（拿得到文件路径）探测好再传给纯函数的
-        # gate_video_request；探测失败（随包 ffmpeg 不可用等）按 None 传入，由其按既有降级口径跳过
-        # 该项校验，不阻断请求。仅当 caps 声明了总时长约束才探测——未声明该约束的后端
-        # （如 wan2.7）不必为每个请求多付一轮探测子进程开销。
         reference_audio_total_seconds = (
             await probe_reference_audio_total_seconds(reference_audio_files)
             if reference_audio_files and video_caps.max_reference_audio_total_seconds is not None
@@ -1100,8 +1041,6 @@ class MediaGenerator:
             reference_audio_files=reference_audio_files,
             reference_audio_total_seconds=reference_audio_total_seconds,
         )
-        # 仅声明 first_frame_ratio_adaptive_only 的后端受影响；下发值与调用方持有的原始
-        # aspect_ratio（记账、分镜图生成沿用）分离，不回写覆盖上游变量。
         request_aspect_ratio = resolve_first_frame_aspect_ratio(
             caps=video_caps,
             aspect_ratio=aspect_ratio,
@@ -1125,8 +1064,6 @@ class MediaGenerator:
         if before_formal_commit is not None and staged_output_path is None:
             raise ValueError("before_formal_commit requires formal video output")
 
-        # video 实际计费时长（result.duration_seconds）覆盖请求时长的语义转写已收进 ledger union
-        # 分发（_settlement_from_result），此处仅递交 backend 结果对象。
         video_ref = None
         video_uri: str | None = None
         async with (
@@ -1140,7 +1077,6 @@ class MediaGenerator:
                 duration_seconds=duration_int,
                 aspect_ratio=aspect_ratio,
                 generate_audio=effective_generate_audio,
-                # 记账 provider 取解析层 provider_id；成对不变量保证 backend 非 None 时 provider_id 亦非 None。
                 provider=cast(str, self._video_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("video", resource_type, resource_id),
@@ -1176,14 +1112,11 @@ class MediaGenerator:
             from lib.backends.video_backends.registry import backend_metered_usage
 
             video_backend = self._video_backend
-            # FRAME（start/end 帧，永不缩尺寸）+ ARRAY（参考数组，完整梯子）按已知序位组织成
-            # specs（见 lib/backends/video_frame_slots.py），压缩后按 index 还原回三个请求字段。
             specs = slot_plan.specs
             start_spec_idx = slot_plan.start_index
             end_spec_idx = slot_plan.end_index
             ref_start_idx = slot_plan.reference_start_index
             provider_resubmit_unsafe = False
-            # 最后一次真正发出的请求：压缩降档重试会重建请求，计量按最终发出的那份取。
             sent_request: list[VideoGenerationRequest] = []
 
             def _mark_provider_resubmit_unsafe() -> None:
@@ -1193,8 +1126,6 @@ class MediaGenerator:
             def _call_video(compressed: "list[CompressedRef]"):
                 start_arg = compressed[start_spec_idx].path if start_spec_idx is not None else None
                 end_arg = compressed[end_spec_idx].path if end_spec_idx is not None else None
-                # 数组参考图恒在 specs 末段（append start/end 之后），故 [ref_start_idx:] 精确取它们；
-                # 无可压缩数组项时回落原 reference_images（保留 None / [] 语义）。
                 ref_arg = (
                     [c.path for c in compressed[ref_start_idx:]] if ref_start_idx is not None else reference_images
                 )
@@ -1207,13 +1138,8 @@ class MediaGenerator:
                     start_image=start_arg,
                     end_image=end_arg,
                     reference_images=ref_arg,
-                    # 压缩保序保数，素材引用项按原路径透传，按 reference_images 下标对齐的引用对 ref_arg 同样有效。
                     reference_image_asset_uris=asset_uris,
-                    # 音频不进压缩器（specs 只收图片），故直接透传原列表：顺序即 prompt
-                    # 「音频N」的指认顺序，任何重排都会把 A 角色的音色安到 B 角色头上。
                     reference_audio_files=reference_audio_files,
-                    # 数组参考图压缩保序（不改数量、不重排），故调用方按未压缩的
-                    # reference_images 下标算出的 targets 对压缩后的 ref_arg 同样有效。
                     reference_audio_targets=reference_audio_targets,
                     generate_audio=effective_generate_audio,
                     poll_timeout_seconds=poll_timeout_seconds,
@@ -1327,10 +1253,6 @@ class MediaGenerator:
             track_existing=False,
         )
 
-        # 先把 duration 归一为 int：上游可能传 "8.0" 浮点字符串，直接 int("8.0") 会 ValueError
-        # 走兜底分支静默掉真实值（"10.0" 会被吞成 8）。先 float() 再 int() 保留语义。
-        # 提前到 VideoGenerationRequest / add_version 之前，让版本元数据
-        # 与 provider 请求里的 duration_seconds 类型一致（都是 int，避免 versions.json 落字符串）。
         try:
             duration_int = int(float(duration_seconds)) if duration_seconds else DEFAULT_PLANNED_DURATION_SECONDS
         except (ValueError, TypeError):
@@ -1339,7 +1261,6 @@ class MediaGenerator:
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
 
-        # 待结算的调用行按任务身份反查——任务与调用的关联只有 ``api_calls.task_id`` 一个真相源。
         api_call_id = await self.ledger.pending_call_id_for_task(task_id) if task_id is not None else None
 
         if self._config is not None:
@@ -1390,11 +1311,6 @@ class MediaGenerator:
         try:
             result = await self._video_backend.resume_video(job_id, request)
         except ResumeExpiredError as exc:
-            # Pending ApiCall 翻 failed 而不是留 pending：让 /api/v1/usage 报表不堆积无终态行；
-            # cost_amount=0 不增加计费（resume 不重扣，符合 "不主动扣费" 红线）。
-            # 过期异常一并交给补账：这条行的失败原文只有这里拿得到，不传就只剩一个裸「失败」。
-            # finalize 失败时不吞异常，让 worker finally 走 mark_failed 兜底，避免 ApiCall
-            # 永久卡 pending 导致 usage 报表/补账缺口。
             async with _remove_staged_output_on_error(staged_output_path):
                 if api_call_id is not None:
                     await self.ledger.resume_failed(call_id=api_call_id, failure=exc)
@@ -1409,15 +1325,9 @@ class MediaGenerator:
 
         video_ref = None
         video_uri = result.video_uri
-        # 与首跑同一处置：同一笔任务在重启前后落下的版本元数据必须是同一份，否则「这一版用的
-        # 哪个种子」会因为进程什么时候重启过而不一样。
         _merge_result_provenance(version_metadata, result)
         _collect_result_warnings(warnings, result)
 
-        # Resume 成功：精准翻 pending → success。ledger.resume_success 收 backend 结果对象，
-        # 与视频通道成功分支同源做 union 分发（usage_tokens / generate_audio / 实际计费时长），
-        # cost 由 repo 按调用通道对续跑请求上报的计量计价——与 generate 路径记账等价，避免视频已生成但账本
-        # 永久漏记。finalize 自身异常不吞，交 worker finally 兜底；WHERE status='pending' 保护幂等性。
         if api_call_id is not None:
             async with _remove_staged_output_on_error(staged_output_path):
                 await self.ledger.resume_success(
@@ -1432,8 +1342,6 @@ class MediaGenerator:
                 job_id,
             )
 
-        # backend.resume_video 已将付费结果下载到请求路径。正式媒体请求写入 staging，随后由
-        # commit callback 在一个受控事务内保存历史并决定是否选中；非正式请求直接追加版本。
         await self._trash_if_target_deleted(
             resource_type=resource_type,
             resource_id=resource_id,

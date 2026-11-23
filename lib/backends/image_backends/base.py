@@ -45,7 +45,6 @@ async def save_image_from_response_item(item, output_path: Path) -> None:
     if b64:
 
         def _decode_and_save() -> None:
-            # 解码 + 写盘统一 offload 到线程，避免在事件循环内做 CPU 密集 base64 解码
             image_bytes = base64.b64decode(b64)
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_bytes(image_bytes)
@@ -66,9 +65,6 @@ class ImageCapability(StrEnum):
     IMAGE_TO_IMAGE = "image_to_image"
 
 
-#: 文生图与图生图都实现了的调用通道的通道事实。内置调用通道在类属性 ``CHANNEL_CAPABILITIES`` 上声明
-#: 自己实现了哪些（不构造实例即可读，见 ``registry.channel_capabilities``）；模型接不接受由模型条目说明，
-#: 生效能力取两者都满足的部分（见 ``lib.backends.image_capabilities``）。
 BOTH_IMAGE_CAPABILITIES: frozenset[ImageCapability] = frozenset(
     {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 )
@@ -90,13 +86,9 @@ class ImageGenerationRequest:
     reference_images: list[ReferenceImage] = field(default_factory=list)
     aspect_ratio: str = "9:16"
     image_size: str | None = None
-    #: 用户选择的画质，已按模型的有效画质可选值求过（见 :func:`lib.backends.image_capabilities.effective_image_quality`）：
-    #: 为 ``None`` 时调用通道沿用自己的既有做法（OpenAI Images 按分辨率档位推出 ``quality``）。
     quality: str | None = None
     project_name: str | None = None
     seed: int | None = None
-    #: 供应商响应的诊断回调，与 ``VideoGenerationRequest`` 同形。只有需要逐阶段留痕的调用方
-    #: （端点测试）会给它；生产的出图路径不收集留痕，保持 ``None``。
     on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None = None
 
 
@@ -115,11 +107,9 @@ class ImageRequestFacts:
     image_size: str | None = None
     reference_count: int | None = 0
     entry: CatalogEntry | None = None
-    #: 生效的画质，含义同 :attr:`ImageGenerationRequest.quality`，预估与执行取同一个值。
     quality: str | None = None
 
 
-#: 内置调用通道的预估函数：按请求事实推出会发送的请求字段与用量，与 ``generate`` 构造请求用同一套变换。
 ImageUsageEstimator = Callable[[ImageRequestFacts], Usage]
 
 
@@ -137,7 +127,6 @@ class ImageGenerationResult:
     image_uri: str | None = None
     seed: int | None = None
     usage_tokens: int | None = None
-    # OpenAI GPT Image 系列的 token 用量拆分（其它 backend 默认 None）
     image_input_tokens: int | None = None
     image_output_tokens: int | None = None
     text_input_tokens: int | None = None

@@ -29,11 +29,6 @@ from lib.infra.error_params import (
     shrinkable_copy,
 )
 
-# Backend capability rejections (``ImageCapabilityError`` / ``VideoCapabilityError`` /
-# ``ReferencePayloadFloorError``). Their ``.code`` is already an ``errors`` catalog key,
-# so the mapping below is identity — no prefix indirection. Enumerated rather than
-# derived so an unregistered code fails fast; ``tests/integration/lib/generation/test_task_failure_capability.py``
-# AST-scans the raise sites and fails CI when a new code is added without registering it.
 CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
     {
         "image_aspect_ratio_not_supported",
@@ -76,9 +71,6 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
-# Blocking codes emitted by ``ReferenceUnitRequestProjector``. The executor raises the
-# canonical ``ProjectionProblem`` through ``ReferenceProjectionBlockedError``; this
-# registry only authorizes those same codes for the persisted task-failure envelope.
 REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
     {
         "reference_asset_missing",
@@ -97,8 +89,6 @@ REFERENCE_PROJECTION_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
-# 生成输入被拒（``lib.artifacts.generation_input.InputRefused``）时，执行器经服务端翻译函数抛出的
-# 首个缺口码；同一缺口在参考生视频投影里也可能出现，两份登记表重叠处按集合合并。
 GENERATION_INPUT_FAILURE_CODES: frozenset[str] = frozenset(
     {
         "asset_description_required",
@@ -111,8 +101,6 @@ GENERATION_INPUT_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
-# 视频请求事实（``lib.generation.video_request_facts``）求值失败时分镜路线一族的问题码：执行器经
-# ``VideoRequestFactsError`` 阻断并按原码落库，与预检同码。参考路线一族与桶能力闸的码已在上面登记。
 VIDEO_REQUEST_FACTS_FAILURE_CODES: frozenset[str] = frozenset(
     {
         "video_duration_end_frame_not_supported",
@@ -125,8 +113,6 @@ VIDEO_REQUEST_FACTS_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
-# 生成时的供应商素材：适用关联尚未可用或入库失败（``lib.asset_library.generation_inputs``），以及供应商以
-# 输入图片未通过审核拒绝请求（``lib.backends.provider_assets``）。后者能确定被拒图片时带上图片编号与名称。
 PROVIDER_ASSET_FAILURE_CODES: frozenset[str] = frozenset(
     {
         "provider_asset_link_failed",
@@ -137,8 +123,6 @@ PROVIDER_ASSET_FAILURE_CODES: frozenset[str] = frozenset(
     }
 )
 
-# Stable failure code -> i18n errors key. The code is agent-facing and persisted
-# in the DB; the key resolves to zh/en/vi templates rendered at read time.
 FAILURE_CODE_KEYS: dict[str, str] = {
     "text_default_model_not_set": "text_default_model_not_set",
     "audio_default_model_not_set": "audio_default_model_not_set",
@@ -152,23 +136,15 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in PROVIDER_ASSET_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
     "narration_tts_speed_out_of_range": "narration_tts_speed_out_of_range",
-    # 方舟 Agent Plan 语音合成：上游拒绝（鉴权、套餐权限、额度或并发、音色授权）、其他业务错误码、流在合成成功结束
-    # 之前中断或内容残缺，以及重试用尽后仍连不上（请求没有送达）。参数只带有界的数字错误码，不保留上游与底层异常原文。
     "ark_agent_plan_tts_access_denied": "ark_agent_plan_tts_access_denied",
     "ark_agent_plan_tts_failed": "ark_agent_plan_tts_failed",
     "ark_agent_plan_tts_incomplete": "ark_agent_plan_tts_incomplete",
     "ark_agent_plan_tts_unreachable": "ark_agent_plan_tts_unreachable",
-    # 内置供应商的模型引用不在模型清单中（已改名或从未收录）：引用原样保留，由用户重新选择。
     "model_not_in_provider_catalog": "model_not_in_provider_catalog",
-    # 项目模型字段只写了内置供应商、没有选定模型（迁移补全不了的旧值）：由用户重新选择。
     "model_not_selected": "model_not_selected",
-    # 引用的模型已下线：带下线日期与官方后继，没有登记的那一句按 failure_message_key 换用省去它的文案。
     "model_discontinued": "model_discontinued",
-    # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进
-    # 译文模板：它不该被翻译，读侧按独立字段原样展示。
     "provider_rejected": "task_fail_provider_rejected",
     "dispatch_provider_requeue_failed": "task_fail_dispatch_provider_requeue_failed",
-    # 项目在任务执行期间被删除：任务放弃落盘，见 lib.project.task_project_claim。
     "project_deleted_during_task": "task_fail_project_deleted_during_task",
     "restart_lost_image": "task_fail_restart_lost_image",
     "restart_lost_audio": "task_fail_restart_lost_audio",
@@ -186,7 +162,6 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "declarative_image_save_failed": "task_fail_declarative_image_save_failed",
     "comfyui_reference_audio_invalid": "task_fail_comfyui_reference_audio_invalid",
     "comfyui_aspect_ratio_unmapped": "task_fail_comfyui_aspect_ratio_unmapped",
-    # 参考图或首尾帧不足时的改图失败：级联触到产物节点，这份 workflow 出片本身依赖那张图。
     "comfyui_image_drop_unsupported": "task_fail_comfyui_image_drop_unsupported",
     "comfyui_upload_failed": "task_fail_comfyui_upload_failed",
     "comfyui_node_errors": "task_fail_comfyui_node_errors",
@@ -194,7 +169,6 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "comfyui_execution_error": "task_fail_comfyui_execution_error",
     "comfyui_interrupted": "task_fail_comfyui_interrupted",
     "comfyui_output_missing": "task_fail_comfyui_output_missing",
-    # 图片供应商成功响应却没带回图片（多为内容安全过滤）：见 ImageOutputMissingError。
     "image_output_missing": "task_fail_image_output_missing",
     "image_output_format_unsupported": "task_fail_image_output_format_unsupported",
     "comfyui_output_type_mismatch": "task_fail_comfyui_output_type_mismatch",
@@ -202,20 +176,13 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "artifact_download_failed": "task_fail_artifact_download_failed",
     "restart_lost_checkpoint_no_job_id": "task_fail_restart_lost_checkpoint_no_job_id",
     "execution_identity_unrecoverable": "task_fail_execution_identity_unrecoverable",
-    # ScriptEditError.key 本身就是 errors.py 的 key（见 lib/script/script_editor.py），无需前缀间接层。
     "script_edit_error": "script_edit_error",
     "script_edit_items_not_list": "script_edit_items_not_list",
     "script_edit_unit_lists_invalid": "script_edit_unit_lists_invalid",
     "script_edit_generated_assets_invalid": "script_edit_generated_assets_invalid",
-    # 级联失败（TaskRepository._cascade_failed_queued）：reason 嵌套存储被级联依赖任务自身
-    # 的失败原因（可能又是一个结构化编码串），渲染时递归展开，见 render_failure。
     "cascade_blocked_dependency": "task_fail_cascade_blocked_dependency",
 }
 
-# A structured reason is ``[code]`` optionally followed by a single space and a
-# JSON object of params. Anchored at both ends so legacy ``[restart_lost] 中文``
-# (non-JSON tail) and arbitrary exception text never match. DOTALL keeps the JSON
-# group matching even if a param value contains an escaped newline.
 _STRUCTURED_RE = re.compile(r"^\[(\w+)\](?:[ ](\{.*\}))?$", re.DOTALL)
 
 CASCADE_FAILURE_CODE = "cascade_blocked_dependency"
@@ -264,8 +231,6 @@ def collapse_cascade_reason(reason: str) -> str:
         reason = nested
         seen += 1
         if seen > _MAX_CASCADE_UNWRAP:
-            # 正常链路远达不到这个深度（撑破预算前就折叠掉了）。真撞上说明遇到了畸形或人造
-            # 的深层串，就地收手：返回当前层，不在落库路径上空转。
             return reason
 
 
@@ -300,8 +265,6 @@ def bound_reason(reason: str, limit: int) -> str:
     try:
         parsed = json.loads(raw_params)
     except (ValueError, RecursionError):
-        # 畸形 JSON，以及嵌套过深到 ``json.loads`` 自身撞递归上限的 params。裁剪发生在落库
-        # 路径上，异常逸出会让任务卡在 running，因此一并按不可解析处理，退回按字符裁剪。
         return reason[:limit]
     if not isinstance(parsed, dict):
         return reason[:limit]
@@ -321,7 +284,6 @@ def bound_reason(reason: str, limit: int) -> str:
             for gap in gaps
         )
     ):
-        # 超限时每种原因保留一个缺口及省略数量；机器码和分组结构不参与字符串裁剪。
         for gap in gaps:
             kept_gaps.setdefault(gap["code"], {key: gap.get(key) for key in ("code", "asset_type", "name")})
         params["gaps"] = list(kept_gaps.values())
@@ -341,7 +303,6 @@ def bound_reason(reason: str, limit: int) -> str:
     return encode_failure(code, **params)
 
 
-#: 文案里带一段「该端点应产出的扩展名」的两条失败码；清单在渲染时按落库的 media_type 现算。
 _COMFYUI_ARTIFACT_MISMATCH_CODES = frozenset({"comfyui_output_type_mismatch", "comfyui_output_container_mismatch"})
 
 
@@ -412,8 +373,6 @@ def parse_failure(error_message: str | None) -> tuple[str, dict[str, Any]] | Non
     try:
         parsed = json.loads(raw_params)
     except (ValueError, RecursionError):
-        # 畸形 JSON，以及嵌套过深到 ``json.loads`` 自身撞递归上限的 payload。渲染发生在
-        # HTTP 请求内，异常逸出就是 500，因此一并按无法识别处理：调用方原样透传，原因不丢。
         return None
     if not isinstance(parsed, dict):
         return None

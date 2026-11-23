@@ -41,11 +41,8 @@ from server.services.admission.video_batch_admission import resolve_voice_contex
 
 logger = logging.getLogger(__name__)
 
-#: 条目的该提示词为待生成（``None`` 或字段不在）时的不可用原因：机械转换后尚未补写。
 UNAVAILABLE_PENDING = "prompt_preview_pending"
-#: 提示词字段在场但为空（空串 / 空对象）时的不可用原因。
 UNAVAILABLE_MISSING = "prompt_preview_missing"
-#: 提示词字段在场但形状不合规、渲染函数拒绝时的不可用原因。
 UNAVAILABLE_INVALID = "prompt_preview_invalid"
 
 
@@ -63,7 +60,6 @@ class RenderedPrompt:
 
     text: str | None = None
     unavailable: str | None = None
-    #: 不可用原因的文案参数：生成输入被拒时带全部缺口（与执行期错误详情同形）。
     unavailable_params: dict[str, object] = field(default_factory=dict)
     is_text_form: bool = False
     warnings: tuple[dict[str, Any], ...] = ()
@@ -149,8 +145,6 @@ async def preview_item_prompts(
         project = manager.load_project(project_name)
         project_path = manager.get_project_path(project_name)
         script = manager.load_script(project_name, script_file)
-        # 与执行期同一分派：生成模式定路径。只看骨架时，残留分镜数组会遮住合法单元，
-        # 分镜项目里的游离单元又会预览出一份永远不会发出的文本。
         is_reference_unit = is_reference_video_project(project) and "video_units" in script
         items, id_field, *_ = (
             resolve_items(script, kind="video_units") if is_reference_unit else get_storyboard_items(script)
@@ -169,13 +163,9 @@ async def preview_item_prompts(
             storyboard_image=RenderedPrompt(unavailable="storyboard_script_required"),
             video=await _render_reference_unit_video(project, script, item, project_path),
         )
-    # 声音绑定按项目当前的视频能力档解析（非 drama 或无声一律 None），与执行期同一判据。
     voice_characters = await resolve_voice_context(project, content_mode)
 
     def _assemble() -> StoryboardImageInput:
-        # 与执行期读同一份生成输入（含上一分镜图的可用性判定），「图N」编号才能逐字一致；
-        # 剧本未登记或内容已变更时以 ValueError 拒绝，按提示词不可渲染处理，产物清单本身的
-        # 故障（ArtifactManifestError）沿用 fail loud。
         script_input = resolve_usable_episode_script_input(
             project_path=project_path,
             project=project,
@@ -194,7 +184,6 @@ async def preview_item_prompts(
     generation_input: StoryboardImageInput | None = None
     image_prompt = item.get("image_prompt")
     is_text_form = isinstance(image_prompt, str)
-    # 空提示词不可渲染；待生成提示词交给生成输入，与引用缺口一次报全。
     if image_prompt is not None and (reason := _unavailable_before_rendering(image_prompt)) is not None:
         image = RenderedPrompt(unavailable=reason, is_text_form=is_text_form)
     else:

@@ -79,7 +79,6 @@ class AssetRepository(BaseRepository):
         stmt = _match_name(select(Asset), q)
         if type:
             stmt = stmt.where(Asset.type == type)
-        # id 作次序键：更新时间相同的条目在多次查询间顺序不变，offset 分页才不会重复或漏掉
         stmt = stmt.order_by(Asset.updated_at.desc(), Asset.id.desc()).limit(limit).offset(offset)
         return list((await self.session.execute(stmt)).scalars())
 

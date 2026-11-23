@@ -34,29 +34,20 @@ DEFAULT_MODEL = "qwen-audio-3.1-tts-flash"
 
 SPEECH_SYNTHESIZER_PATH = "/services/audio/tts/SpeechSynthesizer"
 
-# 非流式可用的输出格式，按落盘扩展名选取，保证文件内容与扩展名一致（资源路径约定 .wav）。
 _SUPPORTED_FORMATS = frozenset({"mp3", "pcm", "wav", "opus"})
 _FALLBACK_FORMAT = "wav"
-# 官方示例取 24000；该值对 opus 与其他格式都合法。
 _SAMPLE_RATE = 24000
-# ``rate`` 的合法区间，超出的语速收拢到边界而不是让供应商 400。
 _RATE_MIN = 0.5
 _RATE_MAX = 2.0
 
 
 def _voices(*voice_ids: str) -> tuple[VoiceOption, ...]:
-    # label 是 lib/i18n 翻译 key（voice_label_dashscope_*，见 lib/i18n/<locale>/assets.py），由音色接口按请求
-    # locale 渲染；点号不进 key。
     return tuple(
         VoiceOption(id=voice_id, label=f"voice_label_dashscope_{voice_id.lower().replace('.', '_')}")
         for voice_id in voice_ids
     )
 
 
-# 各模型的系统音色子集，出处：https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list 。
-# 只收旁白与角色配音常用的普通话与英文音色；小语种音色与 3.0 系 500+ 基础音色不在此暴露，
-# 照文档填写 voice 照常可用（设置页的音色是可自由填写的输入框）。
-# 官方列表按这四个型号名给出音色，且「不能跨模型混用」，没有提到日期快照或别名，所以只按型号名原样查表。
 _V31_FLAGSHIP = ("longanhuan_v3.1", "longanlingxin_v3.1", "longanfengyue_v3.1", "xunanchuan_v3.1")
 _VOICES_BY_MODEL: dict[str, tuple[VoiceOption, ...]] = {
     "qwen-audio-3.1-tts-plus": _voices(*_V31_FLAGSHIP),
@@ -141,8 +132,6 @@ class DashScopeSpeechSynthesizerBackend(DashScopeAudioBackend):
         return list(voices_for_model(self._model))
 
     def _synthesis_input(self, request: AudioSynthesisRequest) -> dict[str, Any]:
-        # language_type 不发送：本端点的 language_hints 是可选的目标语种提示，而上游传来的
-        # language_type 是固定缺省值（Chinese），并非按文本判定，发出去反会误导英文等文本的合成。
         body: dict[str, Any] = {
             "text": request.text,
             "voice": request.voice,

@@ -89,8 +89,6 @@ class _BackendCache:
     async def get_or_create(self, key: _CacheKey, factory: Callable[[], Awaitable[Any]]) -> Any:
         if key in self._entries:
             return self._entries[key]
-        # 代数须在等锁前捕获：若在失效边界前排队等锁，即使失效后才拿到锁，也要按排队时的
-        # 旧代数与失效后的当前代数不符处理，避免用旧 resolver 构造的实例污染新代际缓存。
         generation = self._generation
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
@@ -331,11 +329,7 @@ class VideoLaneResult:
     backend_model: str
     resolution: str | None
     request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
-    # 未声明路线的续跑保留用户音频意图；声明路线时只读视频请求事实。
     requested_generate_audio_fallback: bool = True
-    # 续跑比对的协议标识：自定义供应商为 endpoint 键（有路径覆盖时连同覆盖，见
-    # CustomVideoBackend.endpoint_guard），内置供应商为模型挂接的内置调用端点（lib.backends.resume_guard）。
-    # 续跑据此与执行检查点冻结的标识比对，见 server.services.tasks.resume_executor。
     endpoint: str | None = None
 
     @property
@@ -484,7 +478,6 @@ async def resolve_generation_context(
             )
             image_provider_model = resolved
             image_resolution = await r.resolve_resolution(project, resolved.provider_id, image_backend.model)
-            # 画质与分辨率同一个键（按构造后的 backend 身份）；有效可选值为空时忽略存值。
             image_quality = effective_image_quality(
                 project_image_quality(project, resolved.provider_id, image_backend.model),
                 backend_image_quality_options(image_backend, provider_id=resolved.provider_id),
@@ -508,8 +501,6 @@ async def resolve_generation_context(
             request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
             if video.route is not None:
                 assert generation_type is not None
-                # 带上该任务落的桶：音轨形态等逐路径能力位按执行子路径分叉，参考生视频内降级到
-                # i2v 的镜头按 i2v 桶求值。
                 request_facts = await evaluate_video_request_facts(
                     project,
                     route=video.route,
@@ -553,8 +544,6 @@ async def resolve_generation_context(
             )
 
     if image_provider_model is not None:
-        # 参考图上限可能要向供应商的模型目录查询（如 OpenRouter），放在 resolver session 之外，
-        # 不让一次外部请求占着数据库连接。
         image_result = ImageLaneResult(
             provider_model=image_provider_model,
             backend_name=image_backend.name,

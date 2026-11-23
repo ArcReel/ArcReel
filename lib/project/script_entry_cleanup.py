@@ -28,11 +28,8 @@ from lib.script.item_excerpt import position_snapshot
 from lib.speech.narration_config import POST_PRODUCTION, USE_TTS
 from lib.speech.speech_presentation import presentation_artifact_paths
 
-#: 删除记录的对象类型；对象描述 ``{"kind", "id": 条目编号, "episode", "script_file", "item_kind": 条目数组键}``，
-#: 条目在改写前的剧本里时另带删除时的称呼快照 ``item_position`` / ``item_excerpt``，回收站凭它们称呼条目。
 SCRIPT_ENTRY_KIND = "script_entry"
 
-#: 按条目编号命名的媒体资源类型：分镜图、尾帧快照、分镜视频、参考生视频单元视频、旁白配音。
 ENTRY_MEDIA_RESOURCE_TYPES: tuple[str, ...] = (
     "storyboards",
     END_FRAME_RESOURCE_TYPE,
@@ -117,7 +114,6 @@ def trash_entries(
                     **position_snapshot(script_before, entry_id),
                 }
                 records.append(project_trash.record_deletion(project_dir, obj, files, snapshot=True, before=before))
-                # 快照文件已随记录移走，只摘版本记录。
                 versions.detach_resources(_resources(history))
             if then is not None:
                 then()

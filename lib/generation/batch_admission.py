@@ -195,10 +195,6 @@ class BatchAdmission:
             quoted = [(_cost_amount(member.request_cost), _cost_currency(member.request_cost)) for member in members]
             priced = [(amount, currency) for amount, currency in quoted if amount is not None and currency is not None]
             currencies = {currency for _, currency in priced}
-            # The total covers the priced members only; those the price list cannot quote
-            # are counted in ``unpriced_count`` so the user sees the sum is a floor.
-            # Amounts of different currencies do not add up to a number at all, so a tier
-            # priced in more than one currency has no total.
             total = sum(amount for amount, _ in priced) if len(currencies) == 1 else None
             tiers.append(
                 BatchConfirmationTier(

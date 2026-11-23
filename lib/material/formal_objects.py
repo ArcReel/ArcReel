@@ -67,11 +67,8 @@ from lib.project.resource_paths import resource_extension
 logger = logging.getLogger(__name__)
 
 FORMAL_PREFIX = "arcreel-materials/"
-#: 新内容版本保存位置的全局设置键；取值 :data:`NewContentTarget`，缺省本地。设置页经对象存储路由修改，
-#: 没有对象存储连接时不能设为 ``object_storage``。
 MATERIAL_STORAGE_TARGET_SETTING = "material_storage_target"
 NewContentTarget = Literal["local", "object_storage"]
-#: 入库任务引用方键的前缀；只被入库持有的对象不保护连接。
 INGEST_HOLDER_PREFIX = "ingest:"
 
 _RETRY_BASE = timedelta(minutes=5)
@@ -98,8 +95,6 @@ class ProjectRetiringError(ConflictError):
         super().__init__("material_project_retiring")
 
 
-#: 正在收尾（整体删除或被覆盖导入替换）的项目目录（真实路径 → 进行中的收尾数）。收尾补齐引用之后、目录移走之前
-#: 发布的远端内容版本不会被墓碑持有，所以收尾期间这些目录上的远端保存在上传前失败。
 _RETIRING_PROJECTS: dict[str, int] = {}
 _RETIRING_GUARD = threading.Lock()
 
@@ -148,7 +143,6 @@ def _retry_delay(attempts: int) -> timedelta:
 
 
 _KEY_LOCKS: dict[tuple[int, str], asyncio.Lock] = {}
-#: 本进程进行中、尚未结束结算的正式提交（单进程部署，见 ADR 0007）。
 _LIVE_ATTEMPTS: set[str] = set()
 _CONNECTION_LOCKS: dict[int, asyncio.Lock] = {}
 
@@ -238,15 +232,12 @@ class ObjectContentStorage:
         self.bridge = bridge
         self.attempt_id = uuid.uuid4().hex
         self._project_paths: set[Path] = set()
-        # 登记早于任何占用落库：启动补做读到的占用若属于本进程进行中的提交，按这份登记跳过
         _LIVE_ATTEMPTS.add(self.attempt_id)
 
     def persist(self, project_path: Path, resource_type: str, source: Path, slot: LocalLocator) -> PersistedContent:
-        # 在版本锁内核对：收尾先登记、再在版本锁内读取，读取之后发布的远端版本到不了这里
         if stores_remotely(resource_type) and project_is_retiring(project_path):
             raise ProjectRetiringError()
         local = LocalMaterialStorage(project_path)
-        # 版本快照位置先写一份工作文件：摘要取自它，上传的也是它，记下的摘要与远端字节一致。
         digest = local.persist(source, slot)
         if not stores_remotely(resource_type):
             return PersistedContent(digest)
@@ -271,7 +262,6 @@ class ObjectContentStorage:
         needs_upload = self.bridge.run(self._begin(key, digest, len(data)))
         client = self.connection.client
         try:
-            # 复用已保存的对象也先确认它仍在桶里：被人在控制台删掉时按新内容重新上传
             if not needs_upload and not _present(client, key, len(data)):
                 needs_upload = True
             if needs_upload:
@@ -310,8 +300,6 @@ class ObjectContentStorage:
                 session.add(row)
                 await session.flush()
             elif needs_upload:
-                # 等待删除、已删除或另一次上传未确认的对象：由本次提交重新上传并负责失败补偿。连接换过 Endpoint 时
-                # 记录改为当前 Endpoint：对象写在这里，之后的删除与连接保护都按它判断。
                 row.state = "uploading"
                 row.endpoint = self.connection.endpoint
                 row.delete_attempts = 0
@@ -416,7 +404,6 @@ async def _settle_attempt(
             return bridge.run(_resolve_pending(session_factory, attempt_id, uses))
 
     candidates = await run_sync_transaction(_locked)
-    # 结算是唯一处理未确认上传的地方：撤下最后一个占用后再没有提交会确认它
     await _collect_unreferenced(
         session_factory, candidates, frozenset({"uploading", "stored"}), connection.client if connection else None
     )
@@ -463,7 +450,6 @@ async def _resolve_pending(
                 await _ensure_ref(session, ref.object_id, ref.project_name, content_version_id, state)
             await session.delete(ref)
         await session.commit()
-        # 本次用到或新建的对象都复核：同内容的提交并发时，先结算的那次看到别人的占用还在，回收落在最后撤下占用的这一次
         return list(objects)
 
 
@@ -615,7 +601,6 @@ async def recover_formal_commits(
         for attempt_id in stale_uploads:
             if attempt_id is not None:
                 attempts.setdefault(attempt_id, None)
-        # 读完占用之后再取进行中的提交：读到的占用若属于进行中的提交，它的登记早于占用落库，必然在这里
         for attempt_id in set(_LIVE_ATTEMPTS if running is None else running):
             attempts.pop(attempt_id, None)
     for attempt_id, project_name in attempts.items():
@@ -638,17 +623,12 @@ def _default_project_path(project_name: str) -> Path:
     return get_project_manager().get_project_path(project_name)
 
 
-# ---- 保留契约：引用方与统一回收（见 ``docs/adr/0118``） ------------------------------------------
-
-#: 引用的状态。``pending`` 进行中的正式提交占用；``active`` 引用方正在使用（项目版本历史里的内容版本，
-#: 或跨项目消费者登记的使用）；``trashed`` 项目回收站里的删除记录仍可恢复出这个内容版本。
 REF_PENDING = "pending"
 REF_ACTIVE = "active"
 REF_TRASHED = "trashed"
 _HELD_STATES = frozenset({REF_ACTIVE, REF_TRASHED})
 
 _VERSIONS_FILE = "versions/versions.json"
-#: 引用方持有的使用：对象定位 (连接 ID, 桶, key) → {(内容版本身份, 引用状态)}。
 type _Uses = dict[tuple[int, str, str], set[tuple[str, str]]]
 
 
@@ -866,7 +846,6 @@ async def add_reference(
     它不会与项目名或已删除项目的墓碑名重名，项目的重算也不会碰它。
     """
     session_factory = session_factory or _default_session_factory()
-    # 与连接变更串行：只为当前连接上的对象登记引用
     async with connection_change_lock(), object_key_lock(locator.key), session_factory() as session:
         row = await _object_row(session, locator.connection_id, locator.bucket, locator.key)
         if row is None or row.state not in {"stored", "orphaned"}:
@@ -919,7 +898,6 @@ async def release_holder(holder: str, session_factory: async_sessionmaker[AsyncS
     return await collect_unreferenced_objects(released, session_factory)
 
 
-#: 已删除项目超过保留期这么久、目录也已不在时，维护循环撤下仍挂在墓碑名下的引用（彻底删除后的显式撤下失败时兜底）。
 _TOMBSTONE_GRACE = timedelta(days=1)
 
 

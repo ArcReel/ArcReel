@@ -36,10 +36,8 @@ from lib.db.models.asset_library import AssetLibraryAccount
 from lib.infra.api_errors import BadGatewayError, UnprocessableError
 from lib.infra.image_utils import IMAGE_FORMAT_SUFFIXES, MAX_UPLOAD_PIXELS, ImagePixelLimitError
 
-#: 导入图片的字节上限，与手动上传图片相同；供应商素材库的图片上限低于此值。
 IMPORT_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 
-#: 可以导入的图片格式与保存时使用的扩展名，与手动上传允许的格式同出一处。
 _FORMAT_SUFFIXES = {name: suffixes[0] for name, suffixes in IMAGE_FORMAT_SUFFIXES.items()}
 
 _DOWNLOAD_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
@@ -88,7 +86,7 @@ async def _check_destination(url: httpx.URL, resolver: Resolver) -> None:
         try:
             async with asyncio.timeout(_DNS_TIMEOUT_SECONDS):
                 addresses = await resolver(host, url.port or 443)
-        except OSError:  # TimeoutError 亦是 OSError
+        except OSError:
             return
     if not all(_is_public(address) for address in addresses):
         raise _DestinationRejected

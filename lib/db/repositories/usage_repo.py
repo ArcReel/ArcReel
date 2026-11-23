@@ -37,9 +37,6 @@ from lib.i18n import DEFAULT_LOCALE
 
 logger = logging.getLogger(__name__)
 
-# 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
-# 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
-# 解析侧（grok / dashscope extractor）的 clamp 引用同一常量，保持口径一致。
 MAX_BILLED_DURATION_SECONDS = 86400
 MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024
 
@@ -65,18 +62,12 @@ def bound_provider_response(body: object) -> object:
         text = json.dumps(body, ensure_ascii=False, separators=(",", ":"), default=str)
     except (TypeError, ValueError, RecursionError):
         text = str(body)
-    # 逐次减半到包装后的写出体量真正落进上限内：escape 的膨胀率随内容而变（CJK 2 倍、
-    # 表情符号 3 倍），按固定比例预留兜不住最坏情形。
     prefix = text[: MAX_PROVIDER_RESPONSE_BYTES // 2]
     while prefix and _persisted_size({"truncated": True, "body": prefix}) > MAX_PROVIDER_RESPONSE_BYTES:
         prefix = prefix[: len(prefix) // 2]
     return {"truncated": True, "body": prefix}
 
 
-# segment_id 为 NULL（资产图、文本调用等非分镜维度）的记账在按 segment 汇总时归入的哨兵键。
-# 消费方按此键把项目级支出与分镜级支出分开，故键名在生产/消费两侧共用同一常量。前导 NUL 保证
-# 它撞不上任何真实 segment_id——后者取自 resource_id（分镜/单元 ID、资产名），不含控制字符。
-# 撞键会让剧本里同名的那个单元的支出既算进集合计、又作为项目级支出再算一次。
 PROJECT_LEVEL_SEGMENT_KEY = "\x00__project__"
 
 _MEDIA_CALL_TYPES = ("image", "video", "audio")
@@ -138,7 +129,6 @@ class _SettledCall:
     effective_generate_audio: bool | None
     input_tokens: int | None
     output_tokens: int | None
-    #: ``None`` 表示未定价，原因见 ``unpriced_reason``。
     cost_amount: float | None
     currency: str
     unpriced_reason: str | None = None
@@ -152,7 +142,6 @@ def _classify_asset_output_path(output_path: str | None) -> str:
     """
     if not output_path:
         return "other"
-    # 兼容绝对路径与相对路径
     normalized = output_path.replace("\\", "/").lower()
     for asset_type in ("characters", "scenes", "props", "products"):
         if f"/{asset_type}/" in normalized or normalized.startswith(f"{asset_type}/"):
@@ -293,9 +282,6 @@ class UsageRepository(BaseRepository):
             billed if billed is not None and 0 < billed <= MAX_BILLED_DURATION_SECONDS else row.duration_seconds
         )
 
-        # OpenAI 图片调用：input_tokens/output_tokens 列的"总和"语义
-        # = image_*_tokens + text_*_tokens（用于跨 call_type 聚合查询保持兼容）。
-        # resume 路径无图片 token，has_image_tokens 恒 False → 保持申报值原样。
         input_tokens = settlement.input_tokens
         output_tokens = settlement.output_tokens
         has_image_tokens = any(
@@ -319,7 +305,6 @@ class UsageRepository(BaseRepository):
             cost_amount = settlement.cost_amount
             currency = settlement.currency or base_currency
         elif auto_calc and is_builtin_provider(provider):
-            # 没有上报用量的调用同样走价目表：计量项全部落空，记为未定价，不按秒数或默认模型猜。
             cost = price_builtin_call(
                 provider=provider,
                 model=row.model or "",
@@ -332,8 +317,6 @@ class UsageRepository(BaseRepository):
             else:
                 cost_amount, unpriced_reason = None, str(cost.reason)
         elif auto_calc and is_custom_provider(provider):
-            # 自定义供应商按所对应条目的价目表与两级倍率计价，对应不上条目时记为未定价（docs/adr/0106）。没有上报
-            # 用量时计量项全部落空，同样记为未定价，不按媒体类型硬算、不猜秒数。
             pricing = await CustomProviderRepository(self.session).resolve_pricing(provider, row.model or "")
             cost = price_custom_call(
                 model=row.model or "",
@@ -348,7 +331,6 @@ class UsageRepository(BaseRepository):
             else:
                 cost_amount, unpriced_reason = None, str(cost.reason)
         elif auto_calc:
-            # 供应商既不在注册表、也不是自定义供应商（如已下线供应商的存量行）：对应不上条目，记为未定价。
             cost_amount, unpriced_reason = None, str(UnpricedReason.NO_ENTRY)
 
         return _SettledCall(
@@ -399,9 +381,6 @@ class UsageRepository(BaseRepository):
         """
         finished_at = utc_now()
 
-        # 无条件 fetch row：既用于 auto-calc cost 路径，也用于 duration_ms 回写
-        # （即便 caller 显式传 cost_amount，duration_ms 计算仍需要 started_at）。
-        # row.status='pending' 守卫继续由下面的 UPDATE WHERE 子句保证幂等性。
         select_result = await self.session.execute(select(ApiCall).where(ApiCall.id == call_id))
         row = select_result.scalar_one_or_none()
         if row is None:
@@ -496,13 +475,11 @@ class UsageRepository(BaseRepository):
             values: dict[str, Any] = {
                 "status": status,
                 "finished_at": finished_at,
-                # 中断调用没走完结算，「发起到本次重启」的墙钟时长不是调用耗时，与零费用同口径留空。
                 "duration_ms": None,
                 "cost_amount": effective.cost_amount,
                 "currency": effective.currency,
             }
             if error_code is not None:
-                # 已分类必有参数对象（读侧不变量：有码 ⇒ params 是对象），中断没有参数可带。
                 values["error_code"] = error_code
                 values["error_params"] = {}
             result = await self.session.execute(
@@ -744,11 +721,6 @@ class UsageRepository(BaseRepository):
             bucket[currency] = round(bucket.get(currency, 0) + total, 6)
         return result
 
-    # ------------------------------------------------------------------
-    # 使用记录读接口
-    # 筛选维度、投影与游标编码定义在本文件末尾的模块级「使用记录读侧」一节。
-    # ------------------------------------------------------------------
-
     async def list_records(
         self,
         *,
@@ -777,7 +749,6 @@ class UsageRepository(BaseRepository):
                     and_(ApiCall.started_at == cursor.started_at, ApiCall.id < cursor.id),
                 )
             )
-        # 多取一行只为判断还有没有下一页，省掉第二次 COUNT；它不进 items。
         items_stmt = (
             select(ApiCall, Task.task_type)
             .outerjoin(Task, Task.task_id == ApiCall.task_id)
@@ -808,10 +779,6 @@ class UsageRepository(BaseRepository):
         )
         row = (await self.session.execute(self._scope_query(stmt, ApiCall))).first()
         return _record_detail_to_dict(row[0], row[1]) if row is not None else None
-
-    # --- 汇总读接口（GET /usage/summary）------------------------------------------------
-    # 只取行，不在 SQL 里聚合：切天与桶填充交给 lib/billing/usage_summary.py，回避 SQLite 与
-    # PostgreSQL 的日期函数差异，也让时区与异常判定的边界能脱离数据库单独驱动。
 
     async def provider_display_names(self, provider_ids: set[str], *, locale: str = DEFAULT_LOCALE) -> dict[str, str]:
         """供应商 id → 目录里的显示名；目录查不到的回退 id 本身，查不到的 Agent 供应商给泛称。"""
@@ -876,9 +843,6 @@ class UsageRepository(BaseRepository):
             models=models,
         )
 
-    # --- Agent 会话视图 ------------------------------------------------------------------
-    # 记账粒度不变：每轮每个模型一条供应商调用记录。会话视图只是把 Agent 记录按 session_id 聚合展示。
-
     async def list_agent_sessions(
         self,
         *,
@@ -911,7 +875,6 @@ class UsageRepository(BaseRepository):
                     and_(last_started == cursor.last_started_at, ApiCall.session_id < cursor.session_id),
                 )
             )
-        # 多取一行只为判断还有没有下一页。
         page_stmt = page_stmt.order_by(last_started.desc(), ApiCall.session_id.desc()).limit(limit + 1)
         heads = (await self.session.execute(page_stmt)).all()
         page = heads[:limit]
@@ -941,7 +904,6 @@ class UsageRepository(BaseRepository):
         )
         totals = {row.session_id: row for row in (await self.session.execute(self._scope_query(totals_stmt, ApiCall)))}
 
-        # 费用按币种分别合计：不同模型的价目表币种可以不同；未定价（NULL）的记录不计入。
         costs_stmt = (
             select(ApiCall.session_id, ApiCall.currency, func.sum(ApiCall.cost_amount))
             .where(*in_page, ApiCall.cost_amount.is_not(None))
@@ -970,7 +932,6 @@ class UsageRepository(BaseRepository):
             items.append(
                 {
                     "session_id": head.session_id,
-                    # 会话元数据已删除时标题为 None，由界面显示「已删除的会话」。
                     "title": titles.get(head.session_id),
                     "session_deleted": head.session_id not in titles,
                     "project_name": row.project_name,
@@ -1009,15 +970,6 @@ class UsageRepository(BaseRepository):
         return [_session_record_to_dict(row) for row in rows]
 
 
-# ---------------------------------------------------------------------------
-# 使用记录读侧
-#
-# 这一段只读，与上面的记账写侧互不引用：写侧关心一次调用如何结算，读侧把 api_calls
-# 投影成「使用记录」交给设置页与顶栏。筛选维度、UTC 归一与游标编码在此定义一次，
-# ``/usage/records`` 与 ``/usage/summary`` 共用。
-# ---------------------------------------------------------------------------
-
-
 class UsageCursorError(ValueError):
     """游标串无法解码——不是合法 base64，或载荷不是 ``(started_at, id)``。"""
 
@@ -1036,8 +988,6 @@ class UsageFilters:
     media_types: tuple[str, ...] = ()
     since: datetime | None = None
     until: datetime | None = None
-    # 视图：``False`` 只要生成调用，``True`` 只要 Agent 会话的记录（来源 assistant_session），
-    # ``None`` 不分。汇总默认不分，计入合计的口径包含 Agent。
     agent: bool | None = None
 
 
@@ -1122,7 +1072,6 @@ class UsageCursor:
                 raise ValueError("游标字段类型或范围无效")
             return cls(started_at=as_utc(datetime.fromisoformat(started_at)), id=cursor_id)
         except (binascii.Error, LookupError, OverflowError, TypeError, UnicodeError, ValueError) as exc:
-            # OverflowError：时刻带极端偏移，换算到 UTC 越过 datetime 边界，与解析失败同等对待。
             raise UsageCursorError(f"无法解码的游标: {raw!r}") from exc
 
 
@@ -1212,7 +1161,6 @@ def _record_detail_to_dict(row: ApiCall, task_type: str | None) -> dict[str, Any
     }
 
 
-# 会话明细里「消息」一栏的截断长度：同一轮的几条记录共用同一条提示词，全文放进每一行没有意义。
 SESSION_PROMPT_PREVIEW_CHARS = 300
 
 

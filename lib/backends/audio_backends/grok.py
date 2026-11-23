@@ -30,20 +30,16 @@ logger = logging.getLogger(__name__)
 
 _TTS_URL = "https://api.x.ai/v1/tts"
 
-# 上游没有模型名，这是 ArcReel 的本地标识：只用于目录条目、记账和选择模型，不是官方模型名，也不发给上游。
 DEFAULT_MODEL = "grok-tts"
 
-# 官方的单次请求时限是 15 分钟。超时后请求可能已经计费且不能重试，所以不用更短的时限。
 _HTTP_TIMEOUT_SECONDS = 900.0
 
 _MIN_SPEED = 0.7
 _MAX_SPEED = 1.5
 
-# 按落盘扩展名选取编码，保证文件内容与扩展名一致（资源路径约定 .wav）。
 _SUPPORTED_CODECS = frozenset({"mp3", "wav", "pcm"})
 _FALLBACK_CODEC = "wav"
 
-# Chinese 是配音链路的固定缺省值，不代表文本语种；西班牙语和葡萄牙语缺少上游要求的地区码，均走 auto。
 _LANGUAGE_CODES = {
     "english": "en",
     "japanese": "ja",
@@ -55,9 +51,6 @@ _LANGUAGE_CODES = {
 }
 _AUTO_LANGUAGE = "auto"
 
-# 官方 Text to Speech 的 Voices 表列出的内置音色，出处见 docs/api-docs/endpoints/grok-tts.md。
-# 请求体没有模型字段，这张表属于端点本身，任何本地模型标识都用它。
-# 新建项目预填列表首项，所以官方默认音色 eve 排在最前。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=voice_id.capitalize())
     for voice_id in (
@@ -137,14 +130,11 @@ class GrokAudioBackend:
         return list(_VOICE_CATALOG)
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        # 设置页没有供应商语速范围，越界值在发出计费请求前报错，不静默改成边界值。
         if request.speed is not None and not _MIN_SPEED <= request.speed <= _MAX_SPEED:
             raise UnprocessableError(
                 "narration_tts_speed_out_of_range", speed=request.speed, minimum=_MIN_SPEED, maximum=_MAX_SPEED
             )
-        # 计费调用与写盘分离：重试只包 API 调用，写盘失败绝不回头重跑会再次计费的合成请求。
         audio = await self._request_speech(request)
-        # 供应商已计费返回，写盘不可被取消打断，结果照常成为产物
         await run_noninterruptible_sync(request.output_path.write_bytes, audio)
         logger.info("xAI 语音合成完成: %s", request.output_path)
         return AudioSynthesisResult(
@@ -173,7 +163,6 @@ class GrokAudioBackend:
             len(request.text),
         )
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
-            # 合成是计费 POST：submit_post 把歧义传输错误转终态失败避免重复计费，>=400 交状态码分流
             resp = await submit_post(
                 lambda: client.post(
                     _TTS_URL,

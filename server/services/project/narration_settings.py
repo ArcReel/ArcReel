@@ -78,7 +78,6 @@ async def _voice_for_backend(resolver: ConfigResolver, provider_id: str, model_i
     try:
         voice_ids = await audio_backend_voice_ids(provider_id, model_id, resolver)
     except Exception as exc:
-        # 预填只是尽力而为：缺 API Key、Vertex 凭证文件不可读等构造失败都不能阻断建项
         logger.warning("读取音色表失败，旁白音色按全局设置预填 backend=%s/%s：%s", provider_id, model_id, exc)
         return voice
     if voice_ids and voice not in voice_ids:
@@ -126,7 +125,6 @@ async def new_project_narration_fields(
     if backend:
         backend = fields[TTS_BACKEND_FIELD] = validate_tts_backend(backend)
         if TTS_VOICE_FIELD not in value.provided and voice is not None:
-            # 音色按实际写入的模型校正，显式给出的模型可能与全局默认模型不是同一家
             provider_id, model_id = backend.split("/", 1)
             voice = await _voice_for_backend(resolver, provider_id, model_id, voice)
     if voice is not None and voice.strip():

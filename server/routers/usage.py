@@ -36,7 +36,6 @@ from server.services.project.episode_item_refs import with_episode_item_refs
 
 router = APIRouter()
 
-# 使用记录的两个视图：「生成调用」不含 Agent 记录，「Agent 会话」只含 Agent 记录。
 UsageView = Literal["generation", "agent"]
 _VIEW_DESCRIPTION = "视图：generation（生成调用，默认，不含 Agent 记录）或 agent（Agent 会话的记录）"
 
@@ -55,7 +54,6 @@ class EpisodeItemRef(BaseModel):
     episode_title: str
     episode_position: int
     item_id: str
-    # 分镜或视频单元在本集条目数组里的当前位置（从 1 起）；条目已不在剧本里时为 None。
     item_position: int | None = None
     item_excerpt: str = ""
     item_thumbnail: str | None = None
@@ -66,7 +64,6 @@ class UsageRecord(BaseModel):
 
     id: int
     project_name: str
-    # 项目标题；项目已删除、读不到或未设标题时为 None，界面回退到项目名。
     project_title: str | None = None
     purpose: str | None = None
     task_id: str | None = None
@@ -84,11 +81,9 @@ class UsageRecord(BaseModel):
     started_at: str
     finished_at: str | None = None
     duration_ms: int | None = None
-    # None 表示未定价；0 是定价为零。
     cost_amount: float | None
     unpriced_reason: str | None = None
     currency: str
-    # input_tokens 是总输入，含缓存读写；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
     input_tokens: int | None = None
     output_tokens: int | None = None
     cache_read_tokens: int | None = None
@@ -111,8 +106,6 @@ class UsageRecordDetail(UsageRecord):
     prompt: str | None = None
     inputs: Any = None
     last_provider_response: Any = None
-    #: 调用的供应商仍在供应商设置里（内置供应商，或没有删除的自定义供应商），详情据此链接到供应商模型的设置。
-    #: Agent 凭证、已删除的自定义供应商与已不再内置的旧值为 ``False``。
     provider_in_settings: bool = False
 
 
@@ -124,8 +117,6 @@ class UsageRecordPage(BaseModel):
     total: int
 
 
-# 时间参数可表示的 UTC 区间：留出一天余量，任何时区偏移、半开右端的减一微秒与本地日折算
-# 都不会越过 datetime 的边界。
 _EARLIEST_INSTANT = datetime(1, 1, 2, tzinfo=UTC)
 _LATEST_INSTANT = datetime(9999, 12, 30, tzinfo=UTC)
 
@@ -244,10 +235,6 @@ async def _provider_in_settings(session: AsyncSession, provider_id: str) -> bool
     return await CustomProviderRepository(session).get_provider(db_id) is not None
 
 
-# --- Agent 会话视图 ---------------------------------------------------------------------
-# 记账粒度不变（每轮每个模型一条记录），这里把 Agent 记录按 session_id 聚合成每个会话一行。
-
-
 class UsageAgentSession(BaseModel):
     """一个 Agent 会话在会话列表里的一行；合计只含落在筛选内的记录。"""
 
@@ -260,7 +247,6 @@ class UsageAgentSession(BaseModel):
     calls: int
     input_tokens: int
     output_tokens: int
-    # 已定价记录的费用，按币种分别合计；未定价（NULL）的记录不计入，数量见 unpriced_calls。
     cost: dict[str, float]
     unpriced_calls: int
     first_started_at: str
@@ -289,7 +275,6 @@ class UsageAgentSessionRecord(BaseModel):
     cache_read_tokens: int | None = None
     cache_write_5m_tokens: int | None = None
     cache_write_1h_tokens: int | None = None
-    # None 表示未定价，原因见 unpriced_reason；0 是定价为零。
     cost_amount: float | None
     unpriced_reason: str | None = None
     currency: str
@@ -347,11 +332,6 @@ async def get_usage_session(session_id: str) -> UsageAgentSessionDetail:
     return UsageAgentSessionDetail(session_id=session_id, items=[UsageAgentSessionRecord(**item) for item in items])
 
 
-# --- 汇总读接口（GET /usage/summary）---------------------------------------------------
-# 设置页总览与顶栏入口共用这一次请求：KPI、日桶趋势、三维构成、需要关注与筛选候选值。
-# 聚合规则在 lib/billing/usage_summary.py，这里只负责取参、取行与形状声明。
-
-
 class UsageStats(BaseModel):
     """一组调用的计数与分币种参考费用。"""
 
@@ -360,7 +340,6 @@ class UsageStats(BaseModel):
     failed: int
     cancelled: int
     success_rate: float | None
-    # 只合计已定价的调用；未定价的调用不计入金额，数量见 unpriced_calls。
     cost: dict[str, float]
     unpriced_calls: int
 
@@ -495,7 +474,6 @@ async def get_usage_summary(
     since / until 展开的日桶超过 ``MAX_DAILY_BUCKETS`` 返回 422：桶数由这两个时刻直接决定，
     不设上界会让一对离谱的时刻在服务端同步铺出几百万个桶。
     """
-    # 解析不了的时区名直接 422，不静默回落 UTC——切天口径错了整张趋势图都会错位。
     try:
         zone = await asyncio.to_thread(ZoneInfo, tz)
     except (KeyError, ValueError, OSError) as exc:
@@ -516,8 +494,6 @@ async def get_usage_summary(
         rows = await repo.fetch_summary_rows(filters=filters)
         options = await repo.fetch_usage_filter_options(agent=_view_filter(view), locale=locale)
 
-    # 仓储按默认语言给出目录里的显示名；有译名表的内置供应商按请求语言改写，自定义供应商
-    # 用户自填的名字原样保留，与 /providers 目录同一张表。
     localized = UsageFilterOptions(
         projects=options.projects,
         providers=[

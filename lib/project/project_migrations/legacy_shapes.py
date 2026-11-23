@@ -84,23 +84,18 @@ from lib.script.script_editor import ScriptEditError, new_item_id, resolve_items
 
 logger = logging.getLogger(__name__)
 
-#: 从这个版本起账本与资产名称空间都已就位；规整先于 v6→v7（它按账本逐集改写剧本）与之后的
-#: 每一次产物目标态规划。
 NORMALIZE_FROM_SCHEMA_VERSION = 6
 _CANONICAL_BINDING_SCHEMA_VERSION = 15
 _DRAFT_RENAME_SCHEMA_VERSION = 10
-#: v9→v10 改名之前的落盘名：脚本规划草稿的新名 → 旧名，以及集条目上的确认记录字段。
 _LEGACY_DRAFT_NAMES = {new: old for old, new in DRAFT_FILE_RENAMES.items()}
 _LEGACY_REVIEW_FIELD = "step1_review"
 _DERIVATIVE_SHEET_FIELD = ASSET_SPECS[DERIVATIVE_ASSET_TYPE].sheet_field
 
-#: 条目产物字段 → 资源类型；参考生视频单元的视频在 ``reference_videos`` 下。
 _MEDIA_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("storyboard_image", "storyboards", "storyboards"),
     ("video_clip", "videos", "reference_videos"),
     ("narration_audio", "audio", "audio"),
 )
-#: 只描述某个主媒体的生成状态：主媒体不在时它们没有可描述的对象。
 _MEDIA_COMPANION_FIELDS: dict[str, tuple[str, ...]] = {
     "storyboard_image": ("storyboard_last_image", "grid_id", "grid_cell_index"),
     "video_clip": ("video_thumbnail", "video_uri", "video_generated_at"),
@@ -114,9 +109,7 @@ class _Work:
     project: dict[str, Any]
     lexical_project_dir: Path = field(init=False)
     project_changed: bool = False
-    #: 已落盘的规整项：重跑发现不了它们，中途失败也要记下。改动 ``project.json`` 的规整项排在最前。
     adjusted: list[MigrationAdjustment] = field(default_factory=list)
-    #: 改动 ``project.json`` 的规整项；写盘后才移进 ``adjusted``，保留副本路径要等第一次写盘时才知道。
     project_adjustments: list[MigrationAdjustment] = field(default_factory=list)
     project_recorded: int = 0
     project_committed: bool = False
@@ -208,7 +201,6 @@ def _split_shared_bindings(work: _Work) -> None:
             continue
         script = _load_object(path) if path.is_file() and not path.is_symlink() else None
         if script is None and path.is_file():
-            # 读不出的剧本不归规整：绑定原样留下，之后的迁移步照旧拒绝整个项目。
             continue
         claimed = script.get("episode") if script is not None else None
         owner = next((sharer for sharer in sharers if sharer[0] == claimed), sharers[0])
@@ -408,22 +400,17 @@ def _canonicalize_bindings(work: _Work) -> None:
             old_paths.add(work.rel(bound))
             original = _unstaged_path(bound, episode)
             if original is not None:
-                # 上一次成环时改绑到临时名后中断：报告仍写原来的绑定。
                 raw = work.rel(original)
             staged = _staged_path(bound, episode)
             if staged.is_file():
-                # 上一次在成环处中断：这一集的剧本在临时名下，原绑定上若有文件也是别集挪进来的。
                 source = staged
                 old_paths.add(work.rel(staged))
             elif bound != canonical and bound.is_file():
                 source = bound
         if source is not None and _load_object(source) is None:
-            # 读不出的剧本不归规整，之后的迁移步照旧拒绝整个项目；这时不挪任何一集的剧本，
-            # 免得它被别集挪成保留副本、或拒绝点名的不再是盘上原来的文件。
             return
         rebinds.append(_Rebind(episode=episode, entry=entry, raw=raw, old_paths=old_paths, source=source))
 
-    # 没有可挪文件的集也排进来：它的规范路径若正是别集待挪的剧本，等那一集挪走后再改它的引用。
     pending = rebinds
     while pending:
         sources = {rebind.source for rebind in pending if rebind.source is not None}
@@ -450,8 +437,6 @@ def _canonicalize_bindings(work: _Work) -> None:
             _relocate(work, ready, ready.canonical_rel)
         except BaseException:
             if backup is not None:
-                # 保留副本已经挪出来，重跑时发现不了它：中途失败也让报告指向它。重跑完成同一处改绑时
-                # 记下的那一条不带保留副本，按同一处改动只记一次。
                 work.adjusted.append(_binding_canonicalized(ready, backup))
             raise
         work.adjusted.append(_binding_canonicalized(ready, backup))
@@ -498,7 +483,6 @@ def _drop_duplicate_assets(work: _Work) -> None:
         if not isinstance(bucket, dict):
             continue
         seen: dict[str, str] = {}
-        # 保留条目的衍生表连同前面几条重名资产迁入的衍生：同一保留条目可能并入多条重名资产。
         kept_tables: dict[str, dict[str, Any]] = {}
         for name in list(bucket):
             if not isinstance(name, str):
@@ -554,7 +538,6 @@ def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> N
     renaming = [drop for drop in drops if drop.renames_references]
     if not renaming:
         return
-    # script_review 经 project_manager 间接依赖迁移链，惰性 import 破环。
     from lib.script.script_review import (
         carry_confirmation_through_migration,
         content_fingerprint_of_data,
@@ -612,7 +595,6 @@ def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> N
     if carried:
         work.project_changed = True
         _commit_project(work, keep_copy=True)
-    # 每写完一个文件就记下它的改写：中途失败时已改写的那几集重跑发现不了，要靠这份记录带到重试。
     recorded: set[tuple[int, int]] = set()
     for episode, path, payload, _before, hits in changed:
         ensure_versioned_backup(path, work.schema_version)
@@ -720,14 +702,12 @@ def _relocate_derivative_sheet(work: _Work, derivative: object, owner: str, kept
             return {}
         target.parent.mkdir(parents=True, exist_ok=True)
         os.replace(source, target)
-        # 只是收纳目录：非空或删不掉都不影响任何登记。
         with contextlib.suppress(OSError):
             source.parent.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
     derivative[_DERIVATIVE_SHEET_FIELD] = new_rel
     return {normalize_artifact_path(value): normalize_artifact_path(new_rel)}
 
 
-#: 参考文件字段 → 本资产名下的落点（资产类型目录下的子目录）；多图序列按 ``名字_{序号}`` 命名。资产图落在类型目录本级。
 _REFERENCE_FILE_SUBDIRS = {"reference_image": "refs", "reference_audio": "refs_audio", "reference_images": "refs"}
 
 
@@ -747,7 +727,6 @@ def _named_file_fields(work: _Work) -> Iterator[tuple[str, str, dict[str, Any], 
         if not isinstance(bucket, dict):
             continue
         for name, entry in bucket.items():
-            # 复制目标用资产名拼文件名；导入包在校验资产名之前就跑迁移链，含路径分隔符的名字会把副本写出目录。
             if not isinstance(name, str) or not isinstance(entry, dict) or "/" in name or "\\" in name:
                 continue
             for field_name in named_file_fields(spec):
@@ -768,7 +747,6 @@ def _copy_shared_reference_files(work: _Work) -> None:
             enumerate(entry[field_name]) if isinstance(entry.get(field_name), list) else [(None, entry.get(field_name))]
         )
     ]
-    # 新落点可能占用另一字段的源路径；继续规划受影响字段，直到每个引用都有稳定落点。
     while pending:
         remaining = []
         for asset_type, name, entry, field_name, index, value in pending:
@@ -885,14 +863,12 @@ def _plan_reference_copy(
     rel = _canonical_reference(work.lexical_project_dir, value)
     collided = _planned_target_at(work.project_dir, rel, planned)
     owner = _named_file_owner(work.project, rel)
-    # 本资产名下或不归任何资产的路径原本不必复制，只有落点要写入副本时才让位。
     stays_put = owns_named_file(spec, name, rel) or owner is None
     if stays_put and collided is None:
         return None
     target_dir = PurePosixPath(spec.subdir)
     if field_name != spec.sheet_field:
         target_dir /= _REFERENCE_FILE_SUBDIRS[field_name]
-    # 参考音频只认角色参考音频目录里的文件，别处的值本就不生效，复制过来反倒让它生效。
     if field_name == "reference_audio" and PurePosixPath(rel).parent != target_dir:
         return None
     source = _copy_source(work.project_dir, rel)
@@ -945,7 +921,6 @@ def _planned_target_at(
             if (
                 path.samefile(project_dir / target)
                 if path.exists() and (project_dir / target).exists()
-                # 悬空引用没有文件身份可比，保守预留大小写与 Unicode 等价写法，避免写入后接管它。
                 else normalize_asset_name(rel).casefold() == normalize_asset_name(target).casefold()
             )
         ),
@@ -988,7 +963,6 @@ def _sequenced_copy_target(
 
     listed = {item.replace("\\", "/") for item in siblings if isinstance(item, str)}
     directory = work.project_dir.joinpath(*target_dir.parts)
-    # 序列里已声明的序号即使文件缺失也算占用，否则新副本会成为那一项读到的内容。
     taken = {
         normalize_asset_name(PurePosixPath(rel).stem)
         for rel in (*planned, *listed)
@@ -1021,7 +995,6 @@ def _canonical_reference(project_dir: Path, value: str) -> str:
     指向项目内的绝对路径都归到同一写法，归属判定才认得出它们。落在项目之外的值原样返回，不归任何资产。
     """
 
-    # 按运行平台的路径语义拼接：Windows 上 ``C:/…`` 才会被认作绝对路径。
     joined = os.path.normpath(os.path.join(project_dir, value.replace("\\", "/")))
     for base in dict.fromkeys((os.path.normpath(project_dir), os.path.realpath(project_dir))):
         if joined.startswith(base + os.sep):
@@ -1044,7 +1017,6 @@ def _named_file_owner(project: dict[str, Any], rel: str) -> tuple[str, str] | No
     return None
 
 
-#: 条目 id 的集号前缀（与 ``script_editor`` 的条目 id 形态一致，含 ``_N`` 拆分后缀）。
 _ITEM_ID_EPISODE = re.compile(r"\AE(\d+)[SU]\d+(?:_\d+)?\Z")
 _ITEM_ID_PARTS = re.compile(r"\AE(\d+)([SU])(\d+)\Z")
 
@@ -1116,7 +1088,6 @@ def _repair_item_ids(work: _Work) -> None:
                 seen.add(current)
                 continue
             old_id = current if isinstance(current, str) else ""
-            # 先清掉坏 id 再取号：取号只看现存条目，坏 id 不该参与顺延。
             item.pop(id_field, None)
             new_id = _fresh_item_id(script, taken)
             item[id_field] = new_id
@@ -1212,8 +1183,6 @@ def normalize_legacy_shapes(project_dir: Path, *, schema_version: int, record: l
     try:
         _drop_duplicate_episodes(work)
         _split_shared_bindings(work)
-        # 资产去重先于改绑：第一次提交 project.json 时，它的规整项已在待提交之列，留下的就是保留副本，
-        # 能覆盖全部 project.json 规整项。它平移确认指纹时自己先行提交，同样留保留副本。
         _drop_duplicate_assets(work)
         _copy_shared_reference_files(work)
         _canonicalize_bindings(work)
@@ -1223,8 +1192,6 @@ def normalize_legacy_shapes(project_dir: Path, *, schema_version: int, record: l
         if work.project_changed:
             _commit_project(work)
     finally:
-        # 上一次中途失败时已记下的改动，重跑时可能再次发现（如改绑没来得及提交）：同一处改动只记一次，
-        # 留先记下的那条，它带着当时挪出的保留副本。
         recorded = {_adjustment_identity(item) for item in record}
         record.extend(item for item in work.adjusted if _adjustment_identity(item) not in recorded)
     if work.adjusted:

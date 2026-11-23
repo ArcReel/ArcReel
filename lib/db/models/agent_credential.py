@@ -29,18 +29,15 @@ class AgentAnthropicCredential(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False, default=DEFAULT_USER_ID)
-    preset_id: Mapped[str] = mapped_column(String(64), nullable=False)  # "deepseek" | "__custom__" | ...
+    preset_id: Mapped[str] = mapped_column(String(64), nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
-    api_key: Mapped[str] = mapped_column(Text, nullable=False)  # 明文，读出 API mask_secret 脱敏
+    api_key: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     haiku_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     sonnet_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     opus_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     subagent_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    # Agent 凭证倍率（docs/adr/0100、0102）：乘在经这条凭证的每次 Agent 调用的参考费用上，只此一级；为 0 时记 0。
     multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default=text("1"))
-    # 档位到条目绑定（「模型厂商/官方模型名」）的映射，档位见 lib.agent.credential_tiers.TIERS。NULL 或缺某个档位 =
-    # 按模型名现查；绑定的条目已不在目录里时同样回到按模型名现查。
     tier_bindings: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)

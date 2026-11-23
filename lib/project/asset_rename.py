@@ -103,9 +103,6 @@ class AssetDeletionPreview:
     episodes: tuple[AssetEpisodeReferences, ...]
 
 
-#: 各资产类型在剧本/草稿骨架里的「名称列表」引用字段。列表内只有 str 元素才是名称引用——
-#: drama 顶层 ``scenes`` 是分镜 dict 列表，与 narration 分镜里的场景名列表同 key 不同形，
-#: 按元素类型即可区分，无需骨架特例。
 _LIST_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
     asset_type: frozenset(spec.reference_list_fields) for asset_type, spec in ASSET_SPECS.items()
 }
@@ -129,12 +126,8 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
     count = 0
 
     if asset_type == "character" and not split_derivative_reference(asset_name_comparison_key(old_name))[1]:
-        # 旧式剧本把角色表镜像内嵌在顶层 characters dict（update_character_sheet 写入路径），
-        # re-key 并同步其中的 sheet 路径字段，避免旧名以镜像形式残留。衍生改名不动本体的 key。
         embedded = payload.get("characters")
         if isinstance(embedded, dict):
-            # 无条件收编：胜出 key 恰好已是新名（纯改编码形式的改名）时，另一条等价 key
-            # 仍带着旧路径，不能因为胜出 key 看起来没变就跳过。计数看 key 是否真的变了。
             keys_before = list(embedded)
             entry = rekey_equivalent_entries(embedded, old_name, new_name)
             if entry is not None:
@@ -271,7 +264,6 @@ def _named_file_dirs(project_dir: Path, spec: AssetSpec) -> list[tuple[Path, boo
     return [(directory, allow_sequence) for directory, allow_sequence in candidates if directory.is_dir()]
 
 
-#: 资产条目里登记上传原件的路径字段（参考图、参考音频、多图序列），按名归属。
 REFERENCE_FILE_FIELDS = ("reference_image", "reference_audio", "reference_images")
 
 

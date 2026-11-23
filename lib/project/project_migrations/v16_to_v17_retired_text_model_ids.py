@@ -21,17 +21,13 @@ from lib.project.project_schema import parse_project_schema_version
 
 TARGET_SCHEMA_VERSION = 17
 
-#: 冻结的退役模型映射：只供这一步迁移使用，不再增删，历史项目的升级结果因此可以复现。
-#: 运行期不再按写死的映射改写引用，之后的退役只通过模型目录条目的生命周期表达（docs/adr/0106）。
 _RETIRED_MODEL_REFERENCES: dict[str, str] = {
     "gemini-aistudio/gemini-3.1-flash-lite-preview": "gemini-aistudio/gemini-3.1-flash-lite",
     "gemini-vertex/gemini-3.1-flash-lite-preview": "gemini-vertex/gemini-3.1-flash-lite",
-    # 方舟 Seed 2.0 Lite/Mini 的 260215 版本与 xAI Grok 4.1 Fast 停服，改用同档在役型号
     "ark/doubao-seed-2-0-lite-260215": "ark/doubao-seed-2-1-lite-260915",
     "ark/doubao-seed-2-0-mini-260215": "ark/doubao-seed-2-0-mini-260428",
     "grok/grok-4-1-fast-reasoning": "grok/grok-4.3",
     "grok/grok-4-1-fast-non-reasoning": "grok/grok-4.3",
-    # 图片：Gemini 图片模型正式发布，AI Studio 与 Vertex 都改用不带 -preview 的名字
     "gemini-aistudio/gemini-3-pro-image-preview": "gemini-aistudio/gemini-3-pro-image",
     "gemini-aistudio/gemini-3.1-flash-image-preview": "gemini-aistudio/gemini-3.1-flash-image",
     "gemini-vertex/gemini-3-pro-image-preview": "gemini-vertex/gemini-3-pro-image",

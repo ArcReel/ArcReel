@@ -31,12 +31,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-3-flash-preview"
 
-# 这些关键字的值是「名字 → 子 schema 的映射」：其 key 是属性名/定义名，不是 schema 关键字。
-# 递归进入时，每个值才是子 schema（key 可能恰好叫 ``const``，不可当关键字识别）。
 _SUBSCHEMA_MAP_KEYS = frozenset({"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"})
-# 这些关键字的值是「实例数据」而非子 schema：不可递归进去（里面恰好叫 ``const`` 的内容是数据）。
 _INSTANCE_KEYWORDS = frozenset({"const", "enum", "default", "examples"})
-# Gemini Developer API 的 ``responseSchema`` 不认识的 schema 关键字：作为关键字出现时剥除。
 _UNSUPPORTED_KEYWORDS = frozenset({"additionalProperties"})
 
 
@@ -71,7 +67,7 @@ def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
     out: dict = {}
     for k, v in node.items():
         if k in _UNSUPPORTED_KEYWORDS:
-            continue  # Gemini responseSchema 不认识，且对约束解码无影响
+            continue
         if k in _INSTANCE_KEYWORDS:
             out[k] = v
         else:
@@ -201,7 +197,6 @@ class GeminiTextBackend:
                     pil_img = Image.open(img_input.path)
                     contents.append(pil_img)
                 elif img_input.url is not None:
-                    # URL 型图片直接作为字符串传递，SDK 内部会处理
                     contents.append(img_input.url)
 
         contents.append(request.prompt)
@@ -216,10 +211,6 @@ class GeminiTextBackend:
         native = await self._generate_native(request, structured=bool(request.response_schema))
 
         if request.response_schema:
-            # 成功路径复验：HTTP 200 后校验返回是否真满足 schema。代理网关可能静默忽略
-            # response_schema 返回散文或违例 JSON，直接放行会一路漏到下游 Pydantic
-            # 校验才抛裸 ValidationError。Gemini 原生请求无 strict 声明，复验用 strict=False，
-            # 容忍可强转值，避免对供应商已接受的合法响应触发多余的计费降级调用。
             fallback_reason = structured_fallback_reason(native.text, request.response_schema, strict=False)
             if fallback_reason:
                 logger.warning(
@@ -227,16 +218,12 @@ class GeminiTextBackend:
                     fallback_reason,
                     truncate_for_log(native.text),
                 )
-                # 代理网关静默忽略 responseSchema 时，任何 wire 级通道（含 instructor genai 集成的
-                # JSON/TOOLS 模式）都会被同样忽略，只剩把 schema 写进 prompt。直调 _generate_native
-                # 不经本复验分支，每次降级尝试只产生自己这一层的重试，不与外层调用叠乘。
                 result = await prompt_json_fallback(
                     request,
                     partial(self._generate_native, structured=True),
                     provider=PROVIDER_GEMINI,
                     model=self._model,
                 )
-                # 这次原生 200 调用已被计费，把它的 token 并入降级结果，否则会系统性漏记。
                 merge_billed_usage(result, native)
                 return result
 
@@ -275,8 +262,6 @@ class GeminiTextBackend:
         cache_read_tokens: int | None = None
         usage = response.usage_metadata
         if usage is not None:
-            # prompt_token_count 含缓存命中部分（cached_content_token_count）；思考 token 按输出计费，
-            # 不在 candidates_token_count 里，须加回。
             input_tokens = usage.prompt_token_count
             cache_read_tokens = usage.cached_content_token_count
             candidates = usage.candidates_token_count
@@ -287,7 +272,6 @@ class GeminiTextBackend:
         truncated = False
         if candidates:
             finish_reason = getattr(candidates[0], "finish_reason", None)
-            # Gemini finish_reason 可能是枚举对象，转 str 后再比对
             truncated = check_truncation(
                 str(finish_reason).rsplit(".", 1)[-1] if finish_reason is not None else None,
                 provider=PROVIDER_GEMINI,

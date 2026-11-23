@@ -502,7 +502,6 @@ def build_reference_video_artifact_visual_basis(
     )
 
 
-#: 宫格联合图、切格分镜与参考视频的依据从这一 schema 起记风格描述。
 STYLE_DESCRIPTION_BASIS_SCHEMA_VERSION = 14
 
 
@@ -518,14 +517,12 @@ def project_basis_style_description(project: Mapping[str, object]) -> str:
     return normalize_style_value(project.get("style_description"))
 
 
-#: 分镜图与宫格（联合图、切格分镜）的依据从这一 schema 起不记资产名。
 ASSET_NAME_FREE_IMAGE_BASIS_SCHEMA_VERSION = 19
 
 _STORYBOARD_IMAGE_KIND = "artifact-visual/storyboard-image"
 _GRID_COMPOSITE_KIND = "artifact-visual/grid-composite"
 _GRID_MEMBER_KIND = "artifact-visual/grid-member"
 
-#: 不记资产名的依据种类。参考生视频与资产图的模型输入含资产名，依据照记。
 ASSET_NAME_FREE_IMAGE_BASIS_KINDS = frozenset({_STORYBOARD_IMAGE_KIND, _GRID_COMPOSITE_KIND, _GRID_MEMBER_KIND})
 
 

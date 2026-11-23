@@ -119,13 +119,8 @@ from lib.speech.speech_presentation import (
     presentation_artifact_paths,
 )
 
-#: 清单激活把项目提升到的版本。它是 v7→v8 这一步的落点，与「项目是否为当前版本」是两件事：
-#: 后者随 ``CURRENT_PROJECT_SCHEMA_VERSION`` 走，把两者绑成一个常量会让每次 schema 升版都
-#: 悄悄改掉迁移链中间那一步的前置条件，存量 v7 项目从此迁不动。
 ARTIFACT_MANIFEST_SCHEMA_VERSION = 8
 
-#: 允许跑清单激活的版本：迁移途中的 v7（此后由激活提升到 v8），以及已经走完迁移链的当前版本
-#: 区间（归档导入在 ``migrate_project_dir`` 之后才激活，看到的是当前版本）。
 _ACTIVATION_SCHEMA_VERSIONS = frozenset(
     {ARTIFACT_MANIFEST_SCHEMA_VERSION - 1, *range(ARTIFACT_MANIFEST_SCHEMA_VERSION, CURRENT_PROJECT_SCHEMA_VERSION + 1)}
 )
@@ -186,7 +181,6 @@ class _PersistedPresentationProof:
     frozen_presentation_basis: ArtifactBasis
     current_subtitle_basis: ArtifactBasis | None
     current_presentation_basis: ArtifactBasis | None
-    #: 单位当前通过发声准入；不通过时当前依据只是记有缺席的依据，不是可用的素材层。
     admitted: bool = True
 
 
@@ -286,12 +280,7 @@ class TargetStatePlanner:
         self.pending_renames = dict(pending_renames or {})
         self.pending_entries = dict(pending_entries or {})
         self.legacy_audio_entries = legacy_audio_entries
-        #: Request-scoped Manifest read that answers committed claims instead of storage reads.  A planner
-        #: given one judges currency: video and audio prove their formal file against the claim's recorded
-        #: content facts and never read the version snapshot.
         self.manifest_snapshot = manifest_snapshot
-        #: Request-scoped inspections shared with the currency resolver that owns this planner: the
-        #: resolver's admission and the media proof open each formal file once.  ``None`` outside a resolver.
         self.shared_observations = shared_observations
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
@@ -324,7 +313,6 @@ class TargetStatePlanner:
         self._shared_versions = shared_versions or SharedVersionMetadata()
         self._activation_mode = False
         self._planned: set[str] = set()
-        #: 生成缺口记为缺席、照常投影（ADR 0098）；schema < 18 沿用缺口即投影不出的口径。
         self._records_gaps = project_basis_records_gaps(self.project)
         self._unreadable_grid_ids: set[str] = set()
 
@@ -346,8 +334,6 @@ class TargetStatePlanner:
 
         self._activation_mode = True
         try:
-            # Parsing the existing sidecar is part of preflight.  A corrupt manifest
-            # is a real migration error, not permission to overwrite unknown state.
             self.adapter.get_entry(ArtifactKey.episode_script(1))
             self.load_episodes()
             self._plan_assets()
@@ -361,8 +347,6 @@ class TargetStatePlanner:
         except ProjectMigrationError:
             raise
         except (ArtifactManifestError, ValueError) as exc:
-            # Preflight refused outside any single episode: the offending input is
-            # project-level (bindings, asset buckets, the manifest sidecar itself).
             raise ProjectMigrationError(str(exc), file="project.json") from exc
         return ArtifactTargetStatePlan(
             entries=dict(self.entries),
@@ -740,7 +724,6 @@ class TargetStatePlanner:
         observation = self.adapter.inspect_artifact(self._pending_source(script_plan_rel))
         script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
         if observation.blocker is not None and self._activation_mode:
-            # 读不出的草稿原样保留、不登记，进迁移报告（ADR 0098）。
             self._skip_blocked(script_plan_key, script_plan_rel, observation.blocker)
             return
         if observation.blocker is not None or not observation.present:
@@ -751,11 +734,9 @@ class TargetStatePlanner:
         except ValueError:
             if not self._activation_mode:
                 raise
-            # 损坏的脚本规划草稿原样保留、不登记，不拒绝整个项目（ADR 0098 收窄 ADR 0064）。
             self._skip(script_plan_key, script_plan_rel, "script_plan draft cannot be read", category="unreadable")
             return
         entry = episode_entry(self.project, binding.episode)
-        # 账本记录了集原文来源（v16 起）且为无原文时，盘上同名的集文件不是这一集的规划依据。
         if entry is not None and SOURCE_ORIGIN_FIELD in entry and episode_source_origin(entry) is SourceOrigin.NONE:
             return
         source_rel = episode_source_relpath(binding.episode)
@@ -767,7 +748,6 @@ class TargetStatePlanner:
             except UnicodeDecodeError as exc:
                 if not self._activation_mode:
                     raise ValueError(f"episode source {source_rel} is not UTF-8") from exc
-                # 依据以源文为输入，源文解不出就算不出依据：草稿原样保留、不登记。
                 self._skip(script_plan_key, script_plan_rel, f"episode source {source_rel} is not UTF-8")
                 return
             try:
@@ -1021,20 +1001,17 @@ class TargetStatePlanner:
                 observation = self.adapter.inspect_artifact(rel)
                 blocker = observation.blocker
                 if self._activation_mode and blocker is not None and blocker.code == "artifact_unreadable":
-                    # 文件本身打不开与内容坏了同等对待；符号链接等不安全路径仍按原样拒绝。
                     raise ValueError(blocker.detail)
                 loaded.append(self._load_grid_record(path, rel))
             except ValueError:
                 if not self._activation_mode:
                     raise
-                # 单个宫格记录读不出：记录原样保留，它的宫格图与切格分镜不登记，进迁移报告。
                 grid_id = path.name.removesuffix(".json")
                 self._unreadable_grid_ids.add(grid_id)
                 self.skipped.append(
                     MigrationSkippedArtifact(
                         kind=ArtifactKind.EPISODE_GRID.value,
                         resource_id=grid_id,
-                        # 读不出的是宫格记录本身：报告指向它，而不是仍可读的宫格图。
                         artifact_path=rel,
                         reason=f"grid record {rel} cannot be read",
                         category="unreadable",
@@ -1065,8 +1042,6 @@ class TargetStatePlanner:
             for item in episode.items:
                 video_only = False
                 if item.get("needs_replan") is True:
-                    # 需要重新规划的单位的媒体不是正式产物；只因混合发声带标记的单位，存量视频照常
-                    # 登记、按常规判时效（ADR 0098），配音仍不算。
                     if not (self._records_gaps and replan_marked_only_for_mixed_speech(episode.kind, item)):
                         continue
                     video_only = True
@@ -1158,14 +1133,12 @@ class TargetStatePlanner:
             else:
                 uploaded = None
             if uploaded is not None:
-                # 记下上传依据，供 resolve_basis 区分「选中上传」与生成视频（资产合并预览据此不计过期）。
                 basis = self.bases[key] = build_uploaded_video_basis(content_digest=uploaded)
                 self.entries[key] = self._media_entry(artifact_path, basis.digest, uploaded)
                 return
         try:
             target = parse_typed_media_version_target(resource_type, record)
         except (TypeError, ValueError):
-            # 旧版旁白音频的版本记录没有合成设置，依据无从补写：这一类给用户看（ADR 0098）。
             self._skip(
                 key,
                 artifact_path,
@@ -1223,12 +1196,10 @@ class TargetStatePlanner:
 
         observation = self.adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None:
-            # 当前媒体文件打不开：只有读不出才进「未能带入」，符号链接、非普通文件只记账。
             self._skip_blocked(key, artifact_path, observation.blocker)
             return None
         snapshot_observation = self.adapter.inspect_artifact(snapshot_rel)
         if snapshot_observation.blocker is not None and snapshot_observation.blocker.code == "artifact_unreadable":
-            # 选中版本的快照打不开，当前媒体无从对证：同样算读不出。
             self._skip(key, artifact_path, "selected version snapshot cannot be read", category="unreadable")
             return None
         artifact = self._safe_present_path(artifact_path)
@@ -1270,7 +1241,6 @@ class TargetStatePlanner:
         facts = entry.content if entry is not None and entry.artifact_path == artifact_path else None
         if facts is None:
             return None
-        # stat 取自安全打开文件时的描述符，不按路径重新 stat，路径事后换成符号链接也不会被跟随。
         observation = self._observe(artifact_path)
         if observation.blocker is not None or not observation.present or observation.file_stat is None:
             return None
@@ -1279,8 +1249,6 @@ class TargetStatePlanner:
         file_stat = observation.file_stat
         if not racy and (file_stat.st_size, file_stat.st_mtime_ns) == (facts.size, facts.mtime_ns):
             return facts.digest
-        # 完整比对同样经受约束的描述符读取。这次读到的是更新的观察：文件已删除或被换成符号链接时，
-        # 所属解析器的末次比对据此判 MISSING 或 BLOCKED，不沿用准入时的观察。
         observation = self.adapter.inspect_artifact_content(artifact_path)
         if self.shared_observations is not None:
             self.shared_observations[artifact_path] = observation
@@ -1310,10 +1278,6 @@ class TargetStatePlanner:
 
         if "persisted-presentations" in self._planned:
             return
-        # Typed media must be planned first.  Persisted presentation files carry
-        # observed duration/content evidence anchored to managed media snapshots.
-        # Selected snapshots must prove their canonical formal files; preservation
-        # may instead prove a non-selected media snapshot for an old presentation.
         self._plan_typed_media()
         for episode in self.episodes:
             for item in episode.items:
@@ -1665,7 +1629,6 @@ class TargetStatePlanner:
             isinstance(legacy_transition, str)
             and parse_project_schema_version(self.project) < PRESENTATION_WITHOUT_TRANSITION_SCHEMA_VERSION
         ):
-            # 迁移链中 v15→v16 之前的激活：存量文件带转场，依据按那时的口径核对与登记。
             frozen_presentation_basis = build_legacy_transition_presentation_basis(
                 frozen.presentation_basis, legacy_transition
             )
@@ -1694,7 +1657,6 @@ class TargetStatePlanner:
                 current_subtitle = current.subtitle_basis
                 current_presentation = current.presentation_basis
         elif self._records_gaps:
-            # 准入不通过（如混合发声）只拦生成：当前依据照常投影，准入问题记为缺席。
             try:
                 current_subtitle = build_blocked_subtitle_basis(
                     admission.preparation,
@@ -1902,7 +1864,6 @@ class TargetStatePlanner:
         self.bases[key] = basis
         observation = self.adapter.inspect_artifact(self._pending_source(artifact_path))
         if observation.blocker is not None and self._activation_mode:
-            # 读不出的文件原地保留、不登记，进迁移报告（ADR 0098）。
             self._skip_blocked(key, artifact_path, observation.blocker)
             return
         if observation.blocker is not None or not observation.present:

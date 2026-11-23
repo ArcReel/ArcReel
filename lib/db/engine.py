@@ -17,11 +17,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-# Suppress noisy pool/connection errors caused by SSE task cancellation.
-# When an SSE client disconnects, Starlette cancels the response task.
-# aiosqlite connections that are being returned to the pool at that moment
-# fail with CancelledError or "no active connection" during rollback.
-# These are harmless — the connection was going to be discarded anyway.
 logging.getLogger("sqlalchemy.pool.impl").setLevel(logging.CRITICAL)
 
 
@@ -43,7 +38,6 @@ def _adopt_legacy_sqlite_db(db_path: Path, legacy: Path) -> None:
         logger.warning("默认数据库 %s 已存在，旧库 %s 保持原位未启用", db_path, legacy)
         return
     for suffix in _SQLITE_SIDECAR_SUFFIXES:
-        # 并发进程（应用与 alembic）可能已先搬走同一个文件。
         with contextlib.suppress(FileNotFoundError):
             legacy.with_name(legacy.name + suffix).replace(db_path.with_name(db_path.name + suffix))
     with contextlib.suppress(FileNotFoundError):

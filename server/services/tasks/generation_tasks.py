@@ -260,10 +260,6 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
                 project_path / "grids" / f"{resource_id}.png",
             )
         )
-        # 宫格切分会覆写多个 canonical 分镜图，实际写入的 cell 路径持久化在
-        # grid 记录的 frame_chain 中，一并纳入指纹让前端对这些文件 cache-bust；
-        # 记录缺失/损坏时降级为只报宫格主图。生成事件（"grid"）也带上 cell 指纹：
-        # 生成本身不再触碰分镜格，未变更文件的 mtime 指纹与前端已持有值相同，无副作用。
         try:
             from lib.script.grid.grid_manager import GridManager
 
@@ -271,8 +267,6 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
         except Exception:
             grid = None
         if grid is not None:
-            # 记录是磁盘上的 JSON，image_path 不可直接信任：绝对路径会覆盖左操作数、
-            # ../ 会越出项目目录，把任意服务器文件的存在性/mtime 暴露给前端
             project_root = project_path.resolve()
             for frame in grid.frame_chain:
                 if not frame.image_path:
@@ -281,8 +275,6 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
                 if candidate is None:
                     logger.warning("跳过越出项目目录的宫格 cell 路径: %s", frame.image_path)
                     continue
-                # 指纹 key 用归一化后的项目相对路径：原始字符串若是项目内的
-                # 绝对路径，会把服务器路径泄漏给前端且匹配不上前端的资源 key
                 rel = candidate.relative_to(project_root).as_posix()
                 paths.append((rel, candidate))
     elif task_type == "reference_video":
@@ -313,20 +305,11 @@ def compute_affected_fingerprints(project_name: str, task_type: str, resource_id
     return result
 
 
-# (entity_type, action, label_key, include_script_episode)
-# label_key 是事件载荷携带的稳定标识，界面按用户语言查表成文；文案本身见 lib/i18n 的
-# ``event_label_*``。三类项目级资产（character / scene / prop）的 spec 由
-# lib.project.asset_types.ASSET_SPECS 派生。
-# storyboard / video / reference_video 不在此表——三者按剧本骨架种类（segments/scenes/shots/
-# video_units）动态派生 entity_type 与条目名词，见 _SKELETON_DRIVEN_TASK_ACTIONS，避免恒发
-# ``segment``/「分镜」而与分镜级事件（project_state_projection.py）名词不一致。
 _TASK_CHANGE_SPECS: dict[str, tuple] = {
     "grid": ("grid", "grid_ready", "grid", True),
     "grid_split": ("grid", "grid_split_done", "grid_split", True),
     "voice_sample": ("character", "voice_sample_ready", "voice_sample", False),
     **{atype: (atype, "updated", f"asset_image_{atype}", False) for atype in ASSET_SPECS},
-    # 衍生资产图落在本体的 entity 下（entity_id 是 `本体名/衍生名`），但条目名词另立一条：
-    # 复用 asset_image_character 会把复合 id 当成角色名读出来。
     DERIVATIVE_TASK_TYPE: (DERIVATIVE_ASSET_TYPE, "updated", "asset_image_character_derivative", False),
 }
 
@@ -337,9 +320,6 @@ _SKELETON_DRIVEN_TASK_ACTIONS: dict[str, str] = {
     "tts": "tts_ready",
 }
 
-# 任务类型自带条目标签的例外：tts 的产物是旁白配音，与骨架条目名词不同名。reference_video 显式
-# 指向视频单元，与参考生视频项目的骨架名词同口径；storyboard/video 未列出，回退到按骨架种类派生
-# 的 label_key（分镜），与同项目分镜级事件同口径。
 _SKELETON_TASK_LABEL_KEYS: dict[str, str] = {
     "reference_video": "skeleton_video_units",
     "tts": "narration_audio",
@@ -372,13 +352,9 @@ def emit_generation_success_batch(
     事件 source 由 project_change_source contextvar 决定（worker / webui 调用方各自包裹）。
     """
     if task_type == "image_edit":
-        # 编辑完成事件与「同一资源的生成完成事件」同形状：按 payload.resource_type 派发到
-        # 既有 spec 表（storyboard 走骨架驱动、四类资产走 ASSET_SPECS 派生表），entity/action/
-        # 指纹与生成路径一致，前端既有的 SSE fingerprint 刷新零改动即可覆盖编辑完成。
         task_type = str(payload.get("resource_type") or "")
 
     script_file = str(payload.get("script_file") or "") or None
-    # 单次加载剧本，骨架种类与 episode 共用，避免同一 script_file 双解析。
     script = _load_event_script(project_name, script_file)
 
     action = _SKELETON_DRIVEN_TASK_ACTIONS.get(task_type)
@@ -390,8 +366,6 @@ def emit_generation_success_batch(
             except Exception:
                 reference_route_task = False
         if reference_route_task:
-            # 参考生视频的资源身份恒为 video unit；生成模式来自创建后不可变的 project.json，
-            # 不让 ad 剧本残留的 shots[] 在 TTS 成功后把 E1U* 事件错分为 shot。
             kind = "video_units"
         else:
             kind = resolve_script_kind(script) if isinstance(script, dict) else "segments"
@@ -488,8 +462,6 @@ async def execute_storyboard_task(
 
     inputs = await run_sync_transaction(_load)
     project, project_path = inputs.project, inputs.project_path
-    # 参考图先于提示词定型：先检查实际通道的上限，编号覆盖完整装配集，
-    # 故 image lane 在此解析一次并沿用到提交，避免重解析落到上限不同的 backend。
     context = await resolve_generation_context(
         project_name,
         payload,
@@ -578,7 +550,6 @@ def _resolve_tts_task_items(
 
     if not reference_video_route:
         return resolve_items(script)
-    # 参考生视频的骨架种类由任务开工时定死的生成模式给出，直接指定；取证解析只服务于生成模式未知的调用方。
     return resolve_items(script, kind="video_units")
 
 
@@ -658,8 +629,6 @@ async def execute_tts_task(
     settings = require_project_tts_generation(project)
     voice = settings.voice
     speed = settings.speed
-    # 快照带完整的 provider/model，audio lane 按项目层解析即落到它；不传 payload，
-    # 历史任务携带的供应商不得越过项目快照。
     ctx = await resolve_generation_context(
         project_name,
         None,
@@ -668,7 +637,6 @@ async def execute_tts_task(
         audio=AudioLaneRequest(),
     )
     ensure_dispatch_provider(claimed_provider_id, ctx.audio.provider_model.provider_id)
-    # 自定义后端可回退到默认型号；旁白快照不允许用另一个型号合成并登记为所选型号。
     if ctx.audio.backend_model != settings.model_id:
         raise NarrationConfigError("narration_tts_model_invalid")
     generator = ctx.generator
@@ -867,7 +835,6 @@ async def execute_tts_task(
 
     version_record: dict[str, Any] | None = None
     try:
-        # 音频已提交，读版本记录不可打断，取消不能把已付费成功的任务改判为中断。
         records = (await run_noninterruptible_sync(generator.versions.get_versions, "audio", resource_id))["versions"]
         version_record = next(
             (record for record in reversed(records) if record.get("version") == version),
@@ -895,12 +862,6 @@ async def execute_tts_task(
     }
 
 
-# character_name 经 validate_asset_name 校验合法字符，但不限长度；task_id 固定是 uuid4().hex
-# （32 字节 ASCII）。若不裁剪，超长角色名 + 前缀/分隔符/task_id 拼出的 resource_id，
-# 再叠加 VersionManager.add_version 的 "_v{n}_{timestamp}{ext}" 版本文件名后缀，
-# 可能在 255 字节 NAME_MAX 的文件系统上让落盘/建版本失败。留出足够余量后裁剪角色名部分——
-# resource_id 本身不需要人工从文件名反解角色名（仅内部拼接，无解析方），裁剪不影响正确性，
-# 唯一性完全靠 task_id 保证。
 _SAMPLE_ID_NAME_MAX_BYTES = 80
 
 
@@ -952,14 +913,10 @@ async def execute_character_voice_sample_task(
     if not isinstance(voice, str) or not voice.strip():
         raise ValueError("voice sample 任务需要 payload.voice（音色 id）")
     if not task_id:
-        # 恒由 worker 经 execute_generation_task 传入队列任务自身 id；缺失说明调用方绕过了
-        # 常规队列执行路径（如误从别处直接调用），而 sample_id 的跨任务隔离依赖它，fail-fast。
         raise ValueError("voice sample 任务需要 task_id")
 
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
     if resolve_asset_key(project.get("characters"), character_name) is None:
-        # 与 execute_character_task 等其它执行器同口径：入队后、worker 取到任务前角色可能
-        # 已被删除，执行前重新核实存在，避免花钱合成一段没有归属的孤儿预览。
         raise ValueError(f"character not found: {character_name}")
     ctx = await resolve_generation_context(
         project_name,
@@ -978,7 +935,6 @@ async def execute_character_voice_sample_task(
         voice=voice.strip(),
         speed=None,
         task_id=task_id,
-        # 试听样本属于角色：角色被删时样本进回收站。
         target_resource=("characters", character_name),
     )
 
@@ -1052,15 +1008,11 @@ async def execute_video_task(
         )
 
     project, project_path, item, content_mode, script_kind, _script, script_input = await run_sync_transaction(_load)
-    # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
-    # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
     prompt = current_prompt if task_id is not None else payload.get("prompt", current_prompt)
     if prompt is None:
         raise ValueError("current script unit is missing video_prompt")
     requested_visual_prompt = copy.deepcopy(prompt)
-    # lane 归桶按项目生成模式求值，与提交入口（``generate_video``）同源：入口挡掉参考生视频后
-    # 到达这里的项目恒为 i2v，但桶不在两处各硬编码一次，避免生成模式口径分叉。
     execution_payload = without_video_execution_identity(payload) if task_id is not None else payload
     ctx = await resolve_generation_context(
         project_name,
@@ -1090,7 +1042,6 @@ async def execute_video_task(
     formal_input_claims: list[ArtifactInputClaim] = [script_input.claim]
 
     def _resolve_usable_inputs() -> tuple[ArtifactCurrencyResolver, Path, Path | None]:
-        # 首尾帧可用性判定要读产物清单、对分镜图算摘要，整体放进工作线程。
         resolver = active_artifact_currency_resolver(project_path, project)
         start, end = resolve_usable_storyboard_video_inputs(
             project_path=project_path,
@@ -1131,10 +1082,6 @@ async def execute_video_task(
 
     visual_basis_digest = await asyncio.to_thread(_current_visual_basis_digest)
 
-    # 最终文本的合成收敛在 render_storyboard_video_prompt：voice_profiles 剥离、drama 口型台词
-    # 注入（分镜级有序 utterances 为单一真相源）、YAML 渲染与反向约束尾词都在其内完成，预览
-    # 接口与批量准入读同一出口。无声（C 类模型不产音、或本集关闭音频）传 characters=None 即不
-    # 注入 Voice_Profiles，两条无声路径同口径，判据落在 VideoLaneResult.is_silent。
     prompt_text = render_storyboard_video_prompt(
         prompt,
         item if isinstance(item, dict) else None,
@@ -1145,13 +1092,6 @@ async def execute_video_task(
     )
     service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
-    # provider / model / 能力 / 分辨率均取自单次解析的 video lane：能力按 backend 实际身份
-    # （registry provider_id + backend.model）查询，与实际要调用的 model 对齐——历史任务 payload
-    # 携带 provider 覆盖、或自定义供应商目标 model 被禁用回退时，二者一致避免 duration 守卫误判
-    # （用「项目默认 model 的能力」误判「实际调用的 model」）。解析/构造失败已在
-    # resolve_generation_context 内原样上抛整次任务失败。
-    # duration 解析收口于执行层：payload > project.default_duration > 请求事实的首个档位。
-    # 用 ``is not None`` 而非 ``or`` 取 payload 值，避免显式 falsy 值被当作未设置。
     duration_seconds = (
         item.get("duration_seconds")
         if task_id is not None and isinstance(item, dict)
@@ -1163,14 +1103,10 @@ async def execute_video_task(
         if request_facts.allowed_durations:
             duration_seconds = request_facts.allowed_durations[0]
         else:
-            # 档位为空只在时长由端点固定时成立（其余情形请求事实已失败）：没有档位可借，取共享的
-            # 规划篇幅默认值。
             duration_seconds = DEFAULT_PLANNED_DURATION_SECONDS
 
     if not isinstance(duration_seconds, (int, str)) or isinstance(duration_seconds, bool):
         raise ValueError("video request duration must be an integer or integer string")
-    # 能力守卫：provider 解析之后的唯一权威家（见 ADR-0001）。安全解析交给守卫，
-    # 此处不预先 int() 截断，避免把非整数秒静默修正成「碰巧合法」的值。
     if (failure := end_frame_duration_failure(request_facts, duration_seconds)) is not None:
         raise VideoRequestFactsError(failure)
     assert_duration_supported(duration_seconds, supported_durations)
@@ -1225,7 +1161,6 @@ async def execute_video_task(
         try:
 
             def _bind_staged_media() -> tuple[list[ArtifactInputClaim], Path, Path | None]:
-                # 执行时的摘要绑定与暂存路径核实都要读盘，整体在工作线程里做。
                 claims = list(
                     bind_artifact_input_claims_to_content_digests(
                         resolver=currency_resolver,
@@ -1306,7 +1241,6 @@ async def execute_video_task(
 
             async def _checkpoint_before_submit() -> Mapping[str, object]:
                 await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
-                # 检查点要读版本记录（版本管理锁）并绑定摘要，放进工作线程构造。
                 checkpoint = await asyncio.to_thread(_build_checkpoint)
                 await get_generation_queue().persist_execution_checkpoint(
                     task_id,
@@ -1336,7 +1270,6 @@ async def execute_video_task(
     warnings: list[dict[str, Any]] = []
     try:
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
-        # 直接调用把项目里的分镜图交给供应商：缓存已清理的远端内容版本先取回，调用期间登记使用
         async with local_work_files(project_path, [provider_start_image] if task_id is None else []):
             _output_path, version, _, video_uri = await generator.generate_video_async(
                 prompt=prompt_text,
@@ -1647,9 +1580,6 @@ async def execute_grid_task(
         raise ValueError(f"grid not found: {resource_id}")
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
     if grid.status == "completed":
-        # 新建与重生成的记录都从 pending 起步，失败重试从 failed 起步：记录已是 completed，只能是
-        # 沿用在途宫格时恰好赶上上一任务完成而重复入队的任务，不再出图、不再计费。
-        # 结果只在联合图登记在案且可用时报成功，与切分落格同一口径。
         grid_path = f"grids/{resource_id}.png"
         resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
         comparison = await asyncio.to_thread(
@@ -1672,7 +1602,6 @@ async def execute_grid_task(
         raise ValueError(f"grid episode {grid.episode} does not match bound script episode {artifact_episode}")
 
     frozen_references: FrozenImageReferences | None = None
-    # 执行入口发现供应商与认领槽不一致时任务回队，宫格记录要回到领取前的状态，不能留在 generating。
     status_before_claim, error_before_claim = grid.status, grid.error_message
     try:
         grid.status = "generating"
@@ -1702,7 +1631,6 @@ async def execute_grid_task(
         assembled = grid_input.references
         visual_references = [reference.visual for reference in assembled]
         currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
-        # 先按实际输入选择图像通道，在冻结与提示词编号前用同一通道校验上限。
         ctx = await resolve_generation_context(
             project_name,
             payload,
@@ -1718,7 +1646,6 @@ async def execute_grid_task(
         require_reference_image_limit(visual_references, ctx.image.max_reference_images, model=ctx.image.backend_model)
 
         def _freeze_references() -> FrozenImageReferences:
-            # 快照在线程里一建好就登记：取消落在冻结那一程时返回值会丢，finally 按登记回收快照目录。
             nonlocal frozen_references
             frozen_references = freeze_image_references(
                 [reference.visual.path for reference in assembled] or None,
@@ -1743,7 +1670,6 @@ async def execute_grid_task(
             )
         )
         reference_images = frozen_references.reference_images
-        # 宫格的时效判定重放这份记录，故由完整参考集投影，与依据里的参考图逐项对应。
         grid.reference_images = []
         for reference in assembled:
             visual = reference.visual
@@ -1789,14 +1715,10 @@ async def execute_grid_task(
         generator = ctx.generator
         aspect_ratio = grid_aspect_ratio
 
-        # 回填 grid metadata：route 层创建/重建时无法预知 needs_i2i，由此处补齐。
-        # provider 记 registry 身份（供后续重解析定位供应商），model 记 backend 实际身份
-        # （自定义供应商目标 model 被禁用回退时，实际调用的 model 与解析出的 model_id 不同）。
         grid.provider = ctx.image.provider_model.provider_id
         grid.model = ctx.image.backend_model
         grid.prompt = prompt_text
         await run_sync_transaction(grid_manager.save, grid)
-        # 与估价同源（``grid_image_size``）；保底档与档位门控（``large_grid_allowed``）取同一常量
         image_size = grid_image_size(
             ctx.image.resolution, ctx.image.provider_model.provider_id, ctx.image.backend_model
         )
@@ -1833,7 +1755,6 @@ async def execute_grid_task(
                 ),
             )
 
-        # formal_output=True 时 generate_image_async 恒经活化回调提交，回调恰好记录一条结果。
         outcome = formal_outcomes[0]
 
     except DispatchProviderChanged:
@@ -1847,18 +1768,13 @@ async def execute_grid_task(
         await run_sync_transaction(_restore_status_before_claim)
         raise
     except GenerationTargetDeletedError:
-        # 宫格已被删除：不再写回失败状态，免得重建出宫格记录。
         raise
     except Exception:
         import traceback
 
-        # traceback 只能在异常上下文所在的事件循环线程上取，取完再进线程落盘。
         failure_text = traceback.format_exc()
 
         def _record_failure() -> None:
-            # The formal-write transaction restores the durable grid record on failure.
-            # Reload it before recording failure so the in-memory ``grid`` never carries
-            # completion fields that did not become durable.
             failed = grid_manager.get(resource_id) or grid
             failed.status = "failed"
             failed.error_message = failure_text
@@ -1903,7 +1819,6 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
     payload = task.get("payload") or {}
     user_id = task.get("user_id", DEFAULT_USER_ID)
     queue_task_id = task.get("task_id")
-    # worker 派发时把当下的全局设置写进任务字典；非 worker 调用方（测试 / 直生）落回缺省。
     video_poll_timeout_seconds = int(task.get("video_poll_timeout_seconds", DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS))
 
     if not project_name:
@@ -1922,9 +1837,6 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
         raise ValueError(f"unsupported task_type: {task_type}")
 
     with project_change_source("worker"):
-        # 能力类异常（Image/VideoCapabilityError、ReferencePayloadFloorError）原样上抛：
-        # worker 的 encode_task_failure_message 按 code + params 落库，渲染留到读侧
-        # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
         try:
             if task_type in ("video", "reference_video"):
                 result = await executor(
@@ -1947,7 +1859,6 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
                     claimed_provider_id=claimed_provider_id,
                 )
         except GenerationTargetDeletedError as deleted:
-            # 结果已进项目回收站，任务照常成功；没有写回任何资源，不发生成成功事件。
             return deleted.result
         await run_noninterruptible_sync(
             emit_generation_success_batch,

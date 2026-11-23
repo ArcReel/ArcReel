@@ -43,7 +43,6 @@ def _backfill_task_id_from_task_payload() -> None:
         if not isinstance(payload, dict):
             continue
         call_id = payload.get("api_call_id")
-        # bool 是 int 的子类，单独排除，避免把 payload 里的布尔值当成行号。
         if isinstance(call_id, bool) or not isinstance(call_id, int):
             continue
         updates.append({"call_id": call_id, "task_id": task_id})

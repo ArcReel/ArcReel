@@ -539,9 +539,6 @@ class ArtifactManifest:
             )
         if entry is None:
             return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=observation.artifact_path)
-        # A claim is evidence for one exact formal path.  Reusing that claim for
-        # a different pointer would turn an unregistered file into a stale-but-
-        # usable artifact.  Digest drift is stale; path drift has no claim.
         if entry.artifact_path != observation.artifact_path:
             return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=observation.artifact_path)
         normalized_expected = (
@@ -601,7 +598,6 @@ class InMemoryArtifactManifestAdapter:
             return ArtifactObservation(artifact_path=normalized, present=normalized in self._artifacts)
 
     def inspect_artifact_content(self, artifact_path: str) -> ArtifactObservation:
-        # In-memory artifacts have no bytes, so their claims carry no content facts.
         return self.inspect_artifact(artifact_path)
 
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
@@ -697,8 +693,6 @@ class _ManifestFileIdentity(NamedTuple):
 
     @classmethod
     def of(cls, file_stat: os.stat_result) -> Self | None:
-        # No inode means no identity.  Windows ``st_ctime`` is a tunnelled creation
-        # time, but its inode is a sequence-numbered file index.
         if not file_stat.st_ino:
             return None
         changed_ns = file_stat.st_ctime_ns if os.name == "posix" else 0
@@ -938,7 +932,6 @@ class ProjectArtifactManifestAdapter:
             os.read(fd, 1)
             return None, None, None
 
-        # 只要摘要的读取按文件 stat 标识复用；需要字节快照或逐块旁路的调用方必须真读。
         reusable = chunk_observer is None and not include_content_bytes
         if reusable and (cached := cached_file_digest(opened_stat)) is not None:
             return cached, None, None
@@ -1666,7 +1659,6 @@ class ProjectArtifactManifestAdapter:
         *,
         validate_path_ownership: bool = True,
     ) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
-        # Writers mutate the result, so this path always reads and parses afresh.
         handle = self._open_manifest(root_fd)
         if handle is None:
             return {}, None
@@ -1724,7 +1716,6 @@ class ProjectArtifactManifestAdapter:
         try:
             _retry_while_held_open(unlink, self._sleep)
         except FileNotFoundError:
-            # Deletion is idempotent; another writer may already have removed the empty sidecar.
             pass
         except OSError as exc:
             raise ArtifactManifestError(f"cannot remove empty artifact manifest: {exc}") from exc

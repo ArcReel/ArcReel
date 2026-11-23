@@ -58,7 +58,7 @@ class CustomEndpointRepository(BaseRepository):
             display_name=display_name,
         )
         self.session.add(endpoint)
-        await self.session.flush()  # 取回自增 id：端点键 ce-<id> 由它派生
+        await self.session.flush()
         return endpoint
 
     async def get(self, endpoint_id: int) -> CustomEndpoint | None:

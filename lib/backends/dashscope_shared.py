@@ -23,23 +23,14 @@ from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 
 logger = logging.getLogger(__name__)
 
-# host 段（scheme://host），不含 /api/v1 或 /compatible-mode/v1 后缀；两 base 由此派生。
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com"
 
-# 重试判定按响应状态码而非异常字符串：HTTPStatusError 的 str() 携带 URL/task_id，其中的
-# "503"/"timeout" 子串可能让 4xx 业务错误被误判为可重试。各 DashScope 后端使用
-# lib.backends.backend_runtime 的状态码谓词——创建/提交（非幂等 POST）走 should_retry_submit（4xx
-# fail-fast、5xx/429 重试、歧义传输错误经 submit_post 转 AmbiguousSubmitError 不重试），轮询
-# （幂等 GET）走 should_retry_poll（404 视为未就绪重试），下载已签发结果 URL 走 should_retry_download
-# （4xx 含 404 一律 fail-fast）。HTTPStatusError 一律按 response.status_code 显式闸门判定，状态码
-# 语义也因此被保留，供咽喉层识别 413 做降档兜底。
 
 DASHSCOPE_STATUS_PENDING = "PENDING"
 DASHSCOPE_STATUS_RUNNING = "RUNNING"
 DASHSCOPE_STATUS_SUCCEEDED = "SUCCEEDED"
 DASHSCOPE_STATUS_FAILED = "FAILED"
 DASHSCOPE_STATUS_CANCELED = "CANCELED"
-# task_id 超过 24h 有效期后查询返回 UNKNOWN（resume 路径据此判过期）
 DASHSCOPE_STATUS_UNKNOWN = "UNKNOWN"
 
 _TERMINAL_STATES = frozenset(
@@ -60,10 +51,8 @@ _IMAGE_MIME_TYPES: dict[str, str] = {
     ".bmp": "image/bmp",
 }
 
-# 百炼建议轮询间隔 15 秒；task_id / video_url 均 24h 过期。
 DASHSCOPE_POLL_INTERVAL_SECONDS = 15.0
 
-# 已知路径后缀，派生 host 时剥除以容忍用户填入完整 base（含地域切换）。
 _KNOWN_SUFFIXES = ("/compatible-mode/v1", "/api/v1")
 
 
@@ -75,8 +64,6 @@ def resolve_dashscope_api_key(api_key: str | None = None) -> str:
 
 def _dashscope_host(configured: str | None) -> str:
     """从配置的 base_url 提取 host 段（剥除已知路径后缀），缺省回落北京 host。"""
-    # 先 strip 再判空：纯空白串（"   "）是真值会绕过 or，回落必须在 strip 之后，
-    # 否则 base 变空串、派生出 "/api/v1" 这类非法相对 URL。
     base = ((configured or "").strip() or DASHSCOPE_BASE_URL).rstrip("/")
     for suffix in _KNOWN_SUFFIXES:
         if base.endswith(suffix):
@@ -148,7 +135,6 @@ def dashscope_failure_reason(payload: dict) -> str | None:
         code = output.get("code") or "unknown"
         message = output.get("message") or ""
         return f"DashScope 任务失败 status={status} code={code}: {message}".strip()
-    # 提交阶段顶层错误（如 InvalidApiKey），无 output.task_status
     if status is None and payload.get("code"):
         return f"DashScope 提交失败 code={payload.get('code')}: {payload.get('message', '')}".strip()
     return None
@@ -183,8 +169,6 @@ def extract_billing_duration(payload: dict) -> int | None:
         return None
     try:
         decimal_value = Decimal(str(raw))
-        # 上限基于取整前的原始数值判断：86400.4 已超 24h，不得因 half-up 落回上限内被接受
-        # （NaN 参与比较抛 InvalidOperation，与解析失败同路径回 None）
         if not 0 < decimal_value <= MAX_BILLED_DURATION_SECONDS:
             return None
         value = int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
@@ -199,10 +183,7 @@ def extract_image_url(payload: dict) -> str:
     if not isinstance(choices, list) or not choices:
         reason = dashscope_failure_reason(payload)
         raise RuntimeError(reason or f"DashScope 图像响应缺少 choices: {payload}")
-    # 上游异常结构（choices[0]/message 非 dict）归一化为空 dict，避免 .get 抛 AttributeError
     content = _as_dict(_as_dict(choices[0]).get("message")).get("content")
-    # 显式校验 list：content 为 truthy 非 list（如 int / bool / dict）时 `or []` 兜不住，
-    # 直接 for 会抛 TypeError；isinstance 守卫统一落到下方 RuntimeError。
     if isinstance(content, list):
         for item in content:
             if isinstance(item, dict) and (url := item.get("image")):
@@ -219,7 +200,6 @@ def extract_audio_url(payload: dict) -> str:
     return url
 
 
-# 仅允许进日志的标量字段白名单；其余（含 base64 image / media url）一律不入日志。
 _SAFE_LOG_KEYS: frozenset[str] = frozenset(
     {"model", "size", "resolution", "ratio", "duration", "n", "watermark", "prompt_extend", "seed"}
 )
@@ -231,8 +211,6 @@ def safe_body_for_log(body: dict) -> dict:
     body 含 input.messages（图像）或 input.media（视频），内部嵌 base64/URL；
     一律不展开，避免敏感数据进日志（对齐 CodeQL clear-text-logging 约束）。
     """
-    # _as_dict 而非 `or {}`：truthy 非 dict（如 parameters/input 为 list/str）下 `or {}` 兜不住，
-    # 后续 .get / in 会抛 AttributeError/TypeError，反而让 fail-safe 日志辅助遮蔽原始异常。
     params = _as_dict(body.get("parameters"))
     view: dict = {"model": body.get("model")}
     for key in _SAFE_LOG_KEYS:

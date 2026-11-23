@@ -60,7 +60,6 @@ from server.services.tasks.formal_image_commit import (
     storyboard_formal_image_callback,
 )
 
-# 版本记录里标记「指令式编辑」的 source 值；前端据此展示编辑标记（与 manual_upload 同机制）
 IMAGE_EDIT_VERSION_SOURCE = "image_edit"
 
 
@@ -70,10 +69,6 @@ def _derivative_target(artifact_id: str) -> DerivativeSheetTarget:
     return DerivativeSheetTarget(owner_key=owner_key, derivative_key=derivative_key)
 
 
-#: 角色衍生资产图在编辑 API 契约里的资源类型名（单数形态，与 ASSET_SPECS 的键并列）。
-#: 它的 resource_id 是 ``本体名/衍生名``，寻址的是本体条目衍生表内的那张图。
-
-# 可编辑的资源类型白名单（API 契约用的单数形态；storyboard 与衍生之外与 ASSET_SPECS 同源）
 EDITABLE_RESOURCE_TYPES: tuple[str, ...] = (*ASSET_SPECS.keys(), "storyboard", DERIVATIVE_TASK_TYPE)
 
 
@@ -100,17 +95,14 @@ def _build_image_edit_basis(
         return build_storyboard_image_visual_basis(
             resource_id=resource_id,
             image_prompt=instruction,
-            # Editing sends only the instruction; project style is not a provider input.
             style="",
             aspect_ratio=aspect_ratio,
             references=(source,),
         )
     return build_asset_sheet_visual_basis(
-        # 衍生与本体共用 asset-sheet 依据种类，只是 asset id 写作「本体/衍生」。
         asset_type=DERIVATIVE_ASSET_TYPE if resource_type == DERIVATIVE_TASK_TYPE else resource_type,
         asset_id=resource_id,
         description=instruction,
-        # Asset editing likewise omits the normal generation style expansion.
         style="",
         style_description="",
         aspect_ratio=aspect_ratio,
@@ -169,14 +161,12 @@ def resolve_current_image_pointer(
         pointer = get_generated_assets(item).get("storyboard_image")
         if isinstance(pointer, str) and pointer:
             return resolved_id, pointer
-        # 没有登记指针就是没有产物：同名文件不构成这个分镜的归属证据。
         return resolved_id, None
 
     if resource_type == DERIVATIVE_TASK_TYPE:
         try:
             owner_name, derivative_name = split_derivative_artifact_id(resource_id)
         except ValueError as exc:
-            # 不是「本体名/衍生名」的 ID 不指向任何衍生，与不存在同样处理
             raise KeyError(f"derivative not found: {resource_id}") from exc
         try:
             target = resolve_derivative_target(project, owner_name, derivative_name)
@@ -190,7 +180,6 @@ def resolve_current_image_pointer(
 
     spec = ASSET_SPECS[resource_type]
     bucket = project.get(spec.bucket_key)
-    # 请求里的资产名与桶 key 可能是 NFC/NFD 中的任一形态，按坐标系解析真实落盘 key
     key = resolve_asset_key(bucket, resource_id)
     entry = bucket.get(key) if isinstance(bucket, dict) and key is not None else None
     if not isinstance(entry, dict):
@@ -326,7 +315,6 @@ async def execute_image_edit_task(
         raise ValueError("script_file is required for storyboard image_edit task")
 
     version_resource_type = edit_version_resource_type(resource_type)
-    # 快照在线程里一建好就登记：取消落在准备那一程时返回值会丢，按登记回收快照目录。
     frozen_snapshots: list[FrozenImageReferences] = []
 
     def _prepare():
@@ -352,8 +340,6 @@ async def execute_image_edit_task(
         )
         if _source is None:
             raise ValueError(f"no current image to edit: {resource_type}/{resource_id}")
-        # 资产名可能以 NFC/NFD 任一形态传入：选择缝返回真实落盘 key，之后的版本登记与
-        # canonical 图路径统一按它写，避免同一资产落出两种编码形式的文件与版本记录。
         return _project, _project_path, _source
 
     def _freeze(_project: dict[str, Any], _project_path: Path, _source: _ImageEditSource):
@@ -387,9 +373,7 @@ async def execute_image_edit_task(
         return _project, _project_path, _current_image, _key, _aspect_ratio, _frozen, _basis, _source
 
     async def _prepare_frozen():
-        # 读剧本可能顺带落盘迁移
         prepared_project, prepared_path, source = await run_sync_transaction(_prepare)
-        # 编辑源是缓存已清理的远端内容版本时先取回，冻结期间登记使用
         async with local_work_files(prepared_path, [source.artifact_path]):
             return await run_sync_transaction(_freeze, prepared_project, prepared_path, source)
 
@@ -414,9 +398,6 @@ async def execute_image_edit_task(
 
     async def _pre_submit(generator: Any) -> None:
         await asyncio.to_thread(assert_artifact_input_claims_usable, project_path, project, formal_claims)
-        # 旧图若尚无版本记录（如旧宫格项目 current 指向非 canonical 路径），先以中性元数据补登，
-        # 保证编辑前的旧图可回滚；也避免 generate_image_async 内部的 ensure_current_tracked
-        # 把编辑指令 / 编辑标记误写到旧版本上。已有版本记录时此调用是 no-op。
         await run_sync_transaction(
             generator.versions.ensure_current_tracked,
             version_resource_type,
@@ -475,8 +456,6 @@ async def execute_image_edit_task(
             project_manager=get_project_manager(),
         )
 
-    # 参考图仅当前图一张（i2i）、prompt 仅编辑指令（不拼原 image_prompt / 不追加生成路径的
-    # 自动参考图收集）；provider 与 frozen basis 共享 task-owned 源图字节。
     return await run_formal_image_task(
         project_name=project_name,
         payload=payload,

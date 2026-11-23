@@ -40,7 +40,6 @@ async def max_recorded_episode_id(session: AsyncSession, project_name: str) -> i
         ).where(Task.project_name == project_name)
     )
     for task_id, task_type, resource_type, resource_id, script_file, *documents in tasks:
-        # 改图任务跨资产与分镜共用一个任务类型，改的是哪类资源由 resource_type 指明
         if (resource_type if task_type == "image_edit" else task_type) in _ASSET_TASK_TYPES:
             asset_task_ids.add(task_id)
             resource_id = None

@@ -53,8 +53,6 @@ def _render_warnings(warnings: Any, translate: Callable[..., str], names: Displa
                 else translate(key)
             )
         except TypeError:
-            # params 里混入了保留字（如 "locale"）等畸形但合法的 JSON，翻译调用本身失败；
-            # 跳过该条而非让整个任务列表 500，与本函数其余分支的容错口径一致。
             continue
         texts.append(text)
     return texts
@@ -218,8 +216,6 @@ async def cancel_task(task_id: str, _t: Translator, names: DisplayNamesCatalog):
         raise ConflictError("task_running_not_cancellable", id=task_id) from e
     except ValueError as e:
         raise BadRequestError("task_not_found", id=task_id) from e
-    # 终态任务（含已失败的）原样回给调用方，其 error_message 与列表/详情/SSE 同源，
-    # 不本地化就会在这一个出口泄露裸 [code] {params}。
     for key in ("cancelled", "skipped_terminal"):
         result[key] = await _with_resource_refs([_localize_task(task, _t, names) for task in result.get(key, [])], _t)
     return result
@@ -232,8 +228,6 @@ async def retry_artifact_download(task_id: str, request: Request, _t: Translator
     if worker is None:
         raise BadRequestError("task_retry_download_unavailable", id=task_id)
     try:
-        # 轮询超时读在翻状态之前：它要读配置库，失败发生在提交之后就没有回滚点，
-        # 任务会永久停在 running 上，既不被队列认领也不再满足 retry-download 的资格条件。
         poll_timeout_seconds = await worker.read_video_poll_timeout_seconds()
         task = await queue.retry_artifact_download(task_id)
         await worker.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds)
