@@ -10,4 +10,6 @@ status: accepted
 
 接续视频的完成回调在工作线程中读取剧本并计算指纹，须等回调完成后才允许进入选中补偿，避免客户端收到已撤销结果的成功事件。普通生成任务由外层执行器在提交完成后发布成功事件。发布异常向上报告，已写入的产物仍然有效。事件发布同样在工作线程中执行，并继承 Worker 的事件来源上下文。提交后的取消不会打断等待，也不会把任务改判为中断。
 
-实现入口见[付费版本提交](../../lib/artifacts/version_manager.py)、[视频选中](../../lib/artifacts/video_artifact_commit.py)和[视频收尾](../../server/services/currency/video_artifact_currency.py)。
+同一资源的生成准入与选中结算共用跨进程文件锁（`generation_admission_lock` / `generation_admission_lock_sync`），锁键仅按 `(project_name, resource_id)` 计算，刻意不纳入 `script_file`（两套入口接受该参数但不参与锁键生成）。分集改绑到其他剧本路径后，新路径上的任务入队或选中仍与旧路径尚未结束的选中补偿串行，避免两条路径同时操作同一资源。历史版本删除同样依赖这把准入锁保护回退目标：`delete_history_version` 在已持有项目锁与版本锁的前提下执行，试图删除当前版本直接返回 `version_delete_current`，删除历史版本时以非阻塞方式获取该资源的生成准入锁，发生争用即返回 `version_delete_in_use`，避免与先持准入锁再取项目锁和版本锁的结算路径形成相反锁序互等；待占用方释放准入锁后，重新发起删除即可取得该锁，并在持锁期间将历史版本移入项目回收站。
+
+实现入口见 [付费版本提交](../../lib/artifacts/version_manager.py)、[生成准入锁](../../lib/generation/generation_admission.py)、[视频选中](../../lib/artifacts/video_artifact_commit.py) 和 [视频收尾](../../server/services/currency/video_artifact_currency.py)。
