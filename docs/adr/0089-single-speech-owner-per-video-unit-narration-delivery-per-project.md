@@ -10,6 +10,6 @@ status: accepted
 
 项目选择 TTS 配音或后期配音，默认后期配音。TTS 项目固定模型、音色与配音语速，音频依据按 [ADR 0062](0062-artifact-lifecycle-and-currency.md) 记录合成事实。每个含画外音的单位合成一段，剪辑阶段按缺失补齐。后期配音项目交付字幕文字，由创作者另行配音。项目级选择避免单次请求遗漏配置或在同一项目混用口径。
 
-视频按编排时长申请。说话量为编排提供下界，实际配音时长产生的差异在剪辑中处理，配音无需先于视频生成。带旁白与不带旁白的成片或剪映草稿各自登记，切换交付方式不会让已有视频过期。字幕草稿按句分条，依阅读单位比例分配到画面或配音实际时长中。精确对齐和超出画面的旁白按 [ADR 0090](0090-edit-timeline-named-follows-current-not-artifact.md) 在剪辑阶段处理。
+视频按编排时长申请。说话量为编排提供下界，实际配音时长产生的差异在剪辑中处理，配音无需先于视频生成。视频单元的呈现模型由脚本发声归属与旁白交付方式决定，无论视频来自供应商生成还是创作者手动上传，均统一叠加旁白配音并生成字幕草稿；手动上传视频默认保留自身音轨，由剪辑时间线的原声音量控制。带旁白与不带旁白的成片或剪映草稿各自登记，切换交付方式不会让已有视频过期。字幕草稿按句分条，依阅读单位比例分配到画面或配音实际时长中。精确对齐和超出画面的旁白按 [ADR 0090](0090-edit-timeline-named-follows-current-not-artifact.md) 在剪辑阶段处理。
 
 发声归属编排见 [speech_composition](../../lib/speech/speech_composition/)，脚本规划如何透传口播内容见 [ADR 0080](0080-review-confirm-materializes-script-prompt-authoring-fills-pending.md)，TTS 调度见 [ADR 0010](0010-tts-audio-through-generation-queue.md)。
