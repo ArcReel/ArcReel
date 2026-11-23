@@ -45,7 +45,7 @@ ArcReel uses two types of credentials for different purposes.
 
 The Agent drives project conversations, content understanding, episode planning, script planning (including asset identification), and workflow orchestration.
 
-You can use Anthropic's official service or a compatible service supported by ArcReel, and configure the Base URL and model name as needed.
+You can use Anthropic's official service or a compatible service supported by ArcReel, and configure the Base URL and model name as needed. The Agent only accepts Anthropic Messages-compatible endpoints; see [Provider and Model Configuration · Agent Providers](./providers.md#agent-protocol) for the protocol requirement and external gateway options.
 
 #### Media and Text Generation Credentials {#media-and-text-credentials}
 

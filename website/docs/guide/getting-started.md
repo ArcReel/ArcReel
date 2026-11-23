@@ -45,7 +45,7 @@ ArcReel 中有两类凭据，职责不同。
 
 Agent（智能体）用于驱动项目对话、内容理解、分集规划、脚本规划（含资产识别）和工作流编排。
 
-可使用 Anthropic 官方服务或 ArcReel 支持的兼容服务，并按需配置 Base URL 和模型名称。
+可使用 Anthropic 官方服务或 ArcReel 支持的兼容服务，并按需配置 Base URL 和模型名称。Agent 只接受 Anthropic Messages 兼容接口，协议要求与外部网关接入见[供应商与模型配置 · Agent 供应商](./providers.md#agent-protocol)。
 
 #### 媒体与文本生成凭据 {#media-and-text-credentials}
 

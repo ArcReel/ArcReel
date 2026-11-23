@@ -14,6 +14,45 @@ ArcReel 把 Agent（智能体）、文本生成、图像生成、视频生成和
 
 在「设置 → ArcReel Agent」添加并启用一个 Agent 供应商凭证，用于项目对话、内容分析、脚本规划和任务编排。Agent 基于 Claude Agent SDK，可以接 Anthropic 官方服务或兼容网关。
 
+每个 Agent 供应商对应一个 Anthropic 兼容网关，同一时间只有一个生效。供应商按会话连接确定：连接建立时读取当时生效的凭证，切换生效供应商后新发起的会话使用新供应商；仍在运行的会话保持原连接，网络中断后重连常驻会话也不更换供应商；但 actor 进程退出或服务重启后再恢复的会话属于新连接，会使用恢复时生效的供应商。
+
+#### 模型、供应商与接口协议 {#agent-protocol}
+
+模型、供应商与接口协议是三件事：模型是模型厂商发布的生成能力，供应商是提供模型调用服务的一方，接口协议是双方约定的请求与响应格式。同一个模型可以由多家供应商提供，同一家供应商也可以对不同能力使用不同协议。
+
+内置 Agent 只按 Anthropic Messages 协议调用：它向「API 代理地址 + `/v1/messages`」发请求，并要求收到 Anthropic 协议格式的响应。普通文本任务支持 OpenAI 兼容等多种协议，不代表 Agent 也能使用同一地址——只提供 OpenAI Chat Completions 兼容接口的供应商，不能直接当作 Agent 供应商使用。
+
+#### 接入兼容网关 {#agent-gateway}
+
+优先选择直接提供 Anthropic Messages 兼容入口的供应商。添加 Agent 供应商时，预设列表已经收录 Anthropic 官方与 GLM、DeepSeek、Kimi、MiniMax、Xiaomi MiMo、火山方舟 Coding Plan 和 Agent Plan 等兼容入口：选中预设后地址自动填好，只需填入密钥和默认模型。
+
+要接入的兼容入口不在预设中时，选择「自定义配置」自行填写：
+
+- 「API 代理地址」填兼容入口的网关地址。输入框下方实时显示 Agent 实际请求的完整 Messages 地址；从供应商文档复制整条 `…/v1/messages` 端点时可以直接粘贴，保存时末尾这一段会被去掉。地址须是 http(s) 绝对地址，不能带查询参数、锚点或用户名密码。
+- 「密钥」填该入口要求的凭证。
+- 「默认模型」填该入口实际提供的模型名。「高级模型路由」可以把不同能力等级与子智能体分流到其他模型；每个档位按顺序取值：先用凭证上该档位填写的值，留空时回退到对应的旧系统设置（如 Haiku 档位的 `anthropic_default_haiku_model`），仍为空再按供应商类型处理——非官方供应商使用默认模型名，Anthropic 官方预设交给 Claude Code 决定。
+- 填好地址与密钥后可用「获取模型列表」从入口的 `/v1/models` 读取它报告的模型填充候选，仅供参考：入口不实现这个接口、或列表与实际可用模型不一致时，按其文档手动填写模型名。
+
+保存前用「测试连接」验证：它向 Agent 实际请求的 Messages 地址发一次最小请求（上限 30 秒），并检查响应是否为 Anthropic 协议格式。返回成功但格式不符时提示「该端点返回 OpenAI 兼容协议」，说明地址指向了其他协议的入口；模型相关提示优先核对模型名；限流与超时按提示稍后重试，超时说明服务可达、可直接保存后重试；其余情况对照状态码与原始错误信息核对密钥与地址。
+
+#### 接入外部协议转换网关 {#agent-external-gateway}
+
+供应商不提供 Anthropic Messages 兼容入口、但你仍想用它驱动 Agent 时，可以自行运行一个提供该入口的外部协议转换网关，把其他协议的模型服务包装成兼容接口，再按上文「自定义配置」接入。常见方案与其官方文档入口：
+
+- LiteLLM：[Claude Agent SDK with LiteLLM](https://docs.litellm.ai/docs/tutorials/claude_agent_sdk)
+- Claude Code Router：[项目说明](https://github.com/musistudio/claude-code-router/blob/main/README.md)
+
+以 LiteLLM 为例：
+
+1. 按 LiteLLM 文档编写 `config.yaml` 并启动代理：启动前必须先设置 master key，可以用环境变量 `LITELLM_MASTER_KEY`，也可以在 `config.yaml` 中设置 `general_settings.master_key`；当前版本的 LiteLLM 在 master key 未设置、为空或是已知不安全值时拒绝启动。代理默认监听 `http://localhost:4000`，它就是对外提供的 Anthropic 兼容入口地址；
+2. 在「设置 → ArcReel Agent」添加 Agent 供应商，选择「自定义配置」；
+3. 「API 代理地址」填 `http://localhost:4000`（须是 ArcReel 服务实际可达的地址：容器部署时 `localhost` 指容器自身，应填网关所在主机对 ArcReel 可达的地址）；
+4. 「密钥」填第 1 步设置的 master key；改用虚拟密钥（virtual key）时，代理还须配置 PostgreSQL 数据库（`DATABASE_URL` 或 `general_settings.database_url`），并通过 `/key/generate` 创建密钥；
+5. 「默认模型」填 `config.yaml` 中 `model_list` 暴露的 `model_name`；
+6. 「测试连接」通过后保存，并将该供应商设为生效。
+
+外部协议转换网关是可选方案，不是 ArcReel 的内置功能：兼容性取决于模型、供应商与网关版本（包括流式响应与工具调用等细节），ArcReel 未对这些组合做端到端验证，不作为官方支持的接入方式。网关的搭建、升级与模型支持范围以各项目官方文档为准；接入后先用「测试连接」和几轮真实对话确认可用，再投入项目使用。
+
 ### 1.2 媒体与文本供应商 {#media-and-text-providers}
 
 在「设置 → 供应商」配置文本、图片、视频和语音合成（TTS）用的凭证，再在「默认模型」选择每种用途所需的模型。生成模型使用各自的供应商配置，独立于 Agent 供应商。
