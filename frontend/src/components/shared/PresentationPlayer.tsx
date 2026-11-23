@@ -425,7 +425,7 @@ export function PresentationPlayer({
           if (!stopAtPresentationBoundary(event.currentTarget)) synchronizeNarration(true);
         }}
         onPlaying={(event) => {
-          if (restartWhenParkedAtBoundary(event.currentTarget)) return;
+          // 缓冲恢复也会触发 playing，那不是用户点播放：只判边界，不重播。
           if (!stopAtPresentationBoundary(event.currentTarget)) synchronizeNarration(true);
         }}
         onPause={() => audioRef.current?.pause()}

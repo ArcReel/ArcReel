@@ -416,6 +416,25 @@ describe("PresentationPlayer", () => {
     expect(pause).not.toHaveBeenCalled();
   });
 
+  it("keeps resuming after buffering near the boundary instead of replaying", async () => {
+    render(
+      <PresentationPlayer
+        projectName="demo"
+        resourceType="videos"
+        resourceId="E1S01"
+        initialVariant="use_tts"
+      />,
+    );
+    const video = await screen.findByLabelText("分镜 2 成片预览");
+    await screen.findByLabelText("分镜 2 TTS 音轨");
+    // 缓冲恰好在边界前恢复：playing 不是用户点的播放，播放头必须留在原处继续。
+    Object.defineProperty(video, "currentTime", { configurable: true, writable: true, value: 5.9995 });
+
+    fireEvent.playing(video);
+
+    expect(video).toHaveProperty("currentTime", 5.9995);
+  });
+
   it("suppresses the custom cue while native captions are showing", async () => {
     const nativeTrack = { mode: "hidden" };
     const textTracks = new EventTarget() as EventTarget & { length: number; 0: typeof nativeTrack };
