@@ -16,4 +16,13 @@ status: accepted
 - 字幕文字来自字幕草稿，纠错返回脚本。字幕样式固定，成片和剪映分别处理显示与轨道，尽量贴近。成片可选择是否烧入字幕，剪映草稿保留字幕轨。两种产物的身份和修订快照见 [ADR 0095](0095-final-cut-rendered-locally-with-bundled-ffmpeg.md)。
 - BGM 按绝对时间置于独立音轨，同一时刻只有一首。原声和 BGM 的音量是剪辑决策，渲染与导出按设定值处理。自动闪避会虚增剪映里不属于用户意图的音量关键帧，因此保留静态音量与显式淡入淡出。
 
-实现见[剪辑时间线服务](../../lib/edit_timeline/service.py)。
+## 浏览器实时预览
+
+工作台的剪辑预览仅约束浏览器实时播放，不构成 FFmpeg 渲染或剪映草稿的排程规则。预览计划排除状态为 `unit_deleted` 与 `duration <= 0` 的片段，其余片段沿用时间线读取结果中的 `start` 与 `duration`。若全程只用墙钟推进，视频解码卡顿时音频会继续前跑；若全程只跟视频时钟，定格、无视频占位和提前结束的片段则无法推进。
+
+- **画面与时钟切换**：处于有视频片段的画面区间、当前视频槽已加载目标片段，且 `<video>` 既未暂停也未 `ended` 时，播放头采样 `video.currentTime` 推进，保证单调不回退并在接近画面出点时吸附到出点；缺少可用视频样本时（包含定格、无视频占位以及视频暂停或提前结束）改按非负经过时间推进。越过当前片段终点时直接进入下一片段起点，不把超出的经过时间结转到下一段。
+- **缓冲宽限与全局冻结**：播放中，当处于画面区间的当前视频，或播放头所在区间内已创建的 `<audio>` 持续处于 `seeking` 或数据不足（`readyState < HAVE_FUTURE_DATA`）并达到宽限时长后，预览冻结全局时钟、暂停当前视频并将音轨同步为暂停态，待媒体就绪后恢复播放。已出错（`errored`）或已结束（`ended`）的媒体不计入等待；宽限期内不强制暂停全部媒体。
+- **定位与切段的显示时机**：用户主动 seek 时立即显示目标视频槽以保证操作响应；连续播放切入下一有视频片段时先在交替槽加载并播放，待该槽已加载目标片段、达到 `HAVE_CURRENT_DATA` 且不在 `seeking` 后再切换可见槽，避免切段瞬间闪黑。
+- **刷新时的计划引用稳定**：重新读取时间线或预览媒体后，若生成的播放计划内容不变，则保留原计划引用，避免项目的无关更新触发媒体重载与重新定位；同一预览实例内计划内容变化时按当前播放头位置重新 seek，切换时间线 ID 时则重挂载预览实例。
+
+实现见[剪辑时间线服务](../../lib/edit_timeline/service.py)，浏览器预览调度与播放见 [playback-schedule.ts](../../frontend/src/components/canvas/edit/playback-schedule.ts)、[useTimelinePlayback.ts](../../frontend/src/components/canvas/edit/useTimelinePlayback.ts) 与 [EditTimelineView.tsx](../../frontend/src/components/canvas/edit/EditTimelineView.tsx)。

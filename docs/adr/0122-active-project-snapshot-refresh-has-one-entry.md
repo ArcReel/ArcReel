@@ -8,4 +8,6 @@ status: accepted
 
 项目切换会取消上一个项目的在途刷新，提交快照前再次核对请求是否仍归当前项目。每个调用方各自在其对应轮次结束时收到结果，避免后续轮次的失败阻塞已完成同步的界面操作。成功意味着本轮已写入项目快照。请求失败时保留最近一次快照，触发已注册的错误回调，并由调用方决定是否提示。取消只表示未同步，调用方静默处理。
 
-项目 SSE 的实体变更触发快照刷新。只包含任务终态、记账结算或回收站变化的批次，仅刷新各自对应的视图。事件服务重建服务端快照时，会补扫并广播未被在途批次描述的已写入变更，见 [ADR 0085](0085-project-events-dual-source-registry-derived-projection.md)。实体变更通知只在刷新成功后基于新快照中的集标题、播出位置和条目数据生成，否则跳过，以免把新建条目误报为已删除，或推送无法改写的旧标题。实现见[项目 store](../../frontend/src/stores/projects-store.ts)和[项目事件订阅](../../frontend/src/hooks/useProjectEventsSSE.ts)。
+项目 SSE 的实体变更触发快照刷新。只包含任务终态、记账结算或回收站变化的批次，仅刷新各自对应的视图。事件服务重建服务端快照时，会补扫并广播未被在途批次描述的已写入变更，见 [ADR 0085](0085-project-events-dual-source-registry-derived-projection.md)。实体变更通知只在刷新成功后基于新快照中的集标题、播出位置和条目数据生成，否则跳过，以免把新建条目误报为已删除，或推送无法改写的旧标题。
+
+项目 SSE 的断线重建由流式客户端承担（见 [ADR 0071](0071-browser-native-request-credential-carrier.md)），服务端在每次建连后都会推送一次 `snapshot`。因为项目快照指纹不覆盖用量顶栏、回收站和一次性的 Agent 会话恢复通知，而首次建连时全量重读各视图又会增加首屏开销，订阅方在收到 `snapshot` 时依据此前记录的快照指纹（由同项目之前的 `snapshot` 或 `changes` 写入，而非传输层断线计数）分视图补读：前次指纹非空且与本次不同时，失效当前已知各集的 `DRAFT_DOC_KINDS` 并调用 `refreshProject`；前次指纹非空时（即使与本次相同），重取用量顶栏并失效回收站；每次收到 `snapshot`（包括首次）都调用 `requestSessionResync`，以补上订阅建立前可能错过的会话恢复通知或早于恢复的初始会话读取（见 [ADR 0048](0048-session-event-log-single-ui-read-source.md)）。任务队列的同步仍由事件批次中的任务变更与轮询驱动，`snapshot` 回调不直接调用 `refreshTasks`。实现见[项目 store](../../frontend/src/stores/projects-store.ts) 与[项目事件订阅](../../frontend/src/hooks/useProjectEventsSSE.ts)。
