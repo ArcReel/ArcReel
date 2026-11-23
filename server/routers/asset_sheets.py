@@ -46,7 +46,6 @@ router = APIRouter()
 
 AssetType = Literal["character", "scene", "prop", "product"]
 
-#: 资产不存在时的文案 key；场景沿用历史前缀 ``project_scene_*``。
 _NOT_FOUND_KEYS: dict[str, str] = {
     "character": "character_not_found",
     "scene": "project_scene_not_found",

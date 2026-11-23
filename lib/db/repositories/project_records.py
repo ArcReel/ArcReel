@@ -22,8 +22,6 @@ from lib.db.models.session import AgentSession
 from lib.db.models.task import GenerationBatch, Task
 
 _DELETED_MARKER = "#deleted-"
-#: 按项目名关联项目的记录。供应商素材关联按项目里的内容版本身份键控，同名新项目的同一身份不能继承它。
-#: 正式对象引用随项目改挂：已删除项目仍可恢复，它的引用继续保留对象，彻底删除时按墓碑名撤下。
 _PROJECT_KEYED_MODELS = (Task, GenerationBatch, ApiCall, AgentSession, ProviderAssetLink, FormalObjectRef)
 _DELETED_NAME_RE = re.compile(r"^([A-Za-z0-9-]+)#deleted-(\d{8}T\d{6}Z)$")
 
@@ -63,7 +61,6 @@ async def retire_project_records(session: AsyncSession, project_name: str) -> tu
         .where(Task.project_name == project_name, Task.status == "queued")
         .values(status="cancelled", cancelled_by="user", finished_at=now, updated_at=now)
     )
-    # 在取消排队任务之后读：与之并发的认领要么已把任务翻成 running，要么只能看到它已取消。
     running = await session.execute(
         select(Task.task_id).where(Task.project_name == project_name, Task.status == "running")
     )
@@ -71,7 +68,6 @@ async def retire_project_records(session: AsyncSession, project_name: str) -> tu
     for model in _PROJECT_KEYED_MODELS:
         stmt = update(model).where(model.project_name == project_name)
         if model is FormalObjectRef:
-            # 进行中提交的占用留在项目名下：覆盖导入先在项目名下提交新图片、再收尾旧项目，结算按项目名记新项目的引用
             stmt = stmt.where(FormalObjectRef.state != "pending")
         await session.execute(stmt.values(project_name=tombstone))
     return tombstone, running_task_ids

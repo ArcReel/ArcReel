@@ -75,8 +75,6 @@ class AssetSpec:
         return frozenset(fields)
 
 
-#: 角色、场景、道具的别名列表字段：源文中的其他叫法、改名前的旧名与合并掉的名字，只作 AI
-#: 规划或生成脚本时认出同一资产的参考，不参与程序匹配，不写进引用（见 ``docs/adr/0092``）。
 ALIASES_FIELD = "aliases"
 
 ASSET_SPECS: dict[str, AssetSpec] = {
@@ -90,14 +88,6 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         reference_list_fields=("characters_in_segment", "characters_in_scene", "characters_in_shot"),
         original_image_fields=("reference_image",),
         extra_string_fields=("voice_style", "reference_image", "reference_audio", "voice_notice_dismissed_at"),
-        # voice_style 是 LLM 生成的角色配音风格，agent 可改；reference_image / reference_audio
-        # 是用户上传的文件路径（系统级），不进 agent 白名单——更新分别走
-        # update_character_reference_image / update_character_reference_audio。
-        # voice_notice_dismissed_at 记录用户已确认到的 voice_updated_at 版本，由前端「关闭」
-        # 动作通过本通用 PATCH 写入；agent 不该也无需感知这个 UI 状态，不进白名单。
-        # 与之比较的 voice_updated_at 不在此列——只由系统在 reference_audio 实际变更时机械戳写
-        # （update_character_reference_audio 与全局资产库导入），不开放任意 PATCH 覆写
-        # （否则该比较可被客户端绕过）。
         extra_list_fields=(ALIASES_FIELD,),
         agent_editable_extra_fields=("voice_style", ALIASES_FIELD),
         supports_derivatives=True,
@@ -138,7 +128,6 @@ ASSET_SPECS: dict[str, AssetSpec] = {
         extra_string_fields=("brand",),
         extra_list_fields=("reference_images", "selling_points"),
         agent_editable_extra_fields=("selling_points",),
-        # 全局资产库是单图列模型，多图列表型的 product 不进入。
         in_global_library=False,
     ),
 }
@@ -259,7 +248,7 @@ def build_asset_entry(asset_type: str, description: str, source: Mapping[str, An
         elif value is None:
             entry[field] = []
         else:
-            entry[field] = value  # 非法类型透传，由落盘前结构校验 fail-loud
+            entry[field] = value
     if spec.supports_derivatives:
         entry[DERIVATIVES_FIELD] = {}
     return entry

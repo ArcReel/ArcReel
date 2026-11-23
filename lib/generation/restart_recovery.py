@@ -32,10 +32,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 不实现 VideoBackend.resume_video 的视频 provider：孤儿扫描把它们的 running 孤儿标记为
-# [resume_unsupported] 失败，而非主动 requeue 重跑——避免对已经提交给供应商的请求二次扣费
-# （Grok 同步型无 job_id；Vidu 的 generate 内联 poll，没有独立 resume）。
-# 新增不支持 resume 的 backend 时同步在这里登记。
 NON_RESUMABLE_VIDEO_PROVIDERS = frozenset({PROVIDER_GROK, PROVIDER_VIDU})
 
 
@@ -80,8 +76,6 @@ class RestartRecovery:
         self._resume = resume
         self._settle_interrupted_calls = settle_interrupted_calls
         self.orphan_dispatcher_task: asyncio.Task | None = None
-        # 「重试下载」的派发是即发即忘的：不持强引用的话，事件循环之外无人引用该 task，
-        # 它可能在挂起点被 GC 静默回收。完成即从集合摘除。
         self._retry_dispatch_tasks: set[asyncio.Task] = set()
 
     async def wait_dispatchers(self) -> None:
@@ -93,8 +87,6 @@ class RestartRecovery:
             except Exception:
                 logger.exception("orphan dispatcher 在 shutdown 等待时异常")
 
-        # 「重试下载」的 dispatcher 同理：任务在派发之前就已经被翻成 running，dispatcher 还没
-        # 登记 sub-task 就退出的话，这一笔要等到下次启动的孤儿扫描才被接手。
         if retry_dispatchers := [t for t in self._retry_dispatch_tasks if not t.done()]:
             await asyncio.gather(*retry_dispatchers, return_exceptions=True)
 
@@ -142,12 +134,6 @@ class RestartRecovery:
             return
         logger.info("等待 lease 获取后开始扫孤儿（待处理 %d 个）", len(orphans))
 
-        # self-active 防 self-preemption：lease flap > 3×TTL 后一次性扫描开关
-        # 重置，再扫 DB running 会包含本进程仍 inflight 的 task。若不排除：
-        # - image 任务 → 错误标 [restart_lost]（任务还在跑就被标失败）
-        # - video 任务 → 启动重复 resume 流，同一 provider job 被并发 poll/finalize，
-        #   崩溃窗口可能导致 provider 端双重扣费（违反 ADR 0007 红线）
-        # active_task_ids 含 pending+inflight 全部占用，DB 扫到的同 id task 视为本进程的活。
         self_active_task_ids = self._slots.active_task_ids()
 
         resumable_by_provider: dict[str, list[dict[str, Any]]] = {}
@@ -167,8 +153,6 @@ class RestartRecovery:
             else:
                 media_type = "image"
 
-            # image 任务不持久化 job_id 也无 resume 入口——已提交给供应商的请求无法回收，
-            # 主动 requeue 会双重扣费。直接丢弃，等用户决定是否手动重试。
             if media_type == "image":
                 logger.warning("孤儿 image running → [restart_lost]: %s", task_id)
                 await self._queue.mark_task_failed(
@@ -177,8 +161,6 @@ class RestartRecovery:
                 )
                 continue
 
-            # audio（TTS）同步、不持久化 job_id、无 resume 入口——与 image 同样降级为
-            # [restart_lost]，不重新提交以免重复计费。
             if media_type == "audio":
                 logger.warning("孤儿 audio running → [restart_lost]: %s", task_id)
                 await self._queue.mark_task_failed(
@@ -187,15 +169,11 @@ class RestartRecovery:
                 )
                 continue
 
-            # text 同步调用可能在线程中继续运行，但进程重启后没有可接续的 job identity；
-            # 与 image/audio 一样不自动重交，避免重复计费。
             if media_type == "text":
                 logger.warning("孤儿 text running → [restart_lost]: %s", task_id)
                 await self._queue.mark_task_failed(task_id, encode_failure("restart_lost_text"))
                 continue
 
-            # 本地渲染不续跑；重启时清理临时文件，lease 重夺时保留本进程仍在执行的渲染。
-            # 不自动重排，由用户决定是否重新渲染。
             if media_type == RENDER_MEDIA_TYPE:
                 logger.warning("孤儿 render running → [restart_lost]: %s", task_id)
                 if not self._slots.occupied_providers(RENDER_MEDIA_TYPE):
@@ -223,17 +201,12 @@ class RestartRecovery:
                     await cleanup_video_staging(task)
                     continue
 
-            # video 路径：判断 provider 是否支持 resume。两种生成模式均只用不可变 checkpoint；
-            # 否则项目配置在重启前后切换时，provider 投影会按当前项目重新解析，可能把原本
-            # Grok/Vidu 孤儿误判成可 resume，或把可 resume 任务路由到错池。
             provider_id = (
                 checkpoint.provider_id
                 if checkpoint is not None
                 else task.get("provider_id") or await self._provider_projection(task)
             )
             if provider_id in NON_RESUMABLE_VIDEO_PROVIDERS:
-                # Grok/Vidu 当前不实现 resume_video——原 job 已发给供应商无接续手段，
-                # 重跑会重复扣费。丢弃，由用户手动决定是否重试。
                 logger.warning(
                     "孤儿 video running (provider=%s 不支持 resume) → [resume_unsupported]: %s",
                     provider_id,
@@ -334,15 +307,12 @@ class RestartRecovery:
         """
         cap = self._capacity.get(provider_id, "video")
         if cap <= 0:
-            # 启动期 reload 兜底：DB 加载可能晚于第一次 orphan 扫描。
             try:
                 await self._reload_limits()
             except Exception:
                 logger.warning("reload_limits 兜底失败", exc_info=True)
             cap = self._capacity.get(provider_id, "video")
         if cap <= 0:
-            # 派发前就判死，手上没有异常对象：这一句就是这些调用行的失败原文，与 backend 抛出的
-            # 过期/换端点消息同一登记册（agent-facing 原文，不进 i18n，也没有可分类的机器码）。
             no_capacity = f"resume unsupported: provider {provider_id} has no video capacity"
             for t in tasks:
                 await self._queue.mark_task_failed(
@@ -363,15 +333,10 @@ class RestartRecovery:
                 acquired = True
                 if self._stop_event.is_set():
                     return
-                # 占用对象恒定（SlotTable 引用不被 reload 重建），promote 直接翻 PENDING→INFLIGHT
                 self._slots.promote(provider_id, "video", task_id)
                 logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
                 await self._resume.run(t)
             except asyncio.CancelledError:
-                # 进程级打断落在三处都在这里兜底——SQL 守卫只放行 queued / running，保证幂等：
-                # 1) sem.acquire 等待期 → 续跑还没开始，必须由此落终态
-                # 2) acquired=True 后但续跑内 try 块外 → 内部落终态路径不会触发，必须由此落终态
-                # 3) 续跑内部 → 内部已落终态，此处再调命中终态行返回 0 rows，无副作用
                 try:
                     await asyncio.shield(self._queue.mark_task_interrupted(task_id))
                     await asyncio.shield(self._resume.settle_unresumable_call(t, cancelled=True))
@@ -388,8 +353,6 @@ class RestartRecovery:
         for t in tasks:
             if self._stop_event.is_set():
                 break
-            # 父协程同步：先 create_task、再立即以 PENDING 登记——避免「create_task
-            # 是异步调度，has_room 在调度未发生前看占用=0 误判可有容量」的瞬时 race。
             sub_task = asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
             self._slots.register(provider_id, "video", t["task_id"], sub_task, pending=True)
             sub.append(sub_task)

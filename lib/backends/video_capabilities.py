@@ -34,7 +34,6 @@ from lib.backends.input_limits import InputLimit, effective_input_limit
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
 
-#: 对应不上条目的模型：模型事实一侧全部未收录，生效能力按保守回落取（见模块文档）。
 UNRECORDED_VIDEO_FACTS = VideoFacts()
 
 
@@ -85,6 +84,5 @@ def effective_video_capabilities(channel: VideoCapabilities, facts: VideoFacts) 
         max_reference_images=images.to_json(),
         reference_audio_mode=channel.reference_audio_mode if audio_open else ReferenceAudioMode.NONE,
         max_reference_audio_count=audio_count.to_json(),
-        # 不接受参考音频时总时长无从谈起，为 None；接受时 None 即两侧都没有声明总时长。
         max_reference_audio_total_seconds=total_seconds.maximum,
     )

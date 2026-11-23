@@ -60,7 +60,6 @@ _NOT_FOUND_KEYS = {
 }
 
 type _CommitHook = Callable[[ContentVersion], None]
-#: 把取回的图片按手动上传成品写入，最后在同一次提交里调用钩子。资源在写入前被并发删除时抛 NotFoundError。
 type _Install = Callable[[ProviderImage, _CommitHook], Awaitable[None]]
 
 
@@ -105,7 +104,6 @@ async def _asset_sheet_install(
     await asyncio.to_thread(_require_asset, manager, project_name, asset_type, name)
 
     async def install(image: ProviderImage, on_commit: _CommitHook) -> None:
-        # 下载边界已校验图片；保留原始字节，确保此版本与关联的供应商素材是同一内容。
         sheet_path = f"{ASSET_SPECS[asset_type].subdir}/{name}{image.suffix}"
 
         def _install() -> ContentVersion | None:
@@ -122,7 +120,6 @@ async def _asset_sheet_install(
                     require_asset=True,
                 )
 
-        # 取图期间资产可能被删除：项目锁内复核，不存在时什么也不写。新版本按全局存储选择保存
         async with formal_commit(project_name):
             installed = await run_sync_transaction(_install)
         if installed is None:
@@ -165,7 +162,6 @@ async def _discard_orphan(session: AsyncSession, link: ProviderAssetLink) -> Non
             await session.delete(orphan)
             await session.commit()
     except Exception:
-        # 留下的记录指向不存在的内容版本，不会被选中；只影响诊断，不影响图片与其他关联
         logger.warning("导入失败后未能删除关联记录 %s", link.id, exc_info=True)
 
 
@@ -220,7 +216,6 @@ async def import_provider_asset(
         recorded.append(bridge.run(_record_link(content_version)))
 
     try:
-        # 正式写入到返回一并结算，避免取消把已生效的关联送进孤儿清理。
         await run_noninterruptible_async(install(image, _on_commit))
     except BaseException:
         if recorded:

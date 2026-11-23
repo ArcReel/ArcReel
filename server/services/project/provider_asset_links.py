@@ -37,7 +37,6 @@ class LinkResponse(BaseModel):
     content_version_id: str
     version: int
     account_id: int
-    #: 提交或导入时的调用范围；与 :class:`AccountSummary` 的同名字段相等才表示同一范围。
     scope_key: str
     site: str
     region: str
@@ -49,7 +48,6 @@ class LinkResponse(BaseModel):
     error_code: str | None
     error_message: str | None
     check_error: str | None
-    #: 后台仍会自动查询；为 false 且状态未定时，由用户手动刷新。
     polling: bool
     created_at: str | None
     submitted_at: str | None
@@ -58,7 +56,6 @@ class LinkResponse(BaseModel):
 
 class AccountSummary(BaseModel):
     id: int
-    #: 账号按当前内容覆盖的范围；账号换成另一个云账号的 Access Key 后随之变化，旧关联不再与它相等。
     scope_key: str
     name: str
     site: str

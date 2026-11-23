@@ -67,7 +67,6 @@ class FileRole(StrEnum):
     INFRASTRUCTURE = "infrastructure"
 
 
-#: 同一路径被多处引用时取优先级最高的角色。
 _ROLE_PRIORITY = {
     FileRole.STRUCTURE: 4,
     FileRole.REFERENCED: 3,
@@ -107,7 +106,6 @@ class FileOwner:
 class FileReference:
     role: FileRole
     owner: FileOwner | None = None
-    #: 历史版本快照里的当前版本：版本管理拒绝删除它。
     current: bool = False
 
 
@@ -123,7 +121,6 @@ _ITEM_ARRAYS = (("segments", "segment_id"), ("scenes", "scene_id"), ("shots", "s
 _ASSET_TYPE_BY_BUCKET = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
 _SEGMENT_RESOURCE_TYPES = frozenset({"storyboards", "videos", "audio", END_FRAME_RESOURCE_TYPE})
 _ASSET_RESOURCE_TYPES = frozenset({*_ASSET_TYPE_BY_BUCKET, CHARACTER_DERIVATIVE_RESOURCE_TYPE})
-#: 每集草稿目录里由工作流持有的文件：隔离草稿，以及分集视图会读取的脚本规划（含旧版 ``.md``）。
 _EPISODE_DRAFT_FILENAMES = tuple(
     dict.fromkeys(
         (
@@ -176,7 +173,6 @@ class ReferenceIndex:
         self._refs: dict[str, FileReference] = {}
         self._resources: set[tuple[str, str]] = set()
         self._item_episodes: dict[str, int] = {}
-        #: 整本源文文件名主体 → 角色；上传时保留的原始文件 ``source/raw/<主体>.<原扩展名>`` 跟随它。
         self._source_stems: dict[str, FileReference] = {}
 
     @classmethod
@@ -214,10 +210,8 @@ class ReferenceIndex:
                 FileRole.STRUCTURE, FileOwner("timeline", id=PurePosixPath(timeline).stem, episode=episode)
             )
         if parts[:2] == ("source", "raw") and len(parts) == 3:
-            # 原始上传件随规范化文本一起增删；对应的源文件未纳入整本源文时同样交给分集视图。
             return self._source_stems.get(PurePosixPath(rel).stem, FileReference(FileRole.UNREFERENCED, _SOURCE))
         if is_whole_source_file_path(rel):
-            # 未纳入整本源文、也不是任何一集原文的源文件：由分集视图处理。
             return FileReference(FileRole.UNREFERENCED, _SOURCE)
         return _UNREFERENCED
 
@@ -272,9 +266,6 @@ class ReferenceIndex:
         except (FileNotFoundError, NotADirectoryError):
             return rel
         except OSError as exc:
-            # 资产条目的字符串字段里也有配音风格这类长文本，不是路径：超过文件名长度上限时 stat 报
-            # ENAMETOOLONG，按原样记下。其它 I/O 错误照常抛出——吞掉的话在用文件会以项目记录的拼写入表，
-            # 按磁盘拼写查询时被判为未引用。
             if exc.errno != errno.ENAMETOOLONG:
                 raise
             return rel
@@ -352,7 +343,6 @@ class ReferenceIndex:
                 for field in ("storyboard_image", "storyboard_last_image", "video_clip", "narration_audio"):
                     self._mark(assets.get(field), FileRole.REFERENCED, owner)
                 self._mark(item.get("end_frame_image"), FileRole.REFERENCED, owner)
-                # 缩略图由视频派生，可重新生成。
                 self._mark(assets.get("video_thumbnail"), FileRole.DERIVED, owner)
                 grid_id = assets.get("grid_id")
                 if isinstance(grid_id, str) and grid_id:
@@ -380,7 +370,6 @@ class ReferenceIndex:
             if origin is SourceOrigin.NONE:
                 continue
             owner = FileOwner("episode", episode=entry["episode"])
-            # 切出集的集文件由账本派生；自带原文的集文件就是该集的源文。
             role = FileRole.DERIVED if origin is SourceOrigin.WHOLE_SOURCE else FileRole.STRUCTURE
             self._mark(episode_source_relpath(entry["episode"]), role, owner)
 

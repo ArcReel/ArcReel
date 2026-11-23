@@ -47,20 +47,15 @@ def encode_task_failure_message(exc: Exception) -> str:
             exc
         )
     if isinstance(exc, ScriptEditError):
-        # 编不出来时退到通用 script_edit_error，保住"是剧本编辑失败"这一层信息。
         return _try_encode_failure(exc.key, exc.params) or encode_failure("script_edit_error")
     if isinstance(exc, ApiError):
         return _try_encode_failure(exc.key, exc.params) or str(exc)
     if isinstance(exc, ProviderRejectedError):
-        # 上游确定性 4xx：状态码与脱敏摘要各占一个参数。摘要是上游原文，不进译文模板——
-        # 读侧按 error_params 里的独立字段原样展示，只有外层措辞随 Accept-Language 变。
-        # 摘要缺席时只落状态码：拒绝本身仍要结构化，读侧才有本地化文案与 FIX_INPUT。
         params: dict[str, Any] = {"status": exc.response.status_code}
         if exc.provider_reason:
             params["provider_reason"] = exc.provider_reason
         return _try_encode_failure("provider_rejected", params) or str(exc)
     if (rejection := grpc_rejection(exc)) is not None:
-        # gRPC 通道（xAI）的确定性拒绝与 HTTP 4xx 同一编码：不落 AioRpcError 的调试表示。
         status, reason = rejection
         grpc_params: dict[str, Any] = {"status": status}
         if reason:
@@ -85,8 +80,6 @@ def encode_task_failure_message(exc: Exception) -> str:
         | ProviderAssetLinkUnavailableError
         | ProviderInputImageRejectedError,
     ):
-        # 结构化执行拒绝没有通用兜底 code 可退，退回 str(exc)（即 code 本身）——
-        # 非结构化文本在读侧原样透传，不会丢失原因。
         return _try_encode_failure(exc.code, exc.params) or str(exc)
     return str(exc)
 
@@ -130,8 +123,5 @@ def _try_encode_failure(code: str, params: dict[str, Any]) -> str | None:
     except KeyError:
         logger.warning("失败 code 未登记进 FAILURE_CODE_KEYS，降级为通用失败原因: code=%s", code)
     except (TypeError, ValueError, RecursionError):
-        # params 无法 JSON 序列化（TypeError：default=str 也转不了的键类型；
-        # ValueError：json.dumps 默认 check_circular 检出循环引用；
-        # RecursionError：嵌套过深的容器，default=str 不接管容器本身）。
         logger.warning("失败 params 无法序列化，降级为通用失败原因: code=%s", code)
     return None

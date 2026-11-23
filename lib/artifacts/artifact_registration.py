@@ -85,7 +85,6 @@ def artifact_key_for_resource(
 ) -> ArtifactKey:
     """Map a formal write target to its typed manifest identity."""
 
-    # 衍生资产图与本体共用 asset_sheet 这一产物种类，只是 id 写作 ``本体名/衍生名``。
     if resource_type == CHARACTER_DERIVATIVE_RESOURCE_TYPE:
         return ArtifactKey.asset_sheet(DERIVATIVE_ASSET_TYPE, resource_id)
     for asset_type, spec in ASSET_SPECS.items():

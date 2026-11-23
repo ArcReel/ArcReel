@@ -40,7 +40,6 @@ register_backend(PROVIDER_GEMINI, GeminiAudioBackend)
 register_backend(PROVIDER_GROK, GrokAudioBackend)
 register_backend(PROVIDER_ARK_AGENT_PLAN, ArkAgentPlanAudioBackend)
 
-#: 百炼音频的内置调用端点 → 后端类；内置供应商按端点名构造（同百炼图片、视频）。
 DASHSCOPE_AUDIO_BACKENDS = {
     "dashscope-tts": DashScopeAudioBackend,
     "dashscope-speech-synthesizer": DashScopeSpeechSynthesizerBackend,

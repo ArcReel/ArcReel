@@ -63,7 +63,6 @@ class DerivativeSheetRelocation:
         for old_id, new_id in self.version_renames:
             self._version_manager.rename_resource(CHARACTER_DERIVATIVE_RESOURCE_TYPE, old_id, new_id)
         for directory in self.retired_dirs:
-            # 非空、不存在或无权限都不是错误：目录只是收纳，留着不影响任何登记。
             with contextlib.suppress(OSError):
                 directory.rmdir()  # hard-delete: infra -- 衍生图搬走后的空目录
 
@@ -129,7 +128,6 @@ def plan_derivative_sheet_relocation(
         new_id = derivative_artifact_id(new_owner, new_name)
         if old_id == new_id:
             continue
-        # dry-run 在此把「新 id 下已有别人的历史」拦成零写入，与本体改名同口径。
         snapshots += version_manager.rename_resource(CHARACTER_DERIVATIVE_RESOURCE_TYPE, old_id, new_id, dry_run=True)
         version_renames.append((old_id, new_id))
         if manifest is not None:
@@ -149,7 +147,6 @@ def plan_derivative_sheet_relocation(
         moves=tuple(moves),
         version_renames=tuple(version_renames),
         manifest_plans=tuple(manifest_plans),
-        # 本体换了名，旧本体的两个收纳目录就此作废；同本体内的衍生改名不动目录。
         retired_dirs=(
             (source_dir, project_dir / derivative_version_dir(old_owner)) if owner_moved and carry_unlisted else ()
         ),
@@ -175,7 +172,6 @@ def rewrite_derivative_sheet_paths(
         return 0
     count = 0
     for old_name, new_name in renames:
-        # 条目的键可能已被调用方改成新名，也可能还是旧名（本体改名时衍生名不变）。
         derivative = table.get(new_name) if new_name in table else table.get(old_name)
         if not isinstance(derivative, dict):
             continue

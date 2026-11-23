@@ -205,7 +205,6 @@ async def gate_image_request(
     from lib.custom_provider.backends import CustomImageBackend
 
     if isinstance(backend, CustomImageBackend):
-        # 自定义供应商：工厂已按模型行注入模型事实一侧（条目 ⊕ 能力覆盖，ComfyUI 端点不加约束）。
         available = backend.effective_capabilities
     else:
         available = effective_image_capabilities(
@@ -276,7 +275,6 @@ def backend_image_quality_options(backend: ImageBackend, *, provider_id: str) ->
     try:
         return builtin_image_quality_options(provider_id, backend.model)
     except ValueError:
-        # 已构造出图片后端却查不到图片调用端点：按没有画质选项处理，请求保持原有行为。
         return ()
 
 

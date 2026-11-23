@@ -30,9 +30,7 @@ from lib.infra.api_errors import ConflictError
 from lib.infra.content_digest import sha256_file
 
 CONTENT_VERSION_ID = "content_version_id"
-#: 版本记录里内容摘要的键：该版本快照的裸 sha256 hexdigest，算法同 ``lib.infra.content_digest.sha256_file``。
 CONTENT_DIGEST = "content_digest"
-#: 版本记录里远端持久定位的键，值见 :meth:`ObjectLocator.to_record`；没有这个键的记录按本地定位解释。
 STORAGE = "storage"
 _OBJECT_STORAGE_KIND = "object_storage"
 

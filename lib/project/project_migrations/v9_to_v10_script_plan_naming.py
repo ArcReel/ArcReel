@@ -35,8 +35,6 @@ from lib.project.project_migrations.backups import ensure_versioned_backup
 
 _TARGET_VERSION = 10
 
-#: 草稿文件的旧名 → 新名。键是 v9 的落盘事实，值是 v10 的落盘事实；两侧都写死在本迁移里，
-#: 之后任一侧再改名都不该回头改写这一步的历史对应关系。runner 的备份回收按这两侧枚举。
 DRAFT_FILE_RENAMES: dict[str, str] = {
     "step1_normalized_script.json": "script_plan_normalized_script.json",
     "step1_normalized_script.invalid.json": "script_plan_normalized_script.invalid.json",
@@ -58,7 +56,6 @@ _EPISODE_FIELD_RENAMES: dict[str, str] = {
 
 _SCRIPT_METADATA_FIELD_RENAMES: dict[str, str] = {"step1_revision": "script_plan_revision"}
 
-#: 产物 key 里编码的 kind 值改名（见 ``lib.artifacts.artifact_manifest.ArtifactKind``）。
 _ARTIFACT_KIND_RENAMES: dict[str, str] = {"episode-step1": "episode-script-plan"}
 
 _MANIFEST_FILENAME = ".arcreel_artifacts.json"
@@ -220,7 +217,6 @@ def migrate_v9_to_v10(project_dir: Path) -> None:
     if int(project.get("schema_version") or 0) >= _TARGET_VERSION:
         return
 
-    # 以下全程只读：任一处损坏时还没有备份或业务文件写入。
     episodes = _episode_entries(project_dir, project)
     draft_renames = _plan_draft_renames(project_dir, episodes)
 
@@ -266,7 +262,6 @@ def migrate_v9_to_v10(project_dir: Path) -> None:
         except ValueError as exc:
             raise ProjectMigrationError(str(exc), file=_MANIFEST_FILENAME) from exc
 
-    # 预检全部通过后才动盘：所有被改写或改名的文件先备份完，再落盘。
     for path, _payload in [*plans, (project_file, project)]:
         ensure_versioned_backup(path, 9)
     apply_script_plan_draft_renames(draft_renames, from_version=9)

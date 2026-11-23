@@ -36,9 +36,7 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-#: image_config.image_size 只下传档位词（1K / 2K / 4K …）；自定义 WxH 没有对应取值，不下传。
 _IMAGE_SIZE_TIERS = {k.lower(): k for k in IMAGE_TIER_SHORT_EDGE}
-#: content 里内联的 Markdown 图片：``![alt](url)``，url 可以是 data URI 或 http(s) 地址。
 _MARKDOWN_IMAGE = re.compile(r"!\[[^\]]*\]\(\s*([^)\s]+)\s*\)")
 
 
@@ -67,7 +65,6 @@ def _extract_image_url(message: Any) -> str | None:
 
 async def _save_image(url: str, output_path: Path) -> None:
     if not url.startswith("data:"):
-        # 取件失败只在下载层重试，不回退到重跑已计费的出图请求
         await with_artifact_retry(lambda: download_image_to_path(url, output_path), label="Chat Completions 图像")
         return
 
@@ -82,7 +79,6 @@ async def _save_image(url: str, output_path: Path) -> None:
 class OpenAIChatImageBackend:
     """经 Chat Completions 出图，支持文生图与图生图。"""
 
-    # 同一个协议背后挂的是各家模型，通道本身不限张数，上限取条目，未收录时交由上游裁决。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
@@ -135,7 +131,6 @@ class OpenAIChatImageBackend:
         await _save_image(url, request.output_path)
         logger.info("Chat Completions 出图完成: %s", request.output_path)
 
-        # 按现有字段上报总输入与总输出（读侧把两类相加，见 usage_repo）。
         usage = response.usage
         return ImageGenerationResult(
             image_path=request.output_path,

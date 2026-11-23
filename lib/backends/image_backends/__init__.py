@@ -66,7 +66,6 @@ from lib.backends.providers import PROVIDER_AGNES
 
 register_backend(PROVIDER_AGNES, AgnesTierImageBackend)
 
-# 按请求约定拆分的图片端点，预估与执行共用同一个类。
 from lib.backends.image_backends.agnes import AGNES_IMAGE_BACKENDS
 from lib.backends.image_backends.ark import SEEDREAM_BACKENDS
 from lib.backends.image_backends.dashscope import DASHSCOPE_IMAGE_BACKENDS

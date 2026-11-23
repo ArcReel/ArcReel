@@ -109,8 +109,6 @@ def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
     except ValueError as exc:
         raise EndFrameError("invalid_project_name", status_code=400, name=project_name) from exc
 
-    # 剧本文件损坏（JSON 语法错误或非 UTF-8 字节）不能误判为「非法 script_file」，
-    # 交由 _translated_errors 的兜底分支收口为 500
     with domain_error_on_value_error(
         lambda _exc: EndFrameError("invalid_script_file", status_code=400, name=script_file),
         extra_passthrough=(UnicodeDecodeError,),
@@ -243,7 +241,6 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     trash = False
 
     def prepare_trash(script: dict) -> Callable[[Path], None] | None:
-        # 删除记录在剧本写回之后、同一把项目锁内建立：任一步失败时剧本回滚、快照留在原处。
         if not trash:
             return None
 

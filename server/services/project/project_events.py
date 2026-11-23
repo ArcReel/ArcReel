@@ -39,13 +39,9 @@ logger = logging.getLogger(__name__)
 
 PROJECT_EVENTS_POLL_SECONDS = 0.5
 
-# 项目目录被删除后向订阅者广播的终止事件名——流在其后正常结束（见 stream_events._iter）。
 PROJECT_DELETED_EVENT = "project_deleted"
-# 项目下的 Agent 会话因 CLI 自主开启新一轮（后台任务完成后唤醒）回到 running；
-# 打开着的会话面板经常驻的 entry 流收到这一轮；会话列表等其他视图凭此得知状态变化。
 ASSISTANT_SESSION_RESUMED_EVENT = "assistant_session_resumed"
 
-#: 读取一个项目当前状态的读盘入口；在线程池中调用。项目目录不存在时抛 ``FileNotFoundError``。
 ProjectStateReader = Callable[[str], ProjectState]
 
 
@@ -102,8 +98,6 @@ def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
     return ProjectState(project=project, scripts=scripts, drafts=_read_draft_digests(project_path))
 
 
-#: 项目状态全部输入文件的 stat 标识：(相对项目目录的路径, (设备, inode, 大小, 纳秒 mtime)) 按路径排序；
-#: 不在场的文件不入列。
 ProjectInputStamp = tuple[tuple[str, FileIdentity], ...]
 
 
@@ -135,10 +129,6 @@ def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputSt
     return tuple(stamp)
 
 
-# 同一件事在发布方与快照差分两侧的 action 命名差异：参考生视频任务完成时，发布方按 task_type
-# 映射为 ``reference_video_ready``（见 generation_tasks._SKELETON_DRIVEN_TASK_ACTIONS），而快照
-# 差分表示为 ``video_ready``。两侧 entity_type/entity_id 相同，
-# 只有 action 不同，不归一会让同一次完成广播成两条。
 _EQUIVALENT_ACTIONS: dict[str, str] = {"reference_video_ready": "video_ready"}
 
 
@@ -160,17 +150,11 @@ class _ProjectChannel:
     sse: SseChannel
     ready_event: asyncio.Event = field(default_factory=asyncio.Event)
     scan_now: asyncio.Event = field(default_factory=asyncio.Event)
-    # 串行化「读盘 → 结算基线 → 广播」这段读-改-写：轮询扫描与显式重建并发时，读盘耗时
-    # 不同会让先读到旧盘的一方后结算，把陈旧快照写回基线并 diff 出反向变更（实际存在的
-    # 实体被广播成 deleted）。不重置该锁——重建 task 可能跨 watch task 重启仍持有它。
     rebuild_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
-    # 已发布、尚未广播的显式批次各自描述的变更身份。重建读盘会捎带其它批次已落盘的产物，
-    # 补扫需把它们让给自己那一批去广播，否则同一件事先被补扫发一次、再被本批发一次。
     inflight_batch_identities: Counter[tuple[Any, Any, Any]] = field(default_factory=Counter)
     pending_sources: set[ProjectChangeSource] = field(default_factory=set)
     task: asyncio.Task | None = None
     snapshot: ProjectSnapshot | None = None
-    # ``snapshot`` 读盘前的输入 stat 标识，与 ``snapshot`` 同时更新；轮询据此在输入未变时跳过重建。
     input_stamp: ProjectInputStamp | None = None
 
 
@@ -185,8 +169,6 @@ class ProjectEventService:
     ):
         """``read_state`` 缺省为 :func:`read_project_state`（经本服务的 ``pm`` 只读加载）。"""
         self.project_root = Path(project_root or PROJECT_ROOT)
-        # 显式传入 ``data_root`` 时优先使用（生产入口传配置的数据根），
-        # 否则取默认数据根（仓库根下的 ``projects/``）兼容测试 fixture。
         resolved_data_root = (
             Path(data_root).resolve(strict=False) if data_root is not None else self.project_root / "projects"
         )
@@ -287,17 +269,11 @@ class ProjectEventService:
             channel = self._create_channel(project_name)
             self._channels[project_name] = channel
 
-        # 队列在首次扫描启动前注册(首订阅者钩子在注册后触发)，否则会漏掉
-        # 扫描完成到注册之间广播的事件。
         queue = channel.sse.subscribe()
 
         try:
             await channel.ready_event.wait()
         except BaseException:
-            # 客户端在首次扫描期间断开会取消这里:此时 _subscribe 尚未返回 queue,
-            # stream_events 的 try/finally 进不去。同步清理掉刚注册的订阅者(空闲项目
-            # 下 watch task 不会自愈),不 await 以免取消重入——绕过异步末位钩子，
-            # 收尾自理。
             if channel.sse.unsubscribe_nowait(queue) and channel.task is not None:
                 channel.task.cancel()
                 self._channels.pop(project_name, None)
@@ -333,12 +309,9 @@ class ProjectEventService:
         sse, queue, snapshot = await self._subscribe(project_name)
 
         async def _iter() -> AsyncIterator[tuple[str, Any] | dict[str, Any]]:
-            # NOTE: intentionally NO ``finally: _unsubscribe`` here — cleanup is owned
-            # by the enclosing context manager's __aexit__ (ADR-0046). Do not add one.
             yield ("snapshot", snapshot)
             async for item in sse.iterate(queue, idle_timeout=idle_timeout):
                 yield {"type": "_idle"} if item is IDLE else item
-                # 项目已被删除：终止事件之后流正常结束，不再等待下一条广播或空闲心跳。
                 if isinstance(item, tuple) and item[0] == PROJECT_DELETED_EVENT:
                     return
 
@@ -417,11 +390,9 @@ class ProjectEventService:
 
         channel.scan_now.clear()
 
-        # 在册时机必须早于本批重建读盘，其它批次的补扫才让得掉这些身份
         identities = Counter(_change_identity(change) for change in changes)
         channel.inflight_batch_identities.update(identities)
 
-        # 文件 I/O 下沉到线程池，状态更新和广播留在事件循环
         task = asyncio.create_task(
             self._async_rebuild_and_broadcast(project_name, channel, source, changes, identities),
             name=f"batch-rebuild-{project_name}",
@@ -440,9 +411,6 @@ class ProjectEventService:
         """文件 I/O 在线程中执行，状态更新和广播在事件循环线程中执行。"""
         try:
             async with channel.rebuild_lock:
-                # 读盘前在册的来源标记整体换出：读盘期间新增的 hint 落进新集合，参与本轮结算，
-                # 同时留给下一轮扫描。若改为读盘后减去旧集合，同一来源在窗口内重复到达会被一并
-                # 减掉，那条新变更会在下一轮扫描被 _resolve_batch_source 误标成 filesystem。
                 covered_sources = channel.pending_sources
                 channel.pending_sources = set()
                 try:
@@ -472,9 +440,6 @@ class ProjectEventService:
 
                 swept = self._sweep_uncovered_changes(previous, snapshot, channel.inflight_batch_identities)
                 if swept:
-                    # 补扫的变更不属于本批，来源按自己的 hint 标记解析，与轮询扫描同一口径：
-                    # 沿用本批 source 会让 WebUI 自身的编辑被标成 worker（前端据此弹通知并自动
-                    # 导航），或反之漏掉 worker 产物的通知。
                     self._broadcast_changes(
                         project_name,
                         channel,
@@ -591,16 +556,12 @@ class ProjectEventService:
         return False
 
     async def _watch_project(self, project_name: str, channel: _ProjectChannel) -> None:
-        # 首轮与 hint 唤醒的扫描照常读盘重建；只有定时轮询才凭输入标识不变而跳过。
         forced = True
         try:
             while channel.sse.has_subscribers:
                 try:
                     async with channel.rebuild_lock:
                         known_stamp = None if forced or channel.snapshot is None else channel.input_stamp
-                        # 与显式重建同一口径：读盘前在册的来源标记换出，由本轮结算消费；读盘期间
-                        # 到达的 hint 落进新集合，参与本轮结算并留给下一轮。读盘可能早于那次写入，
-                        # 随本轮清掉的话，下一轮读到这次写入时已没有标记，会被标成 filesystem。
                         covered_sources = channel.pending_sources
                         channel.pending_sources = set()
                         try:
@@ -608,7 +569,6 @@ class ProjectEventService:
                         except BaseException:
                             channel.pending_sources |= covered_sources
                             raise
-                        # 输入未变时快照沿用，换出的来源标记随之结算（与无差异的扫描同一口径）
                         if snapshot is not None:
                             channel.input_stamp = stamp
                             self._apply_scan_result(project_name, channel, snapshot, covered_sources)
@@ -627,7 +587,6 @@ class ProjectEventService:
                 try:
                     await asyncio.wait_for(channel.scan_now.wait(), timeout=self.poll_interval)
                 except TimeoutError:
-                    # 超时取消等待之后、本协程恢复之前到达的 hint 只留下置位的事件，同样按 hint 重建。
                     forced = channel.scan_now.is_set()
                 else:
                     forced = True

@@ -56,15 +56,6 @@ DEFAULT_MODEL = "qwen3-tts-flash"
 _TTS_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 
 
-# Qwen3-TTS 系统预设音色（``voice`` 参数取值）子集，出处：
-# https://help.aliyun.com/zh/model-studio/qwen-tts-voice-list 。该列表写明「以下音色支持 qwen3-tts-flash 模型」，
-# 没有提到 qwen-tts、qwen3-tts-instruct-flash 或日期快照，所以只有这一个型号名列出音色，同端点的其他型号
-# 不借用它（照文档填写 voice 照常可用）。未逐一核实中文名与描述的其余预设音色不收录，避免编造。
-#
-# label 存的是 lib/i18n 翻译 key（``voice_label_dashscope_*``，见 lib/i18n/{zh,en,vi}/assets.py），
-# 不是直出文案——端点固定硬编码中文会让 en/vi 用户在下拉里看到中文描述，与「后端面向用户的
-# 文本经 _t: Translator 注入」的项目惯例不符。真正的本地化文案由 get_audio_backend_voices
-# 路由层用请求 locale 对应的 Translator 渲染。
 _QWEN3_TTS_FLASH = "qwen3-tts-flash"
 _VOICE_CATALOG: tuple[VoiceOption, ...] = (
     VoiceOption(id="Cherry", label="voice_label_dashscope_cherry"),
@@ -131,7 +122,6 @@ class DashScopeAudioBackend:
     def _synthesis_input(self, request: AudioSynthesisRequest) -> dict[str, Any]:
         """请求体 ``input`` 段。multimodal 端点只收文本、音色与语种。"""
         if request.speed is not None:
-            # 同步 qwen3-tts-flash 不支持 speech_rate（仅 realtime WebSocket 版可用），忽略。
             logger.debug("DashScope 同步 TTS 不支持语速参数 speed=%s，已忽略", request.speed)
         return {
             "text": request.text,
@@ -144,8 +134,6 @@ class DashScopeAudioBackend:
         return None, None
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        # 合成（计费）与下载分两段独立重试：下载瞬时失败只重试 GET，绝不回头重跑会再次计费的
-        # 合成 POST（与 lib.infra.retry.DOWNLOAD_* 注释「下载失败不浪费生成额度」一致）。
         response = await self._request_synthesis(request)
         input_tokens, audio_output_tokens = self._usage_tokens(response)
         await self._download_audio(extract_audio_url(response), request.output_path)
@@ -165,8 +153,6 @@ class DashScopeAudioBackend:
     async def _request_synthesis(self, request: AudioSynthesisRequest) -> dict[str, Any]:
         """提交合成请求（计费段），返回响应体；响应缺 output.audio.url 时在此抛错。"""
         payload = {"model": self._model, "input": self._synthesis_input(request)}
-        # safe_body_for_log 只输出 model + parameters 白名单，不读取 input.text，
-        # 合成文本不会进日志（CodeQL clear-text-logging 告警对此为误报）。
         logger.info(
             "调用 %s 语音合成 API model=%s voice=%s language=%s chars=%d body=%s",
             self.name,
@@ -177,9 +163,6 @@ class DashScopeAudioBackend:
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
-            # 合成是非幂等的「计费」POST：submit_post 把歧义传输错误（请求可能已送达但响应在途丢失）
-            # 转 AmbiguousSubmitError 终态失败避免重复计费；>=400 落 body 日志 + 抛 HTTPStatusError
-            # （保留 status_code），交 should_retry_submit 按状态码分流——4xx fail-fast、5xx/429 重试。
             resp = await submit_post(
                 lambda: client.post(
                     f"{self._base_url}{self._endpoint_path}",
@@ -205,14 +188,9 @@ class DashScopeAudioBackend:
             label="DashScope 音频",
             retry_if=lambda e: isinstance(e, _EmptyDownloadError) or should_retry_signed_download(e),
         )
-        # 落盘放在重试的墙钟预算之外：不可中断的线程调用若落在 asyncio.timeout 块内，超时就失效。
-        # 取消落在写盘期间时线程照常写完，取消随之消失，调用方 MediaGenerator.generate_audio_async
-        # 的 finally 清理 staging 路径与后续产物提交都在写入结算之后进行（docs/standards/backend.md
-        # 「供应商返回之后的落账段不可中断」）。
         await run_noninterruptible_sync(output_path.write_bytes, content)
 
     async def _fetch_audio(self, url: str) -> bytes:
-        # 日志与异常只带去掉 query 的 URL：预签名参数在有效期内等同下载凭证
         safe_url = url.split("?", 1)[0]
         async with (
             artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client,
@@ -220,8 +198,6 @@ class DashScopeAudioBackend:
         ):
             if resp.status_code >= 400:
                 logger.warning("DashScope 音频下载返回 %s: %s", resp.status_code, safe_url)
-                # 不用 raise_for_status：它生成的异常文本携带完整预签名 URL；
-                # 手动构造保留异常类型与 .response.status_code，消息只带脱敏 URL。
                 raise httpx.HTTPStatusError(
                     f"DashScope 音频下载返回 {resp.status_code}: {safe_url}",
                     request=resp.request,

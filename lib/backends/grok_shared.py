@@ -15,9 +15,7 @@ from typing import TYPE_CHECKING
 
 from lib.infra.retry import BASE_RETRYABLE_ERRORS, should_retry
 
-# gRPC 瞬态状态码（等价于 HTTP 429/500/502/503/504）
 _GRPC_RETRYABLE_CODES: set | None = None
-# gRPC 确定性拒绝 → 等价 HTTP 状态码（按 gRPC 官方 HTTP 映射）。改输入或凭证前重试无益。
 _GRPC_REJECTION_STATUS: dict | None = None
 
 try:
@@ -27,7 +25,7 @@ try:
         grpc.StatusCode.UNAVAILABLE,
         grpc.StatusCode.DEADLINE_EXCEEDED,
         grpc.StatusCode.RESOURCE_EXHAUSTED,
-        grpc.StatusCode.ABORTED,  # 冲突重试
+        grpc.StatusCode.ABORTED,
     }
     _GRPC_REJECTION_STATUS = {
         grpc.StatusCode.INVALID_ARGUMENT: 400,
@@ -38,7 +36,7 @@ try:
         grpc.StatusCode.NOT_FOUND: 404,
     }
 except ImportError:
-    pass  # grpc is optional; fall back to pattern-based retry below
+    pass
 
 if TYPE_CHECKING:
     import xai_sdk
@@ -54,7 +52,7 @@ def grok_should_retry(exc: Exception) -> bool:
             if isinstance(exc, AioRpcError):
                 return exc.code() in _GRPC_RETRYABLE_CODES
         except ImportError:
-            pass  # grpc available at module level but aio submodule missing; fall through
+            pass
     return should_retry(exc, BASE_RETRYABLE_ERRORS)
 
 

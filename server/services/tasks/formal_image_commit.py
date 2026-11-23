@@ -70,7 +70,6 @@ def register_formal_task_artifact(
 
 def get_aspect_ratio(project: dict, resource_type: str) -> str:
     if resource_type in ("characters", "scenes", "props", "products", CHARACTER_DERIVATIVE_RESOURCE_TYPE):
-        # 资产图生成必须显式指定宽高比；四类资产与角色衍生与目标态规划器共用同一画布常量。
         return ASSET_SHEET_CANVAS_RATIO
     return resolve_video_aspect_ratio(project, resource_type)
 
@@ -85,7 +84,6 @@ class FormalImageCommitOutcome:
 
 type StagedImageCommit = Callable[[Path, Path, Mapping[str, Any]], int]
 type MetadataCommitter = Callable[[Callable[[], None]], None]
-#: 正式提交的最后一步，收到新选中的内容版本；抛错时整次提交回滚。
 type ContentVersionCommitHook = Callable[[ContentVersion], None]
 
 
@@ -409,12 +407,9 @@ class FormalImagePlan:
     prompt: str
     aspect_ratio: str
     build_commit_callback: Callable[[Any, list[FormalImageCommitOutcome]], StagedImageCommit]
-    #: 解析出 generator 之后、提交供应商之前运行一次，收到任务所用的 generator。
     pre_submit: Callable[[Any], Awaitable[None]] | None = None
     before_submit: Callable[[], Awaitable[None]] | None = None
-    #: 随新版本一起写进版本记录的额外元数据（如图片编辑的 ``source``）。
     version_metadata: Mapping[str, Any] = field(default_factory=dict)
-    #: 写进任务 ``result.warnings`` 的非阻断提示；为空时结果不带该键。
     warnings: tuple[dict[str, Any], ...] = ()
 
 
@@ -456,7 +451,6 @@ async def run_formal_image_task(
         optional: dict[str, Any] = {}
         if plan.before_submit is not None:
             optional["before_submit"] = plan.before_submit
-        # 提交回调的构造要定位项目目录（stat），放进工作线程。
         commit_formal_output = await asyncio.to_thread(plan.build_commit_callback, generator, formal_outcomes)
         await generator.generate_image_async(
             prompt=plan.prompt,
@@ -475,13 +469,11 @@ async def run_formal_image_task(
         )
 
     try:
-        # 新图片内容版本按全局设置保存（缺省本地）；远端确认保存后才发布版本
         async with formal_commit(project_name):
             await _submit()
     finally:
         await run_noninterruptible_sync(frozen_references.cleanup)
 
-    # formal_output=True 时 generate_image_async 恒经活化回调提交，回调恰好记录一条结果。
     outcome = formal_outcomes[0]
     result: dict[str, Any] = {
         "version": outcome.version,
@@ -569,7 +561,6 @@ def grid_formal_image_callback(
 
     def _commit_metadata(activate: Callable[[], None]) -> None:
         def _complete(current_grid: Any) -> None:
-            # 联合图内容已更新，旧的落格结果不再对应当前图，split_at 清空表示「待显式切分」。
             current_grid.grid_image_path = artifact_path
             current_grid.status = "completed"
             current_grid.split_at = None

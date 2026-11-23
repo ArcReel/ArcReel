@@ -40,14 +40,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 结构化输出降级链：TOOLS 用 function calling 传 schema，是 OpenAI 兼容端点里约束最强、
-# 兼容面最广的一档；MD_JSON 纯靠 prompt 注入 schema，是最后兜底。native json_schema 档在
-# 各 backend 的 generate() 里，本模块只负责 native 之后的两档（见 docs/adr/0014）。
 _STRUCTURED_MODE_CHAIN: tuple[Mode, ...] = (Mode.TOOLS, Mode.MD_JSON)
 
-# 上游不接受 tools 参数时的错误关键字，匹配前把错误文本转小写（各家代理的大小写不统一）。
-# 与 openai backend 的 _SCHEMA_ERROR_KEYWORDS 同构：代理网关会把上游的参数不兼容包装成非 400
-# 状态码，只认 BadRequestError 会漏判。
 _TOOLS_UNSUPPORTED_KEYWORDS = (
     "tools",
     "tool_calls",
@@ -56,9 +50,6 @@ _TOOLS_UNSUPPORTED_KEYWORDS = (
     "functions",
 )
 
-# 终止一档的解析 / 校验类异常，与 Instructor v2 重试循环的 _RETRYABLE_PARSE_ERRORS 同集合。
-# 判据靠「终止原因是否属这一类」区分模型输出问题与 API 调用问题，集合漂移会让区分失准，
-# 故由 TestInstructorExceptionShape 对真实 Instructor 钉住。
 _PARSE_FAILURE_TYPES: tuple[type[BaseException], ...] = (
     ValidationError,
     JSONDecodeError,
@@ -372,8 +363,6 @@ def _handle_mode_failure(
     """
     failure = _classify_mode_failure(exc)
     if failure is _ModeFailure.PROPAGATE:
-        # 冒泡时剥掉 Instructor 的包装：调用方的 @with_retry_async 先按异常类型判瞬态
-        # （ConnectionError / TimeoutError），包着一层就只剩消息文本匹配，漏判连接类错误。
         raise _propagated_cause(exc)
     if failure is _ModeFailure.DOWNGRADE and next_mode is not None:
         logger.warning(
@@ -446,11 +435,8 @@ def instructor_fallback_sync(
     usage = getattr(response, "usage", None)
     choice = response.choices[0]
     content = choice.message.content or ""
-    # 与原生路径同口径：思考模型内嵌在 content 开头的思考块不进结果。
     text = strip_leading_think_block(content) if isinstance(content, str) else str(content)
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
-    # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
-    # Instructor 通道），截断同样升级为硬错误。
     check_truncation(
         getattr(choice, "finish_reason", None),
         provider=provider,
@@ -515,11 +501,8 @@ async def instructor_fallback_async(
     usage = getattr(response, "usage", None)
     choice = response.choices[0]
     content = choice.message.content or ""
-    # 与原生路径同口径：思考模型内嵌在 content 开头的思考块不进结果。
     text = strip_leading_think_block(content) if isinstance(content, str) else str(content)
     output_tokens = getattr(usage, "completion_tokens", None) if usage else None
-    # dict schema 仍是结构化输出诉求（response_schema 非空，只是无 Pydantic 模型可走原生
-    # Instructor 通道），截断同样升级为硬错误。
     check_truncation(
         getattr(choice, "finish_reason", None),
         provider=provider,

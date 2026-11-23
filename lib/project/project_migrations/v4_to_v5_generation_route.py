@@ -29,8 +29,6 @@ def migrate_project_dict(project: dict) -> dict:
     if mode == "grid":
         data["generation_mode"] = "storyboard"
         data["grid_storyboard"] = True
-    # 先判类型再做集合成员检查：project.json 是明文文件，generation_mode 可能被写成
-    # list / dict 等不可哈希值，直接 `in` 会抛 TypeError 令启动期迁移中止
     elif not isinstance(mode, str) or mode not in _ROUTE_MODES:
         data["generation_mode"] = "storyboard"
     data.setdefault("grid_storyboard", False)
@@ -50,7 +48,6 @@ def migrate_v4_to_v5(project_dir: Path) -> None:
     if not pj.exists():
         return
     data = load_json(pj)
-    # 与 runner 的版本读取同口径做 int 归一化：历史 project.json 可能存字符串版本号
     if int(data.get("schema_version") or 0) >= 5:
         return
     migrated = migrate_project_dict(data)

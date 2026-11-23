@@ -25,7 +25,6 @@ __all__ = [
 ]
 
 GENERATION_RESULT_KIND = "generation_result"
-#: 删除记录的标注「生成完成时目标已删除」，前端据此改写发起方文案。
 TARGET_DELETED_NOTE = "target_deleted_during_generation"
 
 

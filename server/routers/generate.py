@@ -96,7 +96,6 @@ class GenerateStoryboardRequest(BaseModel):
 
 
 class GenerateVideoRequest(BaseModel):
-    # 旁白交付方式是项目配置，不影响视频请求；已删除的按请求交付字段按未知字段拒收。
     model_config = ConfigDict(extra="forbid")
 
     prompt: str | dict
@@ -148,7 +147,6 @@ async def generate_storyboard(
         resolved = find_storyboard_item(items, id_field, segment_id)
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
-        # 正式脚本的提示词才是生成依据：条目提示词待生成时拒绝，请求体里的 prompt 不能代替它。
         if resolved[0].get("image_prompt") is None:
             raise ConflictError("script_prompt_pending", segment_id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
@@ -195,8 +193,6 @@ async def generate_storyboard(
                 {"code": exc.code, "params": exc.params}
             ) from exc
 
-    # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）；
-    # 校验失败抛 TaskSpecValidationError，由 app 级 handler 映射为 400
     spec = TaskSpec.from_request(
         task_type="storyboard",
         media_type="image",
@@ -245,18 +241,9 @@ async def generate_video(
         project = pm_local.load_project(project_name)
         project_path = pm_local.get_project_path(project_name)
 
-        # 生成模式检查前置于分镜图存在性检查：参考生视频项目本无分镜图步骤，否则会拿到
-        # 「请先生成分镜图」的误导指引。磁盘中即使存在不适用于当前模式的分镜图也不参与判定；
-        # 生成模式以 project.json 为唯一真相源，确保请求执行与费用估算使用同一轴。
         if is_reference_video_project(project):
             raise ConflictError("video_route_is_reference_video")
 
-        # 与 worker 一致：分镜图只认 generated_assets.storyboard_image 的显式绑定，
-        # 不按同名文件推断。宫格项目指向 scene_{id}_first.png 时仍可正常解析。
-        # 脚本缺失（FileNotFoundError）/ 脏脚本（分镜数组键损坏，ScriptEditError）均
-        # fail-fast：不能 silently 降级走 default 路径——default 文件恰好存在时会让请求
-        # 「先返回提交成功、worker 解析脚本时再确定失败」，撕裂用户预期。两者均由 app 级
-        # handler 统一映射为脱敏响应（404 / 400）。
         script = pm_local.load_script(project_name, req.script_file)
         artifact_episode = _resolve_request_artifact_episode(project, script, req.script_file)
         items, id_field, _, _, _ = get_storyboard_items(script)
@@ -264,16 +251,11 @@ async def generate_video(
         if resolved is None:
             raise NotFoundError("segment_not_found", id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
-        # worker 执行时按剧本当前的 video_prompt 生成，入队 payload 里的请求 prompt 不参与执行；
-        # 发声准入因此以盘上单元为准。
         admission = admit_script_unit(resolve_script_kind(script), resolved[0])
         if not admission.allowed:
             raise HTTPException(status_code=409, detail=admission.to_dict())
-        # 同分镜图端点：按正式脚本的 video_prompt 判待生成，请求体里的 prompt 不能代替它。
         if resolved[0].get("video_prompt") is None:
             raise ConflictError("script_prompt_pending", segment_id=segment_id)
-        # 字段值来自磁盘剧本 JSON，不可信任；路径校验和 schema 激活后的显式绑定要求
-        # 与 worker / 当前基线重建共用同一解析器。
         try:
             resolve_usable_storyboard_video_inputs(
                 project_path=project_path,
@@ -292,9 +274,6 @@ async def generate_video(
 
     project, item = await run_sync_transaction(_sync)
 
-    # 归桶按项目生成模式求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
-    # 上面的生成模式检查已挡掉参考生视频，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
-    # 悬空引用在提交入口即返回修复指引，而非任务面板里的异步失败。
     _video_bucket = video_bucket_for_generation_mode(project.get("generation_mode"))
     await require_video_bucket_capability(project, _video_bucket)
     await require_audio_switch_supported(project, _video_bucket)
@@ -311,15 +290,12 @@ async def generate_video(
         )
         if isinstance(facts, VideoRequestFactsFailure):
             raise UnprocessableError(facts.code, **facts.parameters())
-        # 排队执行读取盘上单元秒数；请求体不能绕过该单元的尾帧约束。
         duration = item.get("duration_seconds")
         if duration is None:
             duration = project.get("default_duration")
         if (failure := end_frame_duration_failure(facts, duration)) is not None:
             raise UnprocessableError(failure.code, **failure.parameters())
 
-    # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）。
-    # 尾帧联动约束已前置拒绝；worker 仍按实际执行身份复核（见 ADR-0001）。
     extra_payload: dict[str, object] = {
         "seed": req.seed,
         "duration_seconds": req.duration_seconds,
@@ -333,7 +309,6 @@ async def generate_video(
         extra_payload=extra_payload,
     )
 
-    # 入队（provider 由服务层根据配置自动解析，调用方无需传递）
     result = await get_generation_queue().enqueue_task(
         project_name=project_name,
         task_type=spec.task_type,
@@ -365,10 +340,8 @@ async def _require_audio_provider_configured(project: dict) -> str:
     try:
         resolved = await ConfigResolver(async_session_factory).resolve_audio_backend(project, None)
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
         raise
     except NoAvailableProviderError as exc:
-        # 没有旁白配音的默认模型：指引到默认模型设置，不是供应商页
         raise BadRequestError("audio_default_model_not_set") from exc
     except ValueError as exc:
         raise BadRequestError("audio_provider_not_configured") from exc
@@ -508,8 +481,6 @@ async def generate_tts_batch(
         }
 
     task_ids: list[str] = []
-    # 逐段给出它自己的任务行：调用方的乐观占用标记要各等各的，拿整批清单会让每一段
-    # 都等到全批落库为止；被跳过的段不进映射，调用方据此不给它们打标。
     task_ids_by_segment: dict[str, str] = {}
     deduped_flags: list[bool] = []
     for seg_id in missing_ids:
@@ -525,7 +496,6 @@ async def generate_tts_batch(
         deduped_flags.append(bool(result.get("deduped", False)))
 
     message = _t("tts_batch_submitted", count=len(task_ids)) if task_ids else _t("tts_batch_none_missing")
-    # 批量语义：全部入队都命中既有任务（本次一个新任务都没建）才算 deduped
     return {
         "success": True,
         "task_ids": task_ids,
@@ -535,9 +505,6 @@ async def generate_tts_batch(
     }
 
 
-# 试听文案长度粗护栏（与前端 VOICE_SAMPLE_TEXT_MAX_LENGTH 同值）。参考音频要求 2-10 秒，
-# 而「多少字合成出几秒」随语种与音色而变、提交前无法精确判定；此处只挡住整段粘贴导致的
-# 必然失败与无谓计费，真正的时长判定仍在执行层落盘后做。
 VOICE_SAMPLE_TEXT_MAX_LENGTH = 200
 
 
@@ -561,9 +528,6 @@ async def get_audio_backend_voices(project_name: str, _t: Translator):
         audio=AudioLaneRequest(),
     )
     audio = ctx.audio
-    # backend 的 VoiceOption.label 对 DashScope 等携带描述性文案的供应商存的是 lib/i18n
-    # 翻译 key（不是直出文案），本层按请求 locale 渲染；无描述信息、label 本就等于 id
-    # 的供应商（如 OpenAI）_t() 找不到对应 key 时原样返回原字符串，无副作用。
     return {
         "configured": True,
         "provider_id": audio.provider_model.provider_id,
@@ -601,7 +565,6 @@ async def generate_character_voice_sample(
             char_name = validate_asset_name(name)
         except ValueError as exc:
             raise BadRequestError("asset_invalid_name", name=name) from exc
-        # 存量角色 key 可能是 NFD，按坐标系解析存在性
         if resolve_asset_key(project.get("characters"), char_name) is None:
             raise NotFoundError("character_not_found", name=char_name)
         return project, char_name
@@ -688,11 +651,6 @@ async def confirm_character_voice_sample(
         except KeyError as exc:
             raise NotFoundError("character_not_found", name=char_name) from exc
 
-        # 目标文件名固定为 {char_name}.wav：重新生成后再次确认时 reference_audio 字段值
-        # 不变（同一路径字符串），project.json 的字段级 diff 因此检测不到变化、不会自动
-        # 广播刷新事件——但落盘字节确实已替换。显式带上新 mtime 指纹的 character:updated
-        # 事件，让其它已打开该项目的客户端也能对该音频文件 cache-bust，不必等到无关的
-        # 下一次项目刷新才碰巧同步。
         try:
             emit_project_change_batch(
                 project_name,
@@ -726,7 +684,6 @@ async def confirm_character_voice_sample(
     }
 
 
-# i18n key 命名差异：scene 用历史前缀 "project_scene_*"
 _ASSET_GENERATE_I18N: dict[str, dict[str, str]] = {
     "character": {"not_found": "character_not_found", "submitted": "character_task_submitted"},
     "scene": {"not_found": "project_scene_not_found", "submitted": "scene_task_submitted"},
@@ -763,8 +720,6 @@ async def _enqueue_asset_generation(
 
     def _sync() -> tuple[dict, str]:
         project = get_project_manager().load_project(project_name)
-        # 存量 key 可能是 NFD，按坐标系解析存在性并取真实落盘 key；
-        # 非 dict / 显式 null 的畸形桶由 resolve_asset_key 按空桶处理
         resolved = resolve_asset_key(project.get(spec.bucket_key), resource_name)
         if resolved is None:
             raise NotFoundError(keys["not_found"], name=resource_name)
@@ -936,7 +891,6 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
             project, None, generation_type="i2i"
         )
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
         raise
     except ValueError as exc:
         raise BadRequestError("image_edit_i2i_unavailable") from exc
@@ -997,7 +951,6 @@ async def edit_image(
 
     provider_id = await _require_i2i_image_provider_configured(project)
 
-    # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）
     spec = TaskSpec.from_request(
         task_type="image_edit",
         media_type="image",
@@ -1014,8 +967,6 @@ async def edit_image(
         media_type=spec.media_type,
         resource_id=spec.resource_id,
         script_file=spec.script_file,
-        # image_edit 跨四类资产 + storyboard 共用同一 task_type，resource_id 命名空间
-        # 不互斥（角色和道具可能同名）；纳入去重键避免跨类型误判为重复任务。
         resource_type=req.resource_type,
         payload=spec.payload,
         source="webui",

@@ -44,7 +44,7 @@ from lib.project.project_migration_failure import (
     MigrationFailureRecord,
 )
 
-if TYPE_CHECKING:  # 仅用于类型标注，避免这个纯契约模块在运行时拖进队列客户端。
+if TYPE_CHECKING:
     from lib.generation.generation_queue_client import BatchTaskResult
 
 
@@ -133,11 +133,6 @@ class GenerationAction(StrEnum):
     NONE = "none"
 
 
-# Next action per registered task-failure code. Every code in
-# ``lib.generation.task_failure.FAILURE_CODE_KEYS`` must appear here — an unregistered code
-# would silently degrade to ``RETRY``, which for a rejected request means paying
-# again for the same rejection. The coverage test in
-# ``tests/unit/lib/generation/test_generation_result.py`` is the drift guard.
 _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "text_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
     "audio_default_model_not_set": GenerationAction.CONFIGURE_DEFAULT_MODEL,
@@ -148,7 +143,6 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "reference_duration_confirmation_required": GenerationAction.CONFIRM_REQUEST_DURATION,
     "reference_asset_missing": GenerationAction.GENERATE_DEPENDENCY,
     "reference_asset_unregistered": GenerationAction.GENERATE_DEPENDENCY,
-    # 原图要重新上传或清掉字段，不是生成一个依赖产物。
     "asset_original_missing": GenerationAction.FIX_INPUT,
     "script_prompt_pending": GenerationAction.FIX_INPUT,
     "asset_description_required": GenerationAction.FIX_INPUT,
@@ -168,54 +162,39 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "image_capability_missing_t2i": GenerationAction.CONFIGURE_PROVIDER,
     "image_endpoint_mismatch_no_i2i": GenerationAction.CONFIGURE_PROVIDER,
     "image_endpoint_mismatch_no_t2i": GenerationAction.CONFIGURE_PROVIDER,
-    # Seedream 挂在 OpenAI 图片端点上：改选方舟 Seedream 端点即可。
     "image_seedream_edits_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "provider_unsupported_media": GenerationAction.CONFIGURE_PROVIDER,
     "narration_tts_speed_out_of_range": GenerationAction.FIX_INPUT,
-    # 套餐、API Key 或音色授权的问题要在供应商侧处理，原样重发只会被同样拒绝。
     "ark_agent_plan_tts_access_denied": GenerationAction.CONFIGURE_PROVIDER,
     "ark_agent_plan_tts_failed": GenerationAction.RETRY,
-    # 音频没收完整、没有落成产物：重新生成是唯一的一步，文案提示先到控制台确认用量。
     "ark_agent_plan_tts_incomplete": GenerationAction.RETRY,
-    # 请求没有送达、没有计费：检查网络后重新生成。
     "ark_agent_plan_tts_unreachable": GenerationAction.RETRY,
     "model_not_in_provider_catalog": GenerationAction.CONFIGURE_PROVIDER,
     "model_not_selected": GenerationAction.CONFIGURE_PROVIDER,
     "model_discontinued": GenerationAction.CONFIGURE_PROVIDER,
-    # 上游按确定性 4xx 拒了这个请求：原样重发只会被同样拒绝，还要再付一次。
     "provider_rejected": GenerationAction.FIX_INPUT,
-    # 多为内容安全过滤命中：调整提示词或参考图后再生成。
     "image_output_missing": GenerationAction.FIX_INPUT,
-    # 模型只出矢量等非位图格式：换一个模型。
     "image_output_format_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     "declarative_template_render_failed": GenerationAction.CONFIGURE_PROVIDER,
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
-    # 图片已出但没取回：图片不续跑，「重试下载」接不回原任务，重新生成是唯一的一步。
     "declarative_image_save_failed": GenerationAction.RETRY,
     "comfyui_reference_audio_invalid": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_aspect_ratio_unmapped": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_image_drop_unsupported": GenerationAction.CONFIGURE_PROVIDER,
-    # 传不上去多半是地址、凭据或磁盘的一次性问题，重发同一请求可能就好了。
     "comfyui_upload_failed": GenerationAction.RETRY,
-    # 队列与执行一起没了（多半是服务端重启），重发是唯一的一步；ComfyUI 不计费，重发不加价。
     "comfyui_job_lost": GenerationAction.RETRY,
-    # 被人或另一个客户端打断：这一次没跑完，本身不说明这份 workflow 有问题。
     "comfyui_interrupted": GenerationAction.RETRY,
-    # 以下五条都指向这份 workflow 或这台机器的环境：缺模型、参数越界、节点抛错、产物节点接错、
-    # 保存节点导出的容器不对。
     "comfyui_node_errors": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_execution_error": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_output_missing": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_output_type_mismatch": GenerationAction.CONFIGURE_PROVIDER,
     "comfyui_output_container_mismatch": GenerationAction.CONFIGURE_PROVIDER,
-    # 供应商已出片、只是没取回来：重发同一请求会再建一个付费任务，正确的一步是接续取件。
     "artifact_download_failed": GenerationAction.RETRY_ARTIFACT_DOWNLOAD,
     "execution_identity_unrecoverable": GenerationAction.RETRY,
     "script_edit_error": GenerationAction.FIX_INPUT,
     "script_edit_items_not_list": GenerationAction.FIX_INPUT,
     "script_edit_unit_lists_invalid": GenerationAction.FIX_INPUT,
     "script_edit_generated_assets_invalid": GenerationAction.FIX_INPUT,
-    # 供应商不认这个档位 / 组合：换配置，重试同一请求只会被同样拒绝。
     "image_dashscope_4k_t2i_only": GenerationAction.CONFIGURE_PROVIDER,
     "video_supported_durations_missing": GenerationAction.CONFIGURE_PROVIDER,
     "video_supported_durations_invalid": GenerationAction.CONFIGURE_PROVIDER,
@@ -228,7 +207,6 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_reference_images_with_frames_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     "video_reference_audio_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     "video_reference_route_audio_unsupported": GenerationAction.CONFIGURE_PROVIDER,
-    # 请求本身不合法（超限、缺配套字段、档位不匹配）：改请求。
     "ref_payload_floor_exceeded": GenerationAction.FIX_INPUT,
     "video_duration_invalid": GenerationAction.FIX_INPUT,
     "video_duration_not_supported": GenerationAction.FIX_INPUT,
@@ -247,7 +225,6 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_reference_audio_exceeded": GenerationAction.FIX_INPUT,
     "video_reference_audio_format_unsupported": GenerationAction.FIX_INPUT,
     "video_reference_audio_slots_insufficient": GenerationAction.FIX_INPUT,
-    # 依赖的前置产物缺失或读不出来：先把依赖做出来，再回来重试本单元。
     "cascade_blocked_dependency": GenerationAction.GENERATE_DEPENDENCY,
     "image_reference_images_unreadable": GenerationAction.GENERATE_DEPENDENCY,
     "video_start_image_unreadable": GenerationAction.GENERATE_DEPENDENCY,
@@ -255,17 +232,12 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_reference_images_required": GenerationAction.GENERATE_DEPENDENCY,
     "video_reference_images_unreadable": GenerationAction.GENERATE_DEPENDENCY,
     "video_reference_audio_unreadable": GenerationAction.GENERATE_DEPENDENCY,
-    # 素材库入库仍在处理：等入库有结果后重新生成，或解除关联改发普通图片。
     "provider_asset_link_processing": GenerationAction.FIX_INPUT,
-    # 入库失败：解除关联后重新上传，或解除关联改发普通图片。
     "provider_asset_link_failed": GenerationAction.FIX_INPUT,
-    # 供应商审核拒绝了输入图片：换图或上传到供应商素材库后再生成，原样重试只会被同样拒绝。
     "provider_input_image_rejected": GenerationAction.FIX_INPUT,
     "provider_input_image_rejected_at": GenerationAction.FIX_INPUT,
     "provider_input_asset_rejected_at": GenerationAction.FIX_INPUT,
-    # 项目已删除，产物无处可落，也没有可重试的对象。
     "project_deleted_during_task": GenerationAction.NONE,
-    # 进程重启 / 恢复失败：任务本身没有内在缺陷，重试即可。
     "dispatch_provider_requeue_failed": GenerationAction.RETRY,
     "restart_lost_image": GenerationAction.RETRY,
     "restart_lost_audio": GenerationAction.RETRY,
@@ -343,8 +315,6 @@ class ProviderCheckpoint(BaseModel):
     provider_job_id: str | None = None
 
 
-#: ``translate(key, ..., locale=...)`` 自己的形参名。``params`` 里出现同名项会让展开调用
-#: 抛 ``TypeError``，所以它们不是合法的文案参数。
 _TRANSLATE_RESERVED_PARAMS = frozenset({"key", "locale"})
 
 
@@ -526,10 +496,6 @@ def observe_artifact_status(
     if not isinstance(artifact_path, str) or not artifact_path:
         return ArtifactStatus.MISSING, None
     if key is None:
-        # A resolver being active doesn't guarantee every caller can supply a key —
-        # e.g. a batch-outcome unit with no matching ``states`` entry. Without a key
-        # there is nothing to compare against, so this axis degrades to
-        # unobservable rather than raising and losing the whole batch's outcome.
         return None, None
     try:
         comparison = resolver.compare(key, artifact_path=artifact_path)
@@ -649,9 +615,6 @@ def problem_from_task_failure(
             action=GenerationAction.RETRY,
         )
     if interrupted:
-        # 等待被打断时任务在 worker 侧仍非终态（wait_for_task 抛出前刚确认过），不是
-        # provider 判定的失败——action 给 WAIT_FOR_TASK 而非 RETRY，避免调用方对一个
-        # 可能仍在跑、还会正常落地的任务盲目重提交造成重复付费。
         return GenerationProblem(
             code=GenerationProblemCode.TASK_INTERRUPTED,
             detail=error_message or "wait for task was interrupted before it reached a terminal state",
@@ -1005,9 +968,6 @@ def record_batch_outcomes(
         unit_id = unit_id_of(br.resource_id) if unit_id_of else br.resource_id
         state = _state(unit_id)
         rel = (br.result or {}).get("file_path") or (fallback_path(br.resource_id) if fallback_path else None)
-        # ``resolver=None`` is this entry point declining to report the currency
-        # axis at all (image edits do not register their output), never a
-        # second reading rule standing in for the Manifest.
         status, _blocker = (
             observe_artifact_status(resolver=resolver, key=state.artifact_key, artifact_path=rel)
             if resolver is not None
@@ -1026,13 +986,6 @@ def record_batch_outcomes(
     for br in failures:
         unit_id = unit_id_of(br.resource_id) if unit_id_of else br.resource_id
         state = _state(unit_id)
-        # An empty ``task_id`` marks a spec that never reached the queue, so
-        # ``NOT_QUEUED`` (not ``FAILED``) reflects that no money was spent and there
-        # is no task row to look up. The problem code follows the same split: a
-        # never-queued spec gets its own enqueue code so downstream can tell
-        # "request never reached the queue" apart from "task executed and the
-        # provider failed it" — the two call for different follow-ups (queue it
-        # again vs. inspect the provider failure).
         if not br.task_id:
             task_state = GenerationTaskState.NOT_QUEUED
             dependency = (dependencies or {}).get(unit_id)
@@ -1099,9 +1052,6 @@ _ARTIFACT_STATUS_LABELS: dict[ArtifactStatus, str] = {
     ArtifactStatus.BLOCKED: "不可用",
 }
 
-#: 各生成入口的产品语言名。摘要里不出现工具名——工具名属机器层，只留在结构化
-#: ``generation_result`` 的 ``operation`` 字段。未登记的入口回落到中性措辞而非直出工具名；
-#: 登记完整性由测试兜底。
 _OPERATION_LABELS: dict[str, str] = {
     "generate_assets": "资产图生成",
     "generate_storyboards": "分镜图生成",

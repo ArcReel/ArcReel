@@ -29,13 +29,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "speech-2.8-hd"
 
-# 非流式 t2a_v2 可用的输出格式子集，按落盘扩展名选取，保证文件内容与扩展名一致（资源路径约定 .wav）。
 _SUPPORTED_FORMATS = frozenset({"mp3", "wav", "flac", "pcm"})
 _FALLBACK_FORMAT = "wav"
 
-# 系统音色（``voice_setting.voice_id``）中最基础的一组普通话成人音色，出处见
-# docs/api-docs/endpoints/minimax-tts.md 所列「系统音色列表」。完整列表数百条且含大量多语种音色，
-# 这里只暴露配音最常用的子集；label 是 lib/i18n 翻译 key，由音色接口按请求 locale 渲染。
 _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
     VoiceOption(id=voice_id, label=f"voice_label_minimax_{voice_id.replace('-', '_')}")
     for voice_id in (
@@ -49,8 +45,6 @@ _VOICE_CATALOG: tuple[VoiceOption, ...] = tuple(
         "female-tianmei",
     )
 )
-# t2a_v2 的 ``model`` 官方枚举（出处同 docs/api-docs/endpoints/minimax-tts.md 所列接口文档）。``voice_id`` 的说明
-# 引用同一份系统音色列表，没有按型号区分，所以这些型号共用上面的音色；不在枚举里的型号名认不出，不列音色。
 _T2A_MODELS = frozenset(
     {
         "speech-2.8-hd",
@@ -103,7 +97,6 @@ class MiniMaxAudioBackend:
         transport_layer: TransportLayer | None = None,
     ) -> None:
         self._api_key = resolve_minimax_api_key(api_key)
-        # 与文本共用 {host}/v1 归一化：容忍用户填 host 或带 /v1 后缀
         self._base_url = minimax_text_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._provider_name = provider_name
@@ -126,10 +119,7 @@ class MiniMaxAudioBackend:
         return list(_VOICE_CATALOG) if self._model in _T2A_MODELS else []
 
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
-        # language_type 是 DashScope 特有字段，t2a_v2 按文本自动识别语种，不发送。
-        # 计费调用与写盘分离：重试只包 API 调用，写盘失败绝不回头重跑会再次计费的合成请求。
         audio = await self._request_speech(request)
-        # 供应商已计费返回，写盘不可被取消打断，结果照常成为产物
         await run_noninterruptible_sync(request.output_path.write_bytes, audio)
         logger.info("MiniMax 语音合成完成: %s", request.output_path)
         return AudioSynthesisResult(
@@ -161,7 +151,6 @@ class MiniMaxAudioBackend:
             len(request.text),
         )
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
-            # 合成是计费 POST：submit_post 把歧义传输错误转终态失败避免重复计费，>=400 交状态码分流
             resp = await submit_post(
                 lambda: client.post(
                     f"{self._base_url}/t2a_v2",
@@ -171,5 +160,4 @@ class MiniMaxAudioBackend:
                 provider=self._provider_name,
                 include_provider_reason=False,
             )
-        # 供应商已计费返回：整段 hex 的解析与解码放进线程且不可被取消打断
         return await run_noninterruptible_sync(lambda: _decode_audio(resp.json()))

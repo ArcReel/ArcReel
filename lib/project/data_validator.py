@@ -80,11 +80,6 @@ __all__ = [
     "validate_project",
 ]
 
-#: 剧情演绎分镜说话量（台词 + 画外音）对分镜时长的单向上界容差（比例）。语速估算
-#: （``lib.speech.speech_rate`` 单一真相源）是近似值，给 20% 余量只在说话量明显超过画面时长时才
-#: warn（长对白塞进固定秒数会说不完 / 语速畸快）。单向上界：只警告「说不完」，不管「说话太少」
-#: ——duration 由画面驱动、留白合法，不被此约束反向改写。仅 DataValidator 消费，与 ad 总时长
-#: 漂移阈值同量级、同「只 warn 不阻塞」语义。
 DRAMA_SPEECH_OVERFLOW_TOLERANCE = 0.20
 
 logger = logging.getLogger(__name__)
@@ -154,14 +149,8 @@ def _validate_source_kind(item: Mapping[str, Any], prefix: str, errors: list[Val
 class DataValidator:
     """数据验证器"""
 
-    # content_mode 严格只表达"内容类型"；"视频来源"维度由项目级 generation_mode 字段表达。
-    # 合法集真相源在 lib.agent.profile_manifest，避免两处枚举漂移。
     VALID_CONTENT_MODES: ClassVar[set[str]] = set(_VALID_CONTENT_MODES)
-    # 生成模式合法集（storyboard / reference_video），真相源在 lib.project.project_manager（创建写入方），
-    # 避免两处枚举漂移。必填：存量项目由 v4→v5 迁移补写显式值，缺失即非法。
     VALID_GENERATION_MODES: ClassVar[set[str]] = set(_VALID_GENERATION_MODES)
-    # 参考生视频 unit 时长的结构合理性区间，真相源同上（档位成员校验依赖运行时模型能力，
-    # 不在归档层做）。
     VALID_UNIT_DURATION_RANGE = REFERENCE_UNIT_DURATION_RANGE
     ID_PATTERN = STORYBOARD_ITEM_ID_PATTERN
     EXTERNAL_URI_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
@@ -315,7 +304,6 @@ class DataValidator:
         if ledger_status is not None and not isinstance(ledger_status, str):
             errors.append(_m("val_ledger_status_type", prefix=prefix, value=repr(ledger_status)))
         elif isinstance(ledger_status, str) and ledger_status not in LEDGER_STATUSES:
-            # 容忍放行、只留排查线索：分不清是存量遗留值还是手编拼写错误，不拿它判项目损坏
             logger.debug("%s: ledger_status 取值 %r 不在当前状态集内，按无状态处理", prefix, ledger_status)
 
         source_origin = episode.get(SOURCE_ORIGIN_FIELD)
@@ -417,7 +405,6 @@ class DataValidator:
                 _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
             )
 
-        # 生成模式必填二值：存量项目由 v4→v5 迁移补写显式值（含 grid 重编码），无缺省语义
         generation_mode = project.get("generation_mode")
         if not generation_mode:
             errors.append(_m("val_missing_field", field="generation_mode"))
@@ -430,7 +417,6 @@ class DataValidator:
         if grid_storyboard is not None and not isinstance(grid_storyboard, bool):
             errors.append(_m("val_field_type_bool", field="grid_storyboard"))
 
-        # 项目级语速覆盖（阅读单位 / 秒）：可选字段，缺省即回退语言默认；出现即须落在硬区间内。
         speech_rate = project.get(SPEECH_RATE_FIELD)
         if speech_rate is not None:
             if isinstance(speech_rate, bool) or not isinstance(speech_rate, (int, float)):
@@ -446,8 +432,6 @@ class DataValidator:
                     )
                 )
 
-        # 单集目标时长（秒）：可选字段，缺省即未设目标；出现即须是落在硬区间内的整数秒。
-        # 与 SPEECH_RATE_FIELD 同形，只是量纲为整数——浮点秒数按类型错报，不静默取整。
         episode_target_duration = project.get(EPISODE_TARGET_DURATION_FIELD)
         if episode_target_duration is not None:
             if isinstance(episode_target_duration, bool) or not isinstance(episode_target_duration, int):
@@ -465,10 +449,6 @@ class DataValidator:
 
         self._validate_ad_project_fields(project, content_mode, errors)
 
-        # 风格不是必填：缺失与空串都是合法状态（未选风格、自定义风格图）。出现即须为字符串，
-        # 显式 null 也不行：v13→v14 迁移把非字符串值原样保留，等这里报告，产物规划遇到会直接抛错。
-        # 选定了风格模版时 style 必须是展开快照（ADR 0023），空快照会让生成端丢掉已选的风格；
-        # 模版 id 为空串与 null 同义（创建接口按真值判定是否展开模版）。
         style = project.get("style")
         style_template_id = project.get("style_template_id")
         if style_template_id is not None and not isinstance(style_template_id, str):
@@ -492,8 +472,6 @@ class DataValidator:
                 episode_num = episode.get("episode")
                 if not isinstance(episode_num, int) or isinstance(episode_num, bool):
                     errors.append(_m("val_episode_missing_num_at", prefix=prefix))
-                # title 允许空串：写入方（剧本同步/孤儿条目登记）在标题未知时即写 ""，
-                # 待用户或 Agent 后续命名
                 if not isinstance(episode.get("title"), str):
                     errors.append(_m("val_episode_missing_title_at", prefix=prefix))
 
@@ -537,9 +515,6 @@ class DataValidator:
                     continue
                 self._validate_asset_description(char_data, "character", char_name, errors)
                 for field_name in char_extra_fields:
-                    # spec 声明的 extra_string_fields（voice_style / reference_image 等）若存在
-                    # 须为字符串（可空），否则下游消费方（如把 reference_image 当路径拼接）
-                    # 会运行时崩。None 视为「未设置」放行，非 str 类型 fail-loud。
                     val = char_data.get(field_name)
                     if val is not None and not isinstance(val, str):
                         errors.append(
@@ -561,10 +536,6 @@ class DataValidator:
                                 value=repr(val),
                             )
                         )
-                # voice_updated_at 不在 extra_string_fields 里（系统专用戳字段，故意不开放
-                # 通用 PATCH 覆写），但仍需校验类型与值：外部编辑/导入的 project.json 若把它写成
-                # 非字符串或不可解析的字符串，会在前端 computeVoiceLegacyNotice 的日期解析处
-                # 静默产生 NaN。
                 voice_updated_at = char_data.get("voice_updated_at")
                 if voice_updated_at is not None and not isinstance(voice_updated_at, str):
                     errors.append(
@@ -675,9 +646,6 @@ class DataValidator:
         errors: list[ValidationMessage],
     ) -> None:
         for field_name in list_fields:
-            # spec 声明的 extra_list_fields（aliases / reference_images / selling_points 等）若存在
-            # 须为字符串列表：下游把元素当路径拼接 / 当文本注入 prompt，混入非 str 会
-            # 运行时崩。None 视为「未设置」放行，其余类型 fail-loud。
             val = data.get(field_name)
             if val is None:
                 continue
@@ -715,8 +683,6 @@ class DataValidator:
         if not isinstance(catalog, dict):
             errors.append(_m("val_field_must_be_object", field=field_label))
             return
-        # scene/prop 的 extra_string_fields 当前均为空 tuple（见 ASSET_SPECS），仍按 spec 取
-        # 以保持「validator 跟 spec 同步」——将来给 scenes/props 加 extra 字段时无需改本处。
         asset_type = field_label.rstrip("s")
         spec = ASSET_SPECS.get(asset_type)
         extra_fields = spec.extra_string_fields if spec else ()
@@ -868,9 +834,6 @@ class DataValidator:
             default_dir="audio",
         )
 
-        # video_generated_at 是前端 computeVoiceLegacyNotice 按时刻比较视频生成时间与
-        # 角色声音更新时间的依据；非字符串或不可解析的字符串会在该处日期解析得到 NaN，
-        # NaN 参与的比较恒为 false，判定因此静默失效而非报错。
         video_generated_at = assets.get("video_generated_at")
         field_name = f"{prefix}.generated_assets.video_generated_at"
         if video_generated_at is not None and not isinstance(video_generated_at, str):
@@ -1058,17 +1021,10 @@ class DataValidator:
                 asset_type="prop",
             )
 
-            # utterances 是分镜级有序发声源；本层允许字段缺失，字段存在时校验结构与
-            # kind ⇄ speaker 约束，与上方 characters_in_scene 等同口径（逐项 append、不 raise）。
             self._validate_utterances(scene.get("utterances"), prefix, errors)
 
-            # 说话量（台词 + 画外音）对分镜时长的单向上界 warning：估算说话时长超 duration × 容差
-            # 时仅提示「说不完」，不阻塞、不改写 duration（duration 由画面驱动）。
             self._warn_scene_speech_overflow(scene, prefix, language, speech_rate_override, warnings)
 
-            # source_text（逐字原文锚）与 scene_description（视觉改编描述）由脚本规划填入、转换透传。镜像
-            # 共享模型的 str 字段（extra=forbid 下显式 null 同样被拒）——键存在则须为字符串，显式 null
-            # 一并拒绝；键缺失放行（默认空串，存量数据无此字段）。用 in 判定以区分缺失与显式 null。
             errors.extend(
                 _m("val_field_must_be_string", field=f"{prefix}: {text_field}")
                 for text_field in ("source_text", "scene_description")
@@ -1109,10 +1065,6 @@ class DataValidator:
                 errors.append(_m("val_utterance_text_invalid", prefix=uprefix))
             speaker = item.get("speaker")
             if speaker is not None and not isinstance(speaker, str):
-                # speaker 仅允许字符串或 null（镜像 Utterance.speaker: str | None 的类型约束）：
-                # 数字 / 布尔 / 对象等在 Pydantic 层即类型校验失败，这里同口径 fail-loud，避免
-                # 非法 shape 在结构校验里静默放行、到 Pydantic 才崩。置 has_speaker=True 表示
-                # 「提供了 speaker」，使 dialogue 不再叠报「缺 speaker」（类型错才是根因）。
                 errors.append(_m("val_utterance_speaker_type", prefix=uprefix))
                 has_speaker = True
             else:
@@ -1248,7 +1200,6 @@ class DataValidator:
                 asset_type="product",
             )
 
-            # 广告/短片分镜只有待编写时提示词可以为空；其余分镜两侧提示词缺失或为空即结构不完整。
             if shot.get("pending_authoring") is not True:
                 if not shot.get("image_prompt"):
                     errors.append(_m("val_missing_field_at", prefix=prefix, field="image_prompt"))
@@ -1359,9 +1310,6 @@ class DataValidator:
             if not valid_duration:
                 errors.append(_m("val_unit_duration_range", prefix=prefix, low=low, high=high))
 
-            # 正文里未登记的 `@[名称]` 不在此报错：参考图是执行期派生物，未解析的提及只在
-            # 渲染与预览侧发一条非阻断 warning（见 ADR 0064），校验器不把它升级成结构错误。
-
             if project_dir is not None:
                 self._validate_generated_assets(
                     project_dir,
@@ -1386,7 +1334,6 @@ class DataValidator:
         if not isinstance(episode.get("episode"), int):
             errors.append(_m("val_episode_missing_num"))
 
-        # 标题允许空串：空标题的集名由呈现层按播出位置派生。
         if "title" not in episode:
             errors.append(_m("val_missing_field", field="title"))
         elif not isinstance(episode["title"], str):
@@ -1404,40 +1351,25 @@ class DataValidator:
         if novel is not None and not isinstance(novel, dict):
             errors.append(_m("val_novel_must_be_object"))
 
-        # 剧情演绎说话量上界 warning 的语速从 lib.speech.speech_rate 唯一真相源取：项目级覆盖优先，
-        # 否则按项目 source_language 的语言默认（缺失 / 脏值回退默认语速）。
         source_language = project.get("source_language")
         scene_language = source_language if isinstance(source_language, str) else None
         scene_speech_rate = project_speech_rate_override(project)
 
-        # "视频来源"维度是项目级事实（generation_mode），剧本不携带；骨架种类统一由
-        # resolve_declared_kind 解析。广告/短片的参考生视频使用 video_units，生成模式为
-        # `storyboard` 时使用 shots。
         gen_mode = project.get("generation_mode")
         try:
             kind = resolve_declared_kind(content_mode, gen_mode)
         except ValueError:
-            # content_mode 存在但非法（遗留/脏数据）：resolve_declared_kind 对此 fail-loud
-            # 抛错，但 validator 的契约是把脏数据报告成结构化错误而非让异常传播出去。跳过依赖
-            # 骨架种类的后续检查——没有合法 kind 就无从判断该读 segments/scenes/shots 中哪个。
             errors.append(
                 _m("val_content_mode_invalid", value=content_mode, allowed=_allowed(self.VALID_CONTENT_MODES))
             )
             return
         if validate_route:
             try:
-                # 闸门放行族内历史形态（narration 数据落 scenes 键）并返回剧本的实际骨架，后续按
-                # 该实际种类分派——用声明种类会让这类剧本按不存在的 segments 空读，数据一条都不校验。
                 kind = ensure_route_skeleton(episode, content_mode, gen_mode)
             except SkeletonRouteMismatchError as exc:
-                # 失配剧本（骨架与项目生成模式跨族）：生成模式要求的数组根本不在剧本里，
-                # 逐字段报"缺少 segments"会把成因埋掉——直接给结构结论与重拆指引，并跳过后续
-                # 按骨架的检查。同一闸门在生成入口拒绝生成，此处只是把同一事实报告出来。
                 errors.append(exc.to_validation_message())
                 return
         else:
-            # 编辑/查看流程必须能修正生成模式失配的存量剧本；引用校验按磁盘实际骨架分派，
-            # 生成入口仍通过默认开启的生成模式闸门拒绝将这类剧本投入生产。
             kind = resolve_script_kind(episode)
         artifact_root = project_dir if validate_artifacts else None
         if kind == "video_units":
@@ -1639,10 +1571,6 @@ class DataValidator:
                     errors,
                     f"episodes[{index}].script_file",
                     default_dir="scripts",
-                    # 账本条目的 script_file 是前瞻性契约（剧本生成时回填真实值），
-                    # 拆分先于剧本存在是设计内状态；路径越界仍照常报错。ledger_status 不
-                    # 参与判定——v2→v3 迁移不再回填该字段，老项目升级后的条目可能永远
-                    # 没有 ledger_status，形状合法（集号可解析为正整数）即视为正常账本条目
                     missing_ok=parse_positive_episode_num(episode_meta.get("episode")) is not None,
                 )
                 if not resolved_path:

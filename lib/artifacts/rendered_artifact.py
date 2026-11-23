@@ -101,7 +101,6 @@ def _replace_and_register(
         try:
             os.replace(rendered, formal)
         except BaseException:
-            # 正式文件没被替换，旧文件仍与旧登记相符。
             if claimed is not None and adapter.get_entry(key) is None:
                 adapter.put_entry(key, claimed)
             raise

@@ -43,7 +43,6 @@ logger = logging.getLogger(__name__)
 
 _RUNNING_STATUSES = frozenset({"in_progress", "queued"})
 
-#: 每秒成片的视频 token 数，按分辨率档位（Gemini API 定价页）；没发分辨率时按服务端缺省 720p 估算。
 _VIDEO_TOKENS_PER_SECOND = {"360p": 1931, "720p": 5792, "1080p": 8688, "4k": 17376}
 _DEFAULT_RESOLUTION = "720p"
 
@@ -117,7 +116,6 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
         interaction = await self._create_interaction(request)
         interaction_id = getattr(interaction, "id", None)
         if not interaction_id:
-            # 没有 ID 就无法持久化 provider_job_id，进程中断后会走重新提交，造成重复扣费。
             raise RuntimeError("Gemini Interactions 提交成功但未返回 interaction ID，无法持久化 provider_job_id")
         await self._persist_provider_job_id(
             request, interaction_id, provider=PROVIDER_GEMINI, endpoint=self._request_base_url
@@ -174,7 +172,6 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
             ]
 
         parts: list[dict[str, Any]] = await asyncio.to_thread(image_parts)
-        # 反向提示词由调用方文本化注入 prompt，跨通道一致；文本放在图片之后。
         parts.append({"type": "text", "text": request.prompt})
 
         response_format: dict[str, Any] = {
@@ -254,7 +251,6 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
             raise RuntimeError("视频生成失败: API 未返回视频数据")
 
         await run_noninterruptible_sync(request.output_path.parent.mkdir, parents=True, exist_ok=True)
-        # 字节已在内存里：解码与写盘不可中断，落盘经 .part 再改名。
         await run_noninterruptible_sync(
             write_atomically, request.output_path, lambda target: target.write_bytes(base64.b64decode(data))
         )

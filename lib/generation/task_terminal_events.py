@@ -18,7 +18,6 @@ from lib.project.project_change_hints import emit_project_change_batch
 
 logger = logging.getLogger(__name__)
 
-#: 任务生命周期末端状态。与前端 ``isTerminalStatus`` 同口径。
 TERMINAL_TASK_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "cancelled"})
 
 TASK_ENTITY_TYPE = "task"
@@ -44,11 +43,9 @@ def build_task_terminal_change(event: dict[str, Any]) -> dict[str, Any] | None:
         "entity_type": TASK_ENTITY_TYPE,
         "action": action,
         "entity_id": task_id,
-        # label 不进通知文案（important=False），仅作日志/调试可读标识。
         "label": task_id,
         "focus": None,
         "important": False,
-        # 前端据此判定哪类画布需要重拉（当前只有 reference_video 用到）。
         "task_type": str(event.get("task_type") or ""),
     }
 

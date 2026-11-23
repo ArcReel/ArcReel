@@ -62,7 +62,6 @@ def ensure_versioned_backup(source: Path, from_version: int) -> Path | None:
     ts = int(time.time())
     backup = source.with_name(versioned_backup_name(source.name, from_version, ts))
     while backup.exists():
-        # 同一秒内的第二份不同内容不能覆盖上一份：名字往后挪一秒，直到落到空位。
         ts += 1
         backup = source.with_name(versioned_backup_name(source.name, from_version, ts))
     atomic_write_bytes(backup, content)

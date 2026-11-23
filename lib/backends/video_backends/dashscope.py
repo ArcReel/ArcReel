@@ -98,65 +98,23 @@ DEFAULT_MODEL = "happyhorse-1.1-i2v"
 _VIDEO_ENDPOINT = "/services/aigc/video-generation/video-synthesis"
 
 
-# wan2.7 全家族 prompt 上限 5000 字符（官方参数表原文「超过部分会自动截断」，错误码表无对应
-# 条目——超限不报错、直接静默截断并照常计费，故由 gate_video_request 在付费前拒绝）。
 _WAN27_MAX_PROMPT_CHARS = 5000
 
-# wan3.0 单模型覆盖文生/图生/参考生三条路径，prompt 上限 20000 字符，超限与 2.7 同为静默截断且照常计费，
-# 同样由 gate_video_request 前置拒绝（参考图、参考音频的数量上限记在模型条目上）。
-# 出处：万相 3.0 发布说明所列能力上限。与其余型号不同，wan3.0 没有可引的一手 API schema——
-# media 条目类型（last_frame / reference_audio）与 parameters["audio"] 的字面量均按 2.7
-# 形状类推，对端如报参数错误应以此处为首查点。
 _WAN3_MAX_PROMPT_CHARS = 20000
 _WAN3_MODEL_KEY = "wan3.0-video"
 
-# 万相 3.0 家族 model_id 识别（连字符/下划线可选、不锚版本号）：此处是本后端的请求形态分派，
-# 也是 lib.custom_provider.duration_presets（时长档位推断）与 endpoints.py（端点路由推断）共用
-# 的唯一正则来源——三处须按同一匹配宽度判 wan3，否则会出现某个 model_id 被路由到本后端、却因
-# 本后端认不出它是 wan3 而退回通用档案（丢参考图/尾帧/音轨参数）的矛盾。版本前缀与模态 token
-# （下方 WAN_IMAGE_TO_VIDEO_PATTERN）须接受相同的分隔符集合，避免同一规则组内宽容度不对称。
-# 两侧标识符边界要求非字母数字，避免匹配到 "swan3"、"vendorwan3" 这类含 wan3 子串但并非该家族
-# 的第三方型号名。
 WAN3_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?3(?![a-z0-9])", re.I)
 
-# 万相 2.7 家族 model_id 识别（连字符/下划线可选、标识符边界避免误吞 "swan2"、"wan20"）：
-# 使连字符形态（"wan-2.7"）与点号形态（"wan2.7"）在图像/视频归属与端点路由上得出一致结论——
-# 这是本正则唯一确权的范围。
-#
-# 只锚 2.7、不覆盖其余 2.x 小版本：本后端固定请求
-# `/services/aigc/video-generation/video-synthesis`（_VIDEO_ENDPOINT），而 wan2.1 / wan2.2-s2v
-# 走的是旧端点
-# `/services/aigc/image2video/video-synthesis/`、payload 字段也不同（如 wan2.6 用 `size` 而非
-# 2.7 的 `resolution`+`ratio`），并入本正则会把协议不兼容的请求送到这个端点。
-# 点号形态（如 "wan2.1-kf2v"）不受本正则约束，归 WAN_DOT_FORM_PATTERN 判定，其路由是否也应
-# 收窄到 2.7 需要供应商 API 事实与产品判断，不由本正则的匹配宽度代为决定。
 WAN2_PATTERN = re.compile(r"(?<![a-z0-9])wan[-_]?2\.7(?![a-z0-9])", re.I)
 
-# 点号形态万相 2.x（2.7 以外，如 "wan2.1-kf2v"）的家族判定：标识符边界要求非字母数字，避免
-# "swan2.7-r2v"、"vendorwan2.7-t2v" 这类含 "wan2." 子串但并非该家族的第三方型号名被误判。
 WAN_DOT_FORM_PATTERN = re.compile(r"(?<![a-z0-9])wan2\.\d+(?![a-z0-9])", re.I)
 
-# happyhorse 家族判定：标识符边界要求非字母数字，避免 "myhappyhorse-1.0-r2v" / "happyhorsefoo"
-# 这类第三方型号名被字面子串误吞。
 HAPPYHORSE_PATTERN = re.compile(r"(?<![a-z0-9])happyhorse(?![a-z0-9])", re.I)
 
-# wan 家族 image-to-video 续接语法（"wan-2.7-image-to-video" / "wan_2.7-image2video" /
-# "wan-3-turbo-image-to-video"）：只识别 "image-(to|2)-video" 这一种确定拼写，不识别 img2vid/i2v
-# 等其他缩写。wan2.7 归一化用它把该后缀折成 "i2v" 再查 _MODEL_PROFILES；wan3/wan2x_dot 家族用它
-# 区分图像/视频归属（wan3.0-video-image 等真图像别名不含该语法，不受影响）。两侧标识符边界避免
-# "wan2.7-fooimage-to-video" / "wan2.7-image-to-videofoo" 这类相邻字母被误判命中。
 WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"(?<![a-z0-9])image[-_]?(?:to|2)[-_]?video(?![a-z0-9])", re.I)
 
-# wan2.7-videoedit（指令式视频编辑）是
-# 万相家族内真实存在的独立模态，但本后端只实现了 t2v/i2v/r2v 三档的请求构造，没有该模态所需的
-# 输入视频传输字段。命中家族正则但落这个模态的 id 须排除出原生路由与已知能力档，否则会带着
-# 通道声明（丢失该模态实际所需的请求形态）发出本后端无法正确构造的请求。两侧标识符边界
-# 避免 "videoeditor" 一类无关词形（"edit" 后紧邻字母）被误判命中。
 WAN_VIDEOEDIT_PATTERN = re.compile(r"(?<![a-z0-9])video[-_]?edit(?![a-z0-9])", re.I)
 
-# wan2.7-s2v（图生视频续接语音）/ wan2.7-v2v（视频生视频）：命中家族正则但同 videoedit 一样未
-# 实现请求构造的模态。与 has_known_modality 的语义区分：本模式只标记"这是已知的视频模态"（供路由
-# 判定是否落图像端点用），不代表已实现该模态的请求构造（仍须落 has_known_modality 的排除路径）。
 WAN_S2V_V2V_PATTERN = re.compile(r"(?<![a-z0-9])[sv]2v(?![a-z0-9])", re.I)
 
 WanFamily = Literal["happyhorse", "wan2.7", "wan3", "wan2x_dot"]
@@ -174,22 +132,10 @@ class WanClassification:
     """
 
     family: WanFamily | None
-    is_image_to_video: bool  # wan 系列 image-to-video 续接别名（本质视频，非图像变体）
-    is_videoedit: bool  # wan2.7-videoedit：本后端未实现请求构造的模态
-    profile_key: str | None  # 可直接查 _MODEL_PROFILES 的归一化 key；无法确定具体模态时为 None
-    # wan2.7 家族是否解析出本后端已实现请求构造的具体模态（t2v/i2v/r2v）。wan2.7-s2v /
-    # wan2.7-v2v / wan2.7-videoedit 等命中家族正则但模态未实现，须与已实现模态区分对待——两者混同
-    # 会让请求体缺字段的模态被静默送去本后端无法正确处理的端点。wan3/happyhorse/wan2x_dot 恒为
-    # True：wan3 单模型覆盖全部模态、happyhorse 与 wan2x_dot 的模态收窄不由本字段判定（前者未见
-    # 需要排除的模态，后者见 profile_key 处的说明）。
+    is_image_to_video: bool
+    is_videoedit: bool
+    profile_key: str | None
     has_known_modality: bool
-    # wan2.7 家族是否可确认属于视频模态（t2v/i2v/r2v/s2v/v2v/videoedit 任一），即便本后端未实现
-    # 其中部分模态（s2v/v2v/videoedit）的请求构造。与 has_known_modality 语义不同：后者只对已实现
-    # 请求构造的 t2v/i2v/r2v 为真，本字段额外把已知但未实现的视频模态也计入，用于和真图像变体
-    # （wan2.7-image 等未落入任何已知模态 token 的情形）区分——id 别处若另含无关 "image" 装饰
-    # （如代理命名空间前缀），不能让笼统 image 判定盖过已确认的视频语义。该区分只对 wan2.7 生效，
-    # 恒为 False：wan3 单模型覆盖全部模态、happyhorse/wan2x_dot 的图像/视频归属不由本字段判定
-    # （见 profile_key 与 has_known_modality 处的说明）。
     is_known_video_modality: bool
 
 
@@ -216,14 +162,6 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
     elif wan_dot_match:
         family = "wan2x_dot"
     else:
-        # image-to-video 续接语法的标识符边界匹配与家族归属判定相互独立：不满足家族严格边界的 id
-        # （如 "wan-2.2-image-to-video"，"wan" 与版本号间的连字符不满足点号形态边界）依然可能是
-        # 视频模型的显式续接语法命名，家族未命中不代表该语法信息作废，须原样带出，供 endpoints.py
-        # 的 image 变体排除判定消费——否则这类 id 会被笼统 image 判定误吞成图像端点。搜索范围仍须
-        # 从字面 "wan" 子串本身开始切分（不要求满足严格标识符边界，"swan2.7-image" 里的 "wan" 同样
-        # 定位），不含其前的装饰前缀——否则 "image-to-video-proxy/swan2.7-image" 这类与模态无关的
-        # 代理命名空间前缀会把真图像变体误判成视频续接。字面无 "wan" 子串时该字段不被下游消费
-        # （endpoints.py 先决 `"wan" in lowered` 才读取本字段），退回全串搜索即可。
         wan_locator = normalized.find("wan")
         fallback_scope = normalized[wan_locator:] if wan_locator != -1 else normalized
         return WanClassification(
@@ -235,11 +173,6 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
             is_known_video_modality=False,
         )
 
-    # image-to-video 续接语法与 videoedit/s2v/v2v 均是家族内的模态标记，只在家族标记本身之后的
-    # 模态段内搜索，不含标记前的装饰前缀——否则 "image-to-video-proxy/wan2.7-image"、
-    # "videoedit-proxy/wan2.7-image"、"s2v-proxy/wan2.7-image" 这类与模态无关的代理命名空间前缀
-    # 会被误判成对应模态，掩盖其真实模态（真图像变体被误判成视频续接，或真实 t2v/i2v/r2v 被误判
-    # 成未实现模态）。
     assert family_match is not None
     family_suffix = normalized[family_match.start() :]
     is_image_to_video = bool(WAN_IMAGE_TO_VIDEO_PATTERN.search(family_suffix))
@@ -250,37 +183,18 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
     if family == "wan3":
         profile_key = _WAN3_MODEL_KEY
     elif family == "wan2.7":
-        # wan27_suffix 直接取自 family_match 定位到的模态段（family_suffix）归一化结果，不基于
-        # 字面文本搜索定位：标记前的原始装饰前缀可能本身含字面 "wan2.7" 子串（如
-        # "vendorwan2.7-videoedit-proxy/wan2.7-r2v"，前缀里的 "wan2.7" 不满足 WAN2_PATTERN 边界、
-        # 未被判定为家族标记，但仍是该字面子串），按文本搜索定位无法区分这类前缀噪音与真正的家族
-        # 标记位置，只有 family_match 的匹配位置本身是可靠锚点。profile_key 仍需拼回原始装饰前缀
-        # （不参与归一化，只用于容忍代理中转命名，见 _find_known_profile_key 的边界匹配）。
         wan27_suffix = _normalize_wan27_alias(family_suffix)
         profile_key = normalized[: family_match.start()] + wan27_suffix
         is_videoedit = bool(WAN_VIDEOEDIT_PATTERN.search(wan27_suffix))
         is_s2v_or_v2v = bool(WAN_S2V_V2V_PATTERN.search(wan27_suffix))
-        # wan2.7 的 payload 构造只实现了 t2v/i2v/r2v；videoedit/s2v/v2v 等其余已知但未实现模态
-        # 同样不能落原生路由。按标识符边界匹配 _MODEL_PROFILES 里的 wan2.7 已知 key（而非要求
-        # wan27_suffix 与某个 key 完全相等）：wan27_suffix 保留了代理中转的装饰后缀
-        # （"wan2.7-r2v-0715"），精确相等会把这些合法装饰名也判成未知模态。命中已知 key 的同时
-        # 若又命中 videoedit/s2v/v2v（如 "wan2.7-i2v-s2v"），已实现的 token 不能掩盖未实现模态
-        # 段共存的事实，一并排除出已实现范围。
         has_known_modality = (
             not is_videoedit
             and not is_s2v_or_v2v
             and _find_known_profile_key(wan27_suffix, (k for k in _MODEL_PROFILES if k.startswith("wan2.7-")))
             is not None
         )
-        # t2v/i2v/r2v（has_known_modality）/ videoedit / s2v / v2v 均是已确认的视频模态，即便部分
-        # 未实现请求构造；其余未收敛命名（不落入任一已知模态 token）保守按图像变体处理，不对图像
-        # 变体的命名形态做任何假设（与 endpoints.py 的判定原则一致）。
         is_known_video_modality = has_known_modality or is_videoedit or is_s2v_or_v2v
     elif family == "wan2x_dot" and is_image_to_video:
-        # wan2x_dot 没有登记任何请求形态档（profile_key 恒 None，下条注释），image-to-video
-        # 续接语法命中时若仍放行原生路由，_match_profile_key 会认不得、取通道声明（first_frame
-        # 为 True，恰好掩盖问题）——但本后端并未为这些未收窄的 2.x 小版本声明过已验证的首帧
-        # 请求构造，没有已验证能力/请求 schema 的 id 排除出原生路由，同落下方 5) 的通用视频端点。
         has_known_modality = False
     return WanClassification(
         family=family,
@@ -307,9 +221,6 @@ def _normalize_wan27_alias(family_suffix: str) -> str:
     return WAN_IMAGE_TO_VIDEO_PATTERN.sub("i2v", family_suffix)
 
 
-# 百炼视频调用通道的声明（通道事实）：同一份请求构造对任何型号都发得出首帧、尾帧（media 的 first_frame /
-# last_frame）、参考图（reference_image）与参考音频，不在通道一侧限张数与段数。各型号接受哪些输入、能接受多少
-# 记在模型条目上，与本声明两侧求值（lib.backends.video_capabilities，docs/adr/0104）。
 _CHANNEL_CAPABILITIES = VideoCapabilities(
     text_to_video=True,
     first_frame=True,
@@ -339,7 +250,6 @@ class DashScopeVideoEndpoint:
         return VideoAudioMode.CONTROLLABLE if self.audio_switch else VideoAudioMode.ALWAYS_ON
 
 
-# 提示词长度仍按型号识别；目录条目尚无这一维度。
 _MODEL_PROFILES = {
     "wan2.7-t2v": _WAN27_MAX_PROMPT_CHARS,
     "wan2.7-i2v": _WAN27_MAX_PROMPT_CHARS,
@@ -380,16 +290,10 @@ def _match_profile_key(model: str) -> str | None:
     if normalized in _MODEL_PROFILES:
         return normalized
     classification = classify_wan_model(normalized)
-    # has_known_modality=False 表示 infer_endpoint 已把该 id 排除出原生路由（videoedit/s2v/v2v
-    # 等未实现模态、或 wan2x_dot 的未验证 image-to-video 续接），此处必须同步认不得
-    # ——否则子串容忍匹配仍可能在装饰后缀里找到共存的已知 token（如 "wan2.7-i2v-s2v"
-    # 里的 "i2v"），让不落原生路由的 id 反而拿到该路由的能力档，与路由判定互斥。
     if not classification.has_known_modality:
         return None
     if classification.profile_key is not None:
         normalized = classification.profile_key
-    # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v} /
-    # wan3.0-video）互不为子串，无歧义，_find_known_profile_key 的边界匹配可安全逐一试探。
     return _find_known_profile_key(normalized, _MODEL_PROFILES)
 
 
@@ -415,8 +319,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
     ) -> None:
         self._api_key = resolve_dashscope_api_key(api_key)
         self._base_url = dashscope_native_base_url(base_url)
-        # wan3.0 专用 maas 域名含地域与 workspace，推不出也归一化不了，故按用户填写的
-        # 完整 URL 原样使用（仅去掉尾部斜杠），未填则回落通用域名、由对端如实报错。
         self._wan3_base_url = (wan3_base_url or "").strip().rstrip("/") or None
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
@@ -460,7 +362,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         return self._base_url
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 组装 payload 要读首帧 / 参考图 / 音频并编码，放线程里跑，避免阻塞事件循环
         payload = await asyncio.to_thread(self._build_payload, request)
         logger.info(
             "调用 %s 视频 API model=%s body=%s",
@@ -471,8 +372,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._create_task(client, payload, request)
             logger.info("DashScope 视频任务已创建: task_id=%s model=%s", task_id, self._model)
-            # 一并写回实际提交域名（wan3.0 走独立 maas 域名，且两者都随用户配置可变）：
-            # 续跑据此回放原域名，不然改配置后轮询会打到查不到该任务的主机。
             await self._persist_provider_job_id(
                 request, task_id, provider=PROVIDER_DASHSCOPE, endpoint=self._request_base_url
             )
@@ -519,18 +418,13 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         parameters: dict = {
             "resolution": _sent_resolution(request),
             "duration": request.duration_seconds,
-            # HappyHorse 默认带 "Happy Horse" 水印，显式关闭
             "watermark": False,
         }
-        # ratio 仅在无首帧时下传：图生视频/带首帧的参考生视频按首帧定宽高比，上游会忽略 ratio
-        # （wan2.7「传 first_frame 时自动忽略」），HappyHorse 图生视频更直接把 ratio 当非法参数拒绝。
-        # 默认 aspect_ratio 非空，若不门控会让带首帧的请求被上游拒。首帧缺席（文生视频/无首帧参考）才需 ratio。
         has_first_frame = any(m.get("type") == "first_frame" for m in media)
         if request.aspect_ratio and not has_first_frame:
             parameters["ratio"] = request.aspect_ratio
         if request.seed is not None:
             parameters["seed"] = request.seed
-        # 只有带音轨开关的端点下发 audio；成片有无音轨另读模型生效能力。
         if self.endpoint.audio_switch:
             parameters["audio"] = request.generate_audio
         elif (
@@ -539,7 +433,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
             .audio_track_for_route("r2v" if request.reference_images else "i2v")
             .has_audio_track
         ):
-            # 发不出关闭音轨的请求；直接调用或覆盖放宽时也须在付费前拒绝。
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         return {
@@ -549,7 +442,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         }
 
     def _build_media(self, request: VideoGenerationRequest) -> list[dict]:
-        # 可发与否按执行闸门那份能力判定：用户放宽的维度照常发出、由上游裁定；直接构造的请求回落型号档案。
         caps = request.video_capabilities or self._video_capabilities
         media: list[dict] = []
         if request.start_image and not caps.first_frame:
@@ -558,8 +450,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
             raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
         provided = request.reference_images or []
         reference_items: list[dict] = []
-        # 参考生视频端点必须有参考图：不随用户放宽参考图上限转移到其他端点，也不因用户把上限
-        # 收窄为 0 而放行无参考图的请求。
         if not provided and self.endpoint.reference_required:
             raise VideoCapabilityError("video_reference_images_required", model=self._model)
         image_limit = reference_image_limit(caps)
@@ -579,10 +469,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
             if path is not None:
                 media.append({"type": role, "url": images[Path(path)].data_uri()})
         reference_items = [{"type": "reference_image", "url": images[Path(p)].data_uri()} for p in provided]
-        # 音频判定在参考素材循环之外：无参考素材可挂时也要走一遍，否则 wan2.7-i2v 这类无参考图
-        # 能力的 model 收到音频会静默丢弃、照常扣费。用户把 reference_audio_mode 放宽成 direct 时
-        # 音频照常发出、由上游裁定；未放宽的能力档带音频在下方 fail-loud。两种挂载形态：per_image 的挂在参考素材项上（wan2.7-r2v），其余走 media
-        # 数组里的独立 reference_audio 条目（wan3.0）。
         standalone_audio_items: list[dict] = []
         if self.endpoint.reference_audio_per_image:
             self._attach_reference_voices(reference_items, request)
@@ -657,8 +543,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
 
         targets = request.reference_audio_targets
         if targets is not None:
-            # 重复下标与越界下标同类错配：两段音频指向同一个参考素材项时，逐条赋值会静默
-            # 覆盖前一条绑定，某个角色的音色声明无声丢失——必须硬失败，不能让它悄悄发生。
             valid = (
                 len(targets) == len(audio_files)
                 and len(set(targets)) == len(targets)
@@ -667,9 +551,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         else:
             valid = len(audio_files) <= len(reference_items)
         if not valid:
-            # 与 gate 的 video_reference_audio_exceeded 分成两个 code：那条的 limit 是模型的
-            # 能力上限（减角色数就能过），这条的上限是该请求实际有几个可挂载的参考素材
-            # （加参考图也能过）。共用一个 code 会让文案给出与实际卡点不符的处置建议。
             raise VideoCapabilityError(
                 "video_reference_audio_slots_insufficient",
                 provider=self.name,
@@ -677,8 +558,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
                 slots=len(reference_items),
                 count=len(audio_files),
             )
-        # 解码放在槽位校验之后：槽位不足是「这次请求的参考图不够挂」，比某段文件读不出来更靠前
-        # 地说明卡点，先报它能让用户一次看到真正要改的东西。
         uris = self._decode_reference_audio_uris(request)
         if targets is not None:
             for idx, uri in zip(targets, uris, strict=True):
@@ -695,10 +574,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
     async def _create_task(
         self, client: httpx.AsyncClient, payload: dict, request: VideoGenerationRequest | None = None
     ) -> str:
-        # 创建任务是非幂等的「建任务 + 计费」POST：submit_post 把歧义传输错误（请求可能已送达
-        # 服务端但响应在途丢失）转 AmbiguousSubmitError 终态失败，避免自动重试重复建任务 + 重复计费；
-        # >=400 由其落 body 日志 + raise_for_status 抛 HTTPStatusError（保留 status_code 供咽喉层识别
-        # 413 降档），交 should_retry_submit 按状态码分流——4xx fail-fast、5xx/429 重试。
         resp = await submit_post(
             lambda: client.post(
                 f"{self._request_base_url}{_VIDEO_ENDPOINT}",
@@ -726,12 +601,8 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         *,
         is_resume: bool,
     ) -> VideoGenerationResult:
-        # 续跑轮询回放提交时的域名：任务 id 只在创建它的 endpoint 上可查，用户在途改 base_url
-        # 后按当下配置解析出的新域名去轮旧任务会 404，被下方的 404 分支误判成过期。
         base_url = request.submitted_base_url or self._request_base_url
 
-        # 续跑时 task 完全不存在表现为 GET 404，由闸门转 ResumeExpiredError；task_id 24h 过期表现为
-        # 200 + task_status=UNKNOWN，由下方 is_dashscope_expired 兜底（终态返回后判定）。
         gated_poll = resume_expiry_gate(
             recording_poll(lambda: self._poll_once(client, task_id, base_url), request),
             resume_job_id=task_id if is_resume else None,
@@ -764,7 +635,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
         await self._download_with_retry(video_url, request.output_path)
         logger.info("DashScope 视频下载完成: %s", request.output_path)
 
-        # usage.duration 是真实计费时长（wan2.7-r2v 含输入视频时长），缺失回落请求时长
         billing_duration = extract_billing_duration(final)
         return VideoGenerationResult(
             video_path=request.output_path,
@@ -773,7 +643,6 @@ class DashScopeVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixi
             duration_seconds=billing_duration if billing_duration is not None else request.duration_seconds,
             video_uri=video_url,
             task_id=task_id,
-            # 结算与预检同读生效音轨事实，包括模型的无声覆盖。
             generate_audio=(request.video_capabilities or self.video_capabilities)
             .audio_track_for_route("r2v" if request.reference_images else "i2v")
             .output_audio(request.generate_audio),

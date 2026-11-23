@@ -61,16 +61,13 @@ DEFAULT_MODEL = "image-01"
 
 _IMAGE_ENDPOINT = "/image_generation"
 
-# image-01 宽高均 ∈ [512, 2048] 且须被 8 整除；可表达的最极端比例为 2048/512 = 4:1。
 _MIN_EDGE = 512
 _MAX_EDGE = 2048
 _ROUND_TO = 8
 _MAX_RATIO = 4.0
 
-# 缺 image_size 时的默认短边（2K 档），经 max_long_edge=2048 收口后竖屏得 1152*2048。
 _DEFAULT_SHORT = 1440
 
-# image-01 单脸参考：subject_reference 只支持一张参考图。
 _SUBJECT_REF_LIMIT = 1
 
 
@@ -122,8 +119,6 @@ class MiniMaxImageBackend:
         return per_image_usage(output_images=1, input_images=refs)
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
-        # 重试范围（_submit / _download_result），避免下载失败回退到重跑生成 POST 造成重复计费。
         width, height = self._resolve_dimensions(request)
 
         payload: dict = {
@@ -133,14 +128,11 @@ class MiniMaxImageBackend:
             "height": height,
             "response_format": "url",
             "n": 1,
-            # ArcReel 剧本 prompt 已是 LLM 精炼描述，关闭智能改写保留原意。
             "prompt_optimizer": False,
         }
         if request.seed is not None:
             payload["seed"] = request.seed
         if request.reference_images:
-            # 参考图读盘 + base64 编码（可能数 MB）offload 到线程，避免阻塞事件循环；
-            # 单次 to_thread 整体执行同步 helper，最小化线程调度开销。
             payload["subject_reference"] = await asyncio.to_thread(self._build_subject_reference, request)
 
         data = await self._submit(payload)
@@ -238,8 +230,6 @@ class MiniMaxImageBackend:
             await _write_base64_image(b64, output_path)
             return None
 
-        # 完整响应体记日志便于诊断，但不嵌进异常消息——避免 body 里的 "503"/"timeout" 等子串
-        # 被默认 should_retry 误判为可重试（仓库已确立按状态码而非字符串判重试）。
         logger.error("MiniMax 图像响应缺少 image_urls/image_base64: %s", data)
         raise RuntimeError("MiniMax 图像响应缺少 image_urls/image_base64")
 
@@ -253,32 +243,23 @@ class MiniMaxImageBackend:
         await with_artifact_retry(lambda: download_image_to_path(url, output_path), label="MiniMax 图像")
 
 
-# ── MiniMax-H3-Image 系列 ─────────────────────────────────────────────────────
-# 官方接口：https://platform.minimax.cn/docs/api-reference/image-generation-h3-generations
-#          https://platform.minimax.cn/docs/api-reference/image-generation-h3-edits
-
 H3_ENDPOINT = "minimax-h3-image"
 H3_DEFAULT_MODEL = "MiniMax-H3-Image"
 H3_GENERATIONS_PATH = "/images/generations"
 H3_EDITS_PATH = "/images/edits"
 
 _H3_REFERENCE_LIMIT = 16
-# 服务端同步等待最长 600 秒，官方要求客户端超时不少于此值。
 _H3_HTTP_TIMEOUT_SECONDS = 600.0
-# size=auto 时由 area 档位决定目标面积；缺 image_size 时取 2K，不落到服务端默认的 4K。
 _H3_AREA_TIERS: tuple[str, ...] = ("1K", "2K", "4K")
 _H3_DEFAULT_AREA = "2K"
 _H3_SUPPORTED_AREAS = ", ".join(_H3_AREA_TIERS)
-# aspect_ratio 的 X、Y 是 1–300 的整数，比例在 1:3 到 3:1 之间（含端点）；显式宽x高同样受此比例约束。
 _H3_MAX_RATIO_TERM = 300
 _H3_MAX_RATIO = 3
 _H3_SUPPORTED_RATIOS = f"1:{_H3_MAX_RATIO} – {_H3_MAX_RATIO}:1"
-# 显式宽x高的面积范围（含端点），服务端不缩放、不取整，越界直接 400。
 _H3_MIN_PIXELS = 655_360
 _H3_MAX_PIXELS = 20_000_000
 _H3_SIZE_ROUND_TO = 8
 _H3_OUTPUT_FORMATS: dict[str, str] = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".webp": "webp"}
-# edits 受理的参考图格式：JPG、JPEG、PNG、WEBP、HEIC、HEIF。
 _H3_REFERENCE_MIME_TYPES: dict[str, str] = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -369,7 +350,6 @@ def _h3_token_counts(payload: dict) -> tuple[int | None, int | None, int | None]
     text_in = _int(in_details.get("text_tokens"))
     image_in = _int(in_details.get("image_tokens"))
     if image_out is None or (text_in is None and image_in is None):
-        # 输入或输出缺一侧时数据残缺，按拿不到用量处理，不按部分 token 记账。
         return None, None, None
     return text_in, image_in, image_out
 
@@ -458,7 +438,6 @@ class MiniMaxH3ImageBackend:
             files = await asyncio.to_thread(self._read_reference_files, request)
             data = await self._submit_edit(fields, files)
         else:
-            # ArcReel 的提示词已经过 LLM 精炼，关闭提示词增强以保留原意；edits 不提供这个开关。
             data = await self._submit_generation({**fields, "disable_prompt_enhanced": True})
 
         image_uri = await self._persist_image(data, request.output_path)
@@ -480,7 +459,6 @@ class MiniMaxH3ImageBackend:
                 dimensions=dimensions,
             )
             if image_out is not None
-            # 拿不到 token 用量时只报出图张数：价目表按 token 计价，这笔记为未定价，不按估算值记账。
             else per_image_usage(output_images=1, input_images=None, dimensions=dimensions)
         )
         return ImageGenerationResult(
@@ -562,7 +540,6 @@ class MiniMaxH3ImageBackend:
         if isinstance(b64, str) and b64:
             await _write_base64_image(b64, output_path)
             return None
-        # 只记错误码与 request_id，不落整 body（含 prompt 增强结果等长文本）。
         error = first.get("error")
         error = error if isinstance(error, dict) else {}
         logger.error(

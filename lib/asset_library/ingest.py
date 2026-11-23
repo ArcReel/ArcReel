@@ -71,18 +71,13 @@ from lib.project.project_manager import get_project_manager
 
 logger = logging.getLogger(__name__)
 
-#: ArcReel 上传的素材所在的 AIGC 素材组名称，每个账号项目范围一个。
 ASSET_GROUP_NAME = "ArcReel"
 _ASSET_GROUP_DESCRIPTION = "ArcReel 上传的图片素材"
 
-#: 提交后第一次查询状态的等待时间，之后按指数退避到 :data:`CHECK_MAX_INTERVAL`。
 CHECK_INITIAL_DELAY = timedelta(seconds=5)
 CHECK_MAX_INTERVAL = timedelta(minutes=5)
-#: 自提交起自动查询的时长；之后停在当前状态，由用户手动刷新。
 POLL_WINDOW = timedelta(hours=72)
-#: 结果不确定的任务按名称查回素材的时长：下载地址过期后供应商已无法再取图。
 UNCERTAIN_LOOKUP_WINDOW = RELAY_URL_TTL + timedelta(hours=1)
-#: 循环在没有被唤醒时的轮询间隔。
 LOOP_INTERVAL_SECONDS = 10.0
 
 _MESSAGE_LIMIT = 500
@@ -165,7 +160,6 @@ def _account_matches(account: AssetLibraryAccount | None, link: _LinkSnapshot) -
 
 
 def _next_check(now: datetime, attempts: int) -> datetime:
-    # 指数先封顶再乘：查询次数累积多了，timedelta 乘法会溢出，min 来不及截断
     return now + min(CHECK_INITIAL_DELAY * (2 ** min(max(attempts, 0), 16)), CHECK_MAX_INTERVAL)
 
 
@@ -188,8 +182,6 @@ async def _update(
         return bool(getattr(result, "rowcount", 0))
 
 
-#: ArcReel 判定的本地失败。界面按码给出本地化原因，不当作供应商原文；前端的码表与它
-#: 经 ``frontend/src/test/contracts/provider-asset-local-failures.json`` 双向核对。
 LocalFailureCode = Literal[
     "unlinked_before_submit",
     "account_missing",
@@ -220,7 +212,6 @@ async def _fail_before_submit(
     code: str,
     message: str | None = None,
 ) -> None:
-    # 只用于提交之前的失败：此时供应商侧没有创建素材。``code`` 可以是供应商返回的错误码。
     await _update(
         session_factory,
         link_id,
@@ -234,8 +225,6 @@ async def _fail_before_submit(
 
 
 def _frozen_content_version(project_path: Path, link: _LinkSnapshot) -> ContentVersion:
-    # 按内容版本身份取此刻的定位：入库在途时资源改名会移动快照，提交时记下的路径随之失效。
-    # 摘要始终用提交时冻结的值，读到的内容与关联认定的内容不符即拒绝。
     current = VersionManager(project_path).find_content_version(link.resource_type, link.content_version_id)
     return ContentVersion(
         material=current.material if current else MaterialRef(link.resource_type, link.resource_id),
@@ -262,7 +251,6 @@ def _formal_object_on(connection: ObjectStorageConnection, content_version: Cont
 async def _content_bytes(
     project_path: Path, content_version: ContentVersion, session_factory: async_sessionmaker[AsyncSession]
 ) -> bytes:
-    # 取回到读取期间登记使用：缓存清理不会在两者之间删掉工作文件
     async with local_work_files(project_path, [content_version.locator.path], session_factory=session_factory):
         path = await ensure_content_version_file(project_path, content_version, session_factory=session_factory)
         return await asyncio.to_thread(path.read_bytes)
@@ -290,13 +278,12 @@ async def _submit(
         await _fail(session_factory, link.id, now, "object_storage_missing")
         return
 
-    # 内容按提交时冻结的内容版本读取并校验摘要：入库期间改选或替换图片不影响这次上传。
     try:
         project_path = await asyncio.to_thread(project_path_of, link.project_name)
         content_version = await asyncio.to_thread(_frozen_content_version, project_path, link)
         formal_key = _formal_object_on(connection, content_version)
         if formal_key is not None and not await _hold_formal_object(session_factory, link, content_version, now):
-            formal_key = None  # 对象已不在或等待删除之外的状态：按中转副本上传
+            formal_key = None
         data = None if formal_key is not None else await _content_bytes(project_path, content_version, session_factory)
     except VersionSnapshotCorruptedError:
         await _fail(session_factory, link.id, now, "content_changed")
@@ -320,12 +307,10 @@ async def _submit(
     try:
         group_id = await ensure_asset_group(credentials, ASSET_GROUP_NAME, description=_ASSET_GROUP_DESCRIPTION)
     except AssetLibraryRequestError as exc:
-        # 素材组只是容器，没有提交素材，失败即可判定入库未发生。
         await _fail_before_submit(session_factory, link.id, now, exc.code or f"request_{exc.kind}", exc.message)
         return
     raise_if_cancel_absorbed()
 
-    # 发出 CreateAsset 前确认任务仍被选定且未被处理过；之后进程中断，按结果不确定处理。
     started = await _update(
         session_factory,
         link.id,
@@ -356,7 +341,6 @@ async def _submit(
             _update(session_factory, link.id, ProviderAssetLink.state == "submitting", **values)
         )
         return
-    # 供应商已经接受：素材 ID 落账不可中断，否则重启后只能按结果不确定去查回。
     await run_noninterruptible_async(
         _update(
             session_factory,
@@ -381,7 +365,6 @@ async def _prepare_download(
     data: bytes | None,
     now: datetime,
 ) -> str | None:
-    # 与连接处置串行：旧连接不能在清理之后继续上传或签发地址。
     async with connection_change_lock():
         async with session_factory() as session:
             current = await ObjectStorageConnectionRepository(session).get()

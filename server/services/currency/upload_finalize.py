@@ -35,14 +35,9 @@ from server.services.tasks.generation_tasks import emit_generation_success_batch
 
 logger = logging.getLogger(__name__)
 
-# 版本记录里标记「用户手动上传」的 source 值；前端按此显示翻译文案
 UPLOAD_VERSION_SOURCE = MANUAL_UPLOAD_VERSION_SOURCE
 
-# 上传策略（shot_uploads 与 reference_videos 两个路由共用，避免口径漂移）。
-# 视频宽松校验：只看扩展名与大小上限，宽高比/时长不阻塞——用户自主上传即自己负责。
 UPLOAD_IMAGE_EXTENSIONS: tuple[str, ...] = IMAGE_FILE_EXTENSIONS
-# 不收 webm：字节原样存为 canonical .mp4，VP8/VP9 在 Safari/剪映一侧解码不可用，
-# 错误扩展名还会误导排查；mp4/mov/m4v 同属 ISO BMFF 容器家族
 UPLOAD_VIDEO_EXTENSIONS: tuple[str, ...] = (".mp4", ".mov", ".m4v")
 UPLOAD_IMAGE_MAX_BYTES = 30 * 1024 * 1024
 UPLOAD_VIDEO_MAX_BYTES = 200 * 1024 * 1024
@@ -346,7 +341,6 @@ class DerivativeUploadTarget:
 @dataclass(frozen=True, slots=True)
 class ManualDerivativeUpload:
     version: int
-    #: 受影响文件的指纹，与衍生资产图生成完成的变更事件同一份。
     asset_fingerprints: dict[str, int]
 
 
@@ -391,8 +385,6 @@ async def install_manual_derivative_upload(
     Raises:
         NotFoundError: 解析之后、提交之前本体或衍生被并发删除。
     """
-    # 暂存文件一落盘就登记：暂存进行中被取消时返回值随之丢弃，按登记回收；
-    # 暂存成功后由 commit_manual_derivative_upload 的 finally 回收。
     staged_images: list[Path] = []
 
     def _stage() -> None:
@@ -427,7 +419,6 @@ async def install_manual_derivative_upload(
             payload={},
         )
     except Exception:
-        # 正式写入已经提交，事件只用于提示其他页面刷新；失败不改写这次写入的结果
         logger.warning("衍生资产图上传已提交，变更事件发送失败", exc_info=True)
         fingerprints = {}
     return ManualDerivativeUpload(version=version, asset_fingerprints=fingerprints)
@@ -467,7 +458,6 @@ async def commit_manual_video_upload(
 
             def _activate(_script_path: Path) -> None:
                 def _claim() -> None:
-                    # 选中的已是这次上传，规划器按上传字节投影依据，投影不出即遗忘。
                     register_current_resource_artifact(
                         project_path,
                         resource_type=resource_type,

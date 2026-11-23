@@ -26,8 +26,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "grok-imagine-image"
 
-# 多图编辑单请求最多 5 张源图（grok-imagine-image / grok-imagine-image-pro 同一上限）。
-# 参考：https://docs.x.ai/developers/model-capabilities/images/multi-image-editing
 _MAX_REFERENCE_IMAGES = 5
 
 _SUPPORTED_ASPECT_RATIOS = {
@@ -61,8 +59,6 @@ class GrokImageBackend:
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = _MAX_REFERENCE_IMAGES
 
-    # auto 当前按生成 / 编辑分别采用 low / medium；只计量，不向上游发送 quality。
-    # https://docs.x.ai/developers/model-capabilities/images/generation#quality
     CHANNEL_DEFAULT_QUALITY: ClassVar[dict[bool, str]] = {False: "low", True: "medium"}
 
     def __init__(
@@ -109,7 +105,6 @@ class GrokImageBackend:
             "aspect_ratio": _validate_aspect_ratio(request.aspect_ratio),
         }
         if request.image_size is not None:
-            # xai-sdk 的 convert_image_resolution_to_pb 只接受小写 "1k"/"2k"，目录取值为 "1K"/"2K"
             generate_kwargs["resolution"] = request.image_size.lower()
 
         reference_count = 0

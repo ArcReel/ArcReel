@@ -50,9 +50,8 @@ DEFAULT_MODEL = "viduq2"
 _MAX_REFERENCE_IMAGES = 7
 _POLL_INTERVAL_SECONDS = 3.0
 _POLL_MAX_WAIT_SECONDS = 600.0
-_PROMPT_MAX_LEN = 2000  # 文档：不超过 2000 个字符
+_PROMPT_MAX_LEN = 2000
 
-# 文档明确的 aspect_ratio 白名单
 _ASPECT_RATIO_WHITELIST: dict[str, list[str]] = {
     "viduq1": ["16:9", "9:16", "1:1", "3:4", "4:3"],
     "viduq2": ["16:9", "9:16", "1:1", "3:4", "4:3", "21:9", "2:3", "3:2", "auto"],
@@ -129,7 +128,6 @@ class ViduImageBackend:
                     ar_allowed,
                 )
 
-        # resolution 以模型目录条目为准，原样透传；越界档位由上游拒绝（docs/adr/0104）
         resolution = request.image_size or None
         if resolution is not None:
             body["resolution"] = resolution
@@ -155,7 +153,6 @@ class ViduImageBackend:
                 ),
             )
             url = extract_vidu_url(final)
-            # creations 内 credits 可能也带（兜底取顶层）；credits=0 合法，必须显式判 None。
             final_credits = final.get("credits")
             actual_credits = final_credits if final_credits is not None else credits
 
@@ -181,9 +178,6 @@ class ViduImageBackend:
         logger.info("调用 Vidu 图片 API kwargs=%s", format_kwargs_for_log(safe_body_for_log(body)))
         resp = await client.post("/reference2image", json=body)
         if resp.status_code >= 400:
-            # redacted_status_error 透出 httpx.HTTPStatusError，保留 .response.status_code，
-            # 让咽喉层能识别 413 走降档重试；4xx 另带脱敏截断后的拒因摘要，供任务失败信封取用。
-            # body 先经脱敏后落日志，保留可诊断性。
             logger.warning(
                 "Vidu 图片接口 /reference2image 返回 %s: %s",
                 resp.status_code,

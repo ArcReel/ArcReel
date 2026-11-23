@@ -32,7 +32,6 @@ from lib.project.project_schema import parse_project_schema_version
 
 TARGET_SCHEMA_VERSION = 20
 
-#: ``(provider_id, media_type)`` → 补全用的模型键；给不出时为 ``None``，该字段原样保留。
 BareProviderModels = Callable[[str, str], str | None]
 
 _installed: list[BareProviderModels | None] = [None]

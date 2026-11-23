@@ -56,7 +56,6 @@ from server.services.admission.image_references import check_asset_image_limit, 
 
 ASSET_BATCH_OPERATION = "generate_assets"
 
-#: 缺描述的两种拒绝码：本体与衍生各一，与单张生成入口拒绝时同码。
 ASSET_DESCRIPTION_REQUIRED = "asset_description_required"
 DERIVATIVE_DESCRIPTION_REQUIRED = "derivative_description_required"
 DERIVATIVE_OWNER_SHEET_MISSING = "derivative_owner_sheet_missing"
@@ -92,7 +91,6 @@ class AssetSheetScope:
 
     asset_type: str | None = None
     episode_id: int | None = None
-    #: 点名的资产名（衍生写作 ``本体/衍生``）；必须配合 ``asset_type``。
     names: tuple[str, ...] | None = None
 
 
@@ -101,13 +99,9 @@ class AssetSheetUnit:
     """一张可生成的资产图：本体资产图或一套衍生的资产图。"""
 
     asset_type: str
-    #: 落盘真名；衍生为 ``本体/衍生``。
     name: str
-    #: 衍生所属本体的落盘真名；本体为 ``None``。
     owner: str | None
-    #: 去掉两端空白后的描述；衍生是外观变化描述。未填写为 ``None``。
     description: str | None
-    #: 是否声明了原图：声明了原图的资产图按图生图生成。
     has_originals: bool
     candidate: GenerationCandidate
 
@@ -235,12 +229,9 @@ class AssetSheetBatchPlan:
     """一次资产图批量生成的规划结果：要提交的目标、逐项拒绝与复用、批内依赖。"""
 
     selection: GenerationSelectionMode
-    #: 要提交的目标，本体在前、衍生在后。
     targets: tuple[GenerationTargetState, ...]
     units: Mapping[str, AssetSheetUnit]
-    #: 衍生单元 → 同批内的本体单元。
     dependencies: Mapping[str, str]
-    #: 目标里已有活动任务的单元：提交时并入原任务，不再计费。
     generating: frozenset[str]
     preflight: GenerationBatchResult
     states: Mapping[str, GenerationTargetState] = field(default_factory=dict)

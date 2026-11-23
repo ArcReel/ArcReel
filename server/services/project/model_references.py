@@ -13,7 +13,6 @@ from lib.config.model_setting_keys import PROJECT_MODEL_SETTING_KEYS
 class ProjectModelReferences:
     name: str
     title: str | None
-    #: 模型设置字段 → 所引的 ``provider/model``；只收非空字符串值。
     references: Mapping[str, str]
 
 
@@ -22,7 +21,7 @@ def project_model_references() -> list[ProjectModelReferences]:
 
     只读 JSON，不取锁、不迁移（``ProjectManager.load_project``），耗时与项目数成正比。同步文件 I/O，异步调用方放到线程里。
     """
-    pm = resolver.get_project_manager()  # 经模块属性取：用例按 lib.config.resolver 替换项目管理器
+    pm = resolver.get_project_manager()
     found: list[ProjectModelReferences] = []
     for name in pm.list_projects():
         try:

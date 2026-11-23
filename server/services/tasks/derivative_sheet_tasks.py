@@ -200,7 +200,6 @@ def _load(project_name: str, owner_name: str, derivative_name: str) -> _Derivati
         derivative=target.derivative_key,
         observation=project_input_observation(project_path),
     )
-    # 缺变化描述或本体资产图不可用时在解析供应商通道与付费之前失败，一次报出全部缺口。
     if (refusal := generation_input.refusal) is not None:
         raise input_refusal_error(refusal)
     return _DerivativeSheetInputs(

@@ -23,7 +23,7 @@ _UPGRADE_ENDPOINT_MAP = {
     ("openai", "video"): "openai-video",
     ("google", "text"): "gemini-generate",
     ("google", "image"): "gemini-image",
-    ("google", "video"): "openai-video",  # 兜底：用 OpenAI SDK 路径，比 newapi-video 在中转站生态更通用
+    ("google", "video"): "openai-video",
     ("newapi", "text"): "openai-chat",
     ("newapi", "image"): "openai-images",
     ("newapi", "video"): "newapi-video",
@@ -94,7 +94,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
 
-    # 1) provider 表：add api_format，按 discovery_format 回填（NewAPI 信息已丢失，统一兜底为 openai）
     with op.batch_alter_table("custom_provider", schema=None) as batch_op:
         batch_op.add_column(sa.Column("api_format", sa.String(length=32), nullable=True))
 

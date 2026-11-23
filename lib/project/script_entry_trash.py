@@ -36,7 +36,6 @@ from lib.script.script_editor import ScriptEditError, new_item_id, resolve_items
 
 __all__ = ["SCRIPT_ENTRY_KIND", "take_script_entry"]
 
-#: ``ArtifactKey.episode_resource_artifacts`` 里随媒体加回的前三项：分镜图、视频、配音。
 _MEDIA_ARTIFACT_COUNT = 3
 
 
@@ -54,13 +53,11 @@ def take_script_entry(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -
     entry: dict[str, Any] = items[index]
     previous = items[index - 1].get(id_field) if index > 0 and isinstance(items[index - 1], dict) else None
     files, _history = entry_files(staged, episode, entry_id)
-    # 随媒体加回的产物（分镜图、视频、配音）的登记；字幕与呈现不加回，登记也不带。
     media_keys = ArtifactKey.episode_resource_artifacts(episode, entry_id)[:_MEDIA_ARTIFACT_COUNT]
     staged_claims = ProjectArtifactManifestAdapter(staged).snapshot_entries()
     claims = {key: staged_claims[key] for key in media_keys if key in staged_claims}
     projects = ProjectManager.for_project_dir(project_dir)
     versions = VersionManager(project_dir)
-    # 此处按取不出对象降级（集已彻底删除）或拒绝（集在回收站里）；落地时在锁内再核对一次。
     require_live_episode(project_dir, episode, entry_id)
     landed: dict[str, str] = {}
     landed_paths: dict[str, str] = {}
@@ -102,8 +99,6 @@ def take_script_entry(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -
         with formal_write_transaction(script_path, project_dir / ProjectManager.PROJECT_FILE, versions.versions_file):
             projects.update_script_locked(project_dir.name, script_file, insert)
             if claims:
-                # 登记随新编号补录：依据摘要取自删除前（迁移后）的清单，照常按产物时效判定，
-                # 新编号下的输入与删除前不同的读为过期。
                 renamed_keys = dict(
                     zip(media_keys, ArtifactKey.episode_resource_artifacts(episode, landed["id"]), strict=False)
                 )
@@ -144,7 +139,6 @@ def _rename(
     文件不在的也改，免得指向旧编号。
     """
     staged_versions = VersionManager(staged)
-    # 快照是删除时的整个项目：新编号当时可能属于另一个条目，它的历史不随这条记录回来，先从临时项目摘掉。
     staged_versions.detach_resources((resource_type, new_id) for resource_type in ENTRY_MEDIA_RESOURCE_TYPES)
     for resource_type in ENTRY_MEDIA_RESOURCE_TYPES:
         staged_versions.rename_resource(resource_type, old_id, new_id)
@@ -159,7 +153,6 @@ def _relinked(entry: Mapping[str, Any], relink: Mapping[str, str]) -> dict[str, 
     restored = json.loads(json.dumps(entry))
     assets = restored.get("generated_assets")
     if relink and isinstance(assets, dict):
-        # 宫格记录的成员仍是旧编号：留着宫格字段，产物规划会因找不到宫格目标而跳过这张分镜图。
         assets.update(grid_id=None, grid_cell_index=None)
     for holder in (restored, assets if isinstance(assets, dict) else {}):
         for key, value in holder.items():

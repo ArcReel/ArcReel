@@ -17,9 +17,7 @@ from lib.project.project_trash import trash_dir
 from lib.script.item_ids import ITEM_ID_RE, ItemIdIssuer, episode_item_id_high_water, reissue_item_ids
 from lib.script.script_skeleton import resolve_kind_items
 
-#: 条目编号所在的字段：剧本条目的 id 字段与剪辑片段的 ``unit_id``。
 _ID_FIELDS = frozenset({"segment_id", "scene_id", "shot_id", "unit_id"})
-#: 版本历史里以条目编号为键的资源类型（与 ``script_entry_cleanup.ENTRY_MEDIA_RESOURCE_TYPES`` 一致）。
 _ENTRY_RESOURCE_TYPES = ("storyboards", "end_frames", "videos", "reference_videos", "audio")
 _MANIFEST_FILE = ".arcreel_artifacts.json"
 _SCRIPT_ENTRY_KIND = "script_entry"

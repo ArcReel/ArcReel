@@ -28,7 +28,6 @@ down_revision: str | Sequence[str] | None = "b7f2a6d91c40"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-#: 升级前每个「内置供应商 + 媒体类型」唯一的通道（MiniMax 视频除外，见 _minimax_video_endpoint）。
 _CHANNELS: dict[tuple[str, str], str] = {
     ("agnes", "image"): "agnes-image",
     ("agnes", "text"): "agnes-chat",

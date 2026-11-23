@@ -47,7 +47,6 @@ class GeminiImageBackend:
     """Gemini 图片生成后端，支持 AI Studio 和 Vertex AI。"""
 
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # 通道本身不限参考图张数：Gemini 各代图像模型的上限是模型事实，记在条目上。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     def __init__(
@@ -136,8 +135,6 @@ class GeminiImageBackend:
         if self._rate_limiter:
             await self._rate_limiter.acquire_async(self._image_model)
 
-        # 2. 构建 contents：参考图按数组序位排在前，prompt 置于末尾；
-        #    参考图的身份由 prompt 内的 Reference_Images 声明行按「图N」指认，图片之间不夹任何文本标签。
         contents = await asyncio.to_thread(self._reference_parts, request)
         contents.append(request.prompt)
 
@@ -161,8 +158,6 @@ class GeminiImageBackend:
             model=self._image_model, contents=contents, config=config
         )
 
-        # 5. 解析响应并保存
-        # 供应商已返回：解码与写盘不可被取消打断（docs/standards/backend.md「供应商返回之后的落账段不可中断」）
         await run_noninterruptible_sync(self._process_image_response, response, request.output_path, self._image_model)
 
         return ImageGenerationResult(
@@ -177,7 +172,6 @@ class GeminiImageBackend:
         parts = []
         for image in images:
             content, mime = image.content, image.mime
-            # 端点试跑保留原图格式，补齐旧版 SDK 对 GIF 等格式的 PNG 转换。
             if mime not in _GEMINI_IMAGE_MIME_TYPES:
                 content, mime = convert_image_bytes_to_png(content), "image/png"
             parts.append(self._types.Part.from_bytes(data=content, mime_type=mime))
@@ -186,7 +180,6 @@ class GeminiImageBackend:
     @staticmethod
     def _process_image_response(response, output_path: Path, model: str) -> Image.Image:
         """解析图片生成响应并保存到文件。"""
-        # 内容被拦截时（安全审核、禁止内容等）响应没有任何 part，``response.parts`` 为 None
         for part in response.parts or []:
             if part.inline_data is not None:
                 image = part.as_image()

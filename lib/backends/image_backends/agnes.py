@@ -38,13 +38,10 @@ DEFAULT_MODEL = "agnes-image-2.5-flash"
 
 _IMAGE_ENDPOINT = "/images/generations"
 
-# 尺寸约束：长宽被 8 整除、长边收口 2048（保守值，覆盖常见 flash 图像档）。缺 image_size
-# 时按 2K 短边兜底，经长边收口后竖屏得 1152x2048。
 _ROUND_TO = 8
 _MAX_LONG_EDGE = 2048
 _DEFAULT_SHORT = 1440
 
-# 仅允许进日志的标量字段白名单；prompt 仅记长度、image 仅计数，base64/URL 一律不入日志。
 _SAFE_LOG_KEYS = ("model", "size", "n")
 
 
@@ -138,10 +135,6 @@ class AgnesImageBackend:
         )
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
-        # 重试范围（_submit / _download_result），避免下载失败回退到重跑生成 POST 造成重复计费。
-        # 不发 response_format：上游 litellm 网关对该参数报 UnsupportedParamsError；
-        # 响应默认同时带 url 与 b64_json，由 _persist_image 优先取 url。
         payload: dict = {
             "model": self._model,
             "prompt": request.prompt,
@@ -151,8 +144,6 @@ class AgnesImageBackend:
         if self.SENDS_RATIO:
             payload["ratio"] = request.aspect_ratio
         if request.reference_images:
-            # I2I 参考图随同一请求体下发 data-URI 列表（image 字段）。读盘 + base64 编码
-            # （可能数 MB）offload 到线程，避免阻塞事件循环。
             payload["image"] = await asyncio.to_thread(self._build_reference_images, request)
 
         data = await self._submit(payload)
@@ -228,9 +219,6 @@ class AgnesImageBackend:
             await _write_base64_image(b64, output_path)
             return None
 
-        # 完整响应体可能含 prompt / 签名 URL 等敏感字段，与请求日志脱敏策略一致：只记键名与
-        # data 条数，不落整 body；异常消息同样不嵌 body——避免 "503"/"timeout" 子串被默认
-        # should_retry 误判为可重试（仓库已确立按状态码而非字符串判重试）。
         data_items = data.get("data")
         logger.error(
             "Agnes 图像响应缺少 url/b64_json: keys=%s data_count=%s",

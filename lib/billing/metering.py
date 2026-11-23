@@ -24,7 +24,6 @@ from enum import StrEnum
 
 from arcreel_catalog_core import CJK_DOUBLE_METER, METERS, Meter, PriceTable
 
-#: 计入上下文档落档总量的输入类计量项：单次请求的输入 token 总量含缓存读写。
 _INPUT_TOKEN_METERS = frozenset(
     {
         "uncached_input_tokens",
@@ -39,7 +38,6 @@ _INPUT_TOKEN_METERS = frozenset(
 
 _CONTEXT_TIER = "context_tier"
 
-# 「汉字计 2」中的汉字：CJK 统一表意文字（含扩展区）与兼容表意文字。
 _HAN = re.compile(r"[㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f]")
 
 
@@ -48,12 +46,8 @@ class UnpricedReason(StrEnum):
 
     NO_ENTRY = "no_entry"
     NO_PRICE_TABLE = "no_price_table"
-    #: 查不到单价：单价表缺少请求的维度组合且没有默认值；上报了用量的 token 类计量项不在价目表里；或结算时
-    #: 价目表的计量项一项用量都没有拿到。
     MISSING_RATE = "missing_rate"
-    #: 价目表依赖当前代码不认识的币种、计量项或选择维度。
     UNRECOGNIZED_TERMS = "unrecognized_terms"
-    #: 只用于提交前预估：价目表里有计量项的用量既不能从请求事实得出，也没有估算函数。
     NO_USAGE_ESTIMATE = "no_usage_estimate"
 
 

@@ -66,7 +66,6 @@ from lib.project.asset_types import ASSET_SPECS
 
 logger = logging.getLogger(__name__)
 
-#: 全局资产库条目作为正式对象引用方与供应商素材关联持有方时的键前缀（``docs/adr/0118`` 的非项目引用方格式）。
 LIBRARY_HOLDER_PREFIX = "asset-library:"
 
 
@@ -143,7 +142,6 @@ class GlobalImageWriter:
     storage: ObjectContentStorage | None
     session_factory: async_sessionmaker[AsyncSession] | None = None
     saved: list[GlobalImage] = field(default_factory=list)
-    #: 本次写入落盘的库存储文件（相对数据根），失败时由 :meth:`discard` 删除。
     written: list[str] = field(default_factory=list)
     _committed: bool = field(default=False, init=False)
 

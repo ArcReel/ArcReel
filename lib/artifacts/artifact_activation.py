@@ -211,8 +211,6 @@ def ensure_imported_artifact_target_state(
             for key, entry in preserved_entries.items():
                 evidence = _archived_content_evidence(adapter, entry.artifact_path, preserved_content_digests[key])
                 if evidence == "exact":
-                    # 视频与音频只在激活证明「正式文件 = 选中快照」成立、且证明的就是这份字节时带上内容事实；
-                    # 证明不成立的条目不带事实，导入后照常判 stale，与源项目一致。
                     projected = plan.entries.get(key)
                     content = projected.content if projected is not None else None
                     restored[key] = (
@@ -221,8 +219,6 @@ def ensure_imported_artifact_target_state(
                         else entry
                     )
                 elif evidence == "text_mode":
-                    # 文本模式摘要丢了字节，绑不住整份产物：这条 claim 按无信封归档的口径，
-                    # 用当前投影自证补录；投影不出条目的目标不登记。
                     projected = plan.entries.get(key)
                     if projected is not None:
                         restored[key] = projected

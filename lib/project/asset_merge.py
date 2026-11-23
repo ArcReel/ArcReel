@@ -37,7 +37,6 @@ from lib.script.script_references import iter_reference_lists, iter_reference_si
 from lib.speech.speech_artifact_provenance import build_video_speech_basis
 from lib.speech.speech_composition import admit_script_unit
 
-#: 可以合并的资产类型：带别名的类型（角色、场景、道具）。商品没有别名，合并后被并名无处可记。
 MERGEABLE_ASSET_TYPES: tuple[str, ...] = tuple(
     asset_type for asset_type, spec in ASSET_SPECS.items() if ALIASES_FIELD in spec.extra_list_fields
 )
@@ -104,12 +103,9 @@ class AssetMergeReport:
     source: str
     target: str
     as_derivative: bool
-    #: 追加进保留方别名的名字（并为衍生时为空）。
     aliases_added: tuple[str, ...]
-    #: 并为衍生时新建的衍生名；保留方已有同名（只差大小写也算）衍生时并入那个，这里为 ``None``。
     derivative_created: str | None
     derivatives_moved: tuple[str, ...]
-    #: 被并方名下与保留方已有衍生同名（只差大小写也算）、并入已有那个的衍生（这些衍生的描述与资产图不保留）。
     derivatives_folded: tuple[str, ...]
     episodes: tuple[AssetMergeEpisodeImpact, ...]
     dry_run: bool
@@ -126,9 +122,7 @@ class DerivativeMergePlan:
     created: str | None = None
     moved: tuple[str, ...] = ()
     folded: tuple[str, ...] = ()
-    #: 并为衍生时被并方本体在保留方名下的衍生名（新建的，或并入的已有衍生），比对坐标。
     source_derivative: str | None = None
-    #: 被并方的衍生（比对坐标）→ 它在保留方名下的衍生名（比对坐标）；并入只差大小写的已有衍生时两者不同。
     derivative_names: Mapping[str, str] = field(default_factory=dict)
 
     def kept_derivative(self, derivative: str) -> str:
@@ -223,7 +217,6 @@ def merge_payload_references(
                 write(rewritten)
                 mentions += hits[0]
             continue
-        # 新增资产清单的 target 与说话人一样只认本体：并为衍生时改指保留方，不写成 ``保留方/被并方``。
         merged = merged_reference(
             value,
             source,
@@ -315,7 +308,6 @@ def storyboard_reference_signature(
 
 def storyboard_reference_identities(project_dir: Path, project: dict[str, Any], asset_type: str) -> dict[str, str]:
     """已登记且可用的资产参考图：引用名 → 内容身份；没有图的引用不在映射里。"""
-    # 生成输入经规划器依赖 ProjectManager，惰性导入避免环。
     from lib.artifacts.generation_input import project_input_observation
     from lib.artifacts.visual_artifact_provenance import visual_file_digest
 
@@ -339,7 +331,6 @@ def storyboard_reference_identities(project_dir: Path, project: dict[str, Any], 
     return identities
 
 
-#: 问「这件产物此刻是现行的、且依据会随剧本引用变化吗」：``(清单键, 产物路径字段值) → bool``。
 CurrentArtifactProbe = Callable[[ArtifactKey, object], bool]
 
 
@@ -349,7 +340,6 @@ def current_artifact_probe(project_dir: Path) -> CurrentArtifactProbe:
     选中手动上传的分镜图或视频按上传字节判定时效，剧本引用、说话人与宫格参考图都不是它的输入，
     合并不会让它过期，同样答「否」。上传依据由规划器判定（选中版本是上传且字节与正式文件一致），这里不另行推断。
     """
-    # artifact_currency 经产物规划依赖 project_manager，模块级导入会成环。
     from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
     from lib.artifacts.visual_artifact_provenance import (
         UPLOADED_STORYBOARD_BASIS_KIND,
@@ -415,7 +405,6 @@ def grid_merge_references(
     try:
         grids = TargetStatePlanner(project_dir).load_grid_records()
     except (ArtifactManifestError, OSError, ValueError):
-        # 同 current_artifact_probe：无法读取依据的产物不计为从现行转成过期。
         return set(), {}
     outdated = {
         grid.id

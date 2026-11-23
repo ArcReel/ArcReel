@@ -157,7 +157,6 @@ def upgrade() -> None:
         }
     )
 
-    # 升级前按名字对应条目的归一化规则（ADR 0105）。
     def normalize(value: str) -> str:
         return value.rpartition("/")[2].lower().replace(".", "-")
 

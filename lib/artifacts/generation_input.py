@@ -62,8 +62,6 @@ from lib.references.reference_admission import SHEET_MISSING_CODE, UNREGISTERED_
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
 
-#: 声明了原图但文件读不到。与 ``reference_asset_missing`` 分开：修法是重新上传原图或清掉原图字段，
-#: 而不是去生成资产图。
 ORIGINAL_MISSING_CODE = "asset_original_missing"
 
 PROMPT_PENDING_CODE = "script_prompt_pending"
@@ -72,7 +70,6 @@ ASSET_DESCRIPTION_REQUIRED_CODE = "asset_description_required"
 
 DERIVATIVE_DESCRIPTION_REQUIRED_CODE = "derivative_description_required"
 
-#: 衍生的本体资产图不可用（未声明、文件不在或清单未登记），沿用衍生生成入口的同一码。
 DERIVATIVE_OWNER_SHEET_MISSING_CODE = "derivative_owner_sheet_missing"
 
 ASSET_SHEET_CANVAS_RATIO = "16:9"
@@ -125,7 +122,6 @@ class ManifestInputObservation:
         )
 
     def registered(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
-        # 一次装配读同一份清单快照，各条引用的可用性结论出自同一时刻。
         if self._entries is None:
             self._entries = self._manifest.snapshot_entries()
         return self._entries.get(key)
@@ -176,7 +172,6 @@ class StoryboardImageSemantics:
     image_prompt: object
     style: str
     style_description: str
-    #: schema < 19 的项目沿用记资产名的依据口径（``project_basis_records_asset_names``）。
     asset_names: bool = False
 
 
@@ -211,7 +206,6 @@ class RenderedInput:
     warnings: tuple[dict[str, Any], ...] = ()
 
 
-#: 冻结后按内容摘要重新绑定候选 claim：入参是候选 claims 与「规范相对路径 → 冻结字节摘要」。
 ClaimBinder = Callable[[Sequence[ArtifactInputClaim], Mapping[str, str]], Sequence[ArtifactInputClaim]]
 
 
@@ -263,9 +257,7 @@ class ImageGenerationInput[S: GenerationSemantics]:
 
     semantics: S
     canvas_ratio: str
-    #: 完整装配序，不裁剪。
     references: tuple[AssembledReference, ...]
-    #: 语义缺口在前，引用缺口按装配序，逐项去重。
     gaps: tuple[InputGap, ...] = ()
 
     @property
@@ -390,9 +382,7 @@ def storyboard_image_input(
 class GridReferences:
     """一张宫格的参考图集与缺口。宫格的合成依据由宫格执行器按冻结后的参考图构造。"""
 
-    #: 完整装配序，不裁剪。
     references: tuple[AssembledReference, ...]
-    #: 引用缺口按装配序，逐项去重。
     gaps: tuple[InputGap, ...] = ()
 
     @property

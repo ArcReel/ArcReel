@@ -18,7 +18,6 @@ def _split_clues(clues: dict[str, dict]) -> tuple[dict[str, dict], dict[str, dic
         new_item: dict[str, Any] = {
             "description": data.get("description", ""),
         }
-        # 保留生成图路径但换字段名
         sheet = data.get("clue_sheet")
         if clue_type == "location":
             if sheet:
@@ -48,10 +47,6 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
             if src.exists():
                 shutil.move(str(src), str(target / f"{name}.{ext}"))
 
-    # 清理空 clues 目录（即使有残余未知文件也保留，避免误删）；
-    # 注意不能在失败时 return—— 下方 versions/clues 迁移与此目录的可删性无关，
-    # 必须无条件继续执行，否则 schema_version 升 1 后永久遗失版本文件。
-    # 目录非空（有残余未知文件）则保留，不视为迁移失败
     with contextlib.suppress(OSError):
         clues_dir.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
 
@@ -63,7 +58,6 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
             target_versions.mkdir(parents=True, exist_ok=True)
             for file in versions_clues.glob(f"{name}*"):
                 shutil.move(str(file), str(target_versions / file.name))
-        # versions/clues 非空（有未归类文件）则保留，不视为迁移失败
         with contextlib.suppress(OSError):
             versions_clues.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
 
@@ -86,8 +80,6 @@ def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:
         if (data.get("schema_version") or 0) >= 1:
             continue
 
-        # v0 剧本中线索引用历史字段：clues / clues_in_segment / clues_in_scene。
-        # 三者都可能并存，需要合并后再拆为 scenes/props。
         legacy_fields = ("clues", "clues_in_segment", "clues_in_scene")
         for bucket_key in ("scenes", "segments"):
             items = data.get(bucket_key) or []
@@ -139,10 +131,8 @@ def migrate_v0_to_v1(project_dir: Path) -> None:
     if not pj.exists():
         return
     data = load_json(pj)
-    # or 0：显式 null 与字段缺失同义（v0），直接比较 None >= 1 会 TypeError
     current_version = data.get("schema_version") or 0
 
-    # 自愈：schema_version>=1 但 clues/ 仍存在 → 补跑文件/剧本迁移
     if current_version >= 1:
         clues_dir = project_dir / "clues"
         if clues_dir.is_dir() and any(clues_dir.iterdir()):
@@ -153,14 +143,10 @@ def migrate_v0_to_v1(project_dir: Path) -> None:
 
     old_clues: dict[str, dict] = data.get("clues") or {}
 
-    # 1. 先搬文件（任一步失败时 schema_version 仍为 0，重启会重试）
     _relocate_clue_files(project_dir, old_clues)
 
     _migrate_scripts(project_dir, old_clues)
 
-    # 3. 最后更新 project.json（原子写，schema_version 升级作为"提交"标志）
-    # 仅在 clues 实际有数据时改写 scenes/props；否则保留新项目已有的字段，
-    # 避免"schema_version 缺失 + 无 clues + 已有 scenes/props"被误清空。
     if old_clues:
         scenes, props = _split_clues(old_clues)
         data["scenes"] = scenes

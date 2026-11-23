@@ -32,7 +32,6 @@ def ark_base_url(configured: str | None = None) -> str:
     非标准变体路径（如 ark-agent-plan 用的 /api/plan/v3），按后缀重建会把这类路径拼坏，
     所以只做保守的空白/尾斜杠归一化，不改写路径结构。
     """
-    # 先 strip 再判空：纯空白串（"   "）是真值会绕过 or，回落必须在 strip 之后。
     base = (configured or "").strip()
     return base.rstrip("/") if base else ARK_BASE_URL
 

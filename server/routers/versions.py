@@ -41,9 +41,6 @@ from server.services.tasks.derivative_sheet_tasks import point_derivative_at_she
 
 router = APIRouter()
 
-# 经此路由可还原的资源类型（API 面策略）。路径形状委托 lib.project.resource_paths，本路由
-# 仅放行有还原后元数据同步分支的这几类。grids 的还原只换回联合图文件并复位宫格记录的
-# 切分态，不触发切分、不碰任何分镜图——落格由宫格切分端点显式执行。
 _RESTORABLE_RESOURCE_TYPES = frozenset(
     {
         "storyboards",
@@ -110,7 +107,6 @@ _RESOURCE_TO_ASSET_TYPE: dict[str, str] = {
     "props": "prop",
     "products": "product",
 }
-# 资产图、衍生资产图与分镜图：还原到手动上传记录时按上传字节重新登记。
 _UPLOAD_CLAIMED_RESOURCE_TYPES = frozenset(
     {*_RESOURCE_TO_ASSET_TYPE, CHARACTER_DERIVATIVE_RESOURCE_TYPE, "storyboards"}
 )
@@ -141,8 +137,6 @@ def _commit_non_typed_restore_claim(
         return
 
     if resource_type in _UPLOAD_CLAIMED_RESOURCE_TYPES and (record or {}).get("source") == MANUAL_UPLOAD_VERSION_SOURCE:
-        # 还原到作为成品带入的资产图、衍生资产图（作者上传或从资产库应用）或作者上传的分镜图：
-        # 选中的已是这条手动上传记录，规划器按上传字节投影依据，投影不出即遗忘。
         register_current_resource_artifact(
             project_path,
             resource_type=resource_type,
@@ -333,7 +327,6 @@ async def read_resource_versions(project_name: str, resource_type: str, resource
         return await asyncio.to_thread(_sync)
 
     except ValueError as e:
-        # 非法项目名 / 损坏的 versions.json 等坏请求，str(e) 可能含路径只进日志
         logger.warning("版本查询请求非法: %s", e)
         raise BadRequestError("request_invalid") from e
 
@@ -396,8 +389,6 @@ async def restore_resource_version(
         project_path, file = await _locate_version_work_file(project_name, resource_type, resource_id, version)
 
         def _sync():
-            # 还原同样是一条联合图写入路径（换回历史联合图 + 复位宫格记录），
-            # 与重生成/切分/上传共用准入判定；漏掉这里，被封禁项目就能从还原绕过。
             if resource_type == "grids":
                 ensure_grid_writable(get_project_manager().load_project(project_name))
 
@@ -431,6 +422,5 @@ async def restore_resource_version(
             return await run_sync_transaction(_sync)
 
     except ValueError as e:
-        # 非法项目名 / 越界 resource_id 等坏请求，str(e) 可能含路径只进日志
         logger.warning("版本还原请求非法: %s", e)
         raise BadRequestError("request_invalid") from e

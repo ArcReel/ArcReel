@@ -63,8 +63,6 @@ def _video(
     return facts
 
 
-# ── 方舟 Seedance（lib/backends/video_backends/ark.py）─────────────────────
-
 _SEEDANCE_KNOWN_SUFFIX = re.compile(r"^(-\d+)?$")
 _SEEDANCE_2_5_VERIFIED = ("seedance-2-5", "seedance-2.5")
 _SEEDANCE_2_VERIFIED = (
@@ -127,7 +125,6 @@ def _veo(name: str) -> Facts | None:
 
 
 def _sora(name: str) -> Facts | None:
-    # 首帧与参考图共用 input_reference 一个槽位。
     return _video(max_reference_images=1) if name.startswith("sora-2") else None
 
 
@@ -139,10 +136,6 @@ def _grok(name: str) -> Facts | None:
         max_reference_images=0 if name == "grok-imagine-video-1.5-lite" else 7,
     )
 
-
-# ── 可灵（lib/backends/video_backends/kling.py）────────────────────────────
-# （文生视频，尾帧，参考图上限）。kling-v2-5-turbo / kling-v2-6 的尾帧只在 pro 档可用，档位约束属于调用端点，
-# 模型本身接受尾帧，记 true。
 
 _KLING: dict[str, tuple[bool, bool, int]] = {
     "kling-v2-5-turbo": (True, True, 0),
@@ -160,8 +153,6 @@ def _kling(name: str) -> Facts | None:
     text_to_video, last_frame, max_reference_images = found
     return _video(text_to_video=text_to_video, last_frame=last_frame, max_reference_images=max_reference_images)
 
-
-# ── 百炼 HappyHorse / 万相（lib/backends/video_backends/dashscope.py）──────────
 
 _DASHSCOPE: dict[str, Facts] = {
     "happyhorse-1.1-t2v": _video(first_frame=False),
@@ -266,7 +257,6 @@ def _agnes(name: str) -> Facts | None:
 
 
 def _minimax(name: str) -> Facts | None:
-    # 内置 MiniMax 按名字选的声明式端点（lib/backends/backend_assembly/specs.py）与各端点定义的能力。
     lowered = name.lower()
     if name == "S2V-01":
         return _video(text_to_video=False, first_frame=False, max_reference_images=1)
@@ -297,7 +287,6 @@ _GEMINI_14_REFERENCES = frozenset(
 
 
 def _gpt_image_2(name: str) -> Facts | None:
-    # gpt-image-2 与它的日期快照，不含 2.5 等后续型号（lib/backends/image_backends/openai.py）。
     if name == "gpt-image-2" or name.startswith("gpt-image-2-"):
         return {"output_token_bases": {"low": 16, "medium": 48, "high": 96}}
     return None

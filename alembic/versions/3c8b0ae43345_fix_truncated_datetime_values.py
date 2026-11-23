@@ -34,8 +34,6 @@ TIMESTAMP_COLUMNS: dict[str, list[str]] = {
     "agent_sessions": ["created_at", "updated_at"],
 }
 
-# Placeholder: original timestamps are lost; use epoch so they sort first
-# and are obviously synthetic.
 PLACEHOLDER = "1970-01-01T00:00:00+00:00"
 
 
@@ -43,12 +41,10 @@ def upgrade() -> None:
     """Convert truncated integer timestamps back to valid ISO strings."""
     bind = op.get_bind()
     if bind.dialect.name != "sqlite":
-        # Only SQLite was affected by the CAST bug.
         return
 
     for table, columns in TIMESTAMP_COLUMNS.items():
         for col in columns:
-            # typeof() returns 'integer' for the corrupted rows
             op.execute(
                 sa.text(f"UPDATE {table} SET {col} = :placeholder WHERE typeof({col}) = 'integer'").bindparams(
                     placeholder=PLACEHOLDER

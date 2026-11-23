@@ -97,8 +97,6 @@ class SourceRevisionResult(BaseModel):
     revision: str | None
     files: list[str] = Field(default_factory=list)
     blockers: list[SourceRevisionBlocker] = Field(default_factory=list)
-    # 本次计算读到的原文，供同一请求内的其他消费方复用，免得为同一批源文再读一遍磁盘。
-    # 只在进程内传递，故排除出任何序列化输出。
     documents: list[SourceFileRead] = Field(default_factory=list, exclude=True, repr=False)
 
 
@@ -144,7 +142,6 @@ def _all_source_paths(
     paths: list[tuple[str, Path]] = []
     for rel in _registered_source_paths(project):
         path = project_dir.joinpath(*PurePosixPath(rel).parts)
-        # 登记了、但已不在盘上的文件不进修订号：它不是能读到的源文，也不该让其余源文一并不可用
         if path.exists() or path.is_symlink():
             paths.append((unicodedata.normalize("NFC", rel), path))
     paths.sort(key=lambda item: item[1])
@@ -265,7 +262,6 @@ def compute_source_revision(
     canonical_fingerprints = sorted(reads, key=lambda item: item[0].rel_path)
     payload = {
         "files": [{"path": read.rel_path, "sha256": digest} for read, digest in canonical_fingerprints],
-        # 与项目概览同一口径：全部源文同一类型时取该类型，否则按小说
         "source_kind": project_overview_source_kind(project),
         "source_language": project.get("source_language"),
     }

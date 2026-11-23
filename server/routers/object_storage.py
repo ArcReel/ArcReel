@@ -68,7 +68,6 @@ class ObjectStorageConnectionResponse(BaseModel):
 
 class ObjectStorageConnectionEnvelope(BaseModel):
     connection: ObjectStorageConnectionResponse | None
-    #: 新增图片内容版本的保存位置；只配置连接不改变它。
     new_image_target: NewContentTarget
     pending_ingest_tasks: int
 
@@ -150,7 +149,6 @@ async def save_new_image_target(
     body: NewImageTargetBody, session: AsyncSession = Depends(get_async_session)
 ) -> NewImageTargetBody:
     """选择之后新提交的图片内容版本保存在本地还是对象存储；已有图片与历史版本不搬迁。"""
-    # 与删除连接串行：「连接存在」的核对与设置的提交在同一段里，不会留下目标为对象存储而连接已删除的状态
     async with connection_change_lock():
         if body.target == "object_storage" and await ObjectStorageConnectionRepository(session).get() is None:
             raise ConflictError("material_storage_target_needs_connection")
@@ -169,12 +167,10 @@ async def save_connection(
         raise UnprocessableError("object_storage_s3_endpoint_unsupported")
 
     async def apply_change() -> SaveConnectionResponse:
-        # 与正式对象的首次登记串行：核对连接上没有仍占用它的正式对象与提交改动在同一段里完成，进行中的提交随后按新连接复核。
         async with connection_change_lock():
             try:
                 conn, failures = await _save_connection(session, body)
             except IntegrityError:
-                # 另一请求同时首次保存，已建出唯一的当前连接：回滚后按更新那一条重做一次，校验照常进行。
                 await session.rollback()
                 conn, failures = await _save_connection(session, body)
         return SaveConnectionResponse(**_to_response(conn).model_dump(), cleanup_failures=failures)

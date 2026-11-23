@@ -81,14 +81,9 @@ def build_script_plan_request(
     return prompt_inputs, basis
 
 
-#: 脚本规划 basis 的 kind，以及它作为剧本 basis v2 输入时的键名。两个值都参与 digest 计算，而落盘
-#: 的 ``.arcreel_artifacts.json`` 只留 digest、不留输入，改值便无从重算：存量脚本规划产物会整体判成
-#: stale 并阻断下游生成。**值是持久化格式，与 manifest digest 兼容，不得随术语改名。** 剧本 basis
-#: v3 不以脚本规划为输入，输入键只供 v14→v15 迁移重算存量登记。
 SCRIPT_PLAN_BASIS_KIND = "structured-content/step1"
 SCRIPT_PLAN_BASIS_INPUT_KEY = "step1_content"
 
-#: 非 ad 剧本 basis 的 kind。同为持久化格式：v14→v15 迁移按它的历史版本识别存量登记。
 EPISODE_SCRIPT_BASIS_KIND = "structured-content/episode-script"
 
 
@@ -145,9 +140,6 @@ def project_script_plan_prompt_inputs(
         "scenes": _project_script_plan_asset_mapping(project.get("scenes")),
         "props": _project_script_plan_asset_mapping(project.get("props")),
         "target_language": source_language,
-        # 单集目标时长是项目持久化偏好、三条 script_plan 变体共用：设了目标就进 basis，改它
-        # 即让冻结的产出基线失效，因为它改变了下发给模型的拆分口径。未设时为 None，
-        # 由 _freeze_script_plan_prompt_inputs 剔出 basis（提示词此时与不带该参数时相同）。
         "episode_target_duration": project_episode_target_duration(project),
     }
 
@@ -178,8 +170,6 @@ def project_script_plan_prompt_inputs(
             }
         )
     elif variant == "reference_video":
-        # 小说时提示词与不带类型时逐字相同，不进 basis：存量参考生视频脚本规划的依据因此不变。
-        # 剧本时提示词走提取分支，冻结的基线随之不同。
         inputs["source_kind"] = source_kind if source_kind != DEFAULT_SOURCE_KIND else None
 
     return inputs
@@ -221,9 +211,6 @@ def _freeze_script_plan_prompt_inputs(
         for field in ("episode_outline", "next_episode_outline"):
             frozen[field] = _freeze_reference_outline(prompt_inputs.get(field))
 
-    # 未设单集目标时长时该键不进 basis：此时提示词与不带该参数时逐字相同，把 None 写进
-    # digest 会让每个从未用过该设置的存量项目的脚本规划与剧本产物一并判 stale。设了目标
-    # 才进 basis——那时提示词确实变了，冻结的基线就该失效。
     if frozen.get("episode_target_duration") is None:
         frozen.pop("episode_target_duration", None)
     if generation_mode == "reference_video" and frozen.get("source_kind") is None:

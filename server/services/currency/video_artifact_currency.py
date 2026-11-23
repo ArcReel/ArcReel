@@ -385,7 +385,6 @@ async def finalize_selected_video_result(
         return await finalize()
     except BaseException as failure:
         try:
-            # 补偿要改写正式文件与版本记录：放进工作线程，并在线程结算后才继续传播原异常。
             await run_noninterruptible_sync(_require_video_selection_compensation, committer)
         except BaseException as compensation_failure:
             failure.add_note(f"video selection compensation also failed: {compensation_failure}")
@@ -454,8 +453,6 @@ def paid_video_history_result(
         "video_uri": video_uri,
         "selected_current": False,
     }
-    # 参考视频的读侧契约里这一键恒在（即便为空）；其余资源类型只在真有提示时才带它，与
-    # ``finalize_video_task`` 和分镜规划那条的口径一致。
     if resource_type == "reference_videos" or warnings:
         result["warnings"] = list(warnings)
     return result
@@ -490,7 +487,6 @@ async def complete_video_artifact_commit(
         if committer.outcome is None:
             raise RuntimeError("formal video generator returned without invoking the artifact commit callback")
         if not committer.outcome.selected:
-            # 付费版本已入历史：取结果同样不可打断。
             result = await run_noninterruptible_sync(
                 paid_video_history_result,
                 versions=versions,

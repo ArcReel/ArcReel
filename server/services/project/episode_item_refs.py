@@ -49,7 +49,6 @@ def with_episode_item_refs(
     return enriched
 
 
-# 分镜（segment / scene / shot）与视频单元的条目 ID；宫格（E3G01）不按位置指称。
 _POSITIONED_ITEM_ID = re.compile(r"^E\d+[SU]\d")
 _NO_FACTS: dict[str, Any] = {"item_position": None, "item_excerpt": "", "item_thumbnail": None}
 

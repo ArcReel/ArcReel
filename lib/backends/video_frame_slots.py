@@ -32,8 +32,6 @@ __all__ = [
     "resolve_video_capabilities",
 ]
 
-# 供应商侧字面量，表示"跟随首帧图片自身比例"而非用户指定的固定比例。仅对声明
-# ``first_frame_ratio_adaptive_only`` 的 backend 有意义，通用比例解析器认不得它。
 FIRST_FRAME_ADAPTIVE_RATIO = "adaptive"
 
 
@@ -145,8 +143,6 @@ def gate_video_request(
     """
     prompt_limit = None if caps is None else caps.max_prompt_chars
     if prompt_limit is not None and prompt is not None and len(prompt) > prompt_limit:
-        # 供应商对超长 prompt 普遍是静默截断而非报错（如 wan2.7 文档原文「超过部分会自动截断」，
-        # 错误码表无对应条目），照常扣费却产出与意图不符的成片——付费前拒绝，不放行。
         raise VideoCapabilityError(
             "video_prompt_too_long",
             provider=provider,
@@ -165,8 +161,6 @@ def gate_video_request(
         raise VideoCapabilityError("video_last_frame_unsupported", provider=provider, model=model)
 
     if reference_images:
-        # 上限是条目与调用通道两侧求值的生效值（lib.backends.video_capabilities）：0 为不接受，None 为未收录
-        # （不在这里拦数量，超出部分由上游拒绝）。
         image_limit = InputLimit.unsupported() if caps is None else reference_image_limit(caps)
         if not image_limit.accepts_input:
             raise VideoCapabilityError("video_reference_images_unsupported", provider=provider, model=model)
@@ -182,8 +176,6 @@ def gate_video_request(
             )
 
     if reference_audio_files:
-        # 不支持音色输入的模型收到音频不静默丢弃：静默丢弃会生成一段音色随机的视频并照常
-        # 扣费，用户以为角色声音已受控，直到成片拼接才发现跨片段音色不一致。
         audio_limit = InputLimit.unsupported() if caps is None else reference_audio_count_limit(caps)
         if not audio_limit.accepts_input:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=provider, model=model)

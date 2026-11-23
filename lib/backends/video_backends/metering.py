@@ -59,7 +59,6 @@ def video_usage(
     quantities: dict[str, float] = {
         "output_seconds": output_seconds,
         "input_images": reference_images,
-        # 内置调用通道都不发送输入视频。
         "input_video_seconds": 0,
         "requests": 1,
     }

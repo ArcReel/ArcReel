@@ -48,7 +48,6 @@ def migrate_v11_to_v12(project_dir: Path) -> None:
     data = load_json(pj)
     if not isinstance(data, dict):
         raise ValueError("project.json 必须是对象")
-    # 与 runner 的版本读取同口径做 int 归一化：历史 project.json 可能存字符串版本号
     if int(data.get("schema_version") or 0) >= _TARGET_VERSION:
         return
     migrated = migrate_project_dict(data)

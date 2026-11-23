@@ -24,13 +24,11 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
 CredentialType = Literal["builtin", "custom"]
 
-# 可绑定素材库的内置供应商：调用走火山方舟协议的那几家。
 BINDABLE_BUILTIN_PROVIDERS: tuple[str, ...] = ("ark", "ark-agent-plan")
 
 BindingStatus = Literal["confirmed", "needs_confirmation"]
 
 
-#: 账号身份摘要的版本前缀；摘要算法变化时换前缀，旧关联不会与新摘要相等。
 _ACCOUNT_IDENTITY_DOMAIN = "arcreel/asset-library-account/v1"
 
 

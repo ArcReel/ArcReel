@@ -54,10 +54,8 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-#: 成片下载单次网络读写的 I/O 超时，与 ``download_video`` 的缺省一致：连接或读取停滞超过它即抛错，交给重试预算。
 _DOWNLOAD_IO_TIMEOUT_SECONDS = 120.0
 _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
-#: 未配置 base_url 时 google-genai 发往的 AI Studio 域名（SDK 缺省值），续跑回放据此比对提交域名。
 _AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
 
@@ -187,10 +185,8 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
-        # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._video_model)
-        # AI Studio 请求体没有音轨开关，同理拒绝静音请求；续跑（resume_video）的任务已提交，不在此列。
         if (
             not request.generate_audio
             and self._backend_type != "vertex"
@@ -202,11 +198,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         operation = await self._create_task(request)
         op_name = getattr(operation, "name", None)
         if not op_name:
-            # fail-fast：缺 operation.name 意味着 submit 成功但无法持久化 provider_job_id，
-            # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是要避免的
-            # 重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
             raise RuntimeError("Gemini 提交成功但未返回 operation.name，无法持久化 provider_job_id")
-        # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧 operation
         await self._persist_provider_job_id(request, op_name, provider=PROVIDER_GEMINI, endpoint=self._request_base_url)
         done_operation = await self._poll_until_done(operation, request)
         return await self._collect_video(done_operation, request)
@@ -262,12 +254,8 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         if self._rate_limiter:
             await self._rate_limiter.acquire_async(self._video_model)
 
-        # 2. duration 透传（由模型 supported_durations 校验，不在 backend 做桶映射）
         duration_str = str(request.duration_seconds)
 
-        # 3. 构建配置
-        # 反向提示词不走参数通道——caller 在 request.prompt 末尾文本化注入
-        # （lib.prompts.prompt_utils.render_storyboard_video_prompt 渲染的 storyboard/video 模版），跨 backend 一致。
         config_params: dict = {
             "aspect_ratio": request.aspect_ratio,
             "duration_seconds": duration_str,
@@ -327,7 +315,6 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
         if not operation.done:
             operation = await poll_with_retry(
-                # SDK 通过 operation.name 查询状态并返回新对象，闭包捕获初始 operation 即可
                 poll_fn=lambda: self._client.aio.operations.get(operation),
                 is_done=lambda op: op.done,
                 is_failed=lambda op: None,
@@ -383,13 +370,10 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         SDK 取件抛的不是 ``HTTPStatusError``，故退到按 ``retryable_errors`` 判定。
         """
         if self._backend_type == "vertex" and video_ref and getattr(video_ref, "video_bytes", None):
-            # 已有字节只需落盘，不进入网络取件的超时与重试预算。
             await run_noninterruptible_sync(
                 write_atomically, output_path, lambda target: target.write_bytes(video_ref.video_bytes)
             )
             return
-        # 线程里写 .part 再替换成片：取消须等这次写盘结束、结果确定后再传播，否则调用方清理后线程才落盘。
-        # 外层 asyncio.timeout 结束不了线程，线程按同一份预算的墙钟期限自行收尾。
         deadline = time.monotonic() + ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS
         await with_artifact_retry(
             lambda: run_sync_transaction(self._download_video, video_ref, output_path, deadline=deadline),
@@ -416,7 +400,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
             else:
                 raise RuntimeError("视频生成成功但无法获取视频数据")
         else:
-            # AI Studio 模式：files.download 带 destination 时分块直写，不把整段视频读进内存。
+
             def write(target: Path) -> None:
                 timeout_ms = int(_io_timeout(deadline) * 1000)
                 with open(target, "wb") as handle:

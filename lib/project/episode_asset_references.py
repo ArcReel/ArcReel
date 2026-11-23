@@ -26,9 +26,7 @@ class ReferencedAsset:
     """一条被本集引用的资产或衍生。"""
 
     asset_type: str
-    #: 资产表里的落盘真名；衍生写作 ``本体/衍生``（两段都是落盘真名）。
     name: str
-    #: 衍生所属本体的落盘真名；本体条目为 ``None``。
     owner: str | None = None
 
 

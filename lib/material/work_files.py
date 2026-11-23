@@ -54,7 +54,6 @@ from lib.project.resource_paths import resource_relative_path
 
 logger = logging.getLogger(__name__)
 
-#: 周期清理时工作文件至少闲置多久才删除。
 DEFAULT_MIN_IDLE = timedelta(hours=24)
 
 
@@ -116,7 +115,6 @@ class _WorkFile:
     content_version_id: str
     digest: str
     stored: ObjectLocator
-    #: 正式文件（选中版本的工作副本）；否则是版本快照位置。
     formal: bool
 
 
@@ -276,7 +274,6 @@ def _locked_work_files(project_path: Path) -> list[_WorkFile]:
         return _work_files(data, project)
 
 
-#: 远端内容版本的一个工作文件（版本快照位置或选中时的正式文件），供需要成批确保工作文件在场的读取方使用。
 RemoteWorkFile = _WorkFile
 
 
@@ -459,7 +456,6 @@ async def held_work_files(
         try:
             await asyncio.gather(*fetches)
         except BaseException:
-            # 第一个失败原样抛出（调用方按它的状态码返回），其余取回随之取消；已安装的工作文件只是缓存。
             for fetch in fetches:
                 fetch.cancel()
             await asyncio.gather(*fetches, return_exceptions=True)

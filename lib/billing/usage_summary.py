@@ -18,13 +18,9 @@ from lib.backends.providers import CallStatus
 MAX_BREAKDOWN_ROWS = 50
 MAX_ATTENTION_ITEMS = 20
 MIN_ATTENTION_FAILED = 2
-# 95% 双侧置信区间的标准正态分位点。
 WILSON_Z_95 = 1.959963984540054
 MEDIA_TYPES = ("image", "video", "text", "audio")
-# 一次响应最多铺的日桶数（约十年）。窗口由调用方的 since / until 决定，不设上界时一对
-# 跨越数千年的时刻会让服务端同步构造几百万个桶；「全部」范围的 since 取最早记录日，不受此限。
 MAX_DAILY_BUCKETS = 3660
-# 金额与比率的输出精度，与仓储写侧的费用精度一致。
 _ROUND_DIGITS = 6
 
 
@@ -43,12 +39,10 @@ class UsageSummaryRow:
     model: str
     status: str
     started_at: datetime
-    # None 表示未定价：不计入任何金额合计。
     cost_amount: float | None
     currency: str
     segment_id: str | None
     error_code: str | None
-    # Agent 会话的记录（来源 assistant_session）：计入合计与构成，不参与「需要关注」。
     agent: bool = False
 
 
@@ -96,7 +90,6 @@ class _StatsAccumulator:
     success: int = 0
     failed: int = 0
     cancelled: int = 0
-    # 未定价（cost_amount 为 NULL）的调用数：不进 cost，单独计数，避免被误读成「0 元」。
     unpriced: int = 0
     cost: dict[str, float] = field(default_factory=dict)
 
@@ -107,8 +100,6 @@ class _StatsAccumulator:
             self.failed += 1
         elif row.status == CallStatus.CANCELLED:
             self.cancelled += 1
-        # 参考费用汇总所有 cost_amount > 0 的终态行，不看状态——失败的调用一样可能被计费。
-        # NULL 即未定价：不计金额，另记次数。
         if row.cost_amount is None:
             self.unpriced += 1
         elif row.cost_amount > 0:
@@ -125,7 +116,6 @@ class _StatsAccumulator:
             "success": self.success,
             "failed": self.failed,
             "cancelled": self.cancelled,
-            # 成功率的分母只数已判定的调用；用户取消既不算成功也不算失败。
             "success_rate": round(self.success / decided, _ROUND_DIGITS) if decided else None,
             "cost": {currency: round(amount, _ROUND_DIGITS) for currency, amount in sorted(self.cost.items())},
             "unpriced_calls": self.unpriced,
@@ -154,7 +144,6 @@ def _window(
     直接决定，不能让它无上界地摊开。两端都显式给定时先于行校验，结果不随数据有无而变。
     """
     since_day = _local_date(since, tz) if since else None
-    # until 是半开区间的右端：正好落在本地日零点时不产生当天的桶。
     until_day = _local_date(until - timedelta(microseconds=1), tz) if until else None
     if since_day and until_day:
         _check_bucket_count(since_day, until_day)
@@ -187,7 +176,6 @@ def _daily_buckets(
         day = _local_date(row.started_at, tz)
         if row.status in counts[day]:
             counts[day][row.status] += 1
-        # 堆叠柱只能落在一种币种上，取主币种；其余币种的金额不混进来，也不做汇率折算。
         if (
             row.cost_amount is not None
             and row.cost_amount > 0
@@ -227,7 +215,6 @@ def _breakdown_dimension(
     for row in rows:
         grouped.setdefault(key_of(row), _StatsAccumulator()).add(row)
 
-    # 调用数降序；并列按分组键排序，让分页边界与 other 的取舍稳定可复现。
     ordered = sorted(grouped.items(), key=lambda item: (-item[1].calls, item[0]))
     listed = ordered[:MAX_BREAKDOWN_ROWS]
     overflow = ordered[MAX_BREAKDOWN_ROWS:]
@@ -327,7 +314,6 @@ def _failure_rate_attention(rows: list[UsageSummaryRow]) -> list[dict[str, objec
             "failure_rate": round(bad / (ok + bad), 6),
             "overall_failure_rate": round(overall, 6),
         }
-        # 供应商已经报了就不再报它下面的模型：同一件事说一次。
         for (provider, model), (ok, bad) in sorted(by_model.items())
         if provider not in flagged_providers and _triggered(ok, bad)
     )
@@ -378,11 +364,9 @@ def _failure_count(item: dict[str, object]) -> int:
 
 
 def _attention(rows: list[UsageSummaryRow]) -> list[dict[str, object]]:
-    # 失败率与连续失败只统计生成调用：Agent 的轮次不拉高或拉低失败率。
     rows = [row for row in rows if not row.agent]
     items = _failure_rate_attention(rows) + _consecutive_failure_attention(rows)
 
-    # 两类异常按各自的失败次数一起排序；并列时按条目内容定序，保证同一批数据的输出稳定。
     return sorted(items, key=lambda item: (-_failure_count(item), repr(item)))[:MAX_ATTENTION_ITEMS]
 
 

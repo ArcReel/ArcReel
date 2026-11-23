@@ -28,9 +28,6 @@ from lib.infra.logging_utils import format_kwargs_for_log
 logger = logging.getLogger(__name__)
 
 
-# 全系参考生视频（带参考图，或带尾帧）的分辨率上限：「Reference-to-video is capped at 720p」，且首帧与
-# last_frame 组合即参考生视频（https://docs.x.ai/developers/model-capabilities/video/generation）。
-# SDK 的分辨率枚举里高于该上限的只有 1080p。
 _REFERENCE_ROUTE_MAX_RESOLUTION = "720p"
 
 
@@ -103,12 +100,10 @@ class GrokVideoBackend(EntryBoundCapabilities):
         )
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # Grok 同步型 API，无 job_id 可接续；orphan handler 据 NotImplementedError 标 [resume_unsupported]
         raise NotImplementedError("GrokVideoBackend 不支持 resume_video（同步型 API）")
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频；黑盒生成不重试，只有已取得 URL 后的下载可以独立重试。"""
-        # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         self._check_reference_route_resolution(request)
@@ -118,18 +113,12 @@ class GrokVideoBackend(EntryBoundCapabilities):
         response = await self._create_video(request)
 
         video_url = response.url
-        # SDK 响应字段未类型化，收窄为 int 才能作为实际计费时长落账本的 Integer 列；
-        # 先经 float 接受 "15.0" 这类浮点字符串。缺失/不可解析（含 inf/nan）/非正/
-        # 超出合理上限的值回落请求时长，保证结果恒为正且可落库。
         raw_duration = getattr(response, "duration", None)
         actual_duration = request.duration_seconds
         try:
             if raw_duration is not None:
                 parsed = float(raw_duration)
-                # 上下限基于取整前的原始数值判断：86400.9 已超 24h，不得因取整落回上限内被接受
                 if 0 < parsed <= MAX_BILLED_DURATION_SECONDS:
-                    # half-up 取整与 dashscope extract_billing_duration 同口径，避免截断少计费秒数；
-                    # (0, 0.5) 取整到 0 时同样回落，保持结果恒为正
                     rounded = int(parsed + 0.5)
                     if rounded > 0:
                         actual_duration = rounded
@@ -177,14 +166,12 @@ class GrokVideoBackend(EntryBoundCapabilities):
             "duration": request.duration_seconds,
             "aspect_ratio": request.aspect_ratio,
             "generate_audio": request.generate_audio,
-            # 轮询在 SDK 内部，仍按请求快照里的全局超时收口，否则该设置独独对 Grok 不生效。
             "timeout": timedelta(seconds=request.poll_timeout_seconds),
             "interval": timedelta(seconds=5),
         }
         if request.resolution is not None:
             generate_kwargs["resolution"] = request.resolution
 
-        # 存在性检查与读图转 data URI 都是阻塞 I/O，整体卸载到线程
         generate_kwargs.update(await asyncio.to_thread(self._encode_image_inputs, request))
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)

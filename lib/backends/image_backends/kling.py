@@ -62,9 +62,7 @@ _POLL_MAX_WAIT_SECONDS = 600.0
 class KlingImageBackend(KlingBackendBase):
     """可灵 Kling 图像后端（异步轮询，JWT / Bearer 双模式）。"""
 
-    # 文生图与图生图（多图主体）同一端点。
     CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
-    # 通道本身不限参考图张数：各图像模型多图主体的上限是模型事实，记在条目上。
     CHANNEL_REFERENCE_LIMIT: ClassVar[int | None] = None
 
     _media_label = "图像"
@@ -158,7 +156,6 @@ class KlingImageBackend(KlingBackendBase):
                 poll_interval=_POLL_INTERVAL_SECONDS,
                 max_wait=_POLL_MAX_WAIT_SECONDS,
             )
-            # 24h 有效的 image_url 必须在失效前落地：取首张转存本地（组图按张产出，单输出取 [0]）。
             download_url = extract_kling_image_urls(final)[0]
 
         await download_image_to_path(download_url, request.output_path)

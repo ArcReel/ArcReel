@@ -19,14 +19,11 @@ from lib.db.engine import get_database_url
 from lib.db.models import register_models as register_db_models
 from lib.db.upgrade_source import SourceRecorder
 
-# 把全部 ORM 模型登记到 Base.metadata，否则 autogenerate 的对比范围取决于 import 链
 register_agent_session_models()
 register_db_models()
 
 config = context.config
 
-# Set up loggers from alembic.ini (仅 CLI 直接运行 alembic 时生效；
-# init_db() 使用 Config() 空构造，config_file_name 为 None，自动跳过)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
@@ -60,7 +57,6 @@ def _compare_type(context, inspected_column, metadata_column, inspected_type, me
 
 
 def do_run_migrations(connection) -> None:
-    # 无论迁移从应用启动、命令行还是脚本发起，改写 revision 之前都先记下升级前的版本
     source = SourceRecorder(connection)
     context.configure(
         connection=connection,

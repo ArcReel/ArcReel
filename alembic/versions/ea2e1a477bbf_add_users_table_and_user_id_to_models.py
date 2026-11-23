@@ -21,7 +21,6 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # 1. Create users table first (FK dependency)
     op.create_table(
         "users",
         sa.Column("id", sa.String(), nullable=False),
@@ -34,7 +33,6 @@ def upgrade() -> None:
         sa.UniqueConstraint("username"),
     )
 
-    # 2. Insert default user (cross-dialect: use sa.func.now())
     users = sa.table(
         "users",
         sa.column("id"),

@@ -33,7 +33,7 @@ class Asset(GlobalImageColumns, TimestampMixin, Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    type: Mapped[str] = mapped_column(String(32), nullable=False)  # character/scene/prop
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     voice_style: Mapped[str] = mapped_column(Text, default="", nullable=False)

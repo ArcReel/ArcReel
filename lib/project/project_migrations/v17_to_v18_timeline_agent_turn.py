@@ -36,17 +36,13 @@ TARGET_SCHEMA_VERSION = 18
 _FROM_VERSION = TARGET_SCHEMA_VERSION - 1
 _REMOVED_FIELD = "agent_turn"
 
-#: 冻结的退役模型映射：只供这一步迁移使用，不再增删，历史项目的升级结果因此可以复现。
-#: 运行期不再按写死的映射改写引用，之后的退役只通过模型目录条目的生命周期表达（docs/adr/0106）。
 _RETIRED_MODEL_REFERENCES: dict[str, str] = {
     "gemini-aistudio/gemini-3.1-flash-lite-preview": "gemini-aistudio/gemini-3.1-flash-lite",
     "gemini-vertex/gemini-3.1-flash-lite-preview": "gemini-vertex/gemini-3.1-flash-lite",
-    # 方舟 Seed 2.0 Lite/Mini 的 260215 版本与 xAI Grok 4.1 Fast 停服，改用同档在役型号
     "ark/doubao-seed-2-0-lite-260215": "ark/doubao-seed-2-1-lite-260915",
     "ark/doubao-seed-2-0-mini-260215": "ark/doubao-seed-2-0-mini-260428",
     "grok/grok-4-1-fast-reasoning": "grok/grok-4.3",
     "grok/grok-4-1-fast-non-reasoning": "grok/grok-4.3",
-    # 图片：Gemini 图片模型正式发布，AI Studio 与 Vertex 都改用不带 -preview 的名字
     "gemini-aistudio/gemini-3-pro-image-preview": "gemini-aistudio/gemini-3-pro-image",
     "gemini-aistudio/gemini-3.1-flash-image-preview": "gemini-aistudio/gemini-3.1-flash-image",
     "gemini-vertex/gemini-3-pro-image-preview": "gemini-vertex/gemini-3-pro-image",
@@ -142,7 +138,6 @@ def migrate_v17_to_v18(project_dir: Path) -> ArtifactBackfillOutcome | None:
             raise ValueError("project.json 必须是对象")
         if parse_project_schema_version(project) >= TARGET_SCHEMA_VERSION:
             return None
-        # 清单在改写前留一份备份（版本记录由缺口补录先行备份）；两次补录的内部备份随之去重。
         ensure_versioned_backup(project_dir / MANIFEST_FILENAME, _FROM_VERSION)
         outcome = backfill_input_gap_artifacts(project_dir, project)
         backfill_content_digests(project_dir)
@@ -150,7 +145,6 @@ def migrate_v17_to_v18(project_dir: Path) -> ArtifactBackfillOutcome | None:
             try:
                 document = json.loads(path.read_bytes())
             except ValueError:
-                # 本就读不出的文件保持原样，读取时照常按无法解析处理。
                 continue
             if not isinstance(document, dict):
                 continue

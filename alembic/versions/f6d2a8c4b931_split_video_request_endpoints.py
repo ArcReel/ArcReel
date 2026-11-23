@@ -166,7 +166,6 @@ def upgrade() -> None:
                 }[old]
             ):
                 continue
-            # 自定义 Gemini 只用 AI Studio，协议没有拆分。
             if provider is None and old == "gemini-video":
                 continue
             connection.execute(

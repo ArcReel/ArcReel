@@ -22,7 +22,6 @@ from lib.object_storage.connection import config_from_connection
 if TYPE_CHECKING:
     from lib.asset_library.ingest import LocalFailureCode
 
-#: 连续这么多次网络失败后不再逐个尝试：Endpoint 不可达时每个请求都要等超时，处置期间又持有连接锁。
 DISPOSAL_NETWORK_FAILURE_LIMIT = 3
 _OBJECT_STORAGE_CHANGED: LocalFailureCode = "object_storage_changed"
 
@@ -71,7 +70,6 @@ async def dispose_connection_objects(
             for row in [*formal, *relays]:
                 if row.state == "deleted":
                     continue
-                # 历史记录可能来自更早的桶；当前凭证不能按新桶解释旧定位。
                 if (row.endpoint, row.bucket) != (connection.endpoint, connection.bucket):
                     failures["unavailable"] += 1
                     continue

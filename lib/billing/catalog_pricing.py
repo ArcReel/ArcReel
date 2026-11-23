@@ -20,7 +20,6 @@ from lib.catalog import query as catalog
 
 def is_builtin_provider(provider: str) -> bool:
     """注册表里的内置供应商；其余（自定义供应商、Agent 凭证）不经清单查条目。"""
-    # 注册表导入放函数内：注册表经 dashscope_shared→usage_repo 导入本模块，模块级导入会成环。
     from lib.config.registry import PROVIDER_REGISTRY
 
     return provider in PROVIDER_REGISTRY

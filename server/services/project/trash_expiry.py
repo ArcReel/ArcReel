@@ -24,13 +24,11 @@ async def _sweep_loop(layout: DataRootLayout) -> None:
         except Exception:
             logger.warning("项目回收站过期清理列项目失败，等下一轮", exc_info=True)
             project_dirs = []
-        # 按项目各成一个事务：关停时只等正在清理的那个项目；单个项目失败不影响其余项目。
         for project_dir in project_dirs:
             try:
                 count = await run_sync_transaction(project_trash.purge_expired, project_dir)
                 purged += count
                 if count:
-                    # 清除的记录不再持有正式对象；失败时维护循环会再重算一次
                     await reconcile_and_collect(project_dir.name, project_dir)
             except Exception:
                 logger.warning("清理项目回收站过期记录失败 project=%s", project_dir.name, exc_info=True)

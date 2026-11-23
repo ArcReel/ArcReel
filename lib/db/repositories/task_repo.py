@@ -28,11 +28,6 @@ logger = logging.getLogger(__name__)
 
 ACTIVE_TASK_STATUSES = ("queued", "running")
 
-# 落库 error_message 的长度上限取 FAILURE_MESSAGE_LIMIT。裸切片会把结构化原因切在 JSON 中途，使 render_failure
-# 无法解析、用户看到机器码碎片而非本地化文案，因此两条落库路径都经 bound_reason 收窄。
-# 级联编码另在编码前按预算裁剪 reason（_encode_bounded_cascade_failure），保证结果本身
-# 不需要再被截断，深层依赖链也不会近指数增长。
-
 
 def _active_dedupe_clauses(
     *,
@@ -59,8 +54,6 @@ def _active_dedupe_clauses(
 
 
 def _encode_bounded_cascade_failure(*, dependency_task_id: str, reason: str) -> str:
-    # 上游原因本身是级联串时先折叠到根本原因：逐层包裹近指数增长，深链上裁剪只能把内层信封
-    # 切在 JSON 中途，读侧会把残缺内层当普通文本嵌进本地化文案。折叠后串长与链深无关。
     reason = collapse_cascade_reason(reason)
     encoded = encode_failure("cascade_blocked_dependency", dependency_task_id=dependency_task_id, reason=reason)
     if len(encoded) <= FAILURE_MESSAGE_LIMIT:
@@ -134,9 +127,6 @@ class TaskNotCancellableError(Exception):
 class TaskRepository(BaseRepository):
     def __init__(self, session: AsyncSession):
         super().__init__(session)
-        # 该 session 内落地的任务终态，供上层（GenerationQueue）在事务提交后发布项目事件。
-        # 在此收集而非各终态方法各自记账：所有终态迁移（含级联失败/级联取消、批量取消
-        # 队列）都经 _record_terminal_event 收口，一处挂钩即全覆盖。
         self.terminal_events: list[dict[str, Any]] = []
 
     def _record_terminal_event(
@@ -415,7 +405,6 @@ class TaskRepository(BaseRepository):
             GenerationBatch.user_id == user_id,
         )
         if self.session.get_bind().dialect.name == "postgresql":
-            # Serialize with membership FK checks before the fresh-snapshot delete.
             await self.session.execute(select(GenerationBatch.batch_id).where(*scope).with_for_update())
         result = await self.session.execute(
             sa_delete(GenerationBatch).where(
@@ -490,7 +479,6 @@ class TaskRepository(BaseRepository):
         params: dict[str, Any] = {"media_type": media_type}
         provider_filter = ""
         if pool_full_providers:
-            # SQLite/PG 都支持 expanding bindparam：list 形式 + NOT IN (:providers)
             provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
             params["providers"] = tuple(pool_full_providers)
 
@@ -519,7 +507,6 @@ class TaskRepository(BaseRepository):
 
         target_task_id = row[0]
 
-        # Update to running atomically; check rowcount to guard against concurrent claims
         update_result = await self.session.execute(
             update(Task)
             .where(Task.task_id == target_task_id, Task.status == "queued")
@@ -560,7 +547,6 @@ class TaskRepository(BaseRepository):
         )
         affected = rowcount(update_result)
         if affected == 0:
-            # 不 commit；外部已写过其他终态，不要触发 event
             return 0
 
         await self.session.flush()
@@ -637,8 +623,6 @@ class TaskRepository(BaseRepository):
         task_update = await self.session.execute(
             update(Task)
             .where(Task.task_id == task_id, Task.status == "failed")
-            # started_at 一并刷新：重试是新的一段执行，留着首次提交的时间会让面板上的
-            # 耗时按上一段的起点算。
             .values(status="running", error_message=None, finished_at=None, started_at=now, updated_at=now)
         )
         if rowcount(task_update) != 1:
@@ -840,7 +824,6 @@ class TaskRepository(BaseRepository):
             task_type=cancelled_task.task_type,
         )
 
-        # 先把自身入列再级联，响应体里父先于子。
         cancelled.append(task_data)
         dependents = await self.session.execute(
             select(Task.task_id)
@@ -973,7 +956,6 @@ class TaskRepository(BaseRepository):
         if not task_ids:
             return {"cancelled_count": 0, "skipped_running_count": 0}
 
-        # UPDATE 不经 _scope_query（只接受 Select），按作用域内查出的 id 集合限定目标行
         now = utc_now()
         stmt = (
             update(Task)
@@ -1001,7 +983,6 @@ class TaskRepository(BaseRepository):
             )
 
         await self.session.commit()
-        # 竞态时部分任务可能在 UPDATE 前被 worker 领走，skipped = 预期取消数 - 实际取消数
         skipped = len(task_ids) - cancelled_count
         return {
             "cancelled_count": cancelled_count,
@@ -1179,7 +1160,6 @@ class TaskRepository(BaseRepository):
             await self.session.commit()
             return True
         except IntegrityError:
-            # Another worker won the race to insert; treat as normal contention.
             await self.session.rollback()
             return False
 

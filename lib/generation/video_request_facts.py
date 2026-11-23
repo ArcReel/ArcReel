@@ -33,24 +33,12 @@ from lib.config.resolver import (
     apply_duration_constraints,
 )
 
-#: 视频路线：分镜（首帧驱动）与参考生视频。问题码按路线分族，已记录的码不改名。
 VideoRoute = Literal["storyboard", "reference_video"]
 
 CONFIGURE_VIDEO_MODEL_ACTION = "configure_video_model"
 
-#: 时长这一维由端点固定的模型行，在剧本规划里借用的档位。
-#:
-#: 这不是「这个模型支持几秒」——那一维不由 ArcReel 驱动，成片多长以 workflow 为准。它只是剧本
-#: 规划需要的「一个分镜大概多长」的篇幅依据：没有它，分镜拆不出来。借用只发生在规划内部
-#: （:func:`planning_durations`），界面与 Agent 载荷拿到的仍是空集加端点固定标志。取值与
-#: ``lib.custom_provider.duration_presets.DEFAULT_FALLBACK`` 同为 ``[4, 8]``，但语义不同（后者是
-#: 自定义供应商写入层的保守默认），不从那里 import。
 ENDPOINT_FIXED_PLANNING_DURATIONS: list[int] = [4, 8]
 
-#: 单元未写时长、项目也无偏好时长时的规划基准：取剧本规划借用档位里最长的一档。
-#:
-#: 不代表任何模型的可选档位。它与 :data:`ENDPOINT_FIXED_PLANNING_DURATIONS` 同源，端点固定的
-#: 单元在分镜与参考两条路线、TTS 与非 TTS 两条路径上因此按同一个篇幅规划。
 DEFAULT_PLANNED_DURATION_SECONDS = max(ENDPOINT_FIXED_PLANNING_DURATIONS)
 
 _FailureKind = Literal["missing", "invalid", "incompatible", "unavailable"]
@@ -336,14 +324,12 @@ async def evaluate_video_request_facts(
     if resolution_override is not None and resolution_override.resolution is not None:
         resolution = resolution_override.resolution
     else:
-        # 覆盖为「自动」即项目不存档位：以空 project 解析，自定义供应商仍落到模型默认档。
         saved_settings = project if resolution_override is None else {}
         try:
             resolution = await resolver.resolve_resolution(saved_settings, provider_id, model_id)
         except (ValueError, SQLAlchemyError):
             return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
 
-    # 参考图约束随桶生效：单元按可用参考图定桶，落 r2v 即带参考图、落 i2v 即不带。
     uses_reference_images = generation_type == "r2v"
     try:
         constraints = await resolver.video_duration_constraints(provider_id, model_id)
@@ -358,7 +344,6 @@ async def evaluate_video_request_facts(
             uses_end_frame=uses_end_frame,
         )
     )
-    # 输入路径约束优先于分辨率：只改分辨率救不回它。
     reference_allowed = (
         apply_duration_constraints(list(supported), constraints, uses_reference_images=True)
         if uses_reference_images

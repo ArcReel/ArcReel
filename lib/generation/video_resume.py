@@ -79,7 +79,6 @@ async def fail_task_of_deleted_project(queue: GenerationQueue, task: dict[str, A
     logger.warning("任务 %s 执行期间项目 %s 已删除，放弃落盘", task_id, task.get("project_name"))
     await asyncio.shield(queue.mark_task_failed(task_id, encode_failure("project_deleted_during_task")))
     try:
-        # 取项目管理器本身也会碰文件系统（首次构造建目录），整体放进工作线程；删目录是写正式文件。
         await run_sync_transaction(lambda: get_project_manager().remove_project_directory_residue(task["project_name"]))
     except Exception:
         logger.warning("已删除项目的残余目录清理失败 task_id=%s", task_id, exc_info=True)
@@ -151,13 +150,10 @@ class VideoResumeRunner:
 
         job_id = task.get("provider_job_id") or ""
         if not job_id:
-            # 防御：本不该被派发到这里（孤儿扫描已 mark_failed [restart_lost]）
             await asyncio.shield(self._queue.mark_task_failed(task_id, encode_failure("restart_lost_resume_no_job_id")))
             await cleanup_video_staging(task)
             return
 
-        # 非视频媒体：锁定持久化 provider 到 payload（resolver 优先级：payload > project > 默认）。
-        # 已提交视频任务的身份走 checkpoint，不在此注入——注入只覆盖 provider、盖不住 model。
         persisted_provider_id = checkpoint.provider_id if checkpoint is not None else task.get("provider_id")
         is_video = task.get("media_type") == "video" or task_type in ("video", "reference_video")
         if persisted_provider_id and not is_video:
@@ -183,9 +179,6 @@ class VideoResumeRunner:
                 if checkpoint is not None:
                     await asyncio.shield(cleanup_video_staging(task))
 
-        # 续跑不开新的记账括号（账是提交时记的），任何终态出口都要顺手结算那条 pending 的
-        # ApiCall，否则用量报表里留下永不终态的行。「重试下载」把调用重开成 pending 之后，
-        # 下面每一条出口都变得可达。resume 结算带 WHERE status='pending'，重复调用无副作用。
         try:
             result = await _execute_with_video_cleanup()
         except asyncio.CancelledError:

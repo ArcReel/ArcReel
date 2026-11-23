@@ -50,11 +50,9 @@ from lib.project.project_change_hints import emit_project_change_batch
 
 logger = logging.getLogger(__name__)
 
-#: 记账结算的项目变更条目：entity_type 与项目实体、任务终态都区分开。
 USAGE_RECORD_ENTITY_TYPE = "usage_record"
 USAGE_RECORD_ACTION = "recorded"
 
-#: 结算事件的发布口。生产默认是项目变更批次总线（与任务终态事件同一条 SSE），测试注入替身。
 ProjectChangePublisher = Callable[[str, Sequence[dict[str, Any]]], None]
 
 
@@ -69,7 +67,6 @@ def build_usage_record_change(call_id: int, status: CallStatus) -> dict[str, Any
         "entity_type": USAGE_RECORD_ENTITY_TYPE,
         "action": USAGE_RECORD_ACTION,
         "entity_id": str(call_id),
-        # label 不进通知文案（important=False），仅作日志/调试可读标识。
         "label": str(call_id),
         "focus": None,
         "important": False,
@@ -100,7 +97,6 @@ def _settlement_from_result(call_type: CallType, result: Any, *, usage: Usage | 
             image_output_tokens=result.image_output_tokens,
             text_input_tokens=result.text_input_tokens,
             text_output_tokens=result.text_output_tokens,
-            # 调用通道按用量契约上报（自定义供应商的包装层在被包装的通道不报时按通用口径补上）。
             usage=(result.usage,) if result.usage is not None else (),
         )
     if call_type == "audio":
@@ -111,7 +107,6 @@ def _settlement_from_result(call_type: CallType, result: Any, *, usage: Usage | 
         )
         billed_characters = result.billed_characters
         if billed_characters is not None:
-            # 供应商回报的计费字符数优先于按文本统计的字符数。
             quantities[CJK_DOUBLE_METER] = billed_characters
         return SettlementInput(
             usage_tokens=len(result.text) if billed_characters is None else billed_characters,
@@ -133,7 +128,6 @@ def _settlement_from_result(call_type: CallType, result: Any, *, usage: Usage | 
             cache_read_tokens=result.cache_read_tokens,
             cache_write_5m_tokens=result.cache_write_5m_tokens,
             cache_write_1h_tokens=result.cache_write_1h_tokens,
-            # 没有任何计量（未追踪）时仍按一次零用量的请求计价。
             usage=tuple(
                 Usage(
                     quantities=token_usage(
@@ -234,9 +228,6 @@ class Ledger:
         try:
             yield call
         except asyncio.CancelledError:
-            # 用户取消：零费用结算为 cancelled 后原样重抛，不留 pending 也不计入失败率。
-            # （CancelledError 在 3.11+ 继承 BaseException 天然不进 except Exception，此处显式
-            #  声明为契约，而非依赖隐式继承副作用。）
             if await self._finish_cancelled(call_id):
                 self._emit_recorded(project_name, call_id, CallStatus.CANCELLED)
             raise
@@ -250,12 +241,9 @@ class Ledger:
             try:
                 await self._finish_success(call_id, call._settlement, output_path=output_path)
             except asyncio.CancelledError:
-                # 取消打在成功结算的写入上：结果已经拿到、费用已经产生，写入在护盾内落地后
-                # 事件照发，取消再继续传播——这条调用是真实花费，不能按零费用取消结算。
                 self._emit_recorded(project_name, call_id, CallStatus.SUCCESS)
                 raise
             except Exception as exc:
-                # 成功结算写入本身失败：不留永久 pending，尝试翻 failed 后原样重抛。
                 if await self._finish_failed(call_id, exc):
                     self._emit_recorded(project_name, call_id, CallStatus.FAILED)
                 raise
@@ -459,7 +447,6 @@ class Ledger:
                 error_code=None if failure is None else failure.error_code,
                 error_params=None if failure is None else failure.error_params,
             )
-            # 事件要带项目名，而 resume 链路只有 call_id；幂等命中 0 行时不查也不发。
             project_name = await repo.get_call_project_name(call_id) if affected else ""
         self._emit_recorded(project_name, call_id, status)
         return affected

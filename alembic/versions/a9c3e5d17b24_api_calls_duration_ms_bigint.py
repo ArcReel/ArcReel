@@ -18,14 +18,11 @@ down_revision: str | Sequence[str] | None = "015359a572fa"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# PostgreSQL int4 的毫秒取值范围，上限约 24.8 天。
 _INT32_MIN = -2_147_483_648
 _INT32_MAX = 2_147_483_647
 
 
 def upgrade() -> None:
-    # int4 装不下长期停在 pending 的行被结算时的墙钟毫秒数（超过约 24.8 天即溢出）。
-    # SQLite 的整数本就是 64 位，这里只是让两种方言的声明类型对齐。
     with preserve_sqlite_indexes("api_calls"), op.batch_alter_table("api_calls") as batch_op:
         batch_op.alter_column(
             "duration_ms",
@@ -36,8 +33,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 超出 int4 的耗时无法回填窄列：这些值来自长期悬停后的结算，或结算时墙钟大幅回拨产生的负值，
-    # 耗时不可信，置空后再收窄。
     op.execute(
         sa.text(f"UPDATE api_calls SET duration_ms = NULL WHERE duration_ms NOT BETWEEN {_INT32_MIN} AND {_INT32_MAX}")
     )

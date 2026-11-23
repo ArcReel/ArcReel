@@ -30,9 +30,7 @@ class SiteSpec:
 
 
 SITES: dict[str, SiteSpec] = {
-    # https://docs.volcengine.com/docs/ark/list-assets-api
     "volcengine": SiteSpec(hosts={"cn-beijing": "ark.cn-beijing.volcengineapi.com"}),
-    # https://docs.byteplus.com/en/docs/modelark/list-assets-api
     "byteplus": SiteSpec(hosts={"ap-southeast-1": "ark.ap-southeast-1.byteplusapi.com"}),
 }
 

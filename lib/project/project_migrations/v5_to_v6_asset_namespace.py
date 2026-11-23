@@ -28,8 +28,6 @@ from lib.script.reference_video.text_parser import line_speech_marks, rewrite_me
 
 logger = logging.getLogger(__name__)
 
-#: 本迁移面对的是 v5 项目：脚本规划草稿此时还叫 ``step1_*``（v9→v10 才改名）。名字是当时的
-#: 落盘事实，写死在这一步，不跟随 ``lib.episode.episode_paths`` 的当前命名。
 _LEGACY_MARKDOWN_DRAFTS = {
     "step1_reference_units.md",
     "step1_normalized_script.md",
@@ -136,11 +134,9 @@ def _plan_occurrences(
     for occurrence in occurrences:
         groups.setdefault(occurrence.key, []).append(occurrence)
 
-    # 先预留所有存量规范名，后缀分配不得抢走另一资产原本合法的名字。
     occupied = set(groups)
     for key, group in groups.items():
         best_priority = min(item.spec.namespace_priority for item in group)
-        # 同类等价 key 延续存量读侧“后写入胜出”语义；跨类型先比稳定优先级。
         winner = [item for item in group if item.spec.namespace_priority == best_priority][-1]
         winner.new_name = validate_asset_name(winner.old_name)
         if len(group) > 1:
@@ -250,7 +246,6 @@ def _rewrite_payload(
     mention_owners = _mention_owner_map(occurrences)
     field_types = {field: spec.asset_type for spec in _ordered_specs() for field in spec.reference_list_fields}
 
-    # 旧式剧本顶层角色镜像同样独立 re-key，不用会合并等价 key 的普通 rename helper。
     embedded = payload.get("characters")
     if isinstance(embedded, dict):
         rebuilt: dict[str, Any] = {}
@@ -326,8 +321,6 @@ def _record_for_stem(
     records: list[_AssetOccurrence], stem: str, *, allow_sequence: bool
 ) -> tuple[_AssetOccurrence, str] | None:
     if allow_sequence:
-        # 按序号命名的目录里文件只会是 ``名_<n>``；资产名本身可以以 ``_数字`` 结尾，
-        # 精确同名或归一同名的匹配会把 ``Cup`` 的 ``Cup_1`` 认成资产 ``Cup_1`` 自己的文件。
         for item in sorted(records, key=lambda value: len(value.old_name), reverse=True):
             prefix = f"{item.old_name}_"
             if stem.startswith(prefix) and stem[len(prefix) :].isdigit():
@@ -629,8 +622,6 @@ def migrate_v5_to_v6(project_dir: Path, *, record: list[MigrationAdjustment] | N
         if record is not None:
             record.extend(adjusted)
     finally:
-        # ignore_errors：staging 清理失败（占用/权限）不得中断本块，否则下面的原树恢复检查
-        # 会被跳过，项目目录停在缺失状态。
         shutil.rmtree(staging, ignore_errors=True)  # hard-delete: temp -- 迁移暂存树
         if rollback.exists() and not project_dir.exists():
             os.replace(rollback, project_dir)
