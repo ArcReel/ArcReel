@@ -1,10 +1,3 @@
-/**
- * 入队动作层测试：spy API 静态方法 + 真实 zustand store，
- * 验证「乐观打标（请求发出前）→ API 调用 → 兑现/回滚 → toast → 返回值归一化」的固定封装，
- * 以及 deduped=true 统一 info 提示与失败回滚。
- *
- * 占用一律按 selector 断言而非比对标记 key 的字面量——key 编码是 store 内部实现。
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import i18n from "@/i18n";
@@ -83,7 +76,6 @@ describe("enqueueStoryboard", () => {
   });
 
   it("请求发出前就完成打标，往返窗口内资源即被判为占用", async () => {
-    // 打标若等到 API 返回才落，这段往返里资源判定为空闲，各调用方就得自备在途 ref
     let release: (v: typeof SINGLE_OK) => void = () => {};
     vi.spyOn(API, "generateStoryboard").mockReturnValue(
       new Promise<typeof SINGLE_OK>((resolve) => {
@@ -122,8 +114,6 @@ describe("enqueueStoryboard", () => {
   });
 
   it("响应体形状意外时同样回滚，不留下永不清除的在途标记", async () => {
-    // 在途标记不被任何轮询写回清除，故兑现前的异常路径（如 204 让 API.request 返回
-    // undefined、随后取 task_id 抛 TypeError）也必须回滚，否则资源锁死到刷新为止。
     vi.spyOn(API, "generateStoryboard").mockResolvedValue(
       undefined as unknown as Awaited<ReturnType<typeof API.generateStoryboard>>,
     );
@@ -231,8 +221,6 @@ describe("enqueueEpisodeNarration", () => {
     expect(res).toEqual({ taskIds: ["t1", "t2"], deduped: false });
   });
 
-  // 每段的标记只等它自己的任务行：等全批落库时，任务列表快照只留最新若干行，
-  // 早的行可能再不出现，那些段会一直显示成生成中。
   it("每段的标记只等自己的任务行", async () => {
     vi.spyOn(API, "generateEpisodeNarrationAudio").mockResolvedValue({
       success: true,
@@ -287,7 +275,6 @@ describe("enqueueImageEdit", () => {
       scriptFile: "episode_1.json",
     });
 
-    // 编辑任务与目标资源的生成任务同槽：按 storyboard 归槽而非 image_edit
     expect(occupied("demo", "storyboard", "seg-1")).toBe(true);
     expect(useAppStore.getState().toast?.text).toBe("已提交图片编辑");
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
@@ -314,8 +301,6 @@ describe("enqueueGrid", () => {
     expect(res).toEqual({ taskIds: ["t1"], deduped: false });
   });
 
-  // 每张宫格的标记只等它自己的任务行，理由与参考视频批量同：等全批落库会让早的宫格
-  // 因任务快照裁剪而一直显示成生成中。
   it("每张宫格的标记只等自己的任务行", async () => {
     vi.spyOn(API, "generateGrid").mockResolvedValue({
       success: true,
@@ -418,7 +403,6 @@ describe("enqueueScriptPlan", () => {
 });
 
 describe("enqueuePromptAuthoring", () => {
-  /** 入队时任务列表正在跟踪本项目：编写入口都在工作室内，刷新范围即当前项目。 */
   beforeEach(() => {
     useTasksStore.setState({ refreshScope: { projectName: "demo" } });
   });
@@ -562,8 +546,6 @@ describe("enqueueReferenceVideoBatch", () => {
     expect(res.decision).toBe("admitted");
   });
 
-  // 每个单元的标记只等它自己的任务行：等全批落库时，任务列表快照只留最新若干行，
-  // 早的行可能再不出现，那些单元会一直显示成生成中。
   it("admitted 时每个单元的标记只等自己的任务行", async () => {
     vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue({
       ...ADMISSION,
@@ -590,8 +572,6 @@ describe("enqueueReferenceVideoBatch", () => {
     expect(occupied("demo", "reference_video", "E1U2")).toBe(true);
   });
 
-  // 入队中断不撤销已建的任务：建成的单元继续占用等自己的任务行，没轮到的单元让位，
-  // 并且用户要听到「少了几个」，否则只看到成功提示会以为整批都在跑。
   it("入队中断时只保留已建任务的占用标记并提示未创建的单元", async () => {
     vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue({
       ...ADMISSION,
@@ -618,9 +598,7 @@ describe("enqueueReferenceVideoBatch", () => {
     );
   });
 
-  // 首个目标就没入队时一个任务也没建：只报中断，不要再来一句「已提交 0 个」。
   it("入队在首个目标处中断时不弹已提交提示", async () => {
-    // 断言的是「弹了几句」，故收集全部 toast：store 只留最后一句，光看它无法发现多出来的那句。
     const realPushToast = useAppStore.getState().pushToast;
     type ToastTone = Parameters<typeof realPushToast>[1];
     const pushed: Array<{ text: string; tone: ToastTone }> = [];
@@ -665,8 +643,6 @@ describe("enqueueReferenceVideoBatch", () => {
     expect(occupied("demo", "reference_video", "E1U2")).toBe(false);
   });
 
-  // confirmation_required / blocked 一个任务也没建：占用标记必须整批回滚，
-  // 否则界面会把没入队的单元显示成生成中，直到刷新页面。
   it.each(["confirmation_required", "blocked"] as const)(
     "%s 时回滚占用标记且不弹入队提示",
     async (decision) => {

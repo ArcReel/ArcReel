@@ -229,7 +229,6 @@ class TestGenerateStructuredViaInstructor:
             )
 
         assert patched_with == [{"client": mock_client, "mode": Mode.MD_JSON}]
-        # response_model 换成不带类 docstring 的子类（见 TestModelFacingSchemaOnWire），字段与校验不变
         assert issubclass(calls[0].pop("response_model"), SampleModel)
         assert calls == [
             {
@@ -669,7 +668,6 @@ class TestInstructorExceptionShape:
         assert cause.raw_response.choices[0].message.tool_calls is None
         calls = client.chat.completions.create.call_args_list
         assert len(calls) == 3
-        # Instructor 原地追加消息列表，各次调用记录的是同一个对象，只能看最终形态
         assert [m["role"] for m in calls[-1].kwargs["messages"][:3]] == ["user", "assistant", "user"]
 
 
@@ -871,7 +869,6 @@ class TestStructuredModeChainSync:
         ):
             self._call()
 
-        # 消息文本不含任何瞬态状态码模式，只有异常类型能证明它可重试。
         assert should_retry(exc_info.value, BASE_RETRYABLE_ERRORS)
 
     def test_invalid_tool_call_arguments_are_terminal(self):

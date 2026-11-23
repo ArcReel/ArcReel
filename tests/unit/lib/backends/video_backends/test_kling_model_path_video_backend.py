@@ -37,8 +37,6 @@ _BASE = "https://api-beijing.klingai.com"
 _DOWNLOAD_URL = "https://cdn.test/final.mp4"
 _ENDPOINT = "kling-video-model-path"
 
-# 最小响应样本，字段取自官方「Kling 4.0 - 文生视频」页的创建任务与按任务 ID 查询任务（docs/api-docs/endpoints/kling-video-model-path.md）。
-
 
 def _submitted(task_id: str = "893605946402811985") -> httpx.Response:
     return httpx.Response(
@@ -101,7 +99,6 @@ class TestConstructionAndCapabilities:
         assert _backend(base_url=configured)._base_url == expected
 
     def test_access_key_secret_key_is_rejected(self):
-        # 官方：Access Key / Secret Key 只适用于旧版 API
         with pytest.raises(ValueError, match="只支持 API Key"):
             KlingModelPathVideoBackend(auth_mode="jwt", access_key="ak", secret_key="sk")
 
@@ -146,7 +143,6 @@ class TestPayload:
         assert payload["contents"][0]["text"] == "a girl on the train"
         assert payload["contents"][1]["url"]
         assert payload["contents"][1]["url"] != payload["contents"][2]["url"]
-        # 图生视频的画面比例跟随首帧，请求体没有 aspect_ratio
         assert payload["settings"] == {"resolution": "1080p", "duration": 12}
 
     def test_last_frame_narrowed_by_entry_is_refused(self, tmp_path):
@@ -229,7 +225,6 @@ class TestGenerate:
             body = request_json(only_request(submit))
             assert [c["type"] for c in body["contents"]] == ["prompt", "first_frame"]
 
-        # kling-3.0-turbo 不回报 usage，结算取下发的时长
         assert result.duration_seconds == 12
 
     async def test_failed_task_raises_with_upstream_message(self, tmp_path):
@@ -372,5 +367,4 @@ class TestCustomProvider:
             await backend.generate(_request(tmp_path))
 
             assert json.loads(only_request(submit).content)["prompt"] == "a girl on the train"
-            # 覆盖路径不带 query 时保留原请求的 task_ids
             assert dict(only_request(poll).url.params) == {"task_ids": "t-1"}

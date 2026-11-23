@@ -37,7 +37,6 @@ def test_migration_skips_already_utf8(tmp_path: Path):
 def test_migration_records_failures_without_raising(tmp_path: Path):
     project = _make_project(tmp_path, "p3")
     bad = project / "source" / "garbage.txt"
-    # 使用固定种子的伪随机字节，确保 gb18030 兜底产生 >5% 的 \ufffd，触发 SourceDecodeError
     rng = random.Random(42)
     original_bytes = bytes(rng.randint(0, 255) for _ in range(4000))
     bad.write_bytes(original_bytes)

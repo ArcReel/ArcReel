@@ -106,7 +106,6 @@ def test_a_removed_shot_comes_back_after_its_predecessor_under_a_new_id_with_med
 
         restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
 
-        # 编号只分配、不复用：原编号空闲也不沿用，取本集用过的最大号之后的新编号。
         assert restored.status_code == 200, restored.text
         assert (restored.json()["object"]["id"], restored.json()["degraded"]) == ("E1S04", False)
         segments = _segments(manager)
@@ -117,7 +116,6 @@ def test_a_removed_shot_comes_back_after_its_predecessor_under_a_new_id_with_med
         [snapshot] = VersionManager(project_dir).get_versions("storyboards", "E1S04")["versions"]
         assert snapshot["prompt"] == history["versions"][0]["prompt"]
         assert (project_dir / snapshot["file"]).read_bytes() == b"image-E1S02"
-        # 登记随新编号补录，依据摘要不变；新编号下的输入与删除前不同，照常判为过期而不是缺失。
         assert adapter.get_entry(key) is None
         new_key = ArtifactKey.episode_storyboard(1, "E1S04")
         new_claim = adapter.get_entry(new_key)
@@ -135,7 +133,6 @@ def test_a_removed_last_shot_keeps_its_id_out_of_new_items_and_comes_back_under_
     project_dir = manager.get_project_path("demo")
     with http:
         record = _remove(http, "E1S03")
-        # 末尾条目删掉后再新增不会取回它的编号：编号只分配、不复用。
         inserted = http.post(
             "/api/v1/projects/demo/script-items",
             json={"script_file": "episode_1.json", "after_id": "E1S01", "novel_text": "新的一镜。"},
@@ -177,7 +174,6 @@ def test_a_renumbered_grid_member_comes_back_as_a_plain_shot_that_the_planner_pl
 
     assert restored.json()["object"]["id"] == "E1S05", restored.text
     assets = _segments(manager)[3]["generated_assets"]
-    # 宫格的成员仍是旧编号：新编号的分镜不再属于它，按普通分镜规划。
     assert (assets.get("grid_id"), assets.get("grid_cell_index")) == (None, None)
     assert TargetStatePlanner(project_dir).resolve_basis(ArtifactKey.episode_storyboard(1, "E1S05")) is not None
 
@@ -203,10 +199,8 @@ def test_two_concurrent_restores_of_one_record_put_it_back_once(
 
     def read_staged_source(path: Path) -> bytes:
         if path.name == source.name and any(p.name.startswith(".restore-") for p in path.parents):
-            # 编码迁移在铺设完成、释放项目锁之后读源文：两次恢复都到达后才允许继续。
             staged.wait(timeout=30)
             if degraded:
-                # 文件缺失是永久状态，迁移失败照常降级；磁盘满这类可重试的读写故障不降级。
                 raise FileNotFoundError(path)
         return read_bytes(path)
 

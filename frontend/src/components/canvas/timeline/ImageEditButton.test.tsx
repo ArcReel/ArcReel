@@ -45,8 +45,6 @@ describe("ImageEditButton", () => {
     const editSpy = vi.spyOn(API, "editImage");
     const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
 
-    // busy 一直是 false（打开时刻的响应式信号），弹窗停留期间该分镜进入占用态
-    // 只写进了 tasks store，未反映到这个 prop 上——提交必须靠 store 新鲜读兜底。
     render(
       <ImageEditButton
         projectName="demo"
@@ -111,9 +109,6 @@ describe("ImageEditButton", () => {
     const editSpy = vi.spyOn(API, "editImage");
     const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
 
-    // busy 全程为 false（父组件的响应式信号未追上）；grid 任务只写进了 tasks store，
-    // 其 resource_id 是 grid_id，不落进 storyboard 占用集，只能靠 scriptFile 维度的
-    // 新鲜读拦住——验证 handleSubmit 里补的这层复核。
     render(
       <ImageEditButton
         projectName="demo"
@@ -164,11 +159,8 @@ describe("ImageEditButton", () => {
     const instructionField = await screen.findByLabelText("编辑指令");
     fireEvent.change(instructionField, { target: { value: "把背景改成夜晚" } });
 
-    // tasks store 里没有这张分镜的任务行——grid 任务的 resource_id 是 grid_id，
-    // 归不进 storyboard 占用集，只能靠 busy 这层判定拦住。
     rerender(<ImageEditButton {...props} busy />);
 
-    // 键盘快捷键提交绕过按钮的 disabled 属性，直接进 handleSubmit
     fireEvent.keyDown(instructionField, { key: "Enter", metaKey: true });
 
     await waitFor(() => {

@@ -166,7 +166,7 @@ def _mock_comfyui_run_stuck_in_polling(router) -> asyncio.Event:
     不必去猜事件循环要让步多少次。
     """
     polling = asyncio.Event()
-    gate = asyncio.Event()  # 永不置位：这次 run 只可能被 cancel 停下
+    gate = asyncio.Event()
 
     async def _never_settles(_request: httpx.Request) -> httpx.Response:
         polling.set()
@@ -197,7 +197,7 @@ def _hold_submit(router) -> asyncio.Queue[None]:
     作废连接，内存库随唯一的连接一起丢掉表，下一笔 run 插账即失败、自行结束，取消它得到 404。
     """
     arrived: asyncio.Queue[None] = asyncio.Queue()
-    gate = asyncio.Event()  # 永不置位：这次 run 只可能被 cancel 停下
+    gate = asyncio.Event()
 
     async def _never_responds(_request: httpx.Request) -> httpx.Response:
         arrived.put_nowait(None)
@@ -295,7 +295,6 @@ class TestComfyuiPreviewAudio:
             files={"reference_images": ("ref.png", image_bytes(), "image/png")},
         )
         assert response.status_code == 400, response.text
-        # 有效图片才把槽位检查与图片可读性分开：报的是 0 个槽位的超限，而不是读不出 #1。
         assert "最多接受 0 张参考图" in response.text
         assert "#1" in response.text
 
@@ -335,7 +334,6 @@ class TestAssetLimits:
         )
 
         assert resp.status_code == 400
-        # 响应体是渲染后的产品文案（错误码不下发）；断言上限数字在场，锁住命中的是数量上限而非别的 400。
         assert "16" in resp.json()["detail"]
 
     def test_files_under_unknown_field_names_still_count(self, client: TestClient):
@@ -587,7 +585,6 @@ class TestTrialRuns:
             )
             run_id = created.json()["id"]
             client.portal.call(submits.get)
-            # 204 本身是判据：取消停下的是一笔仍在进行的 run，不是一笔已经自己跑完的。
             assert client.post(f"/api/v1/custom-endpoints/trial-runs/{run_id}/cancel").status_code == 204
 
         assert client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").status_code == 404
@@ -622,7 +619,6 @@ class TestTrialRuns:
                 },
             )
             assert created.status_code == 201, created.text
-            # 内联凭证没有供应商身份，账本落提交地址的 host——这笔钱实际打给谁。
             assert created.json()["provider"] == "fixed.test"
             client.post(f"/api/v1/custom-endpoints/trial-runs/{created.json()['id']}/cancel")
 
@@ -928,12 +924,10 @@ class TestTrialRuns:
         fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
         assert fetched["status"] == "succeeded", fetched["error"]
         assert fetched["video_url"] == "https://relay.test/files/job-42.mp4"
-        # 记账身份取模型行，不像内联定义那样回落到 base_url 的 host。
         assert (fetched["provider"], fetched["model"]) == (
             stored_model_row["provider_id"],
             stored_model_row["model_id"],
         )
-        # 模型行挂着自定义调用端点，结果体才有渲染请求与逐阶段提取这两段。
         assert fetched["request"]["url"] == "https://relay.test/v1/video/create"
         assert fetched["extractions"]["submit"]["task_id"] == "job-42"
 
@@ -1209,7 +1203,6 @@ class TestComfyuiEndpoints:
 
     def test_a_workflow_that_cannot_be_edited_down_is_refused_with_its_failure_text(self, client: TestClient):
         """改图的级联触到产物节点：这不是定义有错，而是这份定义配上这组素材渲染不出请求。"""
-        # 三个格子，后两个汇成一路直接接产物节点：只上传一张时那一路整条被删，级联撞上产物节点。
         definition = comfyui_endpoint_definition()
         workflow = definition["workflow"]
         workflow["20"] = {"class_type": "LoadImage", "inputs": {"image": "a.png"}}
@@ -1254,7 +1247,6 @@ class TestComfyuiEndpoints:
         )
 
         assert resp.status_code == 400
-        # 用失败码本身的三语文案说明，不另写一套措辞。
         assert "无法改图" in resp.json()["detail"]
 
     def test_a_trial_run_reports_the_prompt_id_stages_and_artifact(
@@ -1281,9 +1273,7 @@ class TestComfyuiEndpoints:
         assert fetched["error_action"] is None
         assert fetched["provider_job_id"] == "p-1"
         assert fetched["stages"] == {"submit": "done", "poll": "done", "result": "done", "artifact": "done"}
-        # 实发 workflow 的种子与素材引用名要到提交那一刻才定下来，结果体不摆一份预览充数。
         assert fetched["request"] is None
-        # 产物提取是固定代码，没有可配的取值路径可报。
         assert fetched["extractions"] == {}
         artifact = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}/artifact")
         assert artifact.content == MP4_BYTES
@@ -1335,9 +1325,7 @@ class TestComfyuiEndpoints:
         fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
         assert fetched["status"] == "failed"
         assert "KSampler: value too large" in fetched["error"]
-        # 文案随 Accept-Language 变，码不变：读侧按码分流「这是哪一类失败、该去做什么」。
         assert fetched["error_code"] == "comfyui_node_errors"
-        # 动作取自项目页生成失败那一份对照表，不是这里另写的一句：ComfyUI 的八条码里有三条指向重试。
         assert fetched["error_action"] == "configure_provider"
         assert fetched["provider_job_id"] is None
         assert fetched["stages"]["submit"] == "done"
@@ -1348,7 +1336,6 @@ class TestComfyuiEndpoints:
         """一时的失败与配置错误在卡上要说不同的话，动作由失败码本身决定。"""
         with capture_http() as router, bounded_poll_clock():
             router.post("https://comfy.test/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
-            # 队列与历史里都没有这一笔：ComfyUI 多半重启过，重试就能好。
             router.get("https://comfy.test/queue").mock(
                 return_value=httpx.Response(200, json={"queue_running": [], "queue_pending": []})
             )
@@ -1446,12 +1433,10 @@ class TestComfyuiEndpoints:
         assert fetched["status"] == "succeeded", fetched["error"]
         assert fetched["media_type"] == "image"
         assert fetched["stages"] == {"submit": "done", "poll": "done", "result": "done", "artifact": "done"}
-        # 图像这一维没有时长：记一个秒数会让用量页上出现一个不存在的时长。
         assert fetched["duration_seconds"] is None
         artifact = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}/artifact")
         assert artifact.content == PNG_BYTES
         assert artifact.headers["content-type"] == "image/png"
-        # 账本这一行记的是实际发出的那笔调用：图像请求形状里没有时长与音轨这两维。
         assert client.portal is not None
         row = client.portal.call(_only_api_call, async_sessionmaker(file_db_engine, expire_on_commit=False))
         assert (row.call_type, row.duration_seconds, row.generate_audio) == ("image", None, False)
@@ -1513,7 +1498,6 @@ class TestComfyuiEndpoints:
         assert fetched["status"] == "failed"
         assert fetched["error_code"] == "image_capability_missing_t2i"
         assert "不支持文生图" in fetched["error"]
-        # 闸在提交之前：一个字节都没发给 ComfyUI。
         assert router.calls.call_count == 0
 
 
@@ -1566,7 +1550,6 @@ async def stored_gemini_image_model_row(file_db_factory) -> dict[str, str]:
                     "endpoint": "gemini-image",
                     "is_enabled": True,
                     "is_default": True,
-                    # 路径覆盖会向 SDK 注入 httpx，供出站 HTTP 替身捕获。
                     "path_overrides": {"generate": "/gemini/trial"},
                 }
             ],

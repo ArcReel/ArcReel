@@ -146,7 +146,6 @@ class _FakeAudioGenerator:
         self.audio_calls.append(kwargs)
         output = self.project_path / "audio" / f"segment_{kwargs['resource_id']}.wav"
         staged = output.with_name(f".{output.stem}.staged{output.suffix}")
-        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
         await write_backend_output(staged, b"RIFF-current-audio")
         if before_commit := kwargs.get("before_commit"):
             await before_commit(staged)
@@ -272,7 +271,6 @@ def tts_env(monkeypatch, tmp_path):
         json.dumps(pm.script, ensure_ascii=False),
         encoding="utf-8",
     )
-    # 生产项目一律处于当前 schema，剧本连同其取证链（分集原文 → script_plan）都已登记进产物清单。
     (pm.project_path / "source").mkdir()
     (pm.project_path / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
     (pm.project_path / "drafts" / "episode_1").mkdir(parents=True)
@@ -440,7 +438,6 @@ class TestExecuteTtsTask:
         assert call["resource_id"] == "E1S01"
         assert not (pm.project_path / "audio" / "segment_E1S01.wav").exists()
         assert gen.version_records[-1]["tts_basis_digest"] is None
-        # 无 script_file → 只保存付费历史，不写回 narration_audio 或抢占 current
         assert pm.updated_assets == []
 
     async def test_text_from_script_segment_and_writeback(self, tts_env):

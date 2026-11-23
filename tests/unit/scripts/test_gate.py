@@ -66,7 +66,6 @@ def test_shared_request_contract_triggers_backend_in_ci_and_locally() -> None:
     [("backend", "backend"), ("frontend", "frontend"), ("website", "website"), ("workflow", "workflows")],
 )
 def test_every_ci_trigger_path_selects_the_matching_gate_domain(ci_domain: str, gate_domain: str) -> None:
-    # CI 的 workflow 域里 .codecov.yml 只影响覆盖率上报，本地没有对应闸门；.gitignore 归 backend（ruff 文件发现）。
     skipped = {".codecov.yml", ".gitignore"}
     for pattern in _ci_filters()[ci_domain]:
         if pattern in skipped:

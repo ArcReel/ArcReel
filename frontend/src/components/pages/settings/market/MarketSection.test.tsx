@@ -139,7 +139,6 @@ function sourceOrder(): string[] {
     .map((handle) => handle.getAttribute("aria-label")?.replace(/^调整「(.+)」的顺序$/, "$1") ?? "");
 }
 
-/** 「设置」Tab 先渲染空的市场源区，列表数据随后到达：等到行出现再同步查询行内控件。 */
 async function sourcesLoaded() {
   await screen.findByRole("button", { name: "调整「ArcReel Market」的顺序" });
 }
@@ -210,7 +209,6 @@ describe("MarketSection", () => {
       expect(within(team).getByText("团队市场")).toBeInTheDocument();
       const alpha = screen.getByRole("article", { name: "Alpha Video" });
       expect(within(alpha).getByRole("img", { name: "官方" })).toBeInTheDocument();
-      // 条目类型目前只有调用端点，不显示类型筛选
       expect(screen.getByRole("group", { name: "媒体类型" })).toBeInTheDocument();
       expect(screen.queryByRole("group", { name: "条目类型" })).not.toBeInTheDocument();
     });

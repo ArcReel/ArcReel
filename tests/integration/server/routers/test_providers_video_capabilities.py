@@ -28,7 +28,6 @@ from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.factories import make_display_names
 from tests.fakes import use_project_manager
 
-#: registry 里声明了「1080p 只剩 8 秒」的型号，用来观察真实 resolver 算出的收窄结果。
 VEO = "gemini-vertex/veo-3.1-generate-001"
 
 
@@ -130,7 +129,6 @@ class TestRealResolverResponse:
         assert body["provider_id"] == "gemini-vertex"
         assert body["model"] == "veo-3.1-generate-001"
         assert body["supported_durations"] == [4, 6, 8]
-        # excluded 在 Python 侧是 int 键；经 JSON 后只能是字符串键，前端按 String(duration) 查表。
         assert body["duration_constraints"] == {
             "resolution": "1080p",
             "uses_reference_images": False,

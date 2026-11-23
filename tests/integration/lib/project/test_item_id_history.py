@@ -115,7 +115,6 @@ def test_landing_issuance_never_hands_out_a_used_number(tmp_path: Path) -> None:
     plan = {
         "episode": 1,
         "content_mode": "narration",
-        # E1S02 已删除、E1S04 只在剪辑时间线里；E1S08 从没用过，E2S01 属于别的集，E1S08 重复出现
         "segments": [_segment(i) for i in ("E1S02", "E1S08", "E1S04", "E2S01", "E1S08")],
     }
 

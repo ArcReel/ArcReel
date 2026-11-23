@@ -7,10 +7,8 @@ export interface EncodeCall {
   quality: number;
 }
 
-/** 一次在途的 `createImageBitmap` 解码，完成时机由测试决定。 */
 export interface PendingDecode {
   readonly file: File;
-  /** 以给定像素尺寸完成解码，并把附件流程推进到静止。 */
   finish(size: { width: number; height: number }): Promise<void>;
   fail(): Promise<void>;
 }
@@ -21,7 +19,6 @@ export interface ImageCanvasStub {
 }
 
 interface StubOptions {
-  /** 每档质量编码出的 base64 负载；长度即字节预算的判据。默认为一段固定短串。 */
   encodedBase64?: (quality: number) => string;
 }
 

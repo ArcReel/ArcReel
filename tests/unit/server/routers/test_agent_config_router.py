@@ -24,7 +24,6 @@ def _make_app(session_factory) -> FastAPI:
             await session.commit()
 
     app.dependency_overrides[get_async_session] = override_session
-    # 认证依赖挂在注册处，mini app 须与 server/app.py 的挂法一致，否则测不到真实的鉴权行为。
     app.include_router(agent_config.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return app
 
@@ -41,7 +40,6 @@ async def agent_config_client(db_factory):
 @pytest_asyncio.fixture
 async def unauth_client(db_factory, monkeypatch):
     """No dependency override → real auth applies → expects 401/403."""
-    # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，本 fixture 就测不到拒绝。
     monkeypatch.setenv("AUTH_ENABLED", "true")
     app = _make_app(db_factory)
     transport = ASGITransport(app=app)
@@ -340,7 +338,6 @@ async def test_saved_credential_reports_multiplier_and_the_pricing_status_of_eac
         "binding_stale": False,
         "priced": True,
     }
-    # 非官方预设留空的档位用主模型；对应不到条目的档位未定价
     assert _tiers(cred) == {
         "model": main,
         "haiku": {
@@ -381,7 +378,6 @@ async def test_a_tier_binding_takes_precedence_over_the_model_name(agent_config_
         )
     ).json()
     async with db_factory() as session:
-        # 指向已不在目录里的条目的绑定不生效，回到按模型名对应
         await AgentCredentialRepository(session).update(
             created["id"], tier_bindings={"model": "anthropic/claude-haiku-4-5", "opus": "acme/gone"}
         )
@@ -396,7 +392,6 @@ async def test_a_tier_binding_takes_precedence_over_the_model_name(agent_config_
         "binding_stale": False,
         "priced": True,
     }
-    # 失效绑定回到按模型名对应，但绑定还存着，状态里标出来让界面能解除
     assert tiers["opus"]["manually_bound"] is False
     assert tiers["opus"]["binding_stale"] is True
 
@@ -434,7 +429,6 @@ async def test_binding_a_catalog_entry_prices_an_unpriced_tier_and_unbinding_rev
         "binding_stale": False,
         "priced": True,
     }
-    # 只绑了主模型；其余档位用主模型名，没有绑定，仍按名字对应
     assert tiers["haiku"]["manually_bound"] is False
     assert tiers["haiku"]["priced"] is False
     (listed,) = (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"]
@@ -484,7 +478,6 @@ async def test_saving_a_credential_can_submit_tier_bindings(agent_config_client)
     assert tiers["opus"]["entry_display_name"] == "Claude Sonnet 4.6"
     assert tiers["haiku"]["manually_bound"] is False
 
-    # 更新按档位合并：给出的档位改绑，null 的档位解除，没给出的档位保持不变
     resp = await agent_config_client.patch(
         f"/api/v1/agent/credentials/{created['id']}",
         json={"tier_bindings": {"opus": None, "sonnet": "anthropic/claude-haiku-4-5"}},
@@ -510,7 +503,6 @@ async def test_saving_a_credential_with_an_unknown_binding_is_rejected_without_c
 async def test_a_stale_binding_to_a_delisted_entry_can_still_be_unbound(agent_config_client, db_factory) -> None:
     created = await _create_gateway_credential(agent_config_client)
     async with db_factory() as session:
-        # 绑定存着，所绑条目已从目录下架
         await AgentCredentialRepository(session).update(created["id"], tier_bindings={"model": "acme/gone"})
         await session.commit()
 
@@ -518,7 +510,6 @@ async def test_a_stale_binding_to_a_delisted_entry_can_still_be_unbound(agent_co
     assert _tiers(listed)["model"]["manually_bound"] is False
     assert _tiers(listed)["model"]["binding_stale"] is True
 
-    # 与这条绑定无关的编辑不被它堵住
     assert (
         await agent_config_client.patch(f"/api/v1/agent/credentials/{created['id']}", json={"multiplier": 2})
     ).status_code == 200

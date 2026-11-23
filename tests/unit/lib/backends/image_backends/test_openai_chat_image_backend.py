@@ -39,7 +39,7 @@ def _chat_response(message: dict) -> httpx.Response:
 
 
 async def test_image_to_image_sends_reference_and_saves_returned_image(tmp_path):
-    ref = tmp_path / "ref.png"  # 扩展名与实际编码不符：data URI 按文件头取 MIME
+    ref = tmp_path / "ref.png"
     ref.write_bytes(_REF)
     out = tmp_path / "out" / "storyboard.png"
     backend = get_endpoint_spec("openai-chat-image").build_backend(_provider(), "gemini-3-pro-image")
@@ -78,7 +78,6 @@ async def test_image_to_image_sends_reference_and_saves_returned_image(tmp_path)
 
 
 async def test_text_to_image_extracts_markdown_image_from_content(tmp_path):
-    # 部分中转站不填 message.images，把图片以 Markdown 内联在 content 里返回
     out = tmp_path / "out.png"
     backend = get_endpoint_spec("openai-chat-image").build_backend(_provider(), "gemini-2.5-flash-image")
     markdown = "好的：\n![image](https://cdn.example.com/a.png)"
@@ -96,7 +95,6 @@ async def test_text_to_image_extracts_markdown_image_from_content(tmp_path):
 
 
 async def test_download_failure_retries_download_only(tmp_path, poll_clock):
-    # 出图已计费：取件的瞬态失败只在下载层重试，不重发 Chat Completions 请求
     out = tmp_path / "out.png"
     backend = get_endpoint_spec("openai-chat-image").build_backend(_provider(), "gemini-2.5-flash-image")
 

@@ -2,8 +2,6 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 「市场」分区：铺满档，顶部 Tab（浏览 | 我的分享 | 设置）。浏览是条目网格与筛选行，
-// 设置里是可排序的市场源列表、GitHub 访问代理（底部保存栏）与官方服务。
 
 const MARKET_PATH = "/app/settings?section=market";
 const SETTINGS_PATH = `${MARKET_PATH}&tab=settings`;
@@ -91,7 +89,6 @@ const ENTRIES = [1, 2, 3, 4, 6].flatMap((sourceId) => Array.from({ length: 6 }, 
 
 const OFFICIAL_SEEN = { available: true, enabled: true, notice_seen: true, instance_id: "8f14e45f-ceea-467a-9575-1c3a4d5e6f70" };
 
-// 打开市场页时的自动刷新与官方服务聚合都访问外网，所有场景都替换。
 const OFFLINE: ApiOverrides = {
   "POST /api/v1/market/refresh?stale_only=true": { status: 200, body: { sources: [] } },
   "GET /api/v1/market/entries/aggregates?type=endpoint": { status: 200, body: { items: [] } },
@@ -163,7 +160,6 @@ const DEFINITION = {
   status_map: { succeed: "succeeded", failed: "failed" },
 };
 
-// 安装弹窗：第三方源的条目，定义长、尚未安装。
 const INSTALL: ApiOverrides = {
   ...MANY,
   "GET /api/v1/market/sources/2/entries/kling-master-0": {
@@ -224,7 +220,6 @@ defineRegionScenarios("市场", [
       await expect(page.getByRole("article")).toHaveCount(ENTRIES.length);
     },
     act: async (page) => {
-      // 宽窗口下内容列靠左：第一张卡片的左缘与 Tab 栏的左缘对齐
       const tabs = await page.getByRole("tablist").boundingBox();
       const card = await page.getByRole("article").first().boundingBox();
       expect(card?.x).toBe(tabs?.x);

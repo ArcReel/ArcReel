@@ -185,7 +185,6 @@ class _FakePM:
             "episodes": [],
         }
         if content_mode == "ad":
-            # 镜像真实 ProjectManager 的 ad 形状：常量直接取自生产代码，避免第二份真相
             from lib.project.project_manager import ProjectManager
 
             payload["target_duration"] = (
@@ -226,10 +225,6 @@ class _FakePM:
         self.scripts[(name, script_file)] = payload
 
     def update_project(self, name, mutate_fn):
-        # 复刻真实 ProjectManager.update_project：load → mutate → save 单一事务，
-        # 并返回迁移后的 project dict（调用方据此回前端，无需二次 load_project）。
-        # deepcopy 后再 mutate，使异常时（save 未执行）backing store 不被原地突变污染，
-        # 忠实于真实 PM「读裸 JSON、出错不写回」的语义。
         project = deepcopy(self.load_project(name))
         mutate_fn(project)
         self.save_project(name, project)
@@ -240,17 +235,12 @@ class _FakePM:
 
     @contextmanager
     def locked_script(self, name, script_file):
-        # 复刻真实 ProjectManager.locked_script：load → yield → save，异常时跳过写回。
-        # deepcopy 同上，确保 with 体内抛异常时原始存储对象保持不变。
         script = deepcopy(self.load_script(name, script_file))
         yield script
         self.save_script(name, script, script_file)
 
     @contextmanager
     def locked_episode_script(self, name, resolve_script_file, *, validate=True, on_commit=None):
-        # 复刻真实 ProjectManager.locked_episode_script：解析 episode→script_file →
-        # 锁内读改写脚本 → 内联把 title/script_file 镜像回 project.json episodes[]
-        # （仅当脚本含 episode int，与真实 _apply_episode_sync 触发条件一致）。
         script_file = resolve_script_file(self.load_project(name))
         norm = script_file[len("scripts/") :] if script_file.startswith("scripts/") else script_file
         script = deepcopy(self.load_script(name, norm))
@@ -273,8 +263,6 @@ class _FakePM:
         if name == "ready":
             return {"synopsis": "generated"}
         if name == "leaky":
-            # 模拟底层异常文本携带服务器绝对路径（如文件读写失败），
-            # 上传端点的软降级分支不得把裸 str(e) 透传给客户端。
             raise RuntimeError("open failed: /Users/secret/projects/leaky/source/novel.txt")
         if name == "no-provider":
             raise ValueError("未找到可用的 text 供应商")
@@ -283,19 +271,14 @@ class _FakePM:
         if name == "retired-upload":
             raise ModelNotInCatalogError(provider_id="ark", model_id="old-text", media_type="text")
         if name == "corrupted":
-            # 模拟供应商解析链路内部重新 load_project 时命中损坏的 project.json：
-            # JSONDecodeError 是 ValueError 子类，不该被误判为「未配置供应商」
             json.loads("{not valid json")
         if name == "truncated":
             raise TextOutputTruncatedError(
                 provider="openai", model="my-llm", output_tokens=64, provider_id="custom-3", custom_model=True
             )
         if name == "retired-model":
-            # 模拟项目引用的文本模型已不在供应商清单中：同样是 ValueError 子类，不该被误判为「未配置供应商」
             raise ModelNotInCatalogError(provider_id="ark", model_id="doubao-seed-1-8-251228", media_type="text")
         if name == "bad-schema":
-            # 模拟模型输出未通过 schema 校验：pydantic ValidationError 同样是 ValueError 子类，
-            # 不该被误判为「未配置供应商」
             _OverviewProbe.model_validate({})
         raise EmptySourceError("source missing")
 

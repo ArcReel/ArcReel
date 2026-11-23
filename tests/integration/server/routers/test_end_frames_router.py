@@ -162,7 +162,6 @@ class TestUploadChannel:
         assert resp.json()["end_frame_image"] == END_FRAME_REL
 
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
-        # JPEG 入参统一归一为 PNG（与分镜图上传同口径）
         with Image.open(pm.get_project_path("demo") / END_FRAME_REL) as img:
             assert img.format == "PNG"
 
@@ -171,7 +170,6 @@ class TestUploadChannel:
         _upload(c, _img_bytes("JPEG", size=(8, 8)))
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
         assert resp.status_code == 200, resp.text
-        # 路径固定，字段值不变；文件内容被换掉
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         with Image.open(pm.get_project_path("demo") / END_FRAME_REL) as img:
             assert img.size == (16, 16)
@@ -199,7 +197,6 @@ class TestSelectChannel:
         resp = _select(c, "storyboards/scene_E1S02.png")
         assert resp.status_code == 200, resp.text
         assert resp.json()["end_frame_image"] == END_FRAME_REL
-        # 字段存的是快照路径，不是源图路径 —— 引用关系从结构上就不存在
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         with Image.open(pm.get_project_path("demo") / END_FRAME_REL) as img:
             assert img.format == "PNG"
@@ -227,7 +224,6 @@ class TestSelectChannel:
 
         resp = _select(c, "storyboards/scene_E1S02.png")
         assert resp.status_code == 400
-        # max_mb 由字节上限整除 1 MB 得出，本例上限被压到 16 字节故为 0
         assert resp.json()["detail"] == i18n_message(
             "end_frame_source_too_large", max_mb=0, path="storyboards/scene_未命名集 · S02.png"
         )
@@ -299,7 +295,6 @@ class TestSnapshotDecoupling:
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
         before = snapshot.read_bytes()
 
-        # 源图重生成（内容与尺寸都变）后再删除，模拟版本回滚 / 资源清理
         _write_source_image(pm, source_rel, _img_bytes("PNG", size=(24, 24), color=(0, 0, 255)))
         (pm.get_project_path("demo") / source_rel).unlink()
 
@@ -389,7 +384,7 @@ def _interleave_across_critical_section(
         def _target() -> None:
             try:
                 results[key] = call()
-            except Exception as exc:  # 主线程复述，不能只打印到 stderr
+            except Exception as exc:
                 errors[key] = exc
 
         thread = threading.Thread(target=_target)
@@ -401,7 +396,6 @@ def _interleave_across_critical_section(
         assert entered_section.wait(timeout=10), "先到的请求没能进入剧本锁临界区"
 
         t_second = _run("second", second)
-        # 先到的一方还停在临界区内，后到的一方不该有任何完成的可能
         t_second.join(timeout=0.3)
         assert "second" not in results, f"后到的请求插进了对方的临界区：{results.get('second')}"
     finally:
@@ -430,7 +424,6 @@ class TestConcurrentSetClear:
 
         assert results.first.status_code == 200, results.first.text
         assert results.second.status_code == 200, results.second.text
-        # 清除后到、整段落在设置之后：字段置空，快照文件随之删除
         assert _segment(pm).get("end_frame_image") is None
         assert not snapshot.exists()
 
@@ -448,7 +441,6 @@ class TestConcurrentSetClear:
 
         assert results.first.status_code == 200, results.first.text
         assert results.second.status_code == 200, results.second.text
-        # 设置后到、整段落在清除之后：字段非空则快照文件必须存在——不允许指向缺失文件的引用
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         assert snapshot.exists()
 
@@ -511,7 +503,6 @@ class TestPersistFailureRestoresSnapshot:
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
         assert resp.status_code == 500
 
-        # 字段未变（写回被跳过），快照文件也须还原成写前内容——不能是被换图覆盖后的新内容
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         assert snapshot.read_bytes() == before
 
@@ -537,7 +528,6 @@ class TestPersistFailureRestoresSnapshot:
         resp = _delete(c)
         assert resp.status_code == 500
 
-        # 字段未变（仍指向原路径），快照文件须恢复——否则字段回滚后指向的是已删除的文件
         assert _segment(pm)["end_frame_image"] == END_FRAME_REL
         assert snapshot.exists()
         assert snapshot.read_bytes() == before
@@ -551,7 +541,6 @@ class TestPersistFailureRestoresSnapshot:
         concurrent_bytes = _img_bytes("PNG", size=(32, 32))
 
         _fail_first_persist(script_io)
-        # load 序列：_locate_shot(1) → 本次失败的 locked_script(2) → 回滚的 locked_script(3)
         _inject_concurrent_takeover_before_nth_load(script_io, key, snapshot, concurrent_bytes, n=3)
 
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
@@ -572,7 +561,6 @@ class TestPersistFailureRestoresSnapshot:
         resp = _delete(c)
         assert resp.status_code == 500
 
-        # 回滚跳过：文件保留并发请求写入的新内容，没有被「删除态」覆盖
         assert snapshot.exists()
         assert snapshot.read_bytes() == concurrent_bytes
 
@@ -592,7 +580,6 @@ class TestPersistFailureRestoresSnapshot:
         resp = _delete(c)
         assert resp.status_code == 500
 
-        # 回滚跳过：文件保持并发清除后的「已删除」结果，没有被旧字节重新写回制造孤儿文件
         assert not snapshot.exists()
 
     def test_set_failure_skips_restore_when_concurrent_takeover_uses_other_alias(self, end_frames_client, script_io):
@@ -613,7 +600,6 @@ class TestPersistFailureRestoresSnapshot:
         )
         assert resp.status_code == 500
 
-        # 未归一化则代次键不同，回滚会看不到接管、用旧字节覆盖并发写入的新内容
         assert snapshot.read_bytes() == concurrent_bytes
 
     def test_set_failure_restore_uses_bytes_read_inside_critical_section(self, end_frames_client, script_io):
@@ -631,7 +617,6 @@ class TestPersistFailureRestoresSnapshot:
 
         def _load_with_rewrite(path: Path) -> dict:
             calls["n"] += 1
-            # 读盘序列：_locate_shot(1) → 失败操作自身的 locked_script(2)
             if calls["n"] == 2:
                 snapshot.write_bytes(content_at_critical_section_entry)
             return script_io.real_read(path)
@@ -642,8 +627,6 @@ class TestPersistFailureRestoresSnapshot:
         resp = _upload(c, _img_bytes("PNG", size=(16, 16)))
         assert resp.status_code == 500
 
-        # 基线在临界区内读取，读到的就是这份改写后的内容，回滚据此还原；
-        # 若基线在锁外预读，读到的是改写前的旧内容，回滚会把这份改写覆盖掉
         assert snapshot.read_bytes() == content_at_critical_section_entry
 
 
@@ -844,7 +827,6 @@ class TestReferenceVideoRejection:
     """
 
     def test_ad_project_level_reference_video_rejects_all_three_endpoints(self, tmp_path, monkeypatch):
-        # ad 剧本骨架不携带 generation_mode 戳，参考生视频只由项目级配置声明。
         c, pm = _client_with_project(
             tmp_path, monkeypatch, content_mode="ad", script=_ad_script(), project_generation_mode="reference_video"
         )
@@ -898,7 +880,6 @@ class TestReferenceVideoRejection:
         assert pm.load_script("demo", "episode_1.json")["segments"][0]["end_frame_image"] == END_FRAME_REL
 
     def test_script_without_episode_number_rejected_by_project_route(self, tmp_path, monkeypatch):
-        # 剧本与文件名都不含集号：判定只需项目生成模式，照常拒绝且不落到 500。
         script = {
             "title": "E1",
             "content_mode": "narration",
@@ -907,7 +888,6 @@ class TestReferenceVideoRejection:
         c, pm = _client_with_project(
             tmp_path, monkeypatch, content_mode="narration", script=script, project_generation_mode="reference_video"
         )
-        # 文件名不含集号的剧本写盘入口会拒绝，直接落盘模拟外部写入的文件。
         (pm.get_project_path("demo") / "scripts" / "custom.json").write_text(json.dumps(script), encoding="utf-8")
 
         resp = c.post(
@@ -921,7 +901,6 @@ class TestValidatorAcceptsWrittenSnapshot:
     def test_written_project_passes_tree_validation(self, end_frames_client):
         c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
-        # end_frames 已登记为允许的项目根目录条目，不被判为未知目录
         assert "end_frames" in DataValidator.ALLOWED_ROOT_ENTRIES
         result = DataValidator(projects_dir=str(pm.projects_dir)).validate_project_tree("demo")
         assert not [e for e in result.errors if "end_frames" in e]

@@ -81,7 +81,6 @@ async def test_script_changes_surface_as_deleted_and_unused_units(
     )
     readout = await service.read("demo", created.timeline.id)
 
-    # 剪辑时间线不随脚本变化：片段保持原样，已删除单元的片段渲染时跳过
     assert [clip.unit_id for clip in readout.clips] == ["E1U1", "E1U2", "E1U3"]
     assert [(clip.status, clip.start, clip.duration) for clip in readout.clips] == [
         ("ready", 0.0, 1.0),
@@ -155,7 +154,6 @@ async def test_reading_an_unknown_timeline_is_rejected(service: EditTimelineServ
 async def test_media_durations_accumulate_before_rounding_to_milliseconds(
     service: EditTimelineService, install_video: InstallMedia
 ) -> None:
-    # 每段 31 帧 / 30fps，单段显示为 1.033 秒，三段合计应为 3.100 秒。
     for unit_id in ("E1U1", "E1U2", "E1U3"):
         install_video(unit_id, 1.03)
     created = await service.create_from_script("demo", episode=1, name="帧时长", author=CREATOR)
@@ -183,7 +181,6 @@ async def test_subtitle_characters_the_bundled_font_cannot_draw_are_reported(
 
     readout = await service.create_from_script("demo", episode=1, name="初剪", author=CREATOR)
 
-    # 只查台词与画外音（字幕的来源）；E1U3 是无人声单位，动作描述不进字幕。
     assert [
         (issue.clip_ids, issue.unit_id, issue.severity.value, issue.applies_to.value, issue.params)
         for issue in readout.issues

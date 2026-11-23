@@ -30,7 +30,6 @@ def storyboard_request_facts(set_admission_video_request_facts) -> None:
 
 _EPISODE_1 = {"scope": "episode", "episode_id": 1}
 _ALL = {"scope": "all"}
-# 越出项目根的成片路径：清单无从检查这份产物，它的状态既不是「缺失」也不是「可用」。
 _UNREADABLE_CLIP = "../outside/E1S02.mp4"
 
 
@@ -103,7 +102,7 @@ async def test_generate_videos_episode_scope_batch_is_all_or_nothing_when_a_unit
     assert codes["E1S01"] == "generation_batch_admission_withheld"
 
 
-_WEB_SCRIPT_FILE = "scripts/episode_1.json"  # Web 路由传账本原值；Agent 工具传纯文件名
+_WEB_SCRIPT_FILE = "scripts/episode_1.json"
 
 
 def _enqueue_reference_video_as_web(fake_ctx: ToolHarness) -> Any:

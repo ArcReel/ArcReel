@@ -609,7 +609,6 @@ class TestConfirmMaterializesScript:
 
         assert state["status"] == "confirmed"
         [segment] = _formal_script(pm)["segments"]
-        # 规划里的 E1S01 已被旧剧本用过，转出时换成本集用过的最大号之后的新编号
         assert segment["segment_id"] == "E1S10"
         assert segment["pending_authoring"] is True
         assert segment["image_prompt"] is None
@@ -772,7 +771,6 @@ class TestConfirmMaterializesScript:
         read_overwrite = script_generator_module.formal_script_overwrite
 
         def rewrite_plan_then_read_overwrite(project_path: Path, project: dict, episode: int):
-            # 物化已加载并核对过规划、尚未落盘时，另一入口写入了新规划。
             atomic_write_json(plan_path, rewritten)
             return read_overwrite(project_path, project, episode)
 
@@ -932,7 +930,6 @@ class TestReferenceVideoGateFlow:
             await svc.confirm("demo", 1)
         assert exc.value.code == "quarantined"
 
-        # 草稿清除后回到既有的指纹判定（内容未变，确认仍然有效）
         clear_quarantine(project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
         assert (await svc.get_state("demo", 1))["status"] == "confirmed"
 
@@ -1280,7 +1277,6 @@ class TestReferenceVideoScriptPlanMigration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         legacy = self._legacy_script_plan()
-        # 10s 落在结构区间内，但不是档位成员——只做结构 clamp 时会原样固化。
         legacy["units"][0]["duration_seconds"] = 10
         path = _write_rv_script_plan(pm, legacy)
 
@@ -1306,7 +1302,6 @@ class TestReferenceVideoScriptPlanMigration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         legacy = self._legacy_script_plan()
-        # 7s 在结构区间内，但不是 [5, 10] 的成员。
         legacy["units"][0]["duration_seconds"] = 7
         path = _write_rv_script_plan(pm, legacy)
 
@@ -1389,7 +1384,6 @@ class TestReferenceVideoScriptPlanMigration:
         legacy = self._legacy_script_plan()
         path = _write_rv_script_plan(pm, legacy)
 
-        # 先在收编前的内容上记录确认指纹（模拟升级前已通过审核的分集）。
         def _confirm_legacy(p: dict) -> None:
             script_review.apply_confirmation(p, 1, script_review.content_fingerprint(path), "2026-01-01T00:00:00Z")
 
@@ -1416,7 +1410,6 @@ class TestReferenceVideoScriptPlanMigration:
         pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
         svc = _service(pm)
         legacy = self._legacy_script_plan()
-        # 90s 超出最大档位（12s），迁移会取档改写并记 warning。
         legacy["units"][0]["duration_seconds"] = 90
         path = _write_rv_script_plan(pm, legacy)
 
@@ -1451,7 +1444,6 @@ class TestReferenceVideoScriptPlanMigration:
 
         state = await svc.get_state("demo", 1)
         assert state["status"] == "pending_review"
-        # 幂等重读不会把状态放回 grandfather 放行：失配标记已持久化。
         assert (await svc.get_state("demo", 1))["status"] == "pending_review"
 
     async def test_clamping_migration_marker_survives_interrupted_project_write(
@@ -1573,7 +1565,6 @@ class TestReferenceVideoScriptPlanMigration:
         original_migrate = script_review.migrate_unit_durations
 
         def _migrate_with_concurrent_confirm(units, **kwargs):
-            # 模拟另一请求的 confirm() 在 get_state 加载 project 快照之后、迁移完成之前落下确认。
             def _confirm_legacy(p: dict) -> None:
                 script_review.apply_confirmation(p, 1, before, "2026-01-01T00:00:00Z")
 
@@ -1625,11 +1616,6 @@ class TestReferenceVideoPromptAuthoringEnforcement:
         assert dry_run.problem is None, dry_run
 
 
-# ---------------------------------------------------------------------------
-# 适用范围：drama / narration / reference_video 纳入 gate；ad 不纳入
-# ---------------------------------------------------------------------------
-
-
 class TestApplicability:
     async def test_reference_video_applicable(self, tmp_path, video_request_facts):
         """reference_video（跨 content_mode）纳入 gate，script_plan 变体判为 reference_video。"""
@@ -1637,7 +1623,6 @@ class TestApplicability:
         project = pm.load_project("demo")
         assert script_review.script_plan_kind(project) == "reference_video"
         assert script_review.is_applicable(project) is True
-        # 未产 script_plan → no_script_plan（区别于 ad 的 not_applicable）。
         assert (await _service(pm).get_state("demo", 1))["status"] == "no_script_plan"
 
     async def test_ad_not_applicable(self, tmp_path):
@@ -1830,7 +1815,6 @@ class TestErrors:
         svc = _service(pm)
         project_path = pm.get_project_path("demo")
         _write_rv_script_plan(pm, _rv_script_plan())
-        # 先经一次保存把归一化形状（含模型默认字段）落盘，"内容未变"的比较才有同一基准
         await svc.save_content("demo", 1, _rv_script_plan())
         prompt_authoring_q = quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
 
@@ -1918,7 +1902,6 @@ class TestScriptPlanWriteStore:
             assert script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 2}]}) is True
         assert not prompt_authoring_q.exists()
 
-        # 迁移回写按机械收编处理：内容变了也不清
         write_quarantine(
             project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING, content={"units": [{"text": "基底"}]}, violations=[]
         )
@@ -1949,7 +1932,6 @@ class TestScriptPlanWriteStore:
         assert registered == [ArtifactKey.episode_script_plan(1)]
 
     def test_content_change_moves_project_activity_forward(self, tmp_path: Path):
-        # 脚本规划是 JSON，修改时间不计入活动，由写盘出口记账；内容未变的写入不算活动。
         project_path = self._project_path(tmp_path)
         stale = datetime(2026, 3, 1, 8, 0, tzinfo=UTC)
         (project_path / ACTIVITY_FILENAME).write_text(stale.isoformat(), encoding="utf-8")
@@ -1966,7 +1948,6 @@ class TestScriptPlanWriteStore:
         assert recorded_project_activity(project_path) == stale
 
     def test_failed_commit_leaves_project_activity_unchanged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        # 内容变化会作废下游草稿，清草稿的出口在事务内记账；登记失败回滚时账本一并回到原值。
         project_path = self._project_path(tmp_path)
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
@@ -1992,7 +1973,6 @@ class TestScriptPlanWriteStore:
     def test_failed_commit_keeps_activity_recorded_by_other_writers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
-        # 账本是项目全局的，草稿、记忆等写入方不经过正式文件的锁：回滚时不能抹掉它们同期的记账。
         project_path = self._project_path(tmp_path)
         with script_review.script_plan_write_lock(project_path, 1):
             script_review.write_script_plan_locked(project_path, 1, {"units": [{"v": 1}]})
@@ -2027,11 +2007,6 @@ class TestScriptPlanWriteStore:
         recorded = recorded_project_activity(project_path)
         assert recorded is not None
         assert recorded > stale
-
-
-# ---------------------------------------------------------------------------
-# prompt_authoring 与内容确认：编写不受确认门禁阻塞，确认工具走同一服务
-# ---------------------------------------------------------------------------
 
 
 class TestPromptAuthoringEnforcement:
@@ -2143,11 +2118,6 @@ class TestPromptAuthoringEnforcement:
         assert script_review.review_status(project_path, pm.load_project("demo"), 1) == "pending_review"
 
 
-# ---------------------------------------------------------------------------
-# 存量穷举：{script_plan 有无 × prompt_authoring 有无 × script_plan_review 有无} 的 gate 派生态
-# ---------------------------------------------------------------------------
-
-
 class TestLegacyEnumeration:
     async def test_no_script_plan(self, tmp_path):
         pm = _make_project(tmp_path, "drama")
@@ -2185,12 +2155,6 @@ class TestLegacyEnumeration:
         rerun["scenes"][0]["source_text"] = "改写后的原文锚"
         _write_script_plan(pm, "drama", rerun)
         assert (await _service(pm).get_state("demo", 1))["status"] == "pending_review"
-
-
-# ---------------------------------------------------------------------------
-# 手动预拆分自愈：episodes[] 账本为空但 source/episode_N.txt 派生文件已存在时，
-# _require_episode 自愈补建条目而非直接判死锁。
-# ---------------------------------------------------------------------------
 
 
 class TestOwnSourceEpisodes:

@@ -64,15 +64,12 @@ def test_build_reference_video_prompt_contains_required_sections():
 
     assert "北宋江湖" in prompt
     assert "水墨渲染风格" in prompt
-    # 三类资产名称都必须出现（MentionPicker 候选源）
     assert "主角" in prompt
     assert "张三" in prompt
     assert "酒馆" in prompt
     assert "长剑" in prompt
-    # script_plan 正文逐字透传，不加任何分段前缀
     assert "@[主角] 推门走进 @[酒馆]\n@[主角] 按住 @[长剑]" in prompt
     assert "（时长 8s）" in prompt
-    # 断言完整约束句：单看 "9" 会被默认 aspect_ratio "9:16" 满足，max_refs 未注入也能通过
     assert "不超过 9 个（模型上限）" in prompt
 
 
@@ -260,7 +257,6 @@ def test_build_reference_units_split_prompt_scopes_default_to_its_tier():
         default_duration=4,
     )
     assert "unit 默认取 4 秒（该默认值只落在不带 `@` 引用的 unit 的档位内" in prompt
-    # 两套档位都含该默认值时不加这段限定，避免无效措辞。
     plain = _split_prompt(supported_durations=[4, 6, 8], default_duration=4)
     assert "该默认值只落在" not in plain
 
@@ -296,7 +292,6 @@ def test_render_reference_units_for_prompt_authoring_mechanical():
     assert "#### unit 1（时长 10s）" in text
     assert "@[甲] 起身\n@[甲]：{走了。}\n@[甲] 出门" in text
     assert "#### unit 2（时长 8s）" in text
-    # unit_id 由序号机械派生，不下发给 prompt_authoring
     assert "E1U01" not in text
 
 

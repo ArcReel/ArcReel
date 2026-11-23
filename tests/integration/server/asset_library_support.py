@@ -12,11 +12,8 @@ from lib.project.project_manager import ProjectManager
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
 _OWNER = "王"
-#: 库角色「王」带的两个衍生：名、变化描述与图的纯色。
 _DERIVATIVES = (("战斗装", "黑甲", (120, 0, 0)), ("便装", "布衣", (0, 120, 0)))
 
-#: 应用 :func:`store_character_with_derivatives` 存入的库角色后，按 :func:`character_sheet_statuses`
-#: 读出的全部 current 结论。
 LIBRARY_SHEETS_ALL_CURRENT = dict.fromkeys(
     (_OWNER, *(name for name, _desc, _color in _DERIVATIVES)), ArtifactStatus.CURRENT
 )

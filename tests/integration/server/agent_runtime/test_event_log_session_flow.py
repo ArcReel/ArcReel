@@ -92,7 +92,6 @@ def _new_session_frames() -> list[ScriptedFrame]:
     """一轮完整对话：init → 用户回放 → 流式 → assistant(工具) → tool_result → subagent → result。"""
     return [
         system_frame("init", session_id=SDK_ID, uuid="init-1"),
-        # CLI 回放的用户消息（首条消息在 sdk_session_id 就绪时已写日志，须被跳过）
         replay_frame(session_id=SDK_ID),
         stream_event_frame({"type": "message_start", "message": {"id": "msg_01"}}, uuid="se-1", session_id=SDK_ID),
         stream_event_frame(
@@ -268,21 +267,17 @@ class TestNewSessionEventLogFlow:
             assert [e["seq"] for e in entries] == [0, 1, 2, 3]
             assert [e["type"] for e in entries] == ["user", "assistant", "tool_result", "assistant"]
 
-            # 用户条目（受理写入，SDK 回放副本未产生重复）
             assert entries[0]["content"] == [{"type": "text", "text": "帮我写分镜"}]
 
-            # assistant 条目携带 message_id（draft 精确替换身份）
             assert entries[1]["message_id"] == "msg_01"
             assert entries[1]["content"][1]["type"] == "tool_use"
 
-            # tool_result 是独立条目且引用 tool_use_id，不伪装成 user 消息
             assert entries[2]["tool_use_id"] == "tu-1"
             assert entries[2]["content"] == "file.txt"
             assert entries[2]["is_error"] is False
 
             assert entries[3]["parent_tool_use_id"] == "tu-1"
 
-            # 一轮结束后 draft 已随 result 丢弃
             assert manager.get_draft_state(SDK_ID)["draft"] is None
         finally:
             await manager.close_session(SDK_ID)
@@ -301,7 +296,6 @@ class TestNewSessionEventLogFlow:
 
         entries = await _wait_for_entries(manager.event_log_store, SDK_ID, 4)
         try:
-            # 时间线不变：回放副本仍未产生第二条 user 条目
             assert [e["type"] for e in entries] == ["user", "assistant", "tool_result", "assistant"]
             linked = await manager.event_log_store.find_user_message_link(SDK_ID, entries[0]["uuid"])
             assert linked == client.sent_messages[0]["uuid"]
@@ -326,7 +320,6 @@ class TestNewSessionEventLogFlow:
         )
         assistant_error["error"] = "invalid_request"
         assistant_error["message"]["stop_reason"] = "stop_sequence"
-        # result 帧不带 result 文本：摘要必须取自经真实解析路径序列化的 assistant 文本块
         result_error = result_frame(
             is_error=True,
             api_error_status=404,
@@ -409,7 +402,7 @@ class TestNewSessionEventLogFlow:
                 user_entry=build_user_entry([{"type": "text", "text": "写分镜"}]),
                 client_key="ck-int",
             )
-            await _wait_for_status(manager, SDK_ID, "running")  # 让 query 进入 drain
+            await _wait_for_status(manager, SDK_ID, "running")
             await manager.interrupt_session(SDK_ID)
 
         try:
@@ -418,7 +411,6 @@ class TestNewSessionEventLogFlow:
             assert [e["type"] for e in entries] == ["user", "system"]
             assert entries[1]["subtype"] == "interrupt"
             assert manager.sessions[SDK_ID].status == "interrupted"
-            # result 兜底与回显竞态不产生第二条中断条目
             final_entries = await manager.event_log_store.list_after(SDK_ID)
             assert [e["type"] for e in final_entries] == ["user", "system"]
         finally:
@@ -611,7 +603,6 @@ class TestNewSessionEventLogFlow:
             try:
                 assert manager.get_queued_messages_snapshot(SDK_ID) == []
 
-                # actor 已随失败退出；关闭会话模拟冷恢复后重试
                 await manager.close_session(SDK_ID)
                 retry = await _send()
 
@@ -649,8 +640,6 @@ class TestNewSessionEventLogFlow:
         assert meta.status == "error"
         assert SDK_ID not in manager.sessions
         assert client.disconnected is True
-        # 内存态提前置 error：cleanup 取消 _process_task 时不应再走 interrupted
-        # 分支多写一次终态（否则 DB 会先落 interrupted 再落 error）
         statuses_written = [call.args[1] for call in update_status_spy.call_args_list]
         assert "interrupted" not in statuses_written
         assert statuses_written.count("error") == 1
@@ -689,8 +678,6 @@ class TestNewSessionEventLogFlow:
         meta = await manager.meta_store.get(SDK_ID)
         assert meta is not None
         assert meta.status == "error"
-        # "running" 是新会话建立时的常规写入；result 被短路未 finalize，
-        # 不应出现 finalize 才会写入的 completed/idle 等中间终态
         statuses_written = [call.args[1] for call in update_status_spy.call_args_list]
         assert statuses_written == ["running", "error"]
 
@@ -726,7 +713,6 @@ class TestNewSessionEventLogFlow:
                     client_key="ck-retry-new",
                 )
 
-            # 失败会话（SDK_ID）本身无任何条目残留：append 写入真失败，非部分写入
             assert not await manager.event_log_store.has_entries(SDK_ID)
 
             sdk_id = await manager.send_new_session(
@@ -741,7 +727,6 @@ class TestNewSessionEventLogFlow:
             assert managed.initial_user_log_entry is not None
             assert managed.initial_user_log_entry["seq"] == 0
             assert managed.initial_user_entry_error is None
-            # 同幂等键在重试会话下正确解析到新写入的条目，未短路到失败会话
             resolved = await manager.event_log_store.find_by_client_key(retry_sdk_id, "ck-retry-new")
             assert resolved == managed.initial_user_log_entry
         finally:
@@ -825,7 +810,6 @@ class TestSessionStatusFollowsCliIdle:
             await self._send(manager, client)
             try:
                 await _next_broadcast(stream, "log_turn_complete")
-                # 子智能体完成，CLI 不经用户消息开启下一轮
                 client.push_frame(assistant_frame({"type": "text", "text": "汇总"}, uuid="a-2", session_id=SDK_ID))
                 client.push_frame(result_frame(session_id=SDK_ID, uuid="r-2"))
                 await _next_broadcast(stream, "log_turn_complete")
@@ -1018,7 +1002,6 @@ class TestQueuedMessages:
                 entered.set()
                 await asyncio.Event().wait()
 
-        # 断开超时设为 0：query 已挂起（entered 握手）时断开不可能完成，不等墙钟直接走取消兜底
         service.session_manager._session_actor_shutdown_timeout = 0
         with _scripted_client(service.session_manager, HangingClient()):
             sending = asyncio.create_task(
@@ -1030,7 +1013,6 @@ class TestQueuedMessages:
         outcome = (await asyncio.gather(sending, return_exceptions=True))[0]
         assert isinstance(outcome, Exception)
         assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
-        # 发送路径先按失败写 error，驱逐收尾最后写 interrupted：以驱逐的结论为准
         meta = await service.meta_store.get(SDK_ID)
         assert meta is not None
         assert meta.status == "interrupted"
@@ -1060,7 +1042,6 @@ class TestQueuedMessages:
 
         assert isinstance(outcome, Exception)
         assert SDK_ID not in service.session_manager.sessions
-        # 驱逐看到的是已登记 running 的会话，按中断收尾；晚到的 running 落库之后补写回的也是这个终态
         meta = await service.meta_store.get(SDK_ID)
         assert meta is not None
         assert meta.status == "interrupted"
@@ -1123,7 +1104,6 @@ class TestQueuedMessages:
         stream = _EntryStream(service, SDK_ID)
         try:
             queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID))["queued_message"]
-            # 发送之后、接纳之前 Agent 仍在输出
             client.push_frame(assistant_frame({"type": "text", "text": "读完了"}, uuid="a-2", session_id=SDK_ID))
             client.push_frame(started_frame(session_id=SDK_ID))
 
@@ -1135,7 +1115,6 @@ class TestQueuedMessages:
             assert entries[3]["uuid"] == queued["id"]
             assert entries[3]["content"] == queued["content"]
             assert removed["id"] == queued["id"]
-            # 条目先于移出到达：托盘里的消息消失时，时间线上已经有它
             order = [(name, data.get("uuid") or data.get("id")) for name, data in stream.events]
             assert order.index(("entry", queued["id"])) < order.index(("queue_remove", queued["id"]))
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
@@ -1158,7 +1137,6 @@ class TestQueuedMessages:
         await self._start_running_turn(service, client)
         try:
             await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
-            # 第一轮先结束，排队消息随后开始新的一轮
             client.push_frame(_billed_assistant_frame("msg-1"))
             client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
             client.push_frame(started_frame(session_id=SDK_ID))
@@ -1185,7 +1163,6 @@ class TestQueuedMessages:
         client = self._running_turn_client()
         await self._start_running_turn(service, client)
         try:
-            # CLI 在工具边界把排队消息并入进行中的轮次：两次 started 之后只有一个 result
             await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
             client.push_frame(started_frame(1, session_id=SDK_ID))
             await service.send_or_create("demo", "结尾再加一个空镜", session_id=SDK_ID)
@@ -1208,7 +1185,6 @@ class TestQueuedMessages:
         await self._start_running_turn(service, client)
         try:
             queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID))["queued_message"]
-            # 并入进行中轮次的消息：回放先于 started 到达，之后 CLI 又回放了一次
             client.push_frame(replay_frame(session_id=SDK_ID))
             client.push_frame(started_frame(session_id=SDK_ID))
             client.push_frame(replay_frame(session_id=SDK_ID))
@@ -1314,12 +1290,10 @@ class TestQueuedMessages:
                         client.push_frame(_idle_frame())
                         await _idle_read()
                     elif idle_timing == "handled_during_write":
-                        # 回放排在 idle 之后：它落库时，inbox 已在本次写入期间处理过 idle
                         inbox_released.set()
                         await replay_linked.wait()
                     raise RuntimeError("db down")
 
-                # 用量记账卡住 result，其后的帧都排在 inbox 里
                 client.push_frame(_billed_assistant_frame("msg-1"))
                 client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
                 if idle_timing != "read_during_write":
@@ -1331,7 +1305,6 @@ class TestQueuedMessages:
                     await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
                 inbox_released.set()
 
-                # 内存状态先于 meta 落库切换，终态广播在落库之后：等广播再读 meta
                 while (await _next_broadcast(stream, "runtime_status"))["status"] != "completed":
                     pass
 
@@ -1357,7 +1330,6 @@ class TestQueuedMessages:
             with patch.object(service.meta_store, "update_status", new=_fail_running), pytest.raises(RuntimeError):
                 await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
 
-            # 流可能已随排队消息对齐到 running；失败的终态随后送达，不等心跳
             statuses = [(await stream.next("status"))["status"]]
             if statuses[0] == "running":
                 statuses.append((await stream.next("status"))["status"])
@@ -1465,7 +1437,6 @@ class TestQueuedMessageWithdrawal:
             removed = await stream.next("queue_remove")
             assert removed["id"] == queued["id"]
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
-            # 撤回的消息不进时间线；幂等键随之释放，重新发送同一内容会再次送入 CLI
             retry = await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1")
             assert retry["queued_message"]["id"] != queued["id"]
             assert [entry["type"] for entry in await service.event_log_store.list_after(SDK_ID)] == [
@@ -1531,7 +1502,6 @@ class TestQueuedMessageWithdrawal:
             result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent=intent)
             assert result["outcome"] == "accepted"
 
-            # CLI 已从队列取走它，却没把它并入轮次
             client.push_frame(
                 lambda c: command_lifecycle_frame(c.sent_messages[-1]["uuid"], "cancelled", session_id=SDK_ID)
             )
@@ -1613,7 +1583,6 @@ class TestUnsentQueuedMessages:
             upsert = await stream.next("queue_upsert")
             assert upsert["message"] == {**queued, "state": "unsent"}
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [upsert["message"]]
-            # 同键重试拿到同一条未发送消息，不再送入 CLI
             retry = await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1")
             assert retry["queued_message"] == upsert["message"]
             assert len(client.sent_messages) == 2
@@ -1661,7 +1630,6 @@ class TestUnsentQueuedMessages:
                 result = await service.send_or_create("demo", "换个结局", session_id=SDK_ID)
 
             assert service.session_manager.sessions[SDK_ID] is not stale
-            # 只送入新消息，「未发送」的那条不自动重发，仍在托盘里排在前面
             assert [sent["message"]["content"] for sent in revived.sent_messages] == ["换个结局"]
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [
                 {**unsent, "state": "unsent"},
@@ -1724,7 +1692,6 @@ class TestUnsentQueuedMessages:
 
         try:
             with _scripted_client(manager, revived), patch.object(stale, "send_disconnect", _slow_disconnect):
-                # 驱逐先开始、迟迟不结束：发送等驱逐完成后按冷会话重建，不被驱逐收尾时一并移出
                 eviction = asyncio.create_task(manager.close_session(SDK_ID))
                 await asyncio.wait_for(disconnect_entered.wait(), timeout=5.0)
                 eviction_event = manager._disconnecting[SDK_ID]
@@ -1746,7 +1713,6 @@ class TestUnsentQueuedMessages:
             managed = manager.sessions[SDK_ID]
             assert managed is not stale
             assert managed.actor_exited is False
-            # 驱逐照旧丢弃「未发送」消息
             assert manager.get_queued_messages_snapshot(SDK_ID) == [result["queued_message"]]
             assert [sent["message"]["content"] for sent in revived.sent_messages] == ["换个结局"]
         finally:
@@ -1788,7 +1754,6 @@ class TestUnsentQueuedMessages:
                 patch.object(service.session_manager, "_build_options", _build_options),
                 patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: revived),
             ):
-                # 新消息触发重建连接：连接建立前「未发送」消息已离开旧会话，还没转入新连接
                 sending = asyncio.create_task(service.send_or_create("demo", "换个结局", session_id=SDK_ID))
                 await asyncio.wait_for(building.wait(), timeout=5.0)
                 get_meta = service.meta_store.get
@@ -1797,7 +1762,6 @@ class TestUnsentQueuedMessages:
                 async def _get_meta(session_id: str) -> Any:
                     meta = await get_meta(session_id)
                     if asyncio.current_task() is acting:
-                        # 读完 meta 后操作同步走到撤回或停在等待处，测试随后才恢复
                         checked.set()
                     return meta
 
@@ -1850,13 +1814,11 @@ class TestSendQueuedMessageNow:
             assert resent["priority"] == "now"
             assert resent["message"]["content"] == "先停下改结局"
             assert resent["uuid"] != first_uuid
-            # 前端看到的仍是同一条排队消息：不移出托盘，幂等键照旧指向它
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]
             retry = await service.send_or_create("demo", "先停下改结局", session_id=SDK_ID, client_key="ck-1")
             assert retry["queued_message"] == queued
             assert len(client.sent_messages) == 3
 
-            # CLI 以新的 uuid 接纳它：写入日志并离开托盘
             client.push_frame(started_frame(session_id=SDK_ID))
             entries = await _wait_for_entries(service.event_log_store, SDK_ID, 3)
             assert entries[2]["uuid"] == queued["id"]
@@ -1877,7 +1839,6 @@ class TestSendQueuedMessageNow:
 
             assert (await service.send_queued_message_now("demo", SDK_ID, urgent["id"]))["outcome"] == "sent"
 
-            # 托盘顺序跟随 CLI 的处理顺序：整份快照重播一次，插队消息排到最前
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [urgent, earlier]
             assert (await stream.next("queue")) == {"session_id": SDK_ID, "messages": [urgent, earlier]}
         finally:
@@ -1912,14 +1873,11 @@ class TestSendQueuedMessageNow:
             assert (await service.send_queued_message_now("demo", SDK_ID, urgent["id"]))["outcome"] == "sent"
             now_uuid = client.sent_messages[-1]["uuid"]
 
-            # CLI 打断当前轮：result 仍报 success，只能凭 terminal_reason 认出；这一轮的消息都收到 cancelled，
-            # 已进入对话的首条消息不受影响，从未进入对话的那条被丢掉
             client.push_frame(result_frame(session_id=SDK_ID, terminal_reason="aborted_streaming", result=""))
             client.push_frame(command_lifecycle_frame(head_uuid, "cancelled", session_id=SDK_ID))
             client.push_frame(command_lifecycle_frame(dropped_uuid, "cancelled", session_id=SDK_ID))
             client.push_frame(command_lifecycle_frame(now_uuid, "started", session_id=SDK_ID))
 
-            # 接纳先落库、广播条目，最后才移出托盘：等移出广播，而不是轮询中途就可见的日志条目
             assert (await stream.next("queue_remove")) == {"session_id": SDK_ID, "id": urgent["id"]}
             entries = await service.event_log_store.list_after(SDK_ID)
             assert [(entry["type"], entry.get("subtype")) for entry in entries] == [
@@ -1930,7 +1888,6 @@ class TestSendQueuedMessageNow:
             ]
             assert entries[3]["uuid"] == urgent["id"]
 
-            # 被丢掉的消息换一个 uuid、按普通优先级重新送入，排在插队消息之后，托盘里仍是同一条
             assert len(client.sent_messages) == 5
             requeued = client.sent_messages[4]
             assert requeued["message"]["content"] == "顺便配乐"
@@ -1938,7 +1895,6 @@ class TestSendQueuedMessageNow:
             assert "priority" not in requeued
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [dropped]
 
-            # 插队消息这一轮正常结束，不被当成中断；重排的消息之后照常被接纳
             client.push_frame(assistant_frame({"type": "text", "text": "结局改好了"}, uuid="a-2", session_id=SDK_ID))
             client.push_frame(result_frame(session_id=SDK_ID, terminal_reason="completed"))
             client.push_frame(command_lifecycle_frame(requeued["uuid"], "started", session_id=SDK_ID))
@@ -1960,7 +1916,6 @@ class TestSendQueuedMessageNow:
         try:
             assert (await service.send_queued_message_now("demo", SDK_ID, queued["id"]))["outcome"] == "accepted"
 
-            # CLI 已从队列取走它，却没把它并入轮次：按立即发送的意图重新送入
             delivered = asyncio.Event()
             query = client.query
 
@@ -1992,7 +1947,6 @@ class TestSendQueuedMessageNow:
             assert (await service.send_queued_message_now("demo", SDK_ID, urgent["id"]))["outcome"] == "accepted"
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [earlier, urgent]
 
-            # 撤回答复失败后 CLI 仍报 cancelled：inbox 上的重送同样把它排到最前
             delivered = asyncio.Event()
             query = client.query
 

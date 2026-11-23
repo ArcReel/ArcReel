@@ -33,14 +33,12 @@ class TestUploadRestorePng:
         img_upload.save(buf, format="JPEG")
         current_file.write_bytes(convert_image_bytes_to_png(buf.getvalue()))
 
-        # Simulate old metadata pointing to a non-png path (the bug scenario).
         project = pm.load_project(project_name)
         project["characters"][char_name]["character_sheet"] = f"characters/{char_name}.jpg"
         pm.save_project(project_name, project)
 
         use_project_manager(monkeypatch, pm)
 
-        # Switch back to v1 without creating a synthetic new version.
         result = await versions_router.restore_version(project_name, "characters", char_name, 1)
 
         assert result["success"]

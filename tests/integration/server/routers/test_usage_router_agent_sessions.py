@@ -92,7 +92,6 @@ async def agent_client(db_factory, usage_app):
                 agent_call("sess-b", 11, "deepseek-chat", live, project_name="demo2", cost_amount=2.0, currency="CNY"),
                 agent_call("sess-gone", 20, "kimi-k2", deleted, cost_amount=0.0),
                 agent_call("sess-old", 30, "claude-sonnet-4-5", "anthropic", cost_amount=0.3),
-                # 失败的 Agent 轮次：不进「需要关注」
                 agent_call("sess-a", 6, "deepseek-chat", live, status=CallStatus.FAILED),
                 agent_call("sess-a", 7, "deepseek-chat", live, status=CallStatus.FAILED),
                 agent_call("sess-a", 8, "deepseek-chat", live, status=CallStatus.FAILED),
@@ -248,7 +247,6 @@ class TestSummary:
                     generation_call(segment_id=f"S{index}", started_at=T0 + timedelta(minutes=index))
                     for index in range(10)
                 ]
-                # 只有 Agent 在失败：算进去时 agent-1 的失败率与连续失败都会触发
                 + [
                     agent_call(
                         "sess-x", 20 + index, "deepseek-chat", "agent-1", status=CallStatus.FAILED, segment_id="S1"

@@ -72,7 +72,6 @@ class TestConstruction:
             backend = AgnesTextBackend(api_key="sk")
             assert TextCapability.TEXT_GENERATION in backend.capabilities
             assert TextCapability.STRUCTURED_OUTPUT in backend.capabilities
-            # vision 未实测，不声明
             assert TextCapability.VISION not in backend.capabilities
 
     def test_missing_api_key_raises(self):
@@ -83,7 +82,6 @@ class TestConstruction:
                 AgnesTextBackend(api_key=None)
 
     def test_base_url_normalized_to_v1(self):
-        # 用户填 host（无 /v1 后缀）→ 归一化为 {host}/v1 后传给 SDK。
         with captured_openai_clients() as created:
             from lib.backends.text_backends.agnes import AgnesTextBackend
 
@@ -126,7 +124,6 @@ class TestGenerate:
             await backend.generate(TextGenerationRequest(prompt="hi", max_output_tokens=4096))
 
         call_kwargs = mock_client.chat.completions.create.call_args[1]
-        # apihub 网关非官方 OpenAI → 保守沿用 max_tokens
         assert call_kwargs["max_tokens"] == 4096
         assert "max_completion_tokens" not in call_kwargs
 
@@ -168,7 +165,6 @@ class TestGenerate:
         from_openai.assert_not_called()
 
     async def test_non_json_response_triggers_instructor_fallback(self):
-        # 原生返回 200 但内容非 JSON（代理静默忽略 response_format）→ 选择性降级到 Instructor。
         markdown_text = "## 提取结果\n\n- 姓名: 张三"
         instructor_result = _PersonSchema(name="Bob", age=25)
         instructor_completion = MagicMock()
@@ -179,7 +175,6 @@ class TestGenerate:
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(markdown_text, 100, 60))
 
-        # 钩子注册（on）是同步调用，不能落到 AsyncMock 上
         mock_patched = AsyncMock(on=MagicMock())
         mock_patched.chat.completions.create_with_completion = AsyncMock(
             return_value=(instructor_result, instructor_completion)
@@ -196,7 +191,6 @@ class TestGenerate:
 
         assert result.text == instructor_result.model_dump_json()
         assert result.provider == PROVIDER_AGNES
-        # 原生 200 调用（100/60）已计费，与 Instructor 调用（50/20）的 token 合并计入
         assert result.input_tokens == 150
         assert result.output_tokens == 80
         mock_client.chat.completions.create.assert_awaited_once()

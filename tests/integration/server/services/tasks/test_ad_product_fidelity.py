@@ -39,11 +39,9 @@ class TestAdProductFidelityStoryboard:
 
         refs = generator.image_calls[0]["reference_images"]
         paths = _ref_paths(refs)
-        # 商品参考全量注入且排首位：sheet 在前、原图压阵，先于角色/场景 sheet
         assert [path.name for path in paths[:2]] == ["0000-保温杯.png", "0001-保温杯_1.jpg"]
         assert generator.image_reference_bytes[0][:2] == [b"png", b"jpg"]
         assert [path.name for path in paths[2:]] == ["0002-Alice.png", "0003-祠堂.png"]
-        # 商品参考在声明行里按序位点名并附完全一致约束，参考图本身不带任何标签
         prompt = generator.image_calls[0]["prompt"]
         assert prompt.startswith(
             "Style: Anime\nVisual style: cinematic\n"
@@ -151,5 +149,4 @@ class TestAdProductVideoRequest:
         call = generator.video_calls[0]
         assert "reference_images" not in call
         assert call["start_image"] == project_path / "storyboards" / "scene_E1S02.png"
-        # 参考缺席时不附商品保真指令（指令指向参考图，会误导模型）
         assert "高保真" not in call["prompt"]

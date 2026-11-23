@@ -102,7 +102,6 @@ def test_kling_image_models() -> None:
     assert o1.resolutions == ["1K", "2K"]
     assert o1.api_model_name is None
 
-    # 两栖模型：图像模型用别名键避开与视频模型撞键，api_model_name 回指真实 API 名。
     omni = catalog.get_model("kling", "kling-v3-omni-image")
     assert omni is not None
     assert omni.media_type == "image"

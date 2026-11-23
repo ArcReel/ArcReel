@@ -97,7 +97,6 @@ from tests.factories import install_current_video, make_test_clip
 
 _ABSENT_REVISION = "sha256-v1:" + "0" * 64
 
-# 每条声明一份合法入参；新增声明须在此登记，否则参数化用例以 KeyError 失败。
 SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "list_projects": {},
     "create_project": {"name": "fresh", "title": "Fresh"},
@@ -401,7 +400,6 @@ async def test_invalid_arguments_are_rejected_as_the_same_invalid_request_by_bot
     declaration: AgentToolDeclaration, seeded_projects: ProjectManager, services: Services
 ) -> None:
     arguments = {**SAMPLE_ARGUMENTS[declaration.name], "unexpected": 1}
-    # 经会话真实注册的 in-process server 调用：MCP 层不做 schema 预校验，坏参数由请求模型拒绝。
     session_server = build_arcreel_mcp_server(project_name="demo", data_root=seeded_projects.data_root)["instance"]
 
     embedded = await _call_server(session_server, declaration.name, arguments)
@@ -554,17 +552,14 @@ def _twin_services(seeded_projects: ProjectManager, tmp_path: Path) -> Services:
     )
 
 
-# 真实 handler 的结果随调用时刻变化，两次调用无法逐字比较；透传一致性由其余用例的 fake handler 覆盖。
 _TIME_DEPENDENT_RESULTS = frozenset({CREATE_PROJECT.name, CREATE_TIMELINE.name})
 
-# 样例入参下合法地返回 problem 的声明：测试项目缺少它们要找的对象或能力配置。其余声明在样例入参下必须成功。
 _PROBLEM_ON_SAMPLE = frozenset(
     {
         GET_VIDEO_CAPABILITIES.name,
         GET_PROMPT_PREVIEW.name,
         GET_GENERATION_BATCH.name,
         CANCEL_GENERATION_BATCH.name,
-        # 测试项目已有正式脚本：确认需要覆盖认可，取回编辑副本被拒；没有在场草稿可改、可晋升。
         CONFIRM_SCRIPT_REVIEW.name,
         OPEN_DRAFT.name,
         PATCH_DRAFT.name,
@@ -579,14 +574,10 @@ _PROBLEM_ON_SAMPLE = frozenset(
         LIST_REVISIONS.name,
         RESTORE_REVISION.name,
         COMPLETE_SCRIPT_PLAN_REBUILD.name,
-        # 测试项目只登记了一个角色，没有可并入的保留方。
         MERGE_ASSET.name,
-        # 测试项目没有登记整本源文的文件。
         EDIT_SOURCE_TEXT.name,
-        # 测试项目里没有样例路径的文件，回收站里也没有删除记录。
         DELETE_PROJECT_FILE.name,
         RESTORE_TRASH_RECORD.name,
-        # 测试库里没有素材库账号与关联：上传、浏览、选择与解除都找不到对象。
         LIST_PROVIDER_LIBRARY_ASSETS.name,
         UPLOAD_TO_PROVIDER_ASSET_LIBRARY.name,
         SELECT_PROVIDER_LIBRARY_ASSET.name,
@@ -749,12 +740,10 @@ async def test_embedded_terminal_generation_result_has_the_shape_remote_polling_
         services,
     )
 
-    # 内嵌：摘要在前、终态结果 JSON 在后；批次全部被阻断即结果级失败。
     terminal = _embedded_json(embedded)
     assert embedded.isError is True
     assert len(_texts(embedded)) == 2
     assert set(terminal) == {"generation_result", "batch_id"}
-    # 远程：立即拿到批次句柄，按句柄轮询到终态后读取附带的生成结果。
     assert remote.isError is False
     assert set(remote.structuredContent) == {"generation_batch"}
     assert polled.value is not None

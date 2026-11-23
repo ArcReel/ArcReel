@@ -120,7 +120,6 @@ class TestCalculateGridLayout:
         assert layout is not None
         assert layout.rows == layout.cols
         assert layout.grid_aspect_ratio == aspect_ratio
-        # 单格比例与整图一致，切格后 center-crop 是 no-op
         assert _compute_panel_aspect(layout.grid_aspect_ratio, layout.rows, layout.cols) == aspect_ratio
 
     def test_non_canonical_aspect_maps_to_orientation(self):
@@ -184,7 +183,6 @@ class TestLargeGridGate:
         assert large_grid_allowed(resolution) is False
 
     def test_fallback_resolution_is_not_4k(self):
-        # 未配置分辨率时保底档即渲染实际下发的档位，门控须按它判定
         assert large_grid_allowed(GRID_FALLBACK_RESOLUTION) is False
 
     def test_max_cell_count(self):
@@ -199,12 +197,10 @@ class TestGridAspectRatioFor:
         assert grid_aspect_ratio_for(side, side, "9:16") == "9:16"
 
     def test_legacy_non_square_record_keeps_original_aspect(self):
-        # 存量 grid_6 记录沿用写入时的整图比例，与其冻结的 prompt 描述的画布一致
         assert grid_aspect_ratio_for(3, 2, "16:9") == "4:3"
         assert grid_aspect_ratio_for(2, 3, "9:16") == "3:4"
 
     def test_unregistered_non_square_falls_back_to_video_aspect(self):
-        # 未登记的非方形几何回落到 backend 尺寸表都认得的视频比例，而非自行推算的冷门比例
         assert grid_aspect_ratio_for(2, 4, "16:9") == "16:9"
 
 
@@ -279,6 +275,4 @@ class TestVideoAspectRatioOf:
         assert video_aspect_ratio_of({}) == "9:16"
 
     def test_explicit_null_falls_back(self):
-        # project.json 允许把 aspect_ratio 显式写为 null，dict.get 的默认值对此无效；
-        # None 漏下去会流进画布几何、prompt 与记录上冻结的比例
         assert video_aspect_ratio_of({"aspect_ratio": None}) == "9:16"

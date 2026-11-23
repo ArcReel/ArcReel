@@ -156,7 +156,6 @@ class TestDraftAccumulator:
                 parent="tu-b",
             )
         )
-        # 另一条并行流（parent 不同）的增量不得拼入当前草稿
         stolen = draft.apply_stream_event(
             _stream_event(
                 {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "A文本"}},
@@ -213,7 +212,6 @@ class TestSessionEntryPipeline:
         assert len(store.entries) == 1
         assert store.entries[0]["type"] == "assistant"
         assert store.entries[0]["message_id"] == "msg_01"
-        # draft 被同 message_id 权威条目精确替换
         assert pipeline.draft.snapshot() is None
 
         entry_events = [b for b in broadcasts if b["type"] == "log_entry"]
@@ -241,7 +239,6 @@ class TestSessionEntryPipeline:
         assert store.entries[0]["type"] == "system"
         assert store.entries[0]["subtype"] == "agent_turn_failure"
         assert pipeline.draft.snapshot() is None
-        # 轮次终结标记：entry 流以此产出终态，保证末条 log_entry 先送达
         assert broadcasts[-1] == {"type": "log_turn_complete", "session_id": "s1"}
 
     async def test_tool_result_user_message_becomes_independent_entries(self):
@@ -275,7 +272,6 @@ class TestSessionEntryPipeline:
             session_id_provider=lambda: "s1",
             broadcast=broadcasts.append,
         )
-        # 重试耗尽后不抛出——不打断会话消费
         await pipeline.handle_message({"type": "assistant", "content": [{"type": "text", "text": "x"}]})
         assert broadcasts == []
 
@@ -292,12 +288,10 @@ class TestSessionEntryPipeline:
         """SDK 回显与终态路径的合成中断（竞态双写）在写入点尾检去重。"""
         pipeline, store, _broadcasts = _make_pipeline()
         await pipeline.handle_message({"type": "user", "content": "[Request interrupted by user]", "uuid": "i-1"})
-        # 终态路径补写合成中断：尾条已是 interrupt，跳过
         appended = await pipeline.append_interrupt()
         assert appended == []
         assert len(store.entries) == 1
 
-        # 反向顺序：合成先写、SDK 回显后到，同样只留一条
         pipeline2, store2, _b2 = _make_pipeline()
         appended2 = await pipeline2.append_interrupt()
         assert len(appended2) == 1

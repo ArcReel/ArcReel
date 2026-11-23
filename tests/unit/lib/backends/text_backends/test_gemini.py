@@ -216,8 +216,8 @@ class TestGenerate:
             "properties": {
                 "duration_seconds": {"const": 8, "type": "integer"},
                 "const": {"type": "string"},
-                "default": {"const": 6, "type": "integer"},  # 字段名为 default → 其值是子 schema，const 照常归一
-                "with_default": {"type": "object", "default": {"const": 42}},  # default 作关键字（数据）→ 不动
+                "default": {"const": 6, "type": "integer"},
+                "with_default": {"type": "object", "default": {"const": 42}},
                 "obj_const": {"const": {"const": 5}},
             },
         }
@@ -255,15 +255,12 @@ class TestGenerate:
             build_drama_normalized_script_model([4, 6, 8]),
             build_drama_normalized_script_model([8]),
             build_reference_units_script_plan_model([4, 6, 8]),
-            # 单值档位渲染为 const，与多值 enum 走不同归一路径
             build_reference_units_script_plan_model([8]),
-            # prompt_authoring 的实际 response_schema（静态，无枚举收窄）同样过这条通道
             ReferencePromptAuthoringFlatScript,
         ]
         assert schemas, "schema 清单为空时下面的循环形同虚设"
         for schema in schemas:
             config = backend._build_config(schema, None)
-            # 不抛 = 转换后的 dict（字符串枚举、无 const）被 google-genai types.Schema 接受
             validated = gtypes.Schema.model_validate(config["response_schema"])
             assert validated.type == gtypes.Type.OBJECT
 
@@ -360,7 +357,6 @@ class TestStructuredFallback:
         assert "分析剧本" in fb_prompt
         assert "JSON Schema" in fb_prompt
         assert '"genre"' in fb_prompt
-        # 校验通过后返回规范化 JSON，下游 model_validate_json 必定成功
         assert _OverviewModel.model_validate_json(result.text) == _OverviewModel(genre="都市", theme="逆袭")
         assert result.provider == "gemini"
         assert result.model == backend.model
@@ -376,7 +372,6 @@ class TestStructuredFallback:
         result = await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
 
         assert _OverviewModel.model_validate_json(result.text).genre == "都市"
-        # 原生与降级两次调用都没有用量时，token 保持 None，不塌成 0
         assert result.input_tokens is None
         assert result.output_tokens is None
 
@@ -452,7 +447,6 @@ class TestStructuredFallback:
         with bounded_poll_clock(), pytest.raises(ConnectionError):
             await backend.generate(TextGenerationRequest(prompt="p", response_schema=_OverviewModel))
 
-        # 1 次原生成功 + 降级层自身 3 次重试穷尽；原生调用未被重放
         assert gc.call_count == 4
 
 
@@ -553,7 +547,6 @@ class TestAdditionalPropertiesStripped:
                 backend._client = real_genai.Client(api_key="k", http_options={"httpx_async_client": http_client})
                 for model in response_schema_models():
                     route.calls.reset()
-                    # 回包只是空对象，过不了各模型的校验，会走降级链；本用例只看首个原生结构化请求
                     with pytest.raises(StructuredOutputExhaustedError):
                         await backend.generate(TextGenerationRequest(prompt="x", response_schema=model))
                     assert route.called, model.__name__

@@ -99,8 +99,6 @@ class FakePM:
             )
         from lib.artifacts.artifact_activation import activate_artifact_target_state
 
-        # 用例故意构造的畸形项目/剧本激活不了；此处吞掉异常让清单留空，
-        # 被测工具随后按「产物不可用」逐条拒收，这正是这些用例要断言的路径。
         with contextlib.suppress(Exception):
             activate_artifact_target_state(self._project_dir, bump_schema=False)
         self._register_claims(filename)
@@ -275,7 +273,6 @@ async def fake_ctx(
     monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[ToolHarness]:
     ctx = _build_fake_ctx(tmp_path, concurrent_session_factory, monkeypatch)
-    # worker 启动时按库装载容量表，指到本用例的库，不读进程级共享库。
     bind_safe_session_factory(monkeypatch, concurrent_session_factory)
     queue = ctx.queue
 

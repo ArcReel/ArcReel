@@ -186,7 +186,6 @@ def test_observe_artifact_status_separates_unobservable_from_missing() -> None:
     key = ArtifactKey.episode_video(1, "A")
     resolver = _Resolver({"A": ArtifactStatus.CURRENT})
 
-    # 没有 key 可比对的单元：该轴不可观测，与「缺失」不是一回事。
     assert observe_artifact_status(
         resolver=resolver,
         key=None,
@@ -245,7 +244,6 @@ def test_requested_is_exactly_the_union_of_the_three_outcome_sets() -> None:
     assert not set(result.succeeded) & set(result.failed)
     assert not set(result.succeeded) & set(result.blocked)
     assert not set(result.failed) & set(result.blocked)
-    # 复用的单元刻意留在 requested 之外：它既没做也没失败。
     assert [entry.unit_id for entry in result.skipped] == ["D"]
     assert "D" not in result.requested
     assert result.ok is False
@@ -341,7 +339,6 @@ def test_a_failed_commit_keeps_the_old_artifact_and_never_claims_current() -> No
     item = builder.build().items[0]
 
     assert item.state is GenerationItemState.FAILED
-    # 任务本身跑成功了（钱已花），但产物没有被标成 current。
     assert item.task_state is GenerationTaskState.SUCCEEDED
     assert item.artifact_status is ArtifactStatus.STALE
     assert item.artifact_path == "videos/a.mp4"

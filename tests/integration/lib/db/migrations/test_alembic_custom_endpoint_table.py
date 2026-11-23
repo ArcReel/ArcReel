@@ -53,7 +53,6 @@ def test_upgrade_creates_table(alembic_cfg: tuple[Config, Path], migration_revis
                 )
             )
             assigned_id = conn.execute(sa.text("SELECT id FROM custom_endpoint")).scalar_one()
-        # 端点键 ce-<id> 由自增主键派生，插入时不用给 id
         assert assigned_id == 1
     finally:
         engine.dispose()

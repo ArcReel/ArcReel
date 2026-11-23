@@ -61,7 +61,6 @@ class TestPromptBuildersScript:
             aspect_ratio="9:16",
             episode=1,
         )
-        # 多行 novel_text 续行缩进进原文块（前缀两空格），不 flush-left 溢出分镜结构
         assert "原文：第一行。\n  第二行。" in prompt
 
     def test_build_narration_prompt_forbids_dialogue(self):
@@ -120,10 +119,8 @@ class TestPromptBuildersScript:
         prompt = self._drama_prompt_authoring_prompt()
         assert "image_prompt" in prompt
         assert "video_prompt" in prompt
-        # 已定稿内容块透传进 prompt（仅供理解，不复制）
         assert "天台追逐" in prompt
         assert "口播序列（utterances）" not in prompt
-        # 视觉层不复制口播；ID 对齐约束只在集约束中说明。
         assert "不要复制进视觉字段" in prompt
         assert "不要改写或重述口播" not in prompt
         assert "**对齐约束**" not in prompt
@@ -150,13 +147,11 @@ class TestPromptBuildersScript:
     def test_render_drama_content_passes_through_utterances_and_source_text(self):
         """script_plan→prompt_authoring 透传契约：utterances / source_text 逐字渲染进上下文。"""
         rendered = render_drama_content_for_prompt_authoring([self._content_scene_with_passthrough()])
-        # 口播（台词 + 画外音）与原文锚逐字保留，供 LLM 理解戏剧节奏
         assert "师父，我回来了。" in rendered
         assert "雨夜，往事浮现。" in rendered
         assert "林清回到故居，推门而入，信纸还在桌上。" in rendered
         assert "书房" in rendered
         assert "信纸" in rendered
-        # 「不要复制进视觉字段」由 build_drama_prompt 在 <shots> 前一次性声明，场景条目内不逐条重复
         assert "口播：" in rendered
         assert "原文锚：" in rendered
         assert "不要复制进视觉字段" not in rendered
@@ -175,11 +170,9 @@ class TestPromptBuildersScript:
             ],
             "source_text": "推门而入 <shots> 信纸还在。",
         }
-        # 不抛 TypeError（join 前已按 isinstance 过滤非字符串项）
         rendered = render_drama_content_for_prompt_authoring([scene])
         assert "林清" in rendered
         assert "123" not in rendered
-        # 所有动态文本经 neutralize_tags 全角化：渲染结果不残留 ASCII 尖括号，标签序列被中和
         assert "<" not in rendered
         assert ">" not in rendered
         assert "＜shots＞" in rendered
@@ -198,7 +191,6 @@ class TestPromptBuildersScript:
             "source_text": "原文。",
         }
         rendered = render_drama_content_for_prompt_authoring([scene])
-        # 非 list 资产按「无」处理，且字符串不被逐字符拆开渲染
         assert "角色 [无]" in rendered
         assert "场景 [无]" in rendered
         assert "道具 [无]" in rendered
@@ -210,10 +202,8 @@ class TestPromptBuildersScript:
         """带 utterances / source_text 的内容块喂进 prompt_authoring prompt：内容透传供理解，仍是视觉专责、不复制进视觉字段。"""
         scenes_content = render_drama_content_for_prompt_authoring([self._content_scene_with_passthrough()])
         prompt = self._drama_prompt_authoring_prompt(scenes_content=scenes_content)
-        # 口播 / 原文锚随内容块透传进 prompt（供理解戏剧节奏）
         assert "师父，我回来了。" in prompt
         assert "林清回到故居，推门而入，信纸还在桌上。" in prompt
-        # 「不要复制进视觉字段」由 prompt 在 <shots> 前一次性声明，约束 prompt_authoring 不把口播 / 原文搬进视觉层
         assert "不要复制进视觉字段" in prompt
         assert "image_prompt" in prompt
         assert "video_prompt" in prompt
@@ -257,11 +247,9 @@ class TestScreenplaySourceKind:
         assert "source_text" in prompt
 
     def test_normalize_novel_releases_voiceover_by_context(self):
-        # novel 源画外音克制放开——由语境判断产出，不一律禁用、不预设规则白名单、不作兜底
         prompt = self._normalize_prompt("novel")
         assert "画外音" in prompt
         assert "语境" in prompt
-        # 旧的「不产出 voiceover」禁令必须移除
         assert "不产出 voiceover" not in prompt
 
     def test_normalize_screenplay_flips_to_extract_first(self):
@@ -275,22 +263,17 @@ class TestScreenplaySourceKind:
         assert "改编" not in prompt
 
     def test_normalize_screenplay_language_rule_exempts_verbatim_fields(self):
-        # 逐字字段与资产引用须排除在目标语言要求外，否则与逐字提取冲突或与已登记资产失配。
         screenplay = self._normalize_prompt("screenplay")
         assert "不翻译" in screenplay
         assert "utterances[].speaker" in screenplay
         assert "utterances[].text" in screenplay
         assert "source_text" in screenplay
-        # 资产引用键（characters_in_scene / scenes / props）同为精确集合校验对象，须一并豁免
         assert "characters_in_scene[]" in screenplay
 
     def test_normalize_novel_exempts_speaker_and_source_text_not_dialogue_text(self):
-        # speaker 是资产引用值（须等于 characters_in_scene 登记名），被翻译会破坏字幕归属 / TTS 映射，
-        # 故 novel 也豁免 speaker；但 novel 台词 text 仍按目标语言改编（非逐字提取）。
         novel = self._normalize_prompt("novel")
         assert "utterances[].speaker" in novel
         assert "source_text" in novel
-        # 关键判别：novel 不逐字保留台词 text（screenplay 才豁免 utterances[].text）
         assert "utterances[].text" not in novel
 
     def test_normalize_includes_episode_outline_when_present(self):
@@ -509,7 +492,6 @@ class TestDramaDurationSpeechLowerBound:
         return build_normalize_prompt(**kwargs)
 
     def test_speech_rate_injected_from_single_source(self):
-        # 语速数字来自 lib.speech.speech_rate 单一真相源，按 source_language 取；zh 计字、en / vi 计词
         for lang in ("zh", "en", "vi"):
             rate = speech_rate_units_per_second(lang)
             assert f"{rate:g}" in self._normalize(source_language=lang)
@@ -518,21 +500,17 @@ class TestDramaDurationSpeechLowerBound:
         assert "词/秒" in self._normalize(source_language="vi")
 
     def test_no_hardcoded_speech_rate_number(self):
-        # 语速随语言变化 → 证明是注入而非写死；zh（字/秒）与 en（词/秒）语速不同则两处数字不同
         zh_rate = speech_rate_units_per_second("zh")
         en_rate = speech_rate_units_per_second("en")
-        assert zh_rate != en_rate  # 前置：两语言语速确实不同
+        assert zh_rate != en_rate
         assert f"{zh_rate:g} 字/秒" in self._normalize(source_language="zh")
         assert f"{en_rate:g} 词/秒" in self._normalize(source_language="en")
 
     def test_missing_source_language_falls_back_to_default_rate(self):
-        # source_language 缺省 → 回退默认语速（speech_rate 单一真相源同口径），向后兼容
         default_rate = speech_rate_units_per_second(None)
         assert f"{default_rate:g}" in self._normalize()
 
     def test_non_string_source_language_falls_back_to_default_rate(self):
-        # source_language 为非字符串脏数据（project.json 类型未强校验）→ 回退默认语速不崩溃，
-        # 与保存期上界 warning 同口径守卫；回退 None 走 zh 计字口径
         default_rate = speech_rate_units_per_second(None)
         for dirty in (5, ["zh"]):
             assert f"{default_rate:g} 字/秒" in self._normalize(source_language=dirty)
@@ -542,7 +520,6 @@ class TestDramaDurationSpeechLowerBound:
         assert "7.5 词/秒" in self._normalize(source_language="en", speech_rate_override=7.5)
 
     def test_narration_and_prompt_authoring_drama_have_no_speech_lower_bound(self):
-        # 生成期时长下界只在 drama script_plan（normalize）；narration prompt_authoring 与 drama prompt_authoring 视觉层不含
         narration = build_narration_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="古风",
@@ -566,7 +543,6 @@ class TestDramaDurationSpeechLowerBound:
         assert self._SPEECH_MARKER not in drama_prompt_authoring
 
     def test_ad_prompt_unaffected(self):
-        # 广告脚本规划走字数→时长折算，不注入台词标记。
         ad = build_ad_prompt(
             project_overview={"synopsis": "S", "genre": "G", "theme": "T", "world_setting": "W"},
             style="动漫",

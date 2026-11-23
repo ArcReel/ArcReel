@@ -21,7 +21,6 @@ from server.services.project.project_archive import ProjectArchiveService
 
 REMOTE_VIDEO_URI = "https://cdn.example.com/v/E1U1.mp4"
 
-# 区分"未传 generated_assets（用默认）"与"显式传 None（不写该字段）"
 _DEFAULT_ASSETS = object()
 
 
@@ -130,7 +129,6 @@ def _create_reference_video_project(
 
 class TestProjectArchiveReferenceVideo:
     def test_canonical_resource_path_reference_videos(self):
-        # 验收项：reference_videos 走 unit_id 无前缀分支（路径形状由 lib.project.resource_paths 独家拥有）
         assert resource_relative_path("reference_videos", "E1U1") == "reference_videos/E1U1.mp4"
 
     def test_round_trip_preserves_video_units(self, tmp_path):
@@ -149,7 +147,6 @@ class TestProjectArchiveReferenceVideo:
         assets = imported["video_units"][0]["generated_assets"]
         assert assets["video_clip"] == "reference_videos/E1U1.mp4"
         assert assets["video_thumbnail"] == "reference_videos/thumbnails/E1U1.jpg"
-        # video_uri 是远端 URL，绝不能被当成本地路径覆盖
         assert assets["video_uri"] == REMOTE_VIDEO_URI
         assert (project_dir / "reference_videos" / "E1U1.mp4").exists()
         assert (project_dir / "reference_videos" / "thumbnails" / "E1U1.jpg").exists()
@@ -204,7 +201,6 @@ class TestProjectArchiveReferenceVideo:
             },
         }
         project_dir = _create_reference_video_project(pm, unit=legacy_unit)
-        # 缺 schema_version 的归档按最早版本处理：导入时补跑完整迁移链，时长收编在链上完成。
         project_file = project_dir / "project.json"
         payload = json.loads(project_file.read_text(encoding="utf-8"))
         payload.pop("schema_version", None)
@@ -293,7 +289,6 @@ class TestProjectArchiveReferenceVideo:
             },
         }
         project_dir = _create_reference_video_project(pm, unit=legacy_unit)
-        # legacy 别名：档位只能靠归一化后查 registry 得到。
         project_file = project_dir / "project.json"
         payload = json.loads(project_file.read_text(encoding="utf-8"))
         payload["video_backend"] = "gemini/veo-3.1-generate-preview"
@@ -310,13 +305,11 @@ class TestProjectArchiveReferenceVideo:
         imported = json.loads(
             (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )
-        # 求和 10s 不是该型号档位成员，取档后落盘的秒数必是成员。
         veo_tiers = _durations("gemini-aistudio", "veo-3.1-generate-preview")
         assert imported["video_units"][0]["duration_seconds"] in veo_tiers
 
     def test_import_restores_video_clip_from_version(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
-        # video_clip 指向失效的版本路径，靠 versions.json 回溯物化当前文件
         unit = _build_unit(
             video_clip="versions/reference_videos/E1U1_v9.mp4",
             generated_assets={
@@ -404,8 +397,6 @@ class TestProjectArchiveReferenceVideo:
         assert any(item["code"] == "invalid_generated_assets" for item in result.diagnostics["auto_fixed"])
 
     def test_export_resets_invalid_generated_assets(self, tmp_path):
-        # 导出与导入共用 _repair_project_tree，但导出修的是快照副本：包内是干净结构，
-        # 源项目磁盘上的脏值保持原样（导出不改用户数据）。
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(video_clip=None, generated_assets="corrupted-value")
         project_dir = _create_reference_video_project(pm, unit=unit, write_clip=False, write_thumbnail=False)
@@ -429,8 +420,6 @@ class TestProjectArchiveReferenceVideo:
         assert on_disk["video_units"][0]["generated_assets"] == "corrupted-value"
 
     def test_import_adds_placeholder_for_missing_character_speaker(self, tmp_path):
-        # 说话人位在语法上就断定是角色：缺定义时与 narration/drama 对齐，自动补占位定义。
-        # 占位定义的描述留空，不把修复文字当作生成资产图的提示词。
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(
             video_clip="reference_videos/E1U1.mp4",
@@ -447,7 +436,6 @@ class TestProjectArchiveReferenceVideo:
 
         imported_project = pm.load_project(result.project_name)
         assert imported_project["characters"]["幽灵"]["description"] == ""
-        # 占位进了导入前确认过的报告，导入成功后的诊断不再重复列出。
         report = load_migration_report(pm.get_project_path(result.project_name))
         assert report is not None
         assert [(item.code, item.params) for item in report.adjusted] == [
@@ -456,8 +444,6 @@ class TestProjectArchiveReferenceVideo:
         assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
     def test_import_warns_without_blocking_on_unresolved_mention(self, tmp_path):
-        # 正文里的 @[名称] 是执行期才解析的派生来源：未登记只意味着这一处不出参考图，
-        # 导入照常完成，只留一条非阻断 warning。
         pm = ProjectManager(tmp_path / "projects")
         unit = _build_unit(
             video_clip="reference_videos/E1U1.mp4",
@@ -480,14 +466,10 @@ class TestProjectArchiveReferenceVideo:
             (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )
         assert imported["video_units"][0]["text"] == unit["text"]
-        # 未解析的提及不补占位定义——只有说话人位才断定资产类型。
         imported_project = pm.load_project(result.project_name)
         assert "缺失场景" not in imported_project["characters"]
 
     def test_import_resolves_nfc_speaker_against_nfd_registered_character(self, tmp_path):
-        # 说话人名已归一到 NFC（见 lib.project.asset_types.normalize_asset_name），登记侧的角色
-        # key 仍可能是落盘的 NFD 原形；自愈逻辑须把两者判等，而非把已登记角色误判缺失、
-        # 补出一份重复的占位定义。
         import unicodedata
 
         name_nfd = unicodedata.normalize("NFD", "Hiếu")

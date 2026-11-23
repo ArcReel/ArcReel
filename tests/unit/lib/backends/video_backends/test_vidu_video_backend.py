@@ -49,8 +49,6 @@ class TestBackendBasics:
         assert backend.video_capabilities.max_reference_images == 7
 
     def test_entry_narrows_the_channel_for_non_reference2video_model(self):
-        # 通道实现了四个端点；viduq3-pro 的条目记录不接受参考图（显式 0），两侧求值后参考生视频不开，
-        # 展示层不声称支持参考图，执行时带参考图被拒。
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 
         assert (
@@ -151,11 +149,9 @@ class TestCoerceDuration:
     @pytest.mark.parametrize("model", ["viduq2-pro", "viduq2-turbo", "viduq2-pro-fast"])
     @pytest.mark.parametrize("seconds", [9, 10])
     def test_q2_start_end2video_keeps_9_and_10_seconds(self, model: str, seconds: int):
-        # 官方首尾帧时长 1–10 秒（viduq2-pro、viduq2-turbo、viduq2-pro-fast 同此），9、10 秒原样发出
         assert _coerce_duration(_profile(model).endpoint, "/start-end2video", seconds) == seconds
 
     def test_unknown_combination_passthrough(self):
-        # 表里无项时不强校（透传 / 兜底 5）
         assert _coerce_duration(_profile("unknown-model").endpoint, "/img2video", 9) == 9
         assert _coerce_duration(_profile("unknown-model").endpoint, "/img2video", None) == 5
 
@@ -180,7 +176,6 @@ class TestBuildRequest:
         assert body["duration"] == 8
         assert body["resolution"] == "720p"
         assert body["aspect_ratio"] == "9:16"
-        # q3 默认透传 audio
         assert body["audio"] is True
         assert "images" not in body
 
@@ -225,7 +220,6 @@ class TestBuildRequest:
 
         assert endpoint == "/img2video"
         assert body["images"] == ["data:image/png;base64," + b64encode(image_bytes()).decode()]
-        # img2video 不接受 aspect_ratio
         assert "aspect_ratio" not in body
 
     def test_reference2video_with_q3_turbo(self, tmp_path: Path, video_output_path: Path):
@@ -245,12 +239,10 @@ class TestBuildRequest:
 
         assert endpoint == "/reference2video"
         assert len(body["images"]) == 2
-        # reference2video 接受 aspect_ratio
         assert body["aspect_ratio"] == "9:16"
         assert body["duration"] == 5
 
     def test_non_q3_model_does_not_send_audio(self, video_output_path: Path):
-        # 型号接不接受文生视频由执行闸门按两侧求值判定；请求构造只管形态：非 q3 型号不带音轨开关
         backend = _profile("vidu2.0")(api_key="test-key", model="vidu2.0")
         req = VideoGenerationRequest(prompt="x", output_path=video_output_path, duration_seconds=4)
         endpoint, body = backend._build_request(req)
@@ -403,7 +395,6 @@ class TestRegistryBackendConsistency:
             d for (m, ep), ds in _DURATION_RULES.items() if m == name and ep != "/reference2video" for d in ds
         }
         reference = set(_DURATION_RULES.get((name, "/reference2video"), []))
-        # 只走参考生视频的型号，可选时长就是参考生视频端点的时长。
         allowed = non_reference or reference
         extra = set(model_info.supported_durations) - allowed
         assert not extra, f"目录 vidu/{name} 的 supported_durations 含端点时长表外的 {sorted(extra)}"
@@ -436,7 +427,6 @@ class TestCreateTask413:
         with pytest.raises(httpx.HTTPStatusError) as ei:
             await backend._create_task(client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8})
         assert ei.value.response.status_code == 413
-        # 413 非 retryable → fail-fast 单次
         assert client.post.call_count == 1
 
 
@@ -459,7 +449,6 @@ class TestCreateTaskAmbiguity:
             pytest.raises(AmbiguousSubmitError, match="手动重试"),
         ):
             await backend._create_task(client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8})
-        # 歧义态：请求可能已送达，不重试
         assert client.post.call_count == 1
 
     async def test_connect_error_retries(self):
@@ -479,7 +468,6 @@ class TestCreateTaskAmbiguity:
                 client, "/text2video", {"model": "viduq3-turbo", "prompt": "x", "duration": 8}
             )
         assert data["task_id"] == "vidu-conn"
-        # ConnectError 请求确定未送达，应重试
         assert client.post.call_count == 3
 
 
@@ -571,7 +559,6 @@ class TestQ4Endpoint:
             reference_audio_files=audio,
         )
         _endpoint, body = self._backend()._build_request(req)
-        # 官方示例的内容类型字符串是 data:video/mp3
         assert body["sounds"] == [
             "data:video/mp3;base64,AA==",
             "data:video/mp3;base64,AQ==",
@@ -602,7 +589,6 @@ class TestQ4Endpoint:
         assert exc.value.code == "video_reference_audio_format_unsupported"
 
     def test_img2video_rejects_sounds(self, tmp_path: Path, video_output_path: Path):
-        # 只有参考生视频接口收 sounds；图生视频带参考音频在提交前拒绝，不静默丢弃
         req = VideoGenerationRequest(
             prompt="x",
             output_path=video_output_path,
@@ -732,7 +718,6 @@ class TestQ3ReferenceOnlyModels:
         [
             ("vidu-video-q3-drama", False, False),
             ("vidu-video-q3-drama", True, True),
-            # Mix 没有开关、音画同出：关闭意图到不了供应商，成片与计量照实记为有声
             ("vidu-video-q3-mix", False, True),
             ("vidu-video-q3-mix", True, True),
             ("vidu-video-q3-ad", True, False),

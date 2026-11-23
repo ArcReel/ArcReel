@@ -13,7 +13,6 @@ from alembic import command
 from lib.backends.video_backends.ark import SEEDANCE_BACKENDS
 
 _CUSTOM_MODELS = [
-    # 靠条目绑定识别为 Seedance 2.0 的不透明 ID：升级前按条目的名字不带 service_tier、按 2.0 像素表估算
     ("ep-20261103-opaque", "ark-seedance", "bytedance/doubao-seedance-2.0"),
     ("ep-20261103-unbound", "ark-seedance", None),
     ("opaque-alias", "ark-seedance", None),
@@ -22,7 +21,6 @@ _CUSTOM_MODELS = [
     ("dreamina-seedance-2-5-260628", "ark-seedance", None),
     ("doubao-seedance-2.0-fast", "ark-seedance", None),
     ("doubao-seedance-1-5-pro-251215", "ark-seedance", None),
-    # 用户选过的、没有拆分的端点保持不变
     ("doubao-seedance-2-0-260128", "openai-video", None),
 ]
 
@@ -138,7 +136,6 @@ def test_existing_seedance_models_keep_the_generation_they_used_and_downgrade_re
         ("ark-agent-plan", "doubao-seedance-1.5-pro"): "ark-seedance-1",
         ("minimax", "acme-video-pro"): "minimax-hailuo-v1",
     }
-    # 请求与升级前一致：升级前只要模型或所绑定条目的名字属于 2.x 就不带 service_tier
     sent_service_tier_before_upgrade = {
         ("custom", "ep-20261103-opaque"): False,
         ("custom", "ep-20261103-unbound"): True,

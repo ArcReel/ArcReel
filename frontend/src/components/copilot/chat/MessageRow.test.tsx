@@ -379,7 +379,6 @@ describe("MessageRow", () => {
 
     expect(screen.queryByText("第 8 集已审完三个镜头")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "上下文已压缩" }));
-    // 摘要按 Markdown 渲染，渲染器加载完会替换先显示的纯文本，所以每次重新查询
     await waitFor(() => expect(screen.getByText("第 8 集已审完三个镜头")).toBeInTheDocument());
   });
 

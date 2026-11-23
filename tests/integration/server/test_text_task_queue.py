@@ -579,7 +579,6 @@ async def test_draft_repair_blocked_by_a_formal_unit_fails_with_the_unit_positio
     draft = read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
     assert draft is not None
     revision = draft_revision(draft)
-    # 草稿无违约，修复不调用模型直接按保存口径重判；替身只为晋升装配 ScriptGenerator。
     use_text_generator(monkeypatch, FakeTextGenerator("").create)
     payload = {"episode_id": 1, "doc_type": "reference_prompt_authoring", "base_revision": revision}
     task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
@@ -737,8 +736,6 @@ async def test_text_submission_cancellation_only_cleans_a_fresh_batch(
         task_type="text_drama_script_plan",
         media_type="text",
         resource_id="episode-1" if cancel_state == "membership" else "old",
-        # payload 取请求对象自己的投影：本用例的 membership 变体要让新提交与这条在跑任务
-        # 判成同一件事，两边的事实必须逐字段相同，写死字面量会随请求字段增删而失效。
         payload=TextGenerationRequest(episode=1).to_payload() | {"projects_root": str(projects.data_root)},
         batch_id=historical_batch_id,
         batch_unit_id="episode-1" if cancel_state == "membership" else "old",
@@ -796,7 +793,6 @@ async def test_queued_plan_resolves_data_root_from_current_config_and_preserves_
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(projects.data_root))
     payload: dict[str, Any] = {"instructions": "按章节"}
     if legacy_data_root:
-        # 旧版本排入的任务在载荷里带着入队时的数据根；数据根此后已挪走。
         payload["projects_root"] = str(tmp_path / "moved-away")
     task = {
         "task_id": "task-plan",
@@ -1065,7 +1061,6 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
 
         @classmethod
         async def create(cls, *_args, **_kwargs):
-            # 与生产的工厂一样在工作线程里构造：构造时读项目文件。
             return await asyncio.to_thread(cls)
 
         async def generate(self, *_args, **_kwargs):
@@ -1157,7 +1152,6 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
             return result
 
     async def create_planner(_cls, path):
-        # 与 EpisodePlanner.create 一样在工作线程里构造：构造 ProjectManager 会建目录。
         def _build() -> EpisodePlanner:
             planner = EpisodePlanner(path, generator=Generator())
             planner.pm = BlockingProjectManager(projects.data_root)

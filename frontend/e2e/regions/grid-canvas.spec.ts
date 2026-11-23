@@ -17,7 +17,6 @@ const recordedScript = project.scripts["episode_1.json"];
 
 const shotId = (n: number) => `E1S${String(n).padStart(2, "0")}`;
 
-// 四组：9、14、4、6 个分镜。第 2 组超过单张 9 格的上限，切成两张联合图。
 const GROUP_SIZES = [9, 14, 4, 6];
 const GROUPS: string[][] = [];
 {
@@ -40,7 +39,6 @@ const segments = GROUPS.flatMap((group) =>
   })),
 );
 
-// 联合图与参考图用内联 SVG：getFileUrl 原样使用 data: 地址，不发请求，截图稳定。
 function compositeSvg(rows: number, cols: number, hue: number) {
   const cellW = 90;
   const cellH = 160;
@@ -113,7 +111,6 @@ const GRIDS = [
 ];
 
 const API: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": {
     status: 200,
@@ -136,7 +133,6 @@ async function gridReady(page: Page) {
   await groupCard(page, 1).getByRole("img", { name: "联合图" }).waitFor();
 }
 
-/** 紧凑档 Agent 面板盖在画布右侧：先收起再点卡片右侧的控件。 */
 
 defineRegionScenarios("多宫格分镜图", [
   {

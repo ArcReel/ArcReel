@@ -84,8 +84,6 @@ class TestRetryArtifactDownload:
         assert worker.poll_timeouts == [3600]
 
     def test_unresolvable_poll_timeout_leaves_task_retryable(self, monkeypatch):
-        # 轮询超时读的是配置库。它在翻状态之后失败就没有回滚点，任务会永久停在 running：
-        # 既不被队列认领，也不再满足 retry-download 的资格条件。故必须先读再翻。
         queue = _RetryQueue()
         worker = _RetryWorker(timeout_error=RuntimeError("config database unavailable"))
         monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)

@@ -327,8 +327,6 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
 
         await _run_orphan_recovery(session_factory)
 
-    # resume 不重复提交计费：submit 零请求，接续只按原 job 轮询并取回产物；
-    # 轮询走历史提交域名，不落到供应商行的当前域名。
     assert submit.call_count == 0
     assert poll_current.call_count == 0
     assert poll.call_count == 1
@@ -338,7 +336,6 @@ async def test_ce_orphan_resumes_end_to_end_without_resubmitting(chain_project: 
     assert row.status == "succeeded"
     result = json.loads(row.result_json or "{}")
     assert result["resource_id"] == "E1S01"
-    # 付费字节落入版本历史（当前项目态与提交冻结态不一致时按史存不选中，任务仍成功）。
     paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
     assert [path.read_bytes() for path in paid_files] == [b"resumed"]
 
@@ -363,7 +360,6 @@ async def test_ce_orphan_fails_before_any_http_when_endpoint_rebound(chain_proje
 
         await _run_orphan_recovery(session_factory)
 
-    # 逐字比对失败在 backend 调用之前：poll/submit 都不该有流量。
     assert submit.call_count == 0
     assert poll.call_count == 0
 
@@ -436,7 +432,6 @@ async def test_ce_orphan_resumes_through_unchanged_path_overrides(chain_project:
     assert (await _load_task_row(session_factory, "T-ce-paths-kept")).status == "succeeded"
 
 
-#: 关停日期之后续跑的模型：内置 agnes 收录它，自定义供应商里同名的模型按名字对应到同一个条目。
 RETIRED_MODEL = "agnes-video-v2.0"
 SHUTDOWN = date(2026, 11, 24)
 
@@ -515,7 +510,6 @@ async def test_builtin_job_submitted_before_shutdown_still_resumes_after_it(
     paid_files = sorted((chain_project / "versions" / "videos").glob("E1S01_v*.mp4"))
     assert [path.read_bytes() for path in paid_files] == [b"resumed"]
 
-    # 续跑构造的 backend 已进实例缓存，新提交也不能经缓存绕过下线检查。
     await _assert_new_submission_rejected("agnes")
 
 
@@ -557,7 +551,6 @@ async def test_custom_job_submitted_before_shutdown_still_resumes_after_it(
     await _assert_new_submission_rejected(rows["provider_id"])
 
 
-#: 端点拆分前的方舟 Seedance 端点名：升级前提交的任务把它冻结在检查点里。
 LEGACY_SEEDANCE_ENDPOINT = "ark-seedance"
 SEEDANCE_MODEL = "doubao-seedance-2-0-260128"
 

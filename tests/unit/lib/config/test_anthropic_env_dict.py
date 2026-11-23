@@ -203,7 +203,6 @@ async def test_pricing_snapshot_takes_the_multiplier_and_the_bindings_of_the_tie
 
     assert pricing.credential_id == 7
     assert pricing.multiplier == 0.5
-    # 模型名比较忽略大小写与命名空间；留空的 opus 档位填成主模型，主模型档位自己没有绑定时取 opus 的绑定
     assert pricing.entry_binding_for("gw/fast-1") == "acme/fast-1"
     assert pricing.entry_binding_for("gw-main") == "acme/big"
     assert pricing.entry_binding_for("other") is None

@@ -13,7 +13,6 @@ const DEMO_PATH = "/app/projects/onboarding_demo";
 const UNSEEN: ApiOverrides = { "GET /api/v1/onboarding/status": { status: 200, body: { seen: false } } };
 const EMPTY_LOBBY: ApiOverrides = { ...UNSEEN, "GET /api/v1/projects": { status: 200, body: { projects: [] } } };
 
-// 气泡的标题与按钮按 driver.js 的类名取，各语言场景都能复用。
 const tour = (page: Page) => page.locator(".driver-popover");
 const tourTitle = (page: Page) => tour(page).locator(".driver-popover-title");
 
@@ -21,7 +20,6 @@ async function tourReady(page: Page) {
   await expect(tourTitle(page)).toBeVisible();
 }
 
-/** 点「下一步」，等气泡换成下一步的标题。换页的步骤要等新页面上的锚点挂载，气泡才会重绘。 */
 async function next(page: Page) {
   const previous = await tourTitle(page).textContent();
   await tour(page).locator(".driver-popover-next-btn").click();
@@ -43,7 +41,6 @@ async function expectHighlightOnAnchor(page: Page) {
     .toBeLessThan(1);
 }
 
-/** 气泡摆在高亮锚点旁边，不压住锚点：两者的矩形不相交。 */
 async function expectPopoverBesideAnchor(page: Page) {
   await expect
     .poll(() =>
@@ -106,7 +103,6 @@ defineRegionScenarios("新手引导", [
       await expect(tourTitle(page)).toHaveText("演示项目");
       await expect(page.getByRole("region", { name: "示例项目" })).toBeVisible();
       await expect(page.getByText("还没有项目")).toBeVisible();
-      // 从设置页回到大厅时问候区晚于这个区块渲染，高亮框与气泡都要跟着区块下移
       await expectHighlightOnAnchor(page);
       await expectPopoverBesideAnchor(page);
       await expect(tour(page)).toBeInViewport({ ratio: 1 });
@@ -168,7 +164,6 @@ defineRegionScenarios("新手引导", [
       await page.getByText("演示 · 只读").waitFor();
     },
     act: async (page) => {
-      // 说明只在键盘聚焦或悬停时出现：从项目切换器 Tab 过来
       await page.getByRole("button", { name: /^切换项目/ }).focus();
       await page.keyboard.press("Tab");
       await expect(page.getByText("演示 · 只读")).toBeFocused();

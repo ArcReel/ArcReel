@@ -90,7 +90,6 @@ _EXEMPT: dict[str, str] = {
     "provider_asset_links:refresh": _ASSET_LINK,
     "provider_asset_links:unlink_provider_asset": _ASSET_LINK,
     "provider_asset_links:upload_to_asset_library": _ASSET_LINK,
-    # 来源标在服务层
     "end_frames:delete_end_frame": _SERVICE.format("server.services.project.end_frame"),
     "end_frames:select_end_frame": _SERVICE.format("server.services.project.end_frame"),
     "end_frames:upload_end_frame": _SERVICE.format("server.services.project.end_frame"),

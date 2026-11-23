@@ -58,7 +58,6 @@ class _FakeGenerator:
         if self.raises is not None:
             raise self.raises
         output_path = kwargs.get("output_path") or Path(tempfile.gettempdir()) / "video.mp4"
-        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
         await write_backend_output(output_path, b"paid-resume-video")
         prepare = kwargs.get("before_formal_commit")
         if prepare is not None:
@@ -226,10 +225,8 @@ def _patch_resume_executor_deps(
             )
         ),
     )
-    # finalize helpers 内部也通过 generation_tasks/reference_video_tasks 的 get_project_manager
     use_project_manager(monkeypatch, fake_pm)
 
-    # extract_video_thumbnail 真实实现走 ffmpeg 子进程；mock 成 no-op 让 finalize 不依赖外部工具
     async def _fake_thumb(*_args, **_kwargs):
         return False
 
@@ -282,7 +279,6 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
     assert call["resolution"] == "720p"
     assert call["generate_audio"] is True
     assert call["formal_output"] is True
-    # 待结算调用行由 generator 按 task_id 反查，续跑不再透传调用坐标
     assert "api_call_id" not in call
     assert call["execution_provider_id"] == "openai"
     assert call["execution_provider_model_id"] == "sora-2"
@@ -293,7 +289,6 @@ async def test_execute_resume_video_calls_backend_resume_directly(monkeypatch, f
     assert checkpoint.artifact_currency is not None
     assert call["artifact_video_currency"] == checkpoint.artifact_currency.to_dict()
     assert call["execution_provider_media"][0]["source_locator"] == "storyboards/scene_E1S01.png"
-    # 返回结果带 file_path / resource_type，供 worker mark_succeeded
     assert result["resource_type"] == "videos"
     assert result["file_path"] == "videos/scene_E1S01.mp4"
 
@@ -388,7 +383,6 @@ async def test_execute_resume_declares_video_lane_only(monkeypatch, fake_pm, vid
 
     await execute_resume_video_task(video_task, job_id="openai-job-1")
 
-    # 只声明 video lane（VideoLaneRequest），image/audio lane 未声明 → 不构造对应 backend
     assert isinstance(captured["kwargs"].get("video"), VideoLaneRequest)
     assert captured["kwargs"].get("image") is None
     assert captured["kwargs"].get("audio") is None
@@ -528,7 +522,6 @@ async def test_execute_resume_rejects_image_task(monkeypatch, fake_pm):
         await execute_resume_video_task(image_task, job_id="x")
 
 
-#: schema v3 检查点记录的两种旁白交付事实，形状取自升级前的落库契约。
 _V3_USE_TTS_NARRATION = {
     "delivery": "use_tts",
     "tts_status": "current",
@@ -862,7 +855,6 @@ async def test_resume_fails_when_endpoint_changed(monkeypatch, fake_pm, video_ta
 
     assert exc_info.value.submitted_endpoint == "openai-video"
     assert exc_info.value.current_endpoint == "minimax-video"
-    # 核心回归点：没有拿新协议 backend 去轮旧 job
     assert fake_gen.resume_calls == []
 
 

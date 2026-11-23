@@ -156,7 +156,6 @@ def test_reference_files_cannot_point_at_files_of_another_asset(asset_client, as
     )
     own = asset_client.patch(f"{CHARACTERS}/阿青", json={"reference_audio": "characters/refs_audio/阿青.mp3"})
     assert own.status_code == 200, own.text
-    # 已经指着的值原样提交不算新写入：只改描述的请求带着整份条目也能保存。
     unchanged = asset_client.patch(f"{CHARACTERS}/阿岚", json={"description": "新的", **shared})
     assert unchanged.status_code == 200, unchanged.text
 
@@ -180,7 +179,6 @@ def test_an_asset_sheet_cannot_point_at_files_of_another_asset(asset_client, ass
     assert project["characters"]["阿青"]["character_sheet"] == ""
     own = asset_client.patch(f"{CHARACTERS}/阿青", json={"character_sheet": "characters/阿青.png"})
     assert own.status_code == 200, own.text
-    # 已经指着的值原样提交不算新写入：只改描述的请求带着整份条目也能保存。
     unchanged = asset_client.patch(
         f"{CHARACTERS}/阿岚", json={"description": "新的", "character_sheet": "characters/阿岚.png"}
     )
@@ -359,7 +357,6 @@ def test_recreating_a_deleted_name_points_at_the_trash_and_restore_takes_a_suffi
     assert bucket["阿岚"]["description"] == "新的阿岚"
     assert (asset_dir / "characters/阿岚.png").read_bytes() == b"new"
     assert VersionManager(asset_dir).get_versions("characters", "阿岚") == current_before
-    # 改名级联：条目、资产图、版本历史一并换成新名，原名不记成别名
     renamed = bucket["阿岚 (1)"]
     assert (renamed["description"], renamed["character_sheet"]) == ("少女", "characters/阿岚 (1).png")
     assert "阿岚" not in renamed.get("aliases", [])
@@ -422,7 +419,6 @@ def test_a_derivative_deleted_before_its_owner_restores_only_after_the_owner_is_
     asset_client.delete(f"{CHARACTERS}/阿岚")
     owner = _record_of(asset_client, kind="asset")["id"]
 
-    # 本体还在项目回收站里：衍生只能随本体恢复，不降级成未登记的文件。
     too_early = asset_client.post(f"{TRASH}/{derivative}/restore")
     assert too_early.status_code == 409
     assert "阿岚" in too_early.json()["detail"]
@@ -495,7 +491,6 @@ def test_a_failed_record_leaves_the_asset_in_place(asset_client, asset_pm, asset
     _create(asset_client, "阿岚")
     _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
     before = VersionManager(asset_dir).get_versions("characters", "阿岚")
-    # 回收站目录的位置被一个文件占着：删除记录建不起来
     project_trash.trash_dir(asset_dir).parent.mkdir(parents=True, exist_ok=True)
     project_trash.trash_dir(asset_dir).write_text("blocked")
 
@@ -543,7 +538,6 @@ def test_a_suffixed_restore_lands_when_the_snapshot_holds_only_leftover_history_
     leftover.unlink()
     asset_client.delete(f"{CHARACTERS}/Alice")
     record = _record_of(asset_client, name="Alice")["id"]
-    # 当前项目里清掉这份残留历史，「Alice (1)」只在临时项目里被占
     VersionManager(asset_dir).detach_resources([("characters", "Alice (1)")])
     _create(asset_client, "Alice", "new")
 

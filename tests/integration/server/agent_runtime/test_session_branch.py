@@ -177,7 +177,6 @@ async def test_second_branch_of_the_same_origin_is_refused(branching):
     first = await service.branch(session_id, SECOND_USER_ENTRY)
     sessions_before = {row["session_id"] for row in await store.list_sessions(project_key)}
 
-    # 同一个非空锚点：第二次分叉会先把前缀复制到新 session_id 下，冲突后须整个撤回。
     with pytest.raises(SessionBranchError):
         await service.branch(session_id, SECOND_USER_ENTRY)
 
@@ -206,7 +205,6 @@ async def test_deleting_a_middle_branch_keeps_the_origin_pointing_at_the_live_en
     """链中间被删时前身改指后继：否则前身与末端会同时出现在列表里，取代关系断掉。"""
     service, meta_store, store, log_store, session_id, tmp_path = branching
     middle = await service.branch(session_id, SECOND_USER_ENTRY)
-    # 分支会话被续写后，新消息才有身份映射、才能再被分叉——链由此形成。
     project_key = make_project_key(tmp_path)
     copied = await store.load({"project_key": project_key, "session_id": middle.session_id})
     assert copied is not None
@@ -475,14 +473,11 @@ async def test_an_identity_anchor_that_transcript_never_saw_fails_loud(branching
             make_sdk_transcript_entry(a1, u1, "assistant", session_id, "在"),
         ],
     )
-    # 事件日志里有这条主线用户条目，transcript 里没有——mint 出来的 id 本该由
-    # 回显认领落进映射表，认领失败就是这个形态。
     ghost = f"user-{uuid4().hex[:8]}"
     await log_store.append(session_id, [{"type": "user", "uuid": ghost, "content": "改我"}])
 
     sessions_before = {row["session_id"] for row in await store.list_sessions(project_key)}
 
-    # 拒绝来自前缀切片（"not on the main timeline"），不是恒等回退自己拦下的。
     with pytest.raises(SessionBranchError, match="main timeline"):
         await service.branch(session_id, ghost)
 

@@ -23,7 +23,7 @@ def test_model_alias_conflicting_between_two_entries_is_rejected():
     data = catalog()
     other = text_entry()
     other["name"] = "gemini-3.1-pro-exp"
-    other["aliases"] = ["Gemini-3.1-Pro-Latest"]  # 归一化后与第一个条目的模型别名相同
+    other["aliases"] = ["Gemini-3.1-Pro-Latest"]
     data["entries"].append(other)
 
     assert _codes(data) == [("entries[4].aliases[0]", "name_conflict")]

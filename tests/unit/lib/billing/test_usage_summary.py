@@ -186,7 +186,6 @@ class TestAttentionOrdering:
         other = summarize(rows)["breakdown"]["project"]["other"]
 
         assert other["groups"] == 4
-        # 并入余量的是排在最后的四个项目（index 50..53）：其中两个未定价。
         assert other["unpriced_calls"] == 2
 
     def test_only_unpriced_rows_have_no_primary_currency(self):

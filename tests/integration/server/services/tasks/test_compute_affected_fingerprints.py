@@ -46,7 +46,6 @@ class TestGenerationTasks:
                     row=0,
                     col=1,
                     frame_type="transition",
-                    # 项目内的绝对路径：允许纳入，但指纹 key 必须归一为相对路径
                     image_path=str(project_path / "storyboards" / "scene_E1S02.png"),
                 ),
                 FrameCell(index=2, row=1, col=0, frame_type="transition", image_path="../outside.png"),

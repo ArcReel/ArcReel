@@ -77,7 +77,6 @@ async def test_historical_call_records_resolve_artifacts_within_project_after_mi
     _write_artifact(projects, "storyboards/scene_E1S01.png")
     project_dir = projects.get_project_path("demo")
     at_current_location = await _record_call(session_factory, str(project_dir / "characters" / "婉儿.png"))
-    # 记录写下后数据根被整体挪过：记录里的前缀已不是当前数据根。
     from_moved_data_root = await _record_call(
         session_factory, str(tmp_path / "old-root" / "demo" / "storyboards" / "scene_E1S01.png")
     )
@@ -100,7 +99,6 @@ async def test_rerunning_migration_leaves_call_records_unchanged(
     await _migrate(projects, session_factory, tmp_path)
     after_first = await _recorded_output_path(session_factory, call_id)
     updated_after_first = await _recorded_updated_at(session_factory, call_id)
-    # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
     DataRootLayout(projects.data_root).layout_migration_marker_path.unlink()
     await _migrate(projects, session_factory, tmp_path)
 
@@ -170,7 +168,6 @@ async def test_user_memory_stays_readable_after_migration_and_rerun(
     _write_legacy_user_memory(data_root, "u2", {"MEMORY.md": "- 另一位用户\n"})
 
     await _migrate_data_root(data_root, session_factory, sdk_config_dir)
-    # 后续步骤失败、完成标记未写时，下次启动各步骤从头重跑。
     DataRootLayout(data_root).layout_migration_marker_path.unlink()
     await _migrate_data_root(data_root, session_factory, sdk_config_dir)
 
@@ -184,7 +181,6 @@ async def test_user_memory_move_resumes_after_interruption(
     data_root: Path, session_factory: async_sessionmaker[AsyncSession], sdk_config_dir: Path
 ) -> None:
     _write_legacy_user_memory(data_root, "default", {"MEMORY.md": "- 索引\n", "b.md": "后搬"})
-    # 上次迁移中断在同一用户的记忆搬了一半时。
     moved = DataRootLayout(data_root).user_memory_dir("default")
     moved.mkdir(parents=True)
     (data_root / ".arcreel" / "users" / "default" / "memory" / "MEMORY.md").replace(moved / "MEMORY.md")
@@ -311,7 +307,6 @@ async def test_migration_resumes_when_projects_moved_but_session_keys_not_rewrit
     _write_legacy_project(data_root, "demo")
     store = DbSessionStore(session_factory, user_id="default")
     await _record_session(store, data_root / "demo")
-    # 上次迁移中断在项目目录已搬完、会话存储键尚未改写时。
     projects_dir = DataRootLayout(data_root).projects_dir
     projects_dir.mkdir()
     (data_root / "demo").rename(projects_dir / "demo")
@@ -342,7 +337,6 @@ async def test_project_named_projects_keeps_its_name_and_sessions(
 async def test_system_named_entries_are_split_between_projects_and_system_data(
     data_root: Path, session_factory: async_sessionmaker[AsyncSession], sdk_config_dir: Path
 ) -> None:
-    # 名为 users 的旧项目与旧位置的用户记忆同时存在：项目搬走后，同一次迁移里记忆就位。
     _write_legacy_project(data_root, "users", novel="与用户目录同名")
     _write_legacy_user_memory(data_root, "default", {"MEMORY.md": "- 偏好\n"})
     (data_root / "logs").mkdir()
@@ -381,7 +375,6 @@ async def test_project_left_mid_schema_swap_moves_with_its_rollback_dir(
     _write_legacy_project(data_root, "demo", novel="交换窗口里的项目")
     store = DbSessionStore(session_factory, user_id="default")
     await _record_session(store, data_root / "demo")
-    # 旧版本的项目 schema 迁移停在目录交换的两次改名之间：项目目录只剩 rollback 目录。
     rollback_name = f".demo.v6-rollback-{'a' * 32}"
     (data_root / "demo").rename(data_root / rollback_name)
 
@@ -389,7 +382,6 @@ async def test_project_left_mid_schema_swap_moves_with_its_rollback_dir(
     projects_dir = DataRootLayout(data_root).projects_dir
     run_project_migrations(projects_dir)
     assert not (projects_dir / "demo").exists()
-    # 部署文档给出的人工恢复：把 rollback 目录改回项目名。
     (projects_dir / rollback_name).rename(projects_dir / "demo")
     run_project_migrations(projects_dir)
 

@@ -43,14 +43,12 @@ async function pickDuration(seconds: number, name = "视频单元 1 时长") {
   await user.click(await screen.findByRole("option", { name: `${seconds} 秒` }));
 }
 
-// 等能力请求的回调落地后再断言「无提示」：只等到 spy 被调用时回调尚未执行，「无提示」恒成立。
 async function settleCapabilityRequests(spy: MockInstance<typeof API.getVideoCapabilities>) {
   await act(async () => {
     await Promise.allSettled(spy.mock.results.map((r) => r.value));
   });
 }
 
-// 已确认的集照常已有正式脚本（确认即转出）。
 const CONFIRMED: Partial<ScriptReviewState> = {
   status: "confirmed",
   confirmed_at: "2026-06-26T00:00:00Z",
@@ -144,8 +142,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
     useScriptPlanStore.setState(useScriptPlanStore.getInitialState(), true);
-    // 确认后的全局副作用（toast + 预填）只在「用户仍在看这个项目」时才生效，测试渲染面板时
-    // 用的 projectName="p"，需要同步告诉 store 当前正在看的就是它。
     useProjectsStore.setState({ currentProjectName: "p" });
   });
   afterEach(() => {
@@ -153,7 +149,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     useProjectsStore.setState({ currentScripts: {} });
   });
 
-  // `@[名称]` 在正文里高亮；参考图仅在执行期解析，无独立参考图清单。
   it("renders the clean pending state with the highlighted body and no reference list", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
@@ -287,7 +282,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     expect(await screen.findByText("本单元未引用场景，画面地点将由模型自由决定")).toBeInTheDocument();
-    // 降级提示不进确认闸门：正文合法，只是画面地点没被钉住。
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
   });
 
@@ -338,7 +332,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   });
 
   it("confirms without opening the assistant panel or prefilling a message", async () => {
-    // Web 全流程不打开 Agent 面板：确认后由页面的下一步接续，与 ScriptReviewGate 一致。
     useAppStore.setState({ assistantPanelOpen: false });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const confirm = vi
@@ -432,7 +425,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       video_count: 2,
       text: "现有 2 条分镜全部移除。视频 2 段。E1U05（视频）",
     });
-    // 正式剧本里 E1U05 排在第 3 位
     useProjectsStore.setState({
       currentScripts: {
         "episode_1.json": {
@@ -451,7 +443,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
     fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
 
-    // 丢失清单里的正式剧本条目按它在正式剧本里的位置称呼
     await waitFor(() =>
       expect(screen.getByRole("alertdialog")).toHaveTextContent("现有 2 条分镜全部移除。视频 2 段。视频单元 3（视频）"),
     );
@@ -547,20 +538,14 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     fireEvent.click(await screen.findByRole("button", { name: /确认拆分，继续生成/ }));
 
-    // 确认请求在途时用户切到了另一个项目（本组件所在的 tab 可能因此被卸载，但即使还挂载着
-    // 也不该再写全局副作用）。
     useProjectsStore.setState({ currentProjectName: "other-project" });
     resolveConfirm(pendingState(CONFIRMED));
 
-    // adopt() 运行在守卫之前，确认本身已生效——用按钮态的变化确认异步流程真的跑完了，
-    // 而不是靠一个从始至终都为空的断言碰巧「通过」。
     await waitFor(() => expect(screen.getByRole("button", { name: "已确认" })).toBeDisabled());
     expect(useAppStore.getState().toast).toBeNull();
   });
 
   it("still shows the confirm toast after switching tabs within the same project", async () => {
-    // 同项目内切 tab（本组件会被卸载，但 useProjectsStore.currentProjectName 不变）不该被
-    // 当成「切走了」而抑制确认提示。
     useAppStore.setState({ assistantPanelOpen: false });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     let resolveConfirm: (value: ScriptReviewState) => void = () => {};
@@ -767,7 +752,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(savedContent).toMatchObject({
       units: [{ unit_id: "E1U01", text: "@[阿离] 缓步走过 @[长街]" }],
     });
-    // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
     expect(baseFingerprint).toBe("fp1");
   });
 
@@ -790,8 +774,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    // 草稿正文一行描述 + 一行全角花括号「台词」：统计与正文高亮同一套切分口径，全角花括号
-    // 不被解析器认作台词（这正是该草稿的 fullwidth_braces 违约），故台词数为 0。
     await waitFor(() => expect(screen.getByText("0 句台词")).toBeInTheDocument());
   });
 
@@ -836,8 +818,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     expect(await screen.findByRole("combobox", { name: "视频单元 1 时长" })).toHaveTextContent("8 秒");
-    // 越档兜底项插入选项时按数值排序，不是简单地把当前值塞到最前面（那样 8/4/6 的
-    // 显示顺序会乱）。
     expect(await durationOptions()).toEqual(["4", "6", "8"]);
   });
 
@@ -845,7 +825,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue({
       ...quarantinedState(),
       quarantine: draftView({
-        // schema 违约：后端原样回传 Agent 手改的内容，`units` 根本不是数组。
         content: { units: "被改坏了" },
         violations: [{ code: "schema_invalid", label: "", message: "待修复草稿的 content.units 必须是非空数组", line: null }],
       }),
@@ -899,7 +878,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.queryByText(/引用的资产缺图/)).not.toBeInTheDocument();
   });
 
-  // 名字已登记但还没有参考图：服务端落 i2v，面板照用 i2v 档位并点名缺图引用，不按正文提及自判 r2v。
   it("follows the server i2v bucket for a registered-but-imageless mention", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
       pendingState({
@@ -923,7 +901,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     expect(await durationOptions()).toEqual(["4", "6", "8"]);
-    // 与画布同源的结构化分裂提示：点名缺图引用并说明将按 i2v 执行而非声明的 r2v；不拦确认。
     const alert = screen.getByTestId("reference-split-alert");
     expect(alert).toHaveTextContent("引用的资产缺图：阿离");
     expect(alert).toHaveTextContent("本单元将按图生视频（无参考图）执行，而非声明的参考生视频（带参考图）");
@@ -962,7 +939,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(
       pendingState({
         supported_durations: [4, 6, 8],
-        // 该 unit 的生效档位收窄到 4/6 秒——已存盘的 8 秒不再合法，但仍要照旧展示（不静默跳档）。
         duration_tiers: {
           with_references: [4, 6],
           units: { E1U01: mkCapability("E1U01", { allowed_durations: [4, 6] }) },
@@ -979,8 +955,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
   it("takes the tier choice from the saved server result rather than the live-edited body", async () => {
     const withoutReferences = pendingState({
       supported_durations: [4, 6, 8],
-      // 8 秒是两套档位共有的值，保证初始展示不触发「越档补首值」分支，让第二次断言干净地
-      // 反映档位切换本身，而不是与该兜底行为的展示叠在一起。
       duration_tiers: {
         with_references: [8],
         units: {
@@ -1009,7 +983,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
 
     expect(await durationOptions()).toEqual(["4", "6", "8"]);
 
-    // 编辑正文新增 @[阿离]（尚未保存）：面板不自判「名字已登记」，档位保持服务端上一份结论。
     fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
     const textarea = await screen.findByDisplayValue("门开了");
     fireEvent.change(textarea, { target: { value: "@[阿离] 推门而入。" } });
@@ -1030,7 +1003,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     });
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    // 违约清零时不需要改动也能保存：保存即采用。
     expect(await screen.findByRole("button", { name: /保存并校验/ })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /交给 Agent 修复/ }));
     const input = useAssistantStore.getState().input;
@@ -1074,9 +1046,6 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     const firstLink = await screen.findByRole("button", { name: "视频单元 1 · 1" });
 
-    // 两个按钮之间的可见文本要有分隔符，不能粘连成 "视频单元 1 · 1视频单元 2 · 1"——按钮各自的可访问名
-    // 本身不受这个 bug 影响（那是每个元素独立算的），只有渲染出的原始文本会粘连，所以这里
-    // 直接断言状态条的 textContent。
     const statusBar = firstLink.parentElement?.parentElement;
     expect(statusBar?.textContent).toMatch(/视频单元 1 · 1.+视频单元 2 · 1/);
     expect(statusBar?.textContent).not.toContain("1视频单元 2");

@@ -30,7 +30,6 @@ export async function waitForEntrance(target: Locator) {
   });
 }
 
-/** 紧凑档 Agent 面板覆盖画布右侧，操作该区域前收起它。 */
 export async function clearAgentOverlay(page: Page) {
   if (viewport(page).width >= 1280) return;
   const toggle = page.getByRole("button", { name: "Agent", exact: true });

@@ -134,14 +134,12 @@ describe("VersionTimeMachine", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "v1" }));
     expect(screen.getByAltText("版本 v1 预览")).toBeInTheDocument();
-    // 别处（如 Agent）生成了新版本：预览选中不沿用到新的版本列表
     act(() => useProjectsStore.getState().updateAssetFingerprints({ "products/Cup.png": 2 }));
     expect(screen.queryByAltText("版本 v1 预览")).not.toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole("button", { name: "v1" }));
     fireEvent.click(screen.getByRole("button", { name: "切换到此版本" }));
     await waitFor(() => expect(API.restoreVersion).toHaveBeenCalledWith("demo", "products", "Cup", 1));
-    // 恢复本身换了指纹，刚恢复的版本仍保持选中
     await waitFor(() => expect(useProjectsStore.getState().assetFingerprints["products/Cup.png"]).toBe(3));
     expect(await screen.findByAltText("版本 v1 预览")).toBeInTheDocument();
     useProjectsStore.setState({ assetFingerprints: {} });
@@ -480,9 +478,6 @@ describe("VersionTimeMachine", () => {
     expect(restoreSpy).not.toHaveBeenCalled();
   });
 
-  // busy 是渲染快照：版本面板打开着的这段时间里 Agent 入队、批量入口或轮询落库都可能
-  // 占用该资源，新 prop 冲刷到按钮之前的一次点击仍会发出恢复请求，与在跑的任务并发写
-  // 同一个资源文件。故提交处理器里再做一次新鲜读。
   it("恢复提交时刻复核占用态，命中即拒绝并提示", async () => {
     vi.spyOn(API, "getVersions").mockResolvedValue({
       resource_type: "storyboards",
@@ -509,7 +504,6 @@ describe("VersionTimeMachine", () => {
       ],
     });
     const restoreSpy = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
-    // 渲染期空闲（busy 缺省为 false，按钮可点），提交时刻已被别的入口占用
     const checkBusy = vi.fn().mockReturnValue(true);
 
     render(
@@ -675,7 +669,6 @@ describe("VersionTimeMachine", () => {
       list.mockClear();
       fireEvent.click(screen.getByRole("button", { name: "v1：移入项目回收站？" }));
       await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("无法删除 v1：boom"));
-      // 列表可能已过期（别处切换了当前版本）：重拉，但不闪成加载态、焦点仍在图标上
       await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
       expect(screen.getByRole("button", { name: "v1" })).toBeInTheDocument();
       await waitFor(() => expect(screen.getByRole("button", { name: "将 v1 移入项目回收站" })).toHaveFocus());
@@ -700,7 +693,7 @@ describe("VersionTimeMachine", () => {
       const remove = vi.spyOn(API, "deleteFileViewEntry").mockResolvedValue(deleted);
       renderOpen({ busy: true });
       const hints = await screen.findAllByRole("button", { name: "生成或编辑进行中，暂无法删除版本" });
-      expect(hints).toHaveLength(2); // v1、v3；当前版本 v2 的原因优先说「当前版本」
+      expect(hints).toHaveLength(2);
       expect(hints[0]).toHaveAttribute("aria-disabled", "true");
       fireEvent.click(hints[0]);
       expect(screen.queryByRole("button", { name: /移入项目回收站？/ })).not.toBeInTheDocument();

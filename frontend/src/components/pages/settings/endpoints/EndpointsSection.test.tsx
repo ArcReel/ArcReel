@@ -59,7 +59,6 @@ function provider(overrides: Partial<CustomProviderInfo>): CustomProviderInfo {
   };
 }
 
-// 导入校验携带 mediaType；详情区的防抖复核只携带 excludeId 和 signal。
 function importValidationCalls(validate: MockInstance<typeof API.validateCustomEndpoint>) {
   return validate.mock.calls.filter(([, options]) => options?.mediaType !== undefined);
 }
@@ -90,9 +89,7 @@ describe("EndpointsSection", () => {
 
     await pickFile(new File([JSON.stringify(workflow)], "workflow_api.json", { type: "application/json" }));
 
-    // 原始 workflow 没有 kind，送去校验的是它本身；回来的包装结果接手成为待保存的定义。
     expect(await screen.findByText(/已包装成 ComfyUI 端点定义/)).toBeInTheDocument();
-    // 编辑区对默认定义的防抖校验可能先于它发生，调用次序不定，只确认原始 workflow 曾被送检。
     expect(importValidationCalls(validate).map(([definition]) => definition)).toContainEqual(workflow);
     expect(screen.getByText(/workflow_api\.json · ComfyUI workflow · v1\.0\.0/)).toBeInTheDocument();
   });
@@ -114,7 +111,6 @@ describe("EndpointsSection", () => {
   });
 
   it("leaves built-in image endpoints out", async () => {
-    // 本节是自定义端点的管理面；内置图像端点在这里没有可做的事。
     renderSection();
     const list = await screen.findByRole("navigation");
     expect(within(list).queryByText("OpenAI Image")).not.toBeInTheDocument();
@@ -199,7 +195,6 @@ describe("EndpointsSection", () => {
       }),
     );
     renderSection("section=endpoints&endpoint=ce-7");
-    // 诊断卡要等 400ms 校验防抖再发请求，默认 1s 等待在并行负载下不够。
     expect(
       await screen.findByText("不支持递归下降语法", undefined, { timeout: 4000 }),
     ).toBeInTheDocument();

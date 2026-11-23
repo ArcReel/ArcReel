@@ -16,7 +16,6 @@ from lib.generation.generation_result import observe_artifact_status
 from lib.project.project_manager import ProjectManager
 from lib.script.grid.models import GridGeneration, ReferenceImage, build_frame_chain
 
-#: 与 ``conftest.py`` 选角项目的项目名一致。
 PROJECT = "demo"
 
 _GRID_ID = "grid_123456789abc"
@@ -43,10 +42,8 @@ def test_renaming_a_character_keeps_its_storyboards_current_and_marks_its_refere
 
     assert _status(pm, storyboard[0], storyboard[1]) == "current"
     assert _status(pm, *derivative_storyboard) == "current"
-    # 参考生视频的声明行写作「<名称>的…」，模型输入含名：改名后过期是正确的。
     assert _status(pm, *video) == "stale"
     assert _status(pm, *untouched_video) == "current"
-    # 资产图的提示词含资产名，同样判过期。
     assert _status(pm, ArtifactKey.asset_sheet("character", "Alicia"), "characters/Alicia.png") == "stale"
 
 

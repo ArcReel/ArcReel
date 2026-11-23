@@ -70,13 +70,11 @@ def test_aspect_size_known_samples(aspect, short, expected):
 
 
 def test_aspect_size_t_floor_never_zero():
-    # 短边目标小于一个单位也至少给出最小合法尺寸（t≥1），不取 0
     w, h = aspect_size("9:16", 10, round_to=16)
     assert (w, h) == (144, 256)
 
 
 def test_aspect_size_max_long_edge_clamps_keeping_ratio():
-    # gpt-image-2：长边上限 3840
     w, h = aspect_size("9:16", 4000, round_to=16, max_long_edge=3840)
     assert h <= 3840
     assert w * 16 == h * 9
@@ -84,7 +82,6 @@ def test_aspect_size_max_long_edge_clamps_keeping_ratio():
 
 
 def test_aspect_size_max_long_edge_floor_keeps_min_legal():
-    # 长边上限比一个单位还小 → 不取 0，保留最小合法尺寸
     w, h = aspect_size("9:16", 720, round_to=16, max_long_edge=100)
     assert (w, h) == (144, 256)
 
@@ -155,7 +152,6 @@ def test_resolution_video_tier_word(tier, expected):
     [("1920x1080", 1080), ("1080x1920", 1080), ("2688*1536", 1536), ("1024×1024", 1024)],
 )
 def test_resolution_custom_wh_takes_min(custom, expected):
-    # 自定义值剥离其自带比例，取 min 当短边
     assert resolution_to_short_edge(custom, tier_map=IMAGE_TIER_SHORT_EDGE) == expected
 
 
@@ -179,11 +175,9 @@ def test_a_short_edge_that_lands_on_a_tier_says_that_tier(short_edge, expected):
 
 @pytest.mark.parametrize("short_edge", [848, 600, 1100, 4000])
 def test_a_short_edge_between_tiers_says_the_pixels_it_really_is(short_edge):
-    # 「不选档位会得到什么」这句话上借最近的档位词会骗人：选中 720p 得到的短边是 720，不是 848。
     assert short_edge_to_resolution(short_edge, tier_map=VIDEO_TIER_SHORT_EDGE) == f"{short_edge}px"
 
 
 def test_the_tier_table_decides_the_vocabulary():
-    # 同一个短边在图像档位表里命中的是另一个词，在视频表里一档都不命中。
     assert short_edge_to_resolution(1024, tier_map=IMAGE_TIER_SHORT_EDGE) == "1K"
     assert short_edge_to_resolution(1024, tier_map=VIDEO_TIER_SHORT_EDGE) == "1024px"

@@ -102,7 +102,6 @@ class TestModeDetection:
         应按数据形状走 NarrationEpisodeScript 而非让 generation_mode 单向赢——
         若强制 ReferenceVideoScript 校验会因 video_units 缺失 invalid。
         """
-        # 用 _narration() 的 segments,但带 generation_mode='reference_video' 标记(partial migration)
         script = _narration()
         script["generation_mode"] = "reference_video"
         assert validate_script_structure(script).valid
@@ -126,13 +125,11 @@ class TestModeDetection:
         assert validate_script_structure(script).valid
 
     def test_drama_detected_by_scenes_key_when_content_mode_absent(self):
-        # 无 content_mode、有 scenes 键（即便空）：按键存在推断 Drama
         script = _drama(scenes=[])
         del script["content_mode"]
         assert validate_script_structure(script).valid
 
     def test_narration_is_default_fallback(self):
-        # 无 content_mode、无 scenes/video_units：回退 NarrationEpisodeScript
         script = _narration()
         del script["content_mode"]
         assert validate_script_structure(script).valid
@@ -185,7 +182,6 @@ class TestInvalidNarration:
 
 class TestInvalidReferenceVideo:
     def test_duration_out_of_structural_range_rejected(self):
-        # unit 时长是唯一真相、与正文无关，只受结构合理性区间约束
         result = validate_script_structure(_reference([_unit(duration=9999)]))
         assert not result.valid
         assert any("duration" in e.lower() for e in result.errors)

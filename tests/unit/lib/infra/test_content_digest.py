@@ -70,7 +70,6 @@ def test_unprefixed_strips_only_a_valid_algorithm_prefix() -> None:
     hexdigest = "ab" * 32
     assert unprefixed(prefixed(hexdigest)) == hexdigest
     assert unprefixed(hexdigest) == hexdigest
-    # 前缀后不是合法 hexdigest 时原样返回，交给调用方的比对判为不一致。
     assert unprefixed(f"{HASH_ALGORITHM}:xyz") == f"{HASH_ALGORITHM}:xyz"
     assert unprefixed(f"{HASH_ALGORITHM}:{hexdigest}\n") == f"{HASH_ALGORITHM}:{hexdigest}\n"
 
@@ -258,7 +257,7 @@ def test_cache_is_bounded_and_evicts_the_least_recently_used(tmp_path: Path, has
 
     for target in files[:FILE_DIGEST_CACHE_CAPACITY]:
         sha256_file(target)
-    sha256_file(files[0])  # 0 变成最近用过的：满容量后被挤出的是 1，不是 0
+    sha256_file(files[0])
     sha256_file(files[-1])
     hashed_before = len(hashed_files)
     assert hashed_before == FILE_DIGEST_CACHE_CAPACITY + 1
@@ -268,4 +267,4 @@ def test_cache_is_bounded_and_evicts_the_least_recently_used(tmp_path: Path, has
     assert len(hashed_files) == hashed_before
 
     sha256_file(files[1])
-    assert len(hashed_files) == hashed_before + 1  # 最久未用的被淘汰，缓存没有无界增长
+    assert len(hashed_files) == hashed_before + 1

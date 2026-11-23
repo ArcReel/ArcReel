@@ -29,7 +29,6 @@ from tests.http_capture import capture_http, only_request, request_json
 
 _BASE_URL = "https://x/v1"
 _GATEWAY_BASE_URL = "https://apihub.agnes-ai.com/v1"
-# 成片 CDN 与网关成片库两个下载域名，供下载路由整体拦截。
 _DOWNLOAD_HOSTS = r"https://(cdn\.agnes|platform-outputs\.agnes-ai\.com)/"
 
 
@@ -112,7 +111,6 @@ class TestCapabilities:
         caps = backend.video_capabilities
         assert caps.first_frame is True
         assert caps.last_frame is True
-        # v2.5 契约的通道不设参考图上限，各型号的上限来自条目
         assert caps.max_reference_images is None
         assert caps.audio_track is VideoAudioMode.ALWAYS_ON
 
@@ -161,10 +159,10 @@ class TestDurationCoercion:
         [
             (10, 10),
             ("10.0", 10),
-            ("9.6", 10),  # half-up 取整，不少计费秒
+            ("9.6", 10),
             ("9.4", 9),
             (4.5, 5),
-            (0, None),  # 非正值回 None，由 caller 回落请求时长
+            (0, None),
             ("0", None),
             (-3, None),
             ("abc", None),
@@ -179,16 +177,12 @@ class TestDurationCoercion:
     def test_extract_duration_reads_top_level_seconds_not_usage(self):
         from lib.backends.video_backends.agnes import _extract_duration_seconds
 
-        # 顶层 seconds 是成片时长真相源；usage.duration_seconds 是任务处理耗时，不得读取
         assert _extract_duration_seconds({"seconds": "8.0", "usage": {"duration_seconds": 184}}, None, fallback=5) == 8
         assert _extract_duration_seconds({"seconds": "7"}, None, fallback=5) == 7
-        # seconds 缺失（含非正值/不可解析）一律回落请求时长，不看 usage
         assert _extract_duration_seconds({"usage": {"duration_seconds": 184}}, None, fallback=5) == 5
         assert _extract_duration_seconds({"seconds": "0"}, None, fallback=5) == 5
         assert _extract_duration_seconds({}, None, fallback=5) == 5
-        # 终态无 seconds 时改读 video_id 二次查询响应的 seconds
         assert _extract_duration_seconds({}, {"seconds": "8.0"}, fallback=5) == 8
-        # 终态与查询响应均无 seconds 才回落请求时长
         assert _extract_duration_seconds({}, {}, fallback=5) == 5
 
 
@@ -228,7 +222,6 @@ class TestTextToVideo:
         assert result.duration_seconds == 5
         assert result.task_id == "task-42"
         assert result.video_uri == "https://cdn.agnes/out.mp4"
-        # Agnes 无音频能力，成片恒无声
         assert result.generate_audio is False
 
         submitted = only_request(routes.submit)
@@ -244,10 +237,8 @@ class TestTextToVideo:
         assert "image" not in body
         assert "extra_body" not in body
         assert submitted.headers["Authorization"] == "Bearer sk-test"
-        # submit 用长超时覆盖上游长阻塞
         assert submitted.extensions["timeout"]["read"] == 300.0
 
-        # 下载打完成态的成片 URL，不带鉴权头
         downloaded = only_request(routes.download)
         assert str(downloaded.url) == "https://cdn.agnes/out.mp4"
         assert "Authorization" not in downloaded.headers
@@ -299,7 +290,6 @@ class TestImageChannels:
 
         sent = body["image"]
         assert sent == base64.b64encode(img_bytes).decode("ascii")
-        # 裸 base64，绝不带 data: 前缀
         assert not sent.startswith("data:")
         assert "extra_body" not in body
 
@@ -316,7 +306,7 @@ class TestImageChannels:
 
             body = _sent_payload(routes)
 
-        assert "image" not in body  # 单通道：keyframes 走 extra_body，不占顶层 image
+        assert "image" not in body
         extra = body["extra_body"]
         assert extra["mode"] == "keyframes"
         assert extra["image"] == [
@@ -340,7 +330,7 @@ class TestImageChannels:
 
         assert "image" not in body
         extra = body["extra_body"]
-        assert "mode" not in extra  # 参考生视频不带 keyframes mode
+        assert "mode" not in extra
         assert extra["image"] == [
             base64.b64encode(image_bytes(1)).decode("ascii"),
             base64.b64encode(image_bytes(2)).decode("ascii"),
@@ -488,7 +478,6 @@ class TestFailureAndTimeout:
             backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_GATEWAY_BASE_URL)
             result = await backend.generate(_request(tmp_path, on_provider_response=_record))
 
-            # 二次查询打网关根下的 /agnesapi，按 video_id 传参（不带 /v1，也不用 task_id）
             assert str(only_request(routes.query).url) == "https://apihub.agnes-ai.com/agnesapi?video_id=vid-123"
 
         assert result.video_uri == "https://cdn.agnes/queried.mp4"
@@ -552,7 +541,6 @@ class TestFailureAndTimeout:
                         "task_id": "t-remix-id",
                         "video_id": "vid-456",
                         "status": "completed",
-                        # 非 URL 形态：真正的 remix 来源 ID
                         "remixed_from_video_id": "src-video-abc",
                     }
                 )
@@ -800,7 +788,7 @@ class TestProviderJobIdPersistence:
         assert persisted == [
             {
                 "task_id": "worker-task-99",
-                "job_id": "agnes-task-42",  # Agnes submit 返回的 task_id 作为 job_id 写回
+                "job_id": "agnes-task-42",
                 "provider": PROVIDER_AGNES,
                 "endpoint": None,
                 "base_url": None,

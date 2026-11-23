@@ -95,7 +95,6 @@ class TestTaskSpecFromRequest:
         assert exc.value.code == "video_prompt_action_empty"
 
     def test_video_null_action_rejected(self):
-        # 显式 null：str(None) 会得到 truthy 的 "None"，必须当作空值拒绝而非放行。
         with pytest.raises(TaskSpecValidationError) as exc:
             TaskSpec.from_request(task_type="video", media_type="video", resource_id="S01", prompt={"action": None})
         assert exc.value.code == "video_prompt_action_empty"
@@ -139,8 +138,6 @@ class TestTaskSpecFromRequest:
 
     @pytest.mark.parametrize("scene", [123, ["a"], {"text": "a"}, True])
     def test_storyboard_non_string_scene_rejected(self, scene):
-        # 入队守卫与渲染出口共用 require_storyboard_scene：
-        # 非字符串 scene 在入队即被拒，不推迟到执行期。
         with pytest.raises(TaskSpecValidationError) as exc:
             TaskSpec.from_request(
                 task_type="storyboard", media_type="image", resource_id="S01", prompt={"scene": scene}
@@ -163,7 +160,6 @@ class TestTaskSpecFromRequest:
 
     @pytest.mark.parametrize("task_type", ["character", "scene", "prop", "product"])
     def test_asset_sheet_spec_carries_no_prompt(self, task_type):
-        # 资产图描述由执行层从存储的条目读取，入队不存快照。
         spec = TaskSpec.from_request(task_type=task_type, media_type="image", resource_id="张三")
         assert spec.payload == {}
 
@@ -173,7 +169,6 @@ class TestTaskSpecFromRequest:
             TaskSpec.from_request(task_type="character", media_type="image", resource_id="张三", prompt=prompt)
 
     def test_reference_video_validates_prompt_without_snapshotting_it(self):
-        # 当前 shots 只在入队守卫点校验；worker 从 script_file + resource_id 重读最新内容。
         spec = TaskSpec.from_request(
             task_type="reference_video",
             media_type="video",
@@ -214,7 +209,6 @@ class TestTaskSpecFromRequest:
         assert exc.value.code == "tts_prompt_must_be_string_or_null"
 
     def test_tts_extra_payload_text_rejected(self):
-        # text 是 tts 执行层优先读取的字段，必须与 prompt 同走守卫点，不得经 extra_payload 绕过。
         with pytest.raises(ValueError, match=r"extra_payload contains reserved keys: text") as exc:
             TaskSpec.from_request(
                 task_type="tts",
@@ -231,7 +225,6 @@ class TestTaskSpecFromRequest:
         assert excinfo.value.code == "resource_id_required"
 
     def test_extra_payload_cannot_override_reserved_keys(self):
-        # extra_payload 携带保留键会绕过单一守卫点，必须拒绝。
         with pytest.raises(ValueError, match=r"extra_payload contains reserved keys: prompt") as exc:
             TaskSpec.from_request(
                 task_type="video",
@@ -255,7 +248,6 @@ class TestTaskSpecFromRequest:
         assert "reserved" in str(exc.value)
 
     def test_webui_and_sdk_same_input_same_spec(self):
-        # 同一非法输入，两路（WebUI / SDK）都经 from_request，结果一致。
         kwargs = {"task_type": "video", "media_type": "video", "resource_id": "S01", "prompt": {"action": ""}}
         with pytest.raises(TaskSpecValidationError) as web:
             TaskSpec.from_request(**kwargs)
@@ -653,7 +645,6 @@ class TestBatchEnqueueAndWaitSync:
             on_failure=on_failure,
         )
 
-        # 返回值与回调同口径：终态决定去向，两边都要认得出是哪个 resource
         assert [r.resource_id for r in successes] == ["A"]
         assert [r.resource_id for r in failures] == ["B"]
         assert [r.status for r in failures] == ["failed"]

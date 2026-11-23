@@ -483,7 +483,6 @@ class TestFreeze:
             frozen_digests = [visual.content_digest for visual in frozen.references.visual_references]
             claimed = {claim.artifact_path: claim.content_digest for claim in frozen.claims}
 
-        # 原图不是登记产物，没有 claim；其余每张参考图的 claim 绑定到冻结时读到的字节。
         claimable = [ref for ref in generation_input.references if ref.claim is not None]
         assert [claim.key for claim in frozen.claims] == [ref.claim.key for ref in claimable if ref.claim]
         assert claimed == {

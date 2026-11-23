@@ -235,7 +235,6 @@ class TestProjectManager:
         pm.create_project("demo")
         project = pm.create_project_metadata("demo", "")
 
-        # 空 title 直接保留为空字符串,由前端 i18n 兜底,不再 fallback 为 project_name(slug)
         assert project["title"] == ""
 
     def test_create_project_metadata_preserves_cjk_title(self, tmp_path):
@@ -253,7 +252,6 @@ class TestProjectManager:
         third = pm.generate_project_name("第1集")
 
         assert first.startswith("my-demo-project-")
-        # CJK 标题 / 只剩孤立数字的标题统一塌成中性前缀 proj-,避免误导性 slug
         assert second.startswith("proj-")
         assert third.startswith("proj-")
         assert first != second != third
@@ -262,8 +260,6 @@ class TestProjectManager:
         assert pm.normalize_project_name(third) == third
 
     def test_generate_project_name_truncates_before_letter_check(self, tmp_path):
-        # 长 ASCII 标题前 24 字符全是数字/连字符、字母被截掉时,应塌成 proj-,
-        # 而不是返回 "1234567890-1234567890-12" 这种纯数字 slug。
         pm = ProjectManager(tmp_path / "projects")
         candidate = pm.generate_project_name("1234567890-1234567890-1234-letters")
         assert candidate.startswith("proj-")
@@ -448,7 +444,6 @@ class TestProjectManager:
                 ],
             )
 
-        # 整体回滚:命中的 "001" 也未持久化(与 update_scene_asset 单个版本同款 with 体内抛错跳过写回)
         loaded = pm.load_script("demo", "episode_1.json")
         assert loaded["scenes"][0]["generated_assets"] == {}
 
@@ -495,11 +490,9 @@ class TestProjectManager:
             "novel": {"title": "小说", "chapter": "第一章"},
             "segments": [],
         }
-        # bad 结构合法（仅 episode 错配）：守卫放行后由一致性校验 fail-fast，验证守卫不误伤
         with pytest.raises(ValueError, match="不一致"):
             pm.save_script("demo", bad, "episode_10.json")
 
-        # 关键断言：文件不应被写入磁盘（原子性保持）
         scripts_dir = pm.get_project_path("demo") / "scripts"
         assert not (scripts_dir / "episode_10.json").exists()
 
@@ -518,7 +511,6 @@ class TestProjectManager:
         pm.save_script("demo", script, "episode_1.json", validate=False)
 
         [entry] = pm.load_project("demo")["episodes"]
-        # True == 1，按值比分不出来：集号的类型本身就是断言的一部分。
         assert (type(entry["episode"]), entry["episode"], entry["script_file"]) == (int, 1, "scripts/episode_1.json")
 
     def test_filename_whose_episode_number_is_not_positive_is_rejected(self, tmp_path):
@@ -602,7 +594,6 @@ class TestProjectManager:
             "content_mode": "narration",
             "segments": [{"segment_id": "E10S01", "duration_seconds": 4}],
         }
-        # 绕过 save_script 的潜在未来校验，直接落盘模拟历史产物
         scripts_dir = pm.get_project_path("demo") / "scripts"
         (scripts_dir / "episode_10.json").write_text(json.dumps(corrupted, ensure_ascii=False), encoding="utf-8")
 
@@ -631,7 +622,6 @@ class TestProjectManager:
         loaded1 = pm.load_script("demo", "episode_1.json")
         assert loaded1["episode"] == 1
 
-        # 带 scripts/ 前缀（前端传入的格式）
         loaded2 = pm.load_script("demo", "scripts/episode_1.json")
         assert loaded2["episode"] == 1
 
@@ -696,7 +686,6 @@ class TestProjectManager:
         assert isinstance(first_stamp, str)
         assert first_stamp
 
-        # 清空参考音频也须刷新 voice_updated_at（存量过渡横幅的判定基准）
         pm.update_character_reference_audio("demo", "Alice", "")
         cleared = pm.get_project_character("demo", "Alice")
         assert cleared["reference_audio"] == ""
@@ -851,7 +840,6 @@ class TestProjectManager:
         assert overview["genre"] == "悬疑"
         assert "generated_at" in overview
         assert overview["language"] == "zh"
-        # 顶层 source_language 必须由 generate_overview 写入,与 overview.language 同源
         assert pm.load_project("demo")["source_language"] == "zh"
 
         with warnings.catch_warnings(record=True) as captured:
@@ -987,7 +975,6 @@ class TestPathTraversalProtection:
     def test_get_project_path_rejects_traversal(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
-        # normalize_project_name 的正则先拦截
         with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
             pm.get_project_path("../etc")
         with pytest.raises(ValueError, match=r"项目标识仅允许英文字母、数字和中划线"):
@@ -1121,7 +1108,6 @@ def test_read_source_files_raises_on_non_utf8(tmp_path):
     project_dir = pm.projects_dir / "demo"
     (project_dir / "source").mkdir(parents=True)
     bad = project_dir / "source" / "broken.txt"
-    # 使用种子化 PRNG 生成高熵随机字节，确保触发 decode_txt 的 5% 乱码阈值
     bad.write_bytes(random.Random(42).randbytes(4000))
 
     with pytest.raises(SourceDecodeError) as exc_info:

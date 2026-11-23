@@ -98,8 +98,6 @@ def _media_snapshot(
             continue
         script = _read_json(script_path)
         for bucket in ("segments", "scenes", "shots", "reference_units", "video_units"):
-            # v6 广告 reference_units 会转为 video_units。按集号和条目顺序对应，
-            # 这样文件名、绑定和条目 ID 的改写不会掩盖同一条目上的字节变化。
             identity = "video_units" if bucket == "reference_units" else bucket
             for index, item in enumerate(script.get(bucket, [])):
                 location = f"episodes[{episode['episode']}].{identity}[{index}]"
@@ -114,7 +112,6 @@ def _media_snapshot(
 
 
 def _write_enveloped_archive(project_dir: Path, archive_path: Path) -> None:
-    # 写入旧目录原样，避免当前导出器先执行路径修复，掩盖导入阶段的回归。
     adapter = ProjectArtifactManifestAdapter(project_dir)
     media_kinds = {
         ArtifactKind.ASSET_SHEET,
@@ -150,7 +147,6 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
     tmp_path = tmp_path.resolve()
     project_dir = LEGACY_PROJECT_SHAPES[shape](tmp_path / "source")
     expected = _media_snapshot(project_dir)
-    # 两集复制了同一份剧本，重号条目的媒体归第 1 集。
     cleared = ((0, "storyboard_image"), (1, "storyboard_image"), (1, "video_clip"))
     if shape == "shared-item-id":
         for index, field in cleared:
@@ -199,7 +195,6 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
         assert {entry["episode"]: entry["script_file"] for entry in project["episodes"]} == expected_bindings
         for episode, binding in expected_bindings.items():
             assert _read_json(project_dir / binding)["episode"] == episode
-    # v5→v6 给同名商品加后缀，字段仍属于原来的商品。
     aliases = {("products", "Bob_product"): "Bob"} if shape.startswith("shared-reference") else {}
     after = _media_snapshot(project_dir, asset_aliases=aliases)
     if shape == "shared-item-id":

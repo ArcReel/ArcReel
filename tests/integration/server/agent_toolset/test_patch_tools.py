@@ -645,7 +645,6 @@ class TestPatchEpisodeScriptStructuralOperations:
     @pytest.mark.parametrize(
         ("removed_id", "structural"),
         [
-            # 删掉末条再新增：编号只分配、不复用，不会取回被删的号。
             ("E1S02", {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")}),
             ("E1S01_1", {"op": "split", "id": "E1S01", "parts": [_segment("a"), _segment("b")]}),
         ],
@@ -678,14 +677,12 @@ class TestPatchEpisodeScriptStructuralOperations:
         assert adapter.get_entry(old_video) is None
 
     async def test_split_keeps_first_id_and_clears_new_identity_assets(self, ctx: ToolHarness) -> None:
-        # parts 自带的资产不可信：同 id 锚点以原资产为准，新身份一律清空。
         part_a = _segment("a")
         part_a["generated_assets"] = {"storyboard_image": "stale.png", "status": "completed"}
         out = await _patch(ctx, [{"op": "split", "id": "E1S01", "parts": [part_a, _segment("b")]}])
         _committed(out)
         saved = _load(ctx)["segments"]
         ids = [s["segment_id"] for s in saved]
-        # 后续部分取本集用过的最大号之后的新主序号，不再加 _k 后缀
         assert ids == ["E1S01", "E1S03", "E1S02"]
         assert not saved[0].get("generated_assets")
         assert not saved[1].get("generated_assets")
@@ -745,7 +742,6 @@ class TestPatchEpisodeMeta:
         )
         assert out.problem is None
         assert _load(ctx)["title"] == "新标题"
-        # project.json 镜像同步（locked_script 退出经 sync_episode_from_script）
         episodes = ctx.pm.load_project("demo")["episodes"]
         entry = next(e for e in episodes if e["episode"] == 1)
         assert entry["title"] == "新标题"
@@ -849,7 +845,6 @@ class TestPatchProject:
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
-            # description 类型非法的 entry，写入引入的「新错误」
             {"table": "scenes", "entries": {"空场景": {"description": 1}}},
         )
         assert out.problem is not None
@@ -904,13 +899,11 @@ class TestPatchProject:
         """least-privilege：Agent 仅能改 description + spec.extra_string_fields。
         sheet 字段（系统生成的资产图路径）+ spec-undeclared key 均被静默丢弃，不让 Agent
         覆写本不该碰的字段。"""
-        # 先 upsert 一个干净 entry，再尝试用 patch 改 sheet（应被忽略）+ 加 unknown key
         await run_declared_tool(
             PATCH_PROJECT,
             ctx,
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "voice_style": "豪放"}}},
         )
-        # 模拟系统通过 _update_asset_sheet 写入 sheet 路径
         ctx.pm.update_project(
             "demo", lambda p: p["characters"]["李白"].update({"character_sheet": "characters/li_bai.png"})
         )
@@ -1007,7 +1000,6 @@ class TestPatchProject:
             },
         )
         assert out.problem is not None
-        # 任何一个版本都不应入库（mutation 在校验阶段就 raise，不落盘）
         assert "李白" not in ctx.pm.load_project("demo").get("characters", {})
 
     async def test_upsert_strips_reference_image_field(self, ctx: ToolHarness) -> None:
@@ -1020,11 +1012,9 @@ class TestPatchProject:
             ctx,
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客", "voice_style": "豪放"}}},
         )
-        # 模拟用户通过 WebUI 上传参考图
         ctx.pm.update_character_reference_image("demo", "李白", "characters/refs/li_bai.jpg")
         assert ctx.pm.load_project("demo")["characters"]["李白"]["reference_image"] == "characters/refs/li_bai.jpg"
 
-        # Agent 尝试改描述时顺带覆写 reference_image——应被丢弃
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1157,7 +1147,6 @@ class TestPatchProject:
             ctx,
             {"table": "characters", "entries": {"李白": {"description": "白衣剑客"}}},
         )
-        # 再提交一个只有被丢字段的 patch(reference_image 系统管理 / type 历史字段)
         out = await run_declared_tool(
             PATCH_PROJECT,
             ctx,
@@ -1494,7 +1483,6 @@ class TestPatchProjectNarrationSettings:
     async def test_invalid_narration_speed_rejected(self, ctx: ToolHarness, bad: Any) -> None:
         out = await run_declared_tool(PATCH_PROJECT, ctx, {"settings": {"narration_speed": bad}})
         assert out.problem is not None
-        # 超出 float 范围的巨大整数同样收到清晰的校验文案，而非底层溢出信息
         assert "narration_speed 必须是正的有限数值" in _said(out)
         assert "narration_speed" not in ctx.pm.load_project("demo")
 

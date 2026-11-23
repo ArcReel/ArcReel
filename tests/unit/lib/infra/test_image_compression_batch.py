@@ -28,7 +28,6 @@ def test_compress_batch_nine_images_memory_ok():
     outputs = [compress_image_bytes(raw, max_long_edge=2048, quality=85) for _ in range(9)]
     assert len(outputs) == 9
     for out in outputs:
-        # 压缩后体积显著小于原 PNG
         assert len(out) < len(raw)
         with Image.open(io.BytesIO(out)) as im:
             assert max(im.size) <= 2048

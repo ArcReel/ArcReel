@@ -121,7 +121,6 @@ async def test_tier_migration_script_to_complex(db_session: AsyncSession):
         ("gemini-aistudio/a", "", "gemini-aistudio/a"),
         ("", "gemini-aistudio/b", "gemini-aistudio/b"),
         ("gemini-aistudio/a", "gemini-aistudio/a", "gemini-aistudio/a"),
-        # 两者不同：取 style 的值（保 vision）
         ("gemini-aistudio/a", "gemini-aistudio/b", "gemini-aistudio/b"),
     ],
 )

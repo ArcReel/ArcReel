@@ -66,7 +66,6 @@ _SEGMENT = {
     "props": [],
 }
 _DOC_TYPE = "narration_script_plan"
-# 定时轮询不参与：扫描只由写入出口的 hint 与显式批次唤醒，收齐事件由显式批次屏障确认。
 _POLL_SECONDS = 3600.0
 _AGENT = RevisionAuthor(kind="arcreel_agent")
 
@@ -113,7 +112,6 @@ class _Env:
     async def batches_after_barrier(self) -> list[dict]:
         """用串行重建的两条屏障批次收齐此前写入引起、尚未取走的全部批次。"""
         collected: list[dict] = []
-        # 批次先广播自身再补扫；第二条到达证明第一条的补扫已结束。屏障不发 hint，不改变真实变更的来源。
         for marker in ("scan", "done"):
             emit_project_change_batch(
                 "demo",
@@ -179,7 +177,6 @@ def open_env(monkeypatch) -> Callable[..., contextlib.AbstractAsyncContextManage
         await service.start()
         stream = project_events_router.stream_project_events("demo", _ConnectedRequest(service), service=service)
         assert (await anext(stream)).event == "snapshot"
-        # 事件流由后台任务转进队列：对流本身设超时会取消生成器、关掉订阅。
         batches: asyncio.Queue[dict] = asyncio.Queue()
 
         async def _pump() -> None:

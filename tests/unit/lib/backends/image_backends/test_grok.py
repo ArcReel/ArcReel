@@ -66,7 +66,6 @@ class TestProperties:
 
     @pytest.mark.parametrize("model", ["grok-imagine-image", "grok-imagine-image-pro"])
     def test_declares_grok_reference_image_limit(self, patch_xai_sdk, model):
-        # xAI 官方上限：多图编辑单请求最多 5 张源图。
         from lib.backends.image_backends.grok import GrokImageBackend
 
         assert asyncio.run(GrokImageBackend(api_key="fake-xai-key", model=model).reference_image_limit()) == 5
@@ -108,7 +107,6 @@ class TestGenerateT2I:
             )
             result = await grok_backend.generate(request)
 
-        # 验证 SDK 调用参数（目录取值 "2K" 下发前转成 SDK 接受的小写 "2k"）
         grok_backend._client.image.sample.assert_awaited_once_with(
             prompt="A beautiful sunset",
             model="grok-imagine-image",

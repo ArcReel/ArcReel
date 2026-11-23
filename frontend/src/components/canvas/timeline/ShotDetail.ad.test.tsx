@@ -224,7 +224,6 @@ describe("ShotDetail 广告/短片", () => {
     renderDetail({ onMoveShot, movePending: true, selectedIndex: 1 });
     expect(screen.getByRole("button", { name: "前移分镜" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "后移分镜" })).toBeDisabled();
-    // 分镜切换导航同样锁定：完成回调按当前索引偏移，在途切换会让选中态跳到错误分镜
     expect(screen.getByRole("button", { name: "上一镜" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "下一镜" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "上一镜" })).toHaveAccessibleDescription("重排进行中…");

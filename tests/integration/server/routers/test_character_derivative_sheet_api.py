@@ -229,7 +229,6 @@ class TestDerivativeRenameCascade:
         entry = ProjectArtifactManifestAdapter(project_path).get_entry(derivative_artifact_key(owner, derivative))
         assert entry is not None
         assert entry.artifact_path == derivative_sheet_relative_path(owner, derivative)
-        # 依据摘要是不可变证据：改名只换 key 与路径，不重建依据。
         assert entry.basis_digest == digest
         assert ProjectArtifactManifestAdapter(project_path).get_entry(_ARTIFACT_KEY) is None
 
@@ -255,9 +254,6 @@ class TestDerivativeRenameCascade:
         self._assert_relocated(project_path, digest, owner="阿岚", derivative="夜行装", sheet=sheet)
         assert [version["version"] for version in listed.json()["versions"]] == [1]
         assert (project_path / listed.json()["versions"][0]["file"]).is_file()
-        # 名字进依据摘要，改名后判过期——与本体资产图改名后的既有口径一致（重键只搬 key
-        # 与路径，不重建那份不可变的证据）。能给出 stale 而非「查无此登记」，恰恰说明
-        # 清单条目确实躺在新 key 下、且指着新路径。
         assert status.json()["derivatives"]["夜行装"] == {
             "description": "换上黑色重甲",
             "character_sheet": derivative_sheet_relative_path("阿岚", "夜行装"),
@@ -353,7 +349,6 @@ class TestDerivativeRenameCascade:
             entry["derivatives"]["便装"] = {"description": "布衣", "character_sheet": ""}
 
         pm.update_asset_entry("character", "demo", "阿岚", _add_sibling)
-        # 字段还没写就先落盘的中间产物：本体改名后不该顶着旧名残留。
         (project_path / derivative_sheet_relative_path("阿岚", "便装")).write_bytes(solid_png_bytes((9, 9, 9)))
 
         with _client(monkeypatch, pm) as client:

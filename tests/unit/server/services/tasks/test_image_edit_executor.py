@@ -70,16 +70,12 @@ class _FakeGenerator:
         self.reference_bytes = []
         self.tracked = []
         self.versions = self
-        # 由 _patch_common 注入：真实 generator 会把新图落到 canonical 路径，
-        # 产物清单登记要求这张图确实在盘上。
         self.project_path: Path | None = None
 
     async def generate_image_async(self, **kwargs):
         if self.fail:
             raise RuntimeError("backend boom")
         self.image_calls.append(kwargs)
-        # 读参考图、落盘产出与提交版本都在工作线程里：真实后端在线程里写产物，
-        # 正式提交回调经 run_noninterruptible_sync 执行
         return await asyncio.to_thread(self._produce_and_commit, kwargs)
 
     def _produce_and_commit(self, kwargs) -> tuple[Path, int]:
@@ -88,7 +84,6 @@ class _FakeGenerator:
             canonical = self.project_path / resource_relative_path(kwargs["resource_type"], kwargs["resource_id"])
             canonical.parent.mkdir(parents=True, exist_ok=True)
             canonical.write_bytes(b"edited")
-        # 与 MediaGenerator 一样经 formal_output 的活化回调提交版本，返回回调给出的版本号
         current = Path(tempfile.gettempdir()) / "image.png"
         version = kwargs["commit_formal_output"](current, current, {"source": kwargs["source"]})
         return current, version
@@ -112,7 +107,6 @@ class _FakeGenerator:
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定。
         self.project = {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
@@ -207,7 +201,6 @@ def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, regi
     """替换项目管理器与 generation context 解析缝：ctx.generator 即 fake_generator，
     image lane 携带指定 resolution。断言编辑恒声明 i2i 槽（generation_type == "i2i"）。"""
     if isinstance(fake_pm, _FakePM):
-        # 真实 ProjectManager 的用例自己造项目与登记，这里只服务假 PM。
         if register_artifacts:
             fake_pm.register_artifacts()
         else:
@@ -538,7 +531,6 @@ class TestExecuteImageEditTask:
                 provider_references.append(provider_reference)
 
                 def _edit_concurrently() -> bytes:
-                    # 生成期间另一方改了底图、项目与剧本：供应商读到的仍是冻结时的字节
                     current.write_bytes(b"source-changed-during-await")
 
                     def _mutate(project):
@@ -555,7 +547,6 @@ class TestExecuteImageEditTask:
 
                 assert await asyncio.to_thread(_edit_concurrently) == b"source-before-await"
 
-                # 直接调用（非队列任务）没有 task_id：staging 身份由生成器内部造，替身自造一个。
                 staged = task_image_staging_path(current, kwargs["task_id"] or "inline-test")
                 version = await stage_and_commit(
                     kwargs["commit_formal_output"],
@@ -823,7 +814,6 @@ class TestExecuteImageEditTask:
         )
 
         call = fake_generator.image_calls[0]
-        # 参考图仅当前图一张；prompt 仅编辑指令（不拼原 image_prompt）
         assert len(call["reference_images"]) == 1
         assert Path(call["reference_images"][0]).name.endswith("Alice.png")
         assert fake_generator.reference_bytes == [b"png"]
@@ -832,9 +822,7 @@ class TestExecuteImageEditTask:
         assert "原始角色 prompt" not in call["prompt"]
         assert call["source"] == IMAGE_EDIT_VERSION_SOURCE
         assert call["resource_type"] == "characters"
-        # 旧图先以中性元数据补登（不带编辑指令），保证编辑前版本可回滚
         assert fake_generator.tracked == [{"resource_type": "characters", "resource_id": "Alice", "prompt": ""}]
-        # 按资源类型写回 canonical 路径；原 image_prompt 字段不被改动
         assert fake_pm.project_commits == 1
         assert fake_pm.project["characters"]["Alice"]["character_sheet"] == "characters/Alice.png"
         assert fake_pm.project["characters"]["Alice"]["image_prompt"] == "原始角色 prompt"
@@ -892,7 +880,6 @@ class TestExecuteImageEditTask:
         )
 
         call = fake_generator.image_calls[0]
-        # 底图取 generated_assets 指针（旧宫格项目路径），新图写回 canonical
         assert len(call["reference_images"]) == 1
         assert Path(call["reference_images"][0]).name.endswith("scene_E1S01_first.png")
         assert fake_generator.reference_bytes == [b"png"]
@@ -1049,7 +1036,6 @@ class TestImageEditEventMapping:
         fake_pm = _FakePM(project_path)
         use_project_manager(monkeypatch, fake_pm)
 
-        # 从公开订阅口接真实事件总线：断言落在订阅方（SSE 广播那一侧）实际收到的批次上。
         delivered: list[dict] = []
         unregister = register_project_change_batch_listener(
             lambda _project_name, _source, changes: delivered.extend(changes)

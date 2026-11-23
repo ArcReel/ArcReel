@@ -3,12 +3,10 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-// 9 行长文本：每行足够长，变窄时会折成更多行。
 const NINE_LINES = Array.from(
   { length: 9 },
   (_, i) => `第 ${i + 1} 行：夜色压低了城墙的轮廓，巡夜人提着灯从箭楼下走过，风把旗子吹得猎猎作响。`,
@@ -23,7 +21,6 @@ async function openNarrationDialog(page: Page) {
   await narrationField(page).waitFor();
 }
 
-/** 每一行都够得着：内容全部显示，或者撑到上限后可以在内部滚动到底。 */
 async function expectAllLinesReachable(field: Locator) {
   const box = await field.evaluate((el) => {
     const style = getComputedStyle(el);
@@ -66,10 +63,8 @@ defineRegionScenarios("自动撑高输入框", [
     act: async (page) => {
       await openNarrationDialog(page);
       const field = narrationField(page);
-      // 两行在原宽度下尚未到高度上限，收窄后的新增折行必须使高度增加。
       await field.fill(NINE_LINES.split("\n").slice(0, 2).join("\n"));
       const before = await field.evaluate((el) => el.getBoundingClientRect().height);
-      // 模拟面板变窄：把输入框所在列收到一半宽，折行变多。
       await field.evaluate((el) => {
         const column = el.parentElement;
         if (column) column.style.width = `${column.clientWidth / 2}px`;

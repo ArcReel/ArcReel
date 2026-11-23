@@ -274,12 +274,9 @@ describe("MentionPicker", () => {
     const alice = screen.getByRole("option", { name: /alice/ });
     const bob = screen.getByRole("option", { name: /bob/ });
 
-    // First establish a baseline pointer coordinate via real movement on alice.
     fireEvent.mouseMove(alice, { clientX: 10, clientY: 10 });
     expect(alice).toHaveAttribute("aria-selected", "true");
 
-    // Simulate "list scrolls under stationary cursor → bob enters cursor at the
-    // same (10, 10) coords". mouseenter must NOT steal the keyboard selection.
     fireEvent.mouseEnter(bob, { clientX: 10, clientY: 10 });
     expect(alice).toHaveAttribute("aria-selected", "true");
     expect(bob).toHaveAttribute("aria-selected", "false");
@@ -310,8 +307,6 @@ describe("MentionPicker", () => {
     const bob = screen.getByRole("option", { name: /bob/ });
 
     fireEvent.mouseMove(alice, { clientX: 10, clientY: 10 });
-    // User moves cursor into bob; browser fires mouseenter with new coords before
-    // subsequent mousemove. Coord diff vs last ⇒ honor the move.
     fireEvent.mouseEnter(bob, { clientX: 30, clientY: 10 });
     expect(bob).toHaveAttribute("aria-selected", "true");
   });
@@ -348,7 +343,6 @@ describe("MentionPicker", () => {
     expect(sceneTab).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("option", { name: /酒馆/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /张三/ })).not.toBeInTheDocument();
-    // 单 tab 选中时 group 小标题被抑制（避免和 tab 语义重复）
     expect(screen.queryByTestId("picker-group-scene")).not.toBeInTheDocument();
   });
 
@@ -379,7 +373,6 @@ describe("MentionPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // 张三 的 imagePath 在 fixture 里是 "/files/characters/zs.png"
     const img = screen.getByRole("option", { name: /张三/ }).querySelector("img");
     expect(img).not.toBeNull();
     expect(img!).toHaveAttribute("src", expect.stringMatching(/zs\.png/));
@@ -397,7 +390,6 @@ describe("MentionPicker", () => {
         onClose={onClose}
       />,
     );
-    // picker 以 window keydown 监听；Shift+Tab 应当是 no-op（不插入、不吞 preventDefault）
     const event = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, cancelable: true });
     window.dispatchEvent(event);
     expect(onSelect).not.toHaveBeenCalled();
@@ -409,9 +401,6 @@ describe("MentionPicker", () => {
     expect(tabEvent.defaultPrevented).toBe(true);
   });
 
-  // FloatingPortal should render the listbox as a direct descendant of
-  // document.body (rather than inside the component's render container) so
-  // that ancestor `overflow: hidden` / stacking contexts can never clip it.
   it("portals the listbox to document.body", () => {
     const { container } = render(
       <MentionPicker

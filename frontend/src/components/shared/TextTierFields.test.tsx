@@ -7,7 +7,6 @@ const EMPTY: TextTierValue = { default: "", simple: "", complex: "" };
 const OPTIONS = ["gemini/g25", "ark/qwen"];
 const PROVIDER_NAMES = { gemini: "Gemini", ark: "Ark" };
 
-/** 细分档收在折叠区内，测试前先展开。 */
 async function expandTiers(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByText("按用途指定模型"));
 }
@@ -46,13 +45,11 @@ describe("TextTierFields", () => {
         fallbacks={{ default: "gemini/g25", simple: "gemini/g25", complex: "gemini/g25" }}
       />,
     );
-    // 默认档留空 → 生效值来自全局层
     expect(screen.getByRole("combobox", { name: "默认模型" })).toHaveTextContent(
       /跟随全局默认 · Gemini · g25/,
     );
 
     await expandTiers(user);
-    // 细分档回退的是同层默认模型，措辞为「跟随默认」
     for (const name of ["简单任务", "复杂任务"]) {
       expect(screen.getByRole("combobox", { name })).toHaveTextContent(/跟随默认 · Gemini · g25/);
     }

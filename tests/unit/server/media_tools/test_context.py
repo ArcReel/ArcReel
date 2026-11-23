@@ -9,7 +9,7 @@ import pytest
     "bad",
     [
         "",
-        "scripts/episode_1.json",  # 任何分隔符都拒（包括 scripts/ 前缀）
+        "scripts/episode_1.json",
         "../etc/passwd",
         "sub/dir/file.json",
         "a\\b.json",

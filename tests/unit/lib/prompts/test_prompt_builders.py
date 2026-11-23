@@ -56,7 +56,6 @@ class TestScenePromptAndPropPrompt:
 class TestFigureExclusion:
     """展示环境或物件的图种排除人物；画面主体本身是人物的图种不排除。"""
 
-    # 断言完整片段而非「人物」二字：正文里的普通描述也可能出现该词，按关键词断言会误判。
     _EXCLUSION = "Avoid: 出镜人物"
 
     def test_environment_and_object_sheets_exclude_people(self):

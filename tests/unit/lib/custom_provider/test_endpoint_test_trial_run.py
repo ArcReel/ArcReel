@@ -305,10 +305,8 @@ class TestTrialRun:
         assert rows[0].id == run.api_call_id
         assert rows[0].status == "success"
         assert rows[0].call_type == "video"
-        # 端点试跑没有任务可回指，来源由 purpose 说明。
         assert rows[0].task_id is None
         assert rows[0].purpose == "endpoint_trial"
-        # 内联凭证没有供应商身份，落账用 base_url 的 host，账单上才认得出这笔钱花在哪。
         assert rows[0].provider == "relay.test"
 
     async def test_result_carries_the_rendered_request_responses_and_extractions(self, trial_runs: TrialRunManager):
@@ -404,7 +402,6 @@ class TestTrialRun:
         face = tmp_path / "face.png"
         face.write_bytes(image_bytes())
         with capture_http() as router, bounded_poll_clock():
-            # 夹具定义只声明 first_frame，参考图路径不可用（max_reference_images=0）。
             started = await trial_runs.start(_target(), PARAMETERS, assets={"reference_images": [face]})
             run = await _await_terminal(trial_runs, started.id)
 
@@ -664,7 +661,6 @@ class TestConcurrencyAndCancel:
             await submitted.wait()
 
             assert await trial_runs.cancel(started.id) is True
-            # 取消后名额立刻让出：用户改完参数就能再发一次。
             _mock_successful_run(router)
             retried = await trial_runs.start(_target(), PARAMETERS)
             await _await_terminal(trial_runs, retried.id)
@@ -860,7 +856,6 @@ class TestRunIdShape:
     """run_id 是调用方传入的路径段：非生成格式的值不许触达盘上路径。"""
 
     def test_a_traversal_shaped_run_id_reads_nothing(self, trial_runs: TrialRunManager):
-        # root 上一级放一份 result.json：``root/../result.json`` 恰好指到它，越界读会命中。
         (trial_runs.root.parent / "result.json").write_text("{}", encoding="utf-8")
 
         assert trial_runs.get("..") is None

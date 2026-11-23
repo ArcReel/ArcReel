@@ -27,7 +27,6 @@ async def test_auto_backends_returns_bucket_models_and_null_for_unavailable(db_f
                 is_enabled=True,
             )
         )
-        # 升级固化已完成、升级前的选择能还原：没有默认模型设置时才会落到自定义供应商的默认模型
         await ConfigService(session).set_setting(FROZEN_SETTING_KEY, "[]")
         await session.commit()
         provider_id = provider.provider_id

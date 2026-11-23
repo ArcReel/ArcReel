@@ -21,7 +21,6 @@ from tests.http_capture import capture_http
         ("vidu-video-q3-fast", "img2video", 12, True, True),
         ("vidu-video-q3-reference", "reference2video", 12, True, True),
         ("vidu-video-q3-drama", "reference2video", 12, True, True),
-        # Mix 音画同出但没有音轨开关：请求里不发 audio，成片与计量按有声记
         ("vidu-video-q3-mix", "reference2video", 12, True, False),
         ("vidu-video-q3-ad", "reference2video", 12, False, False),
         ("vidu-video-q2", "text2video", 10, False, False),

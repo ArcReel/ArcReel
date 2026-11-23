@@ -118,7 +118,6 @@ def test_every_script_plan_variant_keeps_its_confirmation_across_the_rename(
     assert "step1_review" not in episode
     assert episode["script_plan_review"] == {"fingerprint": fingerprint, "confirmed_at": "2026-01-01T00:00:00Z"}
     assert _read_json(project_dir / "scripts" / "episode_1.json")["metadata"] == {}
-    # 确认指纹是内容指纹，改名不动内容：迁移后这一集仍是已确认、不重新阻塞提示词编写。
     assert script_review.review_status(project_dir, migrated, 1) == "confirmed"
 
 
@@ -173,8 +172,6 @@ def test_artifact_manifest_key_and_path_follow_the_rename(tmp_path: Path) -> Non
     assert by_kind["episode-script-plan"]["artifact_path"] == "drafts/episode_1/script_plan_segments.json"
     assert by_kind["episode-script-plan"]["basis_digest"] == digest
     assert by_kind["episode-script"]["artifact_path"] == "scripts/episode_1.json"
-    # 读侧口径：改写后的 key 必须正好是当前代码登记脚本规划产物时用的那一个，
-    # 清单整体也必须仍然可读——残留旧 kind 会让解析直接判整份清单不可读。
     snapshot = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
     assert set(snapshot) == {ArtifactKey.episode_script_plan(1), ArtifactKey.episode_script(1)}
     assert snapshot[ArtifactKey.episode_script_plan(1)].artifact_path == "drafts/episode_1/script_plan_segments.json"

@@ -103,7 +103,6 @@ async def entry_service(db_factory, tmp_path):
     return service, store
 
 
-# CLI 报 idle 后会话层广播的终态（见 SessionManager._settle_cli_idle）
 _CLI_IDLE_COMPLETED = {"type": "runtime_status", "status": "completed", "reason": "cli idle", "subtype": "success"}
 
 
@@ -239,8 +238,6 @@ class TestStreamEntryEvents:
         service.session_manager = manager
         await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}, {"type": "assistant", "uuid": "b"}])
 
-        # 直播队列：重复条目（seq 1，已在存量中）须被 seq 门槛跳过；
-        # 新条目 seq 2 放行；delta 透传；CLI 报 idle 后的 runtime_status 产出终态 status。
         manager.queue.put_nowait(
             {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "assistant", "uuid": "b"}}
         )
@@ -268,11 +265,9 @@ class TestStreamEntryEvents:
         names = [name for name, _, _ in events]
         assert names == ["entry", "entry", "draft", "queue", "status", "entry", "delta", "status"]
         assert [e[2] for e in events if e[0] == "entry"] == ["0", "1", "2"]
-        # draft 首帧快照携带累积态与 rev 门槛
         draft_payload = events[2][1]
         assert draft_payload["draft"]["message_id"] == "msg_9"
         assert draft_payload["rev"] == 7
-        # delta 事件不带 SSE id（不推进 Last-Event-ID）
         delta_event = next(e for e in events if e[0] == "delta")
         assert delta_event[2] is None
         assert delta_event[1]["text"] == "内容"
@@ -303,7 +298,6 @@ class TestStreamEntryEvents:
         service.session_manager = manager
         await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}])
 
-        # actor 回调先广播原始 result，末条 assistant 的 log_entry 随后才到
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
         manager.queue.put_nowait(
             {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "assistant", "uuid": "b"}}

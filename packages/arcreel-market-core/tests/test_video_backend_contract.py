@@ -92,7 +92,6 @@ class TestNormalizeProviderStatus:
             ("generating", ProviderJobStatus.RUNNING),
             ("PENDING", ProviderJobStatus.QUEUED),
             ("submitted", ProviderJobStatus.QUEUED),
-            # 未知 / 非字符串 → 当 running 继续轮询（保守：不对未就绪任务触发下载）
             ("NOT_START", ProviderJobStatus.RUNNING),
             ("weird-status", ProviderJobStatus.RUNNING),
             (None, ProviderJobStatus.RUNNING),

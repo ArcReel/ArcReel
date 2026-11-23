@@ -14,7 +14,6 @@ from lib.agent.agent_memory_paths import project_memory_dir
 from lib.infra.data_root_layout import DataRootLayout
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 
-#: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
 _USER_ID = "default"
 
 
@@ -375,9 +374,6 @@ def test_write_protected_with_symlinked_project_cwd_denied(
     link_cwd = _projects_dir(policy) / "selfproj_link"
     link_cwd.symlink_to(real_root / "projects" / "selfproj")
 
-    # caller 把 symlinked cwd 传入,check_path_access 内 logical.resolve() 会展开 symlink,
-    # 然后 _check_write_access 把 resolved target 与原始 link_cwd 比较——若不把 base 也
-    # resolve,就会因为字符串不等漏判。
     allowed, reason = policy.check_path_access(str(link_cwd / "project.json"), tool, link_cwd, user_id=_USER_ID)
     assert not allowed, "symlinked project_cwd 下 project.json 写入应被拒"
     assert reason
@@ -395,20 +391,17 @@ def test_protected_json_predicate_normalizes_nfd_and_case() -> None:
     """NFC/NFD 与大小写混合形式都须命中：macOS HFS+ 按 NFD 存储文件名，resolve
     返回的 target 与 NFC 形式的 base 即使 casefold 后仍是不同字符串——受保护
     比对须先做 NFC 归一化，再做大小写不敏感比较。"""
-    base_nfc = Path("/data/projects/café")  # café（NFC 单码位）
-    target_nfd = Path("/data/projects/café/project.json")  # café（NFD 组合字符）
+    base_nfc = Path("/data/projects/café")
+    target_nfd = Path("/data/projects/café/project.json")
     assert AgentAccessPolicy._is_protected_project_json(target_nfd, [base_nfc])
 
-    # 大小写变体 + NFD 叠加
     target_mixed = Path("/data/projects/CAFÉ/SCRIPTS/EPISODE_1.JSON")
     assert AgentAccessPolicy._is_protected_project_json(target_mixed, [base_nfc])
 
-    # 反向：base 是 NFD（HFS+ 磁盘形式）、target 是 NFC（用户输入形式）
     base_nfd = Path("/data/projects/café")
     target_nfc = Path("/data/projects/café/scripts/episode_1.json")
     assert AgentAccessPolicy._is_protected_project_json(target_nfc, [base_nfd])
 
-    # 归一化不引入 over-match：其他项目路径不受影响
     other = Path("/data/projects/cafe_other/project.json")
     assert not AgentAccessPolicy._is_protected_project_json(other, [base_nfc])
 
@@ -443,7 +436,6 @@ def test_write_drafts_still_allowed(policy: AgentAccessPolicy) -> None:
 def test_sensitive_file_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """敏感文件无论 Read 还是 Write 一律拒，且报错信息包含"敏感文件"。"""
     cwd = _cwd(policy)
-    # 文件实际存在与否不影响 deny 判断（resolve() 对不存在路径仍返回绝对路径）
     target = policy.project_root / relative
     target.parent.mkdir(parents=True, exist_ok=True)
     allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
@@ -486,11 +478,6 @@ def test_sensitive_glob_pattern_does_not_overmatch(policy: AgentAccessPolicy) ->
     assert allowed, ".environment 是合法文件，不应被 `.env.*` glob 误伤"
 
 
-# ============================================================
-# 数据根默认拒读：只放行当前项目与当前用户的记忆
-# ============================================================
-
-
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep"])
 def test_read_of_data_root_outside_current_project_and_memory_denied(policy: AgentAccessPolicy, tool: str) -> None:
     """数据根位于仓库根内（开发默认布局）时，数据根里的条目不因「仓库根内参考资料」被放行：
@@ -525,8 +512,6 @@ def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> N
     assert settings["enabled"] is True
     assert settings["autoAllowBashIfSandboxed"] is True
     assert settings["allowUnsandboxedCommands"] is False
-    # 省略 network 键等于零预放行（出站全断），全放行必须显式写 ``*``；
-    # loopback 另由 allowLocalBinding 控制，allowedDomains 覆盖不到。
     assert settings["network"] == {"allowedDomains": ["*"], "allowLocalBinding": True}
     assert "denyRead" in settings["filesystem"]
     assert str(cwd / "project.json") in settings["filesystem"]["denyWrite"]
@@ -581,14 +566,12 @@ def test_build_sandbox_settings_deny_write_includes_resolved_paths(policy: Agent
     deny_write = settings["filesystem"]["denyWrite"]
     resolved_cwd = link_cwd.resolve()
     assert resolved_cwd != link_cwd
-    # raw 与 resolved 两种形式都注册
     assert str(link_cwd / "scripts") in deny_write
     assert str(link_cwd / "project.json") in deny_write
     assert str(link_cwd / "drafts") in deny_write
     assert str(resolved_cwd / "scripts") in deny_write
     assert str(resolved_cwd / "project.json") in deny_write
     assert str(resolved_cwd / "drafts") in deny_write
-    # raw == resolved 的常规路径不重复注册
     assert len(deny_write) == len(set(deny_write))
 
 
@@ -715,7 +698,6 @@ def test_wrap_bash_command_handles_single_quotes(tmp_path: Path) -> None:
     policy = _make_policy(tmp_path)
     wrapped = policy.wrap_bash_command_for_env_scrub("echo 'hello world'")
     assert wrapped is not None
-    # shlex.quote 把 'hello world' 转义为 'echo '"'"'hello world'"'"''
     assert wrapped.endswith("'\"'\"'hello world'\"'\"''")
 
 
@@ -724,11 +706,6 @@ def test_wrap_bash_command_passthrough_when_no_command(tmp_path: Path) -> None:
     policy = _make_policy(tmp_path)
     assert policy.wrap_bash_command_for_env_scrub(None) is None
     assert policy.wrap_bash_command_for_env_scrub("   ") is None
-
-
-# ============================================================
-# 受保护写路径规则表：hook 与 sandbox denyWrite 同表投影
-# ============================================================
 
 
 def test_protected_write_rules_project_new_rule_in_both_layers(
@@ -760,11 +737,6 @@ def test_protected_write_rules_project_new_rule_in_both_layers(
     assert str(cwd / "project.json") in deny_write
     assert str(cwd / "scripts") in deny_write
     assert str(cwd / "drafts") in deny_write
-
-
-# ============================================================
-# 两级记忆目录围栏（ADR 0074）
-# ============================================================
 
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep", "Write", "Edit"])

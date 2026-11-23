@@ -34,7 +34,7 @@ def test_load_gbk_txt_writes_raw_backup(tmp_path: Path):
     result = SourceLoader.load(src, project_source, original_filename="old_novel.txt")
     assert result.normalized_path.read_text(encoding="utf-8").startswith("第一章")
     assert result.raw_path == project_source / "raw" / "old_novel.txt"
-    assert result.raw_path.read_bytes().startswith(b"\xb5\xda")  # GBK "第"
+    assert result.raw_path.read_bytes().startswith(b"\xb5\xda")
     assert result.used_encoding
     assert result.used_encoding.lower() != "utf-8"
 

@@ -30,7 +30,6 @@ class TestProjectsRouter:
             ]
             assert "default_duration" not in project
 
-            # 数据层不硬枚举：任意正整数秒合法
             custom = client.post(
                 "/api/v1/projects",
                 json={
@@ -54,7 +53,6 @@ class TestProjectsRouter:
             )
             assert with_default.status_code == 400
 
-            # ad 不暴露 episode_target_duration（整集体量按 target_duration 预算规划）
             with_episode_target = client.post(
                 "/api/v1/projects",
                 json={
@@ -126,7 +124,6 @@ class TestProjectsRouter:
             assert brief_clear.json()["project"]["brief"] == ""
 
             assert client.patch("/api/v1/projects/ad-ready", json={"default_duration": 8}).status_code == 400
-            # 字段出现即拒绝:null 也不允许(否则会静默删除返回 200,与禁写契约不一致)
             assert client.patch("/api/v1/projects/ad-ready", json={"default_duration": None}).status_code == 400
             assert client.patch("/api/v1/projects/ad-ready", json={"episode_target_duration": 120}).status_code == 400
             assert client.patch("/api/v1/projects/ad-ready", json={"episode_target_duration": None}).status_code == 400

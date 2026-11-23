@@ -61,7 +61,6 @@ class TestReferenceVideoConcurrentRMW:
             """模拟 add_unit：locked_script 内 fresh-load → append → save。"""
             barrier.wait()
             with pm.locked_script(name, "episode_1.json", validate=False) as script:
-                # 直接按 schema 访问，缺字段即报错（fail-loud），不用 setdefault 掩盖损坏
                 script["video_units"].append(
                     {
                         "unit_id": f"E1U{idx}",

@@ -152,7 +152,6 @@ async def test_requests_leave_on_the_path_rewritten_by_the_injected_layer(call: 
         rewritten = router.route(host="relay.example", path__startswith="/rewritten/").mock(
             return_value=httpx.Response(400, json={"error": {"message": "stop here"}})
         )
-        # 回包一律拒绝，各调用通道怎样报错不在本用例范围内，只看请求怎样发出
         with contextlib.suppress(Exception):
             await call(layer, tmp_path)
 

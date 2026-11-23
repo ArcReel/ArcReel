@@ -33,7 +33,6 @@ class TestBaseUrlDerivation:
         assert dashscope_native_base_url(None) == f"{DASHSCOPE_BASE_URL}/api/v1"
 
     def test_tolerates_native_suffix(self):
-        # 用户填了完整 native base，派生文本 base 时剥后缀再拼
         configured = "https://dashscope.aliyuncs.com/api/v1"
         assert dashscope_text_base_url(configured) == "https://dashscope.aliyuncs.com/compatible-mode/v1"
         assert dashscope_native_base_url(configured) == "https://dashscope.aliyuncs.com/api/v1"
@@ -51,8 +50,6 @@ class TestBaseUrlDerivation:
         assert dashscope_native_base_url("https://dashscope.aliyuncs.com/") == f"{DASHSCOPE_BASE_URL}/api/v1"
 
     def test_whitespace_configured_falls_back_to_default(self):
-        # 纯空白 base_url（"   "）是真值会绕过 or，须 strip 后回落默认 host，
-        # 不能 strip 成空串派生出 "/api/v1" / "/compatible-mode/v1" 这类非法相对 URL
         assert dashscope_native_base_url("   ") == f"{DASHSCOPE_BASE_URL}/api/v1"
         assert dashscope_text_base_url("  ") == f"{DASHSCOPE_BASE_URL}/compatible-mode/v1"
 
@@ -97,7 +94,6 @@ class TestStatusHelpers:
         assert not is_dashscope_expired({"output": {"task_status": "SUCCEEDED"}})
 
     def test_non_dict_output_does_not_crash(self):
-        # output 为非 dict 真值（畸形上游）时状态判定/失败原因不抛 AttributeError
         assert not is_dashscope_terminal({"output": ["weird"]})
         assert not is_dashscope_succeeded({"output": "weird"})
         assert dashscope_failure_reason({"output": ["weird"]}) is None
@@ -124,7 +120,6 @@ class TestFailureReason:
         assert "InvalidApiKey" in reason
 
     def test_unknown_is_not_failure(self):
-        # UNKNOWN（过期）不算失败，交由 expired 单独处理
         assert dashscope_failure_reason({"output": {"task_status": "UNKNOWN"}}) is None
 
     def test_success_is_not_failure(self):
@@ -152,7 +147,6 @@ class TestExtractors:
         assert extract_billing_duration({"usage": {"duration": "10"}}) == 10
 
     def test_extract_billing_duration_half_up_not_bankers(self):
-        # .5 边界须 half-up（4.5→5 / 2.5→3），而非 round() 的银行家舍入（会得 4 / 2 少计费）
         assert extract_billing_duration({"usage": {"duration": 4.5}}) == 5
         assert extract_billing_duration({"usage": {"duration": 2.5}}) == 3
         assert extract_billing_duration({"usage": {"duration": "7.5"}}) == 8
@@ -163,14 +157,11 @@ class TestExtractors:
         assert extract_billing_duration({"usage": {"duration": "abc"}}) is None
 
     def test_extract_billing_duration_non_positive_falls_back(self):
-        # 0 / 负值不记账，回 None 由 caller 回落请求时长；(0, 0.5) 取整到 0 同样不记账
         assert extract_billing_duration({"usage": {"duration": 0}}) is None
         assert extract_billing_duration({"usage": {"duration": -3}}) is None
         assert extract_billing_duration({"usage": {"duration": 0.3}}) is None
 
     def test_extract_billing_duration_over_limit_falls_back(self):
-        # 超出合理上限（24h）视为 provider 回报异常，回 None，防超大数值写入 DB Integer 列溢出；
-        # 上限基于取整前原始值：86400.4 已超 24h，不得因 half-up 落回上限内被接受
         assert extract_billing_duration({"usage": {"duration": 86401}}) is None
         assert extract_billing_duration({"usage": {"duration": 1e100}}) is None
         assert extract_billing_duration({"usage": {"duration": 86400.4}}) is None
@@ -191,21 +182,18 @@ class TestExtractors:
             extract_image_url({"output": {}})
 
     def test_extract_image_url_malformed_choice_raises_runtime_not_attribute(self):
-        # 上游异常结构（choices[0] 非 dict / message 非 dict）须报 RuntimeError，不能漏出 AttributeError
         with pytest.raises(RuntimeError):
             extract_image_url({"output": {"choices": [None]}})
         with pytest.raises(RuntimeError):
             extract_image_url({"output": {"choices": [{"message": "oops"}]}})
 
     def test_extract_image_url_non_dict_output_or_non_list_choices(self):
-        # output 非 dict / choices 非 list 真值（畸形上游）→ RuntimeError，不漏 AttributeError/TypeError
         with pytest.raises(RuntimeError):
             extract_image_url({"output": "oops"})
         with pytest.raises(RuntimeError):
             extract_image_url({"output": {"choices": "not-a-list"}})
 
     def test_extract_image_url_truthy_non_list_content_raises_runtime(self):
-        # content 为 truthy 非 list（int/bool/dict）时不得 for 迭代抛 TypeError，须落 RuntimeError
         for content in (5, True, {"image": "x"}):
             payload = {"output": {"choices": [{"message": {"content": content}}]}}
             with pytest.raises(RuntimeError):
@@ -253,15 +241,12 @@ class TestSafeBodyForLog:
         assert view["size"] == "2048*2048"
 
     def test_non_dict_first_message_does_not_crash(self):
-        # 日志辅助绝不能因畸形 messages[0]（非 dict）抛 AttributeError
         body = {"model": "qwen-image-2.0", "input": {"messages": ["oops"]}, "parameters": {}}
         view = safe_body_for_log(body)
         assert view["model"] == "qwen-image-2.0"
         assert "content" not in view
 
     def test_non_dict_params_or_input_does_not_crash(self):
-        # parameters / input 为 truthy 非 dict（list / str，畸形上游）时 fail-safe 日志辅助
-        # 不得抛 AttributeError/TypeError，须归一化为空、只回 model
         for body in (
             {"model": "wan2.7-r2v", "parameters": [1, 2], "input": "oops"},
             {"model": "wan2.7-r2v", "parameters": "seed", "input": ["x"]},
@@ -272,7 +257,6 @@ class TestSafeBodyForLog:
             assert "size" not in view
 
     def test_tts_input_text_not_logged(self):
-        # TTS 合成文本（input.text）不在白名单内，绝不进日志视图
         secret_text = "用户私密旁白文本SECRETNARRATION"
         body = {
             "model": "qwen3-tts-flash",

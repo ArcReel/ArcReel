@@ -51,7 +51,6 @@ class TestWhitelistConfig:
     """避免运行时调用，先把配置常量当 spec 钉死，防止误改。"""
 
     def test_q1_aspect_ratio_no_2_3_or_3_2(self):
-        # 文档：viduq1 只允许 16:9 9:16 1:1 3:4 4:3
         assert "2:3" not in _ASPECT_RATIO_WHITELIST["viduq1"]
         assert "3:2" not in _ASPECT_RATIO_WHITELIST["viduq1"]
 
@@ -89,8 +88,6 @@ class TestCapabilityMismatchRaises:
     async def test_q2_with_refs_path_does_not_raise_capability(
         self, tmp_path: Path, image_output_path: Path, monkeypatch
     ):
-        # 仅校验 capability 检查不会先拦下来；实际生成走 mock。
-        # 让 create_vidu_client 抛错是为了快速短路，避免真正发请求。
         from lib.backends.image_backends import vidu as mod
 
         def _boom(*a, **kw):

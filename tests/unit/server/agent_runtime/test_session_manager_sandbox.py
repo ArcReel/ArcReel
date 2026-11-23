@@ -17,7 +17,6 @@ from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import use_provider_env
 
-#: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
 _USER_ID = "default"
 
 
@@ -49,13 +48,8 @@ async def test_build_options_includes_sandbox_settings(
     assert opts.sandbox.get("enabled") is True
     assert opts.sandbox.get("autoAllowBashIfSandboxed") is True
     assert opts.sandbox.get("enableWeakerNestedSandbox") is False
-    # 出站显式全放行：省略 network 键等于零预放行，无人值守会话里新域名会被直接拒。
-    # loopback 单列开关——skill 脚本调同源 ArcReel API 必须经 loopback，
-    # 而 allowedDomains 无论写 * 还是写 127.0.0.1 都覆盖不到它。
     assert opts.sandbox["network"] == {"allowedDomains": ["*"], "allowLocalBinding": True}
-    # 禁 unsandboxed fallback 与文件围栏不受网络放开影响
     assert opts.sandbox.get("allowUnsandboxedCommands") is False
-    # filesystem.denyRead 注入：sandbox profile 内核级文件读拒绝
     deny_read = opts.sandbox.get("filesystem", {}).get("denyRead", [])
     assert isinstance(deny_read, list)
     assert str(proj_dir / "project.json") in opts.sandbox["filesystem"]["denyWrite"]
@@ -85,14 +79,12 @@ def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, mo
     assert policy.agent_profile_root == external_profile.resolve()
     assert policy.data_root == external_data.resolve()
     assert policy.project_root == repo.resolve()
-    # 端到端：数据根下的日志对内置读工具与 Bash（内核 denyRead）都不可读
     cwd = sm.layout.projects_dir / "demo"
     allowed, _ = policy.check_path_access(str(data_logs / "arcreel.log"), "Read", cwd, user_id=_USER_ID)
     assert not allowed
     deny_read = policy.build_sandbox_settings(cwd)["filesystem"]["denyRead"]
     assert str(data_logs.resolve()) in deny_read
     assert policy.is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
-    # ARCREEL_LOG_DIR 指向的目录与 repo/logs 都不是日志位置，不进 denyRead
     assert str(stale_logs.resolve()) not in deny_read
     assert str((repo / "logs").resolve()) not in deny_read
 
@@ -126,9 +118,7 @@ async def test_bash_env_scrub_hook_wraps_command_with_env_unset(fs_session_manag
     out = result.get("hookSpecificOutput")
     assert out is not None
     assert out["hookEventName"] == "PreToolUse"
-    # 不携带权限决策，让权限链继续走到 allow 规则 / can_use_tool
     assert "permissionDecision" not in out
-    # policy 的包装结果被穿进 updatedInput.command（包装形态由 policy 测试断言）
     assert out["updatedInput"]["command"].startswith("env -u ")
 
 
@@ -202,9 +192,7 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
             "python .claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py validate",
             "PermissionResultAllow",
         ),
-        # `..` 在文件名内部（非路径段）不触发穿越拦截，合法命令照常放行
         ("python .claude/skills/adapt-custom-endpoint/scripts/my..script.py validate", "PermissionResultAllow"),
-        # 归一化容错：带引号的脚本路径、Windows 反斜杠分隔符的合法命令不误拒
         (
             'python ".claude/skills/adapt-custom-endpoint/scripts/custom_endpoint.py" validate',
             "PermissionResultAllow",
@@ -215,7 +203,6 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
         ),
         ("cat /etc/passwd", "PermissionResultDeny"),
         ("ls -la", "PermissionResultDeny"),
-        # ffmpeg / ffprobe 不在白名单：Agent 经 Bash 跑不了，媒体处理走工具集
         ("ffmpeg -i in.mp4 out.mp4", "PermissionResultDeny"),
         ("ffprobe in.mp4", "PermissionResultDeny"),
         ("ffmpeg", "PermissionResultDeny"),
@@ -229,7 +216,6 @@ async def test_windows_bash_whitelist_matches_main_behavior(tmp_path: Path, comm
     assert type(result).__name__ == expected
     if expected == "PermissionResultDeny":
         assert "Bash 白名单" in result.message
-        # deny 文案必须包含所有白名单 prefix（单一真相源）
         for prefix in AgentAccessPolicy.WINDOWS_BASH_PREFIX_WHITELIST:
             assert prefix in result.message
 
@@ -245,8 +231,6 @@ def test_windows_bash_whitelist_has_no_media_tool_prefixes() -> None:
 @pytest.mark.parametrize(
     "command",
     [
-        # 白名单前缀 + metachar 链：尾部命令在 Windows 上无 sandbox denyWrite
-        # 兜底，可直写 protected JSON，必须整串拒
         'python .claude/skills/manage-project/scripts/peek_split_point.py; python -c "evil"',
         "python .claude/skills/x/scripts/run.py && python -c \"open('project.json','w')\"",
         "python .claude/skills/x/scripts/run.py | tee scripts/episode_1.json",
@@ -255,22 +239,15 @@ def test_windows_bash_whitelist_has_no_media_tool_prefixes() -> None:
         "python .claude/skills/x/scripts/run.py > scripts/episode_1.json",
         "python .claude/skills/x/scripts/run.py < secret.txt",
         "python .claude/skills/x/scripts/run.py\npython -c evil",
-        # 命令名前缀碰撞：python3 不是 python
         "python3 .claude/skills/x/scripts/run.py",
-        # 路径穿越：满足 python .claude/skills/ 前缀且不含 metachar，但 .. 逃出
-        # skills 目录跑任意脚本——Windows 回退无 sandbox 兜底，必须拒
         "python .claude/skills/../../../tmp/evil.py",
         "python .claude/skills/../../arcreel_secrets_dumper.py",
         "python .claude/skills/x/scripts/run.py ../../other_project/secret.json",
-        # 路径穿越混淆绕过：shell 会把 ".." / .\. 还原成 ..，归一化后必须拒
         'python .claude/skills/dir/".."/".."/evil.py',
         "python .claude/skills/dir/'..'/'..'/evil.py",
         "python .claude/skills/dir/.\\./.\\./evil.py",
         'python .claude/skills/x/scripts/run.py ".."/".."/secret.json',
-        # Windows 反斜杠分隔符下的 .. 穿越同样要拒（归一化后 ../ 命中）
         "python .claude\\skills\\..\\..\\evil.py",
-        # python 入口必须是 <skill>/scripts/<script>.py：skills 目录下任意其它
-        # 文件（无 scripts/ 段、非 .py、或直接挂在 skill 根）一律不放行
         "python .claude/skills/evil.py",
         "python .claude/skills/adapt-custom-endpoint/custom_endpoint.py validate",
         "python .claude/skills/adapt-custom-endpoint/scripts/data.json",
@@ -332,7 +309,6 @@ def test_init_auto_memory_mismatch_logs_error_and_keeps_session(
     "auto_dir_factory",
     [
         pytest.param(lambda proj_dir: str(project_memory_dir(proj_dir)), id="exact"),
-        # CLI 2.1.259 上报带尾斜杠；比较按 resolve 后的路径做，不按字符串
         pytest.param(lambda proj_dir: f"{project_memory_dir(proj_dir)}/", id="trailing-slash"),
         pytest.param(lambda _proj_dir: None, id="field-absent"),
     ],

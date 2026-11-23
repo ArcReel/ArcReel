@@ -208,8 +208,6 @@ describe("projectEntriesToTurns", () => {
   });
 
   it("updates the existing task block in place from a typed task_notification entry (no duplicate bubble)", () => {
-    // 写入点已把 task 通知 XML 定型为 system 条目——SDK 双通道（typed 系统
-    // 消息 + 注入用户消息）产生的两条 typed 条目按 task_id 就地合并。
     const turns = projectEntriesToTurns([
       entry({ type: "assistant", content: [{ type: "text", text: "spawn" }], uuid: "a-1" }),
       entry({ type: "system", subtype: "task_started", task_id: "t9", description: "d", uuid: "s-1" }),
@@ -334,7 +332,6 @@ describe("projectEntriesToTurns", () => {
       }),
     ]);
     expect(turns.map((t) => t.type)).toEqual(["assistant", "system", "user"]);
-    // 锚点 tool_use 已被 interrupt 提前 flush 到前一个 turn，回填仍要跨 turn 找到它
     const toolUse = turns[0].content[0];
     expect(toolUse.result).toContain("answered");
     expect(toolUse.is_error).toBe(false);
@@ -364,10 +361,6 @@ describe("projectEntriesToTurns", () => {
   });
 
   it("still recognizes the Skill tool_use anchor after it's flushed to an earlier turn by an interrupt", () => {
-    // anchored 判定若只看 fold.cursor，Skill 的 tool_use 块所在 turn 一旦被
-    // interrupt 等条目提前 flush 出当前 turn，后到的 skill_invocation 就会
-    // 误判为"未锚定"，重复渲染一个独立芯片。toolUseSites 登记在 tool_use
-    // 块本身追加时发生，比 cursor 更持久，应据此判定而非只看当前 turn。
     const turns = projectEntriesToTurns([
       entry({
         type: "assistant",
@@ -835,8 +828,6 @@ describe("createTimelineProjector", () => {
   });
 
   it("returns fresh turn objects each call so mutation folds never corrupt cached blocks", () => {
-    // 每次 project 折叠 tool_result/task 会就地改写 turn 内的块——若复用了上次
-    // 产出的块引用，第二次折叠会叠加在已折叠结果上。断言两次产出的块互不共享引用。
     const entries: TimelineEntry[] = [
       e({ type: "assistant", content: [{ type: "tool_use", id: "tu-1", name: "Read", input: {} }], uuid: "a-1" }),
     ];
@@ -853,8 +844,6 @@ describe("createTimelineProjector", () => {
   });
 
   it("reuses the same deep-cloned block across projections instead of re-cloning (perf contract)", () => {
-    // 大 base64 image block：投影器应缓存首帧深拷贝，稳定条目重投影不再触发深拷贝。
-    // 通过桩化 structuredClone 计数验证：同一 entries 引用第二次 project 深拷贝次数为 0。
     const img = bigImageEntry();
     const entries: TimelineEntry[] = [img];
     const projector = createTimelineProjector();
@@ -898,8 +887,6 @@ describe("createTimelineProjector", () => {
   });
 
   it("stays equivalent to fresh replay through incremental subagent anchoring", () => {
-    // 覆盖增量路径最复杂的分支：锚点先于子条目、子条目先于锚点（合成卡片→回收）、
-    // 嵌套 subagent、task 折叠、跨 turn question_answer 回填。
     const stream: TimelineEntry[] = [
       e({ type: "user", content: [{ type: "text", text: "开始" }], uuid: "u-1" }),
       e({ type: "assistant", content: [{ type: "text", text: "孤儿" }], uuid: "sa-1", parent_tool_use_id: "tu-late" }),
@@ -951,8 +938,6 @@ describe("createTimelineProjector", () => {
   });
 
   it("degrades to a synthetic card instead of dropping the whole timeline when parent_tool_use_id self-references", () => {
-    // 条目的 parent_tool_use_id 等于自身 tool_use id：畸形/自指数据，真实
-    // server 写入点不会产生，但投影器不应把整段时间线静默丢空。
     const entries: TimelineEntry[] = [
       e({
         type: "assistant",
@@ -967,8 +952,6 @@ describe("createTimelineProjector", () => {
   });
 
   it("degrades to synthetic cards instead of dropping the whole timeline when two subagent groups mutually anchor each other", () => {
-    // entry0 属于 tu-A 的子时间线、自身携带 tool_use tu-B；entry1 属于 tu-B
-    // 的子时间线、自身携带 tool_use tu-A —— 两组互相锚定成环，main 为空。
     const entries: TimelineEntry[] = [
       e({ type: "assistant", content: [{ type: "tool_use", id: "tu-b", name: "Agent", input: {} }], uuid: "a-1", parent_tool_use_id: "tu-a" }),
       e({ type: "assistant", content: [{ type: "tool_use", id: "tu-a", name: "Agent", input: {} }], uuid: "a-2", parent_tool_use_id: "tu-b" }),
@@ -1104,12 +1087,10 @@ describe("mergeEntriesBySeq", () => {
   it("unions two entry lists sorted by seq without duplicates", () => {
     const merged = mergeEntriesBySeq([e(0, "a"), e(2, "c")], [e(1, "b"), e(2, "c-dup"), e(3, "d")]);
     expect(merged.map((x) => x.seq)).toEqual([0, 1, 2, 3]);
-    // 同 seq 条目不可变，保留既有引用
     expect(merged[2].uuid).toBe("c");
   });
 
   it("keeps newer local entries when a stale cold read arrives late", () => {
-    // 冷读整帧只到 seq 1，本地已有发送响应的 seq 2 —— 并集不丢新条目
     const merged = mergeEntriesBySeq([e(2, "sent")], [e(0, "a"), e(1, "b")]);
     expect(merged.map((x) => x.seq)).toEqual([0, 1, 2]);
   });

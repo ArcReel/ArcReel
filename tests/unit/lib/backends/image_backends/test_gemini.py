@@ -91,7 +91,6 @@ class TestProperties:
 
     @pytest.mark.parametrize("model", ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"])
     def test_channel_declares_no_reference_limit_by_model_name(self, fake_rate_limiter, patch_genai, model):
-        # 各代 Gemini 图像模型的参考图上限是模型事实，记在条目上；通道本身不限张数。
         from lib.backends.image_backends.gemini import GeminiImageBackend
 
         backend = GeminiImageBackend(
@@ -128,7 +127,6 @@ class TestGenerate:
         assert result.image_path == output_file
         assert result.provider == "gemini"
         assert output_file.exists()
-        # 没发 image_size：只报输出张数，不报分辨率（按价目表默认档计）
         assert result.usage is not None
         assert result.usage.quantities == {"output_images": 1}
         assert result.usage.dimensions == {}

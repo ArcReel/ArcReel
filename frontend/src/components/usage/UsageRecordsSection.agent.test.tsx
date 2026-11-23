@@ -131,7 +131,6 @@ describe("UsageRecordsSection Agent sessions view", () => {
     const rows = within(table).getAllByRole("row");
     expect(rows).toHaveLength(3);
     const priced = within(rows[1]);
-    // 「输入」不含缓存命中与缓存写入的部分：1000 - 600 - 100 - 50
     expect(priced.getByText("250")).toBeInTheDocument();
     expect(priced.getByText("600")).toBeInTheDocument();
     expect(priced.getByText("150")).toBeInTheDocument();

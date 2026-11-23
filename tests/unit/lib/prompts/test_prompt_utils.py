@@ -88,7 +88,6 @@ class TestPromptUtils:
         assert parsed_a["Action"] == "抬头观察"
         assert parsed_a["Dialogue"][0]["Speaker"] == "姜月茴"
         assert "Dialogue" not in parsed_b
-        # 反向约束以 Avoid 键收尾：有对话时置于 Dialogue 之后
         assert list(parsed_a)[-2:] == ["Dialogue", "Avoid"]
         assert list(parsed_b)[-1] == "Avoid"
         assert parsed_a["Avoid"] == "BGM、文字字幕、水印、Logo"
@@ -100,7 +99,6 @@ class TestPromptUtils:
         assert not is_structured_video_prompt([])
 
     def test_video_prompt_to_yaml_voice_profiles_leads_and_is_conditional(self):
-        # Voice_Profiles 是顶部集中声明段：须先于 Action 出现；无声明时不出现该字段
         with_profiles = {
             "action": "抬头观察",
             "camera_motion": "Static",
@@ -138,7 +136,6 @@ class TestBuildDramaVideoPrompt:
             {"Speaker": "姜月茴", "Voice_Style": "清冷"},
             {"Speaker": "王", "Voice_Style": "低沉"},
         ]
-        # dialogue 逐条保序，不因 Voice_Profiles 去重而合并
         assert [d["speaker"] for d in prompt["dialogue"]] == ["姜月茴", "王", "姜月茴"]
 
     def test_characters_none_means_no_injection(self):
@@ -149,15 +146,12 @@ class TestBuildDramaVideoPrompt:
         assert "voice_profiles" not in gated
 
     def test_script_carried_voice_profiles_never_survive(self):
-        # 声明段唯一来源是编排层：剧本残留值一律剥离，否则会绕过 C 类（characters=None）门控
         carried = {**_BASE_PROMPT, "voice_profiles": [{"Speaker": "赝品", "Voice_Style": "越权"}]}
         assert "voice_profiles" not in build_drama_video_prompt(carried, [], characters=None)
         prompt = build_drama_video_prompt(carried, [_utterance("王", "嗯")], characters={"王": {"voice_style": "低沉"}})
         assert prompt["voice_profiles"] == [{"Speaker": "王", "Voice_Style": "低沉"}]
 
     def test_nfd_speaker_hits_nfc_registered_character(self):
-        # speaker 与角色表 key 可能各是 NFC/NFD 中的任一形态（存量数据无需迁移），
-        # 归一后索引须双向命中；Speaker 展示值保留 dialogue 原文
         for speaker, registered in ((_NAME_NFD, _NAME_NFC), (_NAME_NFC, _NAME_NFD)):
             prompt = build_drama_video_prompt(
                 _BASE_PROMPT, [_utterance(speaker, "xin chào")], characters={registered: {"voice_style": "trầm"}}
@@ -214,8 +208,6 @@ class TestUtterancesToDialogue:
         assert utterances_to_dialogue([1, "x", {"kind": "dialogue", "speaker": " ", "text": " "}]) == []
 
     def test_drops_dialogue_missing_speaker_or_text(self):
-        # dialogue 须 speaker 与 line 同时非空才进口型音轨：缺 speaker（契约要求 dialogue 必带非空
-        # speaker）或缺 text 的脏 dialogue 一律丢弃，不把无主台词重新喂给 lip-sync / video YAML
         utterances = [
             {"kind": "dialogue", "speaker": "", "text": "无主台词"},
             {"kind": "dialogue", "speaker": "王", "text": ""},
@@ -224,8 +216,6 @@ class TestUtterancesToDialogue:
         assert utterances_to_dialogue(utterances) == [{"speaker": "姜月茴", "line": "你来了。"}]
 
     def test_supports_pydantic_utterance_instances(self):
-        # 兼容已实例化的 Pydantic Utterance 模型对象（不止原始 dict）：取属性而非键，
-        # dialogue-kind 正确派生、voiceover 跳过，与 dict 形态同口径
         from lib.script.script_models import Utterance
 
         utterances = [
@@ -247,7 +237,6 @@ class TestUtterancesToDialogue:
         assert validate_shot_type("Close-up")
         assert not validate_shot_type("Bad Shot")
         assert validate_camera_motion("Zoom In")
-        # 词表从 lib.script.script_models 的 Literal 派生，扩充后的值应直接可校验
         assert validate_camera_motion("Orbit")
         assert not validate_camera_motion("Teleport")
 

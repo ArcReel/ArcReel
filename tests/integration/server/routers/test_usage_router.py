@@ -14,7 +14,6 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project.project_manager import ProjectManager
 from server.routers import usage
 
-# 这些用例的项目没有剧本文件：条目找不到，位置为 None。
 _NO_SCRIPT = {"item_position": None, "item_excerpt": "", "item_thumbnail": None}
 
 BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)

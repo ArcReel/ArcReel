@@ -12,7 +12,6 @@ from server.services.tasks import video_caps
         ({"voice_consistency": "native", "requested_generate_audio": True}, False),
         ({"voice_consistency": "none", "requested_generate_audio": True}, True),
         ({"voice_consistency": "soft", "requested_generate_audio": False}, True),
-        # 能力解析失败：档位缺失退化为 soft，无声开关由 project_video_caps 独立解析后写入
         ({"requested_generate_audio": False}, True),
         ({"requested_generate_audio": True}, False),
     ],

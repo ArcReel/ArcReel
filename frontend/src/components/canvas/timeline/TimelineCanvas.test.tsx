@@ -189,7 +189,6 @@ describe("TimelineCanvas", () => {
 
     expect(screen.getByRole("button", { name: "补齐分镜图 · 2" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "视频已齐" })).toBeDisabled();
-    // 本项目不涉及配音产物时数不出缺口：不写数量，确认与否交给入队
     expect(screen.getByRole("button", { name: "补齐旁白配音" })).toBeEnabled();
   });
 
@@ -251,7 +250,6 @@ describe("TimelineCanvas", () => {
       useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     });
 
-    // 写回调一律给足：只有演示态判定本身能把它们作废
     function renderWithAllWriteHandlers() {
       return render(
         <TimelineCanvas

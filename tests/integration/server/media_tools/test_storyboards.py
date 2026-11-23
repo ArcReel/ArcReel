@@ -33,7 +33,6 @@ async def test_generate_storyboards_happy(fake_ctx: ToolHarness) -> None:
         captured.extend(specs)
         return await _succeed_every_spec(specs=specs, **batch_kwargs)
 
-    # Strip storyboard_image to force selection
     fake_ctx.pm.script_payload["segments"][0]["generated_assets"] = {}
     semantic_prompt = {
         "scene": "村口黄昏",

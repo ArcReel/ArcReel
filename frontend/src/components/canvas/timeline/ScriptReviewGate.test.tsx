@@ -26,7 +26,6 @@ const VIDEO_CAPS = {
   max_duration: 8,
 } as VideoCapabilities;
 
-// 等能力请求的回调落地后再断言「无提示」：只等到 spy 被调用时回调尚未执行，「无提示」恒成立。
 async function settleCapabilityRequests(spy: MockInstance<typeof API.getVideoCapabilities>) {
   await act(async () => {
     await Promise.allSettled(spy.mock.results.map((r) => r.value));
@@ -39,7 +38,6 @@ const CONFIRMED: Partial<ScriptReviewState> = {
   script_overwrite: makeScriptOverwrite(),
 };
 
-/** 本集正式脚本：覆盖确认的丢失清单列的是这里的分镜，按它们在正式脚本里的位置称呼。 */
 function seedFormalScenes(sceneIds: string[]) {
   useProjectsStore.setState({
     currentScripts: {
@@ -292,7 +290,6 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(button);
 
     const dialog = await screen.findByRole("alertdialog");
-    // 确认框呈现服务端生成的丢失清单，不在前端另拼；条目 ID 换成它在正式脚本里的位置。
     expect(
       within(dialog).getByText(
         "现有 2 条分镜全部移除。\n以下内容无法在项目内恢复：分镜图 1 张、视频 1 段、配音 1 段、尾帧 1 张、宫格归属 1 处。\n将被移除的分镜：分镜 1（分镜图、视频、配音、尾帧、宫格）、分镜 2",
@@ -444,7 +441,6 @@ describe("ScriptReviewGate", () => {
     expect(savedContent).toMatchObject({
       scenes: [{ utterances: [{ text: "三年后。" }, { text: "你怎么才回来。" }] }],
     });
-    // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
     expect(baseFingerprint).toBe("fp1");
   });
 
@@ -499,7 +495,6 @@ describe("ScriptReviewGate", () => {
       .mockResolvedValue({ episode: 1, doc_type: "narration_script_plan", adopted: true, draft: null });
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
 
-    // 违约挂在所在分镜卡上，整集层面的违约置顶；面板呈现的是草稿而非正式内容，也不提供确认。
     await waitFor(() => expect(screen.getByText("分镜 1 的原文为空")).toBeInTheDocument());
     expect(screen.getByText("源文末尾有一段未被任何分镜覆盖")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("裴与出征后的第二年。")).not.toBeInTheDocument();
@@ -593,7 +588,6 @@ describe("ScriptReviewGate", () => {
       });
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
 
-    // 有未保存的修改时不可用：AI 修复读取的是已保存的草稿。
     await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
     fireEvent.change(screen.getByRole("textbox", { name: "小说原文" }), { target: { value: "改了一半。" } });
     expect(screen.getByRole("button", { name: /AI 修复/ })).toBeDisabled();
@@ -606,7 +600,6 @@ describe("ScriptReviewGate", () => {
 
     await waitFor(() => expect(repair).toHaveBeenCalledWith("p", 1, "narration_script_plan", "rev-1", "只调整时长"));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    // 任务排队或执行期间状态条显示修复中，其余入口锁住；任务落定前不重拉。
     act(() => useTasksStore.setState({ tasks: [repairTask({ status: "running" })] }));
     expect(screen.getByRole("button", { name: /修复中/ })).toBeDisabled();
     expect(get).toHaveBeenCalledTimes(1);
@@ -666,7 +659,6 @@ describe("ScriptReviewGate", () => {
     );
     const { unmount } = render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
 
-    // 面板默认就是开着的，先关掉才断得出这次点击真的打开了它。
     act(() => useAppStore.getState().setAssistantPanelOpen(false));
     fireEvent.click(await screen.findByRole("button", { name: /交给 Agent 修复/ }));
     const input = useAssistantStore.getState().input;
@@ -772,7 +764,6 @@ describe("ScriptReviewGate", () => {
     fireEvent.change(screen.getByDisplayValue("你终于回来了。"), { target: { value: "我的本地编辑" } });
     await screen.findByText("修复后保存");
 
-    // 外部刷新到来（agent 改 script_plan → revision 变）→ 应保留用户草稿、不被服务端内容覆盖
     act(() => {
       useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
@@ -828,7 +819,6 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
     expect(await screen.findByRole("heading", { name: "这一集还没有脚本" })).toBeInTheDocument();
 
-    // 空态无真实内容可保留：revision 静默刷新失败应进错误态（区别于空态）并给重试，不滞留在过时空态。
     act(() => {
       useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
@@ -847,7 +837,6 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
 
-    // revision 触发静默刷新失败：应保留已加载内容，不闪错误态 / 空态。
     act(() => {
       useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
@@ -1117,7 +1106,6 @@ describe("ScriptReviewGate item fields", () => {
     const xiaotao = within(dialog).getByRole("button", { name: /小桃/ });
     expect(within(xiaotao).getByText("本集新增")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /旧宅/ })).toBeInTheDocument();
-    // 「不登记」的项不作候选；已选的那一项说明确认时会被移出，而不是失效引用。
     const passerby = within(dialog).getByRole("button", { name: /路人/ });
     expect(within(passerby).getByText("已选「不登记」，确认时从引用中移除")).toBeInTheDocument();
 

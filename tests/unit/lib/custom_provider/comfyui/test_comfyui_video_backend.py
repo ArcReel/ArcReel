@@ -188,7 +188,6 @@ class TestGenerate:
                     httpx.Response(200, json={"p-1": _history({"9": _video_output()})}),
                 ]
             )
-            # 空态那一轮顺手确认这次执行还在队列上，否则一台重启过的 ComfyUI 只会让轮询空转到超时。
             queue = router.get(f"{BASE_URL}/queue").mock(return_value=httpx.Response(200, json=_queue(pending=["p-1"])))
             view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
@@ -202,7 +201,6 @@ class TestGenerate:
         assert upload.call_count == 2
         assert history.call_count == 2
         assert queue.call_count == 1
-        # 引用值取响应里的 subfolder / name，不是请求里的——服务端会为重名改名。
         submitted = request_json(submit.calls.last.request)["prompt"]
         assert submitted["10"]["inputs"]["image"] == "arcreel/task-7-start_image.png"
         assert submitted["11"]["inputs"]["image"] == "arcreel/task-7-reference_images-1.jpg"
@@ -324,7 +322,6 @@ class TestGenerate:
 
         for route in (submit, history, view):
             assert route.calls.last.request.url.params["token"] == "k-1"
-        # 产物地址自己的三个参数不被凭证挤掉。
         assert view.calls.last.request.url.params["filename"] == "final_00001.mp4"
 
     @pytest.mark.parametrize("route", ["upload", "submit", "history", "view"])
@@ -377,7 +374,6 @@ class TestGenerate:
         followed = moved_post if route in {"upload", "submit"} else moved_get
         assert followed.call_count == 1
         assert "x-api-key" not in followed.calls.last.request.headers
-        # 同源那一跳仍要带上，否则套了反代的部署一条都发不出去。
         assert upload.calls.last.request.headers["x-api-key"] == "secret"
 
     async def test_view_redirect_to_a_link_local_address_is_not_followed(self, tmp_path: Path):
@@ -706,7 +702,6 @@ class TestMultipleArtifacts:
 
         assert only_request(view).url.params["filename"] == "final_00001.mp4"
         assert "共 2 个" in caplog.text
-        # 日志只有运维看得到；这一条要一路走到任务结果上，用户才知道自己拿到的是其中一个。
         assert result.warnings == (
             {"key": "comfyui_multiple_outputs", "params": {"count": 2, "filename": "final_00001.mp4"}},
         )
@@ -803,7 +798,6 @@ class TestTerminalStates:
                 await _backend().generate(_request(tmp_path))
 
         assert caught.value.code == "comfyui_execution_error"
-        # traceback 有上百行而失败原因整条落库，摘要只取类型与消息两项。
         assert caught.value.params == {"node": "KSampler", "detail": "torch.OutOfMemoryError: CUDA out of memory"}
 
     async def test_an_interrupted_execution_has_its_own_code(self, tmp_path: Path):
@@ -891,7 +885,6 @@ class TestJobLost:
 
         assert caught.value.code == "comfyui_job_lost"
         assert caught.value.params == {"prompt_id": "p-1"}
-        # 第一轮就判死：确认过队列没有它之后再查一次 history，两次之后不再空转。
         assert history.call_count == 2
 
     @pytest.mark.parametrize("lane", ["running", "pending"])
@@ -933,7 +926,6 @@ class TestJobLost:
         rounds = itertools.count()
 
         def _history_route(_request: httpx.Request) -> httpx.Response:
-            # 一次真实的长生成在产物就绪之前会一直空态，故这条辅助判据每一轮都要走一遍。
             if next(rounds) < VIDEO_POLL_MAX_CONSECUTIVE_FAILURES:
                 return httpx.Response(200, json={})
             return httpx.Response(200, json=_history({"9": _video_output()}))
@@ -1011,7 +1003,6 @@ class TestResume:
         assert result.generate_audio is (frozen_audio or False)
         assert upload.call_count == 0
         assert submit.call_count == 0
-        # 提交发生在上一个进程里，这一次没有新的 job_id 要落库。
         assert persisted == []
 
     async def test_a_resume_polls_the_host_the_job_was_submitted_to(self, tmp_path: Path):
@@ -1104,7 +1095,6 @@ class TestStoppingTheRemote:
                 await _backend().generate(_request(tmp_path))
 
         assert cancel.call_count == 1
-        # 一个动作同时覆盖排队中与执行中，不必再查队列。
         assert queue.call_count == 0
 
     async def test_an_older_server_deletes_a_pending_entry(self, tmp_path: Path):

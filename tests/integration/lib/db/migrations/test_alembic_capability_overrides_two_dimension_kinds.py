@@ -71,13 +71,9 @@ def test_existing_overrides_kept_by_dimension_and_cleared_on_comfyui(alembic_cfg
             _insert_provider(conn, 2, "comfyui")
             _insert_endpoint(conn, 7, "comfyui")
             _insert_endpoint(conn, 8, "declarative")
-            # 普通供应商上的视频覆盖：每个键就是一个通道事实维度，原样保留
             _insert_model(conn, 1, 1, "openai-video", channel_overrides)
-            # 声明式自定义端点上的覆盖同样保留
             _insert_model(conn, 2, 1, "ce-8", {"max_reference_images": 3})
-            # ComfyUI 端点（按端点种类认）上的覆盖清除
             _insert_model(conn, 3, 1, "ce-7", {"last_frame": True})
-            # ComfyUI 协议供应商下的覆盖清除
             _insert_model(conn, 4, 2, "ce-7", {"max_reference_images": 1})
             _insert_model(conn, 5, 1, "openai-video", None)
 

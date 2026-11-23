@@ -61,9 +61,6 @@ def _profile_skill_path(profile_dir: Path, name: str = "demo") -> Path:
     return profile_dir / ".claude" / "skills" / name / "SKILL.md"
 
 
-# ---------- 首次迁移分支 ----------
-
-
 class TestFirstSyncMigration:
     def test_first_sync_full_reset_when_no_manifest(self, env):
         pm, _profile_dir, project_dir = env
@@ -93,9 +90,7 @@ class TestFirstSyncMigration:
         """``.claude`` 是普通文件 / ``CLAUDE.md`` 是目录时，reset 必须先清理掉，
         否则后续 mkdir()/_safe_copy() 会失败，留下半完成状态 + 不完整 manifest。"""
         pm, _, project_dir = env
-        # dest_tree 错误类型：普通文件（手抄 README 时的常见错招）
         (project_dir / ".claude").write_text("wrong type — should be a dir")
-        # dest_top 错误类型：目录（手动 mkdir CLAUDE.md/）
         (project_dir / "CLAUDE.md").mkdir()
         (project_dir / "CLAUDE.md" / "stray.txt").write_text("stray")
 
@@ -114,9 +109,6 @@ class TestFirstSyncMigration:
         assert not (new_dir / ".claude").is_symlink()
         assert (new_dir / MANIFEST_FILENAME).is_file()
         assert (new_dir / "CLAUDE.md").read_text() == "prompt v1"
-
-
-# ---------- 决策表 15 行覆盖 ----------
 
 
 class TestDecisionTable:
@@ -413,14 +405,12 @@ class TestForceResync:
         other_skill = project_dir / ".claude" / "skills" / "other" / "SKILL.md"
         other_skill.parent.mkdir(parents=True, exist_ok=True)
         other_skill.write_text("user-customized other skill")
-        # 删 manifest 模拟"老项目无 manifest"
         (project_dir / ".arcreel_profile_manifest.json").unlink()
 
         stats = pm.force_resync_profile(project_dir, paths=[".claude/skills/demo/SKILL.md"])
 
         assert _skill_path(project_dir).read_text() == "demo v1"
         assert other_skill.read_text() == "user-customized other skill"
-        # 新 manifest 只含 demo entry，不是全量
         from lib.agent.profile_manifest import load_manifest
 
         loaded = load_manifest(project_dir)
@@ -446,11 +436,6 @@ class TestForceResync:
         escape_link = project_dir / ".claude" / "evil_link.md"
         escape_link.symlink_to(outside)
 
-        # manifest 删一遍触发首次迁移分支也会跑校验？_full_reset 不走 escape guard
-        # 路径（它走全量 copy 不会撞已存在 dest）。所以这里走主物化路径：
-        # 在 manifest 里手插一条 entry 让该 rel 进 all_keys → 触发 #6 user_modified
-        # 分支 → _apply_decision 里跑 sha256_file(d) 会跟过 symlink 读到 outside。
-        # escape guard 阻断该 rel 的 I/O。
         manifest_path = project_dir / MANIFEST_FILENAME
         data = json.loads(manifest_path.read_text())
         data["entries"][".claude/evil_link.md"] = {
@@ -464,7 +449,6 @@ class TestForceResync:
 
         assert outside.read_text() == "MUST NOT be touched"
         assert stats["errors"] >= 1
-        # symlink 自身没被改（rmtree 在 _full_reset 才发生，这里走主路径）
         assert os.path.islink(escape_link)
 
     def test_sync_refuses_symlink_lock_file(self, env):
@@ -560,7 +544,6 @@ class TestForceResync:
         (project / MANIFEST_FILENAME).symlink_to(outside)
 
         assert load_manifest(project) is None
-        # symlink 没被自动删（决策应由后续 _full_reset 通过 mkstemp + os.replace 处理）
         assert (project / MANIFEST_FILENAME).is_symlink()
 
     def test_safe_copy_rejects_dir_dest(self, tmp_path: Path):

@@ -90,8 +90,6 @@ class TestBuildSimpleBaseUrlPriority:
         }
 
     def test_ark_agent_plan_uses_own_plan_base_url(self):
-        # ark-agent-plan 媒体侧复用 Ark backend，但 registry default 是独立的 /api/plan/v3
-        # （非 ark 的 /api/v3）。
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="ark-agent-plan")
         built = _built(get_provider_spec("ark-agent-plan", "video"), config, "doubao-seedance-2.0")
         assert built == {
@@ -142,7 +140,6 @@ class TestBuildSimpleBaseUrlPriority:
         assert _built(spec, config, model_id)["backend"] == endpoint
 
     def test_grok_image_no_default_no_user_omits_base_url(self):
-        # grok 无 registry default 且用户未配 → 不传 base_url（grok backend 不接受该参数）
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="grok")
         assert _built(get_provider_spec("grok", "image"), config, "grok-2-image")["kwargs"] == {
             "api_key": "sk-test",
@@ -150,8 +147,6 @@ class TestBuildSimpleBaseUrlPriority:
         }
 
     def test_missing_api_key_omitted_so_sdk_env_fallback_survives(self):
-        # 用户未配 api_key → 不传 api_key（而非传 None）：让 backend 各自决定环境变量兜底
-        # （OpenAI SDK 读 OPENAI_API_KEY）或 fail-loud；显式 None 会覆盖兜底。
         config = _loaded(credentials={}, provider_id="openai")
         assert _built(get_provider_spec("openai", "image"), config, "gpt-image-1")["kwargs"] == {"model": "gpt-image-1"}
 
@@ -172,7 +167,6 @@ class TestMediaRegistryRouting:
         }
 
     def test_dashscope_video_passes_wan3_base_url(self):
-        # wan3 专用 maas 域名单列一键，仅 video lane 消费；未填时不写入 kwargs
         config = _loaded(
             credentials={"api_key": "sk-test", "wan3_base_url": "https://maas.example.com/ws-1/api/v1"},
             provider_id="dashscope",
@@ -187,7 +181,6 @@ class TestMediaRegistryRouting:
 
     def test_dashscope_audio_uses_audio_registry(self):
         config = _loaded(credentials={"api_key": "sk-test"}, provider_id="dashscope")
-        # 默认端点仍是 multimodal-generation；registry 名就是端点名
         assert _built(get_provider_spec("dashscope", "audio"), config, "qwen3-tts-flash") == {
             "media": "audio",
             "backend": "dashscope-tts",
@@ -245,7 +238,6 @@ class TestGeminiSpec:
             provider_meta=PROVIDER_REGISTRY.get("gemini-vertex"),
             rate_limiter=None,
         )
-        # vertex 无 api_key/base_url：仍无条件透传 None（backend 内回落凭证文件 / 省略 base_url）
         assert _built(get_provider_spec("gemini-vertex", "image"), config, None)["kwargs"] == {
             "backend_type": "vertex",
             "api_key": None,
@@ -264,7 +256,6 @@ class TestGeminiSpec:
             provider_meta=PROVIDER_REGISTRY.get("gemini-aistudio"),
             rate_limiter=limiter,
         )
-        # video 与 image 对等：aistudio 透传用户 base_url，命名参数是 video_model 不是 image_model
         assert _built(spec, config, "veo-3.1-lite-generate-preview") == {
             "media": "video",
             "backend": "gemini",
@@ -283,7 +274,6 @@ class TestGeminiSpec:
             provider_meta=PROVIDER_REGISTRY.get("gemini-vertex"),
             rate_limiter=None,
         )
-        # vertex 无 api_key/base_url：仍无条件透传 None（与 vertex image 对称，backend 内结构性忽略）
         assert _built(get_provider_spec("gemini-vertex", "video"), config, "veo-3.1-generate-preview")["kwargs"] == {
             "backend_type": "vertex",
             "api_key": None,
@@ -337,7 +327,6 @@ class TestGeminiSpec:
     def test_interactions_video_endpoint_builds_its_own_backend_with_the_same_credentials(
         self, provider_id, endpoint, backend_type, credentials, extra
     ):
-        # Veo 仍是默认端点；Interactions 端点按端点名建对应后端，凭证与 backend_type 与 Veo 一致
         assert get_provider_spec(provider_id, "video").endpoint != endpoint
         config = LoadedConfig(
             credentials=credentials, provider_meta=PROVIDER_REGISTRY.get(provider_id), rate_limiter=None
@@ -356,8 +345,6 @@ class TestGeminiSpec:
         }
 
     def test_bare_gemini_not_registered(self):
-        # 裸 "gemini"（无 aistudio/vertex 后缀）是死路径：resolver 只产出带后缀 id。
-        # fail-loud，不为死路径登记兜底行。
         assert ("gemini", "image") not in PROVIDER_SPEC_REGISTRY
         assert ("gemini", "video") not in PROVIDER_SPEC_REGISTRY
 
@@ -393,7 +380,6 @@ class TestKlingSpec:
         }
 
     def test_image_api_model_name_decoupled_for_amphibious_alias(self):
-        # 两栖别名键 kling-v3-omni-image 的 registry api_model_name 是 kling-v3-omni（发真实 API 名）。
         config = self._kling_config(access_key="ak-1", secret_key="sk-1")
         assert _built(get_provider_spec("kling", "image"), config, "kling-v3-omni-image")["kwargs"] == {
             "auth_mode": "jwt",
@@ -418,7 +404,6 @@ class TestKlingSpec:
         spec = get_provider_spec("kling", "video")
         assert spec.registry_backend == "kling-video-pro-silent"
         config = self._kling_config(access_key="ak-1", secret_key="sk-1")
-        # video backend 不接受 api_model_name：即使 model 是别名也不传该参数
         assert _built(spec, config, "kling-v3") == {
             "media": "video",
             "backend": "kling-video-pro-silent",
@@ -458,7 +443,6 @@ class TestKlingSpec:
         spec = get_provider_spec("kling", "video", "kling-video-model-path")
         backend = spec.build_backend(self._kling_config(api_key="sk-api-1"), "kling-4.0")
         assert isinstance(backend, KlingModelPathVideoBackend)
-        # 内置供应商的默认 base_url 带 /v1，新版 API 的路径直接接在域名后
         assert backend._base_url == "https://api-beijing.klingai.com"
 
     def test_model_path_endpoint_refuses_dual_secret(self):
@@ -529,7 +513,6 @@ class TestTextSimpleSpec:
         }
 
     def test_api_key_passed_unconditionally_even_when_missing(self):
-        # 文本简单族 api_key 无条件透传（含 None），与媒体简单族「缺省省略」非对称。
         config = _loaded(credentials={}, provider_id="grok")
         assert _built(get_provider_spec("grok", "text"), config, "grok-4")["kwargs"] == {
             "model": "grok-4",
@@ -545,7 +528,6 @@ class TestTextGeminiSpec:
         spec = get_provider_spec("gemini-aistudio", "text")
         assert spec.registry_backend == "gemini"
         config = _loaded(credentials={"api_key": "g-key", "base_url": ""}, provider_id="gemini-aistudio")
-        # base_url 无条件透传（含空串），不回落 registry default
         assert _built(spec, config, "gemini-3-flash-preview") == {
             "media": "text",
             "backend": "gemini",
@@ -594,7 +576,6 @@ class TestTextOpenAICompatSpec:
         }
 
     def test_dashscope_user_host_derives_compatible_mode_path(self):
-        # 用户填自定义 host → helper 仍派生 /compatible-mode/v1 后缀
         config = _loaded(
             credentials={"api_key": "ds", "base_url": "https://dashscope-intl.aliyuncs.com"},
             provider_id="dashscope",
@@ -650,7 +631,6 @@ class TestRegistryShape:
         }
 
     def test_bare_gemini_text_not_registered(self):
-        # 与媒体侧一致：裸 "gemini" 是死路径，resolver 只产出带后缀 id，fail-loud 不登记兜底行
         assert ("gemini", "text") not in PROVIDER_SPEC_REGISTRY
 
 
@@ -659,7 +639,7 @@ class TestValidateProviderSpecs:
 
     def test_passes_on_real_registry(self):
         _validate_provider_specs()
-        assert PROVIDER_SPEC_REGISTRY  # 空表也不抛，校验须建立在真表非空之上
+        assert PROVIDER_SPEC_REGISTRY
 
     def test_non_callable_build_rejected(self, monkeypatch: pytest.MonkeyPatch):
         bad = dataclasses.replace(PROVIDER_SPEC_REGISTRY[("ark", "image")], build_backend="not-callable")
@@ -668,7 +648,6 @@ class TestValidateProviderSpecs:
             _validate_provider_specs()
 
     def test_key_field_mismatch_rejected(self, monkeypatch: pytest.MonkeyPatch):
-        # spec 内 provider_id/media_type 与字典键漂移 → fail-fast
         bad = dataclasses.replace(PROVIDER_SPEC_REGISTRY[("ark", "image")], provider_id="drifted")
         monkeypatch.setitem(PROVIDER_SPEC_REGISTRY, ("ark", "image"), bad)
         with pytest.raises(ValueError, match=r"key .* does not match spec"):

@@ -62,7 +62,6 @@ async def fake_scene_batch(*, project_name, specs, on_success=None, on_failure=N
 
 _EPISODE_1: dict[str, Any] = {"scope": "episode", "episode_id": 1}
 _ALL: dict[str, Any] = {"scope": "all"}
-# 越出项目根的成片路径：清单无从检查这份产物，它的状态既不是「缺失」也不是「可用」。
 _UNREADABLE_CLIP = "../outside/E1S01.mp4"
 
 
@@ -161,7 +160,6 @@ _VALID_REQUEST: dict[str, Any] = {
     "target": _EPISODE_1,
 }
 
-# 项目级旁白交付配置的两种取值；视频请求对两者一视同仁。
 _POST_PRODUCTION_PROJECT: dict[str, Any] = {"narration_delivery": "post_production"}
 _USE_TTS_PROJECT: dict[str, Any] = {
     "narration_delivery": "use_tts",
@@ -361,7 +359,6 @@ async def test_generate_videos_episode_scope_non_dict_generated_assets_does_not_
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
 
-    # E1S01 的分镜图绑定不可用：整批准入不成立，零任务入队，合法条目也如实报告被搁置的原因。
     assert enqueued == []
     result = read_generation_result(out)
     assert sorted(result.blocked) == ["E1S01", "E1S02"]
@@ -552,7 +549,6 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_sp
         {
             "segment_id": "E1S01",
             "novel_text": "风吹过旷野。",
-            # 旁白与角色台词同时出现：需要重规划，不是可以直接下单的条目。
             "video_prompt": {"dialogue": [{"speaker": "阿离", "line": "快走。"}]},
             "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
         },
@@ -620,7 +616,7 @@ async def test_generate_videos_scene_scope_missing(fake_ctx: ToolHarness) -> Non
 @pytest.mark.parametrize(
     "storyboard_value",
     [
-        123,  # 剧本 JSON 里的脏数据（非字符串）须可读失败而非未处理 TypeError
+        123,
         "/etc/passwd",
         "../../outside.png",
     ],
@@ -633,7 +629,6 @@ async def test_generate_videos_scene_scope_rejects_invalid_storyboard_image(
     out = await run_generate_videos(fake_ctx, _scene("E1S01"), force=True)
 
     assert _is_error(out)
-    # 锁定 resolve_storyboard_image_ref 抛出的 canonical 消息，而不是模糊子串或通用失败文本
     assert f"invalid storyboard image path: {storyboard_value!r}" in _text(out)
 
 
@@ -717,8 +712,6 @@ async def test_generate_videos_episode_scope_reference_rejects_malformed_unit_co
         False,
         None,
     ):
-        # 键在场即按类型判定，不看真值：``{}`` / ``""`` / ``False`` 同样是类型错误，
-        # 报成「为空」会把成因埋掉。
         fake_ctx.pm.script_payload = reference_video_script(video_units=malformed)
 
         out = await run_generate_videos(fake_ctx, _EPISODE_1)
@@ -751,14 +744,12 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
 
     assert not _is_error(out), out
     assert enqueued == []
-    # 待确认不是 prose-only 的死角：调用方能拿到机器可读结论，不必解析文本猜测。
     result = read_generation_result(out)
     assert result.blocked == ["E1U1"]
     item = result.items[0]
     assert item.problem is not None
     assert item.problem.code == "reference_duration_confirmation_required"
     assert item.problem.action == "confirm_request_duration"
-    # 摘要以剧本计划时长为比较基准，并直接给出成片会变长还是变短。
     assert "E1U1：剧本时长 5s，将申请 8s（成片更长 3s）" in _text(out)
 
 
@@ -836,8 +827,6 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
 
     assert out.problem is None, out
     assert sorted(spec.resource_id for spec in enqueued) == ["E1U1", "E1U2"]
-    # 各任务带的是自己那一档确认：worker 重投影时读任务上的这份选项，
-    # 只写整批共用的一份会让准入已接受的档位在执行期重新变成待确认。
     confirmed = {
         spec.resource_id: (spec.payload or {})["reference_request_options"]["confirmed_request_duration_seconds"]
         for spec in enqueued
@@ -991,7 +980,6 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
 
-    # 三个 unit 均 5 秒、申请 8 秒 → 都需确认，本批不入队；实际水合桶随每个结果可观察。
     assert not _is_error(out), out
     assert context_calls == ["r2v", "r2v", "i2v"]
     assert enqueued == []
@@ -1119,7 +1107,7 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
             "segment_id": "S01",
             "novel_text": "他在旷野上奔跑。",
             "video_prompt": "一个奔跑的镜头",
-            "duration_seconds": 7,  # 不属于任何典型 supported_durations
+            "duration_seconds": 7,
             "generated_assets": {"storyboard_image": "storyboards/scene_S01.png"},
         }
     ]
@@ -1136,7 +1124,6 @@ def test_build_video_specs_does_not_validate_duration_at_enqueue(tmp_path) -> No
     assert len(specs) == 1
     assert specs[0].payload["duration_seconds"] == 7
 
-    # 未显式指定 duration 时不携带该键，留给执行层按 caps 收口默认。
     items[0].pop("duration_seconds")
     specs2, _ = _build_video_specs(
         items=items,
@@ -1417,7 +1404,6 @@ def test_build_reference_specs_skips_mixed_speech_without_aborting_batch(tmp_pat
     )
 
     assert [spec.resource_id for spec in specs] == ["E1U2"]
-    # 发声准入的问题码原样透出，调用方不必读文本判断下一步。
     assert _refused_problems(refused) == {"E1U1": ("mixed_speech", "replan_unit")}
 
 
@@ -1444,14 +1430,12 @@ def test_build_reference_specs_handles_a_non_string_text(tmp_path) -> None:
     from server.media_tools.videos import _build_reference_specs
 
     units = [
-        # text 显式 null → 被守卫点按「text 必须是字符串」拒收（不注入 'None'）。
         {"unit_id": "E1U1", "text": None},
         {"unit_id": "E1U2", "text": "@李四 转身"},
     ]
     specs, refused = _build_reference_specs(units=units, script_filename="episode_1.json", skip_ids=None)
     assert [s.resource_id for s in specs] == ["E1U2"]
     assert all("None" not in (s.payload.get("prompt") or "") for s in specs)
-    # 显式拒收与静默跳过在 specs 上不可分辨，问题码才锁得住守卫点确实拒了这一条。
     assert _refused_problems(refused) == {"E1U1": ("generation_unit_request_invalid", "fix_input")}
 
 
@@ -1504,7 +1488,6 @@ def _successful_reference_batch(ctx: ToolHarness, enqueued: list[Any]):
         successes: list[BatchTaskResult] = []
         for spec in specs:
             enqueued.append(spec)
-            # 产物由生成 worker 在别处落盘，不占工具所在的事件循环。
             await write_backend_output(ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4", b"\x00")
             result = BatchTaskResult(
                 resource_id=spec.resource_id,
@@ -1532,7 +1515,6 @@ async def test_generate_videos_episode_scope_reference_skips_malformed_unit_entr
         ad_reference_ctx, _EPISODE_1, batch_waiter=_successful_reference_batch(ad_reference_ctx, enqueued)
     )
 
-    # 脏 unit 逐条记为 blocked（没有 unit_id 可寻址时按位置编号），并拦住整批。
     assert enqueued == []
     result = read_generation_result(out)
     assert sorted(result.blocked) == ["E1U1", "video_units[0]", "video_units[1]"]

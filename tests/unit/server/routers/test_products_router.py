@@ -29,7 +29,6 @@ class _FakePM(FakeProjectAssetMutationMixin):
         }
 
     def _add_asset(self, asset_type, project_name, name, entry):
-        # 守住路由 → spec 的绑定：products 路由若误传其他资产类型应当即失败
         assert asset_type == "product", f"products 路由应传 asset_type='product'，实际为 {asset_type!r}"
         if project_name not in self.projects:
             raise FileNotFoundError(project_name)
@@ -122,7 +121,6 @@ class TestProductsRouter:
                     json={"name": "无线音箱", "description": "", "brand": bad},
                 )
                 assert resp.status_code == 422, bad
-            # 未被污染：整个非法请求应当被拒绝，不产生 partial 落地
             assert "无线音箱" not in fake_pm.projects["demo"]["products"]
 
     def test_create_normalizes_null_string_field_to_empty(self, monkeypatch):

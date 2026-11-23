@@ -40,7 +40,6 @@ describe("ExternalAgentSection", () => {
       "配置远程 MCP",
       "准备访问令牌",
     ]);
-    // setup skill 明文保存令牌，第三步提醒把配置文件排除在版本控制之外
     expect(within(steps[2]).getByText(/加入 \.gitignore/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "复制安装命令" }));
@@ -65,7 +64,6 @@ describe("ExternalAgentSection", () => {
   });
 
   it("在第三步创建的令牌出现在「访问令牌」分区的列表里", async () => {
-    // 有状态的接口替身：创建写入、列表读出，模拟同一个后端
     const issued: ApiKeyInfo[] = [];
     vi.spyOn(API, "listApiKeys").mockImplementation(() => Promise.resolve([...issued]));
     vi.spyOn(API, "createApiKey").mockImplementation((name) => {

@@ -22,7 +22,6 @@ REVIEWER = REPO / "agent_runtime_profile/.claude/agents/review-footage.md"
 APP_LINK = REPO / "frontend/src/utils/app-link.ts"
 
 _LINK_TEMPLATE = re.compile(r"`(/app/projects/\{项目名\}/episodes/[^`]+)`")
-#: 勾选清单的类目是缩进列表项开头的加粗名，交付与执行两节用同一组名字对上。
 _CHECKLIST_CATEGORY = re.compile(r"^\s*- \*\*([^*]+)\*\*", re.MULTILINE)
 
 

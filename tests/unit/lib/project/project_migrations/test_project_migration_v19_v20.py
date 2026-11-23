@@ -35,9 +35,7 @@ def test_bare_builtin_providers_take_the_recommended_model() -> None:
 
 def test_values_without_a_recommendation_or_not_bare_builtin_are_kept() -> None:
     project = {
-        # 没有视频推荐：原样保留，运行时与升级前一样报错让用户重新选择
         "video_provider_r2v": "openai",
-        # 自定义供应商的裸 id：升级前也不补模型
         "audio_backend": "custom-3",
         "default_image_backend": "openai/gpt-image-2",
         "video_provider_i2v": "no-such-provider",

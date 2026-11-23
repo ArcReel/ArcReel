@@ -62,7 +62,6 @@ class TestOpenAITextBackend:
             assert backend.name == PROVIDER_OPENAI
             assert backend.model == "gpt-5.4-mini"
 
-        # 未给 base_url 时回填官方端点；SDK 内置重试关闭，由 generate() 统一管理重试
         assert created == [{"api_key": "test-key", "base_url": "https://api.openai.com/v1", "max_retries": 0}]
 
     def test_custom_model(self):
@@ -302,7 +301,6 @@ class TestInstructorFallback:
             result = await backend.generate(request)
 
         assert result.text == schema_response
-        # 降级路径的唯一入口是 instructor 客户端：未构造即证明没走降级
         from_openai.assert_not_called()
 
     async def test_think_prefixed_json_passes_native_channel(self):
@@ -411,7 +409,6 @@ class TestInstructorFallback:
 
         assert result.text == instructor_result.model_dump_json()
         assert result.provider == PROVIDER_OPENAI
-        # 原生 200 调用（100/60）已被代理计费，与 Instructor 调用（50/20）的 token 合并计入
         assert result.input_tokens == 150
         assert result.output_tokens == 80
         mock_client.chat.completions.create.assert_awaited_once()
@@ -452,7 +449,6 @@ class TestInstructorFallback:
             result = await backend.generate(request)
 
         assert result.text == instructor_result.model_dump_json()
-        # 先原生再降级：原生调用恰发生一次，其计费 token（100/60）并入 Instructor 结果（80/30）
         mock_client.chat.completions.create.assert_awaited_once()
         assert result.input_tokens == 180
         assert result.output_tokens == 90
@@ -460,7 +456,6 @@ class TestInstructorFallback:
 
     async def test_coercible_but_non_strict_json_triggers_instructor_fallback(self):
         """原生返回可强转但类型不严格匹配的 JSON（age 为数字字符串 "30"），严格校验下视为未强制 schema，应降级。"""
-        # 宽松校验会把 "30" 强转为 30 而放行；strict=True 与原生 response_format 的 strict 对齐，拒绝并降级
         coercible_json = json.dumps({"name": "Alice", "age": "30"})
         instructor_result = _PersonSchema(name="Alice", age=30)
         instructor_completion = MagicMock()
@@ -492,7 +487,6 @@ class TestInstructorFallback:
         assert result.text == instructor_result.model_dump_json()
         mock_client.chat.completions.create.assert_awaited_once()
         mock_patched.chat.completions.create_with_completion.assert_awaited_once()
-        # 原生计费 token（100/60）并入 Instructor 结果（70/25）
         assert result.input_tokens == 170
         assert result.output_tokens == 85
 
@@ -524,7 +518,6 @@ class TestInstructorFallback:
             )
             result = await backend.generate(request)
 
-        # Instructor usage 为 None，结果 token 即原生 200 调用的计费量（90/40）
         assert result.text == instructor_result.model_dump_json()
         mock_client.chat.completions.create.assert_awaited_once()
         assert result.input_tokens == 90
@@ -533,7 +526,6 @@ class TestInstructorFallback:
 
     async def test_schema_violating_json_with_dict_schema_no_fallback(self):
         """dict schema 无对应 Pydantic 模型，即便 JSON 违反所声明类型也沿用「仅校验合法 JSON」的既有行为，不降级。"""
-        # 合法 JSON，但 age 是字符串、违反 dict schema 声明的 integer——dict schema 路径不做此校验
         violating_json = json.dumps({"name": "Alice", "age": "thirty"})
         mock_client = AsyncMock()
         mock_client.chat.completions.create = AsyncMock(return_value=_make_mock_response(violating_json))
@@ -631,7 +623,6 @@ class TestInstructorFallback:
         instructor_completion.usage = None
 
         tools_patched = _make_instructor_client()
-        # 上游拒收 tools 参数时，Instructor 会把这次 API 调用异常包起来后才交给降级链。
         tools_patched.chat.completions.create_with_completion = AsyncMock(
             side_effect=instructor_api_call_exhausted(_make_bad_request_error("tools is not supported"))
         )

@@ -82,11 +82,9 @@ class TestProductsInjection:
 
     def test_voiceover_rate_injected_from_single_source(self):
         """口播字数→时长折算语速由 lib.speech.speech_rate 注入，不写死数字；带货与通用短片两分支同源。"""
-        # 默认 target_language「中文」不在语言代码表内 → 回退默认语速（zh 口径，量词「字」）
         default_rate = speech_rate_units_per_second(None)
         for prompt in (_build(), _build(products={})):
             assert f"约 {default_rate:g} 字/秒" in prompt
-        # 语速与量词随 target_language 切换（en 计词），证明是注入而非写死
         en_rate = speech_rate_units_per_second("en")
         assert en_rate != default_rate
         assert f"约 {en_rate:g} 词/秒" in _build(target_language="en")

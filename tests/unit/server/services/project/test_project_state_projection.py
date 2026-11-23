@@ -24,7 +24,6 @@ _DERIVATIVE_SPECS = [spec for spec in ASSET_SPECS.values() if spec.supports_deri
 
 _FRONTEND_SRC = Path(__file__).resolve().parents[5] / "frontend" / "src"
 
-# 各骨架种类在数据形状上的取证写法：content_mode 与条目数组键共同决定 resolve_script_kind 的判别。
 _KIND_CONTENT_MODES = {
     "segments": "narration",
     "scenes": "drama",

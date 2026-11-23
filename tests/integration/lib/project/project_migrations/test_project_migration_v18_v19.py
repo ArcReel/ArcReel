@@ -53,7 +53,6 @@ async def test_schema_18_project_records_the_highest_number_without_renaming_any
     assert _structure_bytes(project_dir) == files_before
 
     pm = ProjectManager(tmp_path)
-    # 样本剧本按当前模型自检不过，批量编辑会拒绝；直接走同一取号规则追加一条（批量编辑的发号见其测试）
     with pm.locked_script(project_dir.name, "episode_1.json", validate=False) as script:
         floor = pm.item_id_floor(pm.load_project(project_dir.name), script, 1)
         added = {**script["segments"][-1], "segment_id": new_item_id(script, floor=floor), "generated_assets": {}}
@@ -127,7 +126,6 @@ def test_storyboards_and_grids_keep_their_currency_across_the_upgrade(tmp_path: 
         assert _status(project_dir, key) == "current"
     summary = WorkflowStateService(ProjectManager(tmp_path)).get_project_summary(project_dir.name)
     assert (summary.episodes[0].storyboards.available, summary.episodes[0].storyboards.stale) == (3, 0)
-    # 播放器与版本恢复读冻结依据：选中与未选中的版本都改写到新口径，且不再含资产名。
     frozen = _frozen_bases(project_dir)
     assert "阿离" not in json.dumps(list(frozen.values()), ensure_ascii=False)
     for bucket, resource_id, key in (("grids", "grid_123456789abc", _GRID), ("storyboards", "E1S03", _STORYBOARD)):

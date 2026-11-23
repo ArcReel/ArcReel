@@ -36,7 +36,7 @@ async def test_summary_mtime_monotonic_across_appends(session_factory):
         first = (await session.execute(select(AgentSessionSummary))).scalar_one()
     first_mtime = first.mtime_ms
 
-    await asyncio.sleep(0.01)  # ensure clock advances at ms granularity
+    await asyncio.sleep(0.01)
     await store.append(KEY, [{"type": "user", "uuid": "b", "timestamp": "2026-05-01T00:00:01Z"}])
 
     async with session_factory() as session:

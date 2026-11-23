@@ -45,7 +45,6 @@ class TestRateLimited:
         assert failure.error_params == {"retry_after_seconds": 5}
 
     def test_status_code_on_the_exception_itself_is_recognised(self) -> None:
-        # google 系（api_core.ResourceExhausted / genai.APIError）把状态码挂在异常自身。
         class _ResourceExhausted(Exception):
             code = 429
 
@@ -76,7 +75,6 @@ class TestContentPolicy:
 
 class TestTimeout:
     def test_poll_timeout_error_is_recognised(self) -> None:
-        # 视频轮询耗尽预算抛的就是内置 TimeoutError（asyncio.TimeoutError 是其别名）。
         failure = classify_call_failure(TimeoutError("任务超时（600秒）"))
 
         assert failure.error_code == CallErrorCode.TIMEOUT
@@ -160,7 +158,6 @@ class TestDownloadFailed:
         assert failure.error_params == {"detail": "no status"}
 
     def test_download_wins_over_the_timeout_that_caused_it(self) -> None:
-        # 取件耗尽的根因常是一次超时，但对用户而言这是可重试取件的「下载失败」。
         exc = ArtifactDownloadError(detail="read timed out")
         exc.__cause__ = httpx.ReadTimeout("read timed out")
 
@@ -178,7 +175,6 @@ class TestUnclassified:
         assert failure.error_message == "API 未返回图片"
 
     def test_failure_text_keeps_only_itself(self) -> None:
-        # 派发前判死的续跑出口手上只有一段原文，没有可判类型与属性的异常对象。
         failure = classify_call_failure("provider ark has no video capacity")
 
         assert failure.error_code is None
@@ -205,7 +201,6 @@ class TestDomainParams:
 
     @pytest.mark.parametrize("value", [float("nan"), float("inf")], ids=["nan", "inf"])
     def test_non_finite_params_keep_the_original_failure(self, value: float) -> None:
-        # NaN / Infinity 不是 JSON 原生值，PostgreSQL 的 JSON 列拒收，失败结算会写不进去。
         failure = classify_call_failure(VideoCapabilityError(code="video_duration_invalid", duration=value))
 
         assert failure.error_message == "video_duration_invalid"

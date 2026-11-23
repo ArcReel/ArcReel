@@ -112,19 +112,15 @@ async def test_newer_dataset_is_applied_as_a_batch(db_factory, http_client) -> N
     assert catalog.official_data().dataset_version == UPSTREAM.dataset_version
     assert catalog.get_entry(_key("chat")).display_name == "Chat v2"
     assert catalog.get_entry(_key("fresh")).display_name == "Fresh"
-    # 上游删掉的条目保留本地最后一个版本
     assert catalog.get_entry(_key("legacy")).display_name == "Legacy"
-    # 停止跟随官方的条目照旧用用户副本，官方值随同步更新
     assert catalog.get_entry(_key("pinned")) == pinned_copy
     assert catalog.official_entry(_key("pinned")).display_name == "Pinned v2"
-    # 内置供应商的供应商模型清单整份跟随数据
     assert [view.model_id for view in catalog.provider_models(PROVIDER)] == ["chat", "fresh"]
 
     status = official_sync.sync_status()
     assert status.last_success_at is not None
     assert status.last_error is None
 
-    # 重启后从库里装回同一份数据，保留下来的条目也在
     official_sync.reset_for_tests()
     assert catalog.official_data() is SNAPSHOT
     async with db_factory() as session:
@@ -148,7 +144,6 @@ async def test_retained_entry_keeps_its_lifecycle_after_upstream_deletes_it(db_f
         assert (entry.shutdown_date, entry.successor) == (date(2026, 1, 15), "acme/chat")
 
     assert_retained()
-    # 重启后从库里装回的数据里，保留的条目同样带着生命周期字段
     official_sync.reset_for_tests()
     async with db_factory() as session:
         await official_sync.load_synced_data(session)
@@ -203,10 +198,8 @@ async def test_newer_factory_snapshot_replaces_older_synced_data(
     assert catalog.official_data().dataset_version == upgraded.dataset_version
     assert catalog.get_entry(_key("chat")).display_name == "Chat v3"
     assert [view.model_id for view in catalog.provider_models(PROVIDER)] == ["chat"]
-    # 已同步数据独有的条目仍保留
     assert catalog.get_entry(_key("fresh")).display_name == "Fresh"
 
-    # 清单的数据集版本不比本地新：不取数据文件
     manifest, _ = _files(UPSTREAM)
     with capture_http() as http:
         http.get(official_sync.MANIFEST_URL).respond(content=manifest)
@@ -348,10 +341,8 @@ async def test_stop_returns_after_the_interrupted_database_write_is_cleaned_up(t
             await insert_running.wait()
 
             stopping = asyncio.create_task(official_sync.stop_official_sync(task))
-            # 先让 INSERT 卡一段时间再放行：只决定能否暴露收尾被重投的取消打断，不影响正确实现的结果
             await asyncio.wait({stopping}, timeout=0.2)
             release_insert.set()
-            # 防挂起的上限，与上一条用例一致；挂住时由 finally 清退遗留任务
             await asyncio.wait({stopping}, timeout=5)
             assert stopping.done()
 

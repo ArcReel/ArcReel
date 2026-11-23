@@ -59,7 +59,6 @@ function deferredGet() {
   };
   return {
     impl,
-    /** 让这次拉取返回内容；已被 abort 时 promise 已 reject，此处即无效果。 */
     respond: (state: ScriptReviewState) => settle(state),
     get signal() {
       return captured;
@@ -107,12 +106,10 @@ describe("useScriptReviewDraft", () => {
     });
     expect(result.current.dirty).toBe(true);
 
-    // agent 改了 script_plan → 外部刷新把服务端态换成新版，但用户草稿仍基于旧版
     act(() => {
       useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
-    // 未保存编辑在外部刷新后保留，不被服务端内容覆盖
     expect(result.current.draft?.scenes[0].utterances[0].text).toBe("我的本地编辑");
 
     await act(async () => {
@@ -120,7 +117,6 @@ describe("useScriptReviewDraft", () => {
     });
 
     expect(save).toHaveBeenCalledTimes(1);
-    // 提交草稿所基于的 fp1，服务端才能判出冲突；提交刷新后的 fp2 会让 OCC 放行、静默覆盖 agent 的修改
     expect(save.mock.calls[0][3]).toBe("fp1");
   });
 
@@ -164,7 +160,6 @@ describe("useScriptReviewDraft", () => {
     const { result } = renderDraft();
     await waitFor(() => expect(result.current.draft).not.toBeNull());
 
-    // 外部刷新发出 GET，它在用户保存完成前都不 resolve——读到的是保存前的旧内容
     act(() => {
       useAppStore.getState().invalidateEntities(["draft:episode_1_script_plan"]);
     });
@@ -177,8 +172,6 @@ describe("useScriptReviewDraft", () => {
       await result.current.save();
     });
 
-    // 采纳保存回显时该 GET 被作废；此刻服务端才回旧内容，作废后它不再回写：
-    // 否则草稿回退、基线指纹退回 fp1，下次保存撞 OCC
     expect(pull.signal?.aborted).toBe(true);
     await act(async () => {
       pull.respond(reviewState());
@@ -212,7 +205,6 @@ describe("useScriptReviewDraft", () => {
     act(() => {
       result.current.setDraft((prev) => (prev ? editFirstUtterance(prev, "我的本地编辑") : prev));
     });
-    // 保存在途时 agent 改了 script_plan，外部刷新发出 GET；它与保存的先后无法在客户端判定，一律作废
     let saving: Promise<void>;
     act(() => {
       saving = result.current.save();
@@ -227,13 +219,11 @@ describe("useScriptReviewDraft", () => {
       await saving;
     });
 
-    // 该刷新读库早于保存落库，此刻返回的是保存前的旧内容——作废后不得回写
     expect(refresh.signal?.aborted).toBe(true);
     await act(async () => {
       refresh.respond(reviewState());
       await Promise.resolve();
     });
-    // 作废的那次刷新由采纳后补发的一轮拉取补回，agent 的修改不丢
     await waitFor(() => expect(get).toHaveBeenCalledTimes(3));
     await waitFor(() => expect(result.current.draft?.scenes[0].utterances[0].text).toBe("agent 改写的台词"));
     save.mockResolvedValue(agentEdited);

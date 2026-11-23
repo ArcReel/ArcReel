@@ -277,7 +277,6 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
         _upload(source.api, IMAGE_B)
         source_history = _history(source.projects)
         assert [record.get("storage", {}).get("bucket") for record in source_history] == [None, SOURCE_BUCKET]
-        # 两个版本在同一账号里都有可用关联；B 在另一个账号里还有一条尚未入库的任务
         account = await _create_account(source_sessions, ASSET_AK)
         other_account = await _create_account(source_sessions, "TEST-ASSET-LIBRARY-AK-OTHER")
         await _link(source_sessions, account, source_history[0], state="active", asset_id="asset-a")
@@ -293,7 +292,6 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
             assert response.status_code == 200, response.text
             archives[scope] = response.content
 
-    # 归档里是真实内容，不带源实例的定位、桶或凭证
     for scope, archive in archives.items():
         with zipfile.ZipFile(io.BytesIO(archive)) as package:
             members = {name: package.read(name) for name in package.namelist() if not name.endswith("/")}
@@ -307,7 +305,6 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
         )
         packed = json.loads(members["demo/versions/versions.json"])["characters"]["Alice"]["versions"]
         assert all("storage" not in record for record in packed)
-        # 只带范围内内容版本的可用关联，冻结的调用范围原样随带，不带账号记录 ID 与入库中的任务
         carried = json.loads(members["demo/arcreel-export.json"])["provider_asset_links"]
         assert [link["provider_asset_id"] for link in carried] == (
             ["asset-a", "asset-b"] if scope == "full" else ["asset-b"]
@@ -316,13 +313,11 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
             (link["account_identity"], link["site"], link["region"], link["provider_project_name"]) for link in carried
         } == {(account_scope(account).account_identity, "volcengine", "cn-beijing", "default")}
         assert all("account_id" not in link for link in carried)
-    assert [op for op, _key in bucket.calls].count("get") == 2  # 两个工作文件各取回一次，第二次导出沿用
+    assert [op for op, _key in bucket.calls].count("get") == 2
 
-    # 源实例的桶从此不可用：导入只凭归档里的内容
     bucket.objects = {location: data for location, data in bucket.objects.items() if location[0] != SOURCE_BUCKET}
     bucket.calls.clear()
 
-    # 包被改过：版本 A 的关联摘要与包内图片对不上，导入时丢弃这条关联，图片照常导入
     def _tamper_first_link(manifest):
         manifest["provider_asset_links"][0]["content_digest"] = "0" * 64
 
@@ -365,7 +360,6 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
             0,
         )
 
-        # 推理凭证绑定到同一云账号身份的账号时选用这条关联；改绑到另一个身份后不适用，照常发送图片内容
         backend = await _bind_inference_credential(file_db_factory, ASSET_AK)
         choice = await _reference_choice(other, file_db_factory, backend)
         assert choice is not None
@@ -392,7 +386,6 @@ async def test_archive_carries_remote_content_and_imports_into_target_storage(
             assert sorted((ref.state, ref.project_name, ref.content_version_id) for ref in refs) == sorted(
                 ("active", "demo", record["content_version_id"]) for record in imported
             )
-            # 目标实例的远端图片同样可以清理缓存后预览、切换版本
             assert _cleanup(other.api) == 3
 
         preview = other.api.get("/api/v1/files/demo/characters/Alice.png")
@@ -457,7 +450,6 @@ def _get_during_connection_read(monkeypatch, bucket, sessions):
 async def test_export_fails_without_partial_archive_when_remote_content_is_unreadable(
     monkeypatch, tmp_path, file_db_factory
 ):
-    # Cancelled queries discard connections, so this scenario needs a persistent database.
     bucket = _memory_tos(monkeypatch)
     with _source_instance(monkeypatch, tmp_path, file_db_factory) as source:
         await _use_storage(file_db_factory, "object_storage", _connection(SOURCE_BUCKET, SOURCE_SK))
@@ -470,7 +462,7 @@ async def test_export_fails_without_partial_archive_when_remote_content_is_unrea
 
         bucket.fail.clear()
         [location] = list(bucket.objects)
-        bucket.objects[location] = IMAGE_A  # 对象被替换：内容与记录的摘要不符
+        bucket.objects[location] = IMAGE_A
         assert _export(source.api, "current").status_code == 502
         assert not (source.projects.get_project_path("demo") / "characters" / "Alice.png").exists()
 
@@ -506,10 +498,9 @@ async def test_failed_remote_import_installs_nothing_and_removes_new_objects(
             headers={"Accept-Language": "zh"},
         )
         assert failed.status_code == 502, failed.text
-        # 新导入没有「原来的版本」：说明这次导入没有写入任何项目
         assert failed.json()["detail"] == "图片没能保存到对象存储，这次导入没有写入任何项目。检查对象存储连接后重试"
         assert not other.projects.projects_dir.joinpath("demo").exists()
-        assert bucket.objects == {}  # 第一张已保存的图片没有被任何版本引用，补偿删除
+        assert bucket.objects == {}
         async with file_db_factory() as session:
             assert list((await session.execute(select(FormalObjectRef))).scalars()) == []
             states = [row.state for row in (await session.execute(select(FormalObject))).scalars()]

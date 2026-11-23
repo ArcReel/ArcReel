@@ -260,7 +260,6 @@ def test_refusal_reports_every_requested_unit_including_the_clean_ones():
     withheld = problems["E1U1"]
     assert withheld.code == GenerationProblemCode.BATCH_ADMISSION_WITHHELD
     assert withheld.action is GenerationAction.RETRY
-    # 被连带扣下的 unit 直接知道该去修谁，不必反查整份清单。
     assert withheld.params["blocked_unit_ids"] == ["E1U2"]
 
 

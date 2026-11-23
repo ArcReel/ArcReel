@@ -12,10 +12,6 @@ from lib.project.project_manager import ProjectManager
 @pytest.mark.asyncio
 async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
     """The session-store migration must be called exactly once during startup."""
-    # We don't want a real lifespan to fire all its long-running side effects
-    # (worker starts, http client, project event service). Patch them all out
-    # and only verify our new hook is wired in.
-    # 数据根指向空的 tmp 目录：源文编码迁移照跑，遍历不到项目即返回空汇总。
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
     monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(tmp_path))
     with (
@@ -71,5 +67,4 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
 
     migrate_mock.assert_called_once()
     _args, kwargs = migrate_mock.call_args
-    # Sanity: store should be passed as positional arg, data_root as kwarg
     assert "data_root" in kwargs

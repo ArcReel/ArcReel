@@ -6,12 +6,10 @@ import { FIXED_NOW, RECORDED_DIR, type RecordedResponse } from "../support/recor
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 const PATH = "/app/projects/demo/episodes";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
 
-// 标准档与紧凑档的分界，与外壳的媒体查询一致；紧凑档的 Agent 面板盖在画布右侧。
 const STANDARD_TIER_MIN_WIDTH = 1280;
 
 interface RecordedProject {
@@ -23,9 +21,6 @@ const recordedProject = (
 ).body as RecordedProject;
 const [firstEpisode] = recordedProject.project.episodes;
 
-// ---------------------------------------------------------------------------
-// 压力数据：两个整本源文文件、几十集、长标题与长文件名，切出集之间留一段空当，结尾还有未分集的原文
-// ---------------------------------------------------------------------------
 
 const PARAGRAPHS = [
   "雨从傍晚一直下到深夜。巡夜人提着灯从箭楼下走过，灯影在湿透的石板上晃成一片，城墙的轮廓被夜色压得很低。",
@@ -71,7 +66,6 @@ const FILES = [
     name: "上卷：雨夜里的旧城茶馆与修表匠的约定（作者手改第三稿，含删去的支线与批注）.txt",
     original_filename: "上卷 第三稿 批注版 最终 最终.docx",
     episodes: 14,
-    // 第 6 集删掉后留下的空当
     gapAfter: 5,
     tail: 3,
   },
@@ -125,7 +119,6 @@ const files = FILES.map((spec) => {
   };
 });
 
-// 原文不在整本源文里的集：两集自带原文、一集还没有原文
 for (const origin of ["own", "own", "none"] as const) {
   infos.push({
     episode: nextEpisode,
@@ -190,7 +183,6 @@ const POPULATED: ApiOverrides = {
   "GET /api/v1/projects/demo/episodes-view": { status: 200, body: VIEW },
 };
 
-// 从第 7 集起重新规划：新方案把第 7–9 集重新切成四集
 const [upper] = files;
 const replanFrom = upper.segments.find((segment) => segment.episode === 7);
 const replanTo = upper.segments.find((segment) => segment.episode === 9);
@@ -297,7 +289,6 @@ async function box(locator: Locator) {
   return rect;
 }
 
-/** 紧凑档的 Agent 面板盖在画布右侧：点画布右侧的控件之前先收起它。 */
 async function revealCanvasRight(page: Page) {
   if (viewport(page).width >= STANDARD_TIER_MIN_WIDTH) return;
   await agentToggle(page).click();
@@ -309,7 +300,6 @@ async function populatedReady(page: Page) {
   await manuscript(page).getByRole("article").first().waitFor();
 }
 
-/** 画布里只有集目录与原文两处在滚动；文档本身由溢出探针检查。 */
 async function expectOnlyColumnsScroll(page: Page) {
   const scrolling = await canvas(page).evaluate((main) =>
     [main, ...main.querySelectorAll("*")]
@@ -375,7 +365,6 @@ defineRegionScenarios("分集视图", [
     act: async (page) => {
       await expectOnlyColumnsScroll(page);
       const text = await box(page.locator("[data-manuscript]"));
-      // 正文栏最宽 40em：Agent 面板展开的 1440 宽下约 630px，2560 宽下也不再变宽
       expect(text.width).toBeLessThanOrEqual(641);
       if (viewport(page).width === 1440) expect(text.width).toBeGreaterThan(600);
       const rail = await box(outline(page));

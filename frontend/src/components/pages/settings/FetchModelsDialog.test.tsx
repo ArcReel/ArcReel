@@ -30,7 +30,6 @@ const RESPONSE: FetchProviderModelsResponse = {
     }),
     fetched({ model_id: "already-there", recognized: true }),
     fetched({ model_id: "relay-mystery" }),
-    // 清单外、名字对应上条目的模型：已定价的显示条目名，条目没有价格的仍提示未定价
     fetched({
       model_id: "GPT-5.5-relay",
       matched_entry: { maker: "openai", name: "gpt-5.5", media_type: "text", display_name: "GPT-5.5", priced: true },

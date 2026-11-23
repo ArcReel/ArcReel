@@ -21,12 +21,10 @@ async function guardReports(code: string, filePath: string) {
     .map((m) => m.message);
 }
 
-// 字符串字面量与模板片段两种写法各测一遍；不用 JSX，.ts 夹具同样能解析。
 const literalFixture = (className: string) => `export const cls = ${JSON.stringify(className)};\n`;
 const templateFixture = (className: string) =>
   `export const cls = (extra: string) => \`${className} \${extra}\`;\n`;
 
-// 覆盖每个带 no-restricted-syntax 的配置块：flat config 对同名规则整体替换选项，漏列一块就会静默失守。
 const SOURCE_FILES = [
   "src/lint-fixture/Fixture.tsx",
   "src/components/ui/fixture.tsx",
@@ -67,8 +65,6 @@ const ALL_LAYOUT_GUARDS = Object.keys(LAYOUT_GUARDS) as LayoutGuard[];
 
 const except = (...skipped: LayoutGuard[]) => ALL_LAYOUT_GUARDS.filter((g) => !skipped.includes(g));
 
-// 布局守卫对全部源码生效：原语放过 fixed inset-0、scrollHeight、视口断点、数值层级与原始动效 token（背景模糊不放过），
-// 白名单放过视口断点，ToastOverlay 放过 toast 原语导入。
 const LAYOUT_ENFORCED: Record<string, LayoutGuard[]> = {
   "src/lint-fixture/Fixture.tsx": ALL_LAYOUT_GUARDS,
   "src/components/ui/fixture.tsx": [
@@ -122,7 +118,6 @@ describe("类名守卫", () => {
 
   describe.each(SOURCE_FILES)("%s", (filePath) => {
     it.each(VIOLATIONS)("报出 %s 违规：%s", async (guard, className) => {
-      // 用 toContainEqual：任意值变体（[&::-webkit-scrollbar]:）还会被视口断点守卫报出。
       expect(await guardReports(literalFixture(className), filePath)).toContainEqual(
         expect.stringContaining(GUARD_MESSAGE[guard]),
       );
@@ -131,7 +126,6 @@ describe("类名守卫", () => {
       );
     });
 
-    // 各块按替换语义列全约束：加入类名守卫时不得挤掉同块原有的约束。
     it("类名守卫与丢弃刷新结算值的约束并存", async () => {
       const code = `declare const store: { refreshProject(): Promise<void> };\nstore.refreshProject();\n`;
       expect(await guardReports(code, filePath)).toEqual([

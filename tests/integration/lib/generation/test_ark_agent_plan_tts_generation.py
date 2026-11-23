@@ -124,7 +124,6 @@ async def _only_record(session_factory) -> dict:
 async def test_successful_synthesis_becomes_a_version_and_records_billed_characters(
     tmp_path, session_factory, resource_id, target
 ):
-    # 内置模型按目录挂到这个端点；后端照常拼出生产地址，经 transport 注入层改投到替身
     assert builtin_model_endpoint("ark-agent-plan", "audio", _MODEL) == "ark-agent-plan-tts"
     async with loopback_server([ScriptedReply(chunks=_SUCCESS)]) as server:
         generator = await _generator(tmp_path, session_factory, server)
@@ -142,9 +141,7 @@ async def test_successful_synthesis_becomes_a_version_and_records_billed_charact
         assert wav.readframes(wav.getnframes()) == _PCM
     record = await _only_record(session_factory)
     assert (record["status"], record["provider"], record["model"]) == ("success", "ark-agent-plan", _MODEL)
-    # 计费字符数取上游回报的 text_words，不是按文本统计的 4 个字符
     assert record["usage_tokens"] == 7
-    # 套餐按订阅计费，默认倍率 0：参考费用记 0，币种取条目价目表
     assert (record["cost_amount"], record["currency"]) == (0, "CNY")
 
 
@@ -207,7 +204,6 @@ async def test_incomplete_stream_records_a_failed_call_and_keeps_no_version(
     assert await asyncio.to_thread(lambda: sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*.wav"))) == []
     assert not await asyncio.to_thread((tmp_path / "versions").exists)
     record = await _only_record(session_factory)
-    # 记账沿用供应商 HTTP 分类优先级，任务失败仍保留上面的领域错误。
     record_code = "rate_limited" if reply.status == 429 else key
     assert (record["status"], record["error_code"]) == ("failed", record_code)
     assert "private upstream" not in json.dumps(record) + caplog.text
@@ -235,7 +231,6 @@ async def test_unreachable_service_fails_with_a_localized_reason_and_keeps_no_ve
 ):
     async with loopback_server([]) as closed:
         pass
-    # 替身已关闭，端口不再监听：连接被拒绝；或者在建立连接阶段超时
     layer = _ConnectTimeoutLayer() if connect_timeout else closed.redirect()
     generator = await _generator(tmp_path, session_factory, closed, transport_layer=layer)
     with pytest.raises(ApiError) as caught:
@@ -247,7 +242,6 @@ async def test_unreachable_service_fails_with_a_localized_reason_and_keeps_no_ve
             target_resource=target,
         )
 
-    # 任务失败信息：落库的是领域码，按界面语言渲染成可读原因，不带底层异常原文
     stored = encode_task_failure_message(caught.value)
     assert stored == "[ark_agent_plan_tts_unreachable]"
     for locale in ("zh", "en", "ru", "vi"):
@@ -256,7 +250,6 @@ async def test_unreachable_service_fails_with_a_localized_reason_and_keeps_no_ve
         assert not text.startswith("[")
     assert await asyncio.to_thread(lambda: sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*.wav"))) == []
     assert not await asyncio.to_thread((tmp_path / "versions").exists)
-    # 使用记录：失败，机器码可按语言渲染（参数为空对象，前端据此取领域文案），原文里没有底层异常与 Key
     record = await _only_record(session_factory)
     assert (record["status"], record["error_code"]) == ("failed", record_code)
     if record_code == "ark_agent_plan_tts_unreachable":

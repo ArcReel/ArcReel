@@ -24,7 +24,6 @@ from server.routers import custom_providers, provider_models
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.fakes import use_project_manager
 
-#: ADR 0054：删除时有意不清理的视频桶键。
 VIDEO_BUCKET_KEYS = ("video_provider_i2v", "video_provider_r2v")
 CLEARED_ON_DELETE = tuple(k for k in PROJECT_MODEL_SETTING_KEYS if k not in VIDEO_BUCKET_KEYS)
 
@@ -114,7 +113,6 @@ def _assert_deleted_model_refs_cleared(model_refs_pm: ProjectManager, name: str,
     ref = f"{pid}/{model_id}"
     refs = _refs(model_refs_pm, name)
     assert all(key not in refs or refs[key] is None for key in CLEARED_ON_DELETE), refs
-    # ADR 0054：视频桶键不级联清理，由解析闸兜底
     assert all(refs[key] == ref for key in VIDEO_BUCKET_KEYS), refs
     assert _model_settings_keys(model_refs_pm, name) == ["other/keep"]
 
@@ -122,7 +120,6 @@ def _assert_deleted_model_refs_cleared(model_refs_pm: ProjectManager, name: str,
 def _assert_not_hijacked_by_readded(
     model_refs_client: TestClient, model_refs_pm: ProjectManager, name: str, pid: str, model_id: str
 ) -> None:
-    # 视频桶键按 ADR 0054 保留并会被同 ID 模型对上（由解析闸兜底）；先抹掉它们，剩下的引用都不该被接管
     model_refs_pm.update_project(name, lambda p: [p.pop(key, None) for key in VIDEO_BUCKET_KEYS])
     added = model_refs_client.post(
         f"/api/v1/providers/{pid}/models", json={"model_id": model_id, "endpoint": "openai-chat"}

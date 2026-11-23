@@ -220,7 +220,6 @@ describe("CustomProviderForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("网关拒绝");
-    // 保存失败不能通知宿主：宿主会切走表单并当作已落库，用户的输入随之丢失
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole("textbox", { name: "模型 ID" })).toHaveValue("gpt-4o");
   });

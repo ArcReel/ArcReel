@@ -37,9 +37,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
-
-# pytest 收集期解析命令行位置参数、并对缺失项抛 UsageError 的同一入口；
-# 下方 `pytest_sessionstart` 复用它，使会话启动期的校验与收集期同源。
 from _pytest.main import resolve_collection_argument
 from sqlalchemy import event, pool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -124,8 +121,6 @@ from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFa
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
-# 事件循环阻塞护栏：同步与异步用例全程启用，豁免清单外的阻塞调用让用例失败，见 tests/blocking_guard。
-# 挂起诊断：设了 ARCREEL_TEST_HANG_DUMP_DIR 时，进程长时间无进展就转储全部线程的调用栈，见 tests/hang_watchdog.py。
 pytest_plugins = ["tests.blocking_guard", "tests.hang_watchdog"]
 
 
@@ -523,7 +518,6 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
         async with engine.begin() as conn:
             _register_models()
             await conn.run_sync(Base.metadata.create_all)
-        # PG enforces FK constraints (SQLite tests run with PRAGMA foreign_keys=OFF).
         await _seed_pg_users(engine)
         try:
             yield engine

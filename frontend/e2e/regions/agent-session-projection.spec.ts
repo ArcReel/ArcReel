@@ -3,9 +3,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 import { idleSessionApi } from "../support/assistant-session.ts";
 
-// Agent 消息区的会话投影：压缩续接摘要显示为「上下文已压缩」分隔线、缺锚点的子代理显示
-// 推断出的描述与终态、Agent 失败显示为一句话结论的卡片。会话是手写的压力数据：很长的续接
-// 摘要、很长的异常堆栈。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SESSIONS_PATH = "/api/v1/projects/demo/assistant/sessions";
 const PANEL_WIDTH_KEY = "arcreel_assistant_panel_width";
@@ -78,8 +75,6 @@ function entryLog(build: (push: (entry: Omit<Entry, "seq" | "uuid" | "timestamp"
   return entries;
 }
 
-// 压缩续接后懒生成的会话：主线从续接摘要开始，摘要之前发起的审片子代理没有锚点，
-// 子时间线与推断出的终态附在末尾。
 const CONTINUED_ENTRIES = entryLog((push) => {
   push({ type: "user", subtype: "compact_summary", content: [{ type: "text", text: COMPACT_SUMMARY }] });
   push({ type: "user", content: [{ type: "text", text: "继续检查 shot_07 到 shot_12。" }] });
@@ -122,7 +117,6 @@ function sessionApi(sessionId: string, title: string, entries: Entry[]): ApiOver
     updated_at: "2026-01-01T07:00:00.000Z",
   };
   return {
-    // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
     "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
     [`GET ${SESSIONS_PATH}`]: { status: 200, body: { sessions: [session] } },
     [`GET ${SESSIONS_PATH}/${sessionId}`]: { status: 200, body: { session } },
@@ -137,7 +131,6 @@ const agentPanel = (page: Page) => page.getByRole("complementary", { name: "Agen
 const transcript = (page: Page) => page.getByRole("region", { name: "对话记录" });
 const failureCard = (page: Page) => page.getByRole("region", { name: "这一轮没有完成" });
 
-/** 等消息渲染落定：Markdown 渲染器按需加载，离屏项按最终内容排版一次（同 agent-messages.spec.ts）。 */
 async function settleTranscript(page: Page, lastText: string) {
   await transcript(page).waitFor();
   await page.getByText(lastText).first().waitFor();

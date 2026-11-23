@@ -57,7 +57,6 @@ class _FakeService:
                     "changes": [],
                 },
             )
-            # 之后进入空闲;消费方在 _idle 上轮询 is_disconnected。
             while True:
                 yield {"type": "_idle"}
 
@@ -127,8 +126,6 @@ async def test_stream_project_events_breaks_on_disconnect_in_idle():
     """空闲期间断线:_idle 哨兵被路由查到断线后 break,流结束并注销。"""
     service = _FakeService()
     app = SimpleNamespace(state=SimpleNamespace(project_event_service=service))
-    # 前 2 次 is_disconnected(snapshot 与 changes 的迭代顶部)返回 False,
-    # 之后第 3 次起(进入 _idle 阶段)返回 True。
     request = _FakeRequest(app, disconnect_after=2)
 
     stream = project_events_router.stream_project_events("demo", request, service=service)
@@ -157,7 +154,6 @@ async def test_stream_project_events_breaks_on_disconnect_during_continuous_even
         async def stream_events(self, project_name: str, *, idle_timeout: float = 1.0):
             async def _iter():
                 yield ("snapshot", {"project_name": project_name, "fingerprint": "fp-0"})
-                # 持续吐真事件,不吐 _idle。
                 i = 0
                 while True:
                     i += 1
@@ -170,13 +166,11 @@ async def test_stream_project_events_breaks_on_disconnect_during_continuous_even
 
     service = _BusyService()
     app = SimpleNamespace(state=SimpleNamespace(project_event_service=service))
-    # 第 1 次(snapshot 顶部)False,第 2 次(第一条 changes 顶部)起 True。
     request = _FakeRequest(app, disconnect_after=1)
 
     stream = project_events_router.stream_project_events("demo", request, service=service)
 
     assert (await anext(stream)).event == "snapshot"
-    # 下一轮迭代顶部的检测命中断线 → break,即使后面 _iter() 还在持续吐 changes。
     with pytest.raises(StopAsyncIteration):
         await anext(stream)
     assert service.unsubscribed is True

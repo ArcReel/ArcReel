@@ -233,7 +233,6 @@ class TestSynthesize:
             endpoint="ark-seedance-2", model_id="doubao-seedance-1-0-pro-fast-251015", overrides={"first_frame": False}
         )
         assert caps.first_frame is False
-        # 对应不上条目：尾帧按保守回落不开，参考图上限只受通道约束（Ark 通道不设上限，为未收录）
         assert caps.last_frame is False
         assert caps.max_reference_images is None
 
@@ -251,7 +250,6 @@ class TestSynthesize:
             endpoint="openai-video", model_id="sora-2", overrides={"first_frame": False}
         )
         assert caps.first_frame is False
-        # 未覆盖的数值维度不受布尔覆盖牵连
         assert caps.max_reference_images == 1
 
     def test_force_off_on_last_frame(self):
@@ -466,4 +464,4 @@ class TestReferenceAudioOverrideGuards:
             overrides={"reference_audio_mode": "none"},
         )
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
-        assert caps.max_reference_audio_count == 3  # 系统判定原样保留，不被连坐清零
+        assert caps.max_reference_audio_count == 3

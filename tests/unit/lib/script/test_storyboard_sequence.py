@@ -61,7 +61,6 @@ class TestStoryboardSequence:
             {"segment_id": "E1S02", "generated_assets": {}},
         ]
 
-        # 磁盘上有同名残留文件，但没有登记指针就不认。
         assert resolve_previous_storyboard_path(project_path, items, "segment_id", "E1S02") is None
 
         items[0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
@@ -149,7 +148,6 @@ class TestStoryboardSkeletonExhaustiveness:
     def test_get_storyboard_items_fields_match_registry(self, kind):
         from lib.script.script_skeleton import SKELETONS
 
-        # 遍历 SKELETONS 全键：新增第五种骨架而 _SCRIPT_BY_KIND 未登记即 KeyError 报红。
         assert set(_SCRIPT_BY_KIND) == set(SKELETONS)
 
         _items, id_field, char_field, scenes_field, props_field = get_storyboard_items(_SCRIPT_BY_KIND[kind])

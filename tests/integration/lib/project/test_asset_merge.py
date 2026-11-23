@@ -566,7 +566,6 @@ class TestMergeWithProducedArtifacts:
     def test_the_report_counts_exactly_the_artifacts_the_merge_outdates(self, produced: ProjectManager) -> None:
         preview = produced.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
 
-        # E1S03 引用的衍生「战损」连图迁到王建国名下：分镜图依据只记图，不记名字，它保持现行。
         assert [(item.episode, item.storyboards, item.videos) for item in preview.episodes] == [(1, 1, 0), (2, 0, 2)]
 
         produced.merge_asset(PROJECT, "characters", "老王", "王建国")
@@ -842,7 +841,7 @@ class TestMergeWithProducedArtifacts:
         moved = ArtifactCurrencyResolver(project_dir).compare(
             derivative_artifact_key("王建国", "战损"), artifact_path="characters/derivatives/王建国/战损.png"
         )
-        assert moved.status is ArtifactStatus.STALE  # 登记随图迁来，本体换了，图待重新生成
+        assert moved.status is ArtifactStatus.STALE
         adapter = ProjectArtifactManifestAdapter(project_dir)
         assert adapter.get_entry(derivative_artifact_key("老王", "便装")) is None
         assert adapter.get_entry(derivative_artifact_key("老王", "战损")) is None

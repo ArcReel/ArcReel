@@ -127,7 +127,6 @@ class TestApplyGridSplit:
 
         grid = grid_with_image
         storyboards_dir = project_with_script / "storyboards"
-        # 预置旧分镜格：覆写前必须补登版本，否则旧字节丢失
         (storyboards_dir / "scene_E1S01.png").write_bytes(b"old-bytes")
         _register_grid(project_with_script, grid)
 
@@ -147,7 +146,6 @@ class TestApplyGridSplit:
         assert result.updated_scene_ids == ["E1S01", "E1S02", "E1S03"]
         assert result.missing_scene_ids == []
 
-        # 逐格版本：旧文件补登 + 覆写后新版本（source=grid_split）
         versions = VersionManager(project_with_script)
         e1s01 = versions.get_versions("storyboards", "E1S01")
         assert len(e1s01["versions"]) >= 2

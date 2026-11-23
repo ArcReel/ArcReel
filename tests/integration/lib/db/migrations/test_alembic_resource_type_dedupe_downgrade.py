@@ -58,8 +58,6 @@ def test_downgrade_collapses_conflicting_active_tasks(
     engine = sa.create_engine(f"sqlite:///{db_path}")
     try:
         with engine.begin() as conn:
-            # 角色「玉佩」与道具「玉佩」在同一项目下并存的活动 image_edit 任务：
-            # project_name / task_type / resource_id / script_file 全部相同，仅 resource_type 不同。
             _insert_task(
                 conn,
                 task_id="task-a",
@@ -89,7 +87,6 @@ def test_downgrade_collapses_conflicting_active_tasks(
                 ).fetchall()
             }
 
-        # 较早入队的一条保留原状态，较晚的一条被软取消（非硬删除）
         assert rows["task-a"][1] == "queued"
         assert rows["task-a"][2] is None
         assert rows["task-b"][1] == "cancelled"
@@ -102,7 +99,6 @@ def test_downgrade_collapses_conflicting_active_tasks(
     finally:
         engine.dispose()
 
-    # 重新升级不应因残留数据报错
     command.upgrade(cfg, revision_id)
 
 

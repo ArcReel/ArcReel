@@ -108,7 +108,6 @@ async def test_custom_opaque_seedance_id_is_quoted_and_metered_like_the_official
     official_quote, _, official_estimate, official_settled = await _quote_and_usage(db_factory, provider_id, SEEDANCE_2)
 
     assert backend.model == OPAQUE
-    # 5 × 1280 × 720 × 24 / 1024
     assert opaque_estimate.quantities["video_tokens"] == pytest.approx(108_000)
     assert "service_tier" not in opaque_estimate.dimensions
     assert opaque_estimate == official_estimate

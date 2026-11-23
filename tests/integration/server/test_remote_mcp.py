@@ -531,7 +531,6 @@ async def test_remote_grid_list_only_returns_preview_without_a_batch(
 ) -> None:
     project = remote_projects.load_project("demo")
     project["grid_storyboard"] = True
-    # 预览渲染按集定位的宫格记录：剧本须已绑定集号
     project["episodes"] = [{"episode": 1, "script_file": "episode_1.json"}]
     remote_projects.save_project("demo", project)
 
@@ -876,7 +875,6 @@ async def test_remote_mcp_text_generation_and_script_patch_return_structured_con
     assert refused.isError
     assert refused_problem["code"] == "script_overwrite_required"
     assert refused_problem["params"]["script_overwrite"]["entries"] == []
-    # 回执正文就是服务端生成的丢失清单，与 params 里的文本同一份。
     assert refused_problem["params"]["script_overwrite"]["text"] in refused_problem["detail"]
     assert not confirmed.isError
     assert confirmed.structuredContent["text_generation"]["message"]
@@ -1124,7 +1122,7 @@ def _plant_migration_failure(project_dir: Path, origin: str) -> None:
             ),
             encoding="utf-8",
         )
-    else:  # 判定记录本身读不出：OSError 文本带着记录文件的绝对路径
+    else:
         (project_dir / MIGRATION_FAILURE_FILENAME).mkdir()
 
 

@@ -50,7 +50,6 @@ describe("ScriptPreviewPanel", () => {
     expect(screen.getByText("角色「张三」未设置参考音频")).toBeInTheDocument();
   });
 
-  // 未登记的 `@[名称]` 只是提示：正文照旧可保存、可生成，面板不给任何阻断信号。
   it("shows an unresolved-mention warning without blocking anything", async () => {
     vi.spyOn(API, "previewReferenceScript").mockResolvedValue(
       mkPreview({
@@ -113,7 +112,6 @@ describe("ScriptPreviewPanel", () => {
     expect(signals).toHaveLength(1);
     expect(signals[0]?.aborted).toBe(false);
 
-    // 编辑发生在下一次 debounce 到点之前：在途请求须立刻作废，不能等 400ms
     rerender(<ScriptPreviewPanel projectName="demo" episode={1} text="中景，改了" lookup={LOOKUP} />);
     expect(signals[0]?.aborted).toBe(true);
   });
@@ -127,7 +125,6 @@ describe("ScriptPreviewPanel", () => {
     const warnList = await screen.findByRole("list", { name: /解析提示|Parse notices/ });
     expect(warnList).not.toHaveAttribute("aria-busy");
 
-    // 编辑后旧派生还在屏上，但必须标成过期——否则会被当成当前正文的解析结果
     rerender(<ScriptPreviewPanel projectName="demo" episode={1} text="中景，改了" lookup={LOOKUP} />);
     expect(warnList).toHaveAttribute("aria-busy", "true");
     expect(screen.getByText("当前模型不发声")).toBeInTheDocument();
@@ -142,8 +139,6 @@ describe("ScriptPreviewPanel", () => {
     await vi.advanceTimersByTimeAsync(500);
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
 
-    // 资产登记后 lookup 换新：未登记 mention / 未设参考音频等 warning 读的是项目资产表，
-    // 不重拉就会一直挂着已经不成立的提示。
     rerender(
       <ScriptPreviewPanel
         projectName="demo"
@@ -171,7 +166,6 @@ describe("ScriptPreviewPanel", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/boom/);
-    // 旧派生随之清空，报错横幅下不再留着对不上正文的台词
     await waitFor(() => expect(screen.queryByText("第 1 句")).not.toBeInTheDocument());
   });
 });

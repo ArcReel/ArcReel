@@ -423,8 +423,6 @@ class TestGenerationQueue:
         assert third_task is not None
         assert second_task["status"] == "failed"
         assert third_task["status"] == "failed"
-        # 每层只记直接阻塞方 task_id，reason 沿链条原样传递根因（不随层数重新嵌套）——
-        # 避免深层依赖链把上一层的完整编码串再嵌套进新一层 JSON 造成的近指数增长。
         expected_second = encode_failure(
             "cascade_blocked_dependency", dependency_task_id=first["task_id"], reason="boom"
         )
@@ -521,7 +519,6 @@ class TestGenerationQueue:
             payload={},
             script_file="ep1.json",
         )
-        # 入队的 task 此时是 queued,但 persist 不校验 status(独立 commit)
         await queue.persist_provider_job_id(enqueued["task_id"], "job-abc-123")
         task = await queue.get_task(enqueued["task_id"])
         assert task is not None
@@ -639,7 +636,6 @@ def stub_enqueue_resolution(monkeypatch):
             return {}
 
         def get_project_path(self, project_name):
-            # 项目不在磁盘上：迁移守卫按「无从判定」放行
             raise FileNotFoundError(project_name)
 
     monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)

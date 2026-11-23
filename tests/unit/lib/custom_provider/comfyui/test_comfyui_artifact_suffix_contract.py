@@ -5,7 +5,6 @@ from pathlib import Path
 
 from lib.custom_provider.comfyui.artifacts import ARTIFACT_SUFFIXES_BY_MEDIA_TYPE, expected_suffixes_text
 
-#: 前端 `COMFYUI_EXPECTED_SUFFIXES` 的契约文件，前端测试核对同一份文件。
 _CONTRACT = (
     Path(__file__).resolve().parents[5] / "frontend" / "src" / "test" / "contracts" / "comfyui-artifact-suffixes.json"
 )

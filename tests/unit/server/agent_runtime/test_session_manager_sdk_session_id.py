@@ -133,7 +133,6 @@ class TestSessionManagerSdkSessionId:
         managed = _make_managed(session_id=sdk_session_id)
         session_manager.sessions[sdk_session_id] = managed
 
-        # Push stream event dict + result dict onto the inbox (mimicking on_actor_message).
         managed._inbox.put_nowait({"type": "stream_event", "session_id": sdk_session_id, "uuid": "u1"})
         managed._inbox.put_nowait(
             {

@@ -98,7 +98,6 @@ class TestCustomImageBackend:
         assert backend.capabilities is delegate.capabilities
 
     def test_reference_image_limit_delegated(self):
-        # 通道一侧的上限即被包装的 backend 声明的那一个，与条目两侧求值后供编排层裁剪。
         delegate = AsyncMock()
         delegate.capabilities = {ImageCapability.IMAGE_TO_IMAGE}
         delegate.reference_image_limit = AsyncMock(return_value=16)
@@ -122,7 +121,6 @@ class TestCustomImageBackend:
         request = ImageGenerationRequest(prompt="A mountain landscape", output_path=output_path)
         result = await backend.generate(request)
 
-        # 调用通道自己带的计量原样保留，补上张数供按张计价的条目查价
         assert result.image_path == expected_result.image_path
         assert result.usage == Usage(quantities={"output_images": 1, "input_images": 0, "output_tokens": 1290})
         delegate.generate.assert_awaited_once_with(request)

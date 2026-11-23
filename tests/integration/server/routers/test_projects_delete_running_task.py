@@ -75,7 +75,6 @@ async def test_task_running_when_project_replaced_leaves_no_trace(monkeypatch, d
                 new_project.update(_tree(project_dir))
 
         async def _delete_while_generating(_request: httpx.Request) -> httpx.Response:
-            # 删除、重建与覆盖导入来自别的请求，不在任务的执行上下文里，也不占任务所在的事件循环。
             await asyncio.to_thread(contextvars.Context().run, _replace)
             return httpx.Response(
                 200, json={"output": {"choices": [{"message": {"content": [{"image": RESULT_URL}]}}]}}
@@ -89,7 +88,6 @@ async def test_task_running_when_project_replaced_leaves_no_trace(monkeypatch, d
                 executor=generation_tasks.execute_generation_task,
                 resume_executor=refuse_resume_execution,
             )
-            # 认领槽与假生成上下文的 image lane provider 一致，执行入口核对放行。
             await worker._process_task(task, claimed_provider_id="openai")
 
     async with db_factory() as session:

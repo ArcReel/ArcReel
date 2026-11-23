@@ -87,11 +87,9 @@ def gemini_backend(mock_rate_limiter):
             api_key="test-key",
             rate_limiter=mock_rate_limiter,
         )
-        # 构造期 genai.Client 的调用记录留在这里，_client 随后换成裸替身供各用例自行布置
         b._test_genai = genai_mock
         b._client = MagicMock()
         b._client.aio = MagicMock()
-        # 成片取件默认按 SDK 形态把内容流式写进 destination；个别用例改写 side_effect 模拟失败
         b._client.files.download.side_effect = _stream_to_destination()
         yield b
 
@@ -104,7 +102,6 @@ class TestGeminiVideoBackendProperties:
     def test_video_capabilities_aistudio(self, gemini_backend):
         caps = gemini_backend.video_capabilities
         assert caps.last_frame is True
-        # 通道实现了参考图且不设上限；Veo 各型号的上限（Lite 为 0）来自条目
         assert caps.max_reference_images is None
         assert gemini_backend.model == GEMINI_DEFAULT_VIDEO_MODEL
 
@@ -128,7 +125,6 @@ class TestGeminiVideoBackendProperties:
                 rate_limiter=mock_rate_limiter,
             )
             assert b.name == "gemini-vertex"
-            # 凭证从服务账号文件按 Vertex scopes 加载；client 以 vertexai 模式 + 凭证文件里的 project_id 构造
             from_service_account_file.assert_called_once_with(str(creds_file), scopes=VERTEX_SCOPES)
             genai_mock.Client.assert_called_once_with(
                 vertexai=True,
@@ -219,7 +215,6 @@ class TestGeminiVideoBackendGenerate:
         assert result.video_uri == "gs://bucket/video.mp4"
         assert result.video_path == output
         assert result.duration_seconds == 8
-        # aistudio 模式的成片恒带音轨
         assert result.generate_audio is True
 
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
@@ -402,7 +397,6 @@ class TestGeminiRetryBehavior:
             await gemini_backend.generate(request)
 
         gemini_backend._client.aio.models.generate_videos.assert_awaited_once()
-        # 轮询只尝试一次就抛出
         assert gemini_backend._client.aio.operations.get.await_count == 1
 
 
@@ -429,11 +423,9 @@ class TestDownloadVideo:
 
         assert output.read_bytes() == b"aistudio-bytes"
         assert list(tmp_path.iterdir()) == [output]
-        # 成片由 SDK 按 destination 直写磁盘，不经 video_ref.save() 从内存落盘
         ref.save.assert_not_called()
 
     async def test_cancelled_download_settles_the_write_before_propagating(self, gemini_backend, tmp_path):
-        # 线程里写 .part 再替换成片：取消若先于写盘传播，调用方清理完成片后线程才落盘
         output = tmp_path / "video.mp4"
         started = threading.Event()
         release = threading.Event()
@@ -459,7 +451,6 @@ class TestDownloadVideo:
         assert list(tmp_path.iterdir()) == [output]
 
     def test_aistudio_download_carries_sdk_io_timeout(self, gemini_backend, tmp_path):
-        # SDK 缺省不设超时：每次取件经 http_options 带上 I/O 超时
         output = tmp_path / "video.mp4"
 
         gemini_backend._download_video(MagicMock(), output, deadline=_far_deadline())
@@ -468,11 +459,10 @@ class TestDownloadVideo:
         assert 0 < timeout_ms <= 120_000
 
     async def test_slow_download_ends_within_artifact_budget(self, gemini_backend, tmp_path):
-        # 取消要等线程写完，外层 asyncio.timeout 管不住一直在慢速出数据的下载；线程须自己守住同一份预算
         output = tmp_path / "video.mp4"
 
         def trickle(*, file, destination, config):
-            for _ in range(200):  # 不守期限时约 10s 才结束
+            for _ in range(200):
                 destination.write(b"x")
                 time.sleep(0.05)
 
@@ -512,7 +502,6 @@ class TestDownloadVideo:
         assert list(tmp_path.iterdir()) == []
 
     def test_aistudio_download_failure_keeps_existing_video(self, gemini_backend, tmp_path):
-        # 重新生成时旧成片已在 output_path：下载中断不得把它破坏
         output = tmp_path / "video.mp4"
         output.write_bytes(b"previous-video")
         gemini_backend._client = SimpleNamespace(
@@ -581,7 +570,6 @@ class TestDownloadVideo:
 
         assert output.read_bytes() == b"uri-video"
         assert list(tmp_path.iterdir()) == [output]
-        # 连接停滞由 urlopen 的 I/O 超时结束
         assert urlopen.call_args.args == ("https://example.com/video.mp4",)
         assert 0 < urlopen.call_args.kwargs["timeout"] <= 120
 
@@ -595,7 +583,6 @@ class TestDownloadVideo:
         mock_ref.video_bytes = None
         mock_ref.uri = "https://example.com/video.mp4"
 
-        # 连接提前关闭：正文短于 Content-Length，按截断报错
         truncated = _FakeUrlResponse(b"partial", content_length=1024)
 
         with (
@@ -628,7 +615,6 @@ class TestGeminiResumeVideo:
     """resume_video 路径：只有按 job_id 查询 operation 得到的 404 归 ResumeExpiredError。"""
 
     async def test_mid_poll_not_found_classified_as_resume_expired(self, gemini_backend, tmp_path):
-        # 初次 operations.get 返回 pending 让 poll 进入循环；poll_fn 中抛 NOT_FOUND
         pending_op = MagicMock()
         pending_op.done = False
         get_calls = {"n": 0}
@@ -640,7 +626,6 @@ class TestGeminiResumeVideo:
             raise _sdk_error(404, "NOT_FOUND", "Operation not found")
 
         gemini_backend._client.aio.operations.get = AsyncMock(side_effect=_fake_get)
-        # GenerateVideosOperation.model_validate 用 MagicMock，返回任意对象即可
         gemini_backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=pending_op)
 
         request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4")
@@ -649,8 +634,6 @@ class TestGeminiResumeVideo:
         assert ei.value.job_id == "op-xyz"
 
     async def test_mid_poll_not_found_is_not_retried_when_message_carries_status_digits(self, gemini_backend, tmp_path):
-        # SDK 异常文本带整份响应，operation 名里的数字串可能含 "500" / "429"：轮询重试按状态码判定，
-        # 404 不因这些子串被当成瞬态错误重试
         pending_op = MagicMock()
         pending_op.done = False
         get_calls = {"n": 0}
@@ -703,9 +686,7 @@ class TestGeminiResumeVideo:
     @pytest.mark.parametrize(
         "error",
         [
-            # INVALID_ARGUMENT 表达入参不合法（如非法 operation 格式），不是 operation 不存在
             _sdk_error(400, "INVALID_ARGUMENT", "malformed operation name"),
-            # 非 SDK 状态码的异常，文本里出现 "not found" / "expired" 也不代表 operation 已被回收
             RuntimeError("operation not found"),
             RuntimeError("resource expired after 24h"),
         ],
@@ -721,7 +702,6 @@ class TestGeminiResumeVideo:
         assert ei.value is error
 
     async def test_completed_operation_error_mentioning_not_found_is_not_expired(self, gemini_backend, tmp_path):
-        # operation 已查到且完成，只是生成失败：失败原因文本与 operation 存续无关
         failed_op = MagicMock()
         failed_op.done = True
         failed_op.response = None
@@ -753,7 +733,6 @@ class TestGeminiResumeVideo:
         assert not request.output_path.exists()
 
     async def test_aistudio_artifact_404_propagates_as_download_failure(self, gemini_backend, tmp_path):
-        # 远端任务已成功，取件时 SDK 的 files.download 返回 404：取件失败不是 operation 过期
         gemini_backend._client.aio.operations.get = AsyncMock(return_value=_make_done_operation())
         not_found = _sdk_error(404, "NOT_FOUND", "File not found")
         gemini_backend._client.files.download.side_effect = not_found
@@ -775,11 +754,9 @@ class TestGeminiSubmittedBaseUrlReplay:
         with captured_provider_job_ids() as persisted:
             await gemini_backend.generate(request)
 
-        # 未配置 base_url：落 SDK 缺省域名，之后改配中转站时续跑仍回到官方域名
         assert persisted[0]["base_url"] == "https://generativelanguage.googleapis.com/"
 
     async def test_resume_polls_and_downloads_from_submitted_base_url(self, gemini_backend, tmp_path):
-        # 提交时域名为中转站 A，续跑前配置已改回缺省：凭据沿用当下这套，轮询与取件都走 A
         replay_client = MagicMock()
         replay_client.aio.operations.get = AsyncMock(return_value=_make_done_operation())
         replay_client.aio.aclose = AsyncMock()
@@ -818,7 +795,6 @@ class TestGeminiSubmittedBaseUrlReplay:
 
         assert layer.seen
         assert all(url.startswith("https://relay-a.example.com/") for url in layer.seen)
-        # 回放实例的同步与异步通道各关一次；SDK 不关外部传入的客户端
         assert layer.closed == 2
 
 

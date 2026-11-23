@@ -195,7 +195,6 @@ class TestGenerateAudioAsync:
         assert gen._audio_backend.calls[0].output_path != output_path
         assert not gen._audio_backend.calls[0].output_path.exists()
         assert version == 1
-        # 记账括号用 call_type=audio；backend 上报原始文本，由真 Ledger union 分发转成计量用量
         assert gen.ledger.started[0]["call_type"] == "audio"
         assert gen.ledger.started[0]["model"] == "tts-model"
         assert gen.ledger.outcomes[0]["status"] == "success"
@@ -275,7 +274,6 @@ class TestGenerateAudioAsync:
             await gen.generate_audio_async(text="x", resource_id="E1S03", voice="Cherry")
 
     async def test_regenerate_tracks_existing_file(self, tmp_path: Path):
-        # 重新生成时旧文件须先经 ensure_current_tracked 记录进版本历史
         gen = _build_generator(tmp_path)
         tracked = []
         gen.versions.ensure_current_tracked = lambda **kw: tracked.append(kw)
@@ -461,7 +459,6 @@ class TestExtractProviderAudio:
     async def test_audio_payload_provider_routes_to_audio_resolver(self):
         from lib.generation.generation_worker import _extract_provider
 
-        # payload 携带历史 audio_provider → audio lane 投影短路取到
         task = {
             "payload": {"audio_provider": "dashscope", "audio_model": "qwen3-tts-flash"},
             "task_type": "tts",
@@ -471,7 +468,6 @@ class TestExtractProviderAudio:
 
 class TestOrphanAudioRestartLost:
     async def test_orphan_audio_running_marked_restart_lost(self):
-        # audio 同步无 resume 入口：running 孤儿降级 [restart_lost]，不重新提交以免重复计费
         class _Q:
             def __init__(self):
                 self.failed = []

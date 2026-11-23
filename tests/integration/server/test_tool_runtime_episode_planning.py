@@ -44,7 +44,6 @@ _CHAPTERS = (
     "第三章。两人从此卷入江湖漩涡之中。",
 )
 _ANCHORS = ("玉中藏着剑诀。", "被追杀的少女。", "卷入江湖漩涡之中。")
-# 窗口只容得下一章多一点：前两窗都不是最后一窗，第三窗剩余不足 1.2 倍窗口而延伸到结尾
 _WINDOW_CHARS = len(_CHAPTERS[0]) + 3
 
 
@@ -161,7 +160,6 @@ def _use_generator(
     monkeypatch: pytest.MonkeyPatch, generator: _Generator, *, window_chars: int = _WINDOW_CHARS
 ) -> None:
     async def create(_cls, path):
-        # 与 EpisodePlanner.create 一样在工作线程里构造：构造 ProjectManager 会建目录。
         return await asyncio.to_thread(EpisodePlanner, path, generator=generator, window_chars=window_chars)
 
     monkeypatch.setattr(EpisodePlanner, "create", classmethod(create))
@@ -216,7 +214,6 @@ async def test_a_final_window_capped_by_the_batch_size_keeps_planning_to_the_end
     planning, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     projects, services, session_factory = planning
-    # 整本源文落在一个窗口里，模型一次给出三集；输出上限只够每批一集
     _use_generator(monkeypatch, _Generator(max_output_tokens=400), window_chars=len("".join(_CHAPTERS)))
 
     await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
@@ -355,7 +352,6 @@ async def test_stop_during_a_capped_final_window_does_not_queue_another(
     planning, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     projects, services, session_factory = planning
-    # 整本源文落在一个窗口里、每批只够一集：下一窗要等模型返回后才知道要不要排，停止时还没有可取消的窗口
     generator = _Generator(hold=True, max_output_tokens=400)
     _use_generator(monkeypatch, generator, window_chars=len("".join(_CHAPTERS)))
     await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
@@ -412,7 +408,6 @@ async def test_the_gap_left_by_a_deleted_middle_episode_is_planned_back(
     assert isinstance(preview, EpisodeDeletionConfirmationRequired)
     delete_episode(projects, "planning", middle["episode"], revision=preview.impact.revision)
 
-    # 一键规划不回填空段：账本推导的规划起点仍在结尾
     again = await start_episode_planning(ToolRequest(PlanEpisodesRequest()), _scope(projects), _WEB, services)
     assert again.problem is None
     await _wait_until_idle(session_factory)

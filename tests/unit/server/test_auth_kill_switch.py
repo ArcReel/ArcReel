@@ -27,7 +27,7 @@ class TestIsAuthEnabled:
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
-            (None, True),  # 未设置 → 默认开启（向后兼容）
+            (None, True),
             ("true", True),
             ("True", True),
             ("TRUE", True),
@@ -40,7 +40,7 @@ class TestIsAuthEnabled:
             ("0", False),
             ("no", False),
             ("off", False),
-            ("", True),  # 空串视为未配置 → 回退默认（开启），fail-closed
+            ("", True),
             ("  ", True),
             ("  false  ", False),
         ],

@@ -104,7 +104,6 @@ def test_narration_is_cut_at_sentence_ends_and_timed_by_reading_units_across_the
         provider_audio_enabled=True,
     )
 
-    # 甲。 = 2 units, 乙乙乙！ = 4, 丙丙？ = 3 (CJK punctuation counts as a unit).
     assert [(cue.text, cue.duration_microseconds) for cue in presentation.subtitles] == [
         ("甲。", 1_333_333),
         ("乙乙乙！", 2_666_667),
@@ -198,7 +197,6 @@ def test_narrator_use_tts_overlays_both_tracks_at_unity_and_times_subtitles_to_t
     assert presentation.narration_audio.gain == 1.0
     assert presentation.narration_audio.start_microseconds == 0
     assert presentation.narration_audio.duration_microseconds == 6_000_000
-    # NFC turns A + combining acute into one code point, so weights are 1:2.
     assert [(cue.start_microseconds, cue.duration_microseconds, cue.text) for cue in presentation.subtitles] == [
         (0, 2_000_000, "Á"),
         (2_000_000, 4_000_000, "山河"),

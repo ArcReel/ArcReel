@@ -7,7 +7,6 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const CHARACTERS_PATH = "/app/projects/demo/characters";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -16,7 +15,6 @@ interface RecordedProject {
   project: { episodes: Record<string, unknown>[] };
 }
 
-// 多集且标题很长：侧栏列表与图标栏都要在自己的区域里滚动。
 const recordedProject = (
   JSON.parse(readFileSync(join(RECORDED_DIR, "project-demo.json"), "utf8")) as RecordedResponse
 ).body as RecordedProject;
@@ -40,7 +38,6 @@ const MANY_EPISODES: ApiOverrides = {
   },
 };
 
-// 标准档与紧凑档的分界，与外壳的媒体查询一致。
 const STANDARD_TIER_MIN_WIDTH = 1280;
 const SIDEBAR_RAIL = 56;
 const SIDEBAR_DEFAULT = 256;
@@ -49,7 +46,6 @@ const AGENT_MAX = 640;
 const CANVAS_MIN = 480;
 const STEP = 16;
 
-// 每行都会在面板里折成几行，最大的视口下也能撑到上限。
 const NINE_LINES = Array.from(
   { length: 9 },
   (_, i) =>
@@ -94,7 +90,6 @@ async function episodeReady(page: Page) {
   await page.getByRole("button", { name: "添加一集" }).waitFor();
 }
 
-/** 标准档：Agent 面板挤压画布；紧凑档：画布占满侧栏右侧，Agent 面板盖在画布右侧。 */
 async function expectAgentLayout(page: Page, agentWidth: number) {
   const { width: viewportWidth } = viewport(page);
   // 覆盖层盖住的宽度由面板的尺寸观察在下一帧写回画布，量之前等布局稳定
@@ -116,7 +111,6 @@ async function expectAgentLayout(page: Page, agentWidth: number) {
   }
 }
 
-/** 撑到上限后超出部分在内部滚动；上限是 Agent 面板高度的 40%。 */
 async function expectInputCapped(page: Page) {
   const panelHeight = (await box(agentPanel(page))).height;
   const field = await agentInput(page).evaluate((el) => ({
@@ -152,7 +146,6 @@ defineRegionScenarios("项目工作区外壳", [
     api: MANY_EPISODES,
     ready: async (page) => {
       await shellReady(page);
-      // 侧栏展开时是列表项，收为图标栏时是带名称的链接
       const lastEpisode = { name: /第 40 集/ };
       await page.getByRole("button", lastEpisode).or(page.getByRole("link", lastEpisode)).first().waitFor({ state: "attached" });
     },
@@ -209,7 +202,6 @@ defineRegionScenarios("项目工作区外壳", [
       await agentToggle(page).click();
       await expect(agentToggle(page)).toHaveAttribute("aria-pressed", "true");
       await expectAgentLayout(page, AGENT_DEFAULT);
-      // 最终在收起状态下探测：画布占满时也没有被裁切的内容
       await agentToggle(page).click();
     },
   },
@@ -228,7 +220,6 @@ defineRegionScenarios("项目工作区外壳", [
       await doubleClickHandle(page, agentHandle(page));
       await expect.poll(() => width(agentPanel(page))).toBeCloseTo(AGENT_DEFAULT, 0);
 
-      // 紧凑档侧栏收为图标栏，手柄不可用
       if (viewport(page).width < STANDARD_TIER_MIN_WIDTH) return;
       await sidebarHandle(page).focus();
       await page.keyboard.press("ArrowRight");

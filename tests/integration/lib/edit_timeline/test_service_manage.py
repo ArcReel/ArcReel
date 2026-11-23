@@ -76,7 +76,6 @@ async def test_copy_of_a_given_revision_matches_the_source_content(service: Edit
     assert (only.author, only.parent) == (AGENT, None)
     assert "初剪" in only.summary
     assert "修订 2" in only.summary
-    # 源时间线不受影响。
     assert (await service.read("demo", source_id)).revision == 3
 
 
@@ -194,7 +193,6 @@ async def test_restore_appends_a_revision_with_the_target_content(service: EditT
     last = history.revisions[-1]
     assert (last.restored_from, last.parent, last.author) == (1, 3, CREATOR)
     assert set(last.changed_clip_ids or ()) == {"c1", "c2", "c3"}
-    # 旧修订仍可读：回滚前的内容没有丢。
     assert [clip.id for clip in (await service.read("demo", timeline_id, revision=3)).clips] == ["c2", "c1"]
 
 
@@ -338,7 +336,6 @@ async def test_every_timeline_write_moves_project_activity_forward(
     pm: ProjectManager,
     write: Callable[[EditTimelineService, str], Awaitable[object]],
 ) -> None:
-    # 剪辑时间线是 JSON，修改时间不计入活动；删除后文件也不在了，只能靠写入出口记账。
     timeline_id = await _create(service)
     await _edit(service, timeline_id, 1, {"op": "set_volume", "clip": "c2", "volume": 0.6})
     project_path = pm.get_project_path("demo")

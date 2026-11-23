@@ -144,13 +144,11 @@ def project_with_script(tmp_path):
             }
         )
     )
-    # 生产项目一律处于当前 schema，剧本与其取证链（分集原文 → script_plan）均已登记进产物清单
     (p / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
     (p / "drafts" / "episode_1" / "script_plan_segments.json").write_text(
         json.dumps({"episode": 1, "segments": []}), encoding="utf-8"
     )
     activate_artifact_target_state(p, bump_schema=True)
-    # 清单激活只落到清单版本，后续迁移把项目补到当前 schema，产物读路径才准入
     migrate_project_dir(p)
     return p
 
@@ -298,7 +296,6 @@ class TestExecuteGridTask:
         )
         assert updated_grid_data["status"] == "completed"
         assert updated_grid_data["grid_image_path"] == f"grids/{grid.id}.png"
-        # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
 
     @pytest.mark.parametrize("status_before_claim", ["pending", "failed"])
@@ -576,7 +573,6 @@ class TestExecuteGridTask:
 
         project = json.loads((project_with_script / "project.json").read_text(encoding="utf-8"))
         script = json.loads((project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
-        # hero 的资产图在盘上但未登记进清单；ghost 不是已登记的角色。
         project["characters"]["hero"] = {"description": "hero", "character_sheet": "characters/hero.png"}
         Image.new("RGB", (4, 4)).save(project_with_script / "characters" / "hero.png")
         segments = {item["segment_id"]: item for item in script["segments"]}
@@ -922,7 +918,6 @@ class TestExecuteGridTask:
 
         grid = grid_json
 
-        # 预置一个已存在的分镜格，锁定「生成完成后分镜字节不变」
         storyboards_dir = project_with_script / "storyboards"
         existing = storyboards_dir / "scene_E1S01.png"
         existing.write_bytes(b"pre-existing-bytes")
@@ -1031,8 +1026,6 @@ class TestGridMetadataT2II2ISlotSelection:
         mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         async def _cap_aware_resolve(project_name, req_payload, *, image, **kwargs):
-            # generation_type-aware：grid 任务按 reference_images 是否非空选 t2i/i2i 槽，
-            # 假解析回显对应 payload 槽的 provider/model，锁定「槽选择 → 元数据回填」契约。
             provider, model = req_payload[f"image_provider_{image.generation_type}"].split("/")
             return GenerationContext(
                 generator=mock_generator,

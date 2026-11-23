@@ -15,7 +15,6 @@ from tests.http_capture import capture_http, only_request
 
 class TestResolveViduApiKey:
     def test_explicit_key_wins(self, monkeypatch: pytest.MonkeyPatch):
-        # spec §5.4：即使 env 里有 VIDU_API_KEY，也不会被 fallback；显式参数永远优先且唯一来源。
         monkeypatch.setenv("VIDU_API_KEY", "from-env")
         assert vidu_shared.resolve_vidu_api_key("explicit") == "explicit"
 
@@ -37,7 +36,6 @@ class TestViduConnectionTestKeyResolution:
     def test_missing_config_key_raises_before_http(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("VIDU_API_KEY", "from-env")
 
-        # 未声明任何路由：真发出请求会被 respx 判红，凭证解析失败必须先于出站发生
         with capture_http() as router:
             with pytest.raises(ValueError, match="Vidu API Key"):
                 vidu_shared.test_vidu_connection({})
@@ -84,8 +82,6 @@ class TestViduConnectionTestUrl:
 
 class TestFetchViduTaskErrorRedaction:
     async def test_poll_4xx_message_drops_query_credentials(self):
-        # 轮询 4xx 的异常消息会经 str(exc) 落进 task.error_message 与日志；按 query 传的
-        # 凭证渲染在 raise_for_status 写进消息的那条 URL 里，须先脱敏再抛。
         with capture_http() as router:
             router.get(url__regex=r"^https://api\.vidu\.cn/ent/v2/tasks/t-1/creations").mock(
                 return_value=httpx.Response(401, json={"detail": "invalid token"})

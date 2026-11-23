@@ -207,7 +207,6 @@ class TestArkImageBackendGenerate:
         call_kwargs = client.requests[-1]
         assert call_kwargs["model"] == "doubao-seedream-5-0-pro-260628"
         assert call_kwargs["prompt"] == "a cat"
-        # 部分兼容网关即便吃 response_format 仍返回 url，所以请求端不再传该参数
         assert "response_format" not in call_kwargs
         assert "image" not in call_kwargs
 
@@ -216,7 +215,6 @@ class TestArkImageBackendGenerate:
         assert result.image_path == output
         assert output.exists()
         assert output.read_bytes() == base64.b64decode(FAKE_B64)
-        # 按生成张数上报，分辨率取请求里实际发的 size
         assert result.usage is not None
         assert result.usage.quantities == {"output_images": 1, "input_images": 0}
         assert result.usage.dimensions == {"resolution": call_kwargs["size"]}

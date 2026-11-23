@@ -27,7 +27,6 @@ def test_every_builtin_image_channel_estimates_text_to_image(provider_id: str) -
         key for key, info in catalog.list_models(provider_id).items() if info.media_type == "image" and not info.hidden
     )
     assert model is not None
-    # 通道原样下发档位，所以取目录里确实声明的档位（没声明分辨率的模型用 1K）。
     resolutions = catalog.get_model(provider_id, model, media_type="image").resolutions
     image_size = "1K" if not resolutions or "1K" in resolutions else resolutions[0]
     usage = estimate_builtin_image_usage(
@@ -87,7 +86,6 @@ def test_output_tokens_are_estimated_from_the_bases_on_the_model_entry(monkeypat
 
     bases = {"low": 16, "medium": 48, "high": 96}
     install_catalog(monkeypatch, with_entry_facts(snapshot, "openai", "gpt-image-2", output_token_bases=bases))
-    # 1K → medium、1:1 → 1024x1024：官方计算器 1756 个输出 token
     assert estimate_builtin_image_usage("openai", facts).quantities["image_output_tokens"] == 1756
 
 

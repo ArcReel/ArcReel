@@ -31,7 +31,6 @@ def test_an_asset_sheet_key_and_basis_digest_use_the_name_as_written(
 
     plan = plan_artifact_target_state(project_dir)
 
-    # 定值锁住清单键与依据摘要：名字按原样大小写参与，改动它们会让存量登记失配或过期
     assert dict(plan.entries) == {
         ArtifactKey.asset_sheet("character", "Alice"): ArtifactManifestEntry(
             artifact_path="characters/Alice.png",
@@ -76,7 +75,6 @@ def test_a_derivative_sheet_key_and_basis_digest_use_the_name_as_written(
 
     plan = plan_artifact_target_state(project_dir)
 
-    # 定值锁住衍生图的清单键与依据摘要：本体名与衍生名都按原样大小写参与
     key = ArtifactKey.asset_sheet("character", "Alice/Coat")
     assert plan.entries[key] == ArtifactManifestEntry(
         artifact_path="characters/derivatives/Alice/Coat.png",

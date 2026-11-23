@@ -113,7 +113,6 @@ class TestAssemblyFollowsTheEndpoint:
         _install(catalog.UserAddedModel("minimax", "acme-video", "video", endpoint="minimax-hailuo-v1-fast"))
 
         assert _built_endpoint_and_text_to_video("minimax", "acme-video") == ("minimax-hailuo-v1-fast", False)
-        # Fast 只接受图生视频：通道能力随端点变，与模型名无关
         assert declared_builtin_video_capabilities("minimax", "acme-video").text_to_video is False
 
     def test_the_same_endpoint_declares_the_same_capabilities_whatever_the_model_name(self, user_added: None):
@@ -170,7 +169,6 @@ class TestPrefill:
             ("minimax", "image", "MiniMax-H3-Image-Highspeed", "minimax-h3-image"),
             ("minimax", "image", "image-01-live", "minimax-image"),
             ("minimax", "image", "acme-image", "minimax-image"),
-            # 名字推出的是别的供应商的端点：落回这个供应商的默认端点
             ("grok", "video", "grok-imagine-video-2", "grok-video-classic"),
             ("grok", "video", "grok-imagine-video", "grok-video-classic"),
             ("vidu", "video", "viduq2", "vidu-video-q2"),
@@ -188,7 +186,6 @@ class TestPrefill:
             ("ark-agent-plan", "video", "doubao-seedance-2.0-mini", "ark-seedance-2"),
             ("ark", "video", "doubao-seedance-1-5-pro-251215", "ark-seedance-1"),
             ("ark", "video", "ep-20261104-opaque", "ark-seedance-2"),
-            # 百炼语音：qwen-audio-*-tts 走 SpeechSynthesizer，其余落回默认的 multimodal 端点
             ("dashscope", "audio", "qwen-audio-3.1-tts-flash", "dashscope-speech-synthesizer"),
             ("dashscope", "audio", "qwen-audio-3.0-tts-plus", "dashscope-speech-synthesizer"),
             ("dashscope", "audio", "qwen3-tts-flash", "dashscope-tts"),

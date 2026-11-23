@@ -75,7 +75,6 @@ async def test_deletion_preserves_the_video_compensation_target(
     finally:
         await committer.release_admission_guard()
 
-    # 结算结束后，保留的付费结果仍可作为历史版本移进回收站。
     paid_snapshot = versions.get_versions(resource_type, "E1S01")["versions"][-1]["file"]
     record = move_file_to_trash(project, paid_snapshot)
     assert record.object["version"] == rejected

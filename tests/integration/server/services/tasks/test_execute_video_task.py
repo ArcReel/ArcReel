@@ -84,7 +84,6 @@ class TestGenerationTasks:
         thumbnail_path = project_path / "thumbnails" / "scene_E1S01.jpg"
 
         async def fake_extract(video_path, out_path):
-            # 生产由 ffmpeg 子进程写缩略图，替身在工作线程里落盘，不占事件循环
             await write_backend_output(out_path, b"thumb")
             return out_path
 
@@ -231,7 +230,6 @@ class TestGenerationTasks:
         assert checkpoint.duration_seconds == 8
         assert checkpoint.provider_id == "ark"
         assert [media.role for media in checkpoint.media] == ["start_image"]
-        # 使用记录按映射把暂存首帧还原为来源，暂存目录随任务清理后记录仍能打开
         source = call["reference_sources"][str(call["start_image"])]
         assert source == project_path / checkpoint.media[0].source_locator
         assert await asyncio.to_thread(source.is_file)
@@ -552,7 +550,6 @@ class TestGenerationTasks:
 
         async def _drop_claim_after_staging(project_dir, task_id, inputs):
             staged = await original_stage(project_dir, task_id, inputs)
-            # 模拟另一处并发撤掉认领：在工作线程里改清单，不占事件循环
             await asyncio.to_thread(lambda: ProjectArtifactManifestAdapter(project_path).delete_entry(key))
             return staged
 
@@ -628,7 +625,6 @@ class TestGenerationTasks:
 
         async def _stage_then_replace_and_reactivate(project_dir, task_id, inputs):
             staged = await original_stage(project_dir, task_id, inputs)
-            # 模拟另一处并发替换分镜并重新认领：在工作线程里改盘，不占事件循环
             await asyncio.to_thread(_replace_and_reactivate)
             return staged
 
@@ -678,15 +674,13 @@ class TestGenerationTasks:
     @pytest.mark.parametrize(
         ("storyboard_value", "expected_message"),
         [
-            # 越界与脏数据：统称非法路径
-            ("/etc/passwd", "invalid storyboard image path"),  # 绝对路径：裸 `/` 拼接会整体丢弃左操作数
+            ("/etc/passwd", "invalid storyboard image path"),
             ("../../outside.png", "invalid storyboard image path"),
-            (123, "invalid storyboard image path"),  # 剧本 JSON 里的脏数据（非字符串）须可读失败而非 TypeError
-            (0, "invalid storyboard image path"),  # falsy 脏数据：真值判断不得当成「未设置」而静默回退默认路径
+            (123, "invalid storyboard image path"),
+            (0, "invalid storyboard image path"),
             (False, "invalid storyboard image path"),
             ([], "invalid storyboard image path"),
             ({}, "invalid storyboard image path"),
-            # 目录归属：项目内但不在 storyboards/，措辞需与越界区分，便于定位外部编辑过的剧本
             ("storyboards/../end_frames/scene_E1S01.png", "must stay under storyboards/"),
             ("end_frames/scene_E1S01.png", "must stay under storyboards/"),
         ],
@@ -894,16 +888,16 @@ class TestGenerationTasks:
     @pytest.mark.parametrize(
         "end_frame_value",
         [
-            "/etc/passwd",  # 绝对路径：裸 `/` 拼接会整体丢弃左操作数，读到项目外文件
+            "/etc/passwd",
             "../../outside.png",
-            "end_frames/../storyboards/scene_E1S01.png",  # 项目内但绕开快照目录，等于直接引用源图
-            "storyboards/scene_E1S01.png",  # 同上：字段只接受 end_frames/ 内的快照
-            123,  # 剧本 JSON 里的脏数据（非字符串）须给出可读失败，而非 TypeError
-            0,  # falsy 脏数据：真值判断不得把它当成「未设置」而静默跳过尾帧
+            "end_frames/../storyboards/scene_E1S01.png",
+            "storyboards/scene_E1S01.png",
+            123,
+            0,
             False,
             [],
             {},
-            "end_frames/scene_E1S02.png",  # 落在快照目录内、文件也存在，但属于别的镜头——跨镜头误引
+            "end_frames/scene_E1S02.png",
         ],
     )
     async def test_execute_video_task_end_frame_path_outside_snapshot_dir_fails_hard(
@@ -1128,7 +1122,6 @@ class TestGenerationTasks:
         use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
         use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
-        # payload 的 video_prompt 不带 dialogue（drama 新结构）
         await generation_tasks.execute_video_task(
             "demo",
             "E1S01",
@@ -1226,7 +1219,6 @@ class TestGenerationTasks:
         prompt_yaml = fake_generator.video_calls[0]["prompt"]
         assert "Voice_Profiles" not in prompt_yaml
         assert "低沉沙哑" not in prompt_yaml
-        # 台词不随声音风格一并省略：无声成片里台词文本照常下发，供应商可用作口型参考
         assert "你来了。" in prompt_yaml
 
     async def test_execute_video_task_skips_voice_profiles_when_episode_audio_disabled(self, monkeypatch, tmp_path):
@@ -1258,7 +1250,6 @@ class TestGenerationTasks:
         prompt_yaml = fake_generator.video_calls[0]["prompt"]
         assert "Voice_Profiles" not in prompt_yaml
         assert "低沉沙哑" not in prompt_yaml
-        # 台词逐字不变，与 C 类真无声路径同口径
         assert "你来了。" in prompt_yaml
 
     async def test_execute_video_task_strips_caller_supplied_voice_profiles_for_non_drama(self, monkeypatch, tmp_path):
@@ -1377,7 +1368,6 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script = {
             "episode": 1,
-            # 顶层无 content_mode：存量 episode 省略该字段，真相源退到 project.json。
             "scenes": [
                 {
                     "scene_id": "E1S01",
@@ -1425,7 +1415,6 @@ class TestGenerationTasks:
         use_project_manager(monkeypatch, fake_pm)
         use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, supported_durations=(6, 10)))
         use_video_thumbnail_extractor(monkeypatch, async_return(None))
-        # 项目默认 duration 也置空，强制走 caps 默认。
         fake_pm.project.pop("default_duration", None)
 
         result = await generation_tasks.execute_video_task(

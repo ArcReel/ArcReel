@@ -40,8 +40,6 @@ class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
         self.project = {
-            # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定——
-            # 产物清单是读取已生成产物的唯一口径，二者缺一都不是真实形态。
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "episode_1.json"}],
             "generation_mode": "storyboard",
@@ -195,18 +193,13 @@ def _client(monkeypatch, fake_pm, fake_queue, *, register_storyboards=True, user
     use_project_manager(monkeypatch, fake_pm)
     monkeypatch.setattr("lib.generation.generation_queue.get_generation_queue", lambda: fake_queue)
     use_generation_queue(monkeypatch, fake_queue)
-    # 视频桶预检需要 DB（system_settings）；router 单测无 DB，能力闸行为由
-    # test_config_resolver / test_validators_video_bucket 覆盖，这里只保 happy path 放行
     monkeypatch.setattr(generate, "require_video_bucket_capability", _noop_bucket_precheck)
-    # 音频开关预检同理，行为由 test_validators_audio_switch 覆盖
     monkeypatch.setattr(generate, "require_audio_switch_supported", _noop_bucket_precheck)
 
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id=user_id, sub="testuser", role="admin")
     app.include_router(generate.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    # raise_server_exceptions=False：500 由 app 级 Exception handler 生成响应后
-    # Starlette 会 re-raise，默认配置会把它抛进测试而非返回响应
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -839,7 +832,6 @@ class TestGenerateRouter:
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
-        # 分镜图在盘上，但没有进产物清单——准入口径是产物清单登记。
         client = _client(monkeypatch, fake_pm, fake_queue, register_storyboards=False)
 
         with client:
@@ -952,7 +944,6 @@ class TestGenerateRouter:
                 },
             )
             assert video.status_code == 400, video.text
-            # detail 走 i18n 不直接暴露内部 str(e)
             assert (
                 "segments" not in video.json()["detail"]
                 or "script" in video.json()["detail"].lower()
@@ -999,7 +990,6 @@ class TestGenerateRouter:
         数据撞名),也不能把不存在的 segment 当成校验通过而入队。
         """
         project_path = _prepare_files(tmp_path)
-        # default 路径恰好存在的场景：撞上一个不存在 segment 的默认文件名
         (project_path / "storyboards" / "scene_E1S99.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
         fake_queue = _FakeQueue()
@@ -1036,7 +1026,6 @@ class TestGenerateRouter:
             assert call["task_type"] == "character"
             assert call["media_type"] == "image"
             assert call["resource_id"] == "Alice"
-            # 描述只取存储的条目，入队不带 prompt 快照。
             assert call["payload"] == {}
 
     @pytest.mark.parametrize(
@@ -1195,8 +1184,6 @@ class TestGenerateRouter:
             )
             assert empty_storyboard_prompt.status_code == 400
 
-            # Whitespace-only string prompt for video route — ensure storyboard exists first
-            # so we hit the prompt check, not the missing-storyboard check
             (project_path / "storyboards" / "scene_E1S02.png").write_bytes(b"png")
             empty_video_prompt = client.post(
                 "/api/v1/projects/demo/generate/video/E1S02",

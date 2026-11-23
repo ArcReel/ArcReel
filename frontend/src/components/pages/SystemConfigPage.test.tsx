@@ -95,7 +95,6 @@ describe("SystemConfigPage", () => {
     useConfigStatusStore.setState(useConfigStatusStore.getInitialState(), true);
     vi.restoreAllMocks();
 
-    // Default: silence child section network calls so tests don't hang
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
@@ -188,7 +187,6 @@ describe("SystemConfigPage", () => {
   });
 
   it("有供应商却没有默认模型时，在「默认模型」分区与其侧栏项提示", async () => {
-    // 内置供应商的推荐只在首次配置时写进默认模型，运行时不按推荐挑选：默认模型留空时生成会失败
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(
       makeConfigResponse({ default_video_backend: "", text_backend_complex: "gemini/gemini-3-pro" }),
     );

@@ -30,7 +30,6 @@ class _FakeQueue:
 class _FakePM:
     def __init__(self, project_path: Path):
         self.project_path = project_path
-        # 生产项目一律处于当前 schema，剧本一律在 episodes 账本里绑定。
         self.project: dict[str, Any] = {
             "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
             "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
@@ -356,7 +355,6 @@ class TestGenerateTtsBatch:
     def test_batch_maps_each_missing_segment_to_the_task_it_enqueued(self, tmp_path, monkeypatch):
         """逐段映射：每个 segment_id 指向它自己那次入队拿到的 task_id。"""
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        # 让 E1S02 也缺旁白，凑出两段入队，映射才有可分辨的对应关系
         fake_pm.script["segments"][1]["generated_assets"] = {}
         fake_queue = _FakeQueue()
         client = _client(monkeypatch, fake_pm, fake_queue)
@@ -565,7 +563,6 @@ class TestTtsDedupedPassthrough:
 
     def test_batch_partial_hit_reports_deduped_false(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")
-        # 让 E1S02 也缺旁白：两段入队，其中一段命中既有任务 → 仍新建了任务，不算 deduped
         fake_pm.script["segments"][1]["generated_assets"] = {}
         client = _client(monkeypatch, fake_pm, _FakeFirstHitQueue())
 

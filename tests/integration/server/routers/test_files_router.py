@@ -524,7 +524,6 @@ class TestFilesRouter:
             assert clue.status_code == 200
             assert clue.json()["path"] == "props/玉佩.jpg"
 
-            # 分镜/视频上传走 shot_uploads 路由，通用上传不再支持 storyboard 类型
             legacy_storyboard = client.post(
                 "/api/v1/projects/demo/upload/storyboard?name=E1S01",
                 files={"file": ("storyboard.jpg", _img_bytes("JPEG"), "image/jpeg")},
@@ -959,8 +958,6 @@ class TestFilesRouter:
         """商品原图是保真验收锚点：保存管线保留原件字节，不做阈值压缩/重编码。"""
         client, pm = _client(monkeypatch, tmp_path)
 
-        # 构造一张 >2MB 的 PNG（其他资产上传在该阈值会被压成 JPEG q85）：
-        # 噪声像素不可压缩，保证体积越过阈值
         import os as _os
 
         image = Image.frombytes("RGB", (1200, 1200), _os.urandom(1200 * 1200 * 3))
@@ -1106,8 +1103,6 @@ class TestFilesRouter:
             after = pm.load_project("demo")
             assert after.get("style_image", "").startswith("style_reference")
             assert "style_template_id" not in after
-            # 互斥语义关键断言：模板展开到 style 的 prompt 也要被清空，
-            # 否则生成链路会把模板 prompt 与 style_description 一起喂给 LLM。
             assert after.get("style", "") == ""
 
             bad_style_ext = client.post(
@@ -1195,13 +1190,9 @@ class TestFilesRouter:
         """name 会被拼进落盘路径：含分隔符 / .. / 控制字符的名字在所有上传类型下都应被 400 拒绝。"""
         client, _ = _client(monkeypatch, tmp_path)
 
-        # 快照范围取 tmp_path 而非 projects 根：越界名的目标本就在 projects 之外，只扫项目内看不见。
-        # 连同内容一起快照：越界写入若命中既有文件（如 ../project.json），路径集合不变，只比路径发现不了
         def _snapshot() -> dict[Path, bytes]:
             return {p.relative_to(tmp_path): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
 
-        # 预置 "../existing" 会解析到的既有文件：没有真实的覆写目标时，内容快照验证不到覆写这一维。
-        # 逐 subdir 铺哨兵——嵌套类型（characters/refs 等）的 ".." 落在 characters/ 而非项目根
         project_dir = tmp_path / "projects" / "demo"
         for spec in files.UPLOAD_SPECS.values():
             parent = project_dir.joinpath(*spec.subdir).parent
@@ -1225,7 +1216,6 @@ class TestFilesRouter:
         payloads = {
             "character_audio_ref": ("v.wav", wav_bytes(3), "audio/wav"),
             "bgm": ("m.wav", wav_bytes(3), "audio/wav"),
-            # source 不使用 name，但校验在其早返分支之前，同样应拒
             "source": ("novel.txt", b"chapter one", "text/plain"),
         }
         default_payload = ("x.jpg", _img_bytes("JPEG"), "image/jpeg")
@@ -1292,7 +1282,6 @@ class TestFilesRouter:
         assert set(files.ALLOWED_EXTENSIONS) == set(files.UPLOAD_SPECS)
         for upload_type, spec in files.UPLOAD_SPECS.items():
             assert files.ALLOWED_EXTENSIONS[upload_type] == list(spec.allowed_exts)
-        # source 一项被 frontend/src/utils/source-files.ts 镜像，取值变动需同步前端
         assert files.ALLOWED_EXTENSIONS["source"] == [".txt", ".md", ".docx", ".epub", ".pdf"]
 
     def test_upload_spec_host_fields_must_be_paired(self):
@@ -1305,7 +1294,6 @@ class TestFilesRouter:
                 content_check="validate_image",
                 host_bucket="products",
             )
-        # 反方向同样是配置错误：登记了文案却没有宿主约束，该文案永远取不到
         with pytest.raises(ValueError, match=r"host_bucket 与 host_not_found_key 必须成对登记"):
             files.UploadSpec(
                 allowed_exts=(".png",),
@@ -1315,7 +1303,6 @@ class TestFilesRouter:
                 host_not_found_key="product_not_found",
             )
 
-        # 参考音频的元数据字段是文件唯一指针；清理旧文件的类型不能漏掉宿主存在性约束。
         with pytest.raises(ValueError, match=r"tracks_stale_audio 必须登记宿主约束"):
             files.UploadSpec(
                 allowed_exts=(".wav",),
@@ -1366,7 +1353,6 @@ class TestFilesRouter:
             )
             assert reject_text.status_code == 400
 
-            # 合法 JSON 但 scenes 为空 → 被拒（400）：与 _load_drama_script_plan_content 的非空 scenes 契约同口径
             reject_empty = client.put(
                 "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": []}',
@@ -1374,7 +1360,6 @@ class TestFilesRouter:
             )
             assert reject_empty.status_code == 400
 
-            # scenes 含非对象项（数字 / 字符串）→ 被拒（400）：与 _load_drama_script_plan_content 的逐项对象契约同口径
             reject_non_dict_scene = client.put(
                 "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{"scene_id": "E2S01"}, 42]}',
@@ -1382,8 +1367,6 @@ class TestFilesRouter:
             )
             assert reject_non_dict_scene.status_code == 400
 
-            # scene 缺 scene_id → 被拒（400）：与 _load_drama_script_plan_content 的 scene_id 非空字符串契约同口径，
-            # 避免写入端放行、消费端必失败的"保存成功但生成必失败"断层
             reject_missing_scene_id = client.put(
                 "/api/v1/projects/demo/drafts/2/script_plan",
                 content='{"title": "第二集", "scenes": [{}]}',
@@ -1409,8 +1392,6 @@ class TestFilesRouter:
             missing_stage = client.delete("/api/v1/projects/demo/drafts/2/unknown_stage")
             assert missing_stage.status_code == 400
 
-            # 未登记 content_mode 回落到 drama 结构化文件名时同样触发校验（按目标文件名而非 content_mode）：
-            # 任意文本不再绕过校验被写成结构化 drama JSON，拖到生成阶段才失败
             payload["content_mode"] = "future_unregistered_mode"
             project_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             reject_dirty_mode = client.put(
@@ -1616,7 +1597,6 @@ class TestFilesRouter:
         assert files._stage_files("drama") == {"script_plan": "script_plan_normalized_script.json"}
         assert files._stage_files("drama", "reference_video") == {"script_plan": "script_plan_reference_units.json"}
         assert files._stage_files("narration", "reference_video") == {"script_plan": "script_plan_reference_units.json"}
-        # 其他 generation_mode 回落到 content_mode
         assert files._stage_files("narration", "storyboard") == {"script_plan": "script_plan_segments.json"}
 
     def test_resolve_script_plan_path_narration_prefers_own_legacy_md(self, tmp_path):
@@ -1634,11 +1614,9 @@ class TestFilesRouter:
         client, pm = _client(monkeypatch, tmp_path)
         project_dir = pm.get_project_path("demo")
 
-        # 设置项目为 参考生视频（content_mode 仍是 narration 测试正交性）
         project_json = project_dir / "project.json"
         payload = json.loads(project_json.read_text(encoding="utf-8"))
         payload["generation_mode"] = "reference_video"
-        # 分集须在账本里（save_content 的写入前置）：登记为自带原文的集
         payload["episodes"] = [
             {"episode": 1, "title": "", "script_file": "scripts/episode_1.json", "source_origin": "own"}
         ]
@@ -1648,7 +1626,6 @@ class TestFilesRouter:
 
         drafts_dir = project_dir / "drafts" / "episode_1"
         drafts_dir.mkdir(parents=True, exist_ok=True)
-        # 主文件缺失时旧 .md 作为读取候选（存量在制品兼读）
         (drafts_dir / "script_plan_reference_units.md").write_text("E1U1 stub", encoding="utf-8")
 
         with client:
@@ -1656,7 +1633,6 @@ class TestFilesRouter:
             assert resp.status_code == 200
             assert resp.text == "E1U1 stub"
 
-            # 裸文本 / 非法结构不再直写正式 script_plan（旁路已收敛到单一写盘出口）
             bad = client.put(
                 "/api/v1/projects/demo/drafts/1/script_plan",
                 content="raw text",
@@ -1679,7 +1655,6 @@ class TestFilesRouter:
             assert update.status_code == 200
             assert update.json()["path"] == "drafts/episode_1/script_plan_reference_units.json"
 
-            # 结构化 .json 存在后优先于旧 .md；落盘的是校验后的结构化内容
             resp = client.get("/api/v1/projects/demo/drafts/1/script_plan")
             assert resp.status_code == 200
             saved = json.loads(resp.text)
@@ -1727,7 +1702,6 @@ class TestFilesRouter:
             assert update.status_code == 200
             assert update.json()["path"] == "drafts/episode_2/script_plan_reference_units.json"
 
-        # _load_project_modes 走 load_project：不存在项目 → ("drama", None) 回退
         content_mode, gen_mode = files._load_project_modes("no-such-project")
         assert content_mode == "drama"
         assert gen_mode is None
@@ -2068,7 +2042,6 @@ class TestServeProjectFileThumbnails:
             assert revalidated.status_code == 304
             assert revalidated.content == b""
 
-            # 原图的 ETag 校验不到缩略图上
             mismatched = client.get(
                 "/api/v1/files/demo/storyboards/a.png?w=320", headers={"If-None-Match": original.headers["etag"]}
             )
@@ -2092,7 +2065,6 @@ class TestServeProjectFileThumbnails:
             assert thumbnail.size == (320, 320)
 
     def test_source_replaced_while_thumbnailing_falls_back_to_the_current_original(self, tmp_path, monkeypatch):
-        # 生成缩略图期间源图被替换，缩略图放弃发布；回退的原图按替换后的文件计算长度与 ETag
         client, pm = _client(monkeypatch, tmp_path)
         source = _write_png(pm.get_project_path("demo") / "storyboards" / "a.png", (1600, 800))
         os.utime(source, (1_700_000_000, 1_700_000_000))
@@ -2279,7 +2251,6 @@ class TestSourceMultiFormatUpload:
             (record,) = project_trash.list_records(project_dir)
             assert sorted(record.files) == ["source/raw/to_delete.txt", "source/to_delete.txt"]
 
-            # 恢复为未纳入整本源文的源文件，原始上传件随之回原处
             project_trash.restore(project_dir, record.id)
             assert (project_dir / "source/to_delete.txt").is_file()
             assert raw_path.is_file()
@@ -2309,7 +2280,6 @@ class TestSourceMultiFormatUpload:
         (record,) = project_trash.list_records(project_dir)
         assert sorted(record.files) == ["source/old.txt", "source/raw/old.txt"]
 
-        # 原名已被新文件占用：旧文件与原始上传件一起换名加回，主干仍对应
         result = project_trash.restore(project_dir, record.id)
         assert sorted(item.path for item in result.restored) == ["source/old (1).txt", "source/raw/old (1).txt"]
         assert (project_dir / "source/old.txt").read_text(encoding="utf-8") == "新内容"
@@ -2323,7 +2293,6 @@ class TestSourceMultiFormatUpload:
         fail_project_json_write(monkeypatch, project_dir / "project.json")
         with client, pytest.raises(OSError, match="injected project write failure"):
             _upload_source(client, "demo", "extra.txt", "新内容".encode(), on_conflict="replace")
-        # 撤销时旧文件与原始上传件回到原处，删除记录撤回
         assert (project_dir / "source/extra.txt").read_text(encoding="utf-8") == "旧内容"
         assert (project_dir / "source/raw/extra.docx").read_bytes() == b"docx"
         assert project_trash.list_records(project_dir) == []
@@ -2341,10 +2310,6 @@ class TestSourceMultiFormatUpload:
         client, _ = _client(monkeypatch, tmp_path)
         from lib.script.source_loader import SourceLoader
 
-        # We don't actually send 50MB+ of data — instead post a small body with a fake
-        # content-length header. Starlette validates content-length vs actual body length
-        # for multipart, so we need to send a real oversized payload OR rely on the
-        # natural stat-based check. Skip the header fake and exercise the stat path:
         body = b"a" * (SourceLoader.DEFAULT_MAX_BYTES + 1024)
         with client:
             resp = client.post(
@@ -2478,7 +2443,6 @@ class TestFilesUnexpectedErrorsMapTo500:
         detail = resp.json()["detail"]
         assert "AI Studio/Gemini 3.1 Flash Lite" in detail
         assert "vision" in detail
-        # 英文 zh 环境默认无 Accept-Language，走中文翻译文案，而非 __str__ 的英文技术消息
         assert "不支持图像输入" in detail
 
     def test_upload_style_image_backend_value_error_maps_to_500_not_leaked(self, tmp_path, monkeypatch):

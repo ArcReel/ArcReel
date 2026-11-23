@@ -163,7 +163,6 @@ export function makeScriptOverwriteEntry(
   };
 }
 
-/** 覆盖清单的共享构造器；`text` 是服务端渲染好的丢失清单，确认框原样呈现。 */
 export function makeScriptOverwrite(overrides: Partial<ScriptOverwrite> = {}): ScriptOverwrite {
   return {
     revision: "sha256-v1:formal",

@@ -91,7 +91,6 @@ def test_enumerate_files_uses_posix_separator(tmp_path: Path) -> None:
 
     files = enumerate_profile_files(profile)
     assert ".claude/skills/a/b/c.md" in files
-    # 所有 key 都不能含反斜杠（即便 Windows 上 Path 用 \）
     for rel in files:
         assert "\\" not in rel
 
@@ -107,7 +106,6 @@ def test_manifest_normalized_bytes_deterministic_sort_keys(tmp_path: Path) -> No
     m2.entries["b.md"] = {"sha256": "bb", "size": 2, "source": "profile"}
 
     assert m1.normalized_bytes() == m2.normalized_bytes()
-    # entry 顺序也应在序列化时按 key 字典序
     text = m1.normalized_bytes().decode("utf-8")
     assert text.index('"a.md"') < text.index('"b.md"')
 
@@ -352,9 +350,7 @@ def test_normalize_rel_path_rejects_non_string(bad) -> None:
     ("raw", "expected"),
     [
         (".claude/skills/demo/SKILL.md", ".claude/skills/demo/SKILL.md"),
-        # 连续斜杠：PurePosixPath 会折叠，规范化输出无双斜杠且 path 合法
         ("a//b", "a/b"),
-        # `.` 段：PurePosixPath 会剥掉，结果与无 `.` 等价
         ("a/./b", "a/b"),
     ],
 )
@@ -629,7 +625,6 @@ def test_sync_legacy_manifest_migrates_without_reset(tmp_path: Path) -> None:
     data = json.loads(manifest_path.read_text())
     data.pop("content_mode", None)
     manifest_path.write_text(json.dumps(data, indent=2, sort_keys=True))
-    # 3) 再次 sync，应当被认作 needs_migration，正常走 #3 unchanged，写回 mode
     sync_profile_to_project(profile, project, content_mode="narration")
     after = json.loads(manifest_path.read_text())
     assert after["content_mode"] == "narration"
@@ -729,7 +724,6 @@ def test_full_force_reset_discards_all_customized_files_and_restores_builtin(tmp
         "customized": False,
         "customized_files": [],
     }
-    # 丢弃的定制与项目独有文件成为一条删除记录；与内置一致的文件不进回收站
     [record] = project_trash.list_records(project)
     assert record.files == (".claude/skills/private/SKILL.md", "CLAUDE.md")
     project_trash.restore(project, record.id)
@@ -875,7 +869,6 @@ def test_sync_agent_profile_reads_content_mode_from_project_json(
     project_dir = pm.create_project("demo", content_mode="narration")
     pj_path = project_dir / "project.json"
     pj_path.write_text(json.dumps({"title": "demo", "content_mode": "drama"}))
-    # 再次 sync，应当读 project.json 拿到 drama，触发 mode mismatch reset
     pm.sync_agent_profile(project_dir)
     assert (project_dir / "CLAUDE.md").read_text() == "drama top"
 
@@ -888,7 +881,6 @@ def test_sync_agent_profile_missing_mode_fallback_narration(
     pj_path = project_dir / "project.json"
     pj_path.write_text(json.dumps({"title": "demo"}))
     pm.sync_agent_profile(project_dir)
-    # 回退 narration，内容不变
     assert (project_dir / "CLAUDE.md").read_text() == "narration top"
 
 
@@ -923,7 +915,6 @@ def test_sync_all_agent_profiles_isolates_corrupt_project(tmp_path: Path, monkey
     assert stats.get("aborted") is not True
     assert stats["failed_projects"] == 1
     assert (pm.projects_dir / "good" / "CLAUDE.md").read_text() == "narration top"
-    # 损坏项目的 CLAUDE.md 保持上次 sync 的 drama 内容，未被错切回 narration
     assert (bad_dir / "CLAUDE.md").read_text() == "drama top"
 
 
@@ -931,7 +922,6 @@ def test_sync_all_agent_profiles_per_project_mode(tmp_path: Path, monkeypatch: p
     pm, _ = _setup_pm_with_profile(tmp_path, monkeypatch)
     pm.create_project("a", content_mode="narration")
     pm.create_project("b", content_mode="drama")
-    # 改两个项目的内容（模拟 server 启动前 profile 已升级）
     stats = pm.sync_all_agent_profiles()
     assert stats.get("aborted") is not True
     assert (pm.projects_dir / "a" / "CLAUDE.md").read_text() == "narration top"

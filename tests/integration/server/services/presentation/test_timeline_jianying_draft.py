@@ -97,13 +97,11 @@ async def test_with_narration_draft_maps_trim_volume_hold_narration_and_subtitle
 
     narration = _track(content, "audio", "旁白")["segments"]
     audios = _materials(content, "audios")
-    # S02 的 2 秒旁白比 1.5 秒的视频长，照常导出，超出时间线末尾的部分截掉，并以警告报出
     assert [_timing(segment) for segment in narration] == [(0, 1_200_000), (1_500_000, 1_500_000)]
     assert audios[narration[0]["material_id"]]["path"].startswith(PLACEHOLDER)
     assert [(issue.code, issue.clip_ids, issue.params) for issue in result.warnings] == [
         ("narration_overrun", ("c2",), {"cause": "timeline_end", "overflow": 0.5})
     ]
-    # 字幕跟随旁白，同样截到时间线末尾
     assert _subtitles(content) == [
         ("旁白一句", 0, 1_200_000, "7265596643066516029"),
         ("第二段", 1_500_000, 1_500_000, "7265596643066516029"),
@@ -117,7 +115,6 @@ async def test_overlapping_narrations_and_subtitles_get_extra_tracks_and_extra_s
 ) -> None:
     pm, project_path = setup_project(tmp_path)
     timeline_id = await edited_timeline(pm)
-    # 去掉 c1 的定格后 c1 只剩 1 秒，S01 的 1.2 秒旁白压到 c2 从 1 秒起的旁白上。
     await EditTimelineService(pm).edit(
         "demo",
         timeline_id,
@@ -159,7 +156,6 @@ async def test_overlapping_narrations_and_subtitles_get_extra_tracks_and_extra_s
         if track["type"] == "text"
     ] == [
         ("字幕", [("旁白一句", 0, 1_200_000)], [-0.75]),
-        # 新增的字幕轨整轨上移 0.2（剪映纵向位置，半个画布高为 1）
         ("字幕 2", [("第二段", 1_000_000, 1_500_000)], [-0.55]),
     ]
     assert {issue.code for issue in result.warnings} == {"narration_overrun"}
@@ -175,7 +171,6 @@ async def test_without_narration_draft_has_no_narration_track_and_keeps_source_t
 
     content = _draft_content(project_path / result.artifact_path)
     assert [track["type"] for track in content["tracks"]] == ["video", "text"]
-    # S01 字幕按源素材 0–2 秒分布，只显示截取窗口 0.5–1.5 秒之内的部分
     assert [row[:3] for row in _subtitles(content)] == [("旁白一句", 0, 1_000_000), ("第二段", 1_500_000, 1_500_000)]
 
 
@@ -229,7 +224,6 @@ async def test_every_new_revision_makes_the_draft_stale_and_each_export_bumps_it
     assert (first.version, await _status(service, timeline_id, "with_narration")) == (1, ("current", 1))
     assert await _status(service, timeline_id, "without_narration") == ("missing", None)
 
-    # 只改剪辑理由也产生新修订，旧修订导出的草稿随之过期
     await timelines.edit(
         "demo",
         timeline_id,
@@ -240,7 +234,6 @@ async def test_every_new_revision_makes_the_draft_stale_and_each_export_bumps_it
     )
     assert await _status(service, timeline_id, "with_narration") == ("stale", 1)
 
-    # 改了音量再改回原值，内容与修订 3 相同，修订 3 导出的草稿仍然过期
     await service.render("demo", timeline_id, narration="with_narration")
     for revision, volume in ((3, 0.1), (4, 0.3)):
         await timelines.edit(
@@ -362,7 +355,6 @@ async def test_transitions_hang_on_the_last_segment_of_the_previous_clip(tmp_pat
 
     with_hold = await service.render("demo", timeline_id, narration="without_narration")
 
-    # c1 带 0.5 秒定格：转场挂在出点帧静帧这一段（主轨第 2 段）上；草稿总长不变。
     assert with_hold.duration == 3.0
     content = _draft_content(project_path / with_hold.artifact_path)
     assert _transitions(content) == [(1, 1_000_000, "向左", 400_000, False, JianyingTransition.向左.value.effect_id)]
@@ -396,7 +388,6 @@ async def test_bgm_track_maps_placement_trim_gain_volume_and_fades_and_cuts_at_t
     track = await BgmLibraryService(pm).upload("demo", filename="主题曲.wav", content=wav_bytes(2.0, tone_hz=330))
     timeline_id = await edited_timeline(pm)
     revision = EditTimelineStore(pm, "demo").find(timeline_id).latest.number
-    # 时间线 3 秒：b1 截取 BGM 的 0.2–1.2 秒放在开头；b2 从 1.5 秒起放整首 2 秒，越过末尾，截到 1.5 秒。
     await EditTimelineService(pm).edit(
         "demo",
         timeline_id,
@@ -447,7 +438,6 @@ async def test_bgm_track_maps_placement_trim_gain_volume_and_fades_and_cuts_at_t
             f"{PLACEHOLDER}{Path(track.file).name}",
         ),
     ]
-    # 截断处固定淡出 1 秒，盖过片段自带的淡出
     assert [
         next(
             (fades[ref]["fade_in_duration"], fades[ref]["fade_out_duration"])

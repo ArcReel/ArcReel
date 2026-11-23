@@ -216,7 +216,6 @@ def test_activation_registers_a_sheet_and_its_storyboard_despite_an_empty_descri
     resolver = ArtifactCurrencyResolver(project_dir)
     assert resolver.compare(sheet_key, artifact_path="scenes/祠堂.png").status.value == "current"
     assert resolver.compare(TARGET_KEY, artifact_path="storyboards/scene_E1S02.png").status.value == "current"
-    # 生成仍被拒，拒绝码不变。
     project = _read_json(project_dir / "project.json")
     refusal = asset_sheet_input(
         project, asset_type="scene", name="祠堂", observation=project_input_observation(project_dir)

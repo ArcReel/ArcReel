@@ -445,7 +445,6 @@ class TestRetryPredicates:
             assert should_retry_poll(err) is True
 
     def test_submit_retries_only_not_sent_transport_errors(self):
-        # 连接建立失败 / 从未取得连接 / 代理握手失败 → 请求确定未送达 → submit 重试安全。
         for exc in (
             httpx.ConnectError("refused"),
             httpx.ConnectTimeout("connect timed out"),
@@ -455,10 +454,6 @@ class TestRetryPredicates:
             assert should_retry_submit(exc) is True
 
     def test_submit_does_not_retry_ambiguous_transport_errors(self):
-        # 请求可能已送达服务端（已建任务 / 已计费）→ submit 不重试，避免重复计费。
-        # 注意：实际 create 路径中这些原始异常会先被 submit_post 包成 AmbiguousSubmitError 再
-        # 进重试谓词，should_retry_submit 运行时并不会直接收到它们；此处单独断言谓词对原始异常
-        # 的防御性行为（文档化兜底），与 submit_post 的包装互为双保险。
         for exc in (
             httpx.ReadTimeout("read timed out"),
             httpx.WriteTimeout("write timed out"),
@@ -471,7 +466,6 @@ class TestRetryPredicates:
             assert should_retry_submit(exc) is False
 
     def test_poll_retries_all_transport_errors(self):
-        # 幂等 GET：连接建立失败与读/写阶段错误一律重试。
         for exc in (
             httpx.ConnectError("refused"),
             httpx.ReadTimeout("read timed out"),
@@ -482,13 +476,10 @@ class TestRetryPredicates:
             assert should_retry_poll(exc) is True
 
     def test_ambiguous_submit_error_never_retries(self):
-        # AmbiguousSubmitError 是终态：被装饰器捕获后谓词须返回 False。
         assert should_retry_submit(AmbiguousSubmitError(provider="v2")) is False
         assert should_retry_poll(AmbiguousSubmitError(provider="v2")) is False
 
     def test_local_protocol_errors_fail_fast_both_paths(self):
-        # UnsupportedProtocol / LocalProtocolError 在请求发出前就确定失败（均为 RequestError
-        # 子类），两条路径都快速失败——poll 不该重试到 max_wait，submit 也无重复计费风险。
         for exc in (
             httpx.UnsupportedProtocol("scheme not http(s)"),
             httpx.LocalProtocolError("bad local request"),
@@ -497,12 +488,9 @@ class TestRetryPredicates:
             assert should_retry_submit(exc) is False
 
     def test_poll_still_retries_remote_protocol_error(self):
-        # RemoteProtocolError 与 LocalProtocolError 同为 ProtocolError 子类，但属「服务端中途
-        # 断开」，幂等 GET 重试安全——确认本地错误的排除没有误伤它。
         assert should_retry_poll(httpx.RemoteProtocolError("server disconnected")) is True
 
     def test_business_exceptions_fail_fast(self):
-        # ResumeExpiredError 的 job_id 含 "503" 子串：若按字符串兜底会误判为可重试。
         resume_exc = ResumeExpiredError(job_id="job-503", provider="v2")
         assert should_retry_poll(resume_exc) is False
         assert should_retry_submit(resume_exc) is False
@@ -524,7 +512,6 @@ class TestShouldRetryDownload:
             assert should_retry_download(_http_status_error(code)) is True
 
     def test_retries_all_transport_errors(self):
-        # 幂等 GET 下载：连接建立失败与读阶段错误一律重试（与 poll 一致，无重复计费风险）。
         for exc in (
             httpx.ConnectError("refused"),
             httpx.ReadTimeout("read timed out"),
@@ -548,7 +535,6 @@ class TestShouldRetrySignedDownload:
             assert should_retry_signed_download(_http_status_error(code)) is False
 
     def test_transient_codes_still_retry(self):
-        # 429/408/425 是限流与瞬态，不属于「签名 URL 确定性失败」，与 5xx 同样重试。
         for code in (408, 425, 429, 500, 503):
             assert should_retry_signed_download(_http_status_error(code)) is True
 
@@ -576,7 +562,6 @@ class TestSubmitPost:
         assert recorded == [("submit", {"id": "ok"})]
 
     async def test_recorded_response_is_sanitized_before_it_is_persisted(self):
-        # 留痕会落库并经 API 回读：上游把凭证回显在字段里时不能原样存下来。
         request_obj = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(
             200,
@@ -601,8 +586,6 @@ class TestSubmitPost:
 
         await submit_post(_post, provider="v2", request=request)
 
-        # 厂商私有的查询参数名不在通用遮蔽器的清单里，只有整体剥离查询串才拦得住；
-        # 没有冒号的裸令牌权限段（https://TOKEN@host）同理，通用遮蔽器只认 user:password@
         assert recorded == [
             (
                 "submit",
@@ -616,7 +599,6 @@ class TestSubmitPost:
         ]
 
     async def test_not_sent_error_propagates_for_retry(self):
-        # 连接建立失败 / 代理握手失败原样抛出，交 should_retry_submit 重试（不包成终态）。
         for exc in (httpx.ConnectError("refused"), httpx.ProxyError("proxy handshake failed")):
 
             async def _post(_exc: httpx.RequestError = exc) -> httpx.Response:
@@ -627,8 +609,6 @@ class TestSubmitPost:
             assert excinfo.value is exc
 
     async def test_local_protocol_error_propagates_raw_not_ambiguous(self):
-        # 本地/协议错误请求发出前就失败、无计费风险 → 原样抛出，不包成 AmbiguousSubmitError
-        # （否则会误导运维去供应商侧确认一个从未创建的任务）。
         for exc in (
             httpx.UnsupportedProtocol("scheme not http(s)"),
             httpx.LocalProtocolError("bad local request"),
@@ -652,7 +632,6 @@ class TestSubmitPost:
         assert isinstance(excinfo.value.__cause__, httpx.ReadTimeout)
 
     async def test_http_status_error_propagates_for_status_gate(self):
-        # >=400 响应经 raise_for_status 抛 HTTPStatusError，交 should_retry_submit 按 status_code 分流。
         request = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(503, request=request, text="upstream busy")
 
@@ -663,8 +642,6 @@ class TestSubmitPost:
             await submit_post(_post, provider="v2")
 
     async def test_deterministic_4xx_carries_the_redacted_provider_reason(self):
-        # 确定性 4xx 抛 ProviderRejectedError：消息仍不含查询串里的 api_key，拒因另挂在
-        # provider_reason 上，供落库侧作为独立字段编码。
         request = httpx.Request("POST", "https://x/v2?api_key=SECRETKEY")
         resp = httpx.Response(
             400,
@@ -683,7 +660,6 @@ class TestSubmitPost:
         assert should_retry_submit(excinfo.value) is False
 
     async def test_server_error_stays_a_plain_status_error(self):
-        # 5xx 说的是「上游此刻不可用」，响应体不并入错误信息——异常类型也保持原样。
         request = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(502, request=request, json={"message": "bad gateway"})
 
@@ -697,8 +673,6 @@ class TestSubmitPost:
         assert str(excinfo.value) == "502 response for https://x/v2"
 
     async def test_error_message_drops_url_userinfo(self):
-        # base_url 允许用户自填：写成 https://user:pw@host 时口令落在权限段里，剥查询串剥不掉它，
-        # 而这条消息会进 task.error_message 并随任务列表回传。
         request = httpx.Request("POST", "https://user:SECRETPW@x/v2?api_key=SECRETKEY")
         resp = httpx.Response(502, request=request, json={"message": "bad gateway"})
 
@@ -715,8 +689,6 @@ class TestSubmitPost:
         [(401, {"message": "Incorrect API key provided: vda_live_SECRET"}), (400, {}), (403, {"unknown": "shape"})],
     )
     async def test_deterministic_4xx_is_structured_even_without_a_reason(self, status: int, body: dict[str, str]):
-        # 摘要缺席（认证类不透传、空响应体、字段全不认得）时拒绝本身仍要结构化，
-        # 否则读侧拿不到本地化文案与「修改输入」的后续动作，只剩一行裸状态。
         request = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(status, request=request, json=body)
 
@@ -730,7 +702,6 @@ class TestSubmitPost:
         assert excinfo.value.response.status_code == status
 
     async def test_failure_body_is_redacted_before_it_reaches_the_log(self, caplog):
-        # 失败响应体照样落日志保留可诊断性，但凭证不随它进日志文件。
         request = httpx.Request("POST", "https://x/v2")
         resp = httpx.Response(
             401,
@@ -780,7 +751,6 @@ class TestProviderReasonSummary:
         return httpx.Response(status, request=httpx.Request("POST", "https://x/v2"), **kwargs)
 
     def test_prefers_the_message_field_over_the_whole_body(self):
-        # 错误体常把请求原样回显回来；只取消息字段，prompt 全文不会进摘要。
         summary = provider_reason_summary(
             self._response(
                 400,
@@ -848,7 +818,6 @@ class TestProviderReasonSummary:
 
     @pytest.mark.parametrize("status", [401, 407])
     def test_returns_none_for_credential_errors(self, status: int):
-        # 认证失败的响应体讲的就是凭证，上游常把整把密钥回显在句子里；这类拒因不透传。
         assert (
             provider_reason_summary(
                 self._response(status, json={"message": "Incorrect API key provided: vda_live_SECRET"})
@@ -857,7 +826,6 @@ class TestProviderReasonSummary:
         )
 
     def test_masks_a_credential_echoed_in_prose(self):
-        # 密钥不一定以键值形式出现：上游也会把它嵌在一句话里回显。
         summary = provider_reason_summary(
             self._response(400, json={"message": "Incorrect API key provided: vda_live_SECRET"})
         )
@@ -1072,7 +1040,6 @@ class TestRedirectMethodRewrite:
             (303, "HEAD", False),
             (301, "POST", True),
             (302, "POST", True),
-            # PUT 在 301/302 上保留方法与请求体：改写会让端点收到语义完全不同的请求。
             (301, "PUT", False),
             (302, "PUT", False),
             (307, "POST", False),
@@ -1242,7 +1209,6 @@ class TestDownloadVideoDestination:
         assert not output.exists()
 
     async def test_resumable_download_keeps_destination_rejection_terminal(self, tmp_path: Path):
-        # 目的地不合规重试取件也不会变，不落可重试下载的 ArtifactDownloadError
         with capture_http() as router:
             target = router.get("http://169.254.169.254/a.mp4").mock(return_value=httpx.Response(200))
             with pytest.raises(ArtifactDestinationRejectedError):

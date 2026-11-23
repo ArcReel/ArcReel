@@ -463,7 +463,6 @@ def test_summary_never_reads_the_source_corpus(tmp_path: Path, monkeypatch: pyte
     summary = WorkflowStateService(pm).get_project_summary("demo")
 
     assert summary.episodes_summary.completed == 1
-    # 整本源文、分集原文（source/ 直下全部文件）一次不读，修订号也不算。
     assert revision_calls == []
     assert source_reads == {}
 
@@ -483,7 +482,6 @@ def test_migration_blocked_project_is_listed_as_needing_repair(tmp_path: Path) -
 
     assert summary.needs_repair is True
     assert summary.repair_reason == failure.reason
-    # 产物清单对未升级的数据不可读，一件产物都不报可用；集数照常列出，项目不从列表里消失。
     assert summary.episodes_summary.total == len(summary.episodes)
     assert all(episode.videos.available == 0 for episode in summary.episodes)
 
@@ -524,7 +522,6 @@ def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) 
     _episode_with_media(pm, project_path, source_text)
     service = WorkflowStateService(pm)
 
-    # 改写该镜的画面 prompt：分镜图还在盘上、仍可用，但已比当前内容旧。
     script_path = project_path / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
     script["segments"][0]["image_prompt"] = "改过的画面描述"
@@ -541,7 +538,6 @@ def test_episode_counts_match_the_workbench_on_the_same_project(tmp_path: Path) 
             len(workbench["current_ids"]) + len(workbench["stale_ids"]) + len(workbench["missing_ids"])
         ), label
 
-    # 夹具本身要有区分力：两侧全 0 相等不构成证据。
     assert episode.storyboards.stale == 1
     assert episode.storyboards.available == 1
 
@@ -566,7 +562,6 @@ def test_registered_currency_counts_stale_artifacts_as_current(tmp_path: Path) -
 
     assert verified.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 1}
     assert registered.assets["character"].model_dump() == {"total": 1, "available": 1, "stale": 0}
-    # 分集汇总不因口径而异：可用数相同，只是不再区分新旧。
     assert registered.episodes_summary == verified.episodes_summary
 
 
@@ -580,7 +575,6 @@ def test_registered_currency_still_requires_registration_and_presence(tmp_path: 
     service = WorkflowStateService(pm)
     assert service.get_project_summary("demo", currency="registered").episodes_summary.completed == 1
 
-    # 补录之后才写入的资产图：清单里没有它。
     _add_character_with_sheet(pm, project_path, name="小红")
     (project_path / resource_relative_path("videos", "E1S01")).unlink()
 
@@ -716,7 +710,6 @@ def test_verified_summary_does_not_wait_for_a_writer_holding_the_manifest_lock(t
     with (project_path / LOCK_FILENAME).open("ab") as lock_handle:
         portalocker.lock(lock_handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
         try:
-            # 旧协议下读取要拿这把锁，会在锁超时后报错；能拿到与无锁时相同的结果即说明读取不拿锁。
             summary = service.get_project_summary("demo")
         finally:
             portalocker.unlock(lock_handle)
@@ -758,7 +751,6 @@ def test_video_swapped_after_admission_is_judged_by_the_newer_observation(
     _episode_with_storyboards(pm, project_path, 1)
     key = ArtifactKey.episode_video(1, "E1S01")
     video_path = resource_relative_path("videos", "E1S01")
-    # 清单 mtime 早于登记的视频 mtime，同一时间戳内的改写无从排除，证明退化为完整比对。
     os.utime(project_path / MANIFEST_FILENAME, ns=(0, 0))
     outside = tmp_path / "outside.mp4"
     shutil.copyfile(project_path / video_path, outside)
@@ -867,7 +859,6 @@ def _registered_video_files(pm: ProjectManager, project_path: Path) -> tuple[Pat
     source_text = "完整原文"
     _write_source(pm, project_path, source_text)
     _episode_with_media(pm, project_path, source_text)
-    # 导入校验要求集有标题。
     pm.update_project("demo", lambda project: project["episodes"][0].update(title="第一集"))
     video = project_path / resource_relative_path("videos", "E1S01")
     versions = VersionManager(project_path).get_versions("videos", "E1S01")
@@ -919,7 +910,6 @@ def test_a_same_size_rewrite_within_the_manifest_timestamp_is_still_caught(tmp_p
     pm, project_path = _make_project(tmp_path, "narration")
     video, _snapshot = _registered_video_files(pm, project_path)
     recorded = video.stat()
-    # 摘要缓存不收刚写过的文件；这里把 mtime 拨回旧值来模拟同一时间戳，先清掉夹具留下的缓存。
     reset_file_digest_cache_for_tests()
     os.utime(project_path / MANIFEST_FILENAME, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
 

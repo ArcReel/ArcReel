@@ -276,7 +276,6 @@ class TestUnexpectedErrorCorsHeaders:
         assert "access-control-allow-origin" not in resp.headers
 
     def test_default_kwargs_fall_back_to_wildcard(self):
-        # register_error_handlers 不传 cors 参数时的保守默认值：通配 origins，不开 credentials。
         app = FastAPI()
         register_error_handlers(app)
 

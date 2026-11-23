@@ -98,7 +98,6 @@ class TestRepoStateMachineGuards:
         assert exc_info.value.task_id == t["task_id"]
         assert (await repo.get(t["task_id"]))["status"] == "running"
 
-        # 被拒绝的取消不改变执行：任务照常收尾为 succeeded
         assert await repo.mark_succeeded(t["task_id"], {"x": 1}) == 1
         assert (await repo.get(t["task_id"]))["status"] == "succeeded"
 
@@ -132,7 +131,6 @@ class TestRepoStateMachineGuards:
         await repo.persist_provider_job_id(t["task_id"], "provider-job-42")
         refreshed = await repo.get(t["task_id"])
         assert refreshed["provider_job_id"] == "provider-job-42"
-        # 内置供应商无 endpoint 维度，该列保持 NULL
         assert refreshed["provider_endpoint"] is None
 
     async def test_persist_provider_job_id_writes_endpoint_alongside(self, db_session):
@@ -295,7 +293,6 @@ class TestRepoStateMachineGuards:
             script_file="ep1.json",
             provider_id="gemini-aistudio",
         )
-        # 不设 provider_id（老数据 IS NULL 兜底）
         t2 = await repo.enqueue(
             project_name="demo",
             task_type="storyboard",
@@ -304,7 +301,6 @@ class TestRepoStateMachineGuards:
             payload={},
             script_file="ep1.json",
         )
-        # 未知 provider（例如自定义 provider 已被删除，DB 仍留有 provider_id）
         t3 = await repo.enqueue(
             project_name="demo",
             task_type="storyboard",
@@ -314,12 +310,10 @@ class TestRepoStateMachineGuards:
             script_file="ep1.json",
             provider_id="custom-deleted",
         )
-        # gemini 池满 → 黑名单含 gemini-aistudio，应跳过 t1，FIFO 领 t2（NULL）
         first = await repo.claim_next("image", pool_full_providers=frozenset({"gemini-aistudio"}))
         assert first is not None
         assert first["task_id"] == t2["task_id"]
 
-        # 继续：仍然只 gemini 池满，t1 不能领，t3（custom-deleted 不在黑名单）应被领
         await repo.mark_succeeded(t2["task_id"], {})
         second = await repo.claim_next("image", pool_full_providers=frozenset({"gemini-aistudio"}))
         assert second is not None

@@ -15,12 +15,10 @@ describe("UsageKpiStrip", () => {
 
     render(<UsageKpiStrip summary={makeUsageSummary()} />);
 
-    // 构成表、趋势 tooltip 与悬浮层同走 formatRatio，vi 下一律逗号小数点。
     expect(screen.getByText("90,3%")).toBeInTheDocument();
   });
 
   it("renders the counts with the language's thousands separator", async () => {
-    // 调用次数、失败数与成功率同处一条 KPI：分隔习惯跟界面语言，不跟浏览器语言。
     for (const [language, calls, failed] of [
       ["zh", "12,340", "1,205"],
       ["en", "12,340", "1,205"],

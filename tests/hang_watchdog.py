@@ -34,7 +34,6 @@ from typing import Any, NoReturn, TextIO
 import pytest
 
 DUMP_DIR_ENV = "ARCREEL_TEST_HANG_DUMP_DIR"
-# 覆盖无进展阈值（秒），供本插件自身的契约测试缩短等待。
 IDLE_SECONDS_ENV = "ARCREEL_TEST_HANG_IDLE_SECONDS"
 # 单个用例的超时是 120s（pyproject 的 timeout），这里留出余量，只在用例超时也没能收场时转储。
 IDLE_DUMP_SECONDS = 180.0
@@ -165,7 +164,6 @@ def pytest_runtest_protocol(item: pytest.Item) -> Generator[None, object, object
 
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
-    # xdist 的 controller 不执行用例，靠 worker 回传的报告计进展。
     if _watchdog is not None:
         _watchdog.mark(f"report {report.nodeid} {report.when}")
 

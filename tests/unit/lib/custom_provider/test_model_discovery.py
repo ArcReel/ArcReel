@@ -33,11 +33,6 @@ def _recorded_genai_clients(models: list[Any] | None = None) -> Generator[list[d
         yield created
 
 
-# ---------------------------------------------------------------------------
-# infer_endpoint smoke check（主体已在 test_custom_provider_endpoints.py 覆盖）
-# ---------------------------------------------------------------------------
-
-
 class TestInferEndpointSmoke:
     """轻量 smoke check：确认 infer_endpoint 仍可从 endpoints 模块导入并返回合理值。"""
 
@@ -54,7 +49,6 @@ class TestInferEndpointSmoke:
     def test_video_model(self):
         from lib.custom_provider.endpoints import infer_endpoint
 
-        # 可灵视频收敛到原生 kling-video（视频 family 含 kling，不再默认落 openai-video）
         assert infer_endpoint("kling-v2", "openai") == "kling-video-silent"
         assert infer_endpoint("sora-2", "openai") == "openai-video"
 
@@ -321,7 +315,7 @@ class TestDiscoverModelsGoogle:
         by_id = {m["model_id"]: m for m in result}
         assert by_id["gemini-3-flash"]["endpoint"] == "gemini-generate"
         assert by_id["gemini-3-flash-image-preview"]["endpoint"] == "gemini-image"
-        assert by_id["veo-3"]["endpoint"] == "gemini-video"  # google 发现协议下的 Veo 走原生端点
+        assert by_id["veo-3"]["endpoint"] == "gemini-video"
 
     @patch("lib.custom_provider.discovery.genai")
     async def test_default_marking_google(self, mock_genai):
@@ -431,7 +425,6 @@ class TestDiscoverModelsAnthropic:
         from lib.custom_provider.discovery import discover_models
 
         with capture_http() as http:
-            # 归一到调用根后在 path 上追加 /v1/models，子路径保留
             route = http.get("https://example.com/anthropic/v1/models").respond(
                 json={
                     "data": [

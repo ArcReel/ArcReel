@@ -118,7 +118,6 @@ describe("新旧分法的对照", () => {
   });
 
   it("只标出分界不同处，落在空白里的分界与紧随其后的分界视为同一处", () => {
-    // 新方案在 21（换行之后）切开，与第 3 集的开头 20 是同一处；25 是新方案独有的分界，30 是现有分集独有的
     const compare = replanCompare(view, summary([draft(10, 21), draft(21, 25), draft(25, 40)], { complete: true }))!;
 
     expect(compare.diffs(0)).toEqual([25, 30]);
@@ -128,7 +127,6 @@ describe("新旧分法的对照", () => {
   it("生成中只比到方案的结尾，起点本身不算分界不同", () => {
     const compare = replanCompare(view, summary([draft(10, 25)]))!;
 
-    // 第 3 集的开头是换行，标在换行之后的第一个字上
     expect(compare.diffs(0)).toEqual([21]);
   });
 

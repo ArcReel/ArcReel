@@ -207,7 +207,7 @@ def test_preloaded_scripts_skips_manager_load():
         "scripts/episode_1.json": {"segments": []},
         "scripts/episode_2.json": {"segments": [{"generated_assets": {"video_thumbnail": "thumbnails/E2.jpg"}}]},
     }
-    mgr = _mk_manager({})  # 空 map：若 cover 不走预加载，会全部 FileNotFoundError
+    mgr = _mk_manager({})
     url = resolve_project_cover(mgr, "proj", project, preloaded_scripts=preloaded)
     assert url == "/api/v1/files/proj/thumbnails/E2.jpg"
     mgr.load_script.assert_not_called()
@@ -224,13 +224,11 @@ def test_preloaded_scripts_falls_back_to_manager_for_missing_entries():
     preloaded = {
         "scripts/episode_1.json": {"segments": []},
     }
-    # manager 仅提供 episode_2：模拟"1 集已预加载，2 集需回源"。
     mgr = _mk_manager(
         {"scripts/episode_2.json": {"segments": [{"generated_assets": {"video_thumbnail": "thumbnails/E2.jpg"}}]}}
     )
     url = resolve_project_cover(mgr, "proj", project, preloaded_scripts=preloaded)
     assert url == "/api/v1/files/proj/thumbnails/E2.jpg"
-    # 预加载命中 episode_1：不应触发其 load_script；episode_2 missing from preload：回源一次。
     called_files = {call.args[1] for call in mgr.load_script.call_args_list}
     assert called_files == {"scripts/episode_2.json"}
 

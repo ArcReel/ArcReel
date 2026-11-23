@@ -47,14 +47,11 @@ class TestUnexpectedErrorsDoNotLeak:
     """
 
     def _body(self, resp):
-        # detail 在普通端点是 json["detail"]，import 端点用 JSONResponse 同样有 detail；
-        # 这里直接断言整段原始文本，覆盖 detail / errors / warnings 任意字段都不泄露。
         return resp.text
 
     def test_create_project_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_create_project"
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
-        # _sync 里最早命中 get_project_manager()，RuntimeError 绕过 ValueError/HTTPException 分支
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.post(
@@ -151,7 +148,6 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_update_episode_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_update_episode"
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
-        # title 非空校验在 try 前；_sync 里最早命中 get_project_manager()
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
             resp = client.patch("/api/v1/projects/ready/episodes/1", json={"title": "新标题"})
@@ -163,7 +159,6 @@ class TestUnexpectedErrorsDoNotLeak:
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:
-            # content 走 multipart form；get_project_manager() 在 try 内最早被调用
             resp = client.post(
                 "/api/v1/projects/ready/source",
                 data={"content": "正文", "generate_overview": "false"},
@@ -172,8 +167,6 @@ class TestUnexpectedErrorsDoNotLeak:
             assert sentinel not in self._body(resp)
 
     def test_set_project_source_overview_error_does_not_leak_path(self, tmp_path, monkeypatch):
-        # 概览生成是上传的可选后续：失败时上传仍成功（200），错误只降级回传 overview_error。
-        # 底层异常文本可能携带服务器绝对路径，该分支不得把裸 str(e) 透传给客户端。
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post(
@@ -184,8 +177,6 @@ class TestUnexpectedErrorsDoNotLeak:
             payload = resp.json()
             assert payload["success"] is True
             assert payload["overview"] is None
-            # 上传成功后合法回传的 filename 是 novel.txt，不在泄漏范畴；
-            # 泄漏关注的是异常文本携带的服务器绝对路径片段。
             assert "/Users" not in resp.text
             assert "/var" not in resp.text
             assert "/secret/" not in resp.text
@@ -213,8 +204,6 @@ class TestUnexpectedErrorsDoNotLeak:
             assert sentinel not in self._body(resp)
 
     def test_generate_overview_corrupted_project_maps_to_500_not_provider_error(self, tmp_path, monkeypatch):
-        # JSONDecodeError 是 ValueError 子类：损坏的 project.json 不能被 except ValueError
-        # 误判为「未配置文本供应商」，须先于其拦截并映射为通用 500
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/corrupted/generate-overview")
@@ -222,8 +211,6 @@ class TestUnexpectedErrorsDoNotLeak:
             assert "配置文本供应商" not in self._body(resp)
 
     def test_generate_overview_model_not_in_catalog_asks_to_reselect(self, tmp_path, monkeypatch):
-        # 项目引用的文本模型已不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400，
-        # 不被通用 ValueError 处理误判为「未配置文本供应商」
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/retired-model/generate-overview", headers={"Accept-Language": "en"})
@@ -233,8 +220,6 @@ class TestUnexpectedErrorsDoNotLeak:
             assert "re-select a model" in detail
 
     def test_generate_overview_schema_failure_maps_to_ai_response_invalid(self, tmp_path, monkeypatch):
-        # pydantic ValidationError 也是 ValueError 子类：模型输出不合 schema 时须命中
-        # 「AI 响应无效」专属分支，不能被通用 ValueError 处理误判为「未配置文本供应商」
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/bad-schema/generate-overview")
@@ -244,8 +229,6 @@ class TestUnexpectedErrorsDoNotLeak:
     async def test_generate_overview_truncated_maps_to_truncation_problem(
         self, tmp_path, monkeypatch, db_factory, set_error_handler_sessions
     ):
-        # 输出被截断是可操作的终局错误（缩小范围或换模型），不能落进兜底的通用 500；
-        # diagnostic 复用 text_output_truncated 问题票的形状，前端据此给出登记输出长度或换模型的出路
         async with db_factory() as session:
             for provider_id, name in ((3, "My Text Model"), (4, "Other Text Model")):
                 session.add(
@@ -275,8 +258,6 @@ class TestUnexpectedErrorsDoNotLeak:
             assert body["diagnostic"]["params"] == {"provider_id": "custom-3", "model": "my-llm", "custom_model": True}
 
     def test_generate_overview_invalid_project_name_maps_to_400_not_provider_error(self, tmp_path, monkeypatch):
-        # get_project_path 抛出的非法项目名 ValueError（路径穿越等）不能被 generate_overview()
-        # 内部供应商解析链路的 except ValueError 误判为「未配置文本供应商」
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
         with client:
             resp = client.post("/api/v1/projects/illegal-name/generate-overview")
@@ -296,8 +277,6 @@ class TestUnexpectedErrorsDoNotLeak:
     def test_create_export_token_unexpected_error_maps_to_500(self, tmp_path, monkeypatch):
         sentinel = "LEAKED_SECRET_export_token"
         client = build_projects_client(monkeypatch, _FakePM(tmp_path))
-        # scope 合法（默认 full）；_sync 里最早命中 get_project_manager()。
-        # 归档服务改由依赖覆盖给出，免得同一个哨兵在依赖解析期就抛、绕过处理器兜底。
         override(client, projects.get_archive_service, lambda: _raising_service(sentinel))
         monkeypatch.setattr(projects, "get_project_manager", _raise(sentinel))
         with client:

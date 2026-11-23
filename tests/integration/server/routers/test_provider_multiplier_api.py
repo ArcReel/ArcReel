@@ -31,7 +31,6 @@ def multiplier_client(db_factory: async_sessionmaker[AsyncSession]) -> Generator
 
 
 def test_builtin_multiplier_defaults_set_and_reset(multiplier_client: TestClient) -> None:
-    # 订阅制的 ark-agent-plan 默认 0，其余默认 1
     assert multiplier_client.get("/api/v1/providers/ark-agent-plan/multiplier").json() == {
         "multiplier": 0.0,
         "default": 0.0,
@@ -71,7 +70,6 @@ async def test_custom_provider_multiplier_requires_existing_provider_and_valid_v
 
 @pytest.mark.parametrize("value", ["0.5", "-1", None])
 def test_generic_config_patch_rejects_multiplier_key(multiplier_client: TestClient, value: str | None) -> None:
-    # 倍率只经专用接口修改：通用配置接口不论取值合法与否都拒绝，已设置的倍率不变
     multiplier_client.put("/api/v1/providers/openai/multiplier", json={"multiplier": 0.8})
 
     resp = multiplier_client.patch("/api/v1/providers/openai/config", json={"price_multiplier": value})

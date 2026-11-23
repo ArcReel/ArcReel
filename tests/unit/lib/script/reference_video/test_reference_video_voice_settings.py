@@ -46,7 +46,7 @@ def test_from_caps_degrades_to_soft_on_unresolvable_capabilities():
     [
         ("none", True, True),
         ("native", False, True),
-        ("soft", False, True),  # 软约束档同样受本集开关支配
+        ("soft", False, True),
         ("none", False, True),
         ("native", True, False),
         ("soft", True, False),

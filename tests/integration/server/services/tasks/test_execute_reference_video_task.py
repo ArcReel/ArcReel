@@ -281,7 +281,6 @@ async def test_execute_reference_video_task_passes_planned_duration_when_endpoin
 
     assert result["resource_id"] == "E1U1"
     assert fake_generator.generate_video_async.await_args.kwargs["duration_seconds"] == 3
-    # 产物时效事实要求档位集非空且含付费档；端点固定时长下唯一档位就是那次透传的秒数。
     checkpoint = ReferenceSubmissionCheckpoint.from_json(persisted["raw"])
     assert checkpoint.duration_seconds == 3
     assert checkpoint.artifact_duration_tiers == (3,)
@@ -552,11 +551,9 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
     await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
 
     prompt = captured["prompt"]
-    # speaker 首现顺序 = 音频编号 = 请求字段顺序（李四先开口，尽管张三先入画）
     assert "<李四>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。" in prompt
     assert "<张三>的台词音色参考 @音频2，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。" in prompt
     assert [p.name for p in captured["reference_audio_files"]] == ["李四.mp3", "张三.wav"]
-    # speaker 位不产生参考图：李四没有 @图片N 绑定
     assert "<张三>@图片1。" in prompt
     assert "<李四>@图片" not in prompt
 
@@ -654,7 +651,6 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
     assert captured["reference_audio_targets"] is None
     prompt = captured["prompt"]
     assert "@音频" not in prompt
-    # 台词与参考图绑定照常，只有音色参考行消失
     assert "<张三>说 {今晚的酒，我请。}" in prompt
     assert "<张三>@图片1。" in prompt
     assert {"key": "ref_warn_silent_episode", "params": {}} in result["warnings"]
@@ -790,8 +786,6 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    # 场景先于张三被提及：图片顺序是酒馆（下标0）、张三（下标1）——
-    # 音频顺序（李四先开口→张三）与图片顺序不同序，位置对齐会把音频错挂到酒馆图上。
     script["video_units"][0]["text"] = (
         "@[酒馆] 内景。@[张三] 推门而入。\n@[李四]：{你终于来了。}\n@[张三]：{今晚的酒，我请。}"
     )
@@ -835,9 +829,7 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
 
     await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
 
-    # 李四没有参考图（纯画外），降级不绑定：只剩张三一段音频
     assert [p.name for p in captured["reference_audio_files"]] == ["张三.wav"]
-    # 引用顺序即正文首次提及顺序：酒馆在下标 0、张三在下标 1，音频按名字挂到张三那张图上。
     assert captured["reference_audio_targets"] == [1]
 
 
@@ -1075,7 +1067,6 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
 
     from server.services.tasks import reference_video_tasks as rvt
 
-    # locked_script 用真实 contextmanager 回写到 live_script，供断言读取
     live_script = json.loads(script_path.read_text(encoding="utf-8"))
 
     @contextmanager
@@ -1379,7 +1370,6 @@ async def test_execute_reference_video_task_rechecks_formal_sheet_claim_before_p
     provider_submissions: list[str] = []
 
     async def _fake_generate_video_async(**kwargs):
-        # 模拟另一处并发撤掉认领：在工作线程里改清单，不占事件循环
         await asyncio.to_thread(
             lambda: ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.asset_sheet("character", "张三"))
         )
@@ -1496,7 +1486,6 @@ async def test_execute_reference_video_task_rejects_a_replaced_sheet_before_prov
     provider_submissions: list[str] = []
 
     async def _fake_generate_video_async(**kwargs):
-        # 模拟另一处并发替换设定图：在工作线程里写盘，不占事件循环
         await asyncio.to_thread((proj_dir / "characters" / "张三.png").write_bytes, b"replacement-sheet")
         await kwargs["before_submit"]()
         provider_submissions.append("submitted")
@@ -1605,10 +1594,6 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     _wire_locked_script(fake_pm)
     use_project_manager(monkeypatch, fake_pm)
 
-    # 只 mock 最外层：VideoBackend（唯一的真外部依赖）+ Ledger/ConfigResolver
-    # （这俩摸 DB，测试无 DB）。VersionManager 用真实实现 —— 这样 VersionManager
-    # 自己的白名单（RESOURCE_TYPES / EXTENSIONS）也被这条路径守住，
-    # 任何一处三张注册表漏登记都会在此爆 ValueError。
     captured_requests: list = []
 
     class _FakeVideoBackend:
@@ -1644,7 +1629,6 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
             yield _Call()
 
-    # object.__new__ 绕过 MediaGenerator.__init__（避开 __init__ 里的 Ledger 对 DB 的初始化）
     real_gen = object.__new__(MediaGenerator)
     real_gen.project_path = proj_dir
     real_gen.project_name = "demo"
@@ -1678,7 +1662,6 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
     assert (proj_dir / "reference_videos" / "E1U1.mp4").exists()
     assert result["file_path"] == "reference_videos/E1U1.mp4"
     assert result["video_uri"] == "uri-x"
-    # 真实 VersionManager 闭环：版本文件落入 versions/reference_videos/
     version_dir = proj_dir / "versions" / "reference_videos"
     assert version_dir.exists()
     assert any(p.suffix == ".mp4" for p in version_dir.iterdir())
@@ -1728,11 +1711,8 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
         {"script_file": "scripts/episode_1.json"},
         user_id="u1",
     )
-    # 单次调用：R2V 层不做二次压缩重试
     assert call_count["n"] == 1
     assert result["resource_id"] == "E1U1"
-    # 传给咽喉层的恰是源 sheet 路径（项目目录内真实文件），而非临时压缩副本——
-    # 压缩已下沉到 MediaGenerator 咽喉层
     refs = [Path(p).resolve() for p in captured["reference_images"]]  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
     assert refs == [
         (proj_dir / "characters" / "张三.png").resolve(),
@@ -1773,7 +1753,6 @@ async def test_execute_reference_video_task_rejects_duration_above_lane_maximum(
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    # lane 喂入假 caps —— 模拟 "supported_durations=[2,4,6]", max_reference_images=2 的 custom model
     _wire_context(
         monkeypatch,
         rvt,
@@ -1823,7 +1802,6 @@ async def test_execute_reference_video_task_prompt_matches_full_refs(
 
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    # 时长取 sora supported_durations 成员（4），避免触发执行层 duration 能力守卫；本测试聚焦参考图与图号对齐。
     script["video_units"][0]["text"] = "Shot 1 (4s): @张三 在 @酒馆 拿起 @瓶子"
     script["video_units"][0]["duration_seconds"] = 4
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
@@ -1875,7 +1853,6 @@ async def test_execute_reference_video_task_prompt_matches_full_refs(
     assert "@图片1" in prompt
     assert "@图片2" in prompt
     assert "@图片3" in prompt
-    # @酒馆 / @瓶子 是画面主体（<X> 与图号解耦），且都有绑定行
     assert "<酒馆>" in prompt
     assert "<瓶子>" in prompt
     assert "<酒馆>@图片" in prompt
@@ -1957,7 +1934,6 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-17T10:00:00"}]}
-    # max_refs=None：不限参考图数量，去重本身是本测试唯一验证的效应。
     _wire_context(
         monkeypatch,
         rvt,
@@ -1980,7 +1956,6 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
         user_id="u1",
     )
 
-    # 3 条 references（含一对 NFC/NFD 重复）去重后只剩 2 张图，图号必须与之对齐
     assert len(captured["reference_images"]) == 2
     prompt = captured["prompt"]
     assert "@图片1" in prompt
@@ -2004,7 +1979,6 @@ async def test_execute_reference_video_task_requests_planned_tier_regardless_of_
     project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     script_path = proj_dir / "scripts" / "episode_1.json"
     script = json.loads(script_path.read_text(encoding="utf-8"))
-    # 5 不是 [4,8,12] 成员 → 按 8 秒申请；9.5 秒的旁白配音不抬高档位
     script["video_units"][0]["text"] = "镜头1：海面\n{旁白正文。}"
     script["video_units"][0]["duration_seconds"] = 5
     script["video_units"][0].setdefault("generated_assets", {})["narration_audio"] = "audio/segment_E1U1.wav"
@@ -2214,8 +2188,6 @@ async def test_execute_reference_video_task_persists_execution_identity(
 
     fake_generator = MagicMock()
     fake_generator.generate_video_async = AsyncMock(side_effect=_fake_generate_video_async)
-    # 族别名场景：registry provider_id 与 backend_name 不同，写回的必须是 registry 身份
-    # （provider_id 列的既有口径，claim 池过滤与 resume 锁定都按它查）。
     _wire_context(
         monkeypatch,
         rvt,
@@ -2328,7 +2300,6 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     monkeypatch.setattr(rvt, "get_generation_queue", lambda: fake_queue)
     use_video_thumbnail_extractor(monkeypatch, AsyncMock(return_value=False))
 
-    # 基线：源文件未改时提交的视觉依据摘要，即改写前的现摘要所依据的字节。
     await rvt.execute_reference_video_task(
         "demo", "E1U1", {}, script_file="scripts/episode_1.json", user_id="u1", task_id="task-baseline"
     )
@@ -2351,7 +2322,6 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
 
     assert events == ["checkpoint", "provider_submit"]
     assert result["resource_id"] == "E1U1"
-    # 现摘要与暂存之间被改写的源文件：提交的摘要绑定暂存下来的改写后字节，而不是改写前的现摘要。
     assert submitted_visual_bases["task-submit"] != submitted_visual_bases["task-baseline"]
     checkpoint = ReferenceSubmissionCheckpoint.from_json(persisted["raw"])
     assert persisted["task_id"] == "task-submit"
@@ -2364,7 +2334,6 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     assert checkpoint.prompt == submitted["prompt"]
     assert [media.role for media in checkpoint.media] == ["reference_image", "reference_image"]
     assert all(media.source_locator != "audio/segment_E1U1.wav" for media in checkpoint.media)
-    # 使用记录按映射把暂存参考图还原为来源，暂存目录随任务清理后记录仍能打开
     sources = submitted["reference_sources"]
     assert [sources[str(path)] for path in submitted["reference_images"]] == [
         proj_dir / media.source_locator for media in checkpoint.media
@@ -2522,7 +2491,6 @@ async def test_selected_provider_assets_reach_request_and_checkpoint_without_cha
         "demo", "E1U1", {}, script_file="scripts/episode_1.json", user_id="u1", task_id="task-asset"
     )
 
-    # 选择按实发字节：来源路径与暂存摘要，按提示词里的图片顺序。
     assert [(s.locator, s.name) for s in seen_sources[-1]] == [
         ("characters/张三.png", "张三"),
         ("scenes/酒馆.png", "酒馆"),
@@ -2542,7 +2510,6 @@ async def test_selected_provider_assets_reach_request_and_checkpoint_without_cha
     ]
     assert plain.provider_asset_references == ()
     assert asset.request_digest != plain.request_digest
-    # 传输形式不进产物依据：同样的内容以素材引用发出，复用与时效判定不变。
     assert asset.artifact_currency is not None
     assert plain.artifact_currency is not None
     assert asset.artifact_currency.video_basis == plain.artifact_currency.video_basis

@@ -49,7 +49,6 @@ async def test_resolution_drives_the_gate(resolution: str | None):
 
 
 async def test_resolution_failure_blocks_large_grid():
-    # 解析不出图像供应商时按未配置处理：门控是收紧方向，不放行大宫格
     resolver = _FakeResolver(raises=True)
     resolved = await resolve_image_resolution(_as_resolver(resolver), {})
     assert resolved is None
@@ -59,7 +58,7 @@ async def test_resolution_failure_blocks_large_grid():
 @pytest.mark.parametrize(
     ("provider_id", "model_id", "expected"),
     [
-        ("vidu", "viduq1", None),  # 目录只声明 1080p：不发保底档，交上游默认
+        ("vidu", "viduq1", None),
         ("vidu", "viduq2", GRID_FALLBACK_RESOLUTION),
         ("ark", "doubao-seedream-4-5", GRID_FALLBACK_RESOLUTION),
         ("custom-1", "any-model", GRID_FALLBACK_RESOLUTION),

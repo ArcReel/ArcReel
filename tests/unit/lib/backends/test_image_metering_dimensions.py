@@ -77,7 +77,6 @@ async def test_every_listed_image_model_reports_all_price_dimensions(
         entry = catalog.provider_model_entry(provider, model, "image")
         assert entry is not None
         spec = builtin_model_spec(provider, "image", model)
-        # 文生图逐档覆盖；图生图用标准档，避免百炼仅文生图可用的高像素预算。
         sizes = info.resolutions or ["1K"]
         for size in ["1K" if "1K" in sizes else sizes[0]] if with_reference else sizes:
             facts = ImageRequestFacts(
@@ -91,7 +90,6 @@ async def test_every_listed_image_model_reports_all_price_dimensions(
                 capture_http() as router,
                 bounded_poll_clock(),
             ):
-                # 每个协议都通过它自己的解析器，HTTP 响应只在传输边界替代。
                 if provider == "dashscope":
                     response = {
                         "output": {"choices": [{"message": {"content": [{"image": "https://cdn.test/image.png"}]}}]}

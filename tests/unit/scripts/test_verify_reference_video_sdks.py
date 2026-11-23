@@ -126,7 +126,6 @@ class _FakeBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         type(self)._calls.append(request)
-        # 模拟落盘：写入非空 dummy 字节，让 run_once 的落盘校验通过
         await write_backend_output(request.output_path, b"\x00fake-video-payload")
         return VideoGenerationResult(
             video_path=request.output_path,
@@ -336,7 +335,6 @@ async def test_run_with_backend_appends_existing_rows(tmp_path: Path, monkeypatc
         report_dir=report_dir,
         work_dir=work_dir,
     )
-    # 第二次跑（同一天，会追加）
     await mod.run_with_backend(
         provider=mod.Provider.GROK,
         refs=3,

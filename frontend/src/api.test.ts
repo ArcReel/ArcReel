@@ -103,8 +103,6 @@ describe("API", () => {
     });
 
     it("surfaces the product-language summary and keeps technical detail in a separate diagnostic", async () => {
-      // 校验失败的错误反馈：使用者读到的是产品语言摘要，字段名 / schema 只挂在
-      // diagnostic 上，不拼进 message——拼进去就等于把技术细节推给使用者。
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({
           ok: false,
@@ -140,8 +138,6 @@ describe("API", () => {
     });
 
     it("keeps the backend message of a structured error envelope", async () => {
-      // 结构化错误信封带 code 等字段，只按字符串取字会把已翻译的说明整段丢掉，
-      // 用户只看到一句「请求失败」。
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({
           ok: false,
@@ -329,7 +325,6 @@ describe("API", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
       const clearTokenMock = vi.spyOn(await import("@/utils/auth"), "clearToken");
-      // /app（无尾斜杠）不属于 /app/ 受保护页面，重定向不应附带 from。
       const location = { href: "", pathname: "/app", search: "", hash: "" };
       vi.stubGlobal("location", location);
 
@@ -363,7 +358,6 @@ describe("API", () => {
         resolution: "1080p",
         usesReferenceImages: true,
       });
-      // null 分辨率 = 表单里显式选了「自动」，发空串让服务端不回退到已保存档位
       await API.getVideoCapabilities("demo", { resolution: null, usesReferenceImages: false });
       await API.getModelVideoCapabilities("ark/seedance");
       await API.getModelVideoCapabilities("ark/seedance", { resolution: "720p" });
@@ -792,7 +786,6 @@ describe("API", () => {
         method: "PUT",
         body: JSON.stringify(content),
       });
-      // 基线指纹经 query 传递（编码后），供服务端做并发编辑冲突比对
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/a%20b/episodes/2/script-review/content?base_fingerprint=fp%201",
         {
@@ -1406,8 +1399,6 @@ describe("API", () => {
       expect(fake.connections).toHaveLength(2);
       expect(fake.latest.headers.get("Last-Event-ID")).toBe("5");
 
-      // 凭证失效：与普通请求一致，清 token 并回登录页，不再重连。
-      // 第二条连接没送到事件就断流，退避涨到 2s（只有收到事件才归零）。
       fake.latest.end();
       await flushStream();
       await vi.advanceTimersByTimeAsync(2000);
@@ -1669,7 +1660,6 @@ describe("uploadFile (source) onConflict", () => {
     (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       new Response(JSON.stringify({ detail: {} }), { status: 409 }),
     );
-    // 避免前端手搓 suggested_name 冒充后端语义：detail 不完整时应直接报协议异常
     const call = API.uploadFile("p", "source", new File(["x"], "a.txt"));
     await expect(call).rejects.not.toBeInstanceOf(ConflictError);
     await expect(call).rejects.toThrow("a.txt");
@@ -1816,7 +1806,6 @@ describe("character derivative endpoints", () => {
     await API.getVersions("demo", "character_derivatives", "阿岚/战斗装");
     await API.restoreVersion("demo", "character_derivatives", "阿岚/战斗装", 2);
 
-    // 衍生的 resource id 是 `本体/衍生`，整体编码进单段路径会被后端当成一个名字。
     expect(fetchMock.mock.calls[0][0]).toBe(
       "/api/v1/projects/demo/versions/character-derivative/%E9%98%BF%E5%B2%9A/%E6%88%98%E6%96%97%E8%A3%85",
     );

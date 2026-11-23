@@ -142,7 +142,6 @@ class TestLoadScriptMigration:
         assert loaded["video_units"][0]["shots"] == [{"text": "镜头1"}, {"text": "镜头2"}]
         assert loaded["video_units"][0]["duration_seconds"] == 8
 
-        # 迁移结果落盘：二次加载读到的已是新格式，不再触发改写
         on_disk = json.loads(script_path.read_text(encoding="utf-8"))
         assert "duration" not in on_disk["video_units"][0]["shots"][0]
         assert "duration_override" not in on_disk["video_units"][0]

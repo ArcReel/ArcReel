@@ -1,4 +1,3 @@
-// 溢出探针：找出「内容溢出但用户够不到」的元素，以及没有声明却出现的横向滚动。
 // inspectLayout 经 page.evaluate 序列化到浏览器里执行，函数体必须自包含：
 // 不引用模块级变量，辅助函数全部写在函数内部。
 
@@ -7,7 +6,6 @@ export interface ClippedOverflow {
   axis: "x" | "y" | "xy";
   client: { width: number; height: number };
   scroll: { width: number; height: number };
-  /** 越出裁切框的最深后代，用于定位真正撑大内容的元素。 */
   culprit: string | null;
 }
 
@@ -15,7 +13,6 @@ export interface StrayScrollX {
   path: string;
   client: { width: number };
   scroll: { width: number };
-  /** 越出右缘的最深后代，用于定位真正撑宽内容的元素。 */
   culprit: string | null;
 }
 
@@ -34,10 +31,8 @@ export interface LayoutReport {
 }
 
 export function inspectLayout(): LayoutReport {
-  // 布局取整误差。
   const TOLERANCE = 1;
   const CLIPPING = new Set(["hidden", "clip"]);
-  // 豁免必须写明原因：空值不算豁免。
   const EXEMPT = '[data-overflow-ok]:not([data-overflow-ok=""])';
   const SCROLLING = new Set(["auto", "scroll"]);
   const SCROLL_X_CLASS = /^(?:[\w-]+:)*overflow-(?:x-)?(?:auto|scroll)$/;
@@ -120,7 +115,6 @@ export function inspectLayout(): LayoutReport {
     const overY = clipY && el.scrollHeight - el.clientHeight > TOLERANCE;
     if (!overX && !overY) continue;
     if (overX && !overY && style.textOverflow === "ellipsis") continue;
-    // 单行输入框的长值随光标横向滚动，键盘与指针都能到达。
     if (overX && !overY && el instanceof HTMLInputElement) continue;
     const lineClamp = style.getPropertyValue("-webkit-line-clamp");
     if (overY && !overX && lineClamp !== "" && lineClamp !== "none") continue;

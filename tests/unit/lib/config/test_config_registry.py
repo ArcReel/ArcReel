@@ -50,7 +50,6 @@ def test_secret_keys_are_subset_of_required_or_optional():
             assert sk in all_keys, f"{name}: secret key {sk} not in all keys"
 
 
-# 媒体 lane → 并发上限可选键：凡 provider 在目录里的模型覆盖某条 lane，设置页就应能配该 lane 的并发。
 _LANE_WORKER_KEY = {
     "image": "image_max_workers",
     "video": "video_max_workers",
@@ -198,7 +197,6 @@ class TestDefaultConcurrency:
         assert meta.default_concurrency == {"video": 1, "image": 5}
 
     def test_lane_the_provider_does_not_cover_is_allowed(self):
-        # 声明合法 lane 名即便该 provider 的模型不覆盖该 media_type 也无害（投影期再归零），不报错
         meta = ProviderMeta(display_name="T", required_keys=[], default_concurrency={"image": 2})
         assert meta.default_concurrency == {"image": 2}
 
@@ -210,8 +208,6 @@ class TestDefaultConcurrency:
                 default_concurrency={"vidoe": 1},
             )
 
-    # True 是 int 子类、值等于 1，须显式拦截，否则配置笔误 default_concurrency={"video": True}
-    # 会被静默当成并发 1。
     @pytest.mark.parametrize("bad_limit", [0, -1, "1", 3.0, True])
     def test_non_positive_int_raises(self, bad_limit):
         with pytest.raises(ValueError, match=">=1 的整数"):
@@ -223,7 +219,6 @@ class TestDefaultConcurrency:
 
 
 def test_dashscope_declares_wan3_base_url_key():
-    # wan3 专用 maas 域名单列一键：并进通用 base_url 会让其余型号也跟着改域名
     meta = PROVIDER_REGISTRY["dashscope"]
     assert "wan3_base_url" in meta.optional_keys
     assert "base_url" in meta.optional_keys

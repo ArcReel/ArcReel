@@ -51,7 +51,6 @@ async def sheet_client(
                     "model_id": "text-image",
                     "display_name": "Text image",
                     "endpoint": "openai-images-generations",
-                    # 按条目计价：万相 2.7 图片每张 0.2 CNY，只按出图张数计费
                     "entry_binding": "alibaba/wan2.7-image",
                 },
                 {

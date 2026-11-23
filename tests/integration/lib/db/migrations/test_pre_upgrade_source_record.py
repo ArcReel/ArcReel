@@ -37,9 +37,7 @@ pytestmark = pytest.mark.uses_db
 
 _ROOT = Path(__file__).resolve().parents[5]
 
-#: 0.34.0 与 0.35.0 库里的 alembic revision。
 REVISION_0_34_0_35 = "b5d1e8f3a627"
-#: 0.34.0 与 0.35.0 出厂快照里 Ark 的图片默认模型。
 ARK_IMAGE_0_35 = "doubao-seedream-5-0-lite-260128"
 _FAILING = "test_source_write_fails"
 
@@ -259,7 +257,6 @@ async def test_a_failed_source_insert_in_the_settings_step_can_be_retried(
     finally:
         event.remove(Engine, "before_cursor_execute", fail_source_insert)
 
-    # PG 回滚整个建表步；SQLite 的表已经落盘，revision 必须一起保留。
     stopped = older if database.postgres else settings_revision
     assert await _revision(database) == stopped
     await init_db()

@@ -5,7 +5,6 @@ import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 const EDIT_PATH = "/app/projects/demo/episodes/1?view=edit";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -151,12 +150,10 @@ function finalCut(status: "current" | "stale" | "missing", narration = "without_
 
 const NO_TASKS = { status: 200, body: { items: [], total: 0, page: 1, page_size: 20 } };
 const TIMELINE_BASE = `/api/v1/projects/demo/edit-timelines/${TIMELINE_ID}`;
-// 播放器装载当前片段的源视频，开始播放后再预载下一段；套件不回放媒体文件，按不存在处理。
 const videoMissing = (index: number) => ({
   [`GET /api/v1/files/demo/videos/scene_${unit(index)}.mp4?v=1`]: { status: 404, body: { detail: "页面级套件不回放媒体" } },
 });
 
-// 片段按视频单元在本集的当前位置指称：剧本放进时间线用到的 36 个与未使用的 30 个。
 const project: RecordedProject = {
   ...recordedProject,
   scripts: {
@@ -200,7 +197,6 @@ const TIMELINE: ApiOverrides = {
   "GET /api/v1/tasks?project_name=demo&status=queued&task_type=render_jianying_draft": NO_TASKS,
 };
 
-// TTS 配音项目：出片对话框多出旁白版本，剪映草稿时最高。
 const TTS_TIMELINE: ApiOverrides = {
   ...TIMELINE,
   "GET /api/v1/projects/demo": {
@@ -307,7 +303,6 @@ defineRegionScenarios("剪辑视图", [
     ready: timelineReady,
     act: async (page) => {
       await openRenderDialog(page);
-      // 原生单选框藏在卡片里，点卡片上的名称
       await renderDialog(page).getByText("剪映草稿", { exact: true }).click();
       await expect(renderDialog(page).getByRole("radiogroup", { name: "剪映版本" })).toBeVisible();
       await expect(renderDialog(page).getByRole("radiogroup", { name: "旁白版本" })).toBeVisible();

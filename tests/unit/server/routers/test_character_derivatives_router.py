@@ -17,7 +17,6 @@ from tests.fakes import FakeProjectAssetMutationMixin
 
 class _FakePM(FakeProjectAssetMutationMixin):
     def __init__(self, project_dir: Path):
-        # 删除路径要清理衍生的图、版本与清单条目，因此假替身也要给出一个真实项目目录。
         self.project_dir = project_dir
         self.projects = {
             "demo": {
@@ -139,7 +138,6 @@ class TestCharacterDerivativesRouter:
         assert created.status_code == 422, created.text
         assert "战斗装" in created.json()["detail"]
         assert "phái sinh" in created.json()["detail"]
-        # 改名到自身的等价形式不算重名：strip + NFC 后与原键指向同一条目。
         assert renamed.status_code == 200, renamed.text
         assert list(_derivatives(pm)) == ["战斗装"]
         assert _derivatives(pm)["战斗装"]["description"] == "重甲"
@@ -221,7 +219,6 @@ class TestCharacterDerivativesRouter:
                 json={"name": "老陈", "description": "老人", "derivatives": {"伪装": {"description": "x"}}},
             )
         assert response.status_code == 200, response.text
-        # 创建请求体里的衍生表不落盘：衍生只经衍生子资源登记。
         assert response.json()["character"]["derivatives"] == {}
         assert pm.projects["demo"]["characters"]["老陈"]["derivatives"] == {}
 
@@ -269,7 +266,6 @@ class TestCharacterDerivativesPersistence:
                 json={"name": "战斗装", "description": "另一套"},
             )
             assert rejected.status_code == 422, rejected.text
-            # 被拒的写入整体不落盘：mutation 在项目锁内抛出，project.json 一个字节都没改。
             unchanged = json.loads((pm.get_project_path("demo") / "project.json").read_text(encoding="utf-8"))
             assert unchanged["characters"]["阿岚"]["derivatives"]["战斗装"]["description"] == "换上黑色重甲"
 

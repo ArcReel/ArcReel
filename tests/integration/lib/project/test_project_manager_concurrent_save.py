@@ -87,7 +87,6 @@ class TestSaveScriptConcurrency:
         original_record = project_trash.record_deletion
 
         def guarded_record(project_dir: Path, obj, files, **kwargs):
-            # 旧媒体移进项目回收站时，独立写方不能取得正式剧本锁并提交新产物。
             with (
                 pytest.raises(portalocker.AlreadyLocked),
                 portalocker.Lock(script_lock, flags=portalocker.LOCK_EX | portalocker.LOCK_NB),
@@ -262,7 +261,7 @@ class TestSaveScriptConcurrency:
         pm.save_script(name, _make_script(1, payload_size=40), "episode_1.json")
 
         def _writer(i: int) -> int:
-            script = _make_script(1, payload_size=40 + (i % 7))  # 各线程 JSON 长度不同
+            script = _make_script(1, payload_size=40 + (i % 7))
             script["segments"][0]["note"] = f"writer-{i}"
             pm.save_script(name, script, "episode_1.json")
             return i
@@ -353,7 +352,6 @@ class TestLockPathAliasing:
 
         scripts_dir = pm.get_project_path(name) / "scripts"
 
-        # 分别用三种别名进入 _script_lock 并检查拿到的 lock_path 相同
         lock_paths = set()
         for alias in ["episode_1.json", "./episode_1.json", "scripts/episode_1.json"]:
             with pm._script_lock(name, alias):
@@ -362,7 +360,6 @@ class TestLockPathAliasing:
                 lock_paths.add(hidden[0].resolve())
 
         assert len(lock_paths) == 1, f"别名应共享同一锁文件，实际产生 {lock_paths}"
-        # 项目根目录不应出现 script 相关锁的逸出（防止 `./ep.json` 造成 scripts/../.ep.json.lock）
         project_dir = pm.get_project_path(name)
         strays = [
             p.name for p in project_dir.iterdir() if p.is_file() and p.name.endswith(".lock") and "episode" in p.name
@@ -423,7 +420,6 @@ class TestConcurrentReadModifyWrite:
         n = 24
         pm.save_script(name, _make_script(1, payload_size=n), "episode_1.json")
 
-        # 用 barrier 让所有线程尽量同时进入，最大化竞争窗口
         barrier = threading.Barrier(n)
 
         def _writer(i: int) -> None:
@@ -480,5 +476,4 @@ def test_loaded_json_not_extra_data_after_save_script(tmp_path: Path) -> None:
     raw = (pm.get_project_path(name) / "scripts" / "episode_1.json").read_bytes().decode("utf-8")
     json.loads(raw)
     assert raw.strip().endswith("}")
-    # 末尾不应连续两个及以上 `}` 字符（排除合法嵌套尾巴，最内层 items 数组收尾为 "]\n}"）
     assert not raw.rstrip().endswith("}}")

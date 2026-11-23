@@ -37,7 +37,6 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import add_typed_video_version
 from tests.fakes import use_project_manager
 
-# 产物清单是读取已生成产物的唯一口径，还原路径要落到真实的 v8 项目目录才有意义。
 _MINIMAL_PROJECT = {
     "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
     "title": "Demo",
@@ -884,7 +883,6 @@ class TestVersionsRouter:
             assert resp.status_code == 200, resp.text
             body = resp.json()
             assert body["file_path"] == f"grids/{grid.id}.png"
-            # 还原后联合图文件的 mtime 指纹供前端 cache-bust
             assert f"grids/{grid.id}.png" in body["asset_fingerprints"]
 
         saved = GridManager(tmp_path).get(grid.id)
@@ -893,8 +891,6 @@ class TestVersionsRouter:
         assert saved.error_message is None
         assert saved.split_at is None
         assert [c.to_dict() for c in saved.frame_chain] == frame_chain_before
-        # 冻结比例保持不变：还原换回的是历史联合图，其产出比例未随版本记录，
-        # 改写成项目当前比例会把老图按新比例裁切。与手动上传（改写为当前比例）相反。
         assert saved.video_aspect_ratio == "16:9"
         assert fake_pm.update_calls == []
 
@@ -926,8 +922,6 @@ class TestVersionsRouter:
         image_path.write_bytes(b"historical-grid")
         if record_bytes is not None:
             (grids_dir / f"{grid_id}.json").write_bytes(record_bytes)
-        # Seed a historical invalid sidecar directly. Normal Manifest writers reject
-        # two keys owning one formal path, while restore must still repair old data.
         entries = {}
         for episode in (1, 2):
             entries[ArtifactKey.episode_grid(episode, grid_id).encode()] = {
@@ -1017,7 +1011,6 @@ class TestVersionsRouter:
             resp = client.post(f"/api/v1/projects/demo/versions/grids/{grid.id}/restore/1")
 
         assert resp.status_code == 400
-        # 断言到具体文案：两道闸门各自触发，不被对方的 400 顶替
         assert expected_detail in resp.json()["detail"]
         assert (tmp_path / "grids" / f"{grid.id}.png").read_bytes() == b"original-bytes"
         saved = GridManager(tmp_path).get(grid.id)
@@ -1257,8 +1250,6 @@ class TestVersionsRouter:
             project_path,
         )
         assert relative == "characters/Alice.png"
-        # helper 经 safe_join 返回 realpath 规范化后的绝对路径（symlink 已展开），
-        # 故拿同一入参 base 的 realpath 拼接断言。
         expected = Path(os.path.realpath(project_path)) / "characters" / "Alice.png"
         assert current_file == expected
 
@@ -1507,7 +1498,6 @@ class TestVersionsRouter:
         register_error_handlers(app)
         with TestClient(app) as client:
             resp = client.post("/api/v1/projects/demo/versions/storyboards/E1S01/restore/1")
-            # transient IO 降级 + warning,主集 restore 仍 200
             assert resp.status_code == 200
             assert resp.json()["file_path"] == "storyboards/scene_E1S01.png"
         assert set(pm.calls) == {"episode_1.json", "episode_2.json"}
@@ -1553,7 +1543,6 @@ class TestVersionsRouter:
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.get("/api/v1/projects/demo/versions/characters/Alice")
             assert resp.status_code == 500
-            # 内部异常细节不得泄露给客户端，仅落服务端日志
             assert "boom" not in resp.text
 
     def test_restore_version_unexpected_error_maps_to_500(self, monkeypatch, tmp_path):
@@ -1572,6 +1561,5 @@ class TestVersionsRouter:
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.post("/api/v1/projects/demo/versions/characters/Alice/restore/1")
             assert resp.status_code == 500
-            # 内部异常细节不得泄露给客户端，仅落服务端日志
             assert "RESTORE_LEAK_SECRET" not in resp.text
             assert "boom" not in resp.json()["detail"]

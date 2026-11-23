@@ -1,6 +1,5 @@
 // 截图基线在默认预览端口上生成，页面上显示本机地址的区域只在这个端口下与基线一致。
 
-/** 预览服务的默认端口，`E2E_PORT` 可覆盖。 */
 export const DEFAULT_E2E_PORT = 4173;
 
 export function isDefaultOrigin(url: string) {

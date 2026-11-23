@@ -20,7 +20,6 @@ describe("UsageRecordsSection detail", () => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
     vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
-    // 进行中区的取数不带时间范围，只有记录表的那一次返回行。
     vi.spyOn(API, "getUsageRecords").mockImplementation(async (query) =>
       query?.since === undefined
         ? { items: [], next_cursor: null, total: 0 }
@@ -138,7 +137,6 @@ describe("UsageRecordsSection detail", () => {
 
     const valueOf = (label: string) =>
       (dialog.getByText(label, { selector: "span, button" }).closest("div") as HTMLElement).textContent?.replace(label, "");
-    // 记录里的总输入 1000 含缓存命中 600 与缓存写入 150，「输入」只剩没缓存的 250。
     expect(valueOf("输入")).toBe("250");
     expect(valueOf("缓存命中")).toBe("600");
     expect(valueOf("缓存写入")).toBe("150");

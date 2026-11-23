@@ -58,7 +58,6 @@ class _FakeAudioGenerator:
             {"text": text, "resource_id": resource_id, "voice": voice, "speed": speed, "task_id": task_id}
         )
         path = self._project_path / resource_relative_path("audio", resource_id)
-        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
         await write_backend_output(path, self._content)
         return path, 1
 
@@ -122,7 +121,6 @@ class TestExecuteCharacterVoiceSampleTask:
         assert gen.audio_calls == []
 
     async def test_resource_id_namespaced_away_from_narration_segments(self, voice_sample_env):
-        # 旁白 segment id 与角色名可能撞字面量；voice_sample_resource_id 前缀确保命名空间隔离。
         _pm, gen = voice_sample_env
         await generation_tasks.execute_character_voice_sample_task(
             "demo", "E1S01", {"prompt": "文本", "voice": "Ethan"}, task_id="task-1"
@@ -131,8 +129,6 @@ class TestExecuteCharacterVoiceSampleTask:
         assert gen.audio_calls[0]["resource_id"] != "E1S01"
 
     async def test_distinct_tasks_get_distinct_files(self, voice_sample_env):
-        # 前一次成功样本未确认时重新生成会开新任务：资源 id 必须随 task_id 变化，
-        # 否则新任务落盘会原地覆盖前一任务 result.file_path 仍指向的文件。
         _pm, gen = voice_sample_env
         await generation_tasks.execute_character_voice_sample_task(
             "demo", "艾莉", {"prompt": "文本 A", "voice": "Cherry"}, task_id="task-A"
@@ -178,7 +174,6 @@ class TestExecuteCharacterVoiceSampleTask:
             )
 
     async def test_duration_none_skips_validation(self, voice_sample_env, monkeypatch):
-        # 随包 ffmpeg 不可用时 probe_audio_duration_seconds 返回 None，按仓库惯例降级放行。
         async def _unavailable(content, suffix):
             return None
 
@@ -213,8 +208,6 @@ class TestExecuteCharacterVoiceSampleTask:
     def test_voice_sample_resource_id_truncates_long_character_names(self):
         long_name = "A" * 200
         resource_id = generation_tasks.voice_sample_resource_id(long_name, "task-1")
-        # 裁剪后的角色名部分不超过 _SAMPLE_ID_NAME_MAX_BYTES，任务专属后缀完整保留，
-        # 整体长度留足余量给 VersionManager 的版本文件名后缀，避免 NAME_MAX 溢出。
         assert resource_id.endswith("__task-1")
         assert len(resource_id.encode("utf-8")) < 128
 
@@ -224,8 +217,6 @@ class TestExecuteCharacterVoiceSampleTask:
         prefix = "voice_sample__"
         suffix = "__task-1"
         safe_name = resource_id[len(prefix) : -len(suffix)]
-        # 按字节裁剪落在多字节字符中间时须整字符丢弃，断言实际裁剪到的字符数（而不只是
-        # 验证能重新编解码）——错误的上限或过度裁剪不会被单纯的 encode/decode 校验发现。
         expected_chars = generation_tasks._SAMPLE_ID_NAME_MAX_BYTES // len("艾".encode())
         assert safe_name == "艾" * expected_chars
         assert len(safe_name.encode("utf-8")) <= generation_tasks._SAMPLE_ID_NAME_MAX_BYTES

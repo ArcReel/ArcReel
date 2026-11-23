@@ -31,7 +31,7 @@ async def _capture_size(backend, **req_kwargs) -> str:
     with pytest.raises(RuntimeError):
         await backend.generate(req)
     size = captured.get("size")
-    assert isinstance(size, str)  # size 必传
+    assert isinstance(size, str)
     return size
 
 

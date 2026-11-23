@@ -25,7 +25,6 @@ function disclosure() {
   return screen.queryByRole("button", { name: /按用途指定模型/ });
 }
 
-/** 弹层异步打开：点击后等列表出现再查询选项。 */
 async function openSelect(user: ReturnType<typeof userEvent.setup>, name: string) {
   await user.click(screen.getByRole("combobox", { name }));
   await screen.findByRole("listbox");
@@ -65,7 +64,6 @@ describe("LayeredModelFields", () => {
   });
 
   it("reads as following the default rather than requiring a pick when the whole chain is empty", async () => {
-    // 全层皆空时演算不出具体模型：触发按钮上必须仍是空值语义，通用的「选择模型」会读成必填
     const user = userEvent.setup();
     renderFields();
     expect(screen.getByRole("combobox", { name: "默认视频模型" })).toHaveTextContent("自动选择");
@@ -148,9 +146,6 @@ describe("LayeredModelFields", () => {
     expect(onDefaultChange).not.toHaveBeenCalled();
   });
 
-  // 默认层与各细分项共用一个 renderOptionMeta。路径相关的取值（音轨）只有拿到「是哪个细分项
-  // 在问」才算得对，所以这里锁住转发本身：默认层不带 key，细分项带且只带自己的 key。断言走
-  // 渲染出的选项文本（renderOptionMeta 的返回值会显示在下拉选项里），不读 mock 调用记录。
   describe("renderOptionMeta 的细分项归属", () => {
     const keyProbe = (_fullValue: string, subFieldKey?: string) => subFieldKey ?? "no-key";
 
@@ -194,7 +189,6 @@ describe("LayeredModelFields", () => {
   it("force-opens the disclosure and shows an error notice with retry when subFieldsError is set, even with no sub-fields", () => {
     const onRetry = vi.fn();
     renderFields({ subFields: [], subFieldsError: { onRetry } });
-    // 无任何细分项本应让整块折叠区消失，但错误态下仍需展示，用户才能感知失败并重试
         expect(disclosure()).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("alert")).toHaveTextContent(/模型列表加载失败/);
     expect(screen.queryByText("留空的用途沿用上方默认模型。")).not.toBeInTheDocument();
@@ -218,8 +212,6 @@ describe("LayeredModelFields", () => {
   });
 
   it("expands the collapsed disclosure when the error appears after mount", () => {
-    // 候选请求失败通常晚于挂载，初始 open 已经算过；只在初始渲染就带错误的用例下，
-    // useState 初值即为 true，删掉挂载后的强制展开也照样通过。
     const { rerender } = renderFields();
     expect(disclosure()).toHaveAttribute("aria-expanded", "false");
 

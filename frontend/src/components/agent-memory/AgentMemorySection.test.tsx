@@ -221,7 +221,6 @@ describe("AgentMemorySection", () => {
     fireEvent.change(input, { target: { value: "aspect-ratio.md" } });
     fireEvent.click(create);
     expect(await screen.findByRole("alert")).toHaveTextContent("已存在同名文件");
-    // 默认不区分大小写的文件系统上，只差大小写的文件名指向同一个文件
     fireEvent.change(input, { target: { value: "memory.md" } });
     fireEvent.click(create);
     expect(await screen.findByRole("alert")).toHaveTextContent("已存在同名文件");

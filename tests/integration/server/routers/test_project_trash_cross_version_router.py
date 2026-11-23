@@ -50,7 +50,6 @@ def _old_record(project_dir: Path, files: list[str], *, schema_version: int) -> 
     """在旧 schema 的项目里删除一条剪辑时间线，记录标成当时的 schema 版本。"""
     obj = {"kind": "edit_timeline", "id": TIMELINE, "episode": 1, "name": "初剪"}
     record = project_trash.record_deletion(project_dir, obj, files, snapshot=True)
-    # 与删除路径一样撤掉只剩空壳的渲染目录
     for rel in files:
         if rel.startswith("renders/"):
             (project_dir / rel).parent.rmdir()
@@ -97,7 +96,6 @@ def test_a_record_from_an_older_schema_is_migrated_and_restored(
         "初剪",
     )
     document = json.loads((project_dir / DOCUMENT).read_text(encoding="utf-8"))
-    # 修订按当前 schema 落回：v17→v18 去掉了 Agent 轮次字段
     assert all("agent_turn" not in revision for revision in document["revisions"])
     assert read_timeline_document(project_dir, 1, TIMELINE) is not None
     assert (project_dir / RENDER).read_bytes() == b"final-cut"
@@ -143,7 +141,6 @@ def test_a_record_whose_migration_fails_restores_its_files_and_keeps_structure_f
 def test_a_degraded_restore_lands_files_where_the_migration_moved_them(
     cross_version_client: TestClient, projects_dir: Path
 ) -> None:
-    # 迁移链里会搬动媒体的只有 v0→v1（线索图分流到 scenes/、props/）与 v5→v6：用 v0 样本构造记录。
     project_dir = write_legacy_storyboard_project(projects_dir, schema_version=0)
     project_file = project_dir / "project.json"
     project = json.loads(project_file.read_text(encoding="utf-8"))

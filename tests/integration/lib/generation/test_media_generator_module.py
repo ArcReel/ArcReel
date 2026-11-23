@@ -50,7 +50,6 @@ class _FakeImageBackend:
 
     async def generate(self, request):
         self.calls.append(request)
-        # Touch the output file so version tracking works
         await write_backend_output(request.output_path, b"fake-image-data")
         return ImageGenerationResult(
             image_path=request.output_path,
@@ -78,7 +77,6 @@ class _FakeVideoBackend:
 
     def __init__(self, result_duration_seconds: int | None = None, video_capabilities=None):
         self.calls = []
-        # None = 回显请求时长（多数后端行为）；指定值 = 模拟 provider 回报的实际计费时长
         self._result_duration_seconds = result_duration_seconds
         self.video_capabilities = video_capabilities
 
@@ -299,7 +297,6 @@ class TestSegmentIdFor:
         assert segment_id_for("video", resource_type, "E1S01") == "E1S01"
 
     def test_video_whitelist_miss(self):
-        # grids 只在图片记账白名单内，视频记账应落 None。
         assert segment_id_for("video", "grids", "E1G1") is None
 
     @pytest.mark.parametrize(
@@ -393,8 +390,6 @@ class TestMediaGenerator:
             api_key="",
             definition=comfyui_endpoint_definition(),
         )
-        # 不注入合成能力：请求闸门读的正是 delegate 自己那份由绑定推导出来的声明，注入一份合成
-        # 值会把这条用例要守的那一段跳过去。
         gen._video_backend = CustomVideoBackend(provider_id="custom-1", delegate=delegate, model="wan-t2v")
         history = {
             "status": {"completed": True},
@@ -630,7 +625,6 @@ class TestMediaGenerator:
         assert version == 1
         assert gen.ledger.started[0]["call_type"] == "image"
         assert gen.ledger.outcomes[0]["status"] == "success"
-        # usage_tokens 提取归属真 Ledger union 分发；此处确认调用点递交了 backend 结果对象
         assert gen.ledger.outcomes[0]["result"].usage_tokens == 8
 
         async def _raise(request):
@@ -1142,8 +1136,6 @@ class TestMediaGenerator:
         await gen.generate_video_async(prompt="p", resource_type="reference_videos", resource_id="E1U1")
         assert gen.ledger.started[-1]["segment_id"] == "E1U1"
 
-        # 负向边界：白名单外的 resource_type 仍落 None——守住"白名单"语义，
-        # 避免日后被改成无条件透传而无人察觉。grids 只在图片记账白名单内。
         await gen.generate_video_async(prompt="p", resource_type="grids", resource_id="E1G1")
         assert gen.ledger.started[-1]["segment_id"] is None
 
@@ -1160,7 +1152,6 @@ class TestMediaGenerator:
             duration_seconds="6",
         )
         assert gen.ledger.started[-1]["duration_seconds"] == 6
-        # billed_duration_seconds 由真 Ledger union 分发从结果对象提取；此处确认递交了 duration=15 的结果
         assert gen.ledger.outcomes[-1]["result"].duration_seconds == 15
 
     @pytest.mark.asyncio
@@ -1535,7 +1526,6 @@ class TestIs413:
         assert _is_413(RuntimeError("oops: PAYLOAD TOO LARGE")) is True
 
     def test_byte_count_not_misread(self):
-        # 修正④：不用裸 "413" 子串，避免字节数 / 请求 ID 误命中
         assert _is_413(RuntimeError("only 41300 bytes uploaded")) is False
         assert _is_413(RuntimeError("error code 413xyz")) is False
 
@@ -1546,14 +1536,12 @@ class TestIs413:
         assert _is_413(err) is False
 
     def test_sdk_status_code_attr(self):
-        # OpenAI/xai 风格 SDK 异常：直接带 .status_code
         class _SdkErr(Exception):
             status_code = 413
 
         assert _is_413(_SdkErr("too big")) is True
 
     def test_sdk_code_attr(self):
-        # google-genai 风格 APIError：带 .code
         class _ApiErr(Exception):
             code = 413
 
@@ -1566,14 +1554,12 @@ class TestIs413:
         assert _is_413(_ApiErr("bad request")) is False
 
     def test_string_status_code_413(self):
-        # 个别 SDK / mock 把状态码给成字符串 "413"，需防御性 int 转换
         class _StrErr(Exception):
             status_code = "413"
 
         assert _is_413(_StrErr("too big")) is True
 
     def test_non_numeric_status_code_falls_back_to_phrase(self):
-        # 非数字状态码不应抛 ValueError，落回短语匹配
         class _WeirdErr(Exception):
             status_code = "not-a-number"
 
@@ -1717,7 +1703,6 @@ class TestReferenceCompressionSeam:
         )
 
         assert len(backend.calls) == 2
-        # 只记一条 success（413 内循环重试不额外记账）
         assert len(gen.ledger.outcomes) == 1
         assert gen.ledger.outcomes[0]["status"] == "success"
 
@@ -1772,13 +1757,11 @@ class TestReferenceCompressionSeam:
                 reference_images=[str(src)],
             )
 
-        # 走完梯子（基线 + LADDER_STEPS-1 档 + 地板）= LADDER_STEPS + 1 次调用后耗尽
         assert len(backend.calls) == LADDER_STEPS + 1
         assert len(gen.ledger.outcomes) == 1
         assert gen.ledger.outcomes[0]["status"] == "failed"
 
     async def test_t2i_no_refs_413_not_converted_to_floor(self, tmp_path):
-        # 无参考图（T2I）的 413 与参考图无关，不应被误转成 floor、也不降档
         gen = _build_generator(tmp_path)
         backend = _ConfigurableImageBackend(fail_413_times=99)
         gen._image_backend = backend
@@ -1799,8 +1782,6 @@ class TestReferenceCompressionSeam:
         class _CapturingVideoBackend:
             name = "fake-video"
             model = "video-model"
-            # 带参考图的请求会先过 gate_video_request，替身须声明足够的参考图容量，
-            # 否则请求在触达 generate 之前就被能力校验拒掉。
             video_capabilities = VideoCapabilities(max_reference_images=9)
 
             def __init__(self):
@@ -1823,8 +1804,8 @@ class TestReferenceCompressionSeam:
         backend = _CapturingVideoBackend()
         gen._video_backend = backend
 
-        start = _solid_png(tmp_path, "start.png", 3000, 2000)  # FRAME：永不缩尺寸（重格式仅重编码）
-        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)  # ARRAY：走梯子缩到 ≤2048
+        start = _solid_png(tmp_path, "start.png", 3000, 2000)
+        ref = _solid_png(tmp_path, "ref.png", 3000, 3000)
 
         await gen.generate_video_async(
             prompt="p",
@@ -1850,7 +1831,6 @@ class TestReferenceCompressionSeam:
         client.content_generation.tasks.get.side_effect = RuntimeError("stop after submit")
         with captured_ark_clients("lib.backends.video_backends.ark", client):
             gen._video_backend = Seedance2VideoBackend(api_key="TEST-ark-key", model="doubao-seedance-2-0-260128")
-        # 一张大到必须压缩的角色图以素材引用发出，场景图照常压缩后内嵌。
         character = _noise_png(gen.project_path, "character.png", 3000, 3000)
         scene = _noise_png(gen.project_path, "scene.png", 3000, 3000)
 
@@ -2170,7 +2150,7 @@ class TestFirstFrameRatioAdaptiveOnly:
         from arcreel_market_core.video_backend_contract import VideoCapabilities
 
         gen = _build_generator(tmp_path)
-        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities())  # 默认档，未声明该约束
+        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities())
         gen._video_backend = backend
 
         start = _solid_png(tmp_path, "start.png", 100, 100)

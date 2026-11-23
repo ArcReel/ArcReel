@@ -20,7 +20,6 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
 async def _seed(db_session, *, models: list[dict]) -> str:
     repo = CustomProviderRepository(db_session)
-    # display_name 列 NOT NULL：缺省补 model_id 作显示名
     for m in models:
         m.setdefault("display_name", m["model_id"])
     provider = await repo.create_provider(
@@ -116,7 +115,6 @@ class TestBucketAwareDefaultFallback:
             )
 
     async def test_two_defaults_in_the_same_bucket_fail_loud(self, db_session):
-        # 两行都声明 t2i + i2i：按桶过滤后 t2i 上仍有两个默认，挑哪一行都是静默换模型
         pid = await _seed(
             db_session,
             models=[
@@ -131,7 +129,6 @@ class TestBucketAwareDefaultFallback:
 
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend", new=MagicMock())
     async def test_double_default_without_bucket_still_resolves_the_named_model(self, db_session):
-        # 不带桶的调用点（文本 / 音频工厂等）不过滤：显式 model 命中时双默认不参与解析
         pid = await self._seed_two_image_buckets(db_session)
         result = await load_custom_backend(session=db_session, provider_id=pid, model_id="i2i-m", media_type="image")
         assert result.model == "i2i-m"
@@ -156,7 +153,6 @@ class TestVideoCapabilityOverridesReachExecution:
                 }
             ],
         )
-        # 清 identity map，逼装载重新 SELECT：覆盖字典要真经过 JSON 编解码往返才算验到 DB 语义
         db_session.expunge_all()
         return await load_custom_backend(session=db_session, provider_id=pid, model_id=model_id, media_type="video")
 
@@ -169,8 +165,6 @@ class TestVideoCapabilityOverridesReachExecution:
 
     @patch.dict("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", {"ark-seedance-2": MagicMock()})
     async def test_override_forces_capability_on(self, db_session):
-        # 对应不上条目时尾帧按保守回落为 False；覆盖强制开启后执行层看到 True，且不再转发被包装 backend
-        # endpoint 须支持尾帧（end_image_capable）覆盖才会生效，openai-video 不满足此前提
         backend = await self._load_video_backend(
             db_session, overrides={"last_frame": True}, endpoint="ark-seedance-2", model_id="seedance-1-pro"
         )
@@ -186,7 +180,6 @@ class TestVideoCapabilityOverridesReachExecution:
 
     @patch.dict("lib.custom_provider.endpoints.SEEDANCE_BACKENDS", {"ark-seedance-2": MagicMock()})
     async def test_unknown_key_in_stored_overrides_does_not_break_loading(self, db_session):
-        # 存量行可能带已下线的键，装载不得失败，该维度按系统判定走
         backend = await self._load_video_backend(
             db_session,
             overrides={"retired_dimension": True, "last_frame": True},

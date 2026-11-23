@@ -82,8 +82,6 @@ async def test_edit_images_i2i_unavailable(fake_ctx: ToolHarness) -> None:
 
     out = await run_declared_tool("edit_images", fake_ctx, _EDIT_ZHANGSAN, batch_waiter=enqueue)
 
-    # i2i 不可用是入队前的共享前置条件，但调用方仍按逐 ID 契约读结果——每个
-    # 请求到的 ID 各记一条 blocked，而不是只回一段无法编程消费的文本。
     result = read_generation_result(out)
     assert result.blocked == ["张三"]
     item = result.items[0]
@@ -265,7 +263,6 @@ async def test_edit_images_storyboard_rejects_an_unbound_script_before_provider(
 
     assert out.problem is not None
     assert "not bound" in out.problem.detail
-    # 剧本未绑定在供应商判定之前就拒：解析器一次都没被问过
     assert resolver.image_generation_type_calls == []
     enqueue.assert_not_awaited()
 
@@ -313,7 +310,6 @@ async def test_edit_images_build_specs_warnings(fake_ctx: ToolHarness) -> None:
         batch_waiter=_succeed_every_spec,
     )
 
-    # 无 ID 可寻址的条目没有可报告的 unit，只能留在摘要告警里。
     assert isinstance(out.value, dict)
     summary = out.value["summary"]
     assert "缺少 id 的条目" in summary
@@ -383,7 +379,6 @@ async def test_i2i_unavailable_problem_none_when_available() -> None:
 
     resolver = fake_caps_resolver()
     assert await mod._i2i_unavailable_problem({}, config_resolver=resolver) is None
-    # 判的是 i2i 槽位，不是项目默认图像槽
     assert resolver.image_generation_type_calls == ["i2i"]
 
 

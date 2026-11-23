@@ -85,7 +85,6 @@ class TestSessionManagerProjectScope:
         assert "PreToolUse" in hooks
         matcher = hooks["PreToolUse"][0]
         assert matcher.matcher is None
-        # Without can_use_tool: subagent tool allowlist + file_access_hook
         assert len(matcher.hooks) == 2
         assert matcher.hooks[0] is not manager._options_assembler._keep_stream_open_hook
 
@@ -159,11 +158,8 @@ class TestSessionManagerProjectScope:
         assert "项目元数据（标题、风格、概述等）存于 project.json，需要时读取。" in prompt
         assert "Bash 命令必须写在单行" in prompt
 
-        # The cwd line embeds an arbitrary temp path; exclude it so ASCII tokens
-        # that may appear in the test's tmp_path can't cause false substring matches.
         body = "\n".join(line for line in prompt.splitlines() if "项目目录" not in line)
 
-        # Mutable metadata (every label and value) must be absent — read on demand instead
         for token in (
             "项目标题",
             "重生之皇后威武",
@@ -181,7 +177,6 @@ class TestSessionManagerProjectScope:
         ):
             assert token not in body
 
-        # Redundant path rules now live only in CLAUDE.{mode}.md — guard against re-adding them here
         assert "必须使用绝对路径" not in body
         assert "必须使用相对路径" not in body
 
@@ -218,8 +213,6 @@ class TestAllowedToolsAndConstants:
         assert "AskUserQuestion" in tools
         assert "MultiEdit" not in tools
         assert "LS" not in tools
-        # Task 4.2: Bash 现在在 allowed_tools，由 SDK Sandbox autoAllowBashIfSandboxed
-        # 配合 SandboxSettings.enabled=True 自动放行命令。
         assert "Bash" in tools
         assert "BashOutput" in tools
         assert "KillBash" in tools

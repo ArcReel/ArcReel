@@ -10,7 +10,6 @@ from alembic import command
 
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
 
-# 本文件只覆盖拆分迁移本身，停在该 revision——后续 revision 会把两桶重新收敛回默认层。
 _SPLIT_REVISION = "5b87accc10dd"
 
 

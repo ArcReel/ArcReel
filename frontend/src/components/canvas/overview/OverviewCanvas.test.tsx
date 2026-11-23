@@ -217,7 +217,6 @@ describe("OverviewCanvas", () => {
 
     await user.click(screen.getByRole("button", { name: "明细" }));
     const popover = await screen.findByRole("dialog", { name: "费用明细" });
-    // 按预估、已花的列序取同名行的值；某列没有这一行时不出现
     const values = (label: string) =>
       within(popover)
         .getAllByText(label, { selector: "dt" })
@@ -316,7 +315,6 @@ describe("OverviewCanvas", () => {
       projectData: makeProjectData({ ...EMPTY_PROJECT, whole_source_files: [{ source_file: "source/novel.txt" }] }),
     });
 
-    // 有原文但还没有故事设定时不是空项目：直接显示概览，可以手写，也可以从原文生成
     expect(screen.getByRole("textbox", { name: "梗概" })).toHaveValue("");
     await user.click(screen.getByRole("button", { name: "从原文生成" }));
 
@@ -381,7 +379,6 @@ describe("OverviewCanvas", () => {
 
     await user.click(screen.getByRole("button", { name: "从原文生成" }));
 
-    // 生成已落盘、只是没取回：不能把它报成生成失败，也不能静默停在旧内容上引人再生成一次
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("故事设定已生成，但页面数据刷新失败，请刷新页面查看最新结果。");
     expect(alert).not.toHaveTextContent("生成失败");
@@ -513,7 +510,6 @@ describe("OverviewCanvas", () => {
       await user.click(screen.getByRole("button", { name: "知道了" }));
       expect(screen.queryByText(TIP)).not.toBeInTheDocument();
 
-      // 刷新：内存里的待显示状态清空，同一项目的故事设定再次由空变为有内容也不再提示
       view.unmount();
       useHandoffTipStore.setState(useHandoffTipStore.getInitialState(), true);
       fillStorySetting();
@@ -537,7 +533,6 @@ describe("OverviewCanvas", () => {
     });
 
     it("appears when the story setting was filled while the overview was away", () => {
-      // 生成在后台继续：离开概览时还是空的，回来时已有内容
       const view = renderOverview({
         projectData: makeProjectData({ overview: undefined, whole_source_files: [{ source_file: "source/a.txt" }] }),
       });

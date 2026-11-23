@@ -154,7 +154,6 @@ async def test_projection_canonicalizes_current_intent_and_reprojects_after_edit
         options=ReferenceRequestOptions(),
     )
 
-    # 引用顺序即正文首次提及顺序，商品不再排最前。
     assert [(ref.type, ref.name) for ref in first.declared_references] == [
         ("product", "手袋"),
         ("scene", "大厅"),
@@ -392,7 +391,6 @@ def test_asset_adapter_prefers_sheets_and_preserves_missing_candidates(tmp_path:
 
     assets = resolve_reference_assets(project, tmp_path, unit)
 
-    # 候选顺序即正文首次提及顺序；有资产图的资产只出资产图，原图不再额外注入。
     assert [(item.reference.type, item.kind, item.path.name) for item in assets] == [
         ("scene", "sheet", "missing.png"),
         ("product", "sheet", "bag-sheet.png"),

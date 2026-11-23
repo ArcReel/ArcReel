@@ -52,7 +52,6 @@ TEXT_TASK_TYPES = frozenset(
 
 UNIT_TASK_TYPES = frozenset({"storyboard", "grid", "tts", "video", "reference_video"})
 
-#: 本地渲染车道的任务（``server/services/tasks/render_tasks.py``）。
 RENDER_TASK_TYPES = frozenset({"render_final_cut", "render_jianying_draft"})
 
 FIXED_TASK_TYPES = (
@@ -61,7 +60,6 @@ FIXED_TASK_TYPES = (
 
 ALL_TASK_TYPES = FIXED_TASK_TYPES | frozenset(ASSET_SPECS.keys())
 
-#: 工作流面板只展示规划器挂到步骤上的任务：文本任务、资产图与单元级生成任务。
 WORKFLOW_TASK_TYPES = TEXT_TASK_TYPES | UNIT_TASK_TYPES | frozenset(ASSET_SPECS.keys())
 
 EXPECTED_BY_NAMESPACE = {

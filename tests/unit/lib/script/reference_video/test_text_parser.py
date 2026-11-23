@@ -212,7 +212,6 @@ def test_resolve_references_uses_priority_for_corrupt_shared_namespace():
     assert missing == []
 
 
-#: 带组合附加符的资产名（越南语），两种编码屏幕显示相同、字节不同——资产名比对的坐标系用例。
 _NAME_NFC = unicodedata.normalize("NFC", "Hiếu")
 _NAME_NFD = unicodedata.normalize("NFD", "Hiếu")
 
@@ -327,9 +326,6 @@ def test_legacy_bare_mention_can_be_a_speaker():
 def test_email_like_prefix_is_not_a_speaker():
     """左侧是 ASCII 词字符时按邮箱 / id 片段跳过，与 mention 扫描同口径。"""
     assert _marks("a@b{我来了}") == [("", "我来了")]
-
-
-# ── @[角色/衍生]（docs/adr/0072）────────────────────────────
 
 
 def _proj_with_derivatives(**by_character: list[str]) -> dict:

@@ -86,7 +86,6 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
         encoding="utf-8",
     )
 
-    # 剧本的取证链（分集原文 → script_plan）齐备，补录才登记得出剧本这条产物。
     (proj_dir / "source").mkdir()
     (proj_dir / "source" / "episode_1.txt").write_text("原文", encoding="utf-8")
     (proj_dir / "drafts" / "episode_1").mkdir(parents=True)
@@ -103,7 +102,6 @@ def seeded_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Test
 
     custom_pm = ProjectManager(tmp_path)
     use_project_manager(monkeypatch, custom_pm)
-    # 保留真实资产水合、定桶与时长投影，只隔离本用例不关心的 DB 能力查询。
     use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(4,)))
 
     app = FastAPI()

@@ -78,7 +78,6 @@ async def test_submit_queues_a_render_task_and_status_reads_missing_until_render
         operations=[SetReason(op="set_reason", clip="c1", reason="保留开场")],
         author=RevisionAuthor(kind="arcreel_agent"),
     )
-    # 省略 revision 的请求按提交时的最新修订入队：时间线前进后不再去重到旧修订的任务。
     conflicting = await final_cut_client.post(url, json=clean)
     before = await final_cut_client.get(url, params=clean)
 
@@ -110,7 +109,6 @@ async def test_omitted_options_follow_the_project_and_burn_subtitles_while_narra
     status = await final_cut_client.get(url)
     narrated = await final_cut_client.post(url, json={"narration": "with_narration"})
 
-    # 后期配音项目省略旁白版本时不带旁白；字幕默认烧入。
     assert defaulted.status_code == 202
     assert defaulted.json()["artifact_path"].endswith("/final_cut.without_narration.burned_subtitles.mp4")
     assert (status.json()["narration"], status.json()["subtitles"]) == ("without_narration", "burned_subtitles")

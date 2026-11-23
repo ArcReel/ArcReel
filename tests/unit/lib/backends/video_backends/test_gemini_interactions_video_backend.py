@@ -321,7 +321,6 @@ class TestDeclarations:
 
         assert caps.audio_track is VideoAudioMode.ALWAYS_ON
         assert (caps.text_to_video, caps.first_frame, caps.last_frame) == (True, True, True)
-        # 参考图张数是模型事实，通道不限
         assert caps.max_reference_images is None
 
     def test_frames_and_audio_track_follow_both_the_entry_and_the_channel(self):

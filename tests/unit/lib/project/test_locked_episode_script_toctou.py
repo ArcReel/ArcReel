@@ -42,7 +42,7 @@ def _seed(pm: ProjectManager, name: str) -> None:
             "video_units": [],
         },
         "episode_1.json",
-        validate=False,  # 测锁/TOCTOU 用简化替身剧本，结构守卫不在本测试关注范围
+        validate=False,
     )
 
 
@@ -52,7 +52,6 @@ def test_locked_episode_script_no_relock_but_refreshes_project(tmp_path: Path, m
     name = "p-sync"
     _seed(pm, name)
 
-    # 把 project.json 的 updated_at 置为哨兵旧值（绕过会自动 touch 的写入路径）
     from lib.infra.json_io import atomic_write_json
 
     project_file = pm._get_project_file_path(name)
@@ -68,7 +67,6 @@ def test_locked_episode_script_no_relock_but_refreshes_project(tmp_path: Path, m
 
     # 不调用会二次取项目锁的 sync_episode_from_script（否则自死锁）
     assert calls == [], "locked_episode_script 不应调用 sync_episode_from_script"
-    # 但 project.json 的 updated_at 仍被内联刷新（对齐旧路径行为）
     refreshed = pm.load_project(name)
     assert refreshed["metadata"]["updated_at"] != "2020-01-01T00:00:00+00:00", "project.json updated_at 未刷新"
 
@@ -96,7 +94,6 @@ def test_locked_episode_script_holds_project_lock_until_write_done(tmp_path: Pat
     try:
         with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
             inside.set()
-            # 等对方真的开始申请，而不是睡一段猜它到没到——到了仍未完成，才说明是被锁挡住的
             assert attempting.wait(timeout=5), "另一线程应已开始申请项目锁"
             assert not other_done.is_set(), "持项目锁期间 update_project 不应完成"
             order.append("critical-section")
@@ -114,7 +111,6 @@ def test_locked_episode_script_detects_rebind(tmp_path: Path) -> None:
     name = "p-rebind"
     _seed(pm, name)
 
-    # 有状态解析器：候选解析返回旧绑定，持锁复核返回新绑定
     seq = iter(["scripts/episode_1.json", "scripts/episode_2.json"])
 
     def _resolver(_project: dict) -> str:
@@ -137,12 +133,10 @@ def test_locked_episode_script_title_write_mirrors_to_project(tmp_path: Path) ->
     with pm.locked_episode_script(name, lambda _proj: "episode_1.json", validate=False) as script:
         script["title"] = "改后的集名"
 
-    # 剧本顶层 title 落盘 + project.json 镜像同步
     assert pm.load_script(name, "episode_1.json")["title"] == "改后的集名"
     ep = next(e for e in pm.load_project(name)["episodes"] if e["episode"] == 1)
     assert ep["title"] == "改后的集名"
 
-    # 后续保存脚本（不显式动 title）不丢标题
     with pm.locked_script(name, "episode_1.json", validate=False) as script:
         script.setdefault("video_units", [])
     assert pm.load_script(name, "episode_1.json")["title"] == "改后的集名"

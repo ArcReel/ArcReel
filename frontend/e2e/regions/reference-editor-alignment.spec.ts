@@ -4,8 +4,6 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { recorded } from "../support/recorded.ts";
 import { expect, test, type ApiOverrides } from "../support/test.ts";
 
-// 参考生视频的文稿编辑器是两层叠放：底层 <pre> 负责着色，上层文字透明的 <textarea> 负责光标与选区。
-// 两层的字体、字宽、折行与可用宽度只要有一处不同，光标与选区就落在可见文字旁边。
 
 // 无头 Chromium 默认带 --hide-scrollbars，滚动条不占宽度，「输入框出现滚动条后可用宽度变窄、
 // 折行与镜像层分叉」就测不出来。本文件恢复滚动条，用页面上真实的 10px 自绘滚动条；
@@ -14,7 +12,6 @@ import { expect, test, type ApiOverrides } from "../support/test.ts";
 // 会过滤客户端传来的 ignoreDefaultArgs，滚动条仍被隐藏，场景跳过并注明原因。
 test.use({ launchOptions: { ignoreDefaultArgs: ["--hide-scrollbars"] } });
 
-// Playwright 经这个环境变量连接远端 run-server（`pnpm e2e:remote`），否则在本地启动浏览器。
 const viaRunServer = Boolean(process.env.PW_TEST_CONNECT_WS_ENDPOINT);
 
 const UNITS_PATH = "/app/projects/demo/episodes/1?view=board";
@@ -26,7 +23,6 @@ interface RecordedProject {
 
 const project = recorded<RecordedProject>("project-demo.json");
 
-// 压力文本：每行都混着本体引用、衍生引用与数字，行数足以让输入框在最高的视口下也出现滚动条。
 const MENTION_HEAVY_TEXT = Array.from(
   { length: 80 },
   (_, i) =>
@@ -37,7 +33,6 @@ const MENTION_HEAVY_TEXT = Array.from(
 const UNIT_ID = "E1U1";
 
 const API: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的数据上。
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   "GET /api/v1/projects/demo": {
     status: 200,
@@ -92,7 +87,6 @@ async function measureScrollbarWidth(page: Page): Promise<number> {
   });
 }
 
-/** 确认浏览器显示占宽度的滚动条。只有经 run-server 连接时跳过，本地启动的浏览器隐藏滚动条一律失败。 */
 async function requireVisibleScrollbars(page: Page) {
   const scrollbarWidth = await measureScrollbarWidth(page);
   test.skip(
@@ -107,15 +101,9 @@ interface LayerAlignment {
   preClientWidth: number;
   overflowing: boolean;
   checked: number;
-  /** 前几个错位的字符：着色层里它所在的位置，在输入框里命中的是另一个光标偏移（null 为没命中输入框）。 */
   mismatches: { offset: number; char: string; caretOffset: number | null }[];
 }
 
-/**
- * 在真实布局里逐字比对两层：取着色镜像层每个字符左侧四分之一处，问浏览器输入框在这一点的光标偏移。
- * 两层字体、字宽、折行与可用宽度一致时，命中的偏移就是这个字符自己；任一层多出或少了宽度，
- * 偏移会沿行累积、在折行处整段错开。只比对输入框可视区内的字符：镜像层随输入框滚动，区外的被裁掉。
- */
 async function measureLayerAlignment(page: Page): Promise<LayerAlignment> {
   return editor(page).evaluate((node) => {
     const textarea = node as HTMLTextAreaElement;
@@ -177,7 +165,6 @@ defineRegionScenarios("参考视频文稿编辑器", [
     },
     act: async (page) => {
       await requireVisibleScrollbars(page);
-      // 紧凑档的 Agent 面板盖住编辑框右侧，逐点命中前先收起
       await clearAgentOverlay(page);
       await expect(editor(page)).toHaveValue(MENTION_HEAVY_TEXT);
       await expectLayersAligned(page);

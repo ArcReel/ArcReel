@@ -28,7 +28,6 @@ def test_startup_migration_skips_already_marked(tmp_path: Path):
     (marker_dir / "source_encoding_migrated").touch()
 
     asyncio.run(_migrate_source_encoding_on_startup(tmp_path))
-    # 文件未被重写（仍是 GBK）
     assert bad.read_bytes().startswith("第一章".encode("gbk"))
 
 
@@ -45,7 +44,6 @@ def test_startup_migration_isolates_project_failures(tmp_path: Path, monkeypatch
     (bad / "project.json").write_text("{}")
     (bad / "source" / "broken.txt").write_bytes(random.Random(42).randbytes(4000))
 
-    # 即使 bad 项目内文件解码失败，迁移函数本身不应抛错（只记录到 errors.log）
     summary = asyncio.run(_migrate_source_encoding_on_startup(tmp_path))
     assert (good / ".arcreel" / "source_encoding_migrated").exists()
     assert (bad / ".arcreel" / "source_encoding_migrated").exists()

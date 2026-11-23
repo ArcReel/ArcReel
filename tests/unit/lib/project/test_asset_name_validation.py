@@ -46,7 +46,6 @@ class TestResolveAssetKey:
         assert resolve_asset_key("not-a-dict", "李白") is None
 
     def test_duplicate_forms_last_wins(self):
-        # 与 normalize_asset_bucket 的合并方向一致：后写入的胜出
         bucket = {_NAME_NFC: {"description": "first"}, _NAME_NFD: {"description": "last"}}
         assert resolve_asset_key(bucket, _NAME_NFC) == _NAME_NFD
 
@@ -124,7 +123,6 @@ class TestResolveAssetKey:
             validate_asset_name(123)
 
     def test_reserved_device_names_not_overmatched(self):
-        # 仅精确（首个点段）匹配保留设备名，CON1 / CONAN / COM10 这类合法名不误杀
         assert validate_asset_name("CON1") == "CON1"
         assert validate_asset_name("CONAN") == "CONAN"
         assert validate_asset_name("COM10") == "COM10"

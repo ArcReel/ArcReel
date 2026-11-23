@@ -134,15 +134,9 @@ def test_boundary_false_positives_are_rejected(model_id: str) -> None:
 @pytest.mark.parametrize(
     ("model_id", "expected_endpoint"),
     [
-        # WAN_DOT_FORM_PATTERN 右边界：紧跟字母不算 2.x 点号形态，落通用视频端点（裸 "wan" 子串
-        # 仍命中 _VIDEO_PATTERN）。
         ("wan2.7foo-r2v", "openai-video"),
-        # HAPPYHORSE_PATTERN 右边界：紧跟字母不算 happyhorse 家族，不含视频/图像关键字，落默认
-        # 文本端点。
         ("happyhorsefoo-t2v", "openai-chat"),
-        # WAN_IMAGE_TO_VIDEO_PATTERN 左边界：紧邻字母不算续接语法，按含 image 语义的图像变体处理。
         ("wan-2.7-fooimage-to-video", "openai-images"),
-        # WAN_IMAGE_TO_VIDEO_PATTERN 右边界：同上。
         ("wan-2.7-image-to-videofoo", "openai-images"),
     ],
 )
@@ -369,10 +363,10 @@ def test_native_route_and_non_default_profile_agree(model_id: str) -> None:
 @pytest.mark.parametrize(
     "model_id",
     [
-        "wan2.7-i2v-s2v",  # 已知 token 与未实现模态共存，has_known_modality 应被后者排除
+        "wan2.7-i2v-s2v",
         "wan-2.7-r2v-v2v",
         "wan2.7-r2v-videoedit",
-        "image-proxy/wan-2.7-s2v",  # 未实现模态本身即被排除，装饰前缀不改变结论
+        "image-proxy/wan-2.7-s2v",
     ],
 )
 def test_excluded_from_native_route_agrees_with_default_profile(model_id: str) -> None:
@@ -387,7 +381,7 @@ def test_excluded_from_native_route_agrees_with_default_profile(model_id: str) -
 @pytest.mark.parametrize(
     "model_id",
     [
-        "image-to-video-proxy/wan2.7-image",  # 装饰前缀含完整 "image-to-video" 拼写
+        "image-to-video-proxy/wan2.7-image",
         "video-continuation-proxy/wan-2.7-image",
     ],
 )

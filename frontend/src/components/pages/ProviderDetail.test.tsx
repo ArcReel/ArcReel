@@ -77,8 +77,6 @@ describe("ProviderDetail", () => {
   });
 
   it("surfaces a language refetch failure when no detail is on screen yet", async () => {
-    // 首轮请求还在途时切换语言：接管的那次失败后没有可展示的详情，必须报错并给出重试入口，
-    // 否则页面停在加载态。
     let resolveFirst: (detail: ProviderConfigDetail) => void = () => {};
     vi.spyOn(API, "getProviderConfig")
       .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
@@ -93,7 +91,6 @@ describe("ProviderDetail", () => {
   });
 
   it("keeps a multiplier load failure when the detail arrives after it", async () => {
-    // 倍率先失败、详情后到：详情成功不能清掉倍率的错误，否则页面停在加载态且没有重试入口。
     const detail = createDeferred<ProviderConfigDetail>();
     vi.spyOn(API, "getProviderConfig")
       .mockImplementationOnce(() => detail.promise)
@@ -129,7 +126,6 @@ describe("ProviderDetail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("Gemini AI Studio (EN)");
 
-    // 语言重取最后才返回，带的是保存前的旧值——它已被保存后的重取接管，不得回写。
     await act(async () => resolveLanguage(detailFor("en")));
     expect(screen.getByRole("spinbutton", { name: "Max Workers" })).toHaveValue(7);
   });
@@ -169,7 +165,6 @@ describe("ProviderDetail", () => {
     fireEvent.click(await screen.findByRole("button", { name: "激活 主号" }));
     await waitFor(() => expect(API.activateCredential).toHaveBeenCalled());
 
-    // 密钥已经改完：随后的详情重取被语言重取作废，二级栏的数量与状态仍须刷新
     await act(async () => i18n.changeLanguage("en"));
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
   });
@@ -191,7 +186,6 @@ describe("ProviderDetail", () => {
     vi.spyOn(API, "patchProviderConfig").mockResolvedValue(undefined);
     vi.spyOn(API, "getProviderConfig")
       .mockResolvedValueOnce(detailFor("zh"))
-      // 保存后的重取挂起，直到被接管方 abort——与真实 fetch 的行为一致
       .mockImplementationOnce(
         (_id, options) =>
           new Promise((_resolve, reject) => {
@@ -213,7 +207,6 @@ describe("ProviderDetail", () => {
 
     await act(async () => i18n.changeLanguage("en"));
 
-    // PATCH 已经成功：草稿要清、目录要刷新，否则已入库的值仍标着未保存、还能被重复提交。
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
     expect(screen.getByRole("spinbutton", { name: "Max Workers" })).toHaveValue(7);

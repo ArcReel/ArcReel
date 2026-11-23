@@ -36,12 +36,8 @@ DISTRIBUTED_VIDEO_WORKFLOW = REPO / "skills" / "video-workflow" / "SKILL.md"
 WORKFLOW_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md", "SKILL.ad.md")
 EPISODIC_VARIANTS = ("SKILL.narration.md", "SKILL.drama.md")
 
-# ``next_action.type`` 的闭集就是 ``WorkflowActionType``：编排动作、计划注入的动作与
-# ``GenerationAction``（整批准入判定被拒时原样交回）都在其中。从枚举导出而不是手抄，新增成员
-# 时这份契约测试会直接红。
 CONTROLLED_ACTIONS = tuple(action.value for action in WorkflowActionType)
 
-#: 视频生成不再读旁白交付后删掉的问题码；档案里留着它们会让 Agent 按不存在的结论行事。
 RETIRED_NARRATED_VIDEO_CODES = (
     "tts_duration_endpoint_fixed",
     "video_shorter_than_tts",
@@ -138,9 +134,6 @@ def test_generate_video_waits_on_the_durable_batch_without_forcing_completed_tar
 
     assert "get_generation_batch" in content
     assert "poll_after_seconds" in content
-    # 「在途不自动 force」是费用防线：在途任务刚完成时再 force，会对同一目标再付一次费。
-    # 只锁关键词：「在途」那一行里每个点名 force 的分句都须带否定词，
-    # 避免「自动 force；不必等待」或「在途时自动 force；其他情况不要 force」被当成禁止重做。
     assert any("在途" in line and _forbids_force(line) for line in content.splitlines()), (
         "generate-video skill 未写明已有在途任务时不自动 force 重做"
     )

@@ -1,13 +1,6 @@
 import { vi } from "vitest";
 
 /**
- * 可控的 `text/event-stream` fetch 响应替身：把全局 `fetch` 打桩为返回一个由测试驱动的
- * `ReadableStream` 响应，供 `openSseStream` 及其上层封装的测试推送事件、结束或中断流。
- *
- * `connections` 按建连顺序记录每次 fetch 调用，用于断言 URL、请求头（`Authorization`、
- * `Last-Event-ID`）与重连次数。
- */
-/**
  * 消费方的进展计数：每建一次连接、每向流索要一次下一块数据（`pull`）各记一次。
  *
  * `pull` 是真实的握手信号——消费方只有把上一块读走、喂给解析器、回到 `read()` 才会再索要，
@@ -53,12 +46,10 @@ export class FakeSseConnection {
     return this.signal?.aborted ?? false;
   }
 
-  /** 写入原始 SSE 文本（可为不完整分块）。 */
   write(raw: string): void {
     this.controller.enqueue(this.encoder.encode(raw));
   }
 
-  /** 推送一条服务端事件，data 按真实 SSE 的形态序列化为 JSON。 */
   emit(event: string, data: unknown, id?: string): void {
     const lines = [`event: ${event}`];
     if (id !== undefined) lines.push(`id: ${id}`);
@@ -81,10 +72,6 @@ export interface FakeSseFetch {
   readonly latest: FakeSseConnection;
 }
 
-/**
- * 用 `vi.stubGlobal("fetch", …)` 安装替身；`status` 决定每次连接的响应状态（可按调用序号变化）。
- * 由 vitest 的 `unstubAllGlobals` 或用例自行恢复。
- */
 export function stubSseFetch(status: number | ((index: number) => number) = 200): FakeSseFetch {
   const connections: FakeSseConnection[] = [];
   activity = new StreamActivity();

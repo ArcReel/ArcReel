@@ -34,7 +34,6 @@ function isPending(query: UsageRecordsQuery = {}): boolean {
   return query.statuses?.length === 1 && query.statuses[0] === "pending";
 }
 
-/** 像真实 fetch 一样，请求被中止时立即以 AbortError 失败；未中止则等 `promise` 落定。 */
 function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));

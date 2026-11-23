@@ -14,7 +14,6 @@ const COST_NAME = "按天堆叠的参考费用";
 
 describe("UsageRecordsSection trend", () => {
   beforeAll(async () => {
-    // 数值断言等待真实图表渲染，不把冷 chunk 的加载耗时算进查询等待。
     await import("./UsageTrendChart");
   });
 
@@ -38,8 +37,6 @@ describe("UsageRecordsSection trend", () => {
   });
 
   it("renders the call counts with the language's thousands separator", async () => {
-    // tooltip 与无障碍表格里，调用次数紧挨着按界面语言渲染的成功率；跟浏览器语言的
-    // `toLocaleString()` 会让同一处出现两种分隔习惯。
     for (const [language, expected] of [
       ["zh", "12,340"],
       ["en", "12,340"],
@@ -86,7 +83,6 @@ describe("UsageRecordsSection trend", () => {
     await userEvent.click(screen.getByRole("button", { name: "参考费用" }));
 
     expect(await screen.findByRole("img", { name: COST_NAME })).toBeInTheDocument();
-    // 主币种 CNY 之外的 $4.59 不折算也不上图，只在脚注里说明。
     expect(screen.getByText("只按 CNY 作图，$4.59 未计入")).toBeInTheDocument();
   });
 

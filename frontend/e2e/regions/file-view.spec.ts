@@ -5,7 +5,6 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 
 const PATH = "/app/projects/demo/files";
 const LISTING = "GET /api/v1/projects/demo/file-view";
-// 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
 const EVENT_STREAM: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
 };
@@ -90,7 +89,6 @@ const TRASH_STRESS: ApiOverrides = {
   },
 };
 
-// 降级恢复过的剪辑时间线记录：只剩结构文件，只能下载；另一条剪辑时间线记录按对象名显示。
 const TIMELINE_DOCUMENT = "edit_timelines/episode_1/tl-0000abcd.json";
 const TRASH_DEGRADED: ApiOverrides = {
   ...EVENT_STREAM,
@@ -163,7 +161,6 @@ defineRegionScenarios("文件视图", [
       await expect.poll(() => nav.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
       await nav.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(nav.getByRole("button", { name: new RegExp(`${LONG_NAME}_200\\.png`) })).toBeInViewport();
-      // 目录树滚到底不带动详情栏，详情栏的页头仍在原处
       await expect(page.getByRole("heading", { level: 2, name: String(scriptFile.name) })).toBeInViewport();
     },
   },
@@ -258,7 +255,6 @@ defineRegionScenarios("文件视图", [
       await expect(page.getByText("剪辑时间线「完整版」（第 1 集）")).toBeVisible();
       await expect(page.getByText("无法按原结构恢复，以下结构文件只能下载")).toBeVisible();
       await expect(page.getByRole("button", { name: `下载 ${TIMELINE_DOCUMENT}` })).toBeVisible();
-      // 只能下载的记录没有「恢复」，另一条照常可以恢复
       await expect(page.getByRole("button", { name: "恢复" })).toHaveCount(1);
     },
   },

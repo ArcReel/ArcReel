@@ -306,7 +306,6 @@ class TestEndpointCatalog:
         assert by_key["kling-video-pro-silent"]["end_image_capable"] is True
         assert by_key["openai-chat"]["end_image_capable"] is False
         assert by_key["openai-images"]["end_image_capable"] is False
-        # 与注册表保持同源，不在响应层另立一份判断
         for key, spec in ENDPOINT_REGISTRY.items():
             assert by_key[key]["end_image_capable"] is spec.end_image_capable
 
@@ -640,7 +639,6 @@ class TestDiscoverModelsByStoredProvider:
             resp = custom_providers_client.post(f"/api/v1/custom-providers/{pid}/discover")
         assert resp.status_code == 200
         assert resp.json()["models"][0]["model_id"] == "gpt-4"
-        # 验证 stored 凭证被透传（明文 api_key，不是 mask 后的）
         kwargs = mock_discover.call_args.kwargs
         assert kwargs["discovery_format"] == "openai"
         assert kwargs["base_url"] == "https://api.example.com/v1"
@@ -794,7 +792,6 @@ class TestDeleteProviderCleansGlobalSettings:
         await svc.set_setting("default_video_backend", "gemini-aistudio/veo-3")
         await db_session.commit()
 
-        # 项目级清理走真实实现，隔离数据根下项目列表为空 → 只剩全局设置的清理
         del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert del_resp.status_code == 204
 
@@ -824,7 +821,6 @@ class TestDeleteProviderCleansProjectRefs:
         mock_pm.update_project.assert_called_once()
         call_args = mock_pm.update_project.call_args
         assert call_args[0][0] == "project-a"
-        # 执行 mutate_fn 验证清理逻辑：覆盖项目级媒体覆盖键（与全局设置键名不同）
         mutate_fn = call_args[0][1]
         test_proj = {
             "text_backend_complex": f"{prefix}gpt-4o",
@@ -855,9 +851,7 @@ class TestFullUpdateCleansStaleModelRefs:
         svc = ConfigService(db_session)
         await svc.set_setting("default_text_backend", f"custom-{pid}/gpt-4o")
         await svc.set_setting("default_image_backend", f"custom-{pid}/dall-e-3")
-        # 另一个供应商下的同名 model_id
         await svc.set_setting("text_backend_simple", f"custom-{other_pid}/gpt-4o")
-        # 视频桶键的悬空引用由解析闸报错兜底，写入侧不级联清理
         await svc.set_setting("default_video_backend_i2v", f"custom-{pid}/gpt-4o")
         await db_session.commit()
 
@@ -1105,7 +1099,6 @@ class TestConcurrencyFields:
             },
         )
         pid = create_resp.json()["id"]
-        # PUT 不带 image_max_workers → 视为 null（权威清除）；video 覆盖为 9
         resp = custom_providers_client.put(
             f"/api/v1/custom-providers/{pid}",
             json={
@@ -1129,7 +1122,6 @@ class TestValidateBackendValueCustomPrefix:
         from lib.infra.api_errors import BadRequestError
         from server.routers._validators import validate_backend_value
 
-        # custom- 前缀不在 PROVIDER_REGISTRY 中，仍须放行（逐模型能力由供应商 API 把关）
         with pytest.raises(BadRequestError):
             validate_backend_value("custom3/gpt-4o", "default_text_backend")
         assert validate_backend_value("custom-3/gpt-4o", "default_text_backend") is None
@@ -1141,7 +1133,6 @@ class TestValidateBackendValueCustomPrefix:
         with pytest.raises(BadRequestError) as exc_info:
             validate_backend_value("nonexistent/model", "default_text_backend")
         assert exc_info.value.status_code == 400
-        # 字段名只进诊断信息，不进面向使用者的摘要
         assert exc_info.value.diagnostic == "field: default_text_backend"
 
 
@@ -1387,7 +1378,6 @@ class TestResolutionField:
         assert resp.status_code == 201
         pid = resp.json()["id"]
 
-        # 替换模型列表，resolution 省略即为 null
         resp = custom_providers_client.put(
             f"/api/v1/custom-providers/{pid}",
             json={
@@ -1696,7 +1686,6 @@ class TestDiscoverAnthropic:
 
         assert resp.status_code == 200
         assert [m["model_id"] for m in resp.json()["models"]] == ["claude-x"]
-        # 发现格式固定为 anthropic，凭据透传
         kwargs = mock_discover.call_args.kwargs
         assert kwargs["discovery_format"] == "anthropic"
         assert kwargs["base_url"] == "https://example.com"
@@ -1731,9 +1720,7 @@ class TestDiscoverAnthropic:
     @pytest.mark.parametrize(
         ("stored_base_url", "expected_discovery_base"),
         [
-            # 预设默认值不算覆盖：模型列表按预设目录的 discovery_url 取
             ("https://api.deepseek.com/anthropic", "https://api.deepseek.com"),
-            # 用户覆盖过的 base_url 按存储值发现
             ("https://proxy.internal/anthropic", "https://proxy.internal/anthropic"),
         ],
     )
@@ -1817,7 +1804,6 @@ class TestDiscoverAnthropic:
             )
 
         assert resp.status_code == 200
-        # 上游收到的是 stored key，不是请求里的空白字符
         assert mock_discover.call_args.kwargs["api_key"] == "sk-stored"
 
 

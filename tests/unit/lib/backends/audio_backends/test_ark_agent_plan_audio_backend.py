@@ -32,7 +32,6 @@ def _backend(credentials: dict[str, str]):
 
 
 def test_reuses_the_plan_api_key_and_ignores_the_plan_base_url():
-    # ark-agent-plan 的默认地址是 /api/plan/v3，语音合成不经它，构造时不接收 base_url
     backend = _backend({"api_key": " plan-key ", "base_url": "https://ark.example/api/plan/v3"})
     assert isinstance(backend, ArkAgentPlanAudioBackend)
     assert (backend.name, backend.model) == ("ark-agent-plan", "seed-tts-2.0")
@@ -90,7 +89,6 @@ def test_declares_speed_and_a_voice_list_with_translated_labels():
     backend = _backend({"api_key": "plan-key"})
     assert backend.capabilities == {AudioCapability.TEXT_TO_SPEECH, AudioCapability.SPEECH_SPEED}
     voices = backend.list_voices()
-    # 新建项目预填首项：取 Agent Plan 文档示例里的音色
     assert voices[0].id == "zh_female_vv_uranus_bigtts"
     assert all(voice.id.endswith("_uranus_bigtts") for voice in voices)
     for locale in SUPPORTED_LOCALES:

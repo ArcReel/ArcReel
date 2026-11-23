@@ -68,7 +68,6 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
-    # 与生产的 get_project_manager 一样复用同一个实例：构造时会建目录，不该每次请求都在事件循环上重做。
     project_manager = ProjectManager(tmp_path)
     use_project_manager(monkeypatch, project_manager)
     from tests.fakes import fake_reference_request_projector
@@ -184,7 +183,6 @@ def test_non_planning_patch_keeps_replan_marker_until_content_is_repaired(ad_cli
 
 def test_duration_repair_clears_an_independent_migration_marker(ad_client: TestClient) -> None:
     script = _script(ad_client)
-    # 旧聚合时长非法时迁移会夹到结构下限并标 replan，但不会留下内容归属 provenance。
     script["video_units"][0].update({"duration_seconds": 1, "needs_replan": True})
     path: Path = ad_client.project_dir / "scripts/episode_1.json"
     path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")

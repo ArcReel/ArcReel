@@ -133,8 +133,6 @@ describe("openSseStream", () => {
     await flushStream();
     expect(fake.connections).toHaveLength(4);
 
-    // 建连成功但一个事件都没送到就断流：这条连接没证明自己可用，退避继续增长到 8s，
-    // 不回落到首个延迟——否则「接受连接后立刻断流」的坏代理会被按秒重连。
     fake.latest.end();
     await flushStream();
     await vi.advanceTimersByTimeAsync(7999);
@@ -172,8 +170,6 @@ describe("openSseStream", () => {
   it("stops permanently when the server rejects the request, releasing the visibility listener", async () => {
     const fake = stubSseFetch(401);
     const onError = vi.fn();
-    // 句柄自行进入终态时调用方通常不再 close()，而 close() 对已关闭的句柄直接返回：
-    // 监听只有在这条路径上就地摘掉，才不会连同整个闭包（onMessage 回调等）常驻 document。
     const addListener = vi.spyOn(document, "addEventListener");
     const removeListener = vi.spyOn(document, "removeEventListener");
     const handle = openSseStream({ url: "/api/v1/stream", onMessage: () => {}, onError });

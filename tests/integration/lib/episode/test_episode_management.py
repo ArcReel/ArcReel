@@ -110,7 +110,6 @@ class TestCreate:
         assert _order(project_dir) == [1, 2, 8]
         entry = _entry(project_dir, 8)
         assert entry["source_origin"] == "none"
-        # 标题留空：界面按播出位置显示「第 N 集」，插入或调序后仍然连续
         assert entry["title"] == ""
         assert not (project_dir / "source" / "episode_8.txt").exists()
 
@@ -140,7 +139,6 @@ class TestCreate:
         assert episode == 2
         assert _entry(project_dir, 2)["source_origin"] == "own"
         assert (project_dir / "source" / "episode_2.txt").read_text(encoding="utf-8") == "番外：山中一日。\n"
-        # 盘上同名、没有登记的文件改名留底，不被覆盖
         assert any(p.name.startswith("_episode_2") for p in (project_dir / "source").iterdir())
 
     def test_blank_source_text_counts_as_no_source(self, tmp_path: Path):

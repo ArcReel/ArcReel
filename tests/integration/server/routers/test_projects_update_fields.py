@@ -115,7 +115,6 @@ class TestProjectsRouter:
         ("patch", "status"),
         [
             ({"narration_delivery": "use_tts"}, 422),
-            # 只写供应商的 TTS 模型在写边界即被拒（docs/adr/0099）
             ({"narration_delivery": "use_tts", "audio_backend": "dashscope", "narration_voice": "Cherry"}, 400),
             ({"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash"}, 422),
             ({"narration_delivery": None}, 422),
@@ -293,7 +292,6 @@ class TestProjectsRouter:
 
             rejected = client.patch("/api/v1/projects/ready", json={"default_image_backend": "no-slash"})
             assert rejected.status_code == 400
-            # 校验在写盘闭包内抛出，若 router 的兜底分支不透传领域异常会退化成 500
             assert rejected.json()["diagnostic"] == "field: default_image_backend"
 
             wrong_media = client.patch(
@@ -361,7 +359,6 @@ class TestProjectsRouter:
             assert off.status_code == 200
             assert fake_pm.project_data["ready"]["grid_storyboard"] is False
 
-            # 生成模式创建即定：项目 PATCH 模型结构上无 generation_mode，出现即被静默丢弃、不写盘
             route = client.patch("/api/v1/projects/ready", json={"generation_mode": "reference_video"})
             assert route.status_code == 200
             assert fake_pm.project_data["ready"]["generation_mode"] == "storyboard"

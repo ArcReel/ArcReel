@@ -19,7 +19,6 @@ def test_anthropic_official_present() -> None:
     assert p.messages_url == "https://api.anthropic.com"
     assert p.discovery_url == "https://api.anthropic.com"
     assert p.icon_key == "Anthropic"
-    # 用户表格明确 Anthropic 官方默认模型为空、不标推荐
     assert p.default_model == ""
     assert p.is_recommended is False
 

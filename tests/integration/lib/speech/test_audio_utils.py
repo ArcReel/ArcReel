@@ -104,7 +104,6 @@ class TestProbeAudioDuration:
 
         @contextmanager
         def gated_named_temporary_file(*args, **kwargs):
-            # 临时文件写完、交还路径之前停住，让取消恰好落在这一程。
             with original_named_temporary_file(*args, **kwargs) as tmp:
                 yield tmp
             written.set()

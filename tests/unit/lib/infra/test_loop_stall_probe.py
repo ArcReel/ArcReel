@@ -101,7 +101,6 @@ async def test_a_stall_shorter_than_the_threshold_is_not_logged(stall_log: _Stal
 
 
 async def test_a_stall_is_measured_from_when_the_next_heartbeat_was_due(stall_log: _StallLog) -> None:
-    # 心跳之后事件循环本就要空闲一个心跳间隔，这段时间不算停滞。
     heartbeat_interval = 1.0
     clock = _Clock()
     probe = start_loop_stall_probe(
@@ -189,7 +188,6 @@ async def test_capturing_the_stack_while_other_threads_are_busy_does_not_crash(
         return 0 if depth == 0 else 1 + _churn(depth - 1)
 
     def _busy() -> None:
-        # 每轮让出 GIL，帧照样持续变化，但事件循环线程拿 GIL 不用排在忙线程后面。
         while not done.is_set():
             _churn(50)
             time.sleep(0)

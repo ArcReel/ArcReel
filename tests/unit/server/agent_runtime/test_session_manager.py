@@ -123,7 +123,6 @@ class TestSessionManager:
         managed.channel.broadcast({"type": "result", "uuid": "r1"})
         assert queue.get_nowait()["type"] == "result"
 
-        # 订阅者彻底跟不上（队列填满关键消息、无可逐出）→ 按会话流溢出策略移除。
         for i in range(120):
             managed.channel.broadcast({"type": "result", "uuid": f"m{i}"})
         assert not managed.channel.has_subscribers
@@ -172,16 +171,13 @@ class TestSessionManager:
             m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
             m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
             managed = await session_manager.get_or_connect(meta.id)
-            # Let the actor enter the async-context (connect).
             await asyncio.sleep(0)
             assert created_clients
             assert created_clients[0].connected
-            # 替身的 CLI 立即退出：再次连接丢弃 actor 已退出的旧会话，重建连接
             await managed.actor.wait()
             revived = await session_manager.get_or_connect(meta.id)
             assert revived is not managed
             assert len(created_clients) == 2
-            # Graceful teardown so the actor task doesn't leak.
             await session_manager.close_session(meta.id)
 
         assert await session_manager._options_assembler._keep_stream_open_hook({}, None, None) == {"continue_": True}
@@ -265,7 +261,6 @@ class TestSessionManager:
             assert managed.status == "error"
             assert (await meta_store.get(meta.id)).status == "error"
         finally:
-            # send_query failure raised inside actor → actor task already done.
             session_manager.sessions.pop(meta.id, None)
 
         with pytest.raises(FileNotFoundError):
@@ -304,7 +299,7 @@ class TestSessionManager:
         await meta_store.update_status(meta.id, "running")
 
         task = asyncio.create_task(session_manager._process_inbox(managed))
-        await asyncio.sleep(0)  # let the coroutine start and block on inbox
+        await asyncio.sleep(0)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -431,7 +426,6 @@ class TestSessionManager:
 
         async def _send_lands_first(session_id, status):
             if status == "completed":
-                # 发送路径看到非 running 后受理：先写 running，再送达 CLI
                 await real_update(session_id, "running")
                 managed.enter_running()
             await real_update(session_id, status)
@@ -562,7 +556,6 @@ class TestSessionManager:
         monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
 
         allow_cb = await session_manager._build_can_use_tool_callback("unknown-session")
-        # Non-AskUserQuestion tools should be denied (whitelist fallback)
         result = await allow_cb("Read", {"x": 1}, None)
         assert isinstance(result, _FakeDeny)
         assert "未授权" in result.message
@@ -642,7 +635,6 @@ class TestSessionManager:
             assert isinstance(live, LiveMessage)
             assert live.message["uuid"] == "live-1"
             assert isinstance(await anext(stream), Heartbeat)
-            # 挤爆订阅者队列：critical 消息填满 + 无可驱逐 → 队列被清空，流结束。
             for i in range(120):
                 managed.channel.broadcast({"type": "result", "uuid": f"m{i}"})
             tail = [event async for event in stream]
@@ -712,7 +704,6 @@ class TestSessionManager:
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-        # Read docs dir — allowed (cwd 外且不在 projects/ 下，作为参考资料)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(docs_dir / "guide.md")}},
             None,
@@ -762,7 +753,6 @@ class TestSessionManager:
 
         hook = mgr._options_assembler._build_file_access_hook(own_project)
 
-        # Bash — not a path tool, hook continues
         result = await hook(
             {"tool_name": "Bash", "tool_input": {"command": "ls /etc"}},
             None,
@@ -802,7 +792,6 @@ class TestSessionManager:
         )
         assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-        # Write 普通 .json — allowed（project.json / scripts/*.json 另由专门 deny 覆盖）
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "notes.json")}},
             None,
@@ -824,7 +813,6 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Read .py — allowed (only write is restricted)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(own_project / "helper.py")}},
             None,
@@ -832,7 +820,6 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write file without extension (e.g. Makefile) — allowed (not in code blacklist)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "Makefile")}},
             None,
@@ -840,7 +827,6 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write .JSON (uppercase) — allowed (case-insensitive check)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "data.JSON")}},
             None,
@@ -885,7 +871,6 @@ class TestSessionManager:
             project_root=app_root,
             meta_store=meta_store,
         )
-        # SDK 会话数据基准目录是 policy 的构造参数：换新 policy 即注入测试位置
         mgr.access_policy = replace(mgr.access_policy, claude_projects_dir=claude_home)
 
         hook = mgr._options_assembler._build_file_access_hook(own_project)
@@ -913,7 +898,6 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write to SDK tool-results — still denied (write tools only allow project_cwd)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(result_file)}},
             None,
@@ -966,7 +950,6 @@ class TestSessionManager:
         """
         hook, _, _ = await self._make_sdk_hook_env(tmp_path, meta_store)
 
-        # SDK task output path pattern: /tmp/claude-{N}/{encoded}/tasks/{id}.output
         task_output = "/tmp/claude-0/-app-projects-alpha-abc123/tasks/bdgaof0ba.output"
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": task_output}},
@@ -975,7 +958,6 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write to task output — denied (write tools only allow project_cwd)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": task_output}},
             None,
@@ -1052,8 +1034,6 @@ class TestJsonValidationHook:
             or "JSON" in result["hookSpecificOutput"]["permissionDecisionReason"]
         )
 
-    # --- Edit: replace_all ---
-
     async def test_edit_replace_all_breaking_denies(self, tmp_path):
         """Edit with replace_all that breaks JSON is denied."""
         json_file = tmp_path / "ep.json"
@@ -1065,7 +1045,7 @@ class TestJsonValidationHook:
             {
                 "file_path": str(json_file),
                 "old_string": '"x"',
-                "new_string": '"y",',  # trailing comma on last occurrence
+                "new_string": '"y",',
                 "replace_all": True,
             },
         )
@@ -1110,8 +1090,6 @@ class TestJsonValidationHook:
         )
         assert result == {}
 
-    # --- Edit: file not found → skip (let Edit handle the error) ---
-
     async def test_edit_missing_file_returns_empty(self, tmp_path):
         """Hook skips if the target file doesn't exist yet."""
         manager = self._make_manager(tmp_path)
@@ -1137,8 +1115,6 @@ class TestJsonValidationHook:
         )
         assert result == {}
 
-    # --- Edit: old_string not in file → skip (Edit will fail on its own) ---
-
     async def test_edit_old_string_not_found_returns_empty(self, tmp_path):
         """Hook skips if old_string is not in the file."""
         json_file = tmp_path / "ep.json"
@@ -1163,8 +1139,6 @@ class TestJsonValidationHook:
         json_file.write_text('{"segment_break": true, "title": "test"}')
         manager = self._make_manager(tmp_path)
 
-        # old_string uses curly quotes (won't match file via Python str `in`),
-        # but new_string also has curly quotes → must be blocked.
         result = await self._call_hook(
             manager,
             {
@@ -1191,7 +1165,6 @@ class TestJsonValidationHook:
                 "new_string": '"segment_break": false',
             },
         )
-        # old_string not in file → hook skips → allowed
         assert result == {}
 
     async def test_edit_curly_quotes_in_new_string_straight_old_denies(self, tmp_path):
@@ -1315,8 +1288,6 @@ class TestJsonPostValidationHook:
         )
         assert result == {}
 
-    # --- Backup is consumed even on success ---
-
     async def test_backup_consumed_on_success(self, tmp_path):
         """PostToolUse pops backup even when validation succeeds."""
         json_file = tmp_path / "ep.json"
@@ -1335,7 +1306,6 @@ class TestJsonPostValidationHook:
         )
 
         assert result == {}
-        # Backup should be consumed to prevent memory leaks
         assert "test-tool-use-id" not in backups
 
 
@@ -1345,7 +1315,7 @@ def _make_managed_for_state_test():
 
     return ManagedSession(
         session_id="test",
-        actor=None,  # 状态机测试不触及 actor
+        actor=None,
         status="running",
         project_name="demo",
     )
@@ -1407,7 +1377,6 @@ async def test_send_query_sets_running_and_awaits_done():
     await actor.start()
     await managed.send_query(_user_message("hi", "u-1"))
     assert [m["uuid"] for m in client.sent_messages] == ["u-1"]
-    # send_query 在消息写给 CLI 后即返回；离开 running 以 CLI 报 idle 为准（此单元测试没挂 inbox）
     assert managed.status == "running"
 
     await managed.send_disconnect()
@@ -1448,7 +1417,6 @@ async def test_send_interrupt_is_idempotent_via_flag():
     await actor.enqueue(q)
     await q.done.wait()
 
-    # 并发两次 send_interrupt；第二次应走 _interrupting fast-return
     await asyncio.gather(managed.send_interrupt(), managed.send_interrupt())
     # client.interrupt 至少被调一次（具体次数视 asyncio 调度，允许 1 或 2）
     assert client.interrupted

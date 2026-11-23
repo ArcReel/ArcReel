@@ -49,7 +49,6 @@ def test_backfill_video_endpoints_with_null_durations(
                     "VALUES (1, 'P', 'openai', 'https://x', 'k', '2026-05-04 00:00:00', '2026-05-04 00:00:00')"
                 )
             )
-            # 四条：video endpoint 且 NULL → 应被回填；text endpoint 不动；非 NULL 也不动
             conn.execute(
                 sa.text(
                     "INSERT INTO custom_provider_model "
@@ -72,9 +71,7 @@ def test_backfill_video_endpoints_with_null_durations(
         engine.dispose()
     by_id = {r[0]: r[1] for r in rows}
 
-    # sora-2-pro 命中第一条预设：[4, 8, 12]
     assert by_id["sora-2-pro"] == "[4, 8, 12]"
-    # 未知 → DEFAULT_FALLBACK [4, 8]
     assert by_id["unknown-foo"] == "[4, 8]"
     assert by_id["gpt-4o"] is None
     assert by_id["sora-2"] == "[1,2,3]"
