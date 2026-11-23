@@ -1,7 +1,3 @@
-/**
- * 项目大厅的海报卡。引导的演示卡也用它，切到只读形态：「项目推进后长这样」这句话只有在演示卡与
- * 真实卡片是同一份实现时才不会随时间说谎。只读卡点进去是只读工作台，卡上不带「更多」菜单。
- */
 
 import { Link } from "wouter";
 import { Download, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
@@ -28,7 +24,6 @@ export interface ProjectCardActions {
   onDelete: (project: ProjectSummary) => void;
 }
 
-/** 大厅里的真实卡片必须给 `actions`；只读演示卡不接受它。 */
 type ProjectCardProps = { project: ProjectSummary } & (
   | { readOnly: true; actions?: never }
   | { readOnly?: false; actions: ProjectCardActions }
@@ -83,7 +78,6 @@ export function ProjectCard({ project, readOnly, actions }: ProjectCardProps) {
       </Link>
 
       {actions && (
-        // 有悬停能力的设备上平时隐藏，悬停、聚焦或菜单打开时出现；触屏设备上常驻。
         <div className="absolute top-2 right-2 transition-opacity duration-fast pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:group-has-focus-visible:opacity-100 pointer-fine:has-aria-expanded:opacity-100">
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -117,16 +111,11 @@ export function ProjectCard({ project, readOnly, actions }: ProjectCardProps) {
 
 const FILES_URL_PREFIX = `${API_BASE}/files/`;
 
-/**
- * 封面走项目文件路由时请求 640 宽的缩略图：卡片从 280px 起按列铺满，海报通常不到 400px 宽。
- * 后端给的地址可能已带 `?v=` 版本键；演示卡的 data: 等其他来源原样返回。
- */
 function posterSrc(url: string): string {
   if (!url.startsWith(FILES_URL_PREFIX)) return url;
   return `${url}${url.includes("?") ? "&" : "?"}w=640`;
 }
 
-/** 海报 2:1。没有缩略图时用衬线字把标题写在海报上，不留一块无意义的色块。 */
 function Poster({ project, title }: { project: ProjectSummary; title: string }) {
   return (
     <div className="relative aspect-2/1 overflow-hidden bg-linear-to-br from-primary/30 via-muted to-background">
@@ -147,11 +136,9 @@ function Poster({ project, title }: { project: ProjectSummary; title: string }) 
   );
 }
 
-/** 每集一格：已完成、制作中、已有脚本、尚未开始。数量已写在下方的次要文字里，这里只作示意。 */
 function EpisodeStrip({ summary }: { summary: ProjectStatus["episodes_summary"] | undefined }) {
   if (!summary || summary.total === 0) return null;
   const inProductionEnd = summary.completed + summary.in_production;
-  // `scripted` 数的是有脚本的集，已包含完成与制作中的集。
   const scriptedEnd = Math.max(summary.scripted, inProductionEnd);
   return (
     <div aria-hidden className="flex gap-0.5">

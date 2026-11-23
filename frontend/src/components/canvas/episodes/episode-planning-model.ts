@@ -4,7 +4,6 @@ import { outputTruncationOf, type OutputTruncation } from "@/utils/output-trunca
 const EPISODE_PLAN_TASK_TYPE = "text_episode_plan";
 const CASCADE_FAILURE_CODE = "cascade_blocked_dependency";
 
-/** 规划起点之后还没分集的原文体量：各文件最后一个切出集之后的部分，不含夹在切出集之间的未切分原文。 */
 export function remainingUnits(view: EpisodesView): number {
   return view.files.reduce(
     (sum, file) =>
@@ -18,7 +17,6 @@ export interface PlanningFailure {
   code: string | null;
   params: Record<string, unknown>;
   message: string;
-  /** 服务端原文；原因已本地化时才有。 */
   detail: string | null;
   truncated: OutputTruncation | null;
 }
@@ -33,11 +31,6 @@ function failureOf(task: TaskItem): PlanningFailure {
   };
 }
 
-/**
- * 本项目最近一次分集规划的结局若是失败，返回失败原因；否则返回 null。
- *
- * 逐窗串联时，出错那一窗之后排着的窗口随之以「依赖任务失败」收尾，这时沿依赖找回真正出错的那一窗。
- */
 export function lastPlanningFailure(tasks: TaskItem[], projectName: string): PlanningFailure | null {
   const planning = tasks.filter((task) => task.project_name === projectName && task.task_type === EPISODE_PLAN_TASK_TYPE);
   const latest = planning.reduce<TaskItem | null>(

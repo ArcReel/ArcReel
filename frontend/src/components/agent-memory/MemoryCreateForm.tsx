@@ -11,10 +11,6 @@ import { errMsg } from "@/utils/async";
 
 import { checkNewName, newFileTemplate, type MemoryEntry } from "./memory-files";
 
-/**
- * 新建记忆文件：输入文件名后立即创建（与保存同一个 PUT，正文是带 frontmatter 的模板），成功后选中新文件。
- * 文件名是创建动作的参数，不是未保存修改，不登记离开拦截。
- */
 export function MemoryCreateForm({
   scope,
   entries,
@@ -28,10 +24,6 @@ export function MemoryCreateForm({
   empty: boolean;
   intro?: string;
   heading: "h2" | "h3";
-  /**
-   * 创建成功后选中新文件；返回 Promise 时等它完成再结束提交态。
-   * `signal` 在表单卸载（已切到别的文件或离开本页）时中止，此时不再跳到新文件。
-   */
   onCreated: (name: string, signal: AbortSignal) => Promise<void> | void;
 }) {
   const { t } = useTranslation("dashboard");

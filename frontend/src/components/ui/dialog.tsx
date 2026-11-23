@@ -29,7 +29,6 @@ function DialogOverlay({
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
-      // 遮罩不透明、不模糊，与新手引导遮罩同一规范；层级取 z-index token
       className={cn(
         "fixed inset-0 isolate z-overlay bg-scrim duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
@@ -53,9 +52,6 @@ function DialogContent({
   return (
     <DialogPortal>
       <DialogOverlay />
-      {/* 原语负责限高：Header / Body / Footer 纵向排布，只有 DialogBody 滚动，标题与底部操作始终可见。
-          宽度按 size 分档，不让调用处用视口断点覆盖。多步向导（wizard）固定高度，切换步骤时外框与底部按钮不移动。
-          图片查看器（viewer）占满视口四周各留 1rem 的区域，大图按可用空间缩放。 */}
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         data-size={size}
@@ -122,7 +118,6 @@ function DialogFooter({
   return (
     <div
       data-slot="dialog-footer"
-      // 固定在底部、不随 Body 滚动；只支持桌面端，按钮恒为一行靠右
       className={cn(
         "flex shrink-0 items-center justify-end gap-2 border-t bg-muted/50 px-5 py-3",
         className
@@ -144,7 +139,6 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        // 中文标题可能折行，行高不能为 1
         "text-base leading-snug font-medium",
         className
       )}

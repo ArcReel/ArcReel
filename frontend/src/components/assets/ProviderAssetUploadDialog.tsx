@@ -55,15 +55,10 @@ export interface ProviderAssetUploadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectName: string;
-  /** 版本历史里的资源类型，如 `characters`。 */
   resourceType: string;
   resourceId: string;
 }
 
-/**
- * 上传到供应商素材库：展示图片当前选中版本在各素材库账号里的关联与入库状态，发起上传、解除关联与刷新。
- * 上传立即返回入库任务，供应商审核期间按状态轮询，关闭对话框不影响后台入库。
- */
 export function ProviderAssetUploadDialog({
   open,
   onOpenChange,
@@ -90,7 +85,6 @@ export function ProviderAssetUploadDialog({
   );
 }
 
-// 范围由服务端按云账号身份、站点、区域与项目计算：账号记录换成另一个云账号的 Access Key 后，旧关联不再属于它
 function sameScope(link: ProviderAssetLink, account: ProviderAssetLinkAccount): boolean {
   return link.scope_key === account.scope_key;
 }
@@ -112,7 +106,6 @@ function UploadPanel({ projectName, resourceType, resourceId }: Omit<ProviderAss
         setState({ status: "ready", panel });
       } catch (error) {
         if (controller.signal.aborted) return;
-        // 轮询中的失败保留已显示的状态，下一轮再取；首次加载失败才换成错误提示
         setState((current) => initial ? { status: "error", error } : { ...current });
       }
     },
@@ -232,14 +225,12 @@ interface LinkRowProps {
   title: string;
   subtitle: string;
   site: ProviderAssetLink["site"];
-  /** 可以向它上传的账号；账号范围已变的历史关联为 null。 */
   accountId: number | null;
   link: ProviderAssetLink | null;
   canUpload: boolean;
   onChanged: () => void;
 }
 
-/** 关联状态的说明；供应商给出的失败原文（错误码与消息）单独返回，折叠在详情里。 */
 function linkDetail(
   link: ProviderAssetLink,
   t: (key: string, options?: Record<string, unknown>) => string,

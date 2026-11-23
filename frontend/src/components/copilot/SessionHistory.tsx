@@ -78,8 +78,6 @@ export function SessionHistory({ onPick, onDelete, onClose }: SessionHistoryProp
       aria-labelledby={headingId}
       className="flex min-h-0 flex-1 flex-col"
       onKeyDown={(event) => {
-        // Esc 先回到消息区；阻止默认行为，外壳不会因这次 Esc 收起面板。
-        // 删除确认框经 Portal 渲染，它的 Esc 在 React 树里也会冒泡到这里，只处理本视图 DOM 内的按键
         if (
           event.key === "Escape" &&
           !event.defaultPrevented &&
@@ -166,7 +164,6 @@ function DeleteSessionDialog({
   onClose: () => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
-  // 关闭动画期间保留上一次的会话，标题不闪成空白
   const [shown, setShown] = useState(session);
   if (session !== null && session !== shown) setShown(session);
   const [deleting, setDeleting] = useState(false);
@@ -187,7 +184,6 @@ function DeleteSessionDialog({
     } finally {
       setDeleting(false);
     }
-    // 删除失败时会话还在：留在对话框里说明，用户可以重试
     if (!deleted) {
       setFailed(true);
       return;
@@ -201,7 +197,6 @@ function DeleteSessionDialog({
     <AlertDialog
       open={session !== null}
       onOpenChange={(open) => {
-        // 删除中不响应 Esc 与遮罩点击，请求落定前对话框不消失
         if (!open && !deleting) close();
       }}
     >
@@ -211,7 +206,6 @@ function DeleteSessionDialog({
           <AlertDialogDescription>{t("dashboard:delete_session_desc")}</AlertDialogDescription>
         </AlertDialogHeader>
         {failed && (
-          // 失败说明放进唯一的滚动区：窗口很矮时不会被头尾夹住裁掉
           <AlertDialogBody tabIndex={0} role="region" aria-label={t("dashboard:delete_session_title", { title })}>
             <p role="alert" className="text-destructive">
               {t("dashboard:delete_session_failed")}

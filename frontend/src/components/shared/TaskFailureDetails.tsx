@@ -10,10 +10,6 @@ function paramsText(params: Record<string, unknown> | undefined): string {
     .join(", ");
 }
 
-/**
- * 任务失败提示里可展开的「详情」：问题码、参数与服务端原文。摘要已由后端按界面语言渲染时，后端才附带原文，
- * 没有原文时不渲染。
- */
 export function TaskFailureDetails({
   code,
   params,

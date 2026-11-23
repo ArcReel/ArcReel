@@ -18,7 +18,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "audio-lines": AudioLines,
 };
 
-/** 技能的本地化显示名；没有译名时返回 undefined，由调用方回退到 /技能名。 */
 function skillLabel(t: TFunction, skillName: string): string | undefined {
   const value = t(`dashboard:skill_name_${skillName.replace(/-/g, "_")}`, { defaultValue: undefined });
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -30,7 +29,6 @@ export function useSlashCommands(filter: string | null): SkillInfo[] {
   return useMemo(() => {
     if (filter === null) return [];
     const query = filter.toLowerCase();
-    // 后端已滤掉用户不能直接调用的技能
     return skills.filter(
       (skill) =>
         skill.name.toLowerCase().includes(query) ||
@@ -41,22 +39,15 @@ export function useSlashCommands(filter: string | null): SkillInfo[] {
 }
 
 interface SlashCommandMenuProps {
-  /** 输入框外框：菜单浮在它的上方，与它同宽。 */
   anchor: RefObject<HTMLElement | null>;
   skills: SkillInfo[];
-  /** 当前高亮的技能名，由输入框的方向键驱动。 */
   active: string | undefined;
   onActiveChange: (name: string) => void;
   onSelect: (command: string) => void;
   onClose: () => void;
-  /** 列表与高亮项渲染后的 DOM id，供输入框的 aria-controls 与 aria-activedescendant 引用。 */
   onIdsChange: (listId: string | undefined, activeId: string | undefined) => void;
 }
 
-// ---------------------------------------------------------------------------
-// SlashCommandMenu — 输入「/」时浮在输入框上方的技能菜单。
-// 焦点始终留在输入框里：方向键与回车由输入框处理，菜单只负责展示与指针选择。
-// ---------------------------------------------------------------------------
 
 export function SlashCommandMenu({
   anchor,
@@ -118,7 +109,6 @@ export function SlashCommandMenu({
           label={t("slash_menu_label")}
           className="-m-1.5"
         >
-          {/* cmdk 列表的可访问名称取自 label，默认是英文「Suggestions」 */}
           <CommandList ref={setList} label={t("slash_menu_label")}>
             <CommandGroup>
               {skills.map((skill) => {
@@ -129,7 +119,6 @@ export function SlashCommandMenu({
                     key={skill.name}
                     value={skill.name}
                     onSelect={() => onSelect(`/${skill.name}`)}
-                    // 按下时不让输入框失焦，选择后光标仍在原处
                     onMouseDown={(event) => event.preventDefault()}
                     className="items-start"
                   >

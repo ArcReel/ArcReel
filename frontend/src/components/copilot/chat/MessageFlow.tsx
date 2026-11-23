@@ -19,28 +19,14 @@ import { buildDisplayItems } from "./display-items";
 import { MessageRow } from "./MessageRow";
 import { canEditUserTurn } from "./utils";
 
-// ---------------------------------------------------------------------------
-// MessageFlow — Agent 面板的消息区。
-//
-// 贴底时随新内容跟随到底；用户上翻即停止跟随，底部出现「跳到最新」。发送消息与
-// 提交回答时由调用方经 MessageFlowHandle.scrollToEnd 显式滚到底，并恢复跟随。
-// 切换会话时由调用方以会话 id 作 key 重新挂载，新会话从底部开始。
-//
-// 失败卡片只为查看期间新到达的失败播报（role="alert"）；打开会话时已有的失败
-// 照常显示但不播报，否则载入一段历史就会连读几张失败卡片。新到达的集合经
-// context 传给子智能体卡片，展开着的子时间线里新到达的失败同样播报。启动失败
-// 只在本次发送时产生，总是新的。
-// ---------------------------------------------------------------------------
 
 export interface MessageFlowHandle {
-  /** 滚到最新一条并恢复贴底跟随。 */
   scrollToEnd: () => void;
 }
 
 interface MessageFlowProps {
   ref?: Ref<MessageFlowHandle>;
   onSubmitEdit: (turnUuid: string, text: string, images: ImagePayload[]) => void;
-  /** 启动失败卡片的「重试」；不传时卡片不给重试。 */
   onRetryStartup?: () => void;
 }
 
@@ -74,7 +60,6 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
   const arrived = useMemo(() => arrivedFailures(entries, historySeq), [entries, historySeq]);
 
   if (items.length === 0 && !startupFailure) {
-    // 加载期间留白，不闪一下空状态
     if (messagesLoading) return <div className="min-h-0 flex-1" />;
     return (
       <Empty className="min-h-0 flex-1">
@@ -122,7 +107,6 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
   );
 }
 
-/** 查看期间新到达的轮次失败条目的 uuid。条目按 seq 升序，从末尾往回找到历史边界为止。 */
 function arrivedFailures(entries: TimelineEntry[], historySeq: number | null): ReadonlySet<string> {
   const uuids = new Set<string>();
   if (historySeq === null) return uuids;

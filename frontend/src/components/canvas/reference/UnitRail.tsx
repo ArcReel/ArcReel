@@ -8,7 +8,6 @@ export interface UnitRailProps {
   units: ReferenceVideoUnit[];
   selectedId: string | null;
   onSelect: (unitId: string) => void;
-  /** 展开完整列表（搜索、新增与排序都在完整列表里）。 */
   onExpand: () => void;
   statusMap?: Record<string, UnitStatus>;
   className?: string;

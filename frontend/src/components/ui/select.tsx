@@ -26,7 +26,6 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
   )
 }
 
-// 相对上游：降低 input 填充不透明度以保留文字对比度；失败态用完整红色描边与较强光晕。
 function SelectTrigger({
   className,
   size = "default",
@@ -121,7 +120,6 @@ function SelectItem({
       )}
       {...props}
     >
-      {/* 允许选项文字收缩：弹层有宽度上限时，长选项由调用处截断，不再横向溢出被裁切 */}
       <SelectPrimitive.ItemText className="flex min-w-0 flex-1 gap-2 whitespace-nowrap">
         {children}
       </SelectPrimitive.ItemText>

@@ -23,7 +23,6 @@ export const AssetCard = memo(function AssetCard({
   onAction,
 }: {
   asset: Asset;
-  /** 需传稳定引用。 */
   onAction: (action: AssetCardAction, asset: Asset) => void;
 }) {
   const { t } = useTranslation("assets");
@@ -44,7 +43,6 @@ export const AssetCard = memo(function AssetCard({
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-3 pt-2.5">
         <div className="flex min-w-0 items-center gap-1">
           <h3 id={titleId} className="min-w-0 flex-1 text-sm font-medium">
-            {/* 名称按钮的伪元素铺满整张卡片，点卡片任意处都打开详情；「更多」在 DOM 中靠后、自身定位，盖在它上面。 */}
             <button
               type="button"
               onClick={() => onAction("open", asset)}

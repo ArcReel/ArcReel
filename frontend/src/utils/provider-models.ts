@@ -23,19 +23,11 @@ export async function getCustomProviderModels(options: { signal?: AbortSignal } 
 }
 
 
-/** 目录里的供应商名与模型名（"provider/model" 为键），均已按 Accept-Language 成文。 */
 export interface CatalogDisplayNames {
   providerNames: Record<string, string>;
   modelNames: Record<string, string>;
 }
 
-/**
- * 从目录（`/providers` 与 `/custom-providers`）抽出显示名表，作为候选响应之外的兜底层。
- *
- * 两个端点都不按可用性收窄，候选与整页配置则只列 ready 的内置供应商与已启用的自定义模型；
- * 而生效值可以指向一个已失去凭证的内置供应商，或一个被停用的自定义模型（停用不清引用）。
- * 那时下拉触发按钮仍要显示名字，而不是 `custom-3 · my-model` 这样的裸 id。
- */
 export function catalogDisplayNames(
   providers: ProviderInfo[],
   customProviders: CustomProviderInfo[] = [],
@@ -58,11 +50,6 @@ export function catalogDisplayNames(
   return { providerNames, modelNames };
 }
 
-/**
- * Given a video backend string like "gemini-aistudio/veo-3.1-generate-preview"
- * or "custom-3/my-model", look up supported_durations.
- * Returns undefined if provider/model not found.
- */
 export function lookupSupportedDurations(
   providers: ProviderInfo[],
   videoBackend: string,
@@ -77,8 +64,6 @@ export function lookupSupportedDurations(
     const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
     const cp = customProviders.find((p) => p.id === dbId);
     const model = cp?.models?.find((m) => m.model_id === modelId);
-    // 自定义模型的时长由对应的模型条目给出，前端只看得到用户写下的时长覆盖；
-    // 其余情形交给服务端的能力查询（useModelCapabilities）
     const durations = model?.capability_overrides?.durations;
     return durations?.length ? durations : undefined;
   }
@@ -90,13 +75,6 @@ export function lookupSupportedDurations(
     : undefined;
 }
 
-/**
- * 目录里该模型的时长全集，升序；目录查不到为 null。
- *
- * 这是型号声明、不经任何联动约束收窄的集合，供「展示模型规格」与「切换模型时判断已选时长
- * 是否仍属于新模型」这类同步场景使用。按当前分辨率 / 参考图路径收窄后的可选集只由服务端
- * video-capabilities 端点回答（`useModelCapabilities`），前端不复算收窄规则。
- */
 export function catalogDurations(
   providers: ProviderInfo[],
   customProviders: CustomProviderInfo[],
@@ -107,17 +85,11 @@ export function catalogDurations(
   return raw?.length ? [...raw].sort((a, b) => a - b) : null;
 }
 
-/** 目录（非自定义供应商）里的视频音轨能力：音轨是否存在 + 服务端派生的声音一致性档位。 */
 export interface CatalogVideoAudio {
   hasAudioTrack: boolean;
-  /** 无项目上下文下的档位，服务端派生。有项目上下文时改用能力查询结果，不读此值。 */
   voiceConsistency: VoiceConsistencyTier;
 }
 
-/**
- * 给定 "provider/model"，查目录里的音频相关声明——下拉能力线（音轨）与全局设置页的档位
- * 徽章共用同一份查表。自定义供应商同样读取服务端已求值的声明，不在前端推断音轨能力。
- */
 export function lookupCatalogVideoAudio(
   providers: ProviderInfo[],
   videoBackend: string,
@@ -140,19 +112,6 @@ export function lookupCatalogVideoAudio(
   return { hasAudioTrack: model.audio_track !== "always_off", voiceConsistency: model.voice_consistency };
 }
 
-/**
- * 查该 `provider/model` 在某条执行路径上的音频开关可控性；查不到模型返回 null（调用方按可控
- * 处理，不收紧）。
- *
- * 三态由服务端从 backend 的 VideoCapabilities 派生，前端只按路径取对应字段，不解读
- * capabilities token、也不自行合成三态。恒有声与恒无声的成片音轨不随开关变化，设置界面据此
- * 禁用开关——否则用户的关闭意图到不了供应商，却会让编排层按无声裁掉全部音色约束。
- *
- * `route` 必传：同一 model 的两条子路径可以给出不同答案（可灵 v3-omni 图生可控、参考生无
- * 开关），按无路径上下文的值渲染会让参考生视频的用户开了音频却拿到无声成片。
- *
- * 自定义供应商同样读取服务端已求值的逐路径声明，不把未知端点替换为可控。
- */
 export function lookupVideoAudioControl(
   providers: ProviderInfo[],
   videoBackend: string,
@@ -174,13 +133,9 @@ export function lookupVideoAudioControl(
 }
 
 
-// 自定义供应商的候选只是提示，输入框仍可自由填写；512px 低于 GPT Image 等模型的总像素下限，不作建议。
 export const IMAGE_STANDARD_RESOLUTIONS = ["1K", "2K", "4K"];
 export const VIDEO_STANDARD_RESOLUTIONS = ["480p", "720p", "1080p", "4K"];
 
-/** 返回该 (provider, model) 下的分辨率候选 + 是否自定义供应商（决定 picker 模式）。
- *  自定义供应商路径需要从 endpoint 推 media_type 选标准分辨率集；该 map 由调用方
- *  从 endpoint-catalog-store 读出注入（保持本文件无 store 副作用）。 */
 export function lookupResolutions(
   providers: ProviderInfo[],
   backend: string,
@@ -212,9 +167,6 @@ export function lookupResolutions(
   return { options: model?.resolutions ?? [], isCustom: false, isKnown: !!model };
 }
 
-/** 该 (provider, model) 的有效画质可选值，内置与自定义供应商都取模型信息上的 `qualities`。
- *  取值与顺序由服务端两侧求值后下发（条目收录且调用端点接受显式画质才非空），这里不排序、不过滤；
- *  查不到模型时为空，调用方据此不提供画质选项。 */
 export function lookupQualities(
   providers: ProviderInfo[],
   backend: string,
@@ -234,11 +186,6 @@ export function lookupQualities(
   return providers.find((p) => p.id === providerId)?.models?.[modelId]?.qualities ?? [];
 }
 
-/** `provider/model` 挂接的那个端点对尺寸与时长的约束；内置供应商与查不到的模型为 undefined。
- *
- *  内置供应商没有「维度被端点固定」这一形态：尺寸与时长都是请求参数，端点目录里也没有它们的
- *  约束项。故只对自定义供应商的模型行查表。
- */
 export function lookupEndpointConstraints(
   backend: string,
   customProviders: CustomProviderInfo[] | undefined,
@@ -255,13 +202,6 @@ export function lookupEndpointConstraints(
   return model ? endpointConstraints[model.endpoint] : undefined;
 }
 
-/** 分辨率选择器的空值占位：说清「不选会得到什么」。
- *
- *  三种说法。端点报得出原生尺寸（ComfyUI 端点的宽高绑定读得到字面值）就报它；尺寸由该端点
- *  固定、却连字面值都读不出来（宽高两侧都没绑定是最常见的一种）时说「由 workflow 决定」——
- *  此时选择器本就禁用，通用的「默认（不传）」会让人以为这里还有一个「不传」的选项可挑；其余
- *  端点不选即不下发该参数，那句「默认（不传）」说的正是实情。
- */
 export function resolutionPlaceholder(
   constraints: EndpointConstraints | undefined,
   t: (key: string, params?: Record<string, unknown>) => string,

@@ -4,24 +4,14 @@ import { toGlobal } from "./manual-split-model";
 
 export type CompareLane = { kind: "new"; index: number } | { kind: "pending" };
 
-/** 一行原文里右侧色条的一段：`[from, to)` 是文件内的码位偏移。 */
 export interface LanePiece {
   from: number;
   to: number;
   lane: CompareLane;
 }
 
-/**
- * 新旧两种分法按源文位置的对照：左侧色条是现有分集（原文分段本身），右侧色条是新方案。
- * 只覆盖重新规划的起点之后；方案还没生成到的部分是「等待规划」。
- */
 export interface ReplanCompare {
-  /** 一行原文 `[start, end)` 的右侧色条分段，按位置升序；起点之前的部分不出现。 */
   lanes: (file: number, start: number, end: number) => LanePiece[];
-  /**
-   * 文件内新旧分界不同的位置，升序。分界按源文位置比较：跨文件的一集在文件交界处不算分界；分界落在空白里时取其后
-   * 第一个非空白字符，落在文件末尾的空白里时取下一个文件的开头。
-   */
   diffs: (file: number) => number[];
   waiting: ReadonlySet<number>;
 }
@@ -41,7 +31,6 @@ export function lanesContinue(previous: LanePiece[], next: LanePiece[]): boolean
   return sameLane(previous.at(-1)?.lane, next[0]?.lane);
 }
 
-/** `pos` 处起跳过空白后的第一个位置；到文件结尾时接着下一个文件的开头。段文字读不到时原样返回。 */
 function skipWhitespace(view: EpisodesView, pos: Pos): Pos {
   let [file, at] = pos;
   for (;;) {
@@ -60,7 +49,6 @@ function skipWhitespace(view: EpisodesView, pos: Pos): Pos {
   }
 }
 
-/** 候选过时（生成之后分集或源文有改动）或没有候选时为 null：位置已对不上，不做对照。 */
 export function replanCompare(view: EpisodesView, replan: ReplanSummary | null): ReplanCompare | null {
   if (replan === null || replan.stale !== null) return null;
   const fileIndex = new Map(view.files.map((file, index) => [file.source_file, index]));
@@ -92,7 +80,6 @@ export function replanCompare(view: EpisodesView, replan: ReplanSummary | null):
     return pieces.sort((a, b) => a.from - b.from);
   };
 
-  // 分界按全局码位比较：文件 A 的结尾与文件 B 的开头是同一处
   const global = (pos: Pos) => toGlobal(view, { file: pos[0], offset: pos[1] });
   const [startAt, endAt] = [global(start), end[0] < view.files.length ? global(end) : Infinity];
   const boundarySet = (positions: Pos[]) => {
@@ -119,7 +106,6 @@ export function replanCompare(view: EpisodesView, replan: ReplanSummary | null):
   }
   const diffs = (file: number): number[] => [...new Set(byFile.get(file) ?? [])].sort((a, b) => a - b);
 
-  // 原文全在方案结尾之后的现有集；跨文件的集按起点所在文件的那一段判断
   const waiting = new Set<number>();
   if (!replan.complete) {
     view.files.forEach((file, index) => {

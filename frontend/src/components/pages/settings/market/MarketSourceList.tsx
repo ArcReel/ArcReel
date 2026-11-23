@@ -43,7 +43,6 @@ import { SourceStatusDot } from "./market-source-status";
 
 type SourcePatch = { display_name?: string; is_enabled?: boolean };
 
-/** 只改写一行里给定的字段；同一行的并发修改各自只动自己提交的字段，响应先后不会互相覆盖。 */
 function patchSource(current: MarketSourceInfo[], id: number, fields: Partial<MarketSourceInfo>): MarketSourceInfo[] {
   return current.map((source) => (source.id === id ? { ...source, ...fields } : source));
 }
@@ -64,7 +63,6 @@ function applyOrder(current: MarketSourceInfo[], ordered: MarketSourceInfo[]): M
 }
 
 interface SequencedMutation<T, V> {
-  /** 发起时本地的值，作为这一串修改开始前最近一次确认的值。 */
   before: V;
   send: () => Promise<T>;
   confirmedValue: (result: T) => V;
@@ -78,10 +76,6 @@ interface MutationLane {
   confirmed: unknown;
 }
 
-/**
- * 同一 key 的修改按发起顺序串行发送，服务端按用户操作顺序落库；响应与失败回滚只在该 key 没有
- * 更新的修改时写回本地，回滚恢复到最近一次确认的值。失败一律抛出，由调用方提示。
- */
 function useSequencedMutations() {
   const lanes = useRef(new Map<string, MutationLane>());
   return useCallback(async <T, V>(key: string, mutation: SequencedMutation<T, V>) => {
@@ -117,10 +111,6 @@ interface MarketSourceListProps {
   onRefreshAll: () => void;
 }
 
-/**
- * 市场「设置」里的市场源：排序（拖动把手、键盘或菜单的上移下移）、启停、改名、单源刷新、删除与添加，都即时生效。
- * 失败时回滚本地状态并弹出提示；成功只以列表变化为反馈。删除不可撤销，先用 AlertDialog 确认。
- */
 export function MarketSourceList({
   sources,
   onSourcesChange,
@@ -352,7 +342,6 @@ function RenameSourceDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const formId = useId();
   const inputId = useId();
-  // 对话框关闭动画期间 source 已是 null，保留上一次的内容避免闪成空白。每次打开（含再次打开同一个源）都从源的当前名称开始。
   const [prevSource, setPrevSource] = useState<MarketSourceInfo | null>(null);
   const [shown, setShown] = useState<MarketSourceInfo | null>(null);
   const [name, setName] = useState("");
@@ -412,7 +401,6 @@ function DeleteSourceDialog({
   onDeleted: (id: number) => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
-  // 关闭动画期间保留上一次的源；每次打开都清掉上一次的错误。
   const [prevSource, setPrevSource] = useState<MarketSourceInfo | null>(null);
   const [shown, setShown] = useState<MarketSourceInfo | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -444,7 +432,6 @@ function DeleteSourceDialog({
     <AlertDialog
       open={source !== null}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
         if (!next && !submitting) onClose();
       }}
     >

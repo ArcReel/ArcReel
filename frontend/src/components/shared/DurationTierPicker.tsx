@@ -24,18 +24,12 @@ function chipClass(active: boolean, disabled: boolean): string {
 }
 
 export interface DurationTierPickerProps {
-  /** 当前时长（秒）；「自定义」里的输入不是正整数时为 null，调用方据此拦住提交。 */
   value: number | null;
   onChange: (value: number | null) => void;
   label?: string;
   disabled?: boolean;
 }
 
-/**
- * 时长档位选择器：15 / 30 / 60 / 90 秒单选，其余正整数秒在「自定义」里填写。
- * 自定义输入不是正整数时回报 null，并在行内说明原因。
- * 外部把值改成档位之外的数（例如放弃修改）时自动切到「自定义」并回填。
- */
 export function DurationTierPicker({ value, onChange, label, disabled = false }: DurationTierPickerProps) {
   const { t } = useTranslation("dashboard");
   const reactId = useId();
@@ -46,7 +40,6 @@ export function DurationTierPicker({ value, onChange, label, disabled = false }:
   const [custom, setCustom] = useState(value !== null && !isTier(value));
   const [customText, setCustomText] = useState(value !== null && !isTier(value) ? String(value) : "");
   const [prevValue, setPrevValue] = useState(value);
-  // 随外部写入调整内部状态：自定义框里正在输入的值回传过来时不打断输入
   if (value !== prevValue) {
     setPrevValue(value);
     if (value !== null && value !== parseSeconds(customText)) {

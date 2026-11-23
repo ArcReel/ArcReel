@@ -35,10 +35,9 @@ export function resizedSize(
     return [resizedW, resizedH];
   }
 
-  // 沿长边二分：找出仍然合规的最大等比尺寸。
   const aspectRatio = width / height;
-  let lo = 1; // lo 恒合规
-  let hi = width; // hi 恒不合规
+  let lo = 1;
+  let hi = width;
   while (lo + 1 < hi) {
     const mid = Math.floor((lo + hi) / 2);
     if (fits(mid, Math.max(roundTiesToEven(mid / aspectRatio), 1))) {

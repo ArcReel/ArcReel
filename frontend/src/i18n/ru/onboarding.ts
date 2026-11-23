@@ -33,19 +33,16 @@ export default {
   'close': 'Закрыть тур',
   'progress': 'Шаг {{current}} из {{total}}',
 
-  // "Sample project" section in the lobby during the tour
   'demo_section_title': 'Пример проекта',
   'demo_section_note': 'Показывается только во время тура',
   'demo_project_title': 'Приключения Алисы в Стране чудес',
   'demo_project_style': 'Акварельная книжная иллюстрация',
 
-  // Read-only demo workbench: badge next to the project title in the top bar
   'demo_badge': 'Демо · Только чтение',
   'demo_badge_hint': 'Вы смотрите пример проекта. В демо недоступны редактирование, генерация, загрузка и экспорт.',
   'demo_action_unavailable': 'Недоступно в демо',
   'demo_episode_placeholder': 'Демо доходит только до серии {{position}}: у этой серии есть название, но нет сценария и кадров.',
 
-  // Static conversation in the demo workbench agent panel: the user starts production, then the agent reports progress; the work rows in between are built from asset names
   'demo_chat_user_start': 'Начните производство',
   'demo_chat_agent_progress': 'Изображения персонажей и сцен готовы. Далее я буду по очереди генерировать изображения раскадровки и видео для каждой серии и сообщать о ходе работы здесь.',
 

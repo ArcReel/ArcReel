@@ -33,14 +33,12 @@ function draftComplete(draft: StylePickerValue): boolean {
   return draft.mode === "template" ? !!draft.templateId : !!(draft.uploadedFile ?? draft.uploadedPreview);
 }
 
-/** 选择器里的选择换算成项目风格；还没选定时返回 null。只在采用时调用：新参考图会新建预览地址。 */
 function fromPickerValue(draft: StylePickerValue, current: ProjectStyle): ProjectStyle | null {
   if (draft.mode === "template") {
     return draft.templateId ? { kind: "template", templateId: draft.templateId } : null;
   }
   if (draft.uploadedFile) {
     if (current.kind === "image" && current.file === draft.uploadedFile) return current;
-    // 选择器只在自己挂载期间持有文件的预览地址；写进项目风格的这一个归页面，由页面在不再使用时收回
     // react-doctor-disable-next-line react-doctor/no-create-object-url-without-revoke -- 地址经 onChange 存入表单值，ProjectSettingsPage 的 effect 在换图、放弃、保存或卸载时 revoke
     return { kind: "image", preview: URL.createObjectURL(draft.uploadedFile), description: "", file: draft.uploadedFile };
   }

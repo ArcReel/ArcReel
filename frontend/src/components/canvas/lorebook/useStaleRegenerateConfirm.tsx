@@ -23,18 +23,9 @@ type ImpactState =
   | { phase: "failed"; message: string };
 
 export interface StaleConfirmOptions {
-  /**
-   * 保存未保存修改后资产图会过期（如改了描述）：服务端此刻还判为最新，也要确认。
-   * 「保存并生成」在保存之前确认，取消时什么都不保存。
-   */
   willBeStale?: boolean;
 }
 
-/**
- * 单张重生一张过期资产图前的确认：列出会随之过期的分镜图、视频与衍生图数量。
- * 是否过期以服务端此刻的判定为准：本地状态行可能还没随刚改的描述刷新，或尚未取到。
- * 待生成的资产图直接生成；其余先问服务端，非过期直接生成，过期才确认。
- */
 export function useStaleRegenerateConfirm({
   projectName,
   assetType,
@@ -49,18 +40,15 @@ export function useStaleRegenerateConfirm({
   name: string;
   derivativeName?: string;
   status: AssetSheetStatusRow | undefined;
-  /** 资产条目上是否登记了资产图文件；没有时就是首次生成。 */
   hasSheet: boolean;
   onGenerate: () => void;
 }): {
   request: () => void;
-  /** 只确认不生成：resolve 为是否继续。 */
   confirm: (options?: StaleConfirmOptions) => Promise<boolean>;
   dialog: ReactNode;
 } {
   const { t } = useTranslation(["assets", "common"]);
   const [state, setState] = useState<ImpactState>({ phase: "closed" });
-  // 等待创作者答复的那次确认；新一次确认或卸载时按取消结算上一次
   const pendingRef = useRef<{ resolve: (ok: boolean) => void; controller: AbortController } | null>(null);
 
   const settle = useCallback((ok: boolean) => {
@@ -149,7 +137,6 @@ export function useStaleRegenerateConfirm({
         <AlertDialogHeader>
           <AlertDialogTitle>{t("sheet_regenerate_stale_title")}</AlertDialogTitle>
         </AlertDialogHeader>
-        {/* 影响说明可能带很长的失败原因：放进唯一的滚动区，标题与按钮留在原处 */}
         <AlertDialogBody tabIndex={0} role="region" aria-label={t("sheet_regenerate_stale_title")}>
           <AlertDialogDescription className="wrap-break-word">{description}</AlertDialogDescription>
         </AlertDialogBody>

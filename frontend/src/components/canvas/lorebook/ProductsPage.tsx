@@ -12,7 +12,6 @@ interface Props {
   readOnly?: boolean;
 }
 
-/** 商品画廊。商品不入全局资产库（多图列表模型），没有「从资产库选择」「加入资产库」与「并入…」。 */
 export function ProductsPage({
   projectName,
   products,

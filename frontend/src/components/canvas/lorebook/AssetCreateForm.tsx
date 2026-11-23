@@ -25,7 +25,6 @@ const DESCRIPTION_PLACEHOLDER = {
   product: "dashboard:product_desc_placeholder",
 } as const satisfies Record<AssetSheetType, string>;
 
-/** 从项目回收站恢复同名资产：原名已被刚建的资产占用，恢复结果带后缀，可以再合并。 */
 async function restoreFromTrash(projectName: string, recordId: string, t: TFunction): Promise<void> {
   const { pushToast } = useAppStore.getState();
   try {
@@ -38,10 +37,6 @@ async function restoreFromTrash(projectName: string, recordId: string, t: TFunct
   }
 }
 
-/**
- * 详情 Sheet 的新建模式：空白的详情表单，「创建」即保存。创建后由调用方切到这个资产的详情，
- * 原图、参考音频与别名在那里补充。填了内容再关闭会经离开拦截询问。
- */
 export function AssetCreateForm({
   projectName,
   assetType,
@@ -62,15 +57,12 @@ export function AssetCreateForm({
   const brandId = useId();
   const sellingPointsId = useId();
 
-  // 在途状态在发起创建的地方上报：创建成功时在请求结算前就切到详情，表单卸载后 finally 仍会落下
   const save = useCallback(
     async (fields: NewAssetFields) => {
       onSubmittingChange(true);
       try {
         const created = await createAsset(projectName, assetType, fields);
-        // 刷新失败时已提示；新资产不在数据里，Sheet 随即关闭，不会停在可重复提交的表单
         await refreshAfterWrite(projectName, t);
-        // 后端按 strip + NFC 落盘，按真名选中新资产
         const name = normalizeAssetName(fields.name);
         onCreated(name);
         const recordId = created.trash_record_id;

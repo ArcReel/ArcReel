@@ -38,10 +38,6 @@ interface UnregisteredFilesProps {
   onChanged: () => void;
 }
 
-/**
- * 页头下方的提示条：source/ 里有不属于整本源文、也不是任何一集原文的文件。点「处理」打开对话框逐个处置：
- * 加入整本源文、作为某一集的原文（新的一集或一集无原文的集），或者删除。没有这类文件时不渲染。
- */
 export function UnregisteredFilesBanner({ projectName, files, episodes, onChanged }: UnregisteredFilesProps) {
   const { t, i18n } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);
@@ -70,7 +66,6 @@ export function UnregisteredFilesBanner({ projectName, files, episodes, onChange
       <Dialog
         open={open}
         onOpenChange={(next) => {
-          // 处置请求在途时不响应 Esc 与遮罩点击
           if (!next && !busy) setOpen(false);
         }}
       >

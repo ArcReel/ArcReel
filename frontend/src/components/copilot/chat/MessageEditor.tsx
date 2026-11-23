@@ -16,10 +16,8 @@ import {
 
 interface MessageEditorProps {
   initialText: string;
-  /** 锚点消息带的图片附件，可在改写前逐张移除。 */
   initialImages: ImagePayload[];
   submitting: boolean;
-  /** 此刻允许提交改写；false 时保留编辑内容但锁住重新发送。 */
   canSubmit: boolean;
   onCancel: () => void;
   onSubmit: (text: string, images: ImagePayload[]) => void;
@@ -45,7 +43,6 @@ export function MessageEditor({
   } = useImageAttachments(() => initialImages.map(imagePayloadToAttachment));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // 部分输入法在组合确认的那次 keydown 上不置 isComposing，靠组合事件补齐
   const isComposingRef = useRef(false);
 
   useEffect(() => {
@@ -148,11 +145,9 @@ export function MessageEditor({
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {
                     if (submitting) return;
-                    // 外壳在紧凑档用 Esc 收起面板，并跳过已被处理的 Esc：这里标记一下，面板不跟着收起
                     event.preventDefault();
                     onCancel();
                   } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                    // 组合中的这一下确认的是候选词，不是提交（与主输入框同口径）
                     const native = event.nativeEvent;
                     if (native.isComposing || native.keyCode === 229 || isComposingRef.current) return;
                     event.preventDefault();
@@ -166,7 +161,6 @@ export function MessageEditor({
               </p>
               <div className="flex items-center justify-end gap-2">
                 <span className="mr-auto text-xs text-subtle-foreground">{t("message_edit_resend_hint")}</span>
-                {/* 改写在途时取消无从撤回请求：关掉编辑器只会让随后的会话切换显得无端 */}
                 <Button variant="outline" size="xs" disabled={submitting} onClick={onCancel}>
                   {t("message_edit_cancel")}
                 </Button>

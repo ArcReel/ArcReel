@@ -25,13 +25,11 @@ interface Props {
   onCancel: () => void;
 }
 
-/** 一行「剧本档位 → 申请档位」对照，秒数等宽以便多行纵向对齐。 */
 function DurationRow({
   showUnit,
   item,
   diffText,
 }: {
-  /** 批量确认时逐行指认单元；单个确认不重复。 */
   showUnit: boolean;
   item: DurationConfirmItem;
   diffText: string;
@@ -107,7 +105,6 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
         </AlertDialogHeader>
-        {/* 多单元的对照行可能很长，正文可以用键盘滚动 */}
         <AlertDialogBody tabIndex={0} role="region" aria-label={title}>
           <AlertDialogDescription render={<div />}>{durationSection}</AlertDialogDescription>
         </AlertDialogBody>

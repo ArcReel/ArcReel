@@ -23,15 +23,6 @@ import type { EpisodeMeta } from "@/types";
 import type { SourceKind } from "@/types/episodes-view";
 import { episodeDisplayName, episodePosition } from "@/utils/episode-display";
 
-/**
- * 「脚本规划」tab 的起步态：本集既没有脚本规划也没有正式脚本。自上而下是起步区（首次规划的唯一入口）
- * 与本集原文；本集导览在视图宽 860px 以上放右侧栏并随滚动固定，更窄时回到原文上方、可折叠。
- * 适用 narration、drama 与参考生视频；广告项目恒单集、没有源文切片，由集页排除。
- *
- * 本集原文按来源区分：切自整本源文的集只读（集文件由分集规划派生，去「分集」视图修改）；自带原文的集
- * 与无原文的集就地编辑，原文是一个编辑单元。剧情演绎项目一并选源文件类型，改类型会让本集已有的
- * 脚本规划过期时，保存前先确认。
- */
 
 
 function hasGuide(meta: EpisodeMeta | undefined): boolean {
@@ -118,7 +109,6 @@ function GuideRail({ meta, className }: { meta: EpisodeMeta | undefined; classNa
 }
 
 
-/** 切片的来源说明：文件名、起止偏移与约略字数；跨文件的切片起止偏移不能相减，只写起止文件。 */
 function SourceRangeNote({ meta }: { meta: EpisodeMeta | undefined }) {
   const { t } = useTranslation("dashboard");
   const r = meta?.source_range;
@@ -158,13 +148,10 @@ interface SourceValue {
   kind: SourceKind | null;
 }
 
-/** 原文编辑单元交给同页规划入口的句柄：规划读的是已保存的原文。 */
 interface SourceEditHandle {
-  /** 保存未保存的修改，返回是否可以继续；没有修改时直接返回 true，保存在途时返回 false。 */
   save: () => Promise<boolean>;
 }
 
-/** 自带原文与无原文的集：原文就地编辑，保存前按需确认改类型。保存后由调用方采用新内容并刷新项目。 */
 function SourceEditor({
   projectName,
   episode,
@@ -190,7 +177,6 @@ function SourceEditor({
     resolveRef.current?.(confirmed);
     resolveRef.current = null;
   };
-  // 卸载时还在等确认：按取消结算，保存随之失败
   useEffect(() => () => resolveRef.current?.(false), []);
 
   const save = useCallback(
@@ -221,7 +207,6 @@ function SourceEditor({
     },
     [projectName, episode, onSaved, t],
   );
-  // 只放行仍停留在脚本规划视图的跳转；去分集、别的集或别的视图照常询问
   const allowNavigation = useStaysInEpisodeView();
   const unit = useEditUnit({ source: saved, save, allowNavigation });
 
@@ -232,7 +217,6 @@ function SourceEditor({
       save: async () => {
         if (saving) return false;
         const done = await saveUnit();
-        // 保存失败的原因显示在原文下方的提示条上：把它带到眼前，规划不提交
         if (!done) barRef.current?.scrollIntoView({ block: "nearest" });
         return done;
       },
@@ -267,7 +251,6 @@ function SourceEditor({
           variant="plain"
           value={unit.value.text}
           onChange={(event) => unit.setValue((prev) => ({ ...prev, text: event.target.value }))}
-          // 保存期间只读：规划等这次保存落定后读已保存的原文，期间再改会让规划用上旧内容
           readOnly={saving}
           placeholder={t("episode_workspace_source_placeholder")}
           aria-label={t("episode_workspace_source_title")}
@@ -326,11 +309,9 @@ function EpisodeSource({
   const isDrama = useProjectsStore((s) => s.currentProjectData?.content_mode === "drama");
   const origin = episodeSourceOrigin(meta);
   const editable = origin !== "whole_source";
-  // 无原文的集没有集原文文件：盘上同名的 episode_N.txt 是未登记文件，不当作本集原文读取
   const withoutSource = meta !== undefined && origin === "none";
   const fetchKey = `${projectName}::${episode}`;
   const sourceRevision = useAppStore((s) => s.getEntityRevision(`episode:${episode}`) + s.getEntityRevision("project:project"));
-  // 取到的原文带上归属 key，加载中由 key 是否匹配派生；无原文的集只显示本页刚保存的内容
   const [fetched, setFetched] = useState<{ key: string; text: string | null } | null>(null);
 
   useEffect(() => {
@@ -411,7 +392,6 @@ export function EpisodeSourceReview({
 }) {
   const meta = episodes.find((e) => e.episode === episode);
   const guide = hasGuide(meta);
-  // 规划读的是已保存的原文：同页原文有未保存修改时先保存，保存失败或不确认改类型时不提交
   const sourceRef = useRef<SourceEditHandle | null>(null);
   const saveSource = useCallback(() => sourceRef.current?.save() ?? Promise.resolve(true), []);
   return (

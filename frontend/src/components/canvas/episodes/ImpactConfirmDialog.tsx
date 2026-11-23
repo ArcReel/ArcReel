@@ -20,14 +20,9 @@ export interface ImpactConfirmRequest {
   confirmLabel: string;
   runningLabel?: string;
   destructive: boolean;
-  /** 正文里有输入框等可聚焦元素：正文不再单独进入 Tab 顺序。 */
   interactiveBody?: boolean;
 }
 
-/**
- * 「分集」视图里改动分集与源文前的确认：删除一集、手工切分、整本源文文件改动、重新规划与采纳新方案等。
- * `request` 为 null 时关闭；提交中禁用两个按钮并忽略关闭请求。受影响集清单可能很长，正文可以用键盘滚动。
- */
 export function ImpactConfirmDialog({
   request,
   busy,
@@ -40,7 +35,6 @@ export function ImpactConfirmDialog({
   onCancel: () => void;
 }) {
   const { t } = useTranslation("common");
-  // 关闭动画期间沿用上一次的内容
   const [shown, setShown] = useState(request);
   if (request !== null && request !== shown) setShown(request);
 
@@ -76,7 +70,6 @@ export function ImpactConfirmDialog({
   );
 }
 
-/** 确认正文里服务端成文的清单：保留换行；清单在确认期间变了时先说明。 */
 export function ImpactText({ text, changedNotice }: { text: string; changedNotice?: string | null }) {
   return (
     <div className="flex flex-col gap-2">

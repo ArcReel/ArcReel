@@ -14,10 +14,6 @@ interface ModelIdFieldProps {
   "aria-describedby"?: string;
 }
 
-/**
- * 模型 ID 输入：可以从候选里挑，也可以填写候选之外的任意 ID（网关的模型列表常常不全）。
- * 因此用 Base UI 的 Autocomplete 而不是 Combobox：后者只接受候选项。
- */
 export function ModelIdField({ id, value, onChange, options, placeholder, disabled, ...rest }: ModelIdFieldProps) {
   const { t } = useTranslation("dashboard");
   return (

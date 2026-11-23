@@ -58,10 +58,6 @@ function parseViewRequest(
   };
 }
 
-/**
- * 拉取「分集」视图数据：项目数据每次刷新（上传、处置文件、账本改动经 SSE 推送）后重拉一次；
- * 重拉期间保留上一份数据，不闪空。
- */
 function useEpisodesViewData(projectName: string) {
   const project = useProjectsStore((s) => s.currentProjectData);
   const [data, setData] = useState<{ key: string; view: EpisodesViewData } | null>(null);
@@ -87,10 +83,6 @@ function useEpisodesViewData(projectName: string) {
   return { view: data?.key === projectName ? data.view : null, error, reload, episodes: project?.episodes ?? [] };
 }
 
-/**
- * 原文视口顶部所在的集：观察原文里每个集段落，取与视口上沿一带相交的最靠上的一段。
- * 视口上沿落在未切分的原文里时保持上一集。原文重新渲染（数据刷新）后重新挂观察。
- */
 function useCurrentEpisode(scrollRoot: RefObject<HTMLElement | null>, view: EpisodesViewData | null) {
   const [current, setCurrent] = useState<number | null>(null);
   useEffect(() => {
@@ -111,7 +103,6 @@ function useCurrentEpisode(scrollRoot: RefObject<HTMLElement | null>, view: Epis
         }
         if (top !== null) setCurrent(top.episode);
       },
-      // 只看视口上沿往下四分之一的一带：哪一集占着这里，读者就在读哪一集
       { root, rootMargin: "0px 0px -75% 0px" },
     );
     for (const block of root.querySelectorAll<HTMLElement>("[data-episode-block]")) observer.observe(block);
@@ -120,20 +111,12 @@ function useCurrentEpisode(scrollRoot: RefObject<HTMLElement | null>, view: Epis
   return [current, setCurrent] as const;
 }
 
-/**
- * 项目层「分集」视图：页头工具行，左侧是集目录，右侧是整本源文全文、按集分段。
- * 有新的分集方案时集目录让位，原文右侧出现方案栏，对照现有分集与新方案。
- *
- * 查询参数 `upload=whole_source|episode` 打开上传对话框，`episode=<集 ID>` 把原文滚到这一集，
- * `create` 打开新建一集对话框。
- */
 export function EpisodesView({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
   const { view, error, reload, episodes } = useEpisodesViewData(projectName);
   const search = useSearch();
   const [, setLocation] = useLocation();
   const [upload, setUpload] = useState<SourceUploadMode | null>(null);
-  /** 新建一集对话框：undefined 为关闭，null 放在末尾，数字为插在这一集之后。 */
   const [createAfter, setCreateAfter] = useState<number | null | undefined>(undefined);
   const deletion = useDeleteEpisode(projectName);
   const manuscriptRef = useRef<HTMLElement>(null);
@@ -175,7 +158,6 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     scrollIntoViewTop(header);
   }, [view, scrollTarget, setCurrent]);
 
-  // 查询参数只消费一次：渲染时读出并记下已消费的地址，effect 再把参数从地址里去掉，返回或刷新不会再次打开对话框
   const [consumedSearch, setConsumedSearch] = useState<string | null>(null);
   const request = parseViewRequest(search);
   if (request !== null && search !== consumedSearch) {
@@ -184,7 +166,6 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     if (request.create) setCreateAfter(null);
     if (request.episode !== null) setScrollTarget({ episode: request.episode });
   } else if (request === null && consumedSearch !== null) {
-    // 参数已从地址去掉：清掉记录，同一地址再次到达时照常生效
     setConsumedSearch(null);
   }
 

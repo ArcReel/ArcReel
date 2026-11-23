@@ -55,7 +55,6 @@ function ScoreBar({ score, best }: { score: number; best: number }) {
   const pct = Math.max(6, Math.round((score / Math.max(best, 1)) * 100));
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5">
-      {/* 比例条用 SVG 画：宽度随得分变化，写成元素属性而不是内联样式 */}
       <svg aria-hidden viewBox="0 0 100 4" preserveAspectRatio="none" className="h-1 w-14 overflow-hidden rounded-full">
         <rect width="100" height="4" className="fill-muted" />
         <rect width={pct} height="4" className="fill-primary" />
@@ -72,7 +71,6 @@ interface CandidateListProps {
   onToggle: (candidate: ComfyuiBindingCandidate) => void;
 }
 
-/** 候选列表。参考图是有序多选（选中顺序即参考图序号），其余语义键单选。 */
 function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateListProps) {
   const { t } = useTranslation("dashboard");
   const groupName = useId();
@@ -81,7 +79,6 @@ function CandidateList({ bindingKey, candidates, targets, onToggle }: CandidateL
   const chosen = selectedCandidateIndexes(candidates, targets);
   const best = candidates[0]?.score ?? 1;
 
-  // 各个候选由 radiogroup 直接持有，中间不隔一层 listitem。
   return (
     <div className="flex flex-col gap-1" role={multiple ? "group" : "radiogroup"} aria-label={t("ce_cf_candidates_label")}>
       {candidates.map((candidate, index) => {
@@ -138,7 +135,6 @@ interface ManualPickerProps {
   onPick: (target: ComfyuiBindingTarget) => void;
 }
 
-/** 从 workflow 的全部落点里手选。产物是节点级的，其余语义键只列字面值输入。 */
 function ManualPicker({ bindingKey, nodes, onPick }: ManualPickerProps) {
   const { t } = useTranslation("dashboard");
   const options = useMemo(() => {
@@ -182,19 +178,11 @@ interface ExtrasProps {
   onPatch: (patch: Partial<ComfyuiBindingTarget>) => void;
 }
 
-/**
- * 手填帧率：有限且不小于 1 才收下，否则给 `undefined`（这一项不声明）。允许小数——29.97 这类
- * 帧率是真实存在的。
- *
- * `min={1}` 只拦得住原生控件的上下箭头，手打的负数、`Infinity` 与空串照样进得来；定义保存时
- * 不再走一次表单校验，故在写进状态这一步就挡掉。
- */
 function positiveNumber(raw: string): number | undefined {
   const value = Number(raw);
   return Number.isFinite(value) && value >= 1 ? value : undefined;
 }
 
-/** 对齐步长：schema 声明为整数，小数存下去会被定义校验打回，故在这里就不收。 */
 function positiveInteger(raw: string): number | undefined {
   const value = Number(raw);
   return Number.isInteger(value) && value >= 1 ? value : undefined;
@@ -277,17 +265,12 @@ export interface ComfyuiBindingTableProps {
   mediaType: ComfyuiMediaType;
   inference: ComfyuiInferResponse;
   bindings: ComfyuiBindings;
-  /** 本轮被用户改过的语义键：改过即算「手动指定」，不再显示为自动识别。 */
   touched: ReadonlySet<ComfyuiBindingKey>;
   onChange: (key: ComfyuiBindingKey, targets: ComfyuiBindingTarget[] | undefined) => void;
   onReinfer: (key: ComfyuiBindingKey) => void;
   reinferring: ComfyuiBindingKey | null;
 }
 
-/**
- * 节点绑定表：一行一个语义键，展开后是候选列表、手选下拉与该键的附加项。
- * 并列候选与待确认的行默认展开——它们挡着保存，折叠起来用户找不到要做什么。
- */
 export function ComfyuiBindingTable({
   nodes,
   mediaType,
@@ -299,12 +282,9 @@ export function ComfyuiBindingTable({
   reinferring,
 }: ComfyuiBindingTableProps) {
   const { t } = useTranslation("dashboard");
-  // 用户亲手开合过的行，压过下面那份默认值；每行各算各的，不受其他行影响。
   const [toggled, setToggled] = useState<Partial<Record<ComfyuiBindingKey, boolean>>>({});
   const panelIdPrefix = useId();
 
-  // 默认展开哪几行只由到手的这一轮推断定：跟着行状态走的话，用户选中第一个候选的那一刻面板
-  // 就合上了，有序多选的第二张点不到，宽高帧数与种子的附加项也正好在这时才出现。
   const defaultOpen = useMemo(() => {
     const open = new Set<string>();
     for (const [key, result] of Object.entries(inference.bindings)) {
@@ -355,7 +335,6 @@ export function ComfyuiBindingTable({
           const open = toggled[key] ?? defaultOpen.has(key);
           const panelId = `${panelIdPrefix}-${key}`;
           const required = isRequiredBindingKey(key);
-          // 重导入在这一行留下的记号，显示在条目旁边——折叠着也看得见哪些是沿用、哪些重匹配过。
           const origin = rowOrigin(candidates, targets);
 
           return (
@@ -510,7 +489,6 @@ export function ComfyuiBindingTable({
                             onChange(key, [target]);
                             return;
                           }
-                          // 手选只做加法：同键的其余落点是别的分支在用的，删要从候选列表里取消勾选。
                           if (current.some((entry) => sameTarget(entry, target))) return;
                           onChange(key, [...current, target]);
                         }}

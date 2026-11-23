@@ -33,7 +33,6 @@ interface MergeAssetDialogProps {
   name: string;
   description: string;
   busy?: boolean;
-  /** 画廊各卡片在途的本地写入（上传、版本恢复、删除），任务队列里读不到，保留方命中时不能合并。 */
   writingNames?: ReadonlySet<string>;
 }
 
@@ -51,14 +50,6 @@ function sameTypeNames(project: ProjectData | null, assetType: MergeableAssetTyp
   return Object.keys(bucket ?? {});
 }
 
-/**
- * 「并入…」对话框：选同类型的保留方（角色还可选并为衍生），按集预览将改写的引用数与将过期的
- * 分镜图、视频数，确认后执行合并。被并方的描述在对话框里展示，供创作者复制取用。
- *
- * 预览随保留方与并法的每次改动重取（dry-run），旧请求经 AbortSignal 作废；只有与当前选择对应的
- * 预览就绪后才能确认。合并改写全部剧集引用并删除被并方，不可撤销，打开与提交时都复核双方的占用态。
- * 受控打开：入口是画廊卡片「更多」菜单里的「并入…」。
- */
 export function MergeAssetDialog({
   open,
   onOpenChange,
@@ -94,7 +85,6 @@ export function MergeAssetDialog({
   }
 
   const occupiedNames = useAssetBusyNames(assetType, projectName);
-  // 合并是一键执行的破坏性确认：保留方在对话框打开后被占用时实时禁用，并说明原因
   const targetBusyReason = !target
     ? null
     : writingNames?.has(target)
@@ -154,7 +144,6 @@ export function MergeAssetDialog({
     try {
       await API.mergeProjectAsset(projectName, assetType, name, target, { asDerivative });
       onOpenChange(false);
-      // 合并已提交，刷新是独立的后续步骤：被并方的卡片随刷新消失，刷新失败时它会停在页面上。
       const refreshed = await useProjectsStore.getState().refreshProject(projectName);
       if (refreshed === "failed") {
         useAppStore.getState().pushToast(t("assets:merge_refresh_failed"), "warning");

@@ -1,9 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 
-/**
- * 本会话已因加载失败整页刷新过的 chunk（按导出名记录），防止新入口仍拉不到时无限刷新。
- * 按 chunk 记录：别的 chunk 加载成功不代表失败的那个已经恢复，不能借此解除它的刷新限制。
- */
 const RELOAD_MARK = "arcreel:lazy-chunk-reload";
 
 function reloadedChunks(): Set<string> {
@@ -53,20 +49,6 @@ async function reloadAndConfirm(reload: () => void, blockedAfterMs: number): Pro
   }
 }
 
-/**
- * 按命名导出懒加载组件，配合 `<Suspense>` 把非首屏页面拆进独立 chunk。
- *
- * chunk 拉取失败多发生在新版本部署之后：页面仍是旧入口，引用的带 hash 文件名已被替换，
- * 请求返回 404。此时整页刷新一次换上新入口；同一会话内该 chunk 刷新后仍失败，错误照常抛给
- * React，不再刷新。该 chunk 之后加载成功即清除它的标记，下次部署后的失败仍可刷新一次。刷新被
- * 离开确认拦下（用户为保护未保存修改选择留下）时同样抛出错误并清除标记。
- *
- * 抛出的错误由外层 `LazyBoundary`（`components/shared/LazyBoundary`）接住，显示加载失败与
- * 「重新加载」；使用处必须包在它里面，否则错误会卸载整个应用根节点。
- *
- * 返回值额外带 `preload()`：已知马上要进入该页面时（如引导即将跨到设置页）提前拉取 chunk，
- * 与渲染时的加载共用同一个请求；预取失败不报错，留给渲染时按上述规则处理。
- */
 export function lazyNamed<K extends string, P extends object>(
   load: () => Promise<Record<K, ComponentType<P>>>,
   name: K,
@@ -87,7 +69,6 @@ export function lazyNamed<K extends string, P extends object>(
       if (reloadedChunks().has(name)) throw err;
       markReloaded(name, true);
       if (await reloadAndConfirm(reload, reloadBlockedAfterMs)) {
-        // 刷新期间保持挂起，界面停在 Suspense 的占位上，不闪错误
         return new Promise<never>(() => {});
       }
       markReloaded(name, false);

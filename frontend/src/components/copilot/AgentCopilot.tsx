@@ -82,8 +82,6 @@ export function AgentCopilot() {
     return sendQueuedMessageNow(id);
   }, [sendQueuedMessageNow]);
 
-  // 改写成功后由会话切换重建时间线（编辑态随 resetTimeline 清空）；失败保留编辑态，
-  // 用户可以改完再试，错误经消息区下方的错误条呈现
   const handleSubmitEdit = useCallback(
     (turnUuid: string, text: string, images: ImagePayload[]) => {
       voidCall(rewriteMessage(turnUuid, text, images));
@@ -151,8 +149,6 @@ export function AgentCopilot() {
           key={currentSessionId ?? "draft"}
           ref={flowRef}
           onSubmitEdit={handleSubmitEdit}
-          // 改写失败时原始输入留在仍开着的编辑器里，重试由它的「重新发送」发起：
-          // 卡片这里给重试只会重放主输入框的无关内容（为空时更是毫无反应）
           onRetryStartup={startupFailureOrigin === "rewrite" ? undefined : () => composerRef.current?.send()}
         />
       )}

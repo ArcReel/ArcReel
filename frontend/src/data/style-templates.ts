@@ -1,4 +1,3 @@
-/** 风格模版前端清单（id + category + thumbnail，prompt 由后端展开）。 */
 export type StyleCategory = "live" | "anim";
 
 export interface StyleTemplate {

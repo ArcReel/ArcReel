@@ -89,7 +89,6 @@ export default {
   'source_conflict': 'Исходный файл «{{existing}}» уже существует',
   'image_endpoint_mismatch_no_i2i': 'Модель {{model}} поддерживает только «текст в изображение» (без /v1/images/edits). Уберите референсы или выберите модель, поддерживающую редактирование изображений',
   'image_endpoint_mismatch_no_t2i': 'Модель {{model}} поддерживает только «изображение в изображение» (нужны референсы). Добавьте референсы или выберите модель, поддерживающую «текст в изображение»',
-  // Fallback messages for the API layer and event streams (when the server gives no reason)
   'request_failed': 'Не удалось выполнить запрос',
   'session_expired': 'Сессия истекла. Войдите снова.',
   'content_mode_immutable': 'content_mode нельзя изменить после создания проекта',

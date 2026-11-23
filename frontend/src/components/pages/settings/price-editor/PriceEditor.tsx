@@ -50,22 +50,13 @@ import { CJK_DOUBLE_METER, METERS, PRICE_CURRENCIES } from "./priceVocabulary.ge
 import { useRowIds } from "../useRowIds";
 
 export interface PriceEditorProps {
-  /** 正在编辑的价目表；没有计费项时就是「不填价格」。 */
   value: PriceTable;
   onChange: (next: PriceTable) => void;
-  /** 条目的媒体类型：「添加计费项」与「按条件分价」只列出这个媒体类型可用的选项。 */
   mediaType: MediaType;
-  /** 条目声明的分辨率，作为分辨率条件的候选。 */
   resolutions?: readonly string[];
-  /** 官方价目表，条目被改过时用来对比；币种与官方不同时不显示对比。 */
   official?: PriceTable | null;
 }
 
-/**
- * 价格编辑器：每个计费项一张卡片，不分条件时一行单价，分条件时每档一行「条件 → 单价」。
- * 受控组件，`value` 与 `onChange` 是价目表本身；保存时用 `priceForSave` 转成接口形状，
- * 用 `isPriceTableValid` 判断能否保存（编辑器会在出问题的档上提示原因）。
- */
 export function PriceEditor({ value, onChange, mediaType, resolutions = [], official = null }: PriceEditorProps) {
   const { t } = useTranslation("dashboard");
   const currencyLabelId = useId();
@@ -160,7 +151,6 @@ function MeterCard({ meter, currency, mediaType, resolutions, issues, onChange, 
   const conditional = meter.dims.length > 0;
   const addableDims = addableDimensions(meter, mediaType);
   const canAddAllowance = isKnownMeter(meter.meter) && METERS[meter.meter].kind === "count" && meter.meter !== "requests";
-  // 档在数据里没有身份（条件可编辑、可暂时重复）：行 key 用客户端 id，删掉中间一档时其余档的输入不错位
   const rowIds = useRowIds(meter.rows.length);
 
   return (
@@ -346,11 +336,9 @@ interface ConditionTagProps {
   value: DimValue | undefined;
   resolutions: readonly string[];
   onChange: (next: DimValue | undefined) => void;
-  /** 值为 `undefined` 时标签上写什么，缺省是「不限」。 */
   anyKey?: string;
 }
 
-/** 一个可点选的条件标签：点开选取值；布尔、服务档点选，分辨率可点选已有取值或另填，上下文档与时长填数字。 */
 function ConditionTag({ meter, dim, value, resolutions, onChange, anyKey }: ConditionTagProps) {
   const { t } = useTranslation("dashboard");
   const [open, setOpen] = useState(false);
@@ -407,7 +395,6 @@ function ConditionTag({ meter, dim, value, resolutions, onChange, anyKey }: Cond
         </div>
         {(kind === "label" || kind === "tier" || kind === "seconds") && (
           <ValueForm
-            // 条件换了值重新挂载，输入框回到当前值
             key={String(value)}
             kind={kind}
             initial={value}
@@ -434,7 +421,6 @@ function OptionButton({ selected, onClick, children }: { selected: boolean; onCl
   );
 }
 
-/** 自由取值：分辨率等标签、上下文档的下界、时长秒数；点「确定」或回车应用。 */
 function ValueForm({
   kind,
   initial,
@@ -509,10 +495,6 @@ function amountText(value: number | null): string {
   return value === null || Number.isNaN(value) ? "" : String(value);
 }
 
-/**
- * 不小于 0 的数字输入。文本只在输入时改变；外部把取值换掉（采用官方值、放弃修改）时跟着换，
- * 输入到一半的文字（如「0.」）不会被覆盖。取值为空或不合法时 `onChange(null)`。
- */
 function NumberField({ value, onChange, label, prefix, suffix, invalid, className }: NumberFieldProps) {
   const [text, setText] = useState(() => amountText(value));
   const [seen, setSeen] = useState(value);

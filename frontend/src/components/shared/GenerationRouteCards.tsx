@@ -5,13 +5,6 @@ import { cn } from "cn";
 import type { GenerationRoute } from "@/utils/generation-mode";
 import { ROUTE_META } from "./generation-route-meta";
 
-/**
- * 生成模式二选一卡（创建向导）。
- *
- * 无预选、必选：生成模式创建后不可更改，让这个不可逆决策以对比形态呈现。
- * 卡内图示画的是两个生成模式各自喂给视频模型的输入契约——分镜图生视频是单张分镜图（I2V），
- * 参考生视频是角色/场景/道具参考图集合（R2V），这正是区分生成模式的判据。
- */
 
 export function RouteLockBadge() {
   const { t } = useTranslation("dashboard");
@@ -78,7 +71,6 @@ const ROUTE_CARDS: readonly { route: GenerationRoute; Diagram: (props: { active:
 ];
 
 export interface GenerationRouteCardsProps {
-  /** null = 未选。必选：未选时向导不放行。 */
   value: GenerationRoute | null;
   onChange: (next: GenerationRoute) => void;
   children?: ReactNode;
@@ -124,7 +116,6 @@ export function GenerationRouteCards({ value, onChange, children }: GenerationRo
               />
               <Diagram active={selected} />
               <span className="text-sm font-medium text-foreground">{t(meta.nameKey)}</span>
-              {/* 选中项浅底上用中间档文字，保证对比度 */}
               <span className={cn("text-xs", selected ? "text-subtle-foreground" : "text-muted-foreground")}>
                 {t(meta.descKey)}
               </span>

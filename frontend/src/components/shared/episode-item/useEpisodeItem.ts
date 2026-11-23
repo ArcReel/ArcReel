@@ -10,14 +10,12 @@ export function useEpisodeItem(itemId: string): EpisodeItemFacts | null {
   return useMemo(() => findEpisodeItem(scripts, itemId), [scripts, itemId]);
 }
 
-/** 称呼条目的文字：「分镜 5」「视频单元 5」，条目已不在剧本里时「已删除」。用于确认框标题、可访问名称这类句子。 */
 export function useItemPositionLabel(itemId: string): string {
   const { t } = useTranslation();
   const item = useEpisodeItem(itemId);
   return itemPositionLabel(episodeItemKind(itemId), item?.position ?? null, t);
 }
 
-/** 列表里逐条称呼条目的函数：`(itemId) => 「分镜 5」`，位置按当前项目剧本现算。 */
 export function useItemPositionLabeler(): (itemId: string) => string {
   const { t } = useTranslation();
   const scripts = useProjectsStore((s) => s.currentScripts);

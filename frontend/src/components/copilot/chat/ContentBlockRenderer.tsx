@@ -18,9 +18,7 @@ import { CompactionMarker } from "./CompactionMarker";
 interface ContentBlockRendererProps {
   block: ContentBlock;
   index: number;
-  /** 该块正在流式生成（draft turn 的末尾块）。 */
   streaming?: boolean;
-  /** 该块是查看期间新到达的，失败卡片据此播报。 */
   announce?: boolean;
 }
 
@@ -62,7 +60,6 @@ export function ContentBlockRenderer({ block, index, streaming, announce }: Cont
       );
 
     case "tool_result":
-      // Standalone tool_result (should be rare -- usually attached to tool_use)
       return <StandaloneToolResult key={block.id ?? `block-${index}`} block={block} />;
 
     case "skill_invocation":
@@ -117,7 +114,6 @@ export function ContentBlockRenderer({ block, index, streaming, announce }: Cont
       return null;
 
     default: {
-      // Fallback: render as text (content may be non-string from SDK)
       const fallback = block.text
         || (typeof block.content === "string" ? block.content : null)
         || JSON.stringify(block);
@@ -138,7 +134,6 @@ function extractSkillArgs(input: Record<string, unknown> | undefined): string {
   return typeof input.args === "string" ? input.args : "";
 }
 
-// 孤立的工具结果（没有对应的 tool_use，很少见）：同样是一行工序，展开看结果原文。
 function StandaloneToolResult({ block }: Readonly<{ block: ContentBlock }>) {
   const { t } = useTranslation("dashboard");
   const result = stringifyResult(block.content);

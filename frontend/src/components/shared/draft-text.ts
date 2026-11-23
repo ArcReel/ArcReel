@@ -1,9 +1,5 @@
 import type { DraftDocType, ScriptReviewViolation } from "@/types";
 
-/**
- * 待修复草稿交给 Agent 时的预填：列出违约，或在违约已清零时请它直接采用。
- * `episodeRef` 是集名连同集 ID 的指称（`episodeAgentRef`）。
- */
 export function draftFixRequestText(
   t: (key: string, options?: Record<string, unknown>) => string,
   episodeRef: string,

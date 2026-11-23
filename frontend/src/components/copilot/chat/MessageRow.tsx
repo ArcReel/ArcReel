@@ -14,30 +14,16 @@ import { TextBlock } from "./TextBlock";
 import { turnImageAttachments, turnPlainText } from "./utils";
 import { segmentWorkBlocks } from "./work-label";
 
-// ---------------------------------------------------------------------------
-// MessageRow — 消息流里的一项，按 turn 类型分发：
-//   user      → 靠右的浅色气泡，编辑态原地换成 MessageEditor
-//   assistant → 无气泡的正文，正文限宽 40em；工序、思考等块交给 ContentBlockRenderer，
-//               连续的工序合成一列单行工序
-//   system    → 逐块交给 ContentBlockRenderer（中断分隔线、故障卡片、后台任务等）
-//
-// 操作行常驻行高、悬停或聚焦时才显示，消息列表不因悬停而跳动。用户消息右对齐
-// 「时间、复制、编辑」，Agent 消息左对齐「复制、时间」。不可编辑时编辑按钮不渲染
-// （不置灰、不加提示），入口是否存在本身就是判据。
-// ---------------------------------------------------------------------------
 
 interface MessageRowProps {
   turn: Turn;
-  /** 该 turn 含流式草稿：末尾块仍在生成，不给操作行。 */
   streaming?: boolean;
-  /** 该 turn 是查看期间新到达的系统事件，其中的失败卡片播报给读屏。 */
   announce?: boolean;
   editable?: boolean;
   editing?: boolean;
   submitting?: boolean;
   onStartEdit?: (turnUuid: string, text: string) => void;
   onCancelEdit?: () => void;
-  /** 提交改写。`images` 是编辑器里保留下来的图片附件，随改写后的文本一同提交。 */
   onSubmitEdit?: (turnUuid: string, text: string, images: ImagePayload[]) => void;
 }
 
@@ -55,9 +41,6 @@ export function MessageRow({
   const turnUuid = turn.uuid;
 
   if (turn.type === "user" && editing && turnUuid) {
-    // 编辑期间会话可能开跑或弹出问答卡片。此时不关编辑器（用户写到一半的内容不能
-    // 被夺走），但重新发送要跟着 editable 一起关：否则一次改写会把刚开的那一轮
-    // 连同它已经做出的文件修改一起作废。
     return (
       <MessageEditor
         initialText={turnPlainText(turn)}
@@ -97,7 +80,6 @@ function UserMessage({ turn, onStartEdit }: { turn: Turn; onStartEdit?: (text: s
       ? [`data:${block.source.media_type};base64,${block.source.data}`]
       : [],
   );
-  // 问答回执是 Agent 问卷的答复，不是用户写的消息，没有复制与改写
   const isAnswer = blocks.some((block) => block.type === "question_answer");
   const showActions = !isAnswer && (Boolean(text.trim()) || images.length > 0);
 
@@ -150,7 +132,6 @@ function UserMessage({ turn, onStartEdit }: { turn: Turn; onStartEdit?: (text: s
   );
 }
 
-/** 用户消息里的文字原样显示（不按 Markdown 解析），图片在气泡顶部单独成排。 */
 function UserBlock({ block, index }: { block: ContentBlock; index: number }) {
   switch (block.type) {
     case "text":
@@ -184,7 +165,6 @@ function AgentMessage({ turn, streaming }: { turn: Turn; streaming: boolean }) {
                 streaming={streaming && index === blocks.length - 1}
               />
             );
-          // 连续的工序排成没有段距的一列，正文与工序之间才留段距
           return work ? (
             <div key={items[0].block.id ?? items[0].index} className="flex min-w-0 flex-col">
               {items.map(renderBlock)}
@@ -216,7 +196,6 @@ function SystemEvent({ turn, announce }: { turn: Turn; announce: boolean }) {
   );
 }
 
-/** 消息下方的操作行：占住行高，悬停所在消息或焦点进入时才显示。 */
 function ActionRow({ align, children }: { align: "start" | "end"; children: React.ReactNode }) {
   return (
     <div

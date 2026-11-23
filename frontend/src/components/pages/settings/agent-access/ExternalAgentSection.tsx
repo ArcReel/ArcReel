@@ -57,7 +57,6 @@ export function ExternalAgentSection() {
                 <Plus aria-hidden data-icon="inline-start" />
                 {t("access_token_create")}
               </Button>
-              {/* 跳到另一个分区是导航，渲染为链接而不是 button */}
               <Link href={settingsSectionPath("access-tokens")} className={buttonVariants({ variant: "ghost" })}>
                 {t("ext_agent_manage_tokens")}
               </Link>

@@ -6,16 +6,11 @@ import { cn } from "cn";
 import { getProjectDisplayName } from "@/utils/project-display";
 import { SOURCE_FILE_FORMATS_LABEL } from "@/utils/source-files";
 
-/**
- * 空项目欢迎页：标题、一句说明、拖放区与「从空白开始」的指引。
- * 拖入或点击都把文件交给概览打开「分集」的上传对话框，上传后概览就地读取原文。
- */
 export function WelcomeCanvas({
   projectTitle,
   onSelectFiles,
 }: {
   projectTitle: string | undefined;
-  /** 打开上传对话框；拖入的文件预先放进对话框，点击时为空数组。 */
   onSelectFiles: (files: File[]) => void;
 }) {
   const { t } = useTranslation("dashboard");

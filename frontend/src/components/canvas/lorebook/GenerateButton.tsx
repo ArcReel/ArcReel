@@ -18,7 +18,6 @@ export function GenerateButton({
   className?: string;
   disabled?: boolean;
   size?: ComponentProps<typeof Button>["size"];
-  /** 同一区域已有主操作时（如详情里每条衍生的生成）用次要变体。 */
   variant?: ComponentProps<typeof Button>["variant"];
 }) {
   const { t } = useTranslation("assets");

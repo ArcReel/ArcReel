@@ -53,7 +53,6 @@ function EditorSection({
   children,
 }: {
   title: string;
-  /** 区块只有一个输入框时，标题即它的标签。 */
   htmlFor?: string;
   action?: ReactNode;
   children: ReactNode;
@@ -74,7 +73,6 @@ export interface AssetDetailEditorProps {
   assetType: AssetSheetType;
   name: string;
   asset: GalleryAssetSource;
-  /** 产物清单对这张资产图的判定；未取到时按条目上是否登记了资产图展示。 */
   sheetStatus: AssetSheetStatusRow | undefined;
   generating: boolean;
   writing?: boolean;
@@ -84,11 +82,6 @@ export interface AssetDetailEditorProps {
   navigation?: ReactNode;
 }
 
-/**
- * 一个资产的详情编辑器，放在详情 Sheet 里。一个资产是一个编辑单元：描述、声音风格、品牌与卖点
- * 进入未保存修改，由 Sheet 底部的提示条统一保存；改名、上传、增删别名立即执行。
- * 四类资产共用这一个编辑器，类型差异只体现在字段区块的开关上。
- */
 export function AssetDetailEditor({
   projectName,
   assetType,
@@ -130,11 +123,9 @@ export function AssetDetailEditor({
     leaveTitle: t("assets:edit_leave_title", { name }),
   });
   const { value, setValue } = unit;
-  // 区块里的上传、删除在途时，离开先等它们落定
   useLeaveGuard({ dirty: false, saving: writes.writing || writing, save: unit.save });
 
   const saving = unit.status === "saving";
-  // 改名会搬动落盘文件，与任何在途写请求交错都会留下旧名孤儿文件，所以把它们都算进占用态
   const busy = generating || occupied || saving || writes.writing || writing;
 
   const gallery = toGalleryAsset(assetType, name, asset);
@@ -158,7 +149,6 @@ export function AssetDetailEditor({
 
   const generate = () => {
     if (busy || rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
-    // 资产图只由描述与原图生成：改了描述，保存后这张图就会过期，服务端此刻的判定还看不到
     const willBeStale = value.description !== unit.savedValue.description;
     void unit.saveAndGenerate(() => {
       if (!rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return onGenerate(name);
@@ -281,7 +271,6 @@ export function AssetDetailEditor({
                   title={t("assets:prompt_preview_title", { name })}
                   beforeOpen={unit.save}
                   saveFirst={unit.dirty}
-                  // 保存在途时再「保存并预览」会并发第二次保存，先后落定可能让旧草稿盖住新草稿
                   disabled={saving}
                   load={(signal) => API.previewAssetPrompt(projectName, assetType, name, value.description, { signal })}
                 />

@@ -28,11 +28,6 @@ const UPDATE: Record<AliasAssetType, (project: string, name: string, updates: Re
   prop: (project, name, updates) => API.updateProjectProp(project, name, updates),
 };
 
-/**
- * 资产详情里的别名：增删是立即执行的动作，不进入未保存修改。添加经「添加别名」弹层里的表单
- * 显式提交，删除后的提示里可以撤销。别名只供 AI 规划时认人参考，不参与引用；后端按名称判等
- * 去空白、去重并去掉与资产同名的一项。
- */
 export function AssetAliasesField({
   projectName,
   name,
@@ -48,16 +43,11 @@ export function AssetAliasesField({
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const track = useTrackWrite();
-  // 撤销在提示里触发，可能晚于下一次刷新：以那一刻的别名为准再加回去
   const latest = useRef({ aliases, name, busy, saving });
   useEffect(() => {
     latest.current = { aliases, name, busy, saving };
   }, [aliases, name, busy, saving]);
 
-  /**
-   * 保存整份别名列表。`stale` 表示已保存但没有同步到最新数据（刷新失败已提示，或项目已切走）：
-   * 此时列表仍是旧数据，基于它的后续动作（如撤销）不再可靠。
-   */
   const save = async (target: string, next: string[]): Promise<"saved" | "stale" | "failed"> => {
     if (latest.current.busy || latest.current.saving || rejectIfAssetBusy(assetType, projectName, target, t, "assets:gallery_busy_hint")) return "failed";
     setSaving(true);
@@ -65,7 +55,6 @@ export function AssetAliasesField({
       const refreshed = await track(
         UPDATE[assetType](projectName, target, { aliases: next }).then(() => refreshAfterWrite(projectName, t)),
       );
-      // 撤销基于刷新后的列表，只有真正同步了才可靠；cancelled 是项目已切走
       return refreshed === "success" ? "saved" : "stale";
     } catch (err) {
       useAppStore.getState().pushToast(t("assets:aliases_save_failed", { message: errMsg(err) }), "error");
@@ -97,7 +86,6 @@ export function AssetAliasesField({
     });
   };
 
-  // 只读且没有别名时由调用方整块不渲染
   if (readOnly) {
     return (
       <ul className="flex flex-wrap gap-1.5">
@@ -136,7 +124,6 @@ export function AssetAliasesField({
         <Popover
           open={adding}
           onOpenChange={(next) => {
-            // 提交中不响应关闭，请求在途时输入不丢
             if (!next && saving) return;
             if (next && rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
             setAdding(next);

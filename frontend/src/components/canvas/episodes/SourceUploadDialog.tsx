@@ -34,9 +34,7 @@ type Row =
   | { key: string; kind: "new"; file: File; sourceKind: SourceKind };
 
 export interface SourceUploadResult {
-  /** 登记进整本源文的文件名（服务端落盘后的名字）。 */
   wholeSourceFiles: string[];
-  /** 新登记的自带原文的集 ID，按播出顺序。 */
   episodes: number[];
 }
 
@@ -57,7 +55,6 @@ function moveKey(rows: Row[], fromKey: string, toIndex: number): Row[] {
   return next;
 }
 
-/** 新选文件的行 key：同名文件可以重复加入，按加入顺序取号。 */
 let newRowSeq = 0;
 
 function toNewRows(files: File[], sourceKind: SourceKind = "novel"): { rows: Row[]; skipped: string[] } {
@@ -74,18 +71,6 @@ function toNewRows(files: File[], sourceKind: SourceKind = "novel"): { rows: Row
   return { rows, skipped };
 }
 
-/**
- * 上传原文：整本源文或逐集原文。
- *
- * - 整本源文：已有文件锁定显示，新文件默认排在最后、可以拖到任意位置，按列表顺序逐个登记到对应位置。
- * - 逐集原文：「文件 → 将成为第 N 集」，确认后按列表顺序追加到播出顺序末尾。
- *
- * 文件名不决定先后。上传中途失败时停下，已上传的文件保留，剩下的文件留在列表里。全部上传完成后关闭，
- * 只有服务端改了文件名（同名文件改名保存）时提示改成了什么。
- *
- * 剧情演绎项目逐个文件选源文件类型，缺省为小说；逐集原文另有一个整批选择，选一次套用到列表里的全部文件，
- * 之后加入的文件也取这个类型，单个文件仍可以再改。
- */
 export function SourceUploadDialog({
   projectName,
   initialMode = "whole_source",
@@ -118,7 +103,6 @@ export function SourceUploadDialog({
   const busy = progress !== null;
   const change = useSourceFileChange();
 
-  // 对话框卸载（切换项目、离开页面）时中止在途上传，不再上传剩下的文件，也不再提示
   const unmountController = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -180,7 +164,6 @@ export function SourceUploadDialog({
         if (mode === "whole_source") {
           const position = working.findIndex((item) => item.key === row.key);
           const insertAt = working.slice(0, position).filter((item) => item.kind === "existing").length;
-          // 插入处落在一个跨文件的集内部时，新文件归入那一集：先确认受影响集清单
           const res = await change.run(
             t("dashboard:source_file_insert_title", { name: row.file.name }),
             t("dashboard:source_file_insert_confirm"),
@@ -227,7 +210,6 @@ export function SourceUploadDialog({
     if (signal?.aborted) return;
     setProgress(null);
     if (cancelled) {
-      // 取消了一次插入确认：已上传的保留，取消的与之后的文件仍在列表里
       if (refreshed === "success" && result.wholeSourceFiles.length > 0) onUploaded?.(result);
       return;
     }
@@ -262,7 +244,6 @@ export function SourceUploadDialog({
     <Dialog
       open
       onOpenChange={(next) => {
-        // 上传在途时不响应 Esc 与遮罩点击；关闭会中止剩下的上传
         if (!next && !busy) onClose();
       }}
     >

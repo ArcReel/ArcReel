@@ -15,10 +15,6 @@ interface CustomProviderDetailProps {
   onSaved: () => void;
 }
 
-/**
- * 自定义供应商的详情栏：取回供应商与它的供应商倍率后交给表单。换供应商时由上层按 `providerId` 重建整栏。
- * 倍率与供应商一起取齐再渲染表单：倍率后到时，用户已开始的编辑会把它当成外部更新，保存时把旧值写回。
- */
 export function CustomProviderDetail({ providerId, initialModelId, onDeleted, onSaved }: CustomProviderDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [provider, setProvider] = useState<CustomProviderInfo | null>(null);

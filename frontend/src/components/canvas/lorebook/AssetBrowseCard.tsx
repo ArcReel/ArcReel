@@ -51,31 +51,21 @@ type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete" | "p
 export interface AssetBrowseCardProps {
   projectName: string;
   asset: GalleryAsset;
-  /** 产物清单对这张资产图的判定；未取到时按条目上是否登记了资产图展示。 */
   sheetStatus: AssetSheetStatusRow | undefined;
   marker: GalleryMarker;
   generating: boolean;
   busy?: boolean;
-  /** 只读展示（引导演示项目）：菜单只保留查看大图，没有删除。 */
   readOnly: boolean;
-  /** 入库预览的内容；商品不入资产库，不传。 */
   libraryPreview?: LibraryImportPreview;
-  /** 点卡片：打开该资产的详情。需传稳定引用。 */
   onOpen: (name: string) => void;
-  /** 「查看大图」。需传稳定引用。 */
   onView: (name: string) => void;
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => Promise<unknown> | void;
   onReload?: () => Promise<unknown> | void;
-  /** 卡片上的上传、版本恢复或删除开始与结束时回报，画廊据此禁用同一资产的其他写入入口。需传稳定引用。 */
   onWritingChange?: (name: string, writing: boolean) => void;
-  /** 画廊里所有卡片在途的本地写入，供合并对话框判断保留方是否被占用。 */
   writingNames?: ReadonlySet<string>;
 }
 
-/**
- * 画廊浏览卡：四类资产共用。卡片只负责看和选中，编辑在详情里进行；次要操作都收在「更多」里。
- */
 export const AssetBrowseCard = memo(function AssetBrowseCard({
   projectName,
   asset,
@@ -120,7 +110,6 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     onWritingChange(name, true);
     return () => onWritingChange(name, false);
   }, [writing, name, onWritingChange]);
-  // 合并只开放带别名、与资产库互通的类型；商品不传入库预览。
   const mergeable = libraryPreview !== undefined && type !== "product";
   const describable = asset.description.trim().length > 0;
   const staleConfirm = useStaleRegenerateConfirm({
@@ -151,7 +140,6 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     }
   };
 
-  // 打开会写资产图的对话框前复核占用态：渲染快照之外，资源可能刚被 Agent 或其他标签页占用。
   const openGuarded = (key: DialogKey) => {
     if (rejectIfAssetBusy(type, projectName, name, t, "assets:gallery_busy_hint")) return;
     setDialog(key);
@@ -180,7 +168,6 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-3 pt-2.5">
         <div className="flex min-w-0 items-center gap-1">
           <h3 id={titleId} className="min-w-0 flex-1 text-sm font-medium">
-            {/* 名称按钮的伪元素铺满整张卡片，点卡片任意处都打开详情；「更多」在 DOM 中靠后、自身定位，盖在它上面。 */}
             <button
               type="button"
               onClick={() => onOpen(name)}
@@ -313,7 +300,6 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             resourceType={VERSION_RESOURCE[type]}
             resourceId={name}
             onRestore={onRestoreVersion}
-            // 恢复在途由面板自己管；其余占用（含衍生任务与画廊汇总的外部占用）一并禁用
             busy={externalBusy || generating || uploading || deleting}
             onRestoringChange={setRestoring}
             checkBusy={() => isAssetBusy(type, projectName, name)}

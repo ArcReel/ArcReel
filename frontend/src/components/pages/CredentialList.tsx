@@ -39,7 +39,6 @@ import {
 import { Input } from "@/components/ui/input";
 import type { CredentialSecretField, ProviderCredential, ConnectivityCheckResult } from "@/types";
 
-// 已知 secret 凭证字段 → 前端 i18n label key；未知 key 回退后端提供的 label。
 const SECRET_FIELD_LABEL_KEY: Record<string, string> = {
   api_key: "api_key_label",
   access_key: "access_key_label",
@@ -51,12 +50,10 @@ function secretFieldLabel(t: TFunction, field: CredentialSecretField): string {
   return lk ? t(lk) : field.label;
 }
 
-/** 对话框里的密钥输入框标签：只有一个 secret 字段时就叫「密钥」，多个时（可灵）沿用各字段的厂商名称。 */
 function secretInputLabel(t: TFunction, field: CredentialSecretField, fieldCount: number): string {
   return fieldCount === 1 ? t("credential_secret_label") : secretFieldLabel(t, field);
 }
 
-// 逐字段读取脱敏值（与后端 *_masked 列一一对应）。
 function maskedForKey(cred: ProviderCredential, key: string): string | null | undefined {
   if (key === "api_key") return cred.api_key_masked;
   if (key === "access_key") return cred.access_key_masked;
@@ -70,17 +67,12 @@ interface Props {
   providerId: string;
   supportsBaseUrl: boolean;
   secretFields: CredentialSecretField[];
-  /** 凭证「二选一」分组：满足任一组（组内字段全填）即视为凭证完整。单组等价于「全部必填」。 */
   secretFieldGroups: string[][];
   onChanged?: () => void;
 }
 
 type DialogState = { mode: "add" } | { mode: "edit"; cred: ProviderCredential } | null;
 
-/**
- * 预置供应商的「密钥」区。密钥的增改在对话框里提交、删除经 AlertDialog 确认、切换生效密钥，
- * 都立即生效，不经过详情栏底部的保存栏（保存栏只管高级配置）。
- */
 export function CredentialList({ providerId, supportsBaseUrl, secretFields, secretFieldGroups, onChanged }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -185,7 +177,6 @@ export function CredentialList({ providerId, supportsBaseUrl, secretFields, secr
 
       {dialog && (
         <CredentialDialog
-          // 每次打开都是一份新表单，关闭后再打开不残留上一次的输入与错误
           key={dialog.mode === "edit" ? dialog.cred.id : "add"}
           cred={dialog.mode === "edit" ? dialog.cred : null}
           providerId={providerId}
@@ -219,7 +210,6 @@ interface RowProps {
   cred: ProviderCredential;
   providerId: string;
   secretFields: CredentialSecretField[];
-  /** Vertex 的凭证是上传的 JSON 文件，只能删除重传。 */
   canEdit: boolean;
   onActivate: (cred: ProviderCredential) => Promise<void>;
   onEdit: () => void;
@@ -375,7 +365,6 @@ function CredentialDialog({
   const idPrefix = useId();
   const editing = cred !== null;
   const [name, setName] = useState(cred?.name ?? "");
-  // 编辑时 secrets 留空表示保留现有值，逐字段独立。
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [baseUrl, setBaseUrl] = useState(cred?.base_url ?? "");
   const [file, setFile] = useState<File | null>(null);
@@ -387,7 +376,6 @@ function CredentialDialog({
   const fieldByKey = new Map(secretFields.map((f) => [f.key, f]));
   const labelForKey = (key: string) => secretFieldLabel(t, fieldByKey.get(key) ?? { key, label: key });
   const groups = secretFieldGroups.length > 0 ? secretFieldGroups : [secretFields.map((f) => f.key)];
-  // 只有单一必填组时组内字段才是无条件必填；多组二选一时不标必填，由组合提示说明。
   const fieldsRequired = !editing && groups.length <= 1;
   const orHint =
     !editing && groups.length > 1
@@ -421,7 +409,6 @@ function CredentialDialog({
     const data: Record<string, string> = {};
     if (name.trim() !== current.name) data.name = name.trim();
     for (const field of secretFields) {
-      // 只含空白的输入不算新值，不覆盖已保存的密钥
       const value = secrets[field.key]?.trim();
       if (value) data[field.key] = value;
     }
@@ -448,7 +435,6 @@ function CredentialDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        // 提交在途时不响应 Esc 与遮罩点击，避免对话框先于结果消失
         if (!open && !submitting) onCancel();
       }}
     >
@@ -578,7 +564,6 @@ function DeleteCredentialDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 关闭动画期间 cred 已清空，沿用最后一次的内容，标题不闪成空白
   const [shown, setShown] = useState(cred);
   if (cred && cred !== shown) {
     setShown(cred);
@@ -603,7 +588,6 @@ function DeleteCredentialDialog({
     <AlertDialog
       open={cred !== null}
       onOpenChange={(open) => {
-        // 删除请求在途时不响应 Esc
         if (!open && !submitting) onClose();
       }}
     >

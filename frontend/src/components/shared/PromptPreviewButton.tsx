@@ -18,21 +18,14 @@ import type { RenderedPromptPreview } from "@/types";
 
 export interface PromptPreviewButtonProps<T extends RenderedPromptPreview> {
   title: string;
-  /** 取最终提示词：每次打开与刷新各调一次，调用时读到的是调用方最新的闭包（如当前草稿）。 */
   load: (signal: AbortSignal) => Promise<T>;
   notice?: ReactNode;
   renderExtra?: (result: T) => ReactNode;
   disabled?: boolean;
-  /** 有未保存修改时先保存；失败则保留原处，不打开预览。回调需用 useCallback。 */
   beforeOpen?: () => Promise<boolean>;
   saveFirst?: boolean;
 }
 
-/**
- * 「查看提示词」按钮与最终提示词弹窗：打开才请求，弹窗内可复制与重新渲染。
- *
- * 渲染在后端完成（与执行期同一出口），前端不复刻任何拼接逻辑；预览只读，不触发生成。
- */
 export function PromptPreviewButton<T extends RenderedPromptPreview>({
   title,
   load,
@@ -50,7 +43,6 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // 接管方轮换 controller：新一轮加载先作废上一轮，被作废方不再回写共享状态。
   const inflight = useRef<AbortController | null>(null);
   const fetchPreview = useCallback(async (prepared?: AbortController) => {
     if (!prepared) inflight.current?.abort();
@@ -72,7 +64,6 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
     }
   }, [load]);
 
-  // 卸载时作废在途请求：清理函数不写 state，只切断被接管方的回写。
   useEffect(() => () => inflight.current?.abort(), []);
 
   useEffect(() => {
@@ -97,7 +88,6 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
     }
   };
 
-  // 每次打开都重新取：关闭时丢弃结果，免得下次打开先闪出过期的文本。
   const handleClose = () => {
     inflight.current?.abort();
     inflight.current = null;
@@ -109,7 +99,6 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
     setCopied(false);
   };
 
-  // 复制成功才显示「已复制」：非安全上下文走 execCommand 兜底，兜底也失败时不假报成功
   const handleCopy = (text: string) => {
     void copyText(text).then(
       () => setCopied(true),

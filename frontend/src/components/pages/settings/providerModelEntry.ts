@@ -5,7 +5,6 @@ import { priceTableOf, type PriceTable } from "./price-editor/priceTable";
 export interface EntryDraft {
   display_name: string;
   facts: Record<string, unknown>;
-  /** 编辑中的价目表；没有计费项就是「不填价格」。 */
   price: PriceTable;
 }
 
@@ -13,7 +12,6 @@ export function entryDraftOf(entry: ProviderModelEntryInfo | null): EntryDraft |
   return entry ? { display_name: entry.display_name, facts: entry.facts, price: priceTableOf(entry.price) } : null;
 }
 
-/** 各媒体类型可以修改的模型事实，按界面顺序；时长联动约束紧跟可选时长。 */
 export const EDITABLE_FACTS: Record<ProviderModelItem["media_type"], CapabilityKey[]> = {
   text: ["image_input", "structured_output", "max_output_tokens"],
   image: ["text_to_image", "image_to_image", "resolutions"],

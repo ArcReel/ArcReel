@@ -2,7 +2,6 @@ import { KeyboardSensor, type KeyboardSensorProps } from "@dnd-kit/core";
 
 const SORT_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "Enter", "Escape"]);
 
-/** dnd-kit 的监听器和落点测量都晚于拿起：把这期间的按键留到测量完成，按原顺序交还传感器。 */
 export class BufferedKeyboardSensor {
   static activators = KeyboardSensor.activators;
   autoScrollEnabled = false;
@@ -27,7 +26,6 @@ export class BufferedKeyboardSensor {
       if (ready()) {
         const event = pending.shift()!;
         replaying = true;
-        // 直接交给 document 上的传感器：Dialog / Sheet 在 React 冒泡阶段会拦下方向键。
         target.ownerDocument.dispatchEvent(new KeyboardEvent("keydown", {
           key: event.key, code: event.code, bubbles: true, cancelable: true,
           altKey: event.altKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey, shiftKey: event.shiftKey,
@@ -49,7 +47,6 @@ export class BufferedKeyboardSensor {
       onEnd: () => { cleanup(); props.onEnd(); },
       onCancel: () => { cleanup(); props.onCancel(); },
     });
-    // KeyboardSensor 同样经零延迟 timer 安装 document 监听器；排在它之后才允许重放。
     const timer = setTimeout(() => { listening = true; }, 0);
   }
 }

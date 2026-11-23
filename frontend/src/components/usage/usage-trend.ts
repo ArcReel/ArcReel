@@ -1,7 +1,6 @@
 import type { CallType, UsageDailyBucket } from "@/types";
 import { MEDIA_META, formatCalendarDay } from "./usage-record-format";
 
-/** 趋势图的两种指标：调用次数按结果堆叠，参考费用按媒体类型堆叠。 */
 export type TrendMetric = "calls" | "cost";
 
 export const DAILY_POINT_LIMIT = 90;
@@ -10,16 +9,13 @@ export const MERGE_DAYS = 7;
 
 const MEDIA_ORDER: readonly CallType[] = ["image", "audio", "video", "text"];
 
-/** 一根柱；按天分桶时 `from` 与 `to` 相同，`days` 为 1。 */
 export interface TrendBucket {
-  /** 桶内第一天，本地日 `YYYY-MM-DD`。 */
   from: string;
   to: string;
   days: number;
   success: number;
   failed: number;
   cancelled: number;
-  /** 只含主币种金额，其余币种不折算也不混入。 */
   cost: Record<CallType, number>;
 }
 
@@ -45,10 +41,6 @@ function accumulate(days: UsageDailyBucket[]): TrendBucket {
   };
 }
 
-/**
- * 日桶铺成柱。点数超过上限时从最新一天往回每 7 天并一桶——最右一桶恒是完整一周，
- * 不足一周的余数落在最早那桶，图的右端才不会因为「今天还没过完」而矮一截。
- */
 export function buildTrendBuckets(daily: UsageDailyBucket[]): {
   buckets: TrendBucket[];
   weekly: boolean;
@@ -70,16 +62,11 @@ export function bucketCost(bucket: TrendBucket): number {
   return MEDIA_ORDER.reduce((sum, media) => sum + bucket.cost[media], 0);
 }
 
-/** 桶的成功率：对桶内各天求和后再算，不是逐日成功率的平均。分母 0 时为 null。 */
 export function bucketSuccessRate(bucket: TrendBucket): number | null {
   const settled = bucket.success + bucket.failed;
   return settled === 0 ? null : bucket.success / settled;
 }
 
-/**
- * 计数轴刻度：步长取 1 / 2 / 5 × 10ⁿ 里第一个能把最大值压进 4 段的整数，
- * 半根调用没有意义，刻度不出现小数。
- */
 export function countTicks(max: number): number[] {
   if (max <= 0) return [0, 1];
   for (let power = 0; power < 12; power += 1) {
@@ -109,7 +96,6 @@ export function trendTicks(metric: TrendMetric, max: number): number[] {
   return metric === "calls" ? countTicks(max) : amountTicks(max);
 }
 
-/** 一条堆叠序列：`color` 用于图形填充，`swatchClass` 用于图例与提示里的色块，两者是同一个 token。 */
 export interface TrendSeries {
   key: string;
   labelKey: string;
@@ -158,7 +144,6 @@ export function bucketTotal(metric: TrendMetric, bucket: TrendBucket): number {
   return metric === "calls" ? bucketCalls(bucket) : bucketCost(bucket);
 }
 
-/** 轴与 tooltip 的日期：只留月/日，年份在这个尺度上没有信息量；月日次序按语言。 */
 export function shortDay(date: string, language: string): string {
   return formatCalendarDay(date, language, { month: "numeric", day: "numeric" });
 }

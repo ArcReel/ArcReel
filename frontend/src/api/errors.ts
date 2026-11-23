@@ -1,7 +1,3 @@
-/**
- * API 错误契约：后端错误响应的结构、类型守卫、错误类与错误说明的格式化。
- * 对外经 `@/api` 再导出，调用方继续从 `@/api` 导入。
- */
 
 import type {
   FailureObservation,
@@ -12,7 +8,6 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { findEpisodeItem } from "@/utils/episode-item";
 
 export interface ErrorResponse {
-  /** 后端附加的诊断或修复信息；调用方可按请求语境解析，永不并进 detail 摘要。 */
   diagnostic?: unknown;
   detail:
     | string
@@ -80,15 +75,10 @@ export class SpeechAdmissionError extends Error {
   }
 }
 
-/**
- * 请求失败的通用错误：`message` 是后端给出的产品语言摘要，可直接展示给使用者；
- * `diagnostic` 是可选的诊断或修复信息，由调用方按请求语境解析，不拼进 `message`。
- */
 export class ApiRequestError extends Error {
   constructor(
     message: string,
     public readonly diagnostic?: unknown,
-    /** HTTP 状态码；调用方据此区分「资源已不存在」与瞬时网络/服务错误。 */
     public readonly status?: number,
     public readonly detail?: unknown,
   ) {
@@ -113,7 +103,6 @@ export interface AgentFailureDetail {
   failure: FailureObservation;
 }
 
-/** Keeps the redacted failure observation attached while remaining a normal Error. */
 export class AgentFailureError extends Error {
   readonly code = "agent_startup_failed" as const;
 
@@ -126,11 +115,6 @@ export class AgentFailureError extends Error {
   }
 }
 
-/**
- * Error thrown when uploading a source file conflicts with an existing file
- * (HTTP 409). Carries the existing filename and a server-suggested alternative
- * so callers can prompt the user to retry with `on_conflict=rename|replace`.
- */
 export class ConflictError extends Error {
   constructor(
     public readonly existing: string,
@@ -147,19 +131,12 @@ export interface ImportErrorPayload {
   errors?: string[];
   warnings?: string[];
   conflict_project_name?: string;
-  /** 导入包升级时有调整或没能带入的内容：带上 `migration_report`，确认后重新提交。 */
   confirmation_required?: boolean;
   migration_report?: unknown;
   episodes?: unknown;
   diagnostics?: unknown;
 }
 
-/**
- * 从后端 detail 中取一句可读的说明。
- *
- * 后端把 `{ code, message, ... }` 这样的信封当 detail 抛出的场合（如批量入队中途失败后的
- * 撤销结果），只按字符串与数组取字会把已翻译的说明整段丢掉，用户只收到一句「请求失败」。
- */
 export function messageFromDetail(detail: unknown, fallback: string): string {
   if (typeof detail === "string") return detail || fallback;
   if (Array.isArray(detail) && detail.length > 0) {

@@ -4,11 +4,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/**
- * 严格守卫：完整 ImagePrompt 必须含 scene + composition.{shot_type, lighting, ambiance}。
- * 部分形态（仅 scene 或 composition 缺字段）会落到 string fallback，避免结构化编辑器渲染时
- * 访问 undefined 字段崩溃。
- */
 export function isStructuredImagePrompt(value: unknown): value is ImagePrompt {
   if (!isRecord(value) || typeof value.scene !== "string") return false;
   const composition = value.composition;
@@ -40,15 +35,10 @@ export function isStructuredVideoPrompt(value: unknown): value is VideoPrompt {
   );
 }
 
-/** 文本形态切回结构化时的空结构：不解析原文本，字段留空由创作者重填。 */
 export function emptyImagePrompt(): ImagePrompt {
   return { scene: "", composition: { shot_type: "Medium Shot", lighting: "", ambiance: "" } };
 }
 
-/**
- * 同上；drama 的口播由分镜级 utterances 承载，其 video_prompt 不带 dialogue（后端
- * DramaVideoPrompt 在 extra="forbid" 下读时剥离该键），故 drama 分支断言到同一类型。
- */
 export function emptyVideoPrompt(isDrama: boolean): VideoPrompt {
   const base = { action: "", camera_motion: "Static" as const, ambiance_audio: "" };
   return isDrama ? (base as VideoPrompt) : { ...base, dialogue: [] };

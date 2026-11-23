@@ -15,12 +15,6 @@ interface RenderButtonProps {
   onShowIssues: () => void;
 }
 
-/**
- * 剪辑视图顶部的「出片」按钮，打开当前标签对应剪辑时间线的出片对话框。
- *
- * 当前修订有阻断全部交付物的 issue 时按钮不可点：悬停显示原因，旁边给出跳到「问题」列表的链接。
- * 只阻断带旁白版本的 issue 由对话框按所选旁白版本处理。
- */
 export function RenderButton({
   projectName,
   timelineId,
@@ -47,7 +41,6 @@ export function RenderButton({
           </span>
         </>
       )}
-      {/* 禁用的 button 不触发悬停，原因挂在外层容器上。 */}
       <span title={reason ?? undefined}>
         <Button
           size="sm"

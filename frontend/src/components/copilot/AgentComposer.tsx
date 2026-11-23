@@ -34,24 +34,18 @@ export interface AgentComposerHandle {
 
 interface AgentComposerProps {
   ref?: Ref<AgentComposerHandle>;
-  /** 等待回答或发送请求在途时锁定输入。 */
   disabled: boolean;
-  /** 运行中且输入为空：发送按钮换成「停止」；有内容时仍是发送。 */
   running: boolean;
   sending: boolean;
   placeholder: string;
-  /** 提问占用输入框位置时隐藏输入框；仍保持挂载，已输入的文字与附件不丢。排队消息托盘照常显示。 */
   hidden?: boolean;
-  /** 发送消息；受理后清掉已发出的文字与附件，未受理时保留供重试。 */
   onSend: (text: string, images?: AttachedImage[]) => Promise<boolean>;
   onInterrupt: () => void;
-  /** 编辑或删除一条排队消息；编辑撤回成功时内容经 store 的 composerAppends 退回输入框。 */
   onWithdrawQueued: (id: string, intent: QueuedMessageWithdrawal) => Promise<void>;
   onResendQueued: (id: string) => Promise<void>;
   onSendQueuedNow: (id: string) => Promise<void>;
 }
 
-/** 光标左侧以「/」开头、尚未输入空格的一段文字：返回「/」的位置与其后的筛选词。 */
 function findSlashToken(value: string, cursor: number): { pos: number; filter: string } | null {
   const before = value.slice(0, cursor);
   const pos = before.lastIndexOf("/");
@@ -62,7 +56,6 @@ function findSlashToken(value: string, cursor: number): { pos: number; filter: s
   return { pos, filter };
 }
 
-/** 发送受理后去掉已发出的文字。发送途中编辑退回的内容追加在它后面，保留下来。 */
 function withoutSubmittedText(current: string, submitted: string): string {
   const sent = submitted.trimEnd();
   if (!current.startsWith(sent)) return current;
@@ -117,7 +110,6 @@ export function AgentComposer({
   const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
   const attachDisabled = disabled || isReading || images.length >= MAX_ATTACHED_IMAGES;
   const hasContent = text.trim().length > 0 || images.length > 0;
-  // 退回的排队消息可能让图片超过上限：全部保留，移除多出的才能发送
   const tooManyImages = images.length > MAX_ATTACHED_IMAGES;
   const canSend = !disabled && !isReading && hasContent && !tooManyImages;
   const previewImage = previewIndex === null ? undefined : images[previewIndex];
@@ -131,7 +123,6 @@ export function AgentComposer({
     voidCall(
       onSend(submittedText.trim(), submittedImages.length > 0 ? submittedImages : undefined).then((accepted) => {
         if (!accepted) return;
-        // 只清掉这次发出的文字与图片：发送途中编辑退回的内容不在这次发送里，留给用户再发
         setText((current) => withoutSubmittedText(current, submittedText));
         removeImages(submittedImages.map((image) => image.id));
       }),
@@ -140,22 +131,18 @@ export function AgentComposer({
 
   useImperativeHandle(ref, () => ({ send }), [send]);
 
-  // 外部投递的一次性预填（如分集空态的入口经 store.input 投递）：覆盖输入框后清空 store 字段，避免重复预填
   useEffect(() => {
     return useAssistantStore.subscribe((state, prev) => {
       if (!state.input || state.input === prev.input) return;
       setText(state.input);
       setSlash(null);
-      // 延后到微任务清空，避免在 zustand 订阅通知期间嵌套 dispatch
       void Promise.resolve().then(() => {
         useAssistantStore.getState().setInput("");
       });
-      // 面板可能同帧刚被打开（inert 尚未移除），等一帧再聚焦
       requestAnimationFrame(() => textareaRef.current?.focus());
     });
   }, []);
 
-  // 编辑排队消息退回的内容：文字接在已有文字之后另起一行，图片接在已有附件之后，都不覆盖
   useEffect(() => {
     const appendAll = (appends: ContentBlock[][]) => {
       for (const content of appends) {
@@ -167,7 +154,6 @@ export function AgentComposer({
     appendAll(useAssistantStore.getState().takeComposerAppends());
     return useAssistantStore.subscribe((state, prev) => {
       if (state.composerAppends.length === 0 || state.composerAppends === prev.composerAppends) return;
-      // 延后到微任务取走，避免在 zustand 订阅通知期间嵌套 dispatch
       void Promise.resolve().then(() => {
         appendAll(useAssistantStore.getState().takeComposerAppends());
         requestAnimationFrame(() => textareaRef.current?.focus());
@@ -209,7 +195,6 @@ export function AgentComposer({
         return;
       }
       if (event.key === "Escape") {
-        // 只关菜单；阻止默认行为，外壳不会因这次 Esc 收起面板
         event.preventDefault();
         setSlash(null);
         return;
@@ -265,7 +250,6 @@ export function AgentComposer({
         questionPending={Boolean(hidden)}
         editDisabled={sending}
       />
-      {/* 问卷替换的只是输入框：托盘在外，提问期间仍可编辑、删除排队消息 */}
       <div hidden={hidden}>
         {(attachError || tooManyImages) && (
           <p role="alert" className="mb-2 text-xs text-destructive">
@@ -391,7 +375,6 @@ export function AgentComposer({
           <DialogHeader>
             <DialogTitle>{t("chat_image_attachment", { index: (previewIndex ?? 0) + 1 })}</DialogTitle>
           </DialogHeader>
-          {/* 原图超高时只有这里滚动，内部没有可聚焦元素，键盘靠它自身聚焦后滚动 */}
           <DialogBody tabIndex={0} role="region" aria-label={t("chat_image_attachment", { index: (previewIndex ?? 0) + 1 })}>
             {previewImage && <img src={previewImage.dataUrl} alt="" className="mx-auto block h-auto max-w-full rounded-md" />}
           </DialogBody>

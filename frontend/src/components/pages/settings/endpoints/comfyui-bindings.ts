@@ -14,9 +14,6 @@ import {
   type ComfyuiWorkflowNode,
 } from "@/types";
 
-// 绑定编辑器的读写辅助：从 workflow 读出可手选的落点，把推断结果与用户的选择合成一份待保存的
-// 节点绑定，并算出保存门控的原因。校验的唯一职责在服务端，这里只复现它会拒绝的那几条硬闸门，
-// 让用户在点保存之前就看到原因。
 
 export function bindingKeysFor(mediaType: ComfyuiMediaType): readonly ComfyuiBindingKey[] {
   return mediaType === "image" ? COMFYUI_IMAGE_BINDING_KEYS : COMFYUI_VIDEO_BINDING_KEYS;
@@ -26,17 +23,10 @@ export function isRequiredBindingKey(key: ComfyuiBindingKey): boolean {
   return COMFYUI_REQUIRED_BINDING_KEYS.includes(key);
 }
 
-/** 参考图与参考音频是有序列表：列表次序即素材序号，勾选与取消都要按次序重排。 */
 export function isListBindingKey(key: ComfyuiBindingKey): boolean {
   return key === "reference_images" || key === "reference_audio";
 }
 
-/**
- * 这些键可以有多个落点，且次序不带含义：一份 workflow 里两路消费者各有自己的宽高，帧数同理；
- * `fps` 允许多个只读落点（校验只禁止它们的值互相冲突）。构造层写宽高帧数时逐个写、读帧率时逐个
- * 读，因此编辑器里点中一个候选只能增删这一条，不能把同键的其余落点顶掉——顶掉之后那几路分支
- * 就再也收不到尺寸与帧数了。
- */
 export function isMultiTargetBindingKey(key: ComfyuiBindingKey): boolean {
   return key === "aspect_ratio" || key === "width" || key === "height" || key === "frames" || key === "fps";
 }
@@ -50,7 +40,6 @@ export function toggleSetTarget(
     : [...current, target];
 }
 
-/** 一行在绑定表里的状态。`required_unbound` 由必填键没有落点派生，不是服务端的推断状态。 */
 export type ComfyuiRowStatus =
   | "auto"
   | "manual"
@@ -107,13 +96,6 @@ export function classTypeCounts(nodes: ComfyuiNodeEntry[]): { classType: string;
     .sort((a, b) => (b.count === a.count ? a.classType.localeCompare(b.classType) : b.count - a.count));
 }
 
-/**
- * 一个输入是不是连线。ComfyUI 的连线形如 `[上游节点 id, 输出序号]`；`{"__value__": [...]}`
- * 是生态里给数组字面值加的包装，作者刻意声明的字面数组，因此绑得上去。
- *
- * 先看包装再判形状，与服务端的 `workflow.is_link` 同序：反过来先解包会把
- * `{"__value__": ["4", 0]}` 判成连线，于是一个真能填值的输入在手选下拉里不见了。
- */
 export function isLinkInput(value: unknown): boolean {
   if (isWrappedValue(value)) return false;
   return Array.isArray(value) && value.length === 2 && typeof value[1] === "number";
@@ -140,10 +122,6 @@ export function literalInputText(node: ComfyuiNodeEntry, input: string): string 
   return text.length > 40 ? `${text.slice(0, 40)}…` : text;
 }
 
-/**
- * 可手选的落点全集。产物是节点级的（没有 `input`），其余语义键只能落在字面值输入上——
- * 往连线上填值会被上游覆盖，服务端的校验器直接拒。
- */
 export function manualTargets(nodes: ComfyuiNodeEntry[], key: ComfyuiBindingKey): ComfyuiBindingTarget[] {
   const targets: ComfyuiBindingTarget[] = [];
   for (const node of nodes) {
@@ -165,10 +143,6 @@ function withTitle(target: ComfyuiBindingTarget, title: string): ComfyuiBindingT
   return title ? { ...target, title } : target;
 }
 
-/**
- * 有序列表键的勾选与取消。选中项按候选列表的次序排（推断侧的并列次序就是节点序），
- * 手选进来、不在候选列表里的条目排在其后并保持加入顺序——列表顺序即参考图序号。
- */
 export function toggleListTarget(
   candidates: ComfyuiBindingCandidate[],
   current: ComfyuiBindingTarget[],
@@ -191,17 +165,12 @@ export function sameTarget(a: ComfyuiBindingTarget, b: ComfyuiBindingTarget): bo
   return a.node === b.node && (a.input ?? null) === (b.input ?? null);
 }
 
-/** 一条目标写进 workflow 的哪一格；只读的 `fps` 不写值，因此不占格子。 */
 function targetLanding(target: ComfyuiBindingTarget): string | null {
   if (target.direction === "read") return null;
   return target.input === undefined ? `#${target.node}` : `#${target.node}.${target.input}`;
 }
 
 
-/**
- * 推断结果的落盘形态：只有「唯一最高分」的键会自动带上条目，歧义与待确认一条也不带——
- * 那正是要用户来定的。显式不支持沿用它的空列表，其余键缺席（从未推断）。
- */
 export function bindingsFromInference(
   inference: ComfyuiInferResponse,
   mediaType: ComfyuiMediaType,
@@ -221,7 +190,6 @@ export function bindingsFromInference(
   return bindings;
 }
 
-/** 媒体类型改了之后，越界的语义键连同它的条目一起摘掉——它本就不会被填值。 */
 export function pruneBindings(bindings: ComfyuiBindings, mediaType: ComfyuiMediaType): ComfyuiBindings {
   const allowed = new Set<string>(bindingKeysFor(mediaType));
   const next: ComfyuiBindings = {};
@@ -243,10 +211,6 @@ export function selectedCandidateIndexes(
   return chosen;
 }
 
-/**
- * 一行的状态。用户本轮改过、或条目来自已保存的定义（沿用与重匹配都是），都算手动指定——
- * 按 `docs/adr/0082`，保存下来的每一条节点绑定本来就是用户确认过的。
- */
 export function rowStatus(
   key: ComfyuiBindingKey,
   state: ComfyuiBindingState | undefined,
@@ -257,7 +221,6 @@ export function rowStatus(
     return isRequiredBindingKey(key) ? "required_unbound" : "unsupported";
   }
   if (targets === undefined) {
-    // 并列候选优先于「必填未绑定」：有候选摆在那里时，该做的事是选一个，不是从头找。
     if (state === "ambiguous" || state === "needs_confirmation") return "ambiguous";
     return isRequiredBindingKey(key) ? "required_unbound" : "not_found";
   }
@@ -275,10 +238,6 @@ function boundOrigins(
     .map((candidate) => candidate.origin);
 }
 
-/**
- * 重导入在这一行留下的记号：只要有一条是按类型加标题迁移过来的就报「已重匹配」——它是更需要
- * 用户过目的那一种；全都原样沿用时报「沿用」；本轮新推断或手选的行没有记号。
- */
 export function rowOrigin(
   candidates: ComfyuiBindingCandidate[],
   targets: ComfyuiBindingTarget[] | undefined,
@@ -321,7 +280,6 @@ export function saveBlockers(
   if (name === "" || name === placeholderName) blockers.push({ code: "placeholder_name" });
   for (const key of bindingKeysFor(definition.media_type)) {
     const targets = bindings[key];
-    // 比例键的格式只由服务端 schema 判定；这里只拦下界面能填出的空值。
     if (key === "aspect_ratio" && targets?.some((target) => {
       const values = Object.values(target.values ?? {});
       return values.length === 0 || values.some((value) => !value.trim());
@@ -334,7 +292,6 @@ export function saveBlockers(
     const result = inference.bindings[key];
     if (result === undefined) continue;
     if (result.state !== "ambiguous" && result.state !== "needs_confirmation") continue;
-    // 重导入把条目判丢、重跑推断又一无所获时，这一行一个候选也没有：该做的是手选或标为不支持。
     blockers.push({ code: result.candidates.length > 0 ? "needs_choice" : "needs_binding", key });
   }
   const seen = new Map<string, ComfyuiBindingKey>();
@@ -350,26 +307,10 @@ export function saveBlockers(
   return blockers;
 }
 
-/**
- * 这份定义连端点测试都过不去吗。
- *
- * 保存门控里只有这两条同时是服务端**校验器**的硬闸门（`comfyui_binding_required` 与
- * `comfyui_target_collision`），带着它们去预览或测试连接只会换回一条 422。另外三条不是：并列
- * 候选未定与原绑定失效只是这一维没绑上，预览照样渲得出来——换算说明里那个「未驱动这份 workflow」
- * 正是它该有的样子；占位名只挡保存。
- */
 export function testRefused(blockers: readonly ComfyuiSaveBlocker[]): boolean {
   return blockers.some((blocker) => blocker.code === "required_unbound" || blocker.code === "target_taken" || blocker.code === "aspect_mapping");
 }
 
-/**
- * 一份定义用于「改过没有」比对的规范形。
- *
- * 直接串比会把两份内容相同的定义判成不同：空标题在手选那一侧是「不写 `title` 这个键」
- * （见 `withTitle`），服务端重匹配回来的却是 `"title": ""`；键的次序也各按各的来源。
- * 递归按键名排序、并把空 `title` 一律当作缺省，两侧才在同一把尺子上。这只影响按钮文案与
- * 可点性，落盘的仍是原样的 `draft`。
- */
 export function definitionFingerprint(definition: object): string {
   return JSON.stringify(canonical(definition));
 }

@@ -14,10 +14,6 @@ const ARTIFACT_OF: Record<BatchFillKind, string> = {
   narration: "audio",
 };
 
-/**
- * 这一集某类产物还要补齐几份：计划里缺失的条目扣掉正在生成的。
- * 计划还没取到或属于别的集、这类产物读不了或本项目不涉及时数不出来，返回 null。
- */
 export function useBatchGap(
   projectName: string,
   episode: number,
@@ -35,10 +31,6 @@ export function useBatchGap(
   return missing.filter((id) => !busy.has(id)).length;
 }
 
-/**
- * 页头的批量补齐按钮：写明补哪类产物、补几份；没有可补的置灰并说明已齐。
- * 数量数不出来时照常可用、不写数量，点开的确认框会列出这一批。
- */
 export function BatchFillButton({
   kind,
   count,
@@ -48,7 +40,6 @@ export function BatchFillButton({
 }: {
   kind: BatchFillKind;
   count: number | null;
-  /** 参考生视频项目：提示里逐条重新生成的位置是视频单元。 */
   units?: boolean;
   disabled?: boolean;
   onClick: () => void;

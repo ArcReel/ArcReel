@@ -37,7 +37,6 @@ export function AssetCreateDialog({
     <Dialog
       open={type !== null}
       onOpenChange={(next) => {
-        // 请求在途时不响应 Esc 与遮罩点击，避免资产已建好却没回到列表
         if (!next && !creating) onClose();
       }}
     >

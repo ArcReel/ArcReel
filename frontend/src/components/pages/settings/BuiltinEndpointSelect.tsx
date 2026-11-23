@@ -3,7 +3,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { BuiltinEndpointOption } from "@/types";
 
 interface BuiltinEndpointSelectProps {
-  /** 触发按钮的 id，供字段标签用 `htmlFor` 关联。 */
   id?: string;
   value: string;
   onChange: (next: string) => void;

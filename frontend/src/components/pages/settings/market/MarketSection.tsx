@@ -22,10 +22,6 @@ import { OfficialServiceNotice } from "./OfficialServiceNotice";
 
 const TABS: readonly MarketTab[] = ["browse", "shared", "settings"];
 
-/**
- * 按 id 合并刷新结果，只改写刷新产出的字段、保持原顺序；显示名与启停以本地为准，
- * 迟到的刷新响应不会覆盖期间完成的修改。
- */
 function mergeRefreshed(current: MarketSourceInfo[], updated: MarketSourceInfo[]): MarketSourceInfo[] {
   const byId = new Map(updated.map((source) => [source.id, source]));
   return current.map((source) => {
@@ -43,7 +39,6 @@ function mergeRefreshed(current: MarketSourceInfo[], updated: MarketSourceInfo[]
   });
 }
 
-/** 影响条目列表的源字段：顺序、启停、显示名与快照时间。任一变化即重新拉取条目。 */
 function entriesKey(sources: MarketSourceInfo[]): string {
   return sources
     .map((source) => [source.id, source.is_enabled, source.display_name, source.fetched_at, source.updated_at].join(":"))
@@ -52,13 +47,6 @@ function entriesKey(sources: MarketSourceInfo[]): string {
 
 const NO_AGGREGATES: ReadonlyMap<string, MarketEntryAggregate> = new Map();
 
-/**
- * 市场分区：顶部 Tabs 分「浏览」「我的分享」「设置」，当前 Tab 记在地址的 `tab` 参数里；
- * 地址带 `media` 时「浏览」按该媒体类型预设筛选。
- * 打开时先渲染缓存的源列表与条目，再在后台刷新距上次成功刷新超过 1 小时的启用源；源有变化时重新拉取条目。
- * 官方服务开启时另拉官方市场源条目的安装量与评分和我的分享，首次进入显示一次说明；
- * 关闭或读不到状态时「浏览」不展示任何官方服务元素，开关本身常驻在「设置」。
- */
 export function MarketSection() {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -124,7 +112,6 @@ export function MarketSection() {
     return () => controller.abort();
   }, [sourcesLoaded, sourcesKey, installationRevision, pushToast, t]);
 
-  // 读不到状态时「浏览」按关闭处理、不打扰：市场本身不依赖官方服务。错误只交给「设置」展示并提供重试，那里是开关的归属。
   const officialController = useRef<AbortController | null>(null);
   const loadOfficial = useCallback(async () => {
     officialController.current?.abort();
@@ -225,7 +212,6 @@ export function MarketSection() {
   );
 
   const sourcesById = useMemo(() => new Map(sources.map((source) => [source.id, source])), [sources]);
-  // 关闭后不再展示上一轮取到的数字；重新开启时由拉取 effect 覆盖。
   const shownAggregates = officialEnabled ? aggregates : NO_AGGREGATES;
   const shownSubmissions = officialEnabled ? submissions : null;
 
@@ -256,7 +242,6 @@ export function MarketSection() {
         </div>
         <TabsContent value="browse" className="mt-2">
           <MarketBrowseTab
-            // 地址只在从别处跳入时带 media，换一个入口就按新的预设重新开始；页面内改筛选不回写地址
             key={mediaParam ?? "all"}
             initialMedia={mediaParam}
             sources={sources}

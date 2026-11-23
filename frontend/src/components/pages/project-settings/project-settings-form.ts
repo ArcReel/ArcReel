@@ -13,7 +13,6 @@ import type {
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
 
-/** 全局各层的已配置值，原样带入、不折叠回退，穿透演算由模型选择字段族按解析链推导。 */
 export interface GlobalModelDefaults {
   video: string;
   videoI2V: string;
@@ -24,11 +23,9 @@ export interface GlobalModelDefaults {
   textDefault: string;
   textSimple: string;
   textComplex: string;
-  /** 各层全空时后端自动选中的模型（与执行期同口径）；拉取失败即缺席，演算退回「算不出」。 */
   auto?: AutoBackendsResponse | null;
 }
 
-/** 项目的风格：模版与参考图二选一，也可以都不设。 */
 export type ProjectStyle =
   | { kind: "none" }
   | { kind: "template"; templateId: string }
@@ -42,20 +39,16 @@ export type ProjectStyle =
 export interface ProjectSettingsForm {
   aspectRatio: string;
   gridStoryboard: boolean;
-  /** 口播语速估算（阅读单位 / 秒）；null 按项目语言的默认速度估算。 */
   speechRate: number | null;
   episodeTargetDuration: number | null;
-  /** 广告项目的目标总时长（秒）；自定义输入不是正整数时为 null，拦住保存。 */
   adTargetDuration: number | null;
   style: ProjectStyle;
   models: Omit<ModelConfigValue, "videoResolution" | "videoResolutions" | "imageResolution" | "imageResolutions"> & {
     modelResolutions: Record<string, string | null>;
-    /** 「生成有声视频」：null 跟随全局。 */
     generateAudio: boolean | null;
   };
   narration: NarrationDeliveryValue;
   voiceBinding: CharacterVoiceBinding;
-  /** 项目已保存的 `model_settings` 全表，保存分辨率与画质时在它上面合并。 */
   modelSettings: Record<string, ModelSettingEntry>;
 }
 
@@ -74,7 +67,6 @@ export function isFormTab(tab: ProjectSettingsTab): tab is FormTab {
 
 function sameStyle(a: ProjectStyle, b: ProjectStyle): boolean {
   if (a.kind === "image" && b.kind === "image") {
-    // File 序列化为空对象，按引用比较
     return a.preview === b.preview && a.file === b.file && a.description === b.description;
   }
   return JSON.stringify(a) === JSON.stringify(b);
@@ -107,18 +99,10 @@ export function tabDirty(tab: FormTab, value: ProjectSettingsForm, saved: Projec
   return !sameFields(value, saved, FORM_TAB_FIELDS[tab]);
 }
 
-/**
- * 已保存参考图的地址。参考图文件名固定（style_reference.*），换图不换路径，
- * `version` 带上文件版本（资产指纹或上传时刻）才能让浏览器换掉旧图；确实没有版本时传 null。
- */
 export function styleImageUrl(projectName: string, styleImage: string, version: number | string | null): string {
   return API.getFileUrl(projectName, styleImage, version);
 }
 
-/**
- * 项目 PATCH 不改参考图文件，响应也不带资产指纹：参考图仍是已保存的那张时，沿用已保存地址里的版本，
- * 预览不会因为一次保存换成不带版本的地址。
- */
 export function keepSavedStylePreview(next: ProjectSettingsForm, saved: ProjectSettingsForm): ProjectSettingsForm {
   if (next.style.kind !== "image" || saved.style.kind !== "image" || saved.style.file) return next;
   const unversioned = (url: string) => url.split("?")[0];
@@ -139,15 +123,10 @@ function finiteOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/** `model_settings` 的一项；project.json 里写坏的项（null、裸字符串）按空项读，合并时不把它们展开成字符下标。 */
 function settingEntry(value: unknown): ModelSettingEntry {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-/**
- * 从项目数据读出表单的已保存内容。
- * `fingerprints` 是项目详情响应里的资产指纹（路径 → mtime_ns），给参考图地址带版本；响应没带时传 null。
- */
 export function deriveForm(
   projectData: ProjectData,
   projectName: string,
@@ -168,9 +147,6 @@ export function deriveForm(
     textBackendComplex: str(project.text_backend_complex),
   };
 
-  // model_settings 的 key 用执行模型（细分项 ‖ 项目默认 ‖ 全局细分 ‖ 全局默认），与保存一致：
-  // 后端按执行模型查这张表，键位对不上，用户选的分辨率会被静默忽略。视频另有一条兼容回退：
-  // 读 legacy video_model_settings。
   const executingVb = executingVideoModel(models, globals, route === "reference_video");
   const executingI2V = executingVideoModel(models, globals, false);
   const executingIb = executingImageModel(models, globals, "t2i");
@@ -196,7 +172,6 @@ export function deriveForm(
   const templateId = str(project.style_template_id);
 
   return {
-    // 后端 get_aspect_ratio() 未设置时按 9:16 生成，这里显示实际生效的比例
     aspectRatio: str(project.aspect_ratio) || "9:16",
     gridStoryboard: project.grid_storyboard === true,
     speechRate: finiteOrNull(project.speech_rate_units_per_second),
@@ -235,7 +210,6 @@ export interface ProjectFacts {
   generationRoute: GenerationRoute;
 }
 
-/** 宫格是分镜图生视频内的装配选项；参考生视频与不支持宫格的广告项目既不呈现也不参与保存。 */
 export function gridToggleVisible(facts: ProjectFacts): boolean {
   return facts.generationRoute === "storyboard" && facts.contentMode !== "ad";
 }
@@ -250,15 +224,12 @@ function fullProjectPatch(
 ): ProjectPatch {
   const { models, narration } = value;
 
-  // resolution 与 quality 的 key 用执行模型，与读侧一致。接口整表替换 model_settings，每项都在已保存的
-  // 那一项上合并：只写本表单管的字段，其余字段（别的模型上的画质）原样带回，否则改一次分辨率就会抹掉它们。
   const executingImage = executingImageModel(models, globals, "t2i");
   const modelSettings: Record<string, ModelSettingEntry> = { ...value.modelSettings };
   for (const [model, resolution] of Object.entries(models.modelResolutions)) {
     modelSettings[model] = { ...settingEntry(modelSettings[model]), resolution };
   }
   if (executingImage) {
-    // 画质为空即未选择：不写这个键，后端按分辨率档位推出画质
     const { quality: _quality, ...rest } = settingEntry(modelSettings[executingImage]);
     modelSettings[executingImage] = {
       ...rest,
@@ -285,21 +256,15 @@ function fullProjectPatch(
     video_generate_audio: models.generateAudio,
     narration_delivery: narration.delivery,
     audio_backend: narration.audioBackend || null,
-    // 音色与后端 .strip() 对齐，保存时去首尾空白
     narration_voice: narration.narrationVoice.trim() || null,
     narration_speed: narration.narrationSpeed,
-    // 绑定方式只在参考生视频路线上有效，其余路线该键与项目无关，不写
     ...(facts.generationRoute === "reference_video" ? { character_voice_binding: value.voiceBinding } : {}),
-    // null 即清除项目级覆盖、回退语言默认
     speech_rate_units_per_second: value.speechRate,
     default_text_backend: models.textBackendDefault || null,
     text_backend_simple: models.textBackendSimple || null,
     text_backend_complex: models.textBackendComplex || null,
     aspect_ratio: value.aspectRatio || undefined,
-    // 生成方式创建后不可更改，不在 PATCH 面上；宫格只在开关可见时写，广告项目对 true 返回 400
     ...(gridToggleVisible(facts) ? { grid_storyboard: value.gridStoryboard } : {}),
-    // 广告项目写目标总时长（正整数秒，不可清空），后端对 default_duration 与 episode_target_duration
-    // 出现本身返回 400；非广告项目反之，两者恒写，null 即清除
     ...(facts.contentMode === "ad"
       ? value.adTargetDuration !== null
         ? { target_duration: value.adTargetDuration }
@@ -323,11 +288,6 @@ function sameModelSettings(a: Record<string, ModelSettingEntry>, b: Record<strin
   );
 }
 
-/**
- * 生成项目 PATCH 的请求体：只含与已保存内容不同的键，`model_settings` 整体比较、有变化时整表写入。
- * 未改动的键不回写，避免覆盖别处刚保存的设置；旧项目可能留着裸供应商的音频后端，原样回写也会被快照校验拒绝。
- * 风格选了模版或被清除时一并写入；选了新参考图时不在这里，由随后的参考图上传写入（上传同时清掉模版）。
- */
 export function buildProjectPatch(
   value: ProjectSettingsForm,
   saved: ProjectSettingsForm,

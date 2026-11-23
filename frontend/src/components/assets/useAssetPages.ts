@@ -11,13 +11,10 @@ interface AssetQuery {
 }
 
 interface PagesState {
-  /** 这份数据对应的类型与搜索词；与当前查询不一致时说明首页还在加载。 */
   key: string | null;
-  /** 与 key 对应的查询。本地增改按它判断，迟到的回调不会按旧闭包里的查询改写新列表。 */
   query: AssetQuery | null;
   items: Asset[];
   total: number;
-  /** 已消费的服务端位置，重复条目仍占一个 offset。 */
   nextOffset: number;
   counts: AssetListPage["counts"] | null;
   error: string | null;
@@ -37,7 +34,6 @@ const INITIAL: PagesState = {
   moreError: null,
 };
 
-/** 与后端搜索同口径（类型一致、名称包含搜索词，ASCII 不区分大小写），用于判断本地新建或更新的条目是否计入当前结果。 */
 function matchesQuery(asset: Asset, { type, q }: AssetQuery): boolean {
   return (!type || asset.type === type) && (!q || asset.name.toLowerCase().includes(q.toLowerCase()));
 }
@@ -49,7 +45,6 @@ function bump(counts: PagesState["counts"], type: AssetType, delta: number): Pag
 export interface AssetPages {
   items: Asset[];
   total: number;
-  /** 当前搜索词下各类型的匹配数，换搜索词时保留上一次的数字直到新结果到达。 */
   counts: AssetListPage["counts"] | null;
   loading: boolean;
   error: string | null;
@@ -59,23 +54,16 @@ export interface AssetPages {
   loadMore: () => void;
   retry: () => void;
   add: (asset: Asset) => void;
-  /** 本地更新的条目：按更新时间排在最前，与后端排序一致。 */
   update: (asset: Asset) => void;
   remove: (asset: Asset) => void;
 }
 
-/**
- * 按 offset 分页读取资产库，类型或搜索词变化时从第一页重新加载。
- * 本地增删改同步调整已加载条目与计数。翻页位置按响应的原始条数推进，去重不回退 offset。
- */
 export function useAssetPages({ type, q }: { type?: AssetType; q: string }): AssetPages {
   const key = JSON.stringify([type ?? null, q]);
   const [state, setState] = useState<PagesState>(INITIAL);
   const [reloadToken, setReloadToken] = useState(0);
   const controllerRef = useRef<AbortController | null>(null);
-  /** 在途的首页请求；本地增删改后重新加载。 */
   const firstRef = useRef<AbortController | null>(null);
-  /** 在途的下一页请求；本地增删后作废。 */
   const moreRef = useRef<AbortController | null>(null);
   const current = state.key === key;
 
@@ -139,11 +127,6 @@ export function useAssetPages({ type, q }: { type?: AssetType; q: string }): Ass
     );
   }, [fetchPage, hasMore, state.nextOffset, state.loadingMore, state.moreError]);
 
-  /**
-   * 本地增删改与在途请求的先后无从得知：服务端可能先执行查询，也可能先落盘修改。
-   * 首页在途时，响应可能缺这次修改，而修改又没有可以合并的列表，所以重新加载首页。
-   * 下一页在途时，按任一种顺序推进 offset 都可能跳过一条，所以作废这次请求，哨兵随后按校正后的位置重新加载。
-   */
   const settleLocalChange = useCallback((next: (prev: PagesState) => PagesState) => {
     if (firstRef.current) {
       setReloadToken((n) => n + 1);
@@ -178,7 +161,6 @@ export function useAssetPages({ type, q }: { type?: AssetType; q: string }): Ass
     [settleLocalChange],
   );
 
-  /** 只处理已加载的条目：未加载的条目已计入 total，插入或减计数都会让计数与列表错位。 */
   const update = useCallback(
     (asset: Asset) =>
       settleLocalChange((prev) => {

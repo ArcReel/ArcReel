@@ -22,21 +22,14 @@ import type { UsageRecordView } from "./usage-record-view";
 
 export interface RecordRowProps {
   record: UsageRecordView;
-  /** `table` 是设置页记录表的一行；`compact` 供顶栏悬浮层复用，两行排布且不显示项目。 */
   layout: "table" | "compact";
   providerLabel: (provider: string | null) => string;
   projectLabel?: (record: UsageRecordView) => string;
-  /** 筛选已固定某个项目时隐藏项目列，避免整列重复同一个值。 */
   showProject?: boolean;
   onOpenDetail?: (recordId: number) => void;
-  /** 行尾的额外动作（取消、重试下载），取代默认的「详情」。 */
   trailing?: ReactNode;
 }
 
-/**
- * 目标：分镜或视频单元以位置角标与缩略图开头、不截断，后面的集名与正文摘录在放不下时截断；
- * 宫格这类条目以集内 ID 开头；其余记录只写用途。
- */
 export function TargetLabel({ record, focusable = true }: { record: UsageRecordView; focusable?: boolean }) {
   const { t } = useTranslation("dashboard");
   const { item, prefix, name } = targetParts(record.segmentId, record.segmentRef, record.purpose, t);
@@ -63,7 +56,6 @@ export function TargetLabel({ record, focusable = true }: { record: UsageRecordV
   );
 }
 
-/** 状态只放状态与失败短语；没有短语的失败只写「失败」，原始报错在详情里看。 */
 function StatusLabel({
   record,
   showPhrase,
@@ -86,7 +78,6 @@ function StatusLabel({
   );
 }
 
-/** 进行中行订阅秒级时钟；已定格的耗时是静态文本，不为它每秒重渲染。 */
 function ElapsedCell({ record }: { record: UsageRecordView }) {
   const { t } = useTranslation("dashboard");
   const now = useNowTick();
@@ -98,7 +89,6 @@ function DurationLabel({ record }: { record: UsageRecordView }) {
   return record.status === "pending" ? <ElapsedCell record={record} /> : <>{formatDurationMs(record.durationMs, t)}</>;
 }
 
-/** 进行中的调用还没结算，显示破折号；未定价与 0 元是两件事，分别显示「未定价」和 0。 */
 function costText(record: UsageRecordView, unpricedLabel: string): string {
   if (record.status === "pending") return "—";
   if (record.costAmount === null) return unpricedLabel;
@@ -128,7 +118,6 @@ export function RecordRow({
   const canOpen = recordId !== null && onOpenDetail !== undefined;
 
   if (layout === "compact") {
-    // 可打开详情时整行是按钮，行内截断的文字不再单独进入 Tab 顺序。
     const focusable = !canOpen;
     const body = (
       <>

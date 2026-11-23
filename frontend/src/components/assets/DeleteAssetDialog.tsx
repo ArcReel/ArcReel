@@ -16,7 +16,6 @@ import {
 import { errMsg } from "@/utils/async";
 import type { Asset } from "@/types/asset";
 
-/** 从资产库删除一个资产。删除不可恢复，已应用到项目里的副本不受影响。 */
 export function DeleteAssetDialog({
   asset,
   onClose,
@@ -29,7 +28,6 @@ export function DeleteAssetDialog({
   const { t } = useTranslation("assets");
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 关闭动画期间沿用上一次的资产；每次打开（含再次打开同一个资产）都清掉上一次的错误
   const [prev, setPrev] = useState(asset);
   const [shown, setShown] = useState(asset);
   if (asset !== prev) {
@@ -59,7 +57,6 @@ export function DeleteAssetDialog({
     <AlertDialog
       open={asset !== null}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
         if (!next && !deleting) onClose();
       }}
     >

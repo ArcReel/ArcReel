@@ -30,7 +30,6 @@ export function ScriptPlanHost({ projectName, episode, savedInstructions }: Host
   if (!request || request.projectName !== projectName || request.episode !== episode) return null;
   return (
     <ScriptPlanDialog
-      // 每次打开都从请求与已保存的指令重新初始化，不沿用上一次对话框里未提交的输入。
       key={`${projectName}:${episode}:${request.replaces}`}
       request={request}
       savedInstructions={savedInstructions ?? ""}
@@ -45,16 +44,11 @@ interface DialogProps {
   onClose: () => void;
 }
 
-/**
- * 「重新规划脚本」：替换本集已有的规划、待修复草稿或正式脚本。首次规划在集页起步区里完成，
- * 两处共用 {@link useScriptPlanSubmit} 的提交逻辑。提交中忽略关闭请求。
- */
 function ScriptPlanDialog({ request, savedInstructions, onClose }: DialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const fieldId = useId();
   const { projectName, episode, replaces } = request;
   const regenerate = replaces !== "formal_script";
-  // 未确认的规划与待修复草稿没有版本历史，整份替换即丢失，对话框本身就是替换前的确认。
   const lossText =
     replaces === "pending_plan"
       ? t("script_plan_replace_pending_warning")

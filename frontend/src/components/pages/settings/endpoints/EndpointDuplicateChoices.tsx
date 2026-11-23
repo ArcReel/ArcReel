@@ -17,9 +17,7 @@ type EndpointDuplicateChoicesProps = {
     }
   | {
       onOverwrite?: undefined;
-      /** 市场安装：单选覆盖目标或新建副本（`null`），由调用方统一确认。 */
       selection: { value: number | null; onChange: (id: number | null) => void };
-      /** 已持有安装记录的端点 id → 来源名；这些端点只展示来源，不可选。 */
       blockedSources: Record<number, string>;
     }
 );

@@ -22,7 +22,6 @@ import { canViewEpisodeSource } from "./episode-view";
 
 type SourceRead = { status: "loading" } | { status: "ready"; text: string } | { status: "failed" };
 
-/** 弹层打开时才挂载：每次打开读一次最新原文，关闭时作废在途请求。 */
 function SourceContent({ projectName, episode }: { projectName: string; episode: number }) {
   const { t } = useTranslation("dashboard");
   const [read, setRead] = useState<SourceRead>({ status: "loading" });
@@ -60,10 +59,6 @@ function SourceContent({ projectName, episode }: { projectName: string; episode:
   return <EpisodeSourceText text={read.text} />;
 }
 
-/**
- * 集页页头「查看原文」的入口与只读弹层，用来就地核对改编内容；是否出现见 `canViewEpisodeSource`。
- * 只读取、不写入，打开和关闭都不改变当前视图。调用方按集给 key：换集时弹层关闭，读取结果不跨集。
- */
 export function EpisodeSourceViewer({
   projectName,
   episode,
@@ -91,7 +86,6 @@ export function EpisodeSourceViewer({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{episodeDisplayName(projectData?.episodes ?? [], episode, t)}</DialogDescription>
         </DialogHeader>
-        {/* 原文超高时只有这里滚动，内部没有可聚焦元素，键盘靠它自身聚焦后滚动 */}
         <DialogBody tabIndex={0} role="region" aria-label={title}>
           <SourceContent projectName={projectName} episode={episode} />
         </DialogBody>

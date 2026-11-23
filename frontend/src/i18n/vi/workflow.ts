@@ -183,7 +183,6 @@ export default {
   'refusal_operation_not_applicable': 'Không áp dụng cho loại dự án này',
   'refusal_unknown': 'Tạm thời không thực hiện được',
 
-  // ---- Sản phẩm cũ nhưng vẫn dùng được ----
   'stale_title_one': '{{count}} kết quả cũ hơn nội dung hiện tại',
   'stale_title_other': '{{count}} kết quả cũ hơn nội dung hiện tại',
   'stale_still_usable': 'Các tệp này vẫn được giữ lại, mở được trên canvas và vẫn tham gia vào tập phim này. Giữ lại thì không tốn phí; tạo lại sẽ bị nhà cung cấp tính phí lần nữa.',

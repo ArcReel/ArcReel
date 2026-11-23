@@ -26,10 +26,6 @@ function matchesQuery(entry: MarketEntry, query: string): boolean {
   return haystack.includes(query.toLocaleLowerCase());
 }
 
-/**
- * 「浏览」Tab：搜索、媒体类型筛选、启用的市场源多于一个时的来源筛选、「只看已安装」，下面是条目网格。
- * 条目类型目前只有调用端点，不显示类型筛选。刷新失败的源在筛选行之上列出原因与快照时间。
- */
 export function MarketBrowseTab({
   initialMedia,
   sources,
@@ -56,7 +52,6 @@ export function MarketBrowseTab({
   const enabled = sources.filter((source) => source.is_enabled);
   const failing = enabled.filter((source) => source.status !== "ok" && source.status !== "never_fetched");
   const sourcesById = new Map(sources.map((source) => [source.id, source]));
-  // 来源被停用的条目不显示，即使条目列表还没随源的变化重新拉取。
   const available = (entries ?? []).filter((entry) => sourcesById.get(entry.source_id)?.is_enabled === true);
   const trimmedQuery = query.trim();
   const visible = available.filter(
@@ -111,7 +106,6 @@ export function MarketBrowseTab({
           spacing={0}
           value={[mediaFilter]}
           onValueChange={(value: string[]) => {
-            // 单选：再次点击已选项会清空选择，此时保持原筛选
             const next = MEDIA_FILTERS.find((filter) => filter.id === value[0]);
             if (next) setMediaFilter(next.id);
           }}

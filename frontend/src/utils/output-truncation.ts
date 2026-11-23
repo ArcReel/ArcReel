@@ -4,7 +4,6 @@ import type { TaskItem } from "@/types";
 
 const CUSTOM_PROVIDER_PREFIX = "custom-";
 
-/** 文本任务因输出被截断而失败时的模型；`custom` 为自定义供应商的模型，可以去设置里登记最大输出长度。 */
 export interface OutputTruncation {
   providerId: string;
   model: string;
@@ -19,12 +18,10 @@ function truncationFromProblem(code: unknown, params: Record<string, unknown>): 
   return { providerId, model, custom: params.custom_model === true };
 }
 
-/** 失败任务的输出截断信息：问题码为 `text_output_truncated` 且带出模型时返回，否则返回 null。 */
 export function outputTruncationOf(task: Pick<TaskItem, "error_code" | "error_params">): OutputTruncation | null {
   return truncationFromProblem(task.error_code, task.error_params ?? {});
 }
 
-/** 同步请求（如生成项目概述）因输出被截断而失败时的截断信息：`diagnostic` 是同一个问题票形状，否则返回 null。 */
 export function outputTruncationOfError(err: unknown): OutputTruncation | null {
   if (!(err instanceof ApiRequestError)) return null;
   const problem = err.diagnostic;

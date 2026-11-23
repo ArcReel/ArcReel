@@ -48,7 +48,6 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
 
   const patch = (partial: Partial<EndpointDefinition>) => onChange({ ...definition, ...partial });
 
-  // 媒体类型决定可选素材、产物取值键、可插入的变量与能力字段；视频专属的说明文案在图片定义下换成 `_image` 版本。
   const mediaType = definitionMediaType(definition);
   const isImage = mediaType === "image";
   const profile = MEDIA_TYPE_FORM_PROFILES[mediaType];
@@ -60,7 +59,6 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
   const authHeaders = definition.auth?.headers ?? {};
   const authQuery = definition.auth?.query ?? {};
   const noAuth = Object.keys(authHeaders).length === 0 && Object.keys(authQuery).length === 0;
-  // 行名就是正在编辑的键：行 key 用随名字转移的客户端 id，改名不重建输入框、不丢焦点
   const headerIds = useNamedRowIds(Object.keys(authHeaders));
   const inputIds = useNamedRowIds(Object.keys(inputs));
   const statusIds = useNamedRowIds(Object.keys(statusMap));

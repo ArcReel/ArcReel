@@ -36,10 +36,8 @@ export function CredentialsSection() {
   const [presets, setPresets] = useState<PresetProvider[]>([]);
   const [customSentinelId, setCustomSentinelId] = useState("__custom__");
   const [addModalOpen, setAddModalOpen] = useState(false);
-  // 每次打开新建弹窗换一个 key，弹窗重挂载，不带上一轮的草稿与诊断结果
   const [addSession, setAddSession] = useState(0);
   const [busyCredId, setBusyCredId] = useState<number | null>(null);
-  // 档位绑定按 Agent 供应商分桶：不同供应商上的请求可以同时在途，一个结束不放开另一个。
   const [tierBusyIds, setTierBusyIds] = useState<ReadonlySet<number>>(() => new Set());
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
   const [testedCredId, setTestedCredId] = useState<number | null>(null);
@@ -131,7 +129,6 @@ export function CredentialsSection() {
     }
   }, []);
 
-  // 绑定与解除绑定的响应是更新后的整条凭证，直接换进列表，不重新拉取。
   const changeTierBinding = useCallback(async (id: number, change: () => Promise<AgentCredential>) => {
     setTierBusyIds((prev) => new Set(prev).add(id));
     try {
@@ -247,7 +244,6 @@ export function CredentialsSection() {
       <AlertDialog
         open={deleteTarget !== null}
         onOpenChange={(next) => {
-          // 删除请求在途时不响应 Esc，避免对话框先于结果消失
           if (!next && !deletingCred) setDeleteTarget(null);
         }}
       >

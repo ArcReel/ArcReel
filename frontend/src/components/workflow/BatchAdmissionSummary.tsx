@@ -8,25 +8,10 @@ import { admissionUnitViews, isWithheld } from "./problem-views";
 
 interface Props {
   admission: WorkflowAdmission;
-  /** 已有产物、本次跳过的单元数；批量端点才有这份信息。 */
   skippedUnitIds?: string[];
   className?: string;
 }
 
-/**
- * 整批准入判定的结论正文。两种未提交的结局共用它，因为它们说的是同一件事——
- * 「这一批一个任务也没有创建，原因如下」：
- *
- * - `confirmation_required`：按申请档位分组陈述秒数 × 单元数与合计费用，用户按整批拍板。
- *   分组而非逐个列行——同档位的单元讲的是同一件事，逐行重复会淹没档位本身；每档仍列出
- *   全部 unit_id，用户才知道自己在为谁拍板。
- * - `blocked`：逐个列出全部缺口，不塌成一句通用错误。真正有问题的排在前面，被它们连带
- *   扣下的列在后面并标明原因，用户一眼分得清该去修哪几个。
- *
- * 正文与外壳分开：参考生视频把它装进弹窗当场拍板，工作流面板把它就地摊在视频步骤下，
- * 两处陈述同一份结论、共用同一段判定，不各推一遍。正文自己不滚动：外壳（弹窗 Body、
- * 制作进度弹层）是唯一的滚动区。
- */
 export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: Props) {
   const { t } = useTranslation("workflow");
   const blocked = admission.decision === "blocked";

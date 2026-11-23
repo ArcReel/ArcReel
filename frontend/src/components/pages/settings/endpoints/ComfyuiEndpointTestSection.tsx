@@ -26,7 +26,6 @@ import { isListBindingKey } from "./comfyui-bindings";
 import { RequestPreview, TestCard, TestField, TestSelect } from "./endpoint-test-primitives";
 import { useTrialRun } from "./use-trial-run";
 
-/** 两种媒体类型各自的分辨率档，与服务端 `packages/arcreel-market-core/src/arcreel_market_core/aspect_size.py` 的短边表同名同序。 */
 const RESOLUTION_TIERS: Record<ComfyuiMediaType, readonly string[]> = {
   video: ["480p", "720p", "1080p", "4K"],
   image: ["512px", "1K", "2K", "4K"],
@@ -34,10 +33,8 @@ const RESOLUTION_TIERS: Record<ComfyuiMediaType, readonly string[]> = {
 
 const ASPECT_RATIOS = ["9:16", "16:9"] as const;
 
-/** 分辨率下拉里「沿用 workflow 原生尺寸」那一项的取值；发请求时换回 null。 */
 const NATIVE_RESOLUTION = "native";
 
-/** 时长输入清空时按这个秒数发出，占位符把它写在空输入框里。 */
 const DEFAULT_DURATION_SECONDS = 5;
 
 const ASSET_KEYS = ["start_image", "end_image", "reference_images", "reference_audio"] as const;
@@ -51,10 +48,6 @@ const STAGE_ROUTES: Record<TrialRunStage, string | null> = {
   artifact: "GET /view",
 };
 
-/**
- * 失败码的后续动作 → 说这一句该去做什么。服务端按同一份对照表给出动作（与项目页生成失败共用），
- * 前端只负责把它说成话；这张表没有的动作不编一句，宁可只留失败码与它自己的文案。
- */
 const FAILURE_ACTION_TEXT: Record<string, string | undefined> = {
   configure_provider: "ce_cf_test_action_configure",
   retry: "ce_cf_test_action_retry",
@@ -67,25 +60,11 @@ const STAGE_DOT_CLS: Record<TrialRunStageState, string> = {
 };
 
 export interface ComfyuiEndpointTestSectionProps {
-  /** 当前这份草稿，含尚未保存的节点绑定：要预览的正是刚绑好的那一份。 */
   definition: ComfyuiEndpointDefinition;
   providers: CustomProviderInfo[];
-  /**
-   * 节点绑定还不成立，服务端会按定义不合法拒绝这两卡。由 `saveBlockers` 里那几条同为服务端硬
-   * 闸门的原因推出，先在界面上挡住，不让用户点出一条 422。
-   */
   blocked: boolean;
 }
 
-/**
- * ComfyUI 端点的端点测试两卡：预览请求与测试连接。
- *
- * 没有「验证响应」那一卡——ComfyUI 的产物提取读的是 `output` 绑定那个节点的固定三个键，没有用户
- * 可配的取值路径可验（`docs/adr/0081`），服务端的模式矩阵也已把它挡掉。
- *
- * 调用参数、凭证与素材由两卡共用：先按这组参数看渲染出来的请求体，确认无误再原样真发一次，中间
- * 换掉任何一项都会让两卡说的不是同一件事。
- */
 export function ComfyuiEndpointTestSection({ definition, providers, blocked }: ComfyuiEndpointTestSectionProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const idBase = useId();
@@ -97,7 +76,6 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
   const [aspectRatio, setAspectRatio] = useState<string>(ASPECT_RATIOS[0]);
   const [resolution, setResolution] = useState(NATIVE_RESOLUTION);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(DEFAULT_DURATION_SECONDS);
-  // 文件输入框自己显示选中的文件，这份记录只在发请求时读，不需要重渲
   const assetFiles = useRef<Partial<Record<ComfyuiAssetKey, File[]>>>({});
 
   const [credSource, setCredSource] = useState<"provider" | "inline">(
@@ -114,8 +92,6 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
   const trial = useTrialRun();
   const { start: startTrial } = trial;
 
-  // 素材格子只由节点绑定决定：ComfyUI 端点没有声明式那份 `inputs` 节，绑没绑读图节点就是这份
-  // workflow 收不收这种素材。参考图给几个格子，少传就是在演示改图。
   const assetSlots = useMemo(
     () =>
       ASSET_KEYS.flatMap((key) => {
@@ -141,8 +117,6 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
 
   const parameters = useMemo(
     () => ({
-      // ComfyUI 端点没有模型名可填：模型就是这份 workflow。名字进调用记录，好让「用量」页上认得出
-      // 这一笔是哪个端点发的。
       model: definition.meta.name,
       prompt,
       aspect_ratio: aspectRatio,
@@ -223,8 +197,6 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
               placeholder={String(DEFAULT_DURATION_SECONDS)}
               value={durationSeconds ?? ""}
               onChange={(e) => {
-                // 非正整数（含退格清空后的空串）落成空态，输入框据此显示占位符而不是被填回一个
-                // 数字——改秒数的第一步就是清空它。空态按占位符那个秒数发出。
                 const seconds = Number(e.target.value);
                 setDurationSeconds(Number.isInteger(seconds) && seconds >= 1 ? seconds : null);
               }}
@@ -373,12 +345,6 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
   );
 }
 
-/**
- * 换算说明：左边是请求侧给的，右边是真正写进 workflow 的。
- *
- * 没驱动这份 workflow 的那几维显式写出来——「我在项目页选的分辨率对这个端点根本不起作用」只有
- * 在这里说得出口，光看一份几十个节点的 JSON 是看不出来的。
- */
 function ConversionsTable({
   conversions,
   mediaType,

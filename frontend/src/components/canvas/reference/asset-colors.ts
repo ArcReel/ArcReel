@@ -1,29 +1,10 @@
-/**
- * Shared color palette for asset-kind visual cues.
- *
- * Used by:
- * - prompt editor mention highlights (useUnitPromptHighlight)
- * - MentionPicker group headers + option accents
- * - ReferencePanel pill borders/fills
- *
- * Colors come from the asset-kind tokens in index.css (`--asset-*`); unresolved
- * references use `destructive`.
- */
 
-/**
- * UI rendering type — extends AssetKind with "unknown" for error/fallback states.
- *
- * Distinct from AssetKind (in `@/types/reference-video`), which represents only
- * valid project assets. This separation lets the UI render a warning appearance
- * for missing or unresolved references without polluting the domain model.
- */
 export type MentionKind = "product" | "character" | "scene" | "prop" | "unknown";
 
 export interface AssetColorPalette {
   textClass: string;
   bgClass: string;
   borderClass: string;
-  /** Solid dot color, contrasts against bgClass for inline indicators */
   dotClass: string;
 }
 

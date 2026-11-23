@@ -50,7 +50,6 @@ import {
 } from "@/utils/provider-models";
 import type { ProviderInfo, VideoRoute } from "@/types/provider";
 
-/** 本页编辑单元包含的系统设置字段；保存时只提交改过的字段。 */
 const MEDIA_MODEL_KEYS = [
   "default_video_backend",
   "default_video_backend_i2v",
@@ -70,7 +69,6 @@ const MEDIA_MODEL_KEYS = [
 
 type MediaModelFields = Pick<SystemConfigPatch, (typeof MEDIA_MODEL_KEYS)[number]>;
 
-/** 推荐变化「切换」写入的全局默认模型字段，与服务端 `GLOBAL_DEFAULT_KEYS` 一致。 */
 const RECOMMENDATION_DEFAULT_KEYS = {
   text: "default_text_backend",
   image: "default_image_backend",
@@ -145,13 +143,9 @@ export function MediaModelSection() {
   } = useModelCandidates();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
-  // 「自动选择」的实际模型；读不到时为 null，下拉退回只显示「自动选择」。
   const [auto, setAuto] = useState<AutoBackendsResponse | null>(null);
-  // 内置供应商推荐模型的变化（docs/adr/0099）：各通道在默认模型下方提示，读不到时不提示。
   const [recommendations, setRecommendations] = useState<RecommendationChange[]>([]);
   const issues = useSectionConfigIssues("default-models");
-  // 轮询超时编辑期的原始字符串（null = 未在编辑）：受控 value 若直接取数字，
-  // 「60.」等中间态与清空会被数字化吞掉；失焦时统一解析写回未保存修改。
   const [pollTimeoutInput, setPollTimeoutInput] = useState<string | null>(null);
 
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
@@ -168,9 +162,6 @@ export function MediaModelSection() {
   );
   const bucketLabels = useGenerationTypeBucketLabels();
 
-  // 候选与其余配置分开拉：它自带失败态，失败时只影响细分区、不牵动已加载的表单状态，
-  // 也让重试不必重取整页配置。启动后不等它落地——候选接口
-  // 慢或悬挂时，整页 spinner 和保存流程都会跟着卡住，而细分区本就有自己的加载叙事。
   const fetchConfig = useCallback(async () => {
     const [res, catalog, custom, autoBackends, changes] = await Promise.all([
       API.getSystemConfig(),
@@ -192,8 +183,6 @@ export function MediaModelSection() {
     void fetchConfig();
   }, [fetchConfig]);
 
-  // 候选独立于配置本体重取：reload 的标识随语言变化，故语言切换时只刷新候选与译名，
-  // 不走 fetchConfig（重取整页配置没有必要）。
   useEffect(() => {
     void reloadCandidates();
   }, [reloadCandidates]);
@@ -202,13 +191,10 @@ export function MediaModelSection() {
   const saveFields = useCallback(
     async (fields: MediaModelFields, saved: MediaModelFields) => {
       const res = await API.updateSystemConfig(changedFields(fields, saved));
-      // 全局默认视频后端参与项目能力的三级解析（项目 > 系统设置 > 系统默认）。项目未指定
-      // 后端时改这里会换掉生效模型，而项目字段一个都没变、在用的能力查询不会因 props 重取。
       useCapabilitiesStore.getState().invalidate();
       await fetchConfig();
       void reloadCandidates();
       void useConfigStatusStore.getState().refresh();
-      // 以服务端规范化后的值（如去掉首尾空白的旁白音色）作为已保存内容，不依赖重取配置的渲染时机
       return fieldsFrom(res.settings);
     },
     [fetchConfig, reloadCandidates],
@@ -216,9 +202,6 @@ export function MediaModelSection() {
   const unit = useEditUnit({ source, save: saveFields });
   const fields = unit.value;
   const setFields = unit.setValue;
-  // 推荐变化处理后，服务端可能已改了全局默认模型：与保存后一样重取配置、候选与配置问题。
-  // 切换写进的默认模型同时并入未保存修改：其余字段有修改时，表单保留修改而不采用重取的配置，
-  // 不并入的话这一字段仍是旧模型，下次保存会把它写回去。
   const onRecommendationResolved = useCallback(
     async (change: RecommendationChange, applied: boolean) => {
       if (applied) setFields((prev) => ({ ...prev, [RECOMMENDATION_DEFAULT_KEYS[change.media_type]]: change.recommended }));
@@ -229,7 +212,6 @@ export function MediaModelSection() {
     },
     [fetchConfig, reloadCandidates, setFields],
   );
-  // 默认音频模型留空（自动选择）时不列音色：实际模型由运行时推断，列出某一家的音色会误导
   const audioVoices = useTtsModelCapabilities(fields.default_audio_backend ?? "")?.voices ?? [];
 
   if (!settings || !options) {
@@ -256,8 +238,6 @@ export function MediaModelSection() {
   const currentPollTimeout =
     fields.video_poll_timeout_seconds;
 
-  // 全局层是解析链的基准，细分项留空即回退全局默认模型；默认模型也留空时是自动推断，
-  // 显示后端预览的自动选中模型（预览缺席时只显示「自动选择」）。
   const videoSubFields: LayeredSubField[] = degradeSubFieldsToSaved(
     [
         {
@@ -314,23 +294,12 @@ export function MediaModelSection() {
     !!candidates,
   );
 
-  // 默认模型留空时按后端预览的自动选中模型取能力，与下拉显示的 defaultAuto 同取图生视频。
   const videoSpecBackend = currentVideo || auto?.i2v || "";
-  // 全局设置页无项目上下文，档位读目录端点的服务端派生值（generation_mode 未知，native 恒降格），
-  // 不打 /video-capabilities——该端点按项目解析。
   const videoSpecTier = videoSpecBackend
     ? (lookupCatalogVideoAudio(providers, videoSpecBackend, customProviders)?.voiceConsistency ?? null)
     : null;
-  // 音频勾选框按两个生效桶（细分桶留空即回退基础默认）的开关可控性判定：两桶同为恒有声或
-  // 同为恒无声时，无论选择哪种生成模式都收不到音轨开关，置灰并展示成片的实际音轨状态。只要还有一个
-  // 桶可控就不置灰——否则闲置的基础默认会连带禁掉可控桶的合法关闭。
-  // 两桶不一致时只由下方警告提示，存量的「关闭」由警告给一键修正入口，不静默改写配置
-  // （入队前预检按实际执行的桶拒绝）。
-  // 每个桶按它自己的执行路径取值：同一模型在两条路径上的音轨形态可以不同（可灵 v3-omni 图生
-  // 可控、参考生无开关），按无路径上下文的值取会让 r2v 桶报出一个执行期不存在的开关。
   const bucketAudioControl = (backend: string, route: VideoRoute) =>
     backend ? lookupVideoAudioControl(providers, backend, route, customProviders) : null;
-  // 各层全空时执行期用自动选中的模型，判据同样接上预览。
   const i2vAudioControl = bucketAudioControl(currentVideoI2V || currentVideo || auto?.i2v || "", "i2v");
   const r2vAudioControl = bucketAudioControl(currentVideoR2V || currentVideo || auto?.r2v || "", "r2v");
   const audioLockedControl =
@@ -348,16 +317,12 @@ export function MediaModelSection() {
     ? lookupResolutions(providers, videoSpecBackend, customProviders, endpointToMediaType).options
     : [];
 
-  // 不传 defaultRoute：全局默认模型两条路径都会用到，取任一条都会误报另一条；无项目上下文
-  // 时按目录 i2v 位展示。两个细分项下拉各按自己的桶取值，与上方 i2vAudioControl / r2vAudioControl
-  // 同口径。
   const renderVideoOptionMeta = videoOptionMetaRenderer({ t, providers, customProviders, endpointToMediaType });
   const currentAudioBackend = fields.default_audio_backend ?? "";
   const currentNarrationVoice = fields.narration_voice ?? "";
   const currentNarrationSpeed =
     fields.narration_speed;
 
-  // 全局文本档位（docs/adr/0051）：全局是解析链基准，默认模型也留空即自动推断（无继承来源）。
   const currentTextDefault = fields.default_text_backend ?? "";
   const textTierValue = {
     default: currentTextDefault,
@@ -396,7 +361,6 @@ export function MediaModelSection() {
             onDefaultChange={(v) => setFields((prev) => ({ ...prev, default_video_backend: v }))}
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
-            // 默认层跨两条路径，与无项目上下文时的路径口径一致，取图生视频
             defaultAuto={auto?.i2v}
             providerNames={allProviderNames}
             modelNames={allModelNames}
@@ -468,8 +432,6 @@ export function MediaModelSection() {
             onBlur={() => {
               if (pollTimeoutInput === null) return;
               const next = Number(pollTimeoutInput);
-              // 失焦归一：有效数值取整写入未保存修改；空串或非数值撤销该字段的未保存编辑
-              // （连同键入过程写入的中间值），回显已保存值。下限由保存时后端校验兜底。
               const restored =
                 pollTimeoutInput.trim() !== "" && Number.isFinite(next)
                   ? Math.round(next)
@@ -492,7 +454,6 @@ export function MediaModelSection() {
             onDefaultChange={(v) => setFields((prev) => ({ ...prev, default_image_backend: v }))}
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
-            // 默认层跨两条路径，与无用途调用方的解析口径一致，取文生图
             defaultAuto={auto?.t2i}
             providerNames={allProviderNames}
             modelNames={allModelNames}
@@ -524,7 +485,6 @@ export function MediaModelSection() {
             defaultLabel={t("auto_select")}
             defaultHint={t("auto")}
             fallbacks={{
-              // 全局层是解析链基准：各档留空即回退全局默认模型；默认模型也空时是自动推断。
               simple: currentTextDefault || undefined,
               complex: currentTextDefault || undefined,
             }}
@@ -537,7 +497,6 @@ export function MediaModelSection() {
         {recommendationNotice("text")}
       </ChannelCard>
 
-      {/* 旁白配音：模型、音色与语速只是新建 TTS 配音项目的预填值，说明放在通道开头。 */}
       <ChannelCard title={t("default_models_channel_audio")} description={t("global_tts_defaults_prefill_hint")}>
         {audioBackends.length > 0 ? (
           <div className="flex flex-col gap-3">
@@ -591,8 +550,6 @@ export function MediaModelSection() {
               setFields((prev) => {
                 if (raw === "") return { ...prev, narration_speed: null };
                 const next = Number(raw);
-                // 仅过滤非有限数：NaN/Infinity 会被 JSON 序列化为 null 误触"清除"语义。
-                // 0/负数允许临时存在（键入 0.5 会先经过 0），正数约束由保存时后端校验兜底。
                 if (!Number.isFinite(next)) return prev;
                 return { ...prev, narration_speed: next };
               });

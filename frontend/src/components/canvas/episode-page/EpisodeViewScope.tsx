@@ -9,11 +9,6 @@ export const EpisodeViewFactsProvider = EpisodeViewFactsContext.Provider;
 
 const NEVER = () => false;
 
-/**
- * 画布里编辑单元的 `allowNavigation`：只放行跳转后仍停留在当前视图的应用内跳转（见 `staysInEpisodeView`）。
- * wouter 交给离开拦截的目标地址带嵌套路由的 base，这里拼出同样形式的当前地址再比较。
- * 不在集页里时一律拦截。
- */
 export function useStaysInEpisodeView(): (to: string) => boolean {
   const facts = useContext(EpisodeViewFactsContext);
   const { base } = useRouter();

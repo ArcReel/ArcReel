@@ -64,7 +64,6 @@ export function AgentProfileTab({ projectName }: { projectName: string }) {
     return () => controller.abort();
   }, [projectName, loadCount]);
 
-  // 打开确认前取一次最新状态，列出的就是将被丢弃的文件
   const openReset = async () => {
     try {
       const latest = await API.getAgentProfileStatus(projectName);
@@ -78,7 +77,6 @@ export function AgentProfileTab({ projectName }: { projectName: string }) {
   const reset = async () => {
     setResetting(true);
     try {
-      // 确认期间定制文件有变化时不重置：刷新列表，由创作者对新列表再确认一次
       const latest = await API.getAgentProfileStatus(projectName);
       if (!status || !sameFiles(status.customized_files, latest.customized_files)) {
         setStatus(latest);
@@ -142,7 +140,6 @@ export function AgentProfileTab({ projectName }: { projectName: string }) {
             <AlertDialogTitle>{t("agent_profile_reset_confirm_title")}</AlertDialogTitle>
             <AlertDialogDescription>{t("agent_profile_reset_confirm_description")}</AlertDialogDescription>
           </AlertDialogHeader>
-          {/* 文件多时正文滚动，可聚焦以便键盘滚动 */}
           <AlertDialogBody
             tabIndex={0}
             role="region"

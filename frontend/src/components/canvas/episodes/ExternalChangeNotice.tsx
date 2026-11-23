@@ -20,12 +20,6 @@ function fileName(sourceFile: string): string {
   return sourceFile.slice(sourceFile.lastIndexOf("/") + 1);
 }
 
-/**
- * 「分集」视图顶部的提示：整本源文里在 ArcReel 之外被改动过的文件，各列出按快照对齐算出的受影响集。
- *
- * 「更新分集账本」带着提示里这份清单的 `revision` 提交，即确认这份清单；清单在此期间变了时换成新清单再确认一次。
- * 更新后提示随之消失，不另行提示。
- */
 export function ExternalChangeNotice({ projectName, changes, onLocate }: ExternalChangeNoticeProps) {
   const { t } = useTranslation("dashboard");
   const change = useSourceFileChange();

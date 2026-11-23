@@ -9,24 +9,17 @@ import type { ExportDiagnostics } from "@/types";
 import { ExportScopeDialog, type ExportScope } from "./ExportScopeDialog";
 
 interface ProjectExportOptions {
-  /** 对话框提示里「打开『集名』的剪辑视图」链接指向的集；不传时只显示成片在剪辑视图导出的说明。 */
   editViewEpisode?: { episode: number; name: string } | null;
   onOpenEditView?: (episode: number) => void;
 }
 
 interface ProjectExport {
   open: (projectName: string) => void;
-  /** 关闭尚未选定范围的对话框，如切到别的项目或演示项目时。 */
   close: () => void;
-  /** 正在为哪个项目请求导出；下载开始后复位。 */
   exporting: string | null;
   element: ReactNode;
 }
 
-/**
- * 导出项目 ZIP：工作区顶栏与大厅卡片菜单共用。选定范围后由浏览器下载；顺利开始时不提示，
- * 导出包带诊断时提示条数并列出诊断，失败时提示原因并记入工作区通知。
- */
 export function useProjectExport({ editViewEpisode, onOpenEditView }: ProjectExportOptions = {}): ProjectExport {
   const { t } = useTranslation("dashboard");
   const [target, setTarget] = useState<string | null>(null);

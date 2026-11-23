@@ -6,10 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { TodoItem, Turn } from "@/types";
 
-// ---------------------------------------------------------------------------
-// extractLatestTodos — 从后往前找最近一次成功的 TodoWrite，取它的 todos。
-// 失败的写入不算数；空清单是有效的最新状态（Agent 清空了待办）。
-// ---------------------------------------------------------------------------
 
 function extractLatestTodos(turns: Turn[], draftTurn: Turn | null): TodoItem[] | null {
   const allTurns = draftTurn ? [...turns, draftTurn] : turns;
@@ -73,7 +69,6 @@ export function TodoProgress({ turns, draftTurn }: TodoProgressProps) {
           )}
         </CollapsibleTrigger>
         <CollapsibleContent>
-          {/* 清单很长时只在这里滚动，不把消息区挤没；里面没有可聚焦的元素，区域自身可聚焦，键盘才能滚动 */}
           <div
             role="region"
             // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读的滚动区域需要键盘聚焦才能滚动

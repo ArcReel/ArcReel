@@ -20,7 +20,6 @@ interface ScriptOverwriteConfirmDialogProps {
   overwrite: ScriptOverwrite;
   loading: boolean;
   confirmDisabled?: boolean;
-  /** 标题与确认按钮文字；缺省为内容确认的「覆盖并确认」。 */
   title?: string;
   confirmLabel?: string;
   loadingLabel?: string;
@@ -28,10 +27,6 @@ interface ScriptOverwriteConfirmDialogProps {
   onCancel: () => void;
 }
 
-/**
- * 覆盖已有正式脚本前的不可逆确认（内容确认、广告/短片整份重做）：呈现服务端生成的丢失清单文本，
- * 只把条目 ID 改为集内部分，统计口径与 Agent 回执一致。
- */
 export function ScriptOverwriteConfirmDialog({
   open,
   overwrite,
@@ -50,7 +45,6 @@ export function ScriptOverwriteConfirmDialog({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
         if (!next && !loading) onCancel();
       }}
     >

@@ -12,10 +12,6 @@ const DOCS_TRANSLATION_SUBDIRECTORY = "docusaurus-plugin-content-docs/current";
 const DOCS_TRANSLATION_ROOT = `${I18N_ROOT}/en/${DOCS_TRANSLATION_SUBDIRECTORY}`;
 const LOCK_PATH = "website/i18n/translation.lock.json";
 
-// Forward mapping registers English targets only, while the orphan scan walks every locale
-// directory under website/i18n/. Extend this mapping before adding another documentation
-// locale — otherwise every file of the new locale is reported as an unregistered orphan
-// and `record` refuses to run.
 function targetForSource(source) {
   if (source === "CONTRIBUTING.md") return `${DOCS_TRANSLATION_ROOT}/dev/contributing.md`;
   if (source === "README.md") return "README.en.md";
@@ -25,15 +21,11 @@ function targetForSource(source) {
   return null;
 }
 
-// CONTRIBUTING.md is translated from its synced copy, not its own bytes, so its fingerprint
-// must track that copy: a sync-contributing.mjs change alone (frontmatter, anchors) makes the
-// translated target stale even when CONTRIBUTING.md itself hasn't changed.
 function fingerprintSource(source) {
   if (source === "CONTRIBUTING.md") return "website/docs/dev/contributing.md";
   return source;
 }
 
-// Reuse the site's generator on every check. A copy left by a previous build can be stale.
 function syncContributing(root) {
   const translated = existsSync(resolve(root, targetForSource("CONTRIBUTING.md")));
   if (!translated || !existsSync(resolve(root, "CONTRIBUTING.md"))) return;
@@ -78,8 +70,6 @@ function sourceForTranslationTarget(target) {
   return `website/docs/${relativeTarget}`;
 }
 
-// A target is registered when a current source maps to it (its lock entry may still be missing or
-// stale) or when a lock entry maps to it (the forward scan already reports it as an orphan).
 function unregisteredTranslationOrphans(root, lock, currentTargets) {
   const registeredTargets = new Set([
     ...currentTargets,
@@ -92,12 +82,8 @@ function unregisteredTranslationOrphans(root, lock, currentTargets) {
     .map((target) => ({ source: sourceForTranslationTarget(target), target, state: "orphan" }));
 }
 
-// Only these frontmatter values carry prose. All other entries must match the source.
 const TRANSLATED_FRONT_MATTER_KEYS = new Set(["title", "description", "sidebar_label"]);
 
-// Returns the untranslated frontmatter entries as "key: value" lines, with indented continuation
-// lines folded into their key, or [] when the document has no frontmatter. Every unindented line
-// opens an entry, so a key this parser cannot name still takes part in the comparison.
 function untranslatedFrontMatter(path) {
   const lines = readFileSync(path, "utf8")
     .replace(/^\uFEFF/, "")
@@ -134,7 +120,6 @@ function sectionAnchors(path) {
 
 function sectionAnchorDrift(root, mappings) {
   return mappings.filter(([source, target]) => {
-    // GitHub README anchors come from each language's heading text.
     if (source === "README.md" || !existsSync(resolve(root, target))) return false;
     const expected = sectionAnchors(resolve(root, fingerprintSource(source)));
     return JSON.stringify(expected) !== JSON.stringify(sectionAnchors(resolve(root, target)));
@@ -186,10 +171,6 @@ export function translationStatus(root) {
   );
 }
 
-// With `sources`, only those lock entries are refreshed and every other current entry stays as
-// recorded, so a single-page PR can update the lock without vouching for pages it did not translate.
-// Entries whose source is gone are dropped either way: the orphan check above has already refused
-// any whose target still exists, so a page-deletion PR need not fall back to a full record.
 function recordTranslations(root, sources = []) {
   syncContributing(root);
   const allMappings = sourceTargets(root);

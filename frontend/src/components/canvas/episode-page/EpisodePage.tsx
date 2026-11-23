@@ -45,7 +45,6 @@ import { StorySettingView } from "./StorySettingView";
 const EditTimelineView = lazyNamed(() => import("@/components/canvas/edit/EditTimelineView"), "EditTimelineView");
 
 export interface EpisodeViewChangeOptions {
-  /** 替换当前历史记录而不是新增一条：程序触发的切换（如跳到某个单元）用它，后退不必多退一步。 */
   replace?: boolean;
 }
 
@@ -54,13 +53,6 @@ export interface EpisodeCanvasContext {
   onViewChange: (view: EpisodeView, options?: EpisodeViewChangeOptions) => void;
 }
 
-/**
- * 一集的页面：两行页头（集头、制作进度、视图 tab 与动作插槽）与下方的视图区。
- *
- * 视图记在地址的 `?view=` 上（见 `episode-view.ts`）。脚本规划、多宫格分镜图与分镜三个视图由同一个画布承担，
- * 切换时画布不卸载；画布里的编辑单元只挂在某一个视图下，经 `EpisodeViewFactsProvider` 判断哪些跳转会卸载自己。
- * 故事设定（只在广告项目出现）与剪辑视图替换整个画布。剧本还没生成时脚本规划视图是集原文确认。
- */
 function EpisodePageContent({
   projectName,
   episode,
@@ -75,14 +67,10 @@ function EpisodePageContent({
   projectName: string;
   episode: number;
   projectData: ProjectData | null;
-  /** 本集的正式剧本；还没有时为 null。 */
   script: EpisodeScript | null;
-  /** 演示项目：只读，没有制作进度与剪辑视图。 */
   demo: boolean;
-  /** 保存集标题；reject 时标题保持编辑态。 */
   onSaveTitle: (title: string) => Promise<void>;
   onViewUnit: (unitId: string) => void;
-  /** 制作进度里重生某一步的指定单元；不传时只给「查看」。 */
   onRegenerate?: (stepId: string, unitIds: string[]) => void;
   renderCanvas: (context: EpisodeCanvasContext) => ReactNode;
 }) {
@@ -112,8 +100,6 @@ function EpisodePageContent({
     [view, tabs, facts, setSearchParams],
   );
 
-  // 制作进度里的「查看」：分镜与视频单元只在分镜视图里选得中。不在该视图时，切视图与定位合成一次离开拦截，
-  // 放行后才发出定位请求；选择继续编辑时什么都不变，也不留下等分镜视图挂载后才消费的定位。
   const confirmLeave = useConfirmLeave();
   const viewUnit = useCallback(
     (unitId: string) => {
@@ -132,7 +118,6 @@ function EpisodePageContent({
   useEpisodeSurfaceRequest(projectName, episode, "script_plan", () => changeView("plan"));
   useEpisodeSurfaceRequest(projectName, episode, "prompt_authoring_draft", () => changeView("board"));
 
-  // 页头的预估费用读费用估算；演示项目由费用表自己清空。
   const debouncedFetch = useCostStore((s) => s.debouncedFetch);
   useEffect(() => {
     debouncedFetch(projectName);
@@ -156,7 +141,6 @@ function EpisodePageContent({
           aspect={previewAspect(projectData)}
           ttsNarration={ttsNarration}
           renderActions={({ timelineId, timelineName, issues, showIssues }) =>
-            // 读取完成前不知道有没有阻断级 issue，先不给出片入口。
             issues === null ? null : (
               <EpisodeHeaderActions>
                 <RenderButton
@@ -217,7 +201,6 @@ function EpisodePageContent({
             />
           }
           progress={
-            // 演示态没有真实项目事实可投影，制作进度不挂载。
             demo ? null : (
               <WorkflowPanel
                 projectName={projectName}
@@ -259,7 +242,6 @@ function EpisodePageContent({
   );
 }
 
-/** 保留的是可见集页；原文编辑期间脚本到达，不让异步事件卸载编辑器。 */
 export function EpisodePage(props: Parameters<typeof EpisodePageContent>[0]) {
   const { t } = useTranslation("dashboard");
   const meta = props.projectData?.episodes?.find((entry) => entry.episode === props.episode);

@@ -1,7 +1,6 @@
 import type { JsonSchemaNode } from "@/types";
 
 export interface OutputSchemaRow {
-  /** 点分路径，数组元素写作 `field[]`。 */
   path: string;
   type: string;
   enumValues: string[];
@@ -14,7 +13,6 @@ interface Resolved {
   type: string;
   enumValues: string[];
   nullable: boolean;
-  /** 解开 $ref 时经过的定义名，用于截断自引用。 */
   refs: string[];
 }
 
@@ -64,7 +62,6 @@ function resolve(prop: JsonSchemaNode, defs: Record<string, JsonSchemaNode>): Re
     const branches = nonNull.length > 0 ? nonNull : options;
     const nullable = nonNull.length < options.length || branches.some((option) => option.nullable);
     if (branches.length === 1) return { ...branches[0], nullable };
-    // 多个分支合并为一行且不向下展开：展开任一分支的字段都会把其余分支的形状藏起来。
     const types = [...new Set(branches.map((option) => option.type))];
     return {
       node: prop,

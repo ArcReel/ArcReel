@@ -130,7 +130,6 @@ export function NarrationDeliveryFields({ value, onChange, audioBackends, provid
                   return;
                 }
                 const next = Number(raw);
-                // 仅过滤非有限数：NaN/Infinity 会被序列化为 null 误触「清除」语义；正数约束交由后端校验
                 if (Number.isFinite(next)) onChange({ ...value, narrationSpeed: next });
               }}
             />

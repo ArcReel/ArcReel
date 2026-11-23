@@ -63,7 +63,6 @@ import { ShareToMarketDialog } from "./ShareToMarketDialog";
 import type { ComfyuiImportDraft } from "./comfyui-import";
 
 const VALIDATE_DEBOUNCE_MS = 400;
-/** 示例模板下拉里「空白定义」的取值；Select 的值不能是空串。 */
 const BLANK_TEMPLATE = "blank";
 
 export type EndpointSelection =
@@ -74,7 +73,6 @@ export type EndpointSelection =
   | { mode: "builtin"; descriptor: EndpointDescriptor }
   | { mode: "python"; descriptor: EndpointDescriptor };
 
-/** 我的端点：两种 kind 共用同一条保存记录，键、安装记录与删除入口都取自它。 */
 function savedRecordOf(selection: EndpointSelection): CustomEndpointInfo | null {
   return selection.mode === "custom" || selection.mode === "comfyui" ? selection.record : null;
 }
@@ -90,18 +88,14 @@ interface EndpointDetailProps {
   onCreateProvider: (definition: EndpointDefinition, endpointKey: string) => void;
   onNavigateToModel: (reference: EndpointReference) => void;
   onImport: () => void;
-  /** 打开安装确认弹窗的更新态；只在市场轴可更新时提供入口，两种 kind 共用。 */
   onUpdateFromMarket: (
     installation: EndpointInstallation,
     currentDefinition: AnyEndpointDefinition,
     hasUnsavedChanges: boolean,
   ) => void;
   marketUpdatePending: boolean;
-  /** 为当前这个 ComfyUI 端点重新导入一份 workflow：新 workflow 接到传出去的这份定义上，回来走重匹配。 */
   onReimportComfyui: (current: ComfyuiEndpointDefinition) => void;
-  /** 放弃 ComfyUI 端点的未保存修改：上层丢掉导入草稿并重建详情。 */
   onDiscardComfyui: () => void;
-  /** 官方服务开启时提供：该端点最近一次分享提交与提交完成回调。 */
   share?: { submission: MarketSubmission | null; onSubmitted: (submission: MarketSubmission) => void };
 }
 
@@ -133,7 +127,6 @@ export function EndpointDetail({
   const templateLabelId = useId();
 
   const editable = selection.mode === "new" || selection.mode === "custom";
-  // 市场更新弹窗按点击时的未保存修改判断是否提示覆盖，条目详情加载期间不再接受编辑。
   const readOnly = !editable || marketUpdatePending;
   const savedRecord = savedRecordOf(selection);
   const persistedId = savedRecord?.id ?? null;
@@ -141,7 +134,6 @@ export function EndpointDetail({
 
   const [builtinDefinition, setBuiltinDefinition] = useState<EndpointDefinition | null>(null);
   const [editorMode, setEditorMode] = useState<"form" | "json">("form");
-  // JSON 片段编辑器自持文本状态：换端点或从 JSON 视图返回时递增，强制它按新定义重挂载。
   const [formEpoch, setFormEpoch] = useState(0);
   const [validation, setValidation] = useState<EndpointValidateResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -183,7 +175,6 @@ export function EndpointDetail({
         }
         if (!isRenderableDefinition(parsed)) throw new Error(t("ce_json_shape_error"));
       }
-      // 诊断有错误或 JSON 视图里的文本不成立时，服务端也不会收；把原因留在保存栏里。
       if (hasErrors) throw new Error(t("ce_save_blocked"));
       const saved =
         persistedId === null
@@ -196,7 +187,6 @@ export function EndpointDetail({
   );
 
   const editableSource = selection.mode === "new" || selection.mode === "custom" ? selection.definition : null;
-  // JSON 原文属于同一个编辑单元：语法错误也必须参与离开拦截与放弃修改。
   const source = useMemo(() => ({ definition: editableSource, jsonText: null as string | null }), [editableSource]);
   const unit = useEditUnit({ source, save: saveDefinition });
   const draft = editable ? unit.value.definition : builtinDefinition;
@@ -213,7 +203,6 @@ export function EndpointDetail({
 
   const draftJson = useMemo(() => (draft ? JSON.stringify(draft) : null), [draft]);
 
-  // 诊断与保存共用服务端校验器，编辑期持续复核。
   useEffect(() => {
     if (!editable || draftJson === null) return;
     const controller = new AbortController();
@@ -286,10 +275,6 @@ export function EndpointDetail({
     }
   }, [draft, onCopied, pushToast, t]);
 
-  /**
-   * 定位到诊断所指的分节；`enum_maps`、`defaults` 这类表单没有控件的字段落在
-   * JSON 视图。已在目标视图时不重挂载表单——重挂载会重置正在编辑的 JSON 片段。
-   */
   const locateSection = (section: EndpointFormSection | null) => {
     if (section === null) {
       if (editorMode !== "json") enterJsonMode();
@@ -386,11 +371,8 @@ export function EndpointDetail({
     </>
   );
 
-  // ComfyUI 端点的定义是 workflow 加节点绑定，没有声明式表单的 submit / poll 两节，
-  // 详情与绑定编辑器另有其形；删除与分享入口仍由本组件提供，两种 kind 共用同一条生命周期。
   if (selection.mode === "comfyui" || selection.mode === "comfyui-draft") {
     const draftRecord = selection.mode === "comfyui" ? selection.record : selection.draft.record;
-    // 端点测试的凭证来源只列 comfyui 协议的供应商：别的协议的地址与密钥打不到一台 ComfyUI 上。
     const comfyuiProviders = providers.filter((provider) => provider.discovery_format === "comfyui");
     return (
       <>
@@ -617,7 +599,6 @@ export function EndpointDetail({
                 value={[editorMode]}
                 onValueChange={(next: string[]) => {
                   const mode = next[0];
-                  // 单选：再次点击已选项不取消选择
                   if (!mode || mode === editorMode) return;
                   if (mode === "json") enterJsonMode();
                   else leaveJsonMode();

@@ -20,10 +20,6 @@ export function providerAssetStatusLabelKey(status: ProviderAssetStatus): string
   return STATUS_LABEL_KEYS[status];
 }
 
-/**
- * ArcReel 自己判定的入库失败码（``lib.asset_library.ingest.LOCAL_FAILURE_CODES``），界面按码给出本地化原因；
- * 其余失败码是供应商原文。两端经 `test/contracts/provider-asset-local-failures.json` 核对。
- */
 export const PROVIDER_ASSET_LOCAL_FAILURES: ReadonlySet<string> = new Set([
   "unlinked_before_submit",
   "account_missing",

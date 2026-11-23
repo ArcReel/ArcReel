@@ -23,7 +23,6 @@ type ImportError = Error & {
   diagnostics?: ImportFailureDiagnostics;
 };
 
-/** 一次导入请求的参数：用户确认过升级报告后，之后的请求（含编号冲突的处理）都带上确认。 */
 interface ImportAttempt {
   file: File;
   policy: ImportConflictPolicy;
@@ -42,8 +41,6 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
   const { t } = useTranslation("dashboard");
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
-  // 大厅卸载时 abort；导入请求本身不接这个 signal（它是写入请求，abort 只会断开客户端），
-  // 仅在 await 之后据此判断用户是否已离开大厅。
   const unmountAbortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -84,7 +81,6 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
           ? t("import_auto_fixed", { title, count: autoFixed.length })
           : t("lobby_import_succeeded", { title });
       if (left) {
-        // 用户已不在大厅：不把人拉回新项目，也没有对话框可展示诊断，结果改以带「打开项目」按钮的提示告知。
         pushToast(text, "success", {
           action: { label: t("lobby_import_open_project"), onClick: () => navigate(navigateTo) },
         });

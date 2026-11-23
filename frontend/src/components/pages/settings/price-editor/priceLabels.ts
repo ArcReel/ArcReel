@@ -10,7 +10,6 @@ import {
   type PriceTable,
 } from "./priceTable";
 
-// 价目表的界面文字：计费项名称、单位、选择维度与条件。计费项名称与使用记录共用同一批 key。
 
 const USAGE_NAME_KEY: Partial<Record<MeterKey, string>> = {
   uncached_input_tokens: "usage_field_input_tokens",
@@ -35,7 +34,6 @@ const QUALIFIED_NAME: Partial<Record<MeterKey, { base: string; qualifier: string
   uncached_image_input_tokens: { base: "usage_field_input_tokens", qualifier: "pm_pe_qualifier_image" },
   image_cache_read_tokens: { base: "usage_field_cache_read_tokens", qualifier: "pm_pe_qualifier_image" },
   image_output_tokens: { base: "usage_field_output_tokens", qualifier: "pm_pe_qualifier_image" },
-  // 音频的两个 token 计费项名称待维护者确定：输入沿用「输入」，输出音频暂名「输出（音频）」
   audio_output_tokens: { base: "usage_field_output_tokens", qualifier: "pm_pe_qualifier_audio" },
 };
 
@@ -59,7 +57,6 @@ export function meterUnit(t: TFunction, key: string): string {
   return METERS[key].per === 1_000_000 ? t("pm_pe_unit_per_million_tokens") : "";
 }
 
-/** 免费额度的计数单位（按计费项的计数单位，不是单价的单位）。 */
 export function meterCountUnit(t: TFunction, key: string): string {
   if (key === "output_images" || key === "input_images") return t("pm_pe_count_image");
   if (key === "output_seconds" || key === "input_video_seconds") return t("pm_pe_count_second");
@@ -76,7 +73,6 @@ export function currencySymbol(t: TFunction, currency: string): string {
   return currency === "USD" || currency === "CNY" ? t(`pm_pe_currency_symbol_${currency}`) : currency;
 }
 
-/** 上下文档的下界，按从小到大排列：一档覆盖（下界, 下一档下界]。 */
 export function tierBounds(meter: PriceMeter, dim: string): number[] {
   const values = [...meter.rows.map((r) => r.when[dim]), meter.defaults?.[dim]].filter(
     (v): v is number => typeof v === "number",
@@ -98,7 +94,6 @@ function contextTierText(t: TFunction, lower: number, bounds: number[]): string 
     : t("pm_pe_context_middle", { lower: number(lower), upper: number(upper) });
 }
 
-/** 一个条件取值的文字，如「720p」「有声」「标准」「≤ 200,000 token」；`undefined` 是「不限」。 */
 export function conditionValueText(t: TFunction, dim: string, value: DimValue | undefined, meter: PriceMeter): string {
   if (value === undefined) return t("pm_pe_condition_any");
   if (!isKnownDimension(dim)) return String(value);
@@ -142,7 +137,6 @@ export function priceTableText(t: TFunction, table: PriceTable): string {
     .join(t("pm_pe_meter_separator"));
 }
 
-/** 维度取值的候选（标签与上下文档没有固定候选，由用户填写）。 */
 export function dimensionKind(dim: string): (typeof DIMENSIONS)[DimKey]["kind"] | null {
   return isKnownDimension(dim) ? DIMENSIONS[dim].kind : null;
 }

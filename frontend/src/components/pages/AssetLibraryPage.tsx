@@ -23,10 +23,6 @@ function isAssetType(value: string | null): value is AssetType {
   return value === "character" || value === "scene" || value === "prop";
 }
 
-/**
- * 全局资产库：铺满档的页面外壳，类型标签显示当前搜索下各类型的匹配数，网格滚动到底时自动加载下一页。
- * 当前类型与搜索词记在地址的 `tab`、`q` 参数里。点卡片打开详情 Sheet，在详情里点「编辑」才进入表单。
- */
 export function AssetLibraryPage() {
   const { t } = useTranslation(["assets", "common"]);
   const [pathname, navigate] = useLocation();
@@ -56,7 +52,6 @@ export function AssetLibraryPage() {
   );
 
   const [input, setInput] = useState({ urlQ, value: urlQ });
-  // URL 变化立即作废旧输入与其防抖发布，浏览器前进/后退不会被旧值回写。
   if (input.urlQ !== urlQ) setInput({ urlQ, value: urlQ });
   const q = input.urlQ === urlQ ? input.value : urlQ;
   const debounced = useDebouncedValue(input, 250);
@@ -74,8 +69,6 @@ export function AssetLibraryPage() {
   const [applyTarget, setApplyTarget] = useState<Asset | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Asset | null>(null);
   const detailAsset = detail ? (pages.items.find((asset) => asset.id === detail.id) ?? null) : null;
-  // 选中的资产离开当前结果（改名后不再匹配、被删除、换了搜索词）时详情随之关闭；
-  // 同时清掉选中，之后它重新出现在结果里时详情不会自己打开
   if (detail && detailAsset === null) setDetail(null);
 
   const handleCardAction = useCallback((action: AssetCardAction, asset: Asset) => {

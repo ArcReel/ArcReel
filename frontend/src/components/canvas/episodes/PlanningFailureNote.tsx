@@ -7,11 +7,6 @@ import { TaskFailureDetails } from "@/components/shared/TaskFailureDetails";
 
 import type { PlanningFailure } from "./episode-planning-model";
 
-/**
- * 上一次分集规划停在失败上时的原因与出路：未设置默认模型时给设置入口，输出被截断时给登记最大输出长度的入口，
- * 服务端原文收进可展开的「详情」。分集规划面板与重新规划的方案栏共用。任务没带回原因时不显示原因这一句，
- * 也没有出路时整块不显示。
- */
 export function PlanningFailureNote({ failure }: { failure: PlanningFailure }) {
   const { t } = useTranslation("dashboard");
   const reason = failure.message.trim();

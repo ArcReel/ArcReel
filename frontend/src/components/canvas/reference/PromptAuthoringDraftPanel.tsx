@@ -38,13 +38,8 @@ function narrowPromptAuthoringDraft(content: Record<string, unknown> | null): Pr
   return valid ? (content as unknown as PromptAuthoringDraft) : null;
 }
 
-/**
- * 本集的提示词编写草稿：随 `draft:episode_N_prompt_authoring` 事件（Agent 写入、采用、丢弃）重新拉取。
- * 无草稿时为 null。
- */
 export function usePromptAuthoringDraft(projectName: string, episode: number) {
   const draftRevision = useAppStore((s) => s.getEntityRevision(`draft:episode_${episode}_prompt_authoring`));
-  // 按所属项目与集号记下视图：切换后新一轮拉取回来前，不把上一集的草稿当作本集的呈现。
   const [loaded, setLoaded] = useState<{ key: string; view: EpisodeDraftView | null } | null>(null);
   const scopeKey = `${projectName}:${episode}`;
   const [reloadNonce, setReloadNonce] = useState(0);
@@ -59,7 +54,6 @@ export function usePromptAuthoringDraft(projectName: string, episode: number) {
       const next = present ? await API.getEpisodeDraft(projectName, episode, DOC_TYPE, { signal }) : null;
       if (!signal.aborted) setLoaded({ key: scopeKey, view: next });
     };
-    // 拉取失败保留现有视图：草稿面板是附加呈现，不因一次刷新失败把单元工作台换掉。
     load().catch(() => undefined);
     return () => controller.abort();
   }, [projectName, episode, scopeKey, draftRevision, reloadNonce]);
@@ -75,10 +69,6 @@ interface PromptAuthoringDraftPanelProps {
   onSettled: () => void;
 }
 
-/**
- * 提示词编写草稿在视频单元页的呈现。待修复草稿：违约挂到所在单元、整集层面的违约置顶，逐单元正文
- * 可就地修改后保存并校验，违约清零即写回正式剧本。Agent 的可编辑草稿：只提示有一份未完成的修改。
- */
 export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettled }: PromptAuthoringDraftPanelProps) {
   const { t } = useTranslation("dashboard");
   const episodeLedger = useEpisodeLedger();
@@ -126,7 +116,6 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
 
   const content = editor.content;
   const unitIds = (content?.units ?? []).map((_, i) => view.item_ids?.[i] ?? `#${i + 1}`);
-  // 草稿可能只覆盖本集的一部分单元：位置按正式剧本现算，草稿没写单元 ID 时退回草稿里的序号。
   const unitPositions = unitIds.map((id, i) =>
     view.item_ids?.[i] ? (findEpisodeItem(scripts, id)?.position ?? null) : i + 1,
   );

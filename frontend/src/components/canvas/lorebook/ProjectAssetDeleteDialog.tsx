@@ -29,11 +29,8 @@ interface ProjectAssetDeleteDialogProps {
   projectName: string;
   assetType: AssetSheetType;
   name: string;
-  /** 与卡片兄弟控件共享的禁用态（生成中 / 上传中 / 版本恢复中）。 */
   busy: boolean;
-  /** 删除请求在途与否，供卡片同步禁用兄弟控件。 */
   onDeletingChange: (deleting: boolean) => void;
-  /** 「改为并入…」：有引用时提供，转入合并流程。不可合并的类型不传。 */
   onMergeInstead?: () => void;
 }
 
@@ -42,14 +39,6 @@ type PreviewState =
   | { phase: "ready"; result: AssetDeletionPreview }
   | { phase: "failed"; message: string };
 
-/**
- * 删除项目资产的确认框。打开时先以 dry_run 查询脚本里的引用：有引用时写明被哪些集引用、删除后
- * 这些分镜在生成时会被拦下，并提供「改为并入…」；没有引用时只写明不可恢复。删除不改写引用，
- * 也不因有引用而禁止。查询请求随关闭或卸载经 AbortSignal 作废；只有查询就绪后才能确认。
- *
- * 离开拦截包住确认动作，不包住打开确认框：取消删除时未保存修改原样保留。删除动作返回是否成功，
- * 请求失败或提交时资产已被占用，离开拦截同样保留修改。
- */
 export function ProjectAssetDeleteDialog({
   open,
   onOpenChange,
@@ -102,7 +91,6 @@ export function ProjectAssetDeleteDialog({
     try {
       await API.deleteProjectAsset(projectName, assetType, name);
       onOpenChange(false);
-      // 删除已提交，刷新是独立的后续步骤：卡片随刷新消失，刷新失败时它会停在页面上。
       const refreshed = await useProjectsStore.getState().refreshProject(projectName);
       if (refreshed === "failed") {
         useAppStore.getState().pushToast(t("assets:gallery_delete_refresh_failed"), "warning");
@@ -145,7 +133,6 @@ export function ProjectAssetDeleteDialog({
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        // 删除在途时不响应 Esc，避免请求还在途时对话框先消失
         if (!next && !deleting) onOpenChange(false);
       }}
     >

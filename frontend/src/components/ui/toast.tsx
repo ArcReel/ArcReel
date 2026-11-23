@@ -20,7 +20,6 @@ function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       aria-label={t("toast_region")}
-      // 顶部居中、紧贴顶栏下方纵向排列，不遮挡右侧 Agent 输入区；层级取 z-index token
       className={cn(
         "pointer-events-none fixed top-16 left-1/2 z-toast flex w-sm max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col gap-2 outline-none",
         className
@@ -34,8 +33,6 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
   return (
     <ToastPrimitive.Root
       data-slot="toast"
-      // 不用上游的叠放卡组与 500ms 位移缩放：纵向列表，进出场 200ms；
-      // 减少动态效果时 index.css 的全局规则不过渡位移，只剩淡入淡出。长文本在提示内部滚动。
       className={cn(
         "group/toast pointer-events-auto relative flex max-h-48 w-full rounded-lg border bg-popover text-popover-foreground shadow-overlay outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
         "transition-[opacity,translate] duration-base ease-emphasized data-starting-style:-translate-y-2 data-starting-style:opacity-0 data-ending-style:opacity-0 data-limited:hidden",
@@ -50,8 +47,6 @@ function ToastContent({ className, ...props }: ToastPrimitive.Content.Props) {
   return (
     <ToastPrimitive.Content
       data-slot="toast-content"
-      // 纵向列表里每条提示都完整显示，去掉卡组的 behind / expanded 透明度切换
-      // 补 relative：滚动容器须是定位元素，绝对定位的子元素才不会撑出文档滚动
       className={cn(
         "relative flex min-w-0 flex-1 items-start gap-3 overflow-y-auto p-3.5",
         className
@@ -175,7 +170,6 @@ function ToastIcon({ type }: { type: string | undefined }) {
 function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager()
 
-  // 只支持桌面端（鼠标、触控板），不启用滑动关闭
   return toasts.map((toastItem) => (
     <Toast key={toastItem.id} toast={toastItem} swipeDirection={[]}>
       <ToastContent>
@@ -210,7 +204,6 @@ function Toaster({
 
 const useToastManager = ToastPrimitive.useToastManager
 
-// 不导出模块级 toast 队列与 createToastManager：队列由 ToastOverlay 持有并传给 Toaster，原语文件只导出组件与 hook
 export {
   Toaster,
   Toast,

@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-/* Streamdown 的代码块、表格工具条用 Tailwind 类排版，按它的安装说明让 Tailwind 扫描它的产物 */
 @source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -13,16 +12,6 @@
     }
 }
 
-/* 语义 token，命名沿用 shadcn：浅色值写在 :root，深色值写在 .dark，由下方 @theme inline 映射成工具类。
-   - 品牌紫只有 primary 一个基色；浅底、描边、选中态用透明度修饰（bg-primary/15）。
-   - 危险用 destructive（红），警告与过期用 warn（琥珀），完成与可用用 good。
-   - 文字三档：foreground（正文）> subtle-foreground（次要）> muted-foreground（弱化）；
-     muted-foreground 在页面底色上的对比度两种模式下都高于 5:1，正文不再叠加透明度降低它。
-   - input 是表单控件的描边色，WCAG 1.4.11 要求对页面底、卡片和弹层都不低于 3:1，两种模式都用不透明色；
-     border 只做卡片、分隔线等装饰，不承载控件边界，不受这条约束。input 的透明度修饰（bg-input/12）
-     只用于填充，描边不要写 border-input/30 这类半透明形式。
-   - 内联样式与 CSS 直接引用这里的变量（var(--primary)），需要透明度时用
-     color-mix(in oklab, var(--primary) 15%, transparent)。 */
 :root {
     --radius: 0.625rem;
     color-scheme: light;
@@ -77,9 +66,7 @@
 
     --scrim: oklch(0.25 0.02 265 / 0.45);
 
-    /* 每集身份色的明度：作文字时在卡片底色上达到 4.5:1 */
     --episode-lightness: 0.52;
-    /* 阴影墨色：阴影只写透明度，墨色按模式取，浅色下用带蓝的灰并减淡 */
     --shadow-ink: oklch(0.35 0.03 265 / 0.4);
     --glow-primary: oklch(0.80 0.06 295 / 0.25);
     --glow-secondary: oklch(0.85 0.04 260 / 0.2);
@@ -87,22 +74,16 @@
     --scrollbar-thumb-hover: oklch(0.58 0.010 265 / 0.75);
     --focus-flash-edge: color-mix(in oklab, var(--primary) 70%, transparent);
 
-    /* 层级。弹层 Portal 到 body，与隔离了层叠上下文的 #app-root 同级，z-index 只需在三者间排序：
-       弹层（Dialog、Sheet、Popover、菜单、Tooltip）< Toast < 新手引导（driver.js 遮罩与气泡）。
-       同层弹层按打开顺序叠放：后打开的 Portal 节点排在 DOM 后面。
-       sticky 是 #app-root 内部的层级：吸顶工具栏盖住同一滚动区里带定位的内容（如卡片角上的菜单按钮）。 */
     --z-sticky: 10;
     --z-overlay: 50;
     --z-toast: 60;
     --z-onboarding: 10000;
 
-    /* 动效时长：界面动效一律短于 300ms。fast 用于悬停、淡入淡出，base 用于弹层进出与换图交叉淡入。 */
     --duration-fast: 150ms;
     --duration-base: 200ms;
     --easing-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 深色：<html> 带 .dark 时生效；看成片的区域在子树上加 .dark 固定深色。 */
 .dark {
     color-scheme: dark;
 
@@ -111,7 +92,6 @@
     --subtle-foreground: oklch(0.820 0.008 265);
     --card: oklch(0.182 0.011 270);
     --card-foreground: var(--foreground);
-    /* 弹层材质：不透明 surface，比卡片略亮；一条 border、一个 overlay 阴影，不用模糊与渐变 */
     --popover: oklch(0.205 0.011 265);
     --popover-foreground: var(--foreground);
     --primary: oklch(0.76 0.09 295);
@@ -120,7 +100,6 @@
     --secondary-foreground: var(--foreground);
     --muted: oklch(0.250 0.012 265);
     --muted-foreground: oklch(0.640 0.010 265);
-    /* shadcn 的 accent 是菜单项悬停底色，不是品牌色 */
     --accent: oklch(0.26 0.012 265 / 0.5);
     --accent-foreground: var(--foreground);
     --destructive: oklch(0.70 0.18 25);
@@ -137,14 +116,11 @@
     --chart-4: var(--destructive);
     --chart-5: var(--muted-foreground);
 
-    /* 媒体类型色：使用记录的媒体图标、费用趋势与构成共用，四色明度相近、色相分开 */
     --media-image: oklch(0.62 0.13 240);
     --media-video: oklch(0.58 0.15 305);
     --media-text: oklch(0.62 0.12 160);
     --media-audio: oklch(0.66 0.13 70);
 
-    /* 资产类型色：剧本里的 @ 提及、说话人与提及候选按类型着色，明度够高，在卡片底色上作文字也达到 4.5:1；
-       解析不到的提及用 destructive */
     --asset-product: oklch(0.81 0.11 294);
     --asset-character: oklch(0.83 0.11 230);
     --asset-scene: oklch(0.85 0.14 165);
@@ -159,7 +135,6 @@
     --sidebar-border: var(--border);
     --sidebar-ring: var(--ring);
 
-    /* 模态遮罩：Dialog、Sheet 与新手引导遮罩共用（onboarding/tour.ts 把它交给 driver.js 的遮罩） */
     --scrim: oklch(0.10 0.012 265 / 0.78);
 
     --episode-lightness: 0.72;
@@ -173,21 +148,17 @@
 
 
 @theme {
-    /* 字体 — 设计稿统一使用 Inter，display 仅在字号/字重上做区分。
-       西文字体由 main.tsx 引入 @fontsource 包自托管；中文不加载网络字体，回退系统字体。 */
     --font-sans: "Inter Variable", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     --font-display: "Inter Variable", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
 
-    /* 运行中状态点的透明度呼吸，只用于小状态点；减少动态效果时由下方全局规则停住 */
     --animate-breath: breath 1.6s ease-in-out infinite;
     @keyframes breath {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.3; }
     }
 
-    /* 打字机光标：吐字时持续闪烁，吐完再闪 3 次后停在熄灭态 */
     --animate-caret-blink: caret-blink 1.4s steps(2, end) infinite;
     --animate-caret-linger: caret-blink 1.4s steps(2, end) 3 forwards;
     @keyframes caret-blink {
@@ -248,9 +219,7 @@
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-scrim: var(--scrim);
-    /* 每集的身份色：明度与彩度固定，色相按集 ID 取，由调用处经 style 写入 --episode-hue（episodeHue）。 */
     --color-episode: oklch(var(--episode-lightness) 0.1 var(--episode-hue, 0));
-    /* 剪辑视图轨道上视频单元的片段色与旁白色：色相按视频单元取，由调用处经 style 写入 --unit-hue（unitHue）。 */
     --color-unit-clip: oklch(0.42 0.07 var(--unit-hue, 0));
     --color-unit-narration: oklch(0.5 0.08 var(--unit-hue, 0) / 0.75);
     --color-bgm: oklch(0.45 0.09 300);
@@ -267,15 +236,12 @@
     --ease-emphasized: var(--easing-emphasized);
 }
 
-/* shadcn 原语的裸 border 默认取描边色，而不是 currentColor */
 @layer base {
     * {
         border-color: var(--border);
     }
 }
 
-/* Portal 出去的弹层挂在 body 下、与 #app-root 同级；隔离出独立层叠上下文后，
-   应用内任何 z-index 都不会盖过弹层。 */
 #app-root {
     isolation: isolate;
 }
@@ -293,11 +259,6 @@ body {
     text-rendering: optimizeLegibility;
 }
 
-/* 减少动态效果（WCAG 2.3.3）：去掉位移、缩放、旋转，只保留透明度与颜色变化。
-   - tw-animate-css 的进出场（弹层的 animate-in / animate-out）把位移与缩放写在变量里，这里归零，淡入淡出照常。
-   - 过渡只保留透明度与颜色属性，位移与缩放类过渡直接跳到终态（Base UI 的 data-starting-style 写法、按钮按下下沉）。
-   - 其余 keyframes 动画（呼吸点、加载转圈、定位高亮）直接跳到终态并停止循环；
-     渐隐遮罩 scroll-fade-* 是跟随滚动位置的动画，不是动效，不受影响。 */
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -333,8 +294,6 @@ body {
     font-family: var(--font-display);
 }
 
-/* 定位高亮：从通知、制作进度等入口跳到某个分镜或资产时，落点依次闪过品牌紫、琥珀与绿三圈描边，
-   由 hooks/useScrollTarget 增删这个类。减少动态效果时由上方全局规则停在终态（无高亮）。 */
 @keyframes workspace-focus-flash {
     0%, 32%, 66%, 100% {
         box-shadow: 0 0 0 0 transparent;
@@ -422,7 +381,6 @@ body {
     overflow-wrap: anywhere;
 }
 
-/* 长文本跳过屏幕外部分的渲染（「分集」视图的原文）；占位高度按 600px 估计，渲染过后记住真实高度 */
 @utility offscreen-skip {
     content-visibility: auto;
     contain-intrinsic-size: auto 600px;
@@ -508,7 +466,6 @@ body {
         line-height: 1.6;
     }
 
-    /* 代码行不折行，放不下时由外层容器横向滚动 */
     & pre code {
         background-color: transparent;
         padding: 0;
@@ -542,7 +499,6 @@ body {
         text-align: left;
     }
 
-    /* 列不被挤成逐字折行：表头不折行，单元格保留最小宽度，放不下时整张表横向滚动 */
     & th {
         background-color: var(--muted);
         font-weight: 600;

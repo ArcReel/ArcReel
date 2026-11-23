@@ -3,12 +3,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 interface PlanDurationSelectProps {
   seconds: number;
-  /** 可选档位（升序）；为 null 或空时只显示秒数。 */
   options: number[] | null;
   onChange: (seconds: number) => void;
   label: string;
   disabled?: boolean;
-  /** 时长由端点固定：附上说明；有档位（剧本规划借用的档位）时仍可选。 */
   endpointFixed?: boolean;
 }
 
@@ -30,7 +28,6 @@ export function PlanDurationSelect({
       </span>
     );
   }
-  // 存量秒数可能已不在当前档位内：补一个当前值选项，否则下拉显示不出盘上的秒数。
   const values = options.includes(seconds) ? options : [...options, seconds].sort((a, b) => a - b);
   const items = values.map((value) => ({ value, label: t("reference_script_plan_duration_option", { seconds: value }) }));
   const select = (

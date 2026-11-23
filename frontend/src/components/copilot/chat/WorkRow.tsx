@@ -17,7 +17,6 @@ export function useSessionDone(): boolean {
   return sessionStatus != null && TERMINAL_SESSION_STATUSES.has(sessionStatus);
 }
 
-/** 工具调用的显示名与摘要；集名取自当前项目的集清单，条目位置取自当前项目剧本。 */
 export function useToolLabel(name: string, input: Record<string, unknown> | undefined): WorkLabel {
   const { t } = useTranslation("dashboard");
   const episodes = useProjectsStore((s) => s.currentProjectData?.episodes) ?? NO_EPISODES;
@@ -35,7 +34,6 @@ interface WorkRowProps {
 
 export function WorkRow({ icon: Icon, name, summary, status, children }: WorkRowProps) {
   const failed = status === "error";
-  // 按钮里的图标尺寸由 Button 统一；不可展开的行没有 Button，图标自己定尺寸
   const iconSize = children ? undefined : "size-3 shrink-0";
   const head = (
     <>
@@ -98,7 +96,6 @@ function WorkStatusMark({ status, iconSize }: { status: WorkStatus; iconSize?: s
 const MAX_COLLAPSED_LINES = 10;
 const MAX_COLLAPSED_CHARS = 800;
 
-/** 超过 10 行（或篇幅相当）时先显示开头，不做内层滚动。 */
 function collapsedText(text: string): string | null {
   const lines = text.split("\n");
   let head = lines.length > MAX_COLLAPSED_LINES ? lines.slice(0, MAX_COLLAPSED_LINES).join("\n") : text;

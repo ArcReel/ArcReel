@@ -18,7 +18,6 @@ import { errMsg, voidCall } from "@/utils/async";
 
 import { ConfigIssueNotice } from "./settings/ConfigIssueNotice";
 
-/** Agent 会话启动时拼进系统提示的语言规范模版，正文在「提示词模版」中查看。 */
 const AGENT_LANGUAGE_RULE_ID = "text/agent_language_rule";
 
 interface AgentRuntimeFields {
@@ -48,10 +47,6 @@ function buildPatch(fields: AgentRuntimeFields, saved: AgentRuntimeFields): Syst
   return patch;
 }
 
-/**
- * 全局设置「ArcReel Agent」：页头说明 → Agent 供应商列表 → 默认折叠的「高级」运行参数 → 语言规范说明。
- * Agent 供应商的增改删与切换生效是即时动作；只有运行参数进入编辑单元，由外壳底行的保存栏提交。
- */
 export function AgentConfigTab() {
   const { t } = useTranslation("dashboard");
   const issues = useSectionConfigIssues("arcreel-agent");

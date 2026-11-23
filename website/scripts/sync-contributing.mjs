@@ -1,7 +1,3 @@
-// 把仓库根的 CONTRIBUTING.md 复制成文档站的开发区页面。
-// 真相源留在仓库根，副本是构建产物（website/.gitignore 忽略），build / start 前置执行。
-// pnpm 10 默认不跑 pre/post script，所以由 package.json 的 build / start / sync-contributing 显式串联。
-
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +10,6 @@ const target = resolve(websiteDir, "docs", "dev", "contributing.md");
 
 // 显式锚点 ID 在复制时注入，不写进仓库根的真相源：GitHub 不认 `{#id}` 语法，会把它当正文原样显示。
 // 标题改动后这里必须同步登记，否则复制失败——锚点是中英两个 locale 共用的链接目标，不能静默漂移。
-// 键是「井号前缀 + 标题文本」：同名标题（如两处「工作流程」）出现在不同层级时才能各自登记。
 const ANCHORS = new Map([
   ["# 贡献指南", "contributing"],
   ["## 本地开发环境", "local-development"],
@@ -53,7 +48,6 @@ function injectAnchors(markdown) {
         `CONTRIBUTING.md 的标题「${key}」没有登记锚点 ID，请在 website/scripts/sync-contributing.mjs 的 ANCHORS 中补上`,
       );
     }
-    // 重复 id 会产出无效 HTML，且锚点链接只会落到第一处；onBrokenAnchors 查不出这种碰撞。
     if (usedAnchors.has(anchor)) {
       throw new Error(`锚点 ID「${anchor}」被多个标题共用（最后一处是「${key}」），请在 ANCHORS 中改成唯一值`);
     }
@@ -69,7 +63,6 @@ function injectAnchors(markdown) {
   return lines.join("\n");
 }
 
-// 副本不入库，「编辑此页」须指回仓库根的真相源，否则会指向不存在的 website/docs/dev/contributing.md。
 const frontmatter = [
   "---",
   "id: contributing",

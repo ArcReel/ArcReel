@@ -16,9 +16,6 @@ function jsonFiles(directory) {
   });
 }
 
-// write-translations snapshots themeConfig.footer.copyright, whose year comes from
-// `new Date().getFullYear()`, as a static string. Left in place it freezes the English footer's year;
-// without it the English locale falls back to the same dynamic config the default locale uses.
 function dropFooterCopyright(root) {
   const path = resolve(root, FOOTER_PATH);
   if (!existsSync(path)) return false;

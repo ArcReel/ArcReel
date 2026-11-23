@@ -18,14 +18,12 @@ async function loadStreamdownComponent(): Promise<LoadedStreamdown | null> {
 
   streamdownPromise = import("streamdown")
     .then((mod) => {
-      // The named export `Streamdown` is a MemoExoticComponent
       const Comp = (mod as Record<string, unknown>).Streamdown ??
         (mod as Record<string, unknown>).default ??
         null;
       if (!Comp) return null;
       return {
         Component: Comp as ComponentType<Record<string, unknown>>,
-        // 引用保持稳定：Streamdown 按引用比较插件，变了会让已渲染的块全部重算。
         remarkPlugins: [...Object.values(mod.defaultRemarkPlugins), remarkAppLinks],
         rehypePlugins: buildRehypePlugins(mod.defaultRehypePlugins),
       };
@@ -38,11 +36,9 @@ async function loadStreamdownComponent(): Promise<LoadedStreamdown | null> {
   return streamdownPromise;
 }
 
-// ---------------------------------------------------------------------------
 // 应用内链接：Streamdown 把所有链接渲染成「确认后新窗口打开」的按钮，站内链接要改成应用内跳转。
 // 它没有导出默认的链接组件可供包装，所以由 remark 插件把站内链接节点换成自定义元素 `app-link`，
 // 其余链接仍走 Streamdown 自己的渲染与外链确认。
-// ---------------------------------------------------------------------------
 
 const APP_LINK_TAG = "app-link";
 const ALLOWED_TAGS = { [APP_LINK_TAG]: ["href"] };
@@ -69,7 +65,6 @@ function AppLink({ href, children }: { href?: string; children?: ReactNode }) {
   const link = href ? parseAppLink(href, window.location.origin) : null;
   if (!href || !link) return <span>{children}</span>;
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
-    // 带修饰键或非左键时保留浏览器默认行为（新标签页打开等）。
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
@@ -90,14 +85,12 @@ function AppLink({ href, children }: { href?: string; children?: ReactNode }) {
 
 const COMPONENTS = { [APP_LINK_TAG]: AppLink };
 
-// ---------------------------------------------------------------------------
 // 键盘可达的横向滚动区：代码块与表格放不下时横向滚动，没有可聚焦的子元素，键盘用户要能
 // 聚焦后用方向键滚动。Streamdown 把代码块 `code` 元素上的属性透传给外层的滚动容器，
 // 标成可聚焦的区域；表格的滚动容器是它外层的包裹元素，属性只能落在表格上，因此只让
 // 表格可聚焦（保留表格语义），聚焦后方向键滚动的是最近的滚动祖先。
 // 排在默认插件之后，不会被清洗掉。区域名称作为插件参数随界面语言传入；Streamdown 外层的
 // memo 不比较 rehypePlugins，所以切换语言时以语言作 key 重新挂载，已渲染的块随之换成新名称。
-// ---------------------------------------------------------------------------
 
 interface HastNode {
   type: string;
@@ -140,11 +133,9 @@ function buildRehypePlugins(defaults: Record<string, unknown>): unknown[] {
   return [raw, [rehypeSanitize, appLinkSchema], harden];
 }
 
-// ---------------------------------------------------------------------------
 // 代码块的焦点：Streamdown 的代码块主体按需加载，分块到达时整块替换先渲染的占位节点，
 // 此前聚焦在代码块上的焦点会落回 body。记下聚焦的是第几个代码块，节点被替换后把焦点
 // 交给同一位置的新节点；焦点已经移到别处时不抢回。
-// ---------------------------------------------------------------------------
 
 const CODE_BLOCK_BODY = '[data-streamdown="code-block-body"]';
 
@@ -161,7 +152,6 @@ function useKeepCodeBlockFocus(root: HTMLElement | null): void {
         : null;
     };
     const onFocusOut = () => {
-      // 节点被移除时不算离开：替换后的恢复由下面的观察者处理
       queueMicrotask(() => {
         if (focused?.node.isConnected) focused = null;
       });
@@ -187,7 +177,6 @@ function useKeepCodeBlockFocus(root: HTMLElement | null): void {
 
 interface StreamMarkdownProps {
   content: string;
-  /** compact 用于工序行展开区（子时间线、子智能体结论），与工序行同为小字号。 */
   size?: "default" | "compact";
 }
 
@@ -198,13 +187,11 @@ export function StreamMarkdown({ content, size = "default" }: StreamMarkdownProp
   useKeepCodeBlockFocus(root);
   const codeLabel = t("chat_code_block_label");
   const tableLabel = t("chat_table_label");
-  // 引用只随加载与名称变化：Streamdown 按引用比较插件，变了会让已渲染的块全部重算。
   const rehypePlugins = useMemo(
     () => streamdown && [...streamdown.rehypePlugins, [rehypeScrollRegions, { code: codeLabel, table: tableLabel }]],
     [streamdown, codeLabel, tableLabel],
   );
 
-  // 工具条按钮与外链确认框的文字（含无障碍名称）。格式名 SVG、CSV 等不翻译，沿用 Streamdown 默认值。
   const translations = useMemo(
     () => ({
       close: t("chat_md_close"),
@@ -255,7 +242,6 @@ export function StreamMarkdown({ content, size = "default" }: StreamMarkdownProp
   }
 
   return (
-    // 只为监听焦点与节点替换，不参与排版
     <div ref={setRoot} className="contents">
       <streamdown.Component
         key={i18n.resolvedLanguage}

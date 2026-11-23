@@ -569,9 +569,6 @@ export default {
   'cancelling': 'Отмена…',
   'confirm_cancel': 'Подтвердить отмену',
   'go_back': 'Назад',
-  // task_type display names (backend task_type has no central enum — scattered
-  // literals at enqueue call sites + lib/project/asset_types.ASSET_SPECS keys; unknown
-  // values outside this table fall back to the raw string on the frontend)
   'task_type_image_edit': 'Редактирование изображения',
   'task_type_storyboard': 'Раскадровка',
   'task_type_video': 'Видео',
@@ -1022,7 +1019,6 @@ export default {
   'agent_profile_reset_confirm': 'Подтвердить сброс',
   'agent_profile_resetting': 'Сброс…',
   'agent_profile_reset_failed': 'Не удалось сбросить профиль агента: {{message}}',
-  // 项目设置：侧栏分页、风格对话框与模型通道来源
   'project_settings_group_project': 'Проект',
   'project_settings_group_agent': 'Агент',
   'project_settings_tab_basics': 'Основное',
@@ -1120,7 +1116,6 @@ export default {
   'reference_units_count': 'Видеофрагментов: {{count}}',
   'reference_needs_replan': 'Этот видеофрагмент нужно сначала перепланировать, прежде чем генерировать.',
   'reference_preview_video_aria': 'Предпросмотр видео для видеофрагмента {{id}}',
-  // Reference video unit UI status labels — derived from task queue state.
   'reference_status_pending': 'Ожидает',
   'reference_status_running': 'Выполняется',
   'reference_status_ready': 'Готово',
@@ -1692,7 +1687,6 @@ export default {
   'supported_durations_err_range_too_large': "Диапазон фрагмента «{{seg}}» слишком велик (>{{max_span}})",
   'supported_durations_err_range_inverted': "Фрагмент «{{seg}}»: верхняя граница диапазона должна быть ≥ нижней",
   'supported_durations_err_unparseable': "Не удалось разобрать фрагмент «{{seg}}»",
-  // Capability overrides (tri-state control inside a model row; last_frame only for now)
   'cap_override_last_frame_label': 'Конечный кадр',
   'cap_override_group_label': 'Переопределение поддержки конечного кадра',
   'cap_override_follow': 'По автоопределению',
@@ -1707,7 +1701,6 @@ export default {
   'cap_override_badge': 'Переопределено',
   'cap_override_effective': 'Действует: {{effective}} (определено: {{detected}})',
   'cap_override_on_unavailable': 'Этот эндпоинт не отправляет конечные кадры, поэтому включить принудительно нельзя.',
-  // Global bucket reference hint (shown while editing capabilities; non-blocking)
   'global_bucket_label_default_video_backend': 'Модель видео по умолчанию',
   'global_bucket_label_default_video_backend_i2v': 'Изображение в видео (i2v)',
   'global_bucket_label_default_video_backend_r2v': 'Видео по референсу (r2v)',
@@ -1891,7 +1884,6 @@ export default {
   'reference_tab_preview': 'Видео',
   'reference_tab_aria': 'Переключение между редактором и предпросмотром',
 
-  // ArcReel Workbench v3 — Reference-to-Video
   'no_episode_search_results': 'Подходящих серий нет',
   'episode_collapsed_button_label': '{{position}} · {{title}}',
   'reference_batch_nothing_to_do': 'Все видеофрагменты уже сгенерированы или в работе',
@@ -2455,14 +2447,11 @@ export default {
   'tool_summary_operations_other': '{{count}} изменения',
   'tool_summary_project_overview': 'Обзор проекта',
   'tool_summary_project_settings': 'Настройки проекта',
-  // ToolCallWithResult
-  // Timeline typed entries (interrupt / AskUserQuestion answer)
   'chat_interrupt_notice': 'Остановлено. Ответ не был завершён',
   'chat_compacted_label': 'Контекст сжат',
   'chat_transcript_label': 'Диалог',
   'chat_code_block_label': 'Блок кода',
   'chat_table_label': 'Таблица',
-  // Toolbar labels for code blocks, tables, diagrams and links in Markdown (Streamdown translations)
   'chat_md_close': 'Закрыть',
   'chat_md_copied': 'Скопировано',
   'chat_md_copy_code': 'Копировать код',
@@ -2486,9 +2475,6 @@ export default {
   'chat_md_zoom_out': 'Уменьшить',
   'chat_image_attachment': 'Изображение {{index}}',
   'chat_image_enlarge': 'Увеличить изображение {{index}}',
-  // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
-  // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
-  // enforces all locales stay in sync — adding a backend tool without wiring zh/en/vi fails CI)
   'tool_name_list_pending_assets': 'Список ожидающих материалов',
   'tool_name_list_projects': 'Список проектов',
   'tool_name_create_project': 'Создать проект',
@@ -2547,7 +2533,6 @@ export default {
   'tool_name_merge_asset': 'Объединить материалы',
   'tool_name_retry_project_migration': 'Повторить обновление данных',
 
-  // Header status bar (ProjectStatusBar): episode progress, project-level next step, failed data upgrade
   'guide_hand_to_agent': 'Передать агенту',
   'guide_alt_create_episode': 'Создать серию',
   'guide_alt_agent': 'Передать агенту: {{step}}',
@@ -2606,7 +2591,6 @@ export default {
   'migration_repair_title': 'Этот проект требует исправления',
   'migration_repair_body': 'Обновление данных не завершено, поэтому генерация пока отключена. Существующие сценарии и визуал остаются доступными для просмотра. Нажмите «Повторить», чтобы запустить обновление данных снова.',
   'migration_repair_prefill': 'Обновление данных этого проекта не удалось. Разбери по порядку детали сбоя — какая серия, какой файл, что нарушено, — затем исправь их через patch_project / patch_episode_meta / rename_asset и вызови retry_project_migration.',
-  // Data upgrade report: the one-time notice on the project page and the confirmation before an import
   'migration_report_notice_one': 'Это обновление изменило {{count}} элемент',
   'migration_report_notice_few': 'Это обновление изменило {{count}} элемента',
   'migration_report_notice_many': 'Это обновление изменило {{count}} элементов',
@@ -2656,8 +2640,6 @@ export default {
   'import_confirm_title': 'Подтвердите перед импортом',
   'import_confirm_description': 'При обновлении архива до текущей версии произошли перечисленные ниже изменения. Проект появится в списке проектов только после подтверждения; при отмене данные не сохраняются.',
   'import_confirm_action': 'Подтвердить импорт',
-  // Skill display names (single source of truth: user-invocable SKILL.md files
-  // under agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py enforces parity)
   'skill_name_video_workflow': 'Процесс создания видео',
   'skill_name_generate_storyboard': 'Сгенерировать раскадровку',
   'skill_name_generate_grid': 'Сгенерировать мультисеточную раскадровку',
@@ -4044,7 +4026,6 @@ export default {
   'ad_products_view_all': 'Показать все',
   'ad_products_empty_hint': 'Добавьте фото товара и преимущества, и генерация сценария с ИИ будет строить сюжет вокруг товара. Без товара можно генерировать только по брифу.',
   'image_fullscreen_preview': 'Открыть изображение {{name}} в полном размере',
-  // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
   'catalog_picker_title': 'Выбрать из каталога моделей',
   'catalog_picker_description': 'Найдите модель в каталоге и выберите её.',
   'catalog_picker_search': 'Поиск по названию модели',

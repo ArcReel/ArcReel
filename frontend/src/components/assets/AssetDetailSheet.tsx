@@ -31,11 +31,6 @@ export type AssetSheetMode = "view" | "edit";
 const IMAGE_ACCEPT = ".png,.jpg,.jpeg,.webp";
 const UPDATED_AT_OPTS: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" };
 
-/**
- * 资产库的详情 Sheet：先展示大图与全部信息，点「编辑」才进入表单。
- * 编辑时名称、描述与声音风格是一个编辑单元，统一保存；更换图片立即执行。
- * 有未保存修改时，关闭 Sheet 或返回详情会弹出离开拦截。
- */
 export function AssetDetailSheet({
   asset,
   mode,
@@ -45,7 +40,6 @@ export function AssetDetailSheet({
   onDelete,
   onChanged,
 }: {
-  /** 为 null 时关闭；关闭动画期间仍显示上一个资产。 */
   asset: Asset | null;
   mode: AssetSheetMode;
   onModeChange: (mode: AssetSheetMode) => void;
@@ -120,7 +114,6 @@ function AssetDetails({
         </SheetTitle>
         <SheetDescription>{t(`type.${asset.type}`)}</SheetDescription>
       </SheetHeader>
-      {/* 只读详情里可能没有可聚焦的元素，正文自身可聚焦，键盘用户才能滚动它 */}
       <SheetBody tabIndex={0} role="region" aria-label={t("details_label", { name: asset.name })}>
         <div className="flex flex-col gap-5">
           <AssetThumb

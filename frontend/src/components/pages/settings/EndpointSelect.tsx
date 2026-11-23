@@ -25,11 +25,6 @@ interface EndpointSelectProps {
   "aria-label"?: string;
   value: EndpointKey;
   onChange: (next: EndpointKey) => void;
-  /**
-   * 宿主供应商的模型发现协议。ComfyUI 端点与 ComfyUI 协议供应商互为对方的唯一对手方
-   * （服务端双向校验，见 docs/adr/0081），选择器据此只列得上的那一半——否则用户要撞上
-   * 保存时的 422 才知道这条挂不上去。
-   */
   protocol: DiscoveryFormat;
   disabled?: boolean;
   compact?: boolean;
@@ -51,7 +46,6 @@ export function EndpointSelect({
   const fetchCatalog = useEndpointCatalogStore((s) => s.fetch);
   const refreshCatalog = useEndpointCatalogStore((s) => s.refresh);
 
-  // 目录未就绪时取一次；store 自身有短路，重复挂载安全。取过一次仍未就绪即取失败，才给重试入口
   const [attempted, setAttempted] = useState(false);
   useEffect(() => {
     if (!initialized) void fetchCatalog().finally(() => setAttempted(true));
@@ -73,7 +67,6 @@ export function EndpointSelect({
       <Select<EndpointKey>
         value={value === "" ? null : value}
         onValueChange={(next) => {
-          // 同值重选不算变化：调用方按端点是否变化决定是否作废未保存的能力覆盖
           if (next !== null && next !== value) onChange(next);
         }}
         disabled={disabled || groups.length === 0}
@@ -95,7 +88,6 @@ export function EndpointSelect({
                   )}
                 </span>
               ) : (
-                // 已存的端点不在当前目录里（数据漂移或后端临时移除）：显示原始 key，不冒充第一项
                 <span className="truncate font-mono">{value}</span>
               )
             }
