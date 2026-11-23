@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
 
-# 串行执行，较新提交的运行最后写入 Release PR，不被较早的运行覆盖；不取消在途运行，避免打断打 tag
 concurrency:
   group: release-please
   cancel-in-progress: false
@@ -34,9 +33,6 @@ jobs:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Release PR 里 pyproject.toml 的 version 被 release-please 改动后，
-      # uv.lock 仍指向旧版本。checkout release PR 分支，跑一次 uv lock，把
-      # 同步 commit 推回该分支，保持 lock 与 source version 一致。
       - name: Checkout release PR branch
         if: ${{ steps.release.outputs.pr }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,7 +80,6 @@ jobs:
         run: |
           snapshot=lib/catalog/snapshot
           fetched="$(mktemp -d)"
-          # 仅 https（含重定向）、限体积与耗时；体积上限与实例官方同步（lib/catalog/official_sync.py）一致
           fetch() {
             curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
               --max-filesize "$2" --max-time 30 --retry 2 -o "$fetched/$1" "$CATALOG_BASE_URL/$1"

@@ -36,9 +36,6 @@ runs:
       id: filter
       with:
         filters: |
-          # .github/** 覆盖 workflows/actions/codeql 配置等全部 CI 基础设施；
-          # .codecov.yml 决定覆盖率状态与 flag 行为；.gitignore 影响 ruff 的
-          # 文件发现（respect-gitignore 对已跟踪文件同样生效）
           workflow:
             - '.github/**'
             - '.codecov.yml'
@@ -69,7 +66,6 @@ runs:
             - '.dockerignore'
             - 'public/**'
             - 'README.md'
-          # CONTRIBUTING.md 构建时复制上站，两个 README 也纳入中英文同步检查。
           website:
             - 'website/**'
             - 'CONTRIBUTING.md'
@@ -80,7 +76,6 @@ runs:
       shell: bash
       env:
         FULL: ${{ inputs.full }}
-        # full 模式跳过 filter 步骤时其 outputs 为空，在表达式层统一兜底
         F_WORKFLOW: ${{ steps.filter.outputs.workflow || 'false' }}
         F_BACKEND: ${{ steps.filter.outputs.backend || 'false' }}
         F_FRONTEND: ${{ steps.filter.outputs.frontend || 'false' }}

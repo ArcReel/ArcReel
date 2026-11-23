@@ -1,14 +1,10 @@
 name: Nightly Full CI
 
-# 每日全量测试，不应用路径裁剪，兜底按域裁剪可能漏掉的跨域回归
-# （例如后端改动破坏镜像构建、依赖升级破坏 PG 方言测试）。
-
 on:
   schedule:
-    - cron: "0 20 * * *" # 北京时间 04:00
+    - cron: "0 20 * * *"
   workflow_dispatch:
 
-# report job 读改 issue 无法并发幂等，串行整个工作流
 concurrency:
   group: nightly-full-ci
   cancel-in-progress: false
@@ -23,7 +19,6 @@ jobs:
       contents: read
       pull-requests: read
     secrets:
-      # 只传被调 workflow 声明需要的 secret；新增 secret 时两边都要显式声明
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     with:
       full: true

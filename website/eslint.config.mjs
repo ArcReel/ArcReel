@@ -1,6 +1,3 @@
-// 与 frontend/eslint.config.js 规则集同构但刻意不共用：website 是独立包根，
-// 其 typescript 钉在 5.x（见 .github/dependabot.yml 的说明），两边无法共享同一份
-// 依赖与 tsconfig。改动规则时两份配置需要各自维护。
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import react from "eslint-plugin-react";

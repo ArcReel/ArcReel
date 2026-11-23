@@ -2,13 +2,6 @@
 
 # shellcheck disable=SC2034 # REPO_CONTEXT_SHIFT is returned to the sourcing script.
 
-# Source this file, call enter_repo_root <error-prefix> "$@", then shift by
-# REPO_CONTEXT_SHIFT before parsing the script's own arguments.
-#
-# enter_snapshot_dir <error-prefix> sets SNAP_DIR to the user-private (0700) snapshot dir
-# shared by poll.sh, query.sh and round.sh, creating it when absent. snapshot_file_for
-# <owner/repo> <pr> prints the per-PR snapshot path inside it; sibling files (index, seen,
-# rounds) derive from that path by replacing its .json suffix.
 enter_repo_root() {
   local error_prefix="$1"
   shift

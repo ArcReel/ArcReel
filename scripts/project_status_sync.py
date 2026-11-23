@@ -36,7 +36,6 @@ STATUS_OPTIONS = {
     "Done": "98236657",
 }
 
-# 带这些标签的 issue 不参与状态流转：Status 置空，视图用 filter 排除
 OFF_BOARD_LABELS = {"Spec", "parked"}
 
 MUTATION_BATCH = 20
@@ -81,7 +80,6 @@ def derive_status(state: str, labels: set[str], has_assignee: bool, has_open_clo
 def _issue_signals(issue: dict[str, Any]) -> tuple[str, set[str], bool, bool]:
     labels = {n["name"] for n in issue["labels"]["nodes"]}
     has_assignee = issue["assignees"]["totalCount"] > 0
-    # draft PR 尚未进入审阅，不计入 In review 信号
     has_open_pr = any(
         n["state"] == "OPEN" and not n["isDraft"] for n in issue["closedByPullRequestsReferences"]["nodes"]
     )
@@ -141,7 +139,6 @@ def sync_issue(number: int) -> None:
         if state != "OPEN":
             print(f"#{number}: 已关闭且不在板上，跳过")
             return
-        # 内置 auto-add 未覆盖时补充添加
         added = gql(
             "mutation($pid: ID!, $cid: ID!) {"
             " addProjectV2ItemById(input: {projectId: $pid, contentId: $cid}) { item { id } } }",
@@ -257,11 +254,9 @@ def sync_all() -> None:
     changed = deleted = 0
     for item in items:
         content = item.get("content") or {}
-        # 本仓库之外的 item（含 DraftIssue）不做投影也不清除
         if (content.get("repository") or {}).get("nameWithOwner") != repo_full:
             continue
         if item["type"] == "PULL_REQUEST":
-            # 看板不收 PR item，对账时清除误入项
             parts.append(
                 f'deleteProjectV2Item(input: {{projectId: "{PROJECT_ID}", itemId: "{item["id"]}"}})'
                 " { clientMutationId }"
@@ -279,7 +274,6 @@ def sync_all() -> None:
 
     _run_mutation_parts(parts)
 
-    # auto-add 或事件同步失败时 open issue 可能不在看板上，对账时补入
     missing = _open_issue_numbers() - board_numbers
     for number in sorted(missing):
         sync_issue(number)

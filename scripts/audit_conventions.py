@@ -477,7 +477,6 @@ def check_private_imports(root: Path, out: list[Violation]) -> None:
             if not module or not is_local_module(module):
                 continue
             for alias in node.names:
-                # 私有子模块（如 `from server.routers import _validators`）是模块不是符号，不算
                 if _is_private_name(alias.name) and not is_local_module(f"{module}.{alias.name}"):
                     guidance = (
                         f"`{alias.name}` 是 `{module}` 的私有名：把它在定义处改成公开名 `{alias.name.lstrip('_')}`，"
@@ -487,7 +486,6 @@ def check_private_imports(root: Path, out: list[Violation]) -> None:
 
 
 HARD_DELETE_SCAN_GLOBS = ("lib/**/*.py", "server/**/*.py", "packages/*/src/**/*.py")
-# 项目回收站与已删除项目模块本身负责真正删除（彻底删除、清空、过期清理）
 HARD_DELETE_EXEMPT: frozenset[Path] = frozenset(
     {Path("lib/project/project_trash.py"), Path("lib/project/deleted_projects.py")}
 )
@@ -500,7 +498,6 @@ HARD_DELETE_CATEGORIES = {
 }
 _HARD_DELETE_TAG = re.compile(r"#\s*hard-delete:\s*(?P<category>[\w-]*)(?P<rest>.*)")
 _ANY_DELETE_ATTRS = frozenset({"unlink", "rmdir", "rmtree"})
-# list.remove、set.remove 等同名方法太多，remove 只认 os.remove / aiofiles.os.remove
 _OS_DELETE_ATTRS = frozenset({"remove", "removedirs"})
 
 
@@ -530,7 +527,6 @@ def _delete_bindings(tree: ast.AST) -> _DeleteBindings:
 
 
 def _is_delete_ref(node: ast.AST, bindings: _DeleteBindings) -> bool:
-    # 只认读取：给同名变量赋值不是删除
     if not isinstance(node, ast.Name | ast.Attribute) or not isinstance(node.ctx, ast.Load):
         return False
     if isinstance(node, ast.Name):
@@ -624,7 +620,6 @@ ROOT_FIXTURE_PATCHED = {
     "lib.catalog.query": frozenset({"factory_snapshot"}),
     "lib.catalog.lifecycle": frozenset({"utc_today"}),
 }
-#: 有意读真实函数的用例：核对出厂快照本身的格式与可加载性。
 ROOT_FIXTURE_PATCHED_EXEMPT = frozenset({Path("tests/unit/lib/catalog/test_factory_snapshot.py")})
 
 

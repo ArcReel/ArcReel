@@ -58,7 +58,6 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "chore: sync skills from ArcReel/ArcReel"
-            # 分支名取自 checkout 落地的本地分支（ArcReel/skills 的默认分支）
             branch=$(git rev-parse --abbrev-ref HEAD)
             git push "https://x-access-token:${PUSH_TOKEN}@github.com/ArcReel/skills.git" "HEAD:refs/heads/${branch}"
           fi

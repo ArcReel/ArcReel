@@ -31,9 +31,6 @@ PROJECT = "demo"
 API = "/api/v1"
 ASSET_MIX = (12, 10, 8)
 ENDPOINTS = ("project", "cost", "wf_status", "wf_plan", "units")
-# 「同一份聚合计算同时在算的份数」按真正做计算的函数计数，与请求是否合流无关。
-# 只有项目详情与费用估算会合流；其余接口一次请求就是一份计算，按在途请求数统计。
-# 函数改名或挪动时同步改这里，找不到时 install 会直接报错。
 COMPUTE_MARKERS = {
     "project": ("lib.workflow.workflow_state", "WorkflowStateService", "get_project_summary"),
     "cost": ("server.services.admission.cost_estimation", "CostEstimationService", "compute"),
@@ -617,8 +614,6 @@ def new_request(name: str, started: float) -> dict[str, Any]:
     }
 
 
-# ---------------------------------------------------------------- 栈采样
-# 叶子帧落在这些位置的线程视为空闲：等队列、等锁、等 IO 多路复用，以及 aiosqlite 工作线程在 C 层等队列。
 _IDLE_LEAVES = {
     ("threading.py", "wait"),
     ("queue.py", "get"),
@@ -645,7 +640,6 @@ class StackSampler(threading.Thread):
 
     @staticmethod
     def _frame_label(frame) -> str:
-        # 用模块名而非文件名：不同包下的同名文件（如两个 utils.py）不会并成一个热点。
         code = frame.f_code
         module = frame.f_globals.get("__name__") or os.path.basename(code.co_filename)
         return f"{module}:{code.co_qualname}"

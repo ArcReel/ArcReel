@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Regression tests for actionable findings delivered only in reviewer bodies.
 
 set -euo pipefail
 

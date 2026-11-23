@@ -2,13 +2,11 @@ FROM node:24-slim AS frontend-builder
 
 WORKDIR /build/frontend
 
-# 启用 corepack；pnpm 版本由 frontend/package.json 的 packageManager 字段固定
 # 关闭交互式下载确认，否则 docker build 这种非 TTY 环境会卡在
 # "Corepack is about to download ..." 直到超时
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 
-# 先复制依赖文件，利用缓存（corepack 按 packageManager 字段自动下载对应 pnpm）
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
@@ -17,7 +15,6 @@ RUN pnpm build
 
 FROM python:3.12-slim AS production
 
-# 安装系统依赖，并把基础镜像预装的系统包升级到当前仓库版本。
 # APT_REFRESH 由 CI 按 ISO 周传入，值变化时本层缓存失效，保证系统包定期刷新
 # git：Agent 派发子智能体时可以要求 worktree 隔离，Claude Code 先用 git 校验 WorktreeCreate 钩子
 # 返回的项目目录，缺少 git 就拒绝隔离，这次派发随之失败（钩子见 agent_runtime_profile/.claude/settings.json）
@@ -43,7 +40,6 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1
 
-# 默认时区，可由 docker-compose / 运行时 -e TZ=... 覆盖
 ENV TZ=Asia/Shanghai
 
 # 先复制依赖和包元数据文件，利用缓存；workspace 子包作为依赖随这一步安装，源码须先就位
@@ -64,7 +60,6 @@ COPY LICENSES/ LICENSES/
 
 COPY --from=frontend-builder /build/frontend/dist/ frontend/dist/
 
-# 构建 commit 由 CI 传入，/health 据此返回运行版本；放在最后，值每次变化也不影响前面的层缓存
 ARG BUILD_COMMIT=
 ENV ARCREEL_BUILD_COMMIT=${BUILD_COMMIT}
 

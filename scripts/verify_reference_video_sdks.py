@@ -169,7 +169,6 @@ async def run_once(
     start = time.monotonic()
     try:
         await backend.generate(request)
-        # 防 false-positive：backend 返回成功但视频文件未落盘 / 为空时应判 FAIL
         if not out_path.exists() or out_path.stat().st_size == 0:
             raise RuntimeError(f"output video missing or empty: {out_path}")
         return RunResult(
@@ -250,7 +249,6 @@ async def run_with_backend(
     )
     report_dir.mkdir(parents=True, exist_ok=True)  # noqa: ASYNC240 -- 一次性脚本创建报告目录，本地元数据
     fname = report_dir / f"reference-video-sdks-{date.today():%Y-%m-%d}.md"
-    # 多次运行追加模式：读原文件剥离 header、合并行
     existing_rows: list[str] = []
     if fname.exists():
         existing = fname.read_text(encoding="utf-8").splitlines()

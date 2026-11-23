@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
-# test_triage_hint.sh — regression test for poll.sh's `triage_hint`: present exactly when a
-# batch of new findings awaits judgment, and carrying the convergence reminder from round 3.
-#
-# USAGE
-#   bash test_triage_hint.sh
-#
-# Defs are extracted verbatim from poll.sh so the shipped functions are exercised. Inputs
-# are minimal snapshot shapes carrying only the fields has_new_findings reads.
 
 set -euo pipefail
 

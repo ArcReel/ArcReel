@@ -1,9 +1,7 @@
-# Docusaurus 构建产物与缓存
 /build/
 /.docusaurus/
 /node_modules/
 
-# 构建时从仓库根 CONTRIBUTING.md 复制而来（scripts/sync-contributing.mjs），真相源在仓库根
 /docs/dev/contributing.md
 
 .pnpm-store/

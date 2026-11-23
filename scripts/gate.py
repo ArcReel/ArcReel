@@ -71,7 +71,6 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
     ),
     "frontend": (Step(("pnpm", "check"), ROOT / "frontend"),),
     "website": (Step(("pnpm", "check"), ROOT / "website"),),
-    # 页面级套件的接口替身与录制日期、出厂快照、版本号无关：两个后端各录一次比对，不写文件。
     "e2e-record": (Step(("pnpm", "e2e:record:check"), ROOT / "frontend"),),
 }
 
@@ -91,8 +90,7 @@ BACKEND_TRIGGERS = (
     "packages/*",
     "pyproject.toml",
     "uv.lock",
-    ".gitignore",  # ruff 的文件发现尊重 gitignore
-    # 后端契约测试直接读取的前端源文件
+    ".gitignore",
     "frontend/src/i18n/*/dashboard.ts",
     "frontend/src/i18n/*/events.ts",
     "frontend/src/types/workflow.ts",
@@ -105,9 +103,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
     "catalog-core": ("packages/arcreel-catalog-core/*",),
     "workflows": (".github/*", ".pre-commit-config.yaml"),
     "frontend": ("frontend/*",),
-    # CONTRIBUTING 与两个 README 同样受文档站翻译检查约束。
     "website": ("website/*", "CONTRIBUTING.md", "README.md", "README.en.md"),
-    # 替身漂移的来源是录制后端读到的输入，后端的任何改动都可能带进来；另加录制脚本自身。
     "e2e-record": (
         *BACKEND_TRIGGERS,
         "frontend/e2e/record-fixtures.ts",
@@ -132,7 +128,6 @@ def select_domains(paths: Iterable[str]) -> list[str]:
 
 
 def _vcs(root: Path, *args: str) -> str:
-    # 路径按 UTF-8 解码，不随平台区域编码变；非 UTF-8 字节用 surrogateescape 保留原样。
     completed = subprocess.run(
         ("git", *args),  # noqa: S607 -- 开发者环境的 git 本就经 PATH 查找
         cwd=root,
@@ -178,7 +173,6 @@ def _write_holder(handle: IO[str] | None, note: str) -> None:
 def _acquire_gate_lock() -> portalocker.Lock:
     """拿到机器级锁后返回；别人持有时每秒重试，只在开始排队时打印一次。"""
     LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # 持有者说明含非 ASCII 字符，读写两端都显式用 UTF-8，避开 Windows 的区域默认编码。
     lock = portalocker.Lock(LOCK_PATH, mode="a", encoding="utf-8")
     waited_from = time.monotonic()
     announced = False

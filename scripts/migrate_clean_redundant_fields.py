@@ -39,7 +39,6 @@ def migrate_project(project_dir: Path, dry_run: bool = False) -> dict:
 
         original = json.dumps(project)
 
-        # 移除 status 对象（改为读时计算）
         if "status" in project:
             stats["fields_removed"].append("project.json: status")
             if not dry_run:

@@ -8,12 +8,10 @@ requires-python = ">=3.12"
 dependencies = [
     "claude-agent-sdk>=0.2.177",
     "fastapi>=0.138.2",
-    # fastapi 未 re-export 的 ASGI 类型与 MutableHeaders / FormData / UploadFile 直接取自 starlette。
     "starlette>=1.8.0",
     "google-genai>=2.21.0",
     "Pillow>=12.1.1",
     "pydantic>=2.12.5",
-    # pydantic 未 re-export 的 ErrorDetails / PydanticCustomError 直接取自 pydantic-core。
     "pydantic-core>=2.46.4",
     "PyYAML>=6.0.3",
     "python-dotenv>=1.2.1",
@@ -47,9 +45,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "arcreel-market-core",
     "arcreel-catalog-core",
-    # 随包分发的 ffmpeg，经 lib/infra/ffmpeg.py 的查找器取用；不依赖系统 ffmpeg / ffprobe。
     "imageio-ffmpeg>=0.6.0",
-    # 1.x 改用 httpx2，respx 与基于 httpx 的自定义 transport 拦截不到；约束见 docs/agents/dependencies.md。
     "anthropic>=0.125.0,<1",
     "tos>=2.9.3",
 ]
@@ -75,8 +71,6 @@ dev = [
     "tree-sitter-language-pack==0.13.0",
     "tree-sitter>=0.25,<0.27",
 ]
-# 变异测试工具，不进 dev：只在按批次跑 mutmut 时 `uv sync --group mutation` 装入。
-# 独立成组是为了让版本 pin 进 uv.lock、被 dependabot 看到；流程见 docs/testing/mutmut-runbook.md。
 mutation = [
     "mutmut==3.7.0",
 ]
@@ -99,14 +93,10 @@ packages = ["lib", "server"]
 testpaths = ["tests"]
 addopts = "--strict-markers --durations=25"
 asyncio_mode = "auto"
-# 卡死保护，不是耗时预算：当前最慢用例 30s，留 4 倍余量。个别用例需要更大预算时用
-# `@pytest.mark.timeout(N)` 单独放宽，不抬全局值。
 timeout = 120
 # signal 法对 async 与 sync 用例均生效，超时表现为普通 failure（会话继续、teardown
 # 正常、可归因）；thread 法以 os._exit 硬杀进程，xdist 下等价于 worker crash。
 timeout_method = "signal"
-# 并行不写进 addopts，只在 CI 命令里显式开（-n 4 --dist loadfile）：小选集并行更慢，
-# 每 worker 重新 import server.app 的固定开销吃掉全部收益，而本地调试几乎都是小选集。
 markers = [
     "unit: 快速、隔离的测试；可只读访问仓库内已提交的文件，写文件只落在 tmp_path，不触达真实 DB、子进程、网络或外部服务",
     "integration: 跨模块真实协作测试；禁止 mock 被测 module 的公共入口（否则是在测 mock 本身）",
@@ -129,18 +119,9 @@ exclude_lines = [
 ]
 
 [tool.importlinter]
-# server 进入分析范围，「核心库不依赖服务端」才看得见跨包的边；arcreel_market_core 进入分析范围，
-# 「子包不依赖主仓」才看得见它指向 lib / server 的边。外部包只作叶子节点计入，供「核心库不依赖
-# HTTP 框架」点名 fastapi / starlette。
 root_packages = ["lib", "server", "arcreel_market_core", "arcreel_catalog_core"]
 include_external_packages = true
 
-# lib.config < lib.backends.*_backends < lib.custom_provider < lib.market：config 是配置解析的基础层，backends
-# 在其上组装出各供应商实现，custom_provider 再在 backends 之上拼装自定义供应商，market（市场的客户端侧：
-# 源登记、条目服务、安装记录）把条目装成自定义端点，位于最上层。四层都在 arcreel_market_core 之上，
-# 子包是最底层，见下方「arcreel_market_core 不依赖主仓」。四个 backend 包为同层 sibling（`:` 分隔），彼此引用
-# 契约（如图像通道取 video_backends.base 的 IMAGE_MIME_TYPES）不算方向违规；共用的运行支持在
-# lib.backends.backend_runtime，不属于任何一层。
 # ignore_imports 是存量违规的 baseline，逐条掐的是**违规链的终端边**而非首跳，这样中间模块
 # （project_manager / usage_repo 等）后续新增的反向依赖仍会被契约拦下。
 # 新增条目前先确认该边无法就地清零；清零一条即删一行。
@@ -165,17 +146,13 @@ ignore_imports = [
     "lib.backends.backend_assembly.specs -> lib.backends.image_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.video_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.text_backends.registry",
-    # 声明式内置端点的装配接缝（ADR 0039）：spec 行按 registry_backend="declarative" 从
-    # 随版定义读能力与构造 backend，spec 表因此同时够到 backend 层与 custom_provider 层。
     "lib.backends.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.declarative_backend",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.endpoints",
-    # 内置供应商下用户添加的模型叠加通道事实的能力覆盖，与自定义供应商共用同一个合并点（docs/adr/0104）
     "lib.backends.backend_assembly.specs -> lib.custom_provider.capabilities",
     "lib.project.project_manager -> lib.backends.text_backends.base",
     "lib.backends.text_generator -> lib.backends.text_backends.base",
     "lib.backends.text_generator -> lib.backends.text_backends.factory",
-    # 中间模块反向引用 custom_provider（provider_id 解析与自定义供应商记账）
     "lib.backends.backend_assembly.assembler -> lib.custom_provider",
     "lib.backends.backend_assembly.assembler -> lib.custom_provider.loader",
     "lib.billing.multipliers -> lib.custom_provider",
@@ -186,13 +163,6 @@ ignore_imports = [
     "lib.db.models.custom_provider -> lib.custom_provider",
 ]
 
-# ComfyUI 端点定义不经声明式运行时（docs/adr/0081）：两种 kind 的定义不同构，共用的只有诊断载体、
-# 诊断翻译与 kind 常量三件事。comfyui 一侧一旦够到声明式的模板引擎、取值路径或它的校验实现，就是把
-# 「JSON in/out + 提交 / 轮询」的假设搬进节点图这一侧，保存期与填值期从此各说各话。反向也不许：
-# 分派表在 endpoint_definition.validator，它 import comfyui.validator 是唯一允许的方向。
-# comfyui 一侧有两处：定义契约与保存期判定在 arcreel_market_core.comfyui，客户端、执行与两条调用通道
-# 在 lib.custom_provider.comfyui。连间接依赖一起查：它们用到的调用通道运行支持
-# （lib.backends.backend_runtime）与视频契约（arcreel_market_core.video_backend_contract）都够不到声明式运行时。
 [[tool.importlinter.contracts]]
 name = "ComfyUI 端点实现不依赖声明式运行时"
 type = "forbidden"
@@ -205,27 +175,18 @@ forbidden_modules = [
     "arcreel_market_core.endpoint_definition.jsonpath_subset",
 ]
 
-# arcreel_market_core 是最底层：市场源工具与端点定义校验器被市场源仓库的 CI 与官方服务单独安装，
-# 装不到 ArcReel 应用的其余部分。子包需要应用侧能力（翻译目录、共享 HTTP 客户端）时由调用方以参数
-# 注入，主仓依赖子包，反向一律不许。
 [[tool.importlinter.contracts]]
 name = "arcreel_market_core 不依赖主仓"
 type = "forbidden"
 source_modules = ["arcreel_market_core"]
 forbidden_modules = ["lib", "server"]
 
-# arcreel_catalog_core 同为最底层：目录数据的格式与校验器被目录数据仓库的 CI 单独安装，
-# 只依赖标准库，主仓依赖子包，反向一律不许。
 [[tool.importlinter.contracts]]
 name = "arcreel_catalog_core 不依赖主仓"
 type = "forbidden"
 source_modules = ["arcreel_catalog_core"]
 forbidden_modules = ["lib", "server", "arcreel_market_core"]
 
-# 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
-# （draft_quarantine）、正式 script_plan 的路径与写禁表（episode_paths）、已登记引用名的
-# 构造入口（reference_catalog）对 drama / narration / reference_video 一视同仁，任一处
-# import lib.script.reference_video 都是把三条路线共用的机制绑在其中一条上。
 # lib.script.script_review 不在列：它另有一条 lib.script.reference_video.duration_migration 的依赖（参考
 # 生视频专属的时长收编），纳入就要加 baseline 掩盖，那等于让契约声明一件它此刻并不成立的事。
 # lib.script.script_references 同理不在列：它按设计依赖 lib.script.reference_video.text_parser——「引用名落在
@@ -241,8 +202,6 @@ source_modules = [
 ]
 forbidden_modules = ["lib.script.reference_video"]
 
-# 视频请求事实是两条视频路线共用的求值入口（docs/adr/0086），不得直接 import 参考生视频子包。
-# 本契约只检查直接依赖，不检查经 lib.config.resolver → lib.project.project_manager 的间接项目加载链。
 [[tool.importlinter.contracts]]
 name = "视频请求事实不依赖参考生视频子包"
 type = "forbidden"
@@ -250,17 +209,12 @@ source_modules = ["lib.generation.video_request_facts"]
 forbidden_modules = ["lib.script.reference_video"]
 allow_indirect_imports = true
 
-# 核心库与服务端的分界（website/docs/dev/architecture.md「核心库与服务端的分界」）：核心库是领域逻辑与
-# 基础设施，服务端是交付层与多入口共用的用例编排，依赖只能由服务端指向核心库。核心库需要服务端的
-# 能力时（如生成 Worker 的任务执行器与续跑执行器），由应用装配处（server/app.py）注入。
 [[tool.importlinter.contracts]]
 name = "核心库不依赖服务端"
 type = "forbidden"
 source_modules = ["lib"]
 forbidden_modules = ["server"]
 
-# 核心库不知道 HTTP 的存在：请求级的语言解析、依赖注入等框架胶水归服务端（server.i18n 等）。
-# 只查核心库自己写下的 import——经由服务端间接够到框架的链已由上一条契约拦住。
 [[tool.importlinter.contracts]]
 name = "核心库不依赖 HTTP 框架"
 type = "forbidden"
@@ -268,8 +222,6 @@ allow_indirect_imports = true
 source_modules = ["lib"]
 forbidden_modules = ["fastapi", "starlette"]
 
-# Agent 工具集的声明、信封与 handler 宿主无关（docs/adr/0087）：宿主 SDK 只出现在内嵌与远程两个 adapter 里。
-# 只查这些模块自己写下的 import。
 [[tool.importlinter.contracts]]
 name = "Agent 工具集声明不依赖宿主 SDK"
 type = "forbidden"
@@ -303,14 +255,10 @@ source_modules = [
 forbidden_modules = ["claude_agent_sdk", "mcp"]
 
 [tool.deptry]
-# 扫描范围与 basedpyright 的 include 对齐：核心库、服务端、迁移基础设施、脚本与测试。
-# exclude 是 deptry 默认值去掉 tests（测试的 import 也要参与依赖卫生判定）再补上 worktree 目录。
 exclude = ["venv", "\\.venv", "\\.direnv", "\\.git", "setup\\.py", "\\.worktrees", "\\.claude/worktrees"]
 known_first_party = ["lib", "server", "alembic", "scripts", "tests"]
 
 [tool.deptry.per_rule_ignores]
-# DEP002（声明了但无 import）——全部是靠 entry point / 后端注册被运行时加载的插件，
-# 源码里不会出现 import。
 DEP002 = [
     "aiosqlite",        # SQLAlchemy 的 sqlite+aiosqlite 异步驱动
     "asyncpg",          # SQLAlchemy 的 postgresql+asyncpg 异步驱动
@@ -320,8 +268,6 @@ DEP002 = [
     "mutmut",           # 变异测试 CLI，源码不 import 它；变异后的模块只在 mutants/ 副本里 import
     "pytest-testmon",   # pytest 插件，经 entry point 加载；按改动选测试，用法见 docs/agents/testing.md
 ]
-# DEP004（import 了 dev 依赖）——tests/ 与 scripts/ 在扫描范围内，deptry 无法按目录区分
-# dev 与生产文件，故逐项列出它们正当 import 的测试框架包；其余 dev 依赖仍受本规则守护。
 DEP004 = [
     "anyio",          # 回归测试直接构造 httpx 所用的 anyio 取消域
     "pytest",
@@ -334,9 +280,7 @@ DEP004 = [
 
 [tool.ruff]
 line-length = 120
-# 子包是 src 布局：列进 src 让 isort 把 arcreel_market_core、arcreel_catalog_core 识别为第一方。
 src = [".", "packages/arcreel-market-core/src", "packages/arcreel-catalog-core/src"]
-# .agents/skills 是按 skills-lock.json 安装的外部 skill，随上游更新，不套本仓规则。
 exclude = [".worktrees", ".claude/worktrees", ".agents/skills"]
 
 [tool.ruff.lint]
@@ -344,7 +288,6 @@ select = [
     "E", "F", "I", "UP", "B", "C4", "PIE", "PT", "RET", "PERF", "RUF", "SIM", "ASYNC",
     "TID251", "PLW1514", "S108", "S602", "S604", "S605", "S607",
 ]
-# RUF001-003：中文注释与文案里的全角标点被判为「易混淆 unicode」，对中文仓库是纯噪音。
 ignore = ["E402", "E501", "RUF001", "RUF002", "RUF003"]
 # PLW1514 只在 preview 中提供，explicit-preview-rules 保证其他规则不受 preview 影响。
 preview = true
@@ -357,12 +300,10 @@ explicit-preview-rules = true
 "asyncio.create_subprocess_shell".msg = "命令经 shell 解析，Windows 上行为不同且有注入风险。改用 asyncio.create_subprocess_exec 并传 list 参数"
 
 [tool.ruff.lint.per-file-ignores]
-# 测试里的 /tmp 是假路径字符串，测试调用 git 依赖 PATH 是预期行为。
 "tests/**" = ["S108", "S607"]
 "packages/*/tests/**" = ["S108", "S607"]
 
 [tool.ruff.lint.flake8-bugbear]
-# FastAPI 依赖注入以「参数默认值处调用」为惯用法，B008 对其属误报；登记后无需逐处 noqa。
 extend-immutable-calls = [
     "fastapi.Body",
     "fastapi.Cookie",
@@ -436,9 +377,6 @@ reportPrivateUsage = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"
 reportUnknownVariableType = "none"
-# 以下规则在测试域不做闸门：测试里 repo/manager 调用通常断言式访问，narrow 噪声大；
-# mock 返回也常被 subscript。闸门跑 `basedpyright --warnings` 后 warning 即阻断，
-# 故这批降级写成 none 才是「测试域不做闸门」这一既有决策的诚实表达。
 reportArgumentType = "none"
 reportAttributeAccessIssue = "none"
 reportOptionalSubscript = "none"
@@ -447,7 +385,6 @@ reportOptionalIterable = "none"
 reportOperatorIssue = "none"
 reportOptionalCall = "none"
 
-# 子包测试与主仓 tests/ 同一口径；辅助模块经 pytest 的 pythonpath 导入，这里同样列进 extraPaths。
 [[tool.basedpyright.executionEnvironments]]
 root = "packages/arcreel-market-core/tests"
 extraPaths = ["packages/arcreel-market-core/tests"]
@@ -472,8 +409,6 @@ root = "alembic"
 # alembic 模板里的 `from alembic import context` 等运行期注入符号静态不可解析，此域不做闸门
 reportMissingImports = "none"
 
-# scripts/ 是一次性辅助脚本（迁移、生成 fixture、烟雾测试），
-# 不值得花大力气做类型，但 tests/scripts/ 会 import 它们，所以必须可解析
 [[tool.basedpyright.executionEnvironments]]
 root = "scripts"
 reportArgumentType = "none"
@@ -490,19 +425,11 @@ reportPossiblyUnboundVariable = "none"
 reportGeneralTypeIssues = "none"
 reportCallIssue = "none"
 reportIndexIssue = "none"
-# 脚本用 sys.path 注入后再 import，静态不可解析，此域不做闸门
 reportMissingImports = "none"
 
-# 变异测试（mutmut 3.7.0）。不进 dev 依赖，按需 `uv run --with mutmut==3.7.0 mutmut run`。
-# 变异得分是信号不是闸门：不为杀死变异体补写测试，只用存活 mutant 筛选待审查的测试。
 [tool.mutmut]
-# 操作流程（跑一批、超时复核、三层验收、已知陷阱）见 docs/testing/mutmut-runbook.md；这里只写配置项的取舍。
 # 必须显式写：不写时 mutmut 只推断出 lib/，漏掉 server/
 source_paths = ["lib", "server"]
-# 按批次填写待变异模块；留空则变异 source_paths 全域（一轮数小时，不实用）
-# only_mutate = ["lib/speech/speech_rate.py"]
-# tests.mutmut_plugin 给每个 mutmut 会话一个私有 basetemp，让并行子进程收尾时不再竞争共享根下的软链；
-# 它只在这里加载，本地与 CI 的 pytest 不带它。
 # tests/integration/lib/generation/test_task_failure_capability.py 里三个用例用 ast 扫 lib/ server/ 源码里的 capability code
 # 字面量并与登记表比对；mutants/ 里的源文件同时含全部字符串 mutant 变体（XXcodeXX / CODE），扫描必报「未登记」，
 # stats 阶段直接失败。凡读源码文本而非 import 模块的用例都要这样按 nodeid --deselect，不整文件 --ignore：

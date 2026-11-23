@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Bootstrap a clean project copy from current repository.
-# Runtime artifacts and local secrets are excluded by default.
-
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 <target_dir> [--init-git]"
   echo "Example: $0 ../ArcReel --init-git"

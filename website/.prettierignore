@@ -1,4 +1,3 @@
-# 文档正文与译文不参与格式化：
 # - 重排会使源文件与翻译锁记录的指纹不一致
 # - prettier 的 mdx parser 仍停留在 MDX v1 语义，可能改坏 Docusaurus 3 的 MDX v3 写法
 docs/

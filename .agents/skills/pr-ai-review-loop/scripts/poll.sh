@@ -1,242 +1,4 @@
 #!/usr/bin/env bash
-# poll.sh — pull all AI reviewer state for a PR in one shot; emit a MINIMAL INDEX on
-# stdout and stage the FULL SNAPSHOT to a temp file for query.sh (layer-2 lookups).
-#
-# USAGE
-#   bash poll.sh --repo-root <path> <PR_NUMBER>
-#
-# OUTPUT
-#   stdout   — minimal index JSON (schema below), semi-compact: containers expand one key
-#              per line, row objects stay on one line each. When the derived index is
-#              identical to the last fully-printed one, a single line replaces it:
-#                {no_change: true, head, last_push_at, unchanged_since, hint}
-#              unchanged_since = printed_at of the last full print, so it tells how long
-#              the state has been flat. Recover the full index anytime (e.g. after context
-#              compaction) via `query.sh <PR> index`. The comparison covers the DERIVED
-#              INDEX only; the snapshot is still refreshed every poll, so query.sh always
-#              reads current bodies. Errors to stderr prefixed `POLL_ERROR:`.
-#   snapshot — full-body JSON at ${TMPDIR:-/tmp}/pr-ai-review-loop-<uid>/poll-<owner>-<repo>-<PR>.json
-#              (user-private 0700 subdir), atomically overwritten on every poll. The snapshot
-#              carries no cross-round state: it materializes THIS poll's fetch and is fully
-#              rebuilt by re-running poll.sh. query.sh is its only intended reader.
-#   index    — last fully-printed index plus its printed_at, at <snapshot>.index.json;
-#              backs the no_change comparison and `query.sh index`.
-#   rounds   — per-PR round ledger written by round.sh at <snapshot>.rounds.json; poll.sh reads
-#              its entry count and the last marked_at (the pushback-only watermark, see PITFALL 8).
-#   seen     — per-PR ledger of every comment/review id observed by any earlier poll, at
-#              <snapshot>.seen.json; backs the straggler half of is_new (see PITFALL 6).
-#
-# WHY THE INDEX/SNAPSHOT LAYERS EXIST
-#   The looper's context budget is a first-class limit, alongside wall-clock time. Repeatedly
-#   injecting review bodies causes attention drift; once the looper loses the thread, the
-#   whole review loop must be handed to a fresh agent. Preserve these invariants:
-#   1. stdout is the smallest decision index: new body-bearing entries expose id, flags,
-#      and a 120-character preview; old entries collapse to counts; bodies never appear.
-#   2. the full text lives only in the snapshot and query.sh retrieves it by id on demand.
-#   3. a derived index identical to the previous full print collapses to `no_change`.
-#
-# INDEX SCHEMA (stdout)
-# {
-#   "pr": <int>,
-#   "pr_created_at": "<ISO8601>",                       # PR createdAt — distinct from last_push_at
-#   "head": "<sha>",                                    # current PR head commit SHA
-#   "last_push_at": "<ISO8601>",                        # head commit committer date — see PITFALL 1
-#   "rounds": <int>,                                    # disposed feedback batches recorded by `round.sh mark`
-#                                                       # (0 until the first mark) — the convergence budget counter
-#   "triage_hint": "<str>",                             # present only while has_new_findings holds (a non-ack new
-#                                                       # inline, a new CodeRabbit review, or a new Codex body finding):
-#                                                       # points back to SKILL「工程判断」 at the moment a batch is
-#                                                       # judged; from rounds >= 3 it also points to「收敛」
-#   "snapshot_file": "<path>",                          # full snapshot staged for query.sh
-#   "coderabbit": {
-#     "walkthrough": {                                  # CR's first comment (auto-edited each review)
-#       "id":                    <int>,                 # REST issue comment id — stable across rewrites
-#       "created_at", "updated_at",
-#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited or skipped AND the
-#                                                       # walkthrough's own commit anchor (or, failing that, the
-#                                                       # latest CR review's commit) matches the head
-#       "walkthrough_head":      "<sha>" | null,        # commit anchor parsed from the walkthrough body — the only
-#                                                       # anchor CR advances on incremental reviews (see PITFALL 9)
-#       "latest_review_commit":  "<sha>" | null,        # commit anchor of the latest CR review (contradiction check)
-#       "is_ok":                 <bool>,                # CR explicit pass marker
-#       "is_paused":             <bool>,                # CR paused for this PR
-#       "is_rate_limited":       <bool>,                # walkthrough body IS CR's rate-limit banner — not a review
-#       "is_review_skipped":     <bool>,                # walkthrough body IS CR's skip notice (draft, bot author) — not a review
-#       "is_in_progress":        <bool>,                # CR still processing — don't declare PASS yet
-#       "actionable_count":      "<n>" | null           # parsed from "Actionable comments posted: N"
-#     },
-#     "reviews":          [{id, submittedAt, state, has_outside_diff, is_new, preview}],
-#     "reviews_history":  {total, last_submitted_at},
-#     "comments_new":     [{id, createdAt, preview}],   # this-round new non-walkthrough comments
-#     "comments_history": {total, last_created_at}      # older ones collapsed to counts ({total: 0} when empty)
-#   },
-#   "codex": {
-#     "started_current_head": <bool>,                   # Codex has picked up the current HEAD (see FLAG SEMANTICS)
-#     "failed_current_head":  <bool>,                   # Codex's summary reports the review of the current HEAD as failed
-#     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head,
-#                            has_body_finding, is_new, preview}], # listed while is_new OR reviewed_current_head
-#     "reviews_history":  {total, last_submitted_at},
-#     "comments_new":     [{id, createdAt, reviewed_commit, reviewed_current_head,
-#                            has_pass_marker, is_new, preview}], # top-level clean-pass path; same listing rule
-#     "comments_history": {total, last_created_at},
-#     "reactions":        [{content, created_at, is_new}] # eyes = reviewing current HEAD; +1 = silent pass
-#   },
-#   "inline_new_by_user":     {"<bot[bot]>": [{id, path, created_at, severity_alt, cr_markers,
-#                                              is_ack, preview}]},   # id = REST PR review comment id; severity_alt
-#                                                       # omitted when null, cr_markers omitted when empty
-#   "inline_history_by_user": {"<bot[bot]>": {total, acked, last_created_at}},  # collapses to {total: 0} when empty
-#   "codeql_checks": {                                  # CodeQL analysis summary for current HEAD (Analyze (*) /
-#     "total": <int>,                                   # codeql-required / CodeQL runs, or runs owned by the scanning
-#     "all_ok": <bool>,                                 # apps). all_ok = total > 0 AND all completed AND none failing —
-#     "pending": [{name, app, status}],                 # the exit-gate bit; total == 0 alone is never a pass.
-#     "failing": [{name, app, conclusion}]              # failing-ish conclusion (set: see checks_failing below).
-#   },                                                  # Same-name suite reruns are collapsed in-script to the latest
-#                                                       # run per name (by started_at; full rows incl. started_at stay
-#                                                       # in the snapshot) so a superseded failure cannot pin them red
-#   "checks_failing": [{name, conclusion}],             # check runs on current HEAD with a failing-ish conclusion —
-#                                                       # the failing set: failure/timed_out/cancelled/action_required/
-#                                                       # startup_failure (single source of truth for "failed check")
-#   "security_alerts": {                                # code scanning alerts exit gate — see PITFALL 7
-#     "available": <bool>,                              # false = alerts API unreachable; gate must degrade.
-#     "unavailable_hint": "<str>" | null,               # first lines of the gh errors when available=false (GitHub
-#                                                       # returns 404 for missing permissions too — hint, not proof);
-#                                                       # omitted when available == true. pr_ref ("refs/pull/<n>/merge")
-#                                                       # is snapshot-only — always omitted from the index
-#     "open_introduced": [{number, rule, severity, security_severity, tool, path, url}]
-#   },
-#   "quota_alerts": [...],                              # PR-level issue comments matching quota-error phrases
-#   "own_trigger_comments": [{author, createdAt, command, has_codex_eyes}] # human-authored trigger commands — see PITFALL 4
-# }
-#
-# FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name).
-# Judgments wait.sh also needs (rate limit, skip, pause, quota, pass marker, failing
-# conclusion) are defined once in signals.jq and included by both scripts.
-#   is_new                 new this round: created_at/submittedAt > max(last_push_at, last round's marked_at)
-#                          (PITFALL 2 and 8), OR id absent from the seen ledger (straggler catch, PITFALL 6)
-#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND
-#                          is_review_skipped == false AND a commit anchor
-#                          matches the head: walkthrough_head when the body carries one, else the latest CR
-#                          review's commit (null = no evidence either way, timestamp rule alone). CR rewrites its
-#                          first comment each review — but a rate-limit banner rewrite also advances updated_at
-#                          without reviewing anything, and a slow review of an older HEAD rewrites it after the
-#                          next push, so neither must read as "reviewed"; a skip notice (draft, bot author)
-#                          rewrites it the same way. On codex review/comment rows:
-#                          reviewed_commit (REST review commit_id, else the body's "Reviewed commit" sha) vs
-#                          headRefOid (timestamp > last_push_at only as fallback when no commit is known) — a
-#                          straggler or slow review of an older HEAD surfaces as is_new but must not read as
-#                          current-HEAD (see PITFALL 6)
-#   is_rate_limited        walkthrough body carries CR's dedicated rate-limit banner marker (same match as
-#                          quota_alerts) — the current walkthrough is a rate-limit notice, not a review
-#   is_review_skipped      walkthrough body carries CR's skip-review marker for a reason other than "no
-#                          reviewable changes" (draft, bot author) — the head was never reviewed. A "no
-#                          reviewable changes" skip counts as coverage of the head its newest "📥 Commits"
-#                          range line names; walkthrough_head reads that range line instead of the marker
-#   is_ack                 reviewer acknowledgment of a fix or inline reply (never actionable): body carries a
-#                          <review_comment_addressed>/<review_comment_withdrawn> marker or starts with "### Summary"
-#   cr_markers             CodeRabbit tag tokens found in the first 300 chars of a body (literal match):
-#                            potential_issue "_⚠️ Potential issue"     major     "_🟠 Major"
-#                            refactor        "_🛠️ Refactor suggestion" minor     "_🟡 Minor"
-#                            verification    "_💡 Verification agent"  trivial   "_🔵 Trivial"
-#                            nitpick         "_🧹 Nitpick"             low_value "_💤 Low value"
-#   severity_alt           Codex "Pn Badge" from the inline badge image alt text
-#   has_pass_marker        Codex top-level comment is the clean-pass "Codex Review: Didn't find any major
-#                          issues." (any case; leading HTML comments ignored)
-#   started_current_head   Codex has picked up the current HEAD: a PR reaction after last_push_at, a review
-#                          or comment row with reviewed_current_head, its summary comment naming the head
-#                          as the commit under review, or eyes on an @codex review trigger posted after
-#                          last_push_at; reactions count only when the reactor is
-#                          chatgpt-codex-connector[bot] — anyone else's eyes never register. false after a
-#                          push means Codex has not started on that head (reviewers.md: when to trigger).
-#                          Always false while failed_current_head holds
-#   failed_current_head    Codex's summary comment names the head and reports its code review as failed:
-#                          nothing was reviewed and Codex will not retry by itself
-#   has_outside_diff       CodeRabbit review body carries one or more "Outside diff range
-#                          comments" that could not be posted as inline comments
-#   has_body_finding       Codex review body itself carries a P0-P3 finding badge; this shape
-#                          has no guaranteed inline copy
-#   preview                first 120 chars of body after stripping HTML comments and markdown images, whitespace
-#                          collapsed — the eyeball safety net for flag misparses (flag vs preview conflict => fetch
-#                          full body via query.sh details and trust the body)
-#
-# SNAPSHOT SCHEMA — same tree as the index, except: `other_comments`/`comments`/`reviews`/
-#   `inline_comments_by_user` are FULL lists (no new/history split) with full `body` and `is_new`
-#   on every row, walkthrough keeps `body`, `commits` lists the PR commits ({oid,
-#   committedDate}), codex comment rows keep `summary_on_current_head` and `summary_failed_current_head`, own_trigger_comments
-#   keeps `body`, `codeql_checks` is the full row list ({name, app, status, conclusion,
-#   started_at, is_failing}) instead of the summary, plus top-level `repo` and `generated_at`
-#   for query.sh provenance.
-#
-# PITFALLS
-#
-# 1. last_push_at is the committer date of the head commit (the PR commit whose sha is the
-#    head; the last listed commit when the list is truncated), NOT the push time — the REST
-#    PR API does not surface push events. Amending or rebasing rewrites the committer date,
-#    so the watermark advances on a force push exactly as on an appended commit, and the
-#    index carries no field that compares commit dates with the PR creation time: after a
-#    rebase every commit postdates it. The commit is made before it is pushed, so anything a
-#    reviewer posts on the previous head in between (while the gate runs) sorts after
-#    last_push_at; rows with a commit anchor are still judged by the anchor, and a Codex
-#    reaction in that window is the one signal that can read as current-HEAD by mistake.
-#
-# 2. is_new uses `created_at > last_push_at`, NOT `commit_id == head`.
-#    CodeRabbit's old inline comments get their commit_id advanced when it re-reviews a new HEAD
-#    (in-place edit or thread re-link — exact mechanism unconfirmed). created_at is per-comment-stable.
-#
-# 3. Snapshot author.login omits the [bot] suffix; REST user.login
-#    retains it. Consumers must use the right form for each datum.
-#
-# 4. Trigger-command dedup matches comments that START with the command (case-insensitive,
-#    leading spaces/tabs tolerated, trailing text allowed). Prefix matching — not full-line —
-#    so a human-issued "@codex review (re: security fix)" still registers for dedup, while
-#    a comment merely MENTIONING a command mid-text does not (substring matching would
-#    swallow pushback comments that quote a command, silently suppressing real triggers).
-#    Leading whitespace is [ \t] only, NOT \s: \s matches \n, which would also register a
-#    command sitting on the second line after a blank first line — keep the matcher aligned
-#    with the documented contract (command at the very start of the comment).
-#
-# 5. Codex completion has four observed GitHub shapes: a review tied to the current commit,
-#    an empty-body COMMENTED review tied to that commit, a top-level clean-pass comment with
-#    `Reviewed commit`, or a +1 PR reaction after the last push. Keep all four: automatic
-#    review follows fix pushes and may use
-#    different shapes depending on whether it found another P0/P1 issue.
-#    The PR reaction is mutable: a new review replaces the previous +1 with eyes, naturally
-#    invalidating the previous pass while the current HEAD is under review.
-#
-# 6. Timestamp alone misses stragglers: a comment created between a poll and the looper's
-#    next push sorts before the refreshed last_push_at and would otherwise never surface as
-#    new. The seen ledger closes that window: an id no earlier poll has observed is new
-#    regardless of timestamp. First poll of a PR (no ledger yet) uses the timestamp rule
-#    alone so pre-loop history stays folded; reactions have no stable identity across
-#    replacement and stay timestamp-only. The ledger only ever grows within a PR, and is
-#    advanced only after the index has been stored and printed — an id acknowledged before
-#    a successful emission would fold the straggler into history unseen. is_new therefore
-#    means "surface this content", not "reviewed the current HEAD" — head-freshness stays
-#    timestamp/commit-based (reviewed_current_head).
-#    (This shrinks the miss window; the final-gate `unacked` sweep remains the backstop.)
-#
-# 7. security_alerts.open_introduced subtracts default-branch open alerts by alert number.
-#    The merge-ref analysis covers the whole codebase, so pre-existing alerts (e.g. scheduled
-#    Trivy scans on main) would otherwise block the exit gate forever. Alert numbers are
-#    repo-global and identical across refs, so a set difference on number is exact.
-#
-# 8. A batch disposed entirely by pushback pushes nothing, so last_push_at stands still and
-#    the timestamp half of is_new would keep re-surfacing the same comments as new every poll
-#    until the next push. round.sh mark stamps marked_at on every disposed batch; the freshness
-#    watermark is max(last_push_at, last marked_at), so a marked batch retires without a push.
-#    Stragglers created between the last poll and the mark are still caught by the seen ledger.
-#    Head-freshness (reviewed_current_head, reactions) stays push-based, and a review or
-#    comment row with reviewed_current_head == true stays listed (is_new false) after the
-#    mark retires it, so the current-HEAD status is still recoverable from the index.
-#
-# 9. CodeRabbit submits a review object (with a commit anchor) on the first pass only. Every
-#    later push gets an incremental review that rewrites the walkthrough comment in place and
-#    submits no new review, so the latest review's commit stays pinned to the first reviewed
-#    HEAD and can never equal a later head. The walkthrough body is the anchor that moves:
-#    its `change_assessment_commit` marker, its "📥 Commits" range line ("between <a> and
-#    <b>", b = reviewed head), and its `final_review_risk_coverage` coveredCommitId all name
-#    the reviewed head. walkthrough_head reads those (in that order) and takes precedence
-#    over the review anchor; the review anchor is only the fallback when the body has none.
-
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -266,8 +28,6 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 3
 fi
 
-# Snapshot dir: a user-private subdir (0700) keeps the predictable filename out of the
-# shared /tmp namespace on multi-user hosts (derivation shared via repo-context.sh).
 enter_snapshot_dir "POLL_ERROR" || exit $?
 
 # Stage gh output into temp files. Large PRs (dozens of comments) make --argjson
@@ -299,18 +59,13 @@ rest_pages "repos/${OWNER_REPO}/pulls/${PR}/commits" > "$WORKDIR/commits.json" 2
   exit 5
 }
 
-# REST pagination emits one JSON value per page; --slurpfile therefore
-# sees one array per page for array endpoints. Flatten paginated arrays with `add`.
 # user.login here is WITH [bot] suffix.
-
-# Sub-query A — REST issue comments, including CodeRabbit walkthrough updated_at.
 rest_pages "repos/${OWNER_REPO}/issues/${PR}/comments" > "$WORKDIR/sub_a.json" 2>"$WORKDIR/gh_issue_comments.err" || {
   echo "POLL_ERROR: REST issue comments fetch failed" >&2
   cat "$WORKDIR/gh_issue_comments.err" >&2
   exit 5
 }
 
-# Sub-query B — PR-level reactions (Codex silent +1 pass path).
 rest_pages "repos/${OWNER_REPO}/issues/${PR}/reactions" > "$WORKDIR/sub_b.json" 2>"$WORKDIR/gh_reactions.err" || {
   echo "POLL_ERROR: REST reactions fetch failed" >&2
   cat "$WORKDIR/gh_reactions.err" >&2
@@ -346,17 +101,12 @@ rest_pages "repos/${OWNER_REPO}/pulls/${PR}/comments" > "$WORKDIR/sub_c.json" 2>
   exit 5
 }
 
-# Sub-query C2 — REST reviews. node_id preserves snapshot IDs; commit_id anchors coverage.
 rest_pages "repos/${OWNER_REPO}/pulls/${PR}/reviews" > "$WORKDIR/sub_c2.json" 2>"$WORKDIR/gh_pr_reviews.err" || {
   echo "POLL_ERROR: REST PR reviews fetch failed" >&2
   cat "$WORKDIR/gh_pr_reviews.err" >&2
   exit 5
 }
 
-# Sub-query D — check runs on the PR head. Feeds two projections: codeql_checks (exit
-# gate: "analysis finished before declaring PASS") and checks_failing (red CI can block
-# reviewers). The projection runs per page, emitting one array per
-# page; downstream slurpfile flattens with `add` (same as sub-query E).
 HEAD_SHA=$(jq -r '.head.sha' "$WORKDIR/pr.json")
 rest_pages "repos/${OWNER_REPO}/commits/${HEAD_SHA}/check-runs" '[.check_runs[] | {name, app: .app.slug, status, conclusion, started_at}]' > "$WORKDIR/sub_d.json" 2>"$WORKDIR/gh_check_runs.err" || {
   echo "POLL_ERROR: REST check-runs fetch failed" >&2
@@ -364,9 +114,6 @@ rest_pages "repos/${OWNER_REPO}/commits/${HEAD_SHA}/check-runs" '[.check_runs[] 
   exit 5
 }
 
-# Sub-query E — code scanning alerts (security exit gate). This API can fail for benign
-# reasons (token missing security-events scope, merge ref not analyzed yet, merge
-# conflict), so degrade to available=false instead of failing the whole poll.
 SECURITY_ALERTS_AVAILABLE=true
 SECURITY_ALERTS_HINT=""
 if ! rest_pages "repos/${OWNER_REPO}/code-scanning/alerts?ref=refs/pull/${PR}/merge&state=open" > "$WORKDIR/sub_e_pr.json" 2>"$WORKDIR/gh_alerts_pr.err"; then
@@ -380,8 +127,6 @@ if ! rest_pages "repos/${OWNER_REPO}/code-scanning/alerts?state=open" > "$WORKDI
   echo '[]' > "$WORKDIR/sub_e_base.json"
 fi
 
-# main.json: node_id as id, camelCase timestamps, author.login without [bot]. Snapshot and
-# seen-ledger IDs are node IDs, so the shape must stay stable across poll runs.
 jq -n --slurpfile pr "$WORKDIR/pr.json" --slurpfile reviews "$WORKDIR/sub_c2.json" \
   --slurpfile comments "$WORKDIR/sub_a.json" --slurpfile commits "$WORKDIR/commits.json" '
   {number: $pr[0].number, createdAt: $pr[0].created_at, headRefOid: $pr[0].head.sha,
@@ -412,12 +157,6 @@ if [[ -f "$ROUNDS_FILE" ]]; then
   LAST_MARKED_AT=$(jq -r '.rounds | last | .marked_at // ""' "$ROUNDS_FILE")
 fi
 
-# ---- Pass 1: build the FULL SNAPSHOT (full bodies + every flag) ----
-# Flags are computed once, here, so the index and every query.sh consumer see identical
-# judgments. Bot login normalization happens here so consumers see consistent keys.
-# --slurpfile wraps each file in [...]. Paginated REST array responses hold one array per
-# page, so `add` flattens them; non-paginated files and the locally assembled sub_b2 hold
-# one JSON value and use [0].
 jq -n -L "$SCRIPT_DIR" \
   --slurpfile main_w "$WORKDIR/main.json" \
   --slurpfile sub_a_w "$WORKDIR/sub_a.json" \
@@ -700,12 +439,8 @@ jq -n -L "$SCRIPT_DIR" \
   }
   ' > "$WORKDIR/snapshot.json"
 
-# Atomic overwrite: same-filesystem rename keeps concurrent query.sh reads consistent.
 mv "$WORKDIR/snapshot.json" "$SNAPSHOT_FILE"
 
-# ---- Pass 2: project the MINIMAL INDEX from the snapshot ----
-# New rows carry flags + preview; older rows collapse to per-bot counts. Bodies never
-# reach stdout — query.sh reads them from the snapshot on demand.
 jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
   def prune_hist: if .total == 0 then {total} else . end;
   # Rows carrying reviewed_current_head stay listed after retirement (PITFALL 8) — head
@@ -808,11 +543,6 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
 
 INDEX_FILE="${SNAPSHOT_FILE%.json}.index.json"
 
-# ---- Pass 3: no-change collapse + semi-compact print ----
-# Waiting rounds dominate the loop; re-printing an identical index every poll is pure
-# context waste. Compare the derived index (key-order normalized) against the last fully
-# printed one and collapse to a single no_change line on match. printed_at sticks to the
-# last full print, so unchanged_since reports how long the state has been flat.
 NEW_NORM=$(jq -cS . "$WORKDIR/index.json")
 PREV_NORM=""
 if [[ -f "$INDEX_FILE" ]]; then
@@ -831,8 +561,6 @@ else
   jq -n --arg printed_at "$GENERATED_AT" --slurpfile idx "$WORKDIR/index.json" \
     '{printed_at: $printed_at, index: $idx[0]}' > "$WORKDIR/index_store.json"
   mv "$WORKDIR/index_store.json" "$INDEX_FILE"
-  # Semi-compact render: same JSON, but row objects (and flat leaf objects like the
-  # walkthrough) print on one line each instead of one line per field.
   jq -r '
     def scalarish: (type != "object") and (type != "array");
     def flatarr: type == "array" and all(.[]?; scalarish);
@@ -852,7 +580,6 @@ else
   ' "$WORKDIR/index.json"
 fi
 
-# ---- Seen ledger update (PITFALL 6) ----
 # Last step on purpose: a straggler is new solely because its id is unseen, so the id must
 # not be acknowledged until the index that surfaces it has been stored and printed —
 # a ledger advanced before a failed/interrupted emission would fold the item into history

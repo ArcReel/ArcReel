@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Exercise the public script interfaces with REST-only, multi-page GitHub responses.
 set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 TMP_ROOT=$(mktemp -d)
