@@ -21,20 +21,12 @@ from lib.references.reference_catalog import derivative_reference
 from lib.script.reference_video.text_parser import mention_names
 from lib.script.script_models import NEW_ASSETS_FIELD
 
-#: 承载单元正文的列表字段。参考生视频的 mention 落在 ``video_units[].text``（草稿里是
-#: ``units[].text``），ad 分镜的 shot 还带引用数组与 ``video_prompt.dialogue``。
 _TEXT_ITEM_FIELDS: frozenset[str] = frozenset({"shots", "units", "video_units"})
 
-#: 全部资产类型的引用数组字段。扫描不限类型（要数的是「这个名字出现了吗」），改写按类型
-#: 取子集（改角色名不该动 ``scenes`` 数组）。
 _ALL_REFERENCE_LIST_FIELDS: frozenset[str] = frozenset(
     field for spec in ASSET_SPECS.values() for field in spec.reference_list_fields
 )
 
-#: 引用落点的五种形态：``name`` 是引用数组里的一个完整引用名，``speaker`` 是承载角色本体名的
-#: 说话人字段，``text`` 是含 ``@[名称]`` 记号的单元正文，``scene`` 是含 ``@[名称]`` 记号的分镜画面
-#: 描述（``image_prompt.scene``，或字符串形态的 ``image_prompt``），``target`` 是新增资产清单里
-#: 并入项归入的资产名或衍生项的本体角色名——与说话人一样只写资产表的条目名，不写 ``本体名/衍生名``。
 SiteKind = Literal["name", "speaker", "text", "scene", "target"]
 
 

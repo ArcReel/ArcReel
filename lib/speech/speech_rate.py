@@ -20,13 +20,8 @@ from typing import Any
 
 from lib.infra.text_metrics import count_reading_units
 
-#: 默认语速（阅读单位 / 秒）。中文可懂配音常见约 4–6 字 / 秒，取 5 为中位。
-#: 未登记 / 缺失语言回退此值（与 ``count_reading_units`` 未知语言按 zh 计字的口径对齐）。
 DEFAULT_SPEECH_RATE_UPS: float = 5.0
 
-#: 按语言代码覆盖语速（阅读单位 / 秒），键用项目 ``source_language``（zh / en / vi / ru）。
-#: en / vi / ru 的阅读单位是「词」，正常口语约 2–3 词 / 秒，取 2.5；与 zh 的「字 / 秒」不可
-#: 直接通约，故必须分语言登记而非全局一个数值。值为可调估算，按实际配音节奏微调。
 SPEECH_RATE_UPS_BY_LANGUAGE: dict[str, float] = {
     "zh": 5.0,
     "en": 2.5,
@@ -35,18 +30,8 @@ SPEECH_RATE_UPS_BY_LANGUAGE: dict[str, float] = {
 }
 
 
-#: 项目级语速覆盖在 ``project.json`` 的顶层字段名（阅读单位 / 秒）。
-#: 与 TTS 供应商配音倍率 ``narration_speed`` 是两码事：后者是倍率、前者是绝对速度。
 SPEECH_RATE_FIELD: str = "speech_rate_units_per_second"
 
-#: 项目级语速覆盖的硬区间（闭区间，阅读单位 / 秒）。宽松区间只拦明显误输入（如把 TTS
-#: 倍率或毫秒数填进来），区间内不做任何倾向性提示。
-#:
-#: 下界不止于拦掉 ≤0，它同时给下游时间表示留出余量：取 1e6 阅读单位（远超任何真实口播
-#: 文本）的假想单段文本，按 0.001 阅读单位 / 秒估算得 1e9 秒，换算成剪映草稿的微秒是 1e15，
-#: 离 int64 上限仍有三个数量级。若下界改为只要求「估算结果是有限数」，可接受语速会低到
-#: 1e-302 量级，此时任何下游乘数（微秒换算即是其一）都能把有限值重新推成 inf 或撑破整数
-#: 类型——要守的是余量而非有限性。0.001 意味着每个阅读单位读满 1000 秒，真实口播远在其上。
 MIN_SPEECH_RATE_UPS: float = 0.001
 MAX_SPEECH_RATE_UPS: float = 20.0
 
@@ -81,10 +66,8 @@ def project_speech_rate_override(project: Mapping[str, Any] | None) -> float | N
     if not isinstance(project, Mapping):
         return None
     raw = project.get(SPEECH_RATE_FIELD)
-    # bool 是 int 的子类，True 会被当成 1.0；显式排除，避免脏数据把语速压到 1 单位 / 秒。
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
-    # 先过区间再转 float：区间内的值必然可安全转换，超大整数在 is_valid_speech_rate 内按越界收掉。
     return float(raw) if is_valid_speech_rate(raw) else None
 
 

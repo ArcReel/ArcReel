@@ -49,12 +49,8 @@ SYSTEM_SUBTYPE_SKILL_INVOCATION = "skill_invocation"
 
 _TASK_SUBTYPES = {"task_started", "task_progress", "task_notification"}
 
-# skill 注入用户消息的识别前缀。语义嗅探只允许发生在写入点这一处：
-# 定型后日志只存 skill 名与入参，读取端与渲染端不再接触注入文本。
 _SKILL_INJECTION_PREFIXES = ("Base directory for this skill:", "Skill content:")
 
-# SDK 消息与 transcript 载荷对 subagent 归属键的大小写变体，
-# 写入点统一归一化为 parent_tool_use_id。
 _PARENT_KEY_VARIANTS = ("parent_tool_use_id", "parentToolUseID", "parentToolUseId")
 
 _INTERRUPT_ECHO_PREFIX = "[Request interrupted"
@@ -63,29 +59,19 @@ _COMPACT_SUMMARY_PREFIX = "This session is being continued from a previous conve
 
 _SUBAGENT_DESCRIPTION_MAX_CHARS = 200
 
-# SDK 以用户消息形态注入的后台任务通知 XML。
 _TASK_NOTIFICATION_RE = re.compile(r"<task-notification>\s*.*?</task-notification>", re.DOTALL)
 
 _ASK_USER_QUESTION_TOOL = "askuserquestion"
 
-# 与 DbSessionStore.append 相同的 seq 竞争重试参数。
 _MAX_APPEND_RETRY = 16
 _APPEND_BACKOFF_CAP_S = 0.05
 
-# PostgreSQL 唯一约束冲突的 SQLSTATE（asyncpg 经 SQLAlchemy 适配后暴露在
-# exc.orig.sqlstate / pgcode）。
 _PG_UNIQUE_VIOLATION_SQLSTATE = "23505"
 
-# SQLite 唯一约束冲突的扩展错误名：复合主键走 PRIMARYKEY、普通唯一索引走
-# UNIQUE，两者对本表都意味着唯一约束冲突。
 _SQLITE_UNIQUE_ERRORNAMES = {"SQLITE_CONSTRAINT_UNIQUE", "SQLITE_CONSTRAINT_PRIMARYKEY"}
 
-# 标记 CLI 回放的用户消息副本（条目在消息被接纳时已写入），供写入点跳过。
-# 只存活在进程内消息 dict 上，不落任何持久化层。
 REPLAYED_USER_ECHO_KEY = "_replayed_user_echo"
 
-# 随回放副本捎带的事件日志用户条目 uuid：写入点据此把「服务端消息 id ↔ SDK
-# transcript entry uuid」写入映射表。与上一个键同为进程内标记，不入条目 payload。
 REPLAYED_USER_ECHO_ENTRY_UUID_KEY = "_replayed_user_echo_entry_uuid"
 
 
@@ -267,13 +253,8 @@ class SdkMessageNormalizer:
 
     def __init__(self, *, capture_failures: bool = True) -> None:
         self._capture_failures = capture_failures
-        # 上下文 → 未被注入消息消费的 Skill tool_use 元数据队列（FIFO）。
-        # 同一上下文可能并发发起多个 Skill 调用（同一 assistant 消息内多个
-        # tool_use 块），按调用顺序逐一消费，避免后一个覆盖前一个。
         self._pending_skills: dict[str | None, list[dict[str, Any]]] = {}
         self.question_tool_use_ids: set[str] = set()
-        # 主线与多个 subagent 的消息会交错到达；按 parent 上下文分别等待
-        # 各自的 result，禁止把两个执行上下文的故障对象拼成虚假观测。
         self._pending_turn_failures: dict[str | None, dict[str, Any]] = {}
 
     def normalize(
@@ -379,8 +360,6 @@ class SdkMessageNormalizer:
                 ]
             task_infos = _extract_task_notifications(blocks)
             if task_infos:
-                # 单条通知（绝大多数场景）保留原 uuid 不变；同一消息批了多条时才
-                # 加序号后缀区分，避免同 uuid 的多条系统条目在前端归并/查找时互相覆盖。
                 multiple = len(task_infos) > 1
                 notification_entries = [
                     {
@@ -662,20 +641,12 @@ class EventLogStore:
                 return await self._append_once(session_id, entries, client_key)
             except IntegrityError as exc:
                 unique_violation = _is_unique_violation(exc)
-                # client_key 为 None 时本次写入根本没有 client_key 值，不可能
-                # 是 client_key 唯一约束冲突——即便 _is_client_key_violation
-                # 因兜底文本匹配误判，也在此结构性排除，不让它把普通 seq
-                # 竞争的重试关掉。
                 client_key_conflict = unique_violation and client_key is not None and _is_client_key_violation(exc)
                 if client_key_conflict and client_key is not None:
-                    # 幂等键并发冲突：另一请求已写入同键条目，返回其权威条目。
                     existing = await self.find_by_client_key(session_id, client_key)
                     if existing is not None:
                         return [existing]
                     raise
-                # 表上只有两个唯一约束（(session_id, seq) 主键 + client_key 唯一索引）；
-                # 排除 client_key 冲突即可确定是 seq 竞争，不依赖驱动/配置相关的
-                # 错误信息措辞（不同驱动对主键冲突的 DETAIL 文案不一定含 "seq"）。
                 is_seq_race = unique_violation and not client_key_conflict
                 if not is_seq_race or attempt == _MAX_APPEND_RETRY - 1:
                     raise
@@ -734,7 +705,6 @@ class EventLogStore:
                 return existing, False
         appended = await self.append(session_id, [entry], client_key=client_key)
         authoritative = appended[0]
-        # append 在幂等键冲突时返回既有条目；用 uuid 区分是否为本次写入。
         created = authoritative.get("uuid") == entry.get("uuid")
         return authoritative, created
 
@@ -891,7 +861,6 @@ class EventLogService:
     def __init__(self, store: EventLogStore, transcript_adapter: TranscriptReader):
         self._store = store
         self._adapter = transcript_adapter
-        # 每会话一把懒生成锁：无协程持有/等待时自动回收，空会话锁不残留内存
         self._backfill_locks = KeyedLocks()
 
     @property
@@ -917,8 +886,6 @@ class EventLogService:
             except Exception:
                 logger.exception("subagent 子时间线读取失败，跳过合并 session_id=%s", session_id)
                 subagent_groups = {}
-            # 历史 transcript 只重建既有时间线；ADR 0052 明确禁止据此
-            # 反推并新增故障事件。故障定型只发生在 live 写入点。
             normalizer = SdkMessageNormalizer(capture_failures=False)
             entries: list[dict[str, Any]] = []
             project_name = Path(project_cwd).name if project_cwd is not None else None
@@ -932,14 +899,10 @@ class EventLogService:
                         project_name=project_name,
                         session_id=session_id,
                     ):
-                        # 相邻 interrupt 回显（SDK 回显 + 竞态副本）收敛为一条，
-                        # 与 live 写入点的尾检去重语义一致。
                         if is_interrupt_entry(entry) and entries and is_interrupt_entry(entries[-1]):
                             continue
                         entries.append(entry)
                 except Exception:
-                    # 容错：历史 transcript 跨版本演进，单条脏数据不应让整个旧
-                    # 会话的历史记录懒生成失败。
                     logger.exception("历史消息规范化失败，跳过该条 session_id=%s", session_id)
 
             for message in raw_messages:
@@ -947,9 +910,6 @@ class EventLogService:
                 for tool_use_id in _assistant_tool_use_ids(message):
                     for sub_message in subagent_groups.pop(tool_use_id, []):
                         _consume(sub_message, tool_use_id)
-            # 主线缺失锚点 tool_use 的残余组（多见于压缩续接）仍全量入日志：
-            # 前端按 parent 归组，无锚时呈现为独立卡片，不丢子时间线数据。
-            # 组末附一条推断出的描述与终态，卡片据此显示，而不是一律「已停止」。
             descriptions: dict[str, str] = {}
             if subagent_groups:
                 try:
@@ -966,9 +926,6 @@ class EventLogService:
                     entries.append(outcome)
             if entries:
                 await self._store.append(session_id, entries)
-                # 仅在写入成功后清锁引用：此后 has_entries 恒真，旧锁等待者与
-                # 新造锁的后来者都会在二次检查处短路。空 transcript 时保留锁，
-                # 否则后来者 setdefault 出新锁，与旧锁等待者并发重放、重复灌入。
                 self._backfill_locks.discard(session_id)
 
     async def list_entries(

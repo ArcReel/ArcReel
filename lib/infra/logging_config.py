@@ -152,7 +152,6 @@ def setup_logging(level: str | None = None, *, file: bool = True) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # 幂等：避免重复添加 stream handler
     if not any(getattr(h, _HANDLER_ATTR, False) for h in root.handlers):
         handler = logging.StreamHandler()
         handler.setFormatter(formatter)
@@ -167,19 +166,16 @@ def setup_logging(level: str | None = None, *, file: bool = True) -> None:
         uv_logger.handlers.clear()
         uv_logger.propagate = True
 
-    # 禁用 uvicorn.access：请求日志由 app.py 的 middleware 统一处理
     access_logger = logging.getLogger("uvicorn.access")
     access_logger.handlers.clear()
     access_logger.disabled = True
 
-    # 抑制 aiosqlite 的 DEBUG 噪音（每次 SQL 操作都会输出两行日志）
     logging.getLogger("aiosqlite").setLevel(max(numeric_level, logging.INFO))
 
     # TOS SDK 在 INFO 级别记录重试时会带上请求体（上传的对象内容），DEBUG 级别记录签名过程；
     # 媒体内容与签名不进普通诊断日志，只放行 WARNING 及以上。
     logging.getLogger("tos").setLevel(max(numeric_level, logging.WARNING))
 
-    # 供应商签发的素材与产物下载地址带签名参数，请求日志只保留去掉 query 的地址。
     _install_httpx_url_redaction()
 
 
@@ -205,7 +201,6 @@ def attach_file_handler(formatter: logging.Formatter | None = None) -> None:
 
     try:
         log_dir = resolve_log_dir()
-        # 日志目录位置上是一个项目时不往里写任何东西。
         if is_project_dir(log_dir):
             logging.getLogger(__name__).warning(
                 "file logging disabled for this run: %s contains %s; "

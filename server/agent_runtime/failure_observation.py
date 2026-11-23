@@ -42,9 +42,6 @@ def _format_exception(exc: BaseException) -> str:
         return f"{type(exc).__module__}.{type(exc).__name__}: {_safe_text(exc)}"
 
 
-# 结论 key 只从结构化证据派生，前端据此本地化一句话结论；不解析错误文案，不建
-# ArcReel 自己的上游错误分类。轮次 key 沿用 SDK 的 AssistantMessageError 枚举与
-# result subtype 原值，取不到可用证据时回落到按阶段的通用 key。
 _SDK_ASSISTANT_ERROR_KEYS = frozenset(
     {"authentication_failed", "billing_error", "rate_limit", "invalid_request", "server_error"}
 )
@@ -52,7 +49,6 @@ _RESULT_SUBTYPE_KEYS = frozenset({"error_max_turns", "error_max_budget_usd"})
 TURN_FAILED_KEY = "turn_failed"
 STARTUP_FAILED_KEY = "startup_failed"
 
-# 启动异常类 → key；子类排在父类之前（CLINotFoundError 是 CLIConnectionError 的子类）。
 _STARTUP_EXCEPTION_KEYS: tuple[tuple[type[BaseException], str], ...] = (
     (CLINotFoundError, "cli_not_found"),
     (CLIConnectionError, "cli_connection_failed"),

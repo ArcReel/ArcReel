@@ -41,7 +41,6 @@ from .preview import (
 )
 from .trial_run import TrialRunTarget, provider_from_base_url
 
-#: 提交之后才有的值：预览恒保持占位符，与声明式那一侧的 ``{{ task_id }}`` 同形。
 UNRESOLVED_PROMPT_ID = "{{ prompt_id }}"
 
 _TRIAL_RUN_LABEL_PREFIX = "endpoint-test-"
@@ -56,7 +55,6 @@ class ComfyuiConversions:
     需要看见的一格：他在项目页选的分辨率对这个端点根本不起作用。
     """
 
-    #: 实发 workflow 的指纹，与成片版本元数据里记的是同一个值，可据此核对某一版是照哪份图出的。
     workflow_sha256: str
     aspect_ratio: str
     resolution: str | None
@@ -127,7 +125,6 @@ def preview_comfyui_request(
         prompt=parameters.prompt,
         aspect_ratio=parameters.aspect_ratio,
         resolution=parameters.resolution,
-        # 时长原样转交，与 backend 同一处置：``frames`` 未绑定或读不到帧率时构造层自己跳过换算。
         duration_seconds=parameters.duration_seconds,
         media=_preview_media(
             definition, assets, model=parameters.model, placeholder_missing=placeholder_missing_assets
@@ -139,8 +136,6 @@ def preview_comfyui_request(
             method="POST",
             url=_preview_url(base_url, "/prompt", query),
             headers=dict(headers),
-            # ``client_id`` 与真发同一个构造：预览给出的必须是真发的那个形状，而这一串正是用户
-            # 在 ComfyUI 队列界面上认 ArcReel 的记号。
             body={"prompt": built.workflow, "client_id": client_id_for(UNRESOLVED_PROMPT_ID)},
         ),
         poll=PreviewedRequest(
@@ -186,10 +181,6 @@ def comfyui_target(
     """
     label = provider or provider_from_base_url(credentials.base_url)
     media_type = str(definition.get("media_type") or "video")
-    # 这一笔在 ComfyUI 队列界面上的名字（``client_id`` 是 ``arcreel-<job_label>``，上传的素材
-    # 也按它命名）。测试连接不走 worker，没有 task_id，backend 的回落值是一串随机 hex——用户
-    # 在自己手动跑的队列里认不出哪一笔是刚点的「测试连接」。后缀保留一段随机串：同一个端点可以
-    # 被连着测好几次，重名会让上传的素材互相覆盖。
     job_label = f"{_TRIAL_RUN_LABEL_PREFIX}{token_hex(4)}"
 
     async def build() -> ComfyuiVideoBackend | ComfyuiImageBackend:

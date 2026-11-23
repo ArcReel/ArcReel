@@ -75,7 +75,6 @@ MESSAGES = {
     "task_not_found": "任务 '{id}' 不存在",
     "task_running_not_cancellable": "任务 '{id}' 已开始执行，不可取消；它会照常跑完并保留结果",
     "task_retry_download_unavailable": "任务 '{id}' 当前不可重试下载",
-    # 任务失败原因（GenerationWorker 写入错误码 + 参数，tasks API 读取时按语言渲染）
     "task_fail_provider_unsupported_media": "供应商 {provider_id} 不支持 {media_type} 生成",
     "task_fail_provider_rejected": "供应商拒绝了这次生成请求（HTTP {status}）",
     "task_fail_dispatch_provider_requeue_failed": "任务供应商从 {claimed_provider_id} 变为 {actual_provider_id}，但无法回队重新认领，请重试",
@@ -486,7 +485,6 @@ MESSAGES = {
     "ref_too_many_images": "参考图数量 {count} 超出 {model} 上限 {max_count}，已取前 {max_count} 张",
     "ref_payload_too_large": "参考图请求体超出供应商限制，已二次压缩重试",
     "ref_payload_floor_exceeded": "参考图过大或过多，压缩到最低画质仍超出供应商请求体上限，请减少参考图数量或降低分辨率后重试",
-    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
     "ref_sora_single_ref": "该模型只接受一张参考图，已取第一张",
     "ref_single_ref_only": "{model} 只接受一张参考图，已取第一张",
     "ref_episode_not_found": "集（id={episode}）不存在",

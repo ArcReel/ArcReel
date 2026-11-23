@@ -38,7 +38,6 @@ from .sources import PROXY_PREFIX_SETTING
 
 logger = logging.getLogger(__name__)
 
-#: 进程内缓存的 icon 份数；单份上限 64 KB，总量有界。
 ICON_CACHE_SIZE = 256
 
 

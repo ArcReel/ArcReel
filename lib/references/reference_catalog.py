@@ -25,16 +25,8 @@ from lib.project.asset_types import (
     normalize_asset_bucket,
 )
 
-#: 归属优先级：同一个名字在多张资产表里都登记时，正文引用按此顺序决议出唯一归属。
-#:
-#: 新项目的四类资产共用一个名称空间（见 :func:`lib.project.asset_types.ensure_project_asset_namespace`），
-#: 重名只可能来自该闸门之前的存量项目；顺序固定即让这些项目的归属结论可复现，而不是随
-#: dict 迭代顺序漂移。与 ``AssetSpec.namespace_priority`` 不是同一维度：后者定的是重名冲突
-#: 报告里谁算「已有条目」，此处定的是引用落在哪一类。
 REFERENCE_ATTRIBUTION_ORDER: tuple[str, ...] = ("product", "character", "scene", "prop")
 
-#: 引用名里分隔本体与衍生的字符（见 ``docs/adr/0072``）。资产名与衍生名都禁用它
-#: （:data:`lib.project.asset_types.ILLEGAL_ASSET_NAME_CHARS`），故 ``本体名/衍生名`` 的切分无歧义。
 DERIVATIVE_SEPARATOR = "/"
 
 
@@ -79,14 +71,8 @@ class ReferenceCatalogEntry:
     """引用目录里的一条已登记引用。"""
 
     asset_type: str
-    #: 可写在正文与引用字段里的引用名，已在比对坐标系（去两端空白 + Unicode NFC）中。
     name: str
-    #: 承载该引用的资产表条目名，已在比对坐标系中。衍生引用（``本体名/衍生名``）下即本体名，
-    #: 与 :attr:`name` 分叉——说话人位要绑的是本体这条资产，引用要指的是衍生这套外观。
     asset_name: str
-    #: 该引用名对应的落盘条目：本体引用是资产表条目，衍生引用是本体条目里的那条衍生。
-    #: 资产图字段名两者相同（衍生复用本体 spec 的 ``sheet_field``），故读侧按引用取到的就是
-    #: 该形态自己的资产图。外部编辑写坏的 project.json 里可能不是 dict，读侧按需判型。
     asset: object
 
     @property

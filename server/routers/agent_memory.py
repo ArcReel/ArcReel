@@ -26,8 +26,6 @@ from server.auth import CurrentUser, CurrentUserInfo
 user_router = APIRouter(prefix="/agent/memory")
 project_router = APIRouter(prefix="/projects/{project_name}/agent-memory")
 
-#: 记忆正文的媒体类型。写入端不校验 Content-Type：正文是 Markdown 纯文本，
-#: 客户端标 text/markdown 还是 text/plain 都不改变落盘内容。
 _TEXT_MEDIA_TYPE = "text/plain; charset=utf-8"
 
 

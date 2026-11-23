@@ -13,12 +13,10 @@ from typing import Any
 
 PROVIDER_PARAMS = ("provider", "provider_id", "claimed_provider_id", "actual_provider_id")
 MODEL_PARAM = "model"
-#: 值是条目引用（「模型厂商/官方模型名」）的参数名：已下线模型的官方后继。
 SUCCESSOR_PARAM = "successor"
 DISPLAY_NAME_PARAMS = frozenset((*PROVIDER_PARAMS, MODEL_PARAM))
 
 
-#: Agent 供应商的供应商 ID 前缀：记账时 ``provider`` 记 ``agent-<凭证 id>``。
 AGENT_PROVIDER_PREFIX = "agent-"
 
 
@@ -49,8 +47,6 @@ class DisplayNames:
     _models_by_id: Mapping[str, str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        # 参数里只有模型 ID、没有供应商时按模型 ID 查名；同一个模型 ID 在不同供应商下名称不一时
-        # 无从判断指哪一个，保留模型 ID。
         candidates: dict[str, set[str]] = {}
         for (_, model_id), name in self.models.items():
             candidates.setdefault(model_id, set()).add(name)

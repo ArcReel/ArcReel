@@ -46,7 +46,6 @@ from lib.script.reference_video.voice_settings import VoiceRenderSettings
 from lib.script.script_models import ReferenceResource
 from lib.speech.audio_utils import resolve_audio_ref_path
 
-#: 角色参考音频的项目内固定目录（与上传 / TTS 样本落盘口径一致）。
 ASSET_AUDIO_SUBDIR = "characters/refs_audio"
 
 
@@ -120,18 +119,12 @@ def render_unit_prompt(
     mentions = extract_mentions(text)
     utterances, warnings = derive_utterances(text)
 
-    # ``references`` 是入参（上游持久化的派生结果），其名字以哪种编码形式落盘不可控；正文一侧
-    # 出自解析器、已归一。两侧同形，主体记号与图号才对得上——不归一时该角色的绑定行会缺位、
-    # 音频也挂不到图上，且全程不报错。
     references = [ReferenceResource(type=ref.type, name=asset_name_comparison_key(ref.name)) for ref in references]
 
     registered, missing = resolve_references(mentions, project)
     warnings = [_warning_unregistered(name) for name in missing] + warnings
-    # 主体记号按**资产表登记**判定，与参考图编号解耦：被能力上限裁掉的名字仍是画面主体，
-    # 只是这次没随请求发图（纯画外角色同理——有主体、无图）。未登记的 mention 才留原文。
     subjects = {ref.name for ref in registered}
 
-    # 音频只能挂到 character 参考图；按类型过滤后建 name → 序号映射。
     character_image_no = {ref.name: i for i, ref in enumerate(references, start=1) if ref.type == "character"}
 
     characters = _character_bucket(project)
@@ -311,8 +304,6 @@ def _render_form_declarations(character_forms: dict[str, list[str]]) -> list[str
     return lines
 
 
-#: 旁白记号被丢弃后，用于判定其两侧是否需要合并的分隔标点与空白（中英两形）。
-#: 终止标点单列：它在行尾是合法收句，行中的连接标点在行尾则是悬空的。
 _MARK_JOINERS = "，,、；;：:"
 _MARK_TERMINATORS = "。.！!？?"
 _MARK_SEPARATORS = _MARK_JOINERS + _MARK_TERMINATORS
@@ -388,7 +379,6 @@ def _join_line_pieces(pieces: list[str | None]) -> str:
                 rendered = head
                 piece = piece.lstrip(_MARK_SEPARATORS + _MARK_SPACES)
             elif rendered[-1:].isspace():
-                # 两侧都只是空白：并成一个，多个空白不该因为记号消失而留在正文里。
                 rendered = head
                 piece = piece.lstrip()
                 if piece and piece[0] not in _MARK_SEPARATORS:

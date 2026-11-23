@@ -291,12 +291,10 @@ async def plan_grid_submission(
     if not section.held:
         raise ValueError("grid submission must be planned inside its submission section")
     ensure_grid_submittable(project, script)
-    # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；判定与费用估算、前端预览同源
     allow_large_grid = await large_grid_gate(project)
     image_limit = await reference_image_limit(project_path.name, project, project_path)
 
     def episode_records() -> list[GridGeneration]:
-        # 规划不落任何文件：宫格目录尚不存在时即没有记录，不经 GridManager 建目录
         if not (project_path / "grids").is_dir():
             return []
         return [
@@ -308,13 +306,11 @@ async def plan_grid_submission(
     active: set[str] = set()
     if marked_ids:
         active = set(await active_grid_tasks(marked_ids))
-        # 执行器先把记录写成终态，任务才离开活动集：探测之后重读，探测前刚跑完的宫格以终态出现，不被当成孤儿
         records = await asyncio.to_thread(episode_records)
     marked = [g for g in records if g.status in GRID_IN_FLIGHT_STATUSES]
     in_flight = [g for g in marked if g.id in active]
     abandoned = frozenset(g.id for g in marked) - {g.id for g in in_flight}
 
-    # 规划只读：产物时效判定会读清单、算摘要、列目录，整体放到线程里
     def _plan() -> GridSubmissionPlan:
         return _Planner(
             project=project,
@@ -380,7 +376,6 @@ def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tupl
                 regenerated=set(chunk.scene_ids),
                 abandoned=plan.abandoned_grid_ids,
             )
-            # provider/model 由 execute_grid_task 在 image lane 解析之后回填
             grid = GridGeneration.create(
                 episode=plan.episode,
                 script_file=plan.script_file,
@@ -460,7 +455,6 @@ class _Planner:
         self._in_flight = in_flight
         self._abandoned = abandoned
         self._section = section
-        # list_all 按 created_at 升序，后写覆盖前写：同一组分镜只留最新一条
         self._latest = {tuple(g.scene_ids): g for g in records}
         self._chunks: list[GridChunkPlan] = []
         self._skipped: list[GenerationTargetState] = []
@@ -528,7 +522,6 @@ class _Planner:
 
     def _plan_missing_only(self, groups: list[list[dict[str, Any]]]) -> None:
         for index, group in enumerate(groups):
-            # 分组的缺口按成员分镜图判定：整组分镜图都还可用（含 stale）时无需再出一张宫格
             selection = select_generation_targets(
                 candidates=[
                     GenerationCandidate(
@@ -548,8 +541,6 @@ class _Planner:
                 unavailable_ids = sorted(state.unit_id for state in selection.unavailable)
                 for state in selection.unavailable:
                     self._blocked.append(self._blocked_state(state, artifact_state_problem(state)))
-                # 宫格整组共用一张联合图：同组任一格状态不可读就无法安全出图，组内仍缺分镜图的
-                # 分镜同样受阻，逐分镜给结论。
                 for state in selection.targets:
                     if state.unit_id in unavailable_ids:
                         continue
@@ -641,7 +632,6 @@ class _Planner:
             self._append(index, chunk, layout, report_ids, GridChunkAction.UNSPLIT, latest)
             return
         self._admission_items.extend(chunk)
-        # 一张联合图覆盖整个 chunk：任一分镜的引用有缺口就出不了这张图
         admission = admit_storyboard_items(self._catalog, chunk)
         if not admission.admitted:
             for scene_id in report_ids:
@@ -649,7 +639,6 @@ class _Planner:
                 self._blocked.append(self._blocked_scene(scene_id, problems[0]))
             self._append(index, chunk, layout, report_ids, GridChunkAction.BLOCKED)
             return
-        # 联合图的提示词由每格的 image_prompt 拼成，任一格待生成整张图都出不了
         pending_ids = pending_grid_prompt_ids(chunk, self._id_field)
         if pending_ids:
             problem = GenerationProblem(

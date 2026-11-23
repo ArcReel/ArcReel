@@ -136,7 +136,6 @@ class _MergeRequest(BaseModel):
     dry_run: bool = False
 
 
-#: 合并被拒绝的原因 → i18n key。类型不可合并的类型不注册合并路由，走不到这里。
 _MERGE_REJECTION_KEYS: dict[str, str] = {
     "same_asset": "asset_merge_same_asset",
     "derivative_needs_character": "asset_merge_derivative_needs_character",
@@ -217,34 +216,18 @@ def build_asset_router(
         req: _CreateRequest,
         _t: Translator,
     ):
-        # 名称会被拼进文件路径与单段路由参数，路径不安全的名字在边界即拒绝，
-        # 否则后续生成与按名访问（PATCH/DELETE/{name}）全部失效。
         try:
             name = validate_asset_name(req.name)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=_t("asset_invalid_name", name=req.name)) from exc
         extras = req.model_extra or {}
-        # 字符串字段（voice_style / reference_image / reference_audio 等）与列表字段
-        # （reference_images / selling_points 等）在创建时即校验类型，非法类型 422 在
-        # 边界拦截，避免污染 project.json——PATCH 路径已做同等校验（见 update_fields
-        # 校验），create 路径此前遗漏，extra="allow" 下调用方可传任意 JSON 类型。
         for field in spec.extra_string_fields:
             value = extras.get(field)
             if value is None:
-                # None 视同未提供：不拒绝，但要从 extras 摘除，否则下面
-                # entry[field] = extras.get(field, "") 的默认值不生效
-                # （字段存在但值为 None 时 dict.get 不会回退到默认值），
-                # 写入 project.json 的会是 None 而非空字符串，破坏该字段
-                # 「必为字符串」的持久化契约。
                 extras.pop(field, None)
             elif not isinstance(value, str):
                 raise _not_a_string(field)
             elif field == "voice_notice_dismissed_at":
-                # 新建角色尚无 voice_updated_at，PATCH 侧「必须等于当前 voice_updated_at」的
-                # 校验在此处恒不成立（值不存在）；直接拒绝创建时携带该字段，防止绕过
-                # PATCH 的等值校验写入远未来时间戳，永久压制存量过渡横幅。真实用户可能
-                # 触发（如把已有角色的序列化结果整体复制进创建请求体），与 PATCH 侧的
-                # 同名校验一样须走翻译。
                 raise UnprocessableError("asset_voice_notice_dismissed_at_stale")
         _require_string_list_fields(extras, spec.extra_list_fields)
         _require_owned_files(spec, name, {}, extras)
@@ -255,14 +238,10 @@ def build_asset_router(
                 entry: dict[str, Any] = {"description": req.description, spec.sheet_field: ""}
                 for field in spec.extra_string_fields:
                     entry[field] = extras.get(field, "")
-                # 创建即携带 reference_audio 时同样须机械戳 voice_updated_at：与 PATCH 侧
-                # 同一字段的同一补戳理由一致，否则该角色的存量片段横幅永远感知不到这次
-                # 「设置了声音」。
                 if entry.get("reference_audio"):
                     entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                 for field in spec.extra_list_fields:
                     entry[field] = list(extras.get(field) or [])
-                # 衍生只经衍生子资源登记：创建请求体里的同名字段一律不落盘，新条目一律空表。
                 if spec.supports_derivatives:
                     entry[DERIVATIVES_FIELD] = {}
                 with project_change_source("webui"):
@@ -293,9 +272,6 @@ def build_asset_router(
         req: dict[str, Any],
         _t: Translator,
     ):
-        # 写入前对所有可写字段做类型校验。req 是 dict[str, Any]，若客户端传入错误类型
-        # 会污染 project.json 并在下游 (例如 execute_character_task 拼接 reference_image
-        # 路径) 引发 TypeError。422 在边界拦截。字符串字段须为 str，列表字段须为字符串列表。
         for field in update_fields:
             value = req.get(field)
             if value is not None and not isinstance(value, str):
@@ -311,14 +287,8 @@ def build_asset_router(
                     _require_owned_files(spec, entry_name, entry, req)
                     for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
-                            # voice_notice_dismissed_at 语义是「已确认到的声音版本」，必须原样
-                            # 回填角色自己的 voice_updated_at；放行任意字符串会让客户端写入
-                            # 远未来时间戳，永久压制存量过渡横幅。
                             if field == "voice_notice_dismissed_at" and req[field] != entry.get("voice_updated_at"):
                                 raise _InvalidFieldValue(field)
-                            # reference_audio 经通用 PATCH 修改时必须同步刷新 voice_updated_at：
-                            # 该字段仍在此处的可写集合内，若不补戳，经这条路径改声音会让
-                            # 存量过渡横幅感知不到变化，或已关闭后不再重现。
                             if field == "reference_audio" and req[field] != entry.get("reference_audio"):
                                 entry["voice_updated_at"] = datetime.now(UTC).isoformat()
                             if field == ALIASES_FIELD:
@@ -337,9 +307,6 @@ def build_asset_router(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name)) from exc
         except _InvalidFieldValue as exc:
-            # 与相邻的类型校验 422（"field ... must be a string"）不同：这条路径不需要
-            # 客户端主动构造非法请求即可触发——横幅渲染后声音被再次更新、用户随后才点击
-            # 关闭即会触发，是真实用户可能看到的错误，须走翻译。
             if exc.field == "voice_notice_dismissed_at":
                 raise UnprocessableError("asset_voice_notice_dismissed_at_stale") from exc
             raise UnprocessableError("asset_field_invalid_value").with_diagnostic(
@@ -403,7 +370,6 @@ def build_asset_router(
         except FileNotFoundError as exc:
             raise NotFoundError("project_not_found", name=project_name) from exc
         except ValueError as exc:
-            # 结构「不更坏」校验拒绝等罕见情形：整体未落盘，提示用户重试或检查项目数据。
             logger.exception("资产重命名被校验拒绝")
             raise HTTPException(status_code=422, detail=_t("asset_rename_rejected", name=entry_name)) from exc
         except HTTPException:
@@ -461,7 +427,6 @@ def build_asset_router(
             except FileNotFoundError as exc:
                 raise NotFoundError("project_not_found", name=project_name) from exc
             except ValueError as exc:
-                # 结构「不更坏」校验拒绝等罕见情形：整体未落盘，提示用户重试或检查项目数据。
                 logger.exception("资产合并被校验拒绝")
                 raise HTTPException(status_code=422, detail=_t("asset_merge_rejected", name=entry_name)) from exc
             except HTTPException:

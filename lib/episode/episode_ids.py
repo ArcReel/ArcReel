@@ -21,17 +21,11 @@ from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 
-#: ``project.json`` 顶层字段：项目内出现过的最大集 ID。
 EPISODE_ID_HIGH_WATER_KEY = "episode_id_high_water"
 
-#: 条目 ID 的集 ID 前缀（``E3S01`` / ``E3U02`` / ``E3G01``）。
 _ITEM_ID_PREFIX_RE = re.compile(r"^E(\d+)(?=[A-Z]\d)")
-#: 名字里的集 ID：``episode_3`` 形态（剧本、草稿目录、派生集文件及其留底、呈现与字幕目录），
-#: 以及媒体文件名里的 ``E3S01`` / ``E3U02`` 前缀（``scene_E3S01.png``）。
 _NAME_EPISODE_RE = re.compile(r"(?:^|[^A-Za-z0-9])episode[_-](\d+)(?![0-9])")
 _NAME_ITEM_ID_RE = re.compile(r"(?:^|[^A-Za-z0-9])E(\d+)[A-Z]\d")
-#: 资产图所在的目录（相对项目根，版本快照在 ``versions/`` 下的同名目录）。资产名由创作者命名，
-#: 形似条目 ID（``E12A1``）时也不是集 ID。
 _ASSET_DIRS = frozenset(spec.subdir for spec in ASSET_SPECS.values())
 
 
@@ -230,7 +224,6 @@ def episode_ids_on_disk(project_dir: Path) -> set[int]:
     found = episode_ids_in_names(
         path.name for path in project_dir.rglob("*") if not _is_asset_path(path.relative_to(project_dir).as_posix())
     )
-    # 版本历史与宫格记录可以在媒体删去后独自留在盘上，文件名本身不一定带集 ID。
     for directory in (project_dir / "versions", project_dir / "grids"):
         for path in directory.rglob("*.json"):
             try:

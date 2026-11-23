@@ -31,9 +31,7 @@ logger = logging.getLogger(__name__)
 
 OFFICIAL_SOURCE_ADDRESS = "ArcReel/arcreel-market"
 OFFICIAL_SOURCE_DISPLAY_NAME = "ArcReel Market"
-#: 系统设置：GitHub raw 代理前缀，空串即直连。
 PROXY_PREFIX_SETTING = "market_github_proxy_prefix"
-#: 打开市场页时，距上次成功刷新超过该时长的启用源才自动刷新。
 AUTO_REFRESH_AFTER = timedelta(hours=1)
 
 
@@ -227,7 +225,6 @@ class MarketSourceService:
         async with self._session_factory() as session:
             source = await MarketSourceRepository(session).get(source_id)
             if source is None or source.index_url != index_url:
-                # 抓取期间源被删除后 id 被新源复用，或官方源地址已迁移：结果不属于当前这一行
                 return source
             if failure is not None:
                 source.status = failure.status.value

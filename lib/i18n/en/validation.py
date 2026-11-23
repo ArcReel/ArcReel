@@ -436,7 +436,6 @@ MESSAGES = {
     "val_market_cli_check_failed": "Market source check failed with {count} issue(s)",
     "val_market_cli_generate_written": "Wrote {path} ({count} entries)",
     "val_market_cli_generate_failed": "Cannot generate the index: {count} issue(s)",
-    # Draft diagnostics; Agent reports retain their original messages.
     "draft_violation_source_text_empty": "{label}: source_text is empty. Copy the original passage used by this video unit.",
     "draft_violation_source_text_not_verbatim": "{label}: source_text is not a verbatim passage: {excerpt}. Copy the original without rewriting or translating.",
     "draft_violation_fullwidth_braces": "{label}: full-width braces in {excerpt}. Use ASCII braces for dialogue and voiceover.",
@@ -460,7 +459,6 @@ MESSAGES = {
     "draft_violation_blank_novel_text": "{label}: novel_text is blank. Each shot must contain narration copied verbatim from the original.",
     "draft_violation_novel_text_coverage": "Shot novel_text does not cover the original verbatim, completely, and in order. Source: {source}. Copy and join passages in order; if the draft source range is wrong, update it first.",
     "draft_violation_schema_invalid": "Draft {path} does not match the output structure: {detail}. Check required fields, types, and values.",
-    # Draft schema reasons by pydantic error type, rendered into draft_violation_schema_invalid's {detail}.
     "draft_schema_narration_dialogue_forbidden": "narration segments must not contain dialogue; retell character speech in the narration text",
     "draft_schema_dialogue_speaker_required": "dialogue utterances must have a non-empty speaker",
     "draft_schema_voiceover_speaker_forbidden": "voiceover utterances must not have a speaker",

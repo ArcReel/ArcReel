@@ -46,7 +46,6 @@ def serialize_value(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [serialize_value(item) for item in value]
 
-    # Pydantic models — mode="json" 一次产出 JSON 安全结构，避免再次递归
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
 

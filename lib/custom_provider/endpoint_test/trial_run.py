@@ -67,18 +67,14 @@ from .modes import EndpointTestMode, supports_test_mode
 
 logger = logging.getLogger(__name__)
 
-#: 结果目录的存活时长。清理时机是进程启动与每次新建，不挂定时器。
 TRIAL_RUN_TTL_SECONDS = 24 * 3600
 
 MAX_POLL_RESPONSES = 20
 
-#: 结果体给出的四段状态点：前三段是运行时留痕的三个阶段，第四段是产物落盘。
 TRIAL_RUN_STAGES = ("submit", "poll", "result", "artifact")
 
 _RESULT_FILE = "result.json"
 
-#: ``media_type`` → 产物落盘的文件名。扩展名不是装饰：读接口按落盘字节声明 MIME 之外，两类产物
-#: 在同一个结果目录里也要分得开。
 _ARTIFACT_FILE_BY_MEDIA_TYPE: Mapping[str, str] = {"video": "artifact.mp4", "image": "artifact.png"}
 
 _RUN_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
@@ -110,12 +106,7 @@ class TrialRunTarget:
     build_backend: Callable[[], Awaitable[Any]]
     definition: Mapping[str, Any] | None = None
     media_type: str = "video"
-    #: 提交前跑不跑生产那道能力闸。付费通道一律跑（声明的违约在付费前拒绝）；ComfyUI 端点费用
-    #: 固定 0，且能力由节点绑定推导而内联定义这条入口拿不到推导结果，跑闸只会把「绑定漏了首帧」
-    #: 说成一条能力拒绝——而用户点测试连接正是为了看 ComfyUI 自己怎么说。
     gate_capabilities: bool = True
-    #: 解析出的视频能力是否按内置供应商模型求生效值：与模型条目两侧求值，用户添加的模型再叠加能力覆盖
-    #: （docs/adr/0104）。只有内置供应商的模型行为真；自定义供应商由 CustomVideoBackend 自己求值，内联定义没有模型行。
     builtin_model_row: bool = False
 
 
@@ -154,14 +145,11 @@ class TrialRun:
     media_type: str = "video"
     finished_at: float | None = None
     api_call_id: int | None = None
-    #: 供应商给这笔调用的 id（ComfyUI 的 ``prompt_id``、声明式端点的 ``task_id``）。
     provider_job_id: str | None = None
-    #: 渲染并脱敏后的提交请求；无定义可渲（Python 实现的端点、ComfyUI 端点）为 None。
     request: dict[str, Any] | None = None
     submit_response: object | None = None
     poll_responses: list[object] = field(default_factory=list)
     result_response: object | None = None
-    #: 逐阶段提取，键取自 :data:`check.STAGES`；无定义可读（Python 实现的端点）为空。
     extractions: dict[str, Any] = field(default_factory=dict)
     video_url: str | None = None
     duration_seconds: int | None = None
@@ -271,7 +259,7 @@ class TrialRunManager:
         self._owners: dict[str, str] = {}
         self._staging: dict[str, Path] = {}
         self._response_writes: dict[str, set[asyncio.Task[None]]] = {}
-        self._settling: set[str] = set()  # 已拿到结局、正在收尾的 run，取消不再打断它们
+        self._settling: set[str] = set()
 
     @property
     def root(self) -> Path:
@@ -342,9 +330,6 @@ class TrialRunManager:
         self._owners[run_id] = user_id
         if staging is not None:
             self._staging[run_id] = staging
-        # 名额与素材目录先占后建目录：建目录失败（盘满、只读挂载）时占位不还，后续测试永远
-        # 被拒成 busy，而取消又因 task 尚未登记而 404——与结算失败那条路同一种死锁。
-        # 占位也必须在第一次 await 之前：并发闸靠的是「查 busy」与「占位」之间没有让出点。
         try:
             run_dir = await run_sync_transaction(self._prepare_run_dir, run_id, frozenset(self._runs))
             with reference_image_sources(asset_sources or {}):
@@ -360,7 +345,6 @@ class TrialRunManager:
         """读一次 run：运行中读内存，终态读盘。取消或重启中断的 run 没有结果文件。"""
         if run_id in self._runs:
             return self._runs[run_id]
-        # run_id 是调用方传入的路径段，读盘前先按生成格式校验，防 ".."（Windows 上还有反斜杠）越出 root。
         if _RUN_ID_PATTERN.fullmatch(run_id) is None:
             return None
         if self._expired(run_id):
@@ -411,19 +395,11 @@ class TrialRunManager:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
-        # backend 的产物落盘可能吞掉取消并成功返回；等任务结束后重新核验，不能再删掉已结算的结果。
         if run.status in (TrialRunStatus.SUCCEEDED, TrialRunStatus.FAILED):
             return False
-        # 被 shield 保护的诊断写入在任务停下后可能还在跑：结算前等它写完，否则 resume_cancelled
-        # 会与它并发写同一行，关停路径还可能在写入未完时就关库。
         for write in list(self._response_writes.get(run_id, ())):
             with contextlib.suppress(Exception):
                 await write
-        # 记账括号自己会把取消结算成 cancelled，这里是它没结算成（写入失败、循环已关停）时的
-        # 兜底：``resume_cancelled`` 带 ``status='pending'`` 守卫，已结算的行不会被改写。pending 行
-        # 绝不能留给一笔用户已经放弃的调用。
-        # 结算抛错也要把名额与盘上目录还掉——任务已经停了，占位留下去会把后续测试永远拒成 busy，
-        # 而重试取消又因 task 已移除而 404，死锁只能重启解。
         try:
             if run.api_call_id is not None:
                 await self._ledger.resume_cancelled(call_id=run.api_call_id)
@@ -443,19 +419,11 @@ class TrialRunManager:
         run.status = TrialRunStatus.RUNNING
         try:
             poll_timeout = await self._poll_timeout()
-            # backend 先装配再开账：装配失败（模型行不存在、供应商配错）时一个字节都没发出去，
-            # 记一笔 pending 再翻成 failed 会让账本上多一条根本没打过的调用。
             backend = await target.build_backend()
             is_video = target.media_type == "video"
-            # 能力闸与比例覆盖共用一份按本次请求档位解析的能力，与生产同源：声明了
-            # ``video_capabilities_for_tier`` 的端点按分辨率收窄，读未收窄的属性会比生产放得更宽。
-            # 测试请求不带 ``service_tier``，下发的就是请求缺省档，解析也取缺省档。
             video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
-            # 与生产执行闸门同一口径：求得的生效能力既过闸，也随请求带给后端。
             if video_caps is not None and target.builtin_model_row:
                 video_caps = effective_builtin_video_capabilities(video_caps, target.provider, target.model)
-            # 生产路径在记账括号前跑同一道能力闸（声明的违约在付费前拒绝，不发给供应商）；
-            # 测试连接跑的是生产那条路，闸也一致。免闸的目标见 ``TrialRunTarget.gate_capabilities``。
             if target.gate_capabilities:
                 if video_caps is None:
                     refs = assets.get("reference_images")
@@ -465,8 +433,6 @@ class TrialRunManager:
                     )
                 else:
                     await _gate_trial_video_request(video_caps, target, parameters, assets)
-            # 声明 first_frame_ratio_adaptive_only 的端点在带首帧的请求上只接受 adaptive；
-            # 下发值与记账值分离，账本记的仍是用户填的比例意图（与生产同一分工）。
             request_aspect_ratio = resolve_first_frame_aspect_ratio(
                 caps=video_caps,
                 aspect_ratio=parameters.aspect_ratio,
@@ -479,9 +445,6 @@ class TrialRunManager:
                 provider=target.provider,
                 prompt=parameters.prompt,
                 resolution=parameters.resolution,
-                # 时长与成片音轨是视频这一维的事，图像这一笔按「没有」记：记一个 5 秒会让用量页上
-                # 出现一个不存在的时长，而图像请求的形状里根本没有音轨这一维（``ImageGenerationRequest``
-                # 不带它），照抄表单上那个视频开关只会让这一行说自己出了声。
                 duration_seconds=parameters.duration_seconds if is_video else None,
                 aspect_ratio=parameters.aspect_ratio,
                 generate_audio=parameters.generate_audio if is_video else False,
@@ -505,7 +468,6 @@ class TrialRunManager:
                     )
                 )
                 result = await backend.generate(request)
-                # 供应商已成功返回：从这里起取消不再打断这次 run，结局按成功收尾（见 ``cancel``）。
                 self._settling.add(run.id)
                 call.success(result)
                 run.provider_job_id = getattr(result, "task_id", None)
@@ -516,8 +478,6 @@ class TrialRunManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            # 两种运行时与两道能力闸的失败载体同形（稳定 code + 可序列化 params），编码成失败码后
-            # 读侧按同一条路径本地化；其余异常没有稳定码可编，原样留字符串。
             structured = isinstance(
                 exc, DeclarativeRuntimeError | ComfyuiError | VideoCapabilityError | ImageCapabilityError
             )
@@ -532,13 +492,7 @@ class TrialRunManager:
 
         async def on_provider_response(stage: ProviderResponseStage, body: object) -> None:
             capture.add(stage, body)
-            # 边收边并进结果体：四段状态点读的是这三个字段，只在终态并一次的话，运行中的 GET
-            # 看到的永远是四个空点。
             _merge_capture(run, capture)
-            # 用户随时可能取消，而取消可能正落在这次写入中间。诊断留痕的写入被拦腰截断会留下
-            # 一个半开的事务，随后的失败结算就得在一条坏掉的连接上做——shield 让这次写入自己跑完，
-            # 取消照常传给调用它的那一层。写入任务登记在 run 名下：shield 只保护协程不被取消，
-            # 外层任务停下后它还在跑，取消方结算前要等它（见 ``cancel``）。
             write = asyncio.ensure_future(self._ledger.record_provider_response(call_id=call_id, body=body))
             writes = self._response_writes.setdefault(run.id, set())
             writes.add(write)
@@ -628,7 +582,6 @@ class TrialRunManager:
             run.provider_job_id = _submitted_prompt_id(capture.submit)
         run.extractions = _stage_reports(target.definition, capture)
         payload = json.dumps(run.to_payload(), ensure_ascii=False, default=str)
-        # 先写盘再让出内存里的 run：读接口在内存里查不到才读盘，倒过来会有一段读成 404。
         await run_sync_transaction(_settle_files, run_dir / _RESULT_FILE, payload, self._staging.get(run.id))
         self._release(run.id)
 
@@ -647,7 +600,6 @@ class TrialRunManager:
             task = self._tasks.get(run_id)
             try:
                 if not await self.cancel(run_id) and task is not None:
-                    # ``asyncio.wait`` 不把任务自己的异常抛给关停方，关停方自己被取消时照常传出去。
                     await asyncio.wait([task])
             except Exception:
                 logger.warning("关停时结算测试连接失败：%s", run_id, exc_info=True)
@@ -701,8 +653,6 @@ async def _gate_trial_video_request(
     reference_images = assets.get("reference_images")
     reference_audio = assets.get("reference_audio_files")
     audio_files = list(reference_audio) if isinstance(reference_audio, list) else None
-    # 与生产路径同一探测：只在能力声明了总时长约束时探；探不出（随包 ffmpeg 不可用）传 None，
-    # 闸按未知跳过该项而非拒绝。
     total_seconds = (
         await probe_reference_audio_total_seconds(audio_files)
         if audio_files and caps.max_reference_audio_total_seconds is not None
@@ -710,8 +660,6 @@ async def _gate_trial_video_request(
     )
     images = list(reference_images) if isinstance(reference_images, list) else None
     end_image = _single(assets.get("end_image"))
-    # has_image 取整份槽位计划，与生产同源：参考图驱动的端点（如 S2V）没有首帧但带参考图，
-    # 只看首帧会把每一次合法请求都判成纯文生、按 text_to_video=false 拒掉。
     slot_plan = plan_frame_slots(
         start_image=_single(assets.get("start_image")),
         end_image=end_image,

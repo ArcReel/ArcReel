@@ -46,7 +46,6 @@ def delete_edit_timeline(project_dir: Path, document: EditTimelineDocument) -> p
         files,
         snapshot=True,
     )
-    # 时间线 ID 不复用，成片与剪映草稿的身份挂在它上面：时间线没了，登记就没有归属。
     forget_timeline_render_artifacts(project_dir, document.id)
     _remove_empty_dirs(project_dir / renders)
     return record
@@ -68,10 +67,8 @@ def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) 
     projects = ProjectManager.for_project_dir(project_dir)
 
     def require_episode() -> None:
-        # 所属的集已删除时加回的时间线打不开：集还在项目回收站里就只能随集恢复，否则按取不出对象降级。
         require_live_episode(project_dir, document.episode, timeline_id)
 
-    # 落地时在锁内再核对一次，期间被删的集让本次恢复失败、记录保留。
     require_episode()
     staged_renders = timeline_renders_dir(document.episode, document.id)
     render_files = _files_under(staged, staged_renders)
@@ -103,7 +100,6 @@ def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) 
         for rel in render_files:
             landing.place(staged / rel, renders + rel[len(staged_renders) :], original=rel)
         if landed.id == document.id and claims:
-            # 补录：登记取自删除前（迁移后）的清单，依据摘要不变，输入此后变过的照常读为过期。
             register_artifact_entries_atomically(
                 project_dir,
                 {key: ArtifactManifestEntry(entry.artifact_path, entry.basis_digest) for key, entry in claims.items()},

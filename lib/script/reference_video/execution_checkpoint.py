@@ -34,15 +34,11 @@ ReferenceGenerationType = Literal["i2v", "r2v"]
 
 _SCHEMA_VERSION = 6
 _PROVIDER_ASSET_SCHEMA_VERSION = 5
-#: 版本记录 ``execution_checkpoint_schema_version`` 的当前值，供补写来源的迁移与写侧共用一个字面量。
 CHECKPOINT_SCHEMA_VERSION = _SCHEMA_VERSION
-#: 不再记录旁白交付事实、也还没有记录供应商素材引用的检查点。
 _NO_NARRATION_SCHEMA_VERSION = 4
-#: 带完整产物时效事实、并且仍记录旁白交付事实的检查点。
 _NARRATION_CURRENCY_SCHEMA_VERSION = 3
 _VISUAL_BASIS_SCHEMA_VERSION = 2
 _LEGACY_SCHEMA_VERSION = 1
-#: 带完整产物时效事实的检查点版本；版本记录按它们判断来源是否完整。
 CURRENCY_CHECKPOINT_SCHEMA_VERSIONS = frozenset(
     {_NARRATION_CURRENCY_SCHEMA_VERSION, _NO_NARRATION_SCHEMA_VERSION, _PROVIDER_ASSET_SCHEMA_VERSION, _SCHEMA_VERSION}
 )
@@ -420,7 +416,6 @@ def stage_provider_media(
     finally:
         if not published:
             shutil.rmtree(temporary_dir, ignore_errors=True)  # hard-delete: temp -- 供应商媒体暂存目录
-        # Concurrent staging or another task-owned entry can keep the shared task directory non-empty.
         with contextlib.suppress(OSError):
             task_dir.rmdir()  # hard-delete: temp -- 空的任务暂存目录
 
@@ -465,7 +460,6 @@ async def _stage_provider_media(
             await _await_uninterruptibly(staging_task)
             published = True
         except BaseException:
-            # The original exception owns this path; a failed staging task has not published bytes to clean up.
             pass
         if published:
             cleanup_task = asyncio.create_task(asyncio.to_thread(cleanup_staged_provider_media, project_path, task_id))
@@ -480,8 +474,6 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
     """Delete only one task's provider-media staging directory."""
 
     final_dir = _lexical_staging_root(project_path, task_id)
-    # Never follow a reparse point during cleanup. An exact staging link is safe to unlink; a linked ancestor is
-    # outside the ownership proof, so leave it untouched rather than deleting through it.
     cursor = project_path.resolve()
     for part in (".arcreel", "tasks", task_id):
         cursor = cursor / part
@@ -500,7 +492,6 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
             shutil.rmtree(final_dir)  # hard-delete: temp -- 任务的供应商媒体暂存
         else:
             final_dir.unlink(missing_ok=True)  # hard-delete: temp -- 任务的供应商媒体暂存
-    # Parent pruning is best effort because sibling task data or a concurrent creator may keep it in use.
     with contextlib.suppress(OSError):
         final_dir.parent.rmdir()  # hard-delete: temp -- 空的任务暂存目录
 
@@ -526,7 +517,6 @@ class _VideoSubmissionCheckpoint:
     project_name: str
     script_file: str
     unit_id: str
-    #: 序列化键固定为 ``capability``：checkpoint 是落盘契约，且参与 ``request_digest``。
     generation_type: ReferenceGenerationType
     provider_id: str
     provider_model_id: str
@@ -543,14 +533,11 @@ class _VideoSubmissionCheckpoint:
     visual_basis_digest: str
     legacy_artifact_visual_basis: ArtifactBasisDescriptor | None
     artifact_currency: VideoArtifactCurrencyFacts | None
-    #: schema v1–v3 的旁白交付事实，原样保留只为复核 ``request_digest``；v4 起不再记录。
     legacy_narration: dict[str, Any] | None
     media: tuple[StagedProviderMedia, ...]
     reference_audio_targets: tuple[int, ...] | None
-    #: schema v5 起记录：以供应商素材引用代替图片内容发出的参考图，按 ``media_index`` 升序。
     provider_asset_references: tuple[ProviderAssetReference, ...]
     request_digest: str
-    #: schema v6 冻结本次请求路线的音轨形态；旧检查点没有此事实，不从当前覆盖补写。
     audio_track: VideoAudioMode | None = None
 
     _LEGACY_FIELDS = frozenset(
@@ -768,9 +755,6 @@ class _VideoSubmissionCheckpoint:
         """Return the frozen provider-request facts this checkpoint hashes."""
 
         payload = self._request_payload()
-        # Schema v2 preserved its historical provider-request digest semantics.
-        # Schema v3+ binds complete artifact currency evidence into the immutable
-        # checkpoint so a version cannot replace typed components independently.
         if self.schema_version == _VISUAL_BASIS_SCHEMA_VERSION:
             payload.pop("artifact_visual_basis", None)
         return payload
@@ -882,9 +866,6 @@ class _VideoSubmissionCheckpoint:
         schema_version = raw.get("schema_version")
         if type(schema_version) is not int or schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
             raise ValueError("unsupported video submission checkpoint version or kind")
-        # 任务与调用的关联只有 ``api_calls.task_id`` 一个真相源；检查点不再带调用坐标。
-        # 升级前落库的在途检查点仍带这个键，丢弃它即可继续接续——它不进 request_digest，
-        # 摘要校验不受影响。
         raw.pop("api_call_id", None)
         _require_exact_keys(
             raw,
@@ -979,7 +960,6 @@ def checkpoint_version_metadata(checkpoint: VideoSubmissionCheckpoint) -> dict[s
         "execution_task_id": checkpoint.task_id,
         "execution_script_file": checkpoint.script_file,
         "execution_request_digest": checkpoint.request_digest,
-        # 产物元数据键固定为 execution_capability（落盘契约）。
         "execution_capability": checkpoint.generation_type,
         "execution_provider_id": checkpoint.provider_id,
         "execution_provider_model_id": checkpoint.provider_model_id,

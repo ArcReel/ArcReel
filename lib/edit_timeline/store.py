@@ -124,7 +124,6 @@ class EditTimelineStore:
 
     def changed(self, episode: int) -> None:
         """该集的剪辑时间线有增删改：记项目活动并发刷新信号。"""
-        # 剪辑时间线是 JSON，修改时间不计入项目活动；删除后连文件都不在了，所以在这里记账。
         record_project_activity(self._project_dir)
         emit_project_change_batch(
             self._project_name,

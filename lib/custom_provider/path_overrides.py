@@ -22,12 +22,6 @@ import httpx
 PathOverrides = Mapping[str, str]
 NO_PATH_OVERRIDES: PathOverrides = MappingProxyType({})
 
-#: 没有覆盖时，端点在默认路径之前怎样归一化 base_url；界面据此还原最终请求地址。
-#: ``as_is`` 只去尾斜杠；``strip_version`` 剥去末尾的版本段（如 ``/v1``）；``append_v1``
-#: 末尾没有版本段时补 ``/v1``；``ensure_<后缀>`` 末尾不是该后缀时补上（方舟 ``/api/v3``、Vidu ``/ent/v2``、
-#: 可灵与 MiniMax ``/v1``）；``dashscope_api_v1`` 剥去百炼已知后缀后接 ``/api/v1``；``strip_messages`` 剥去整条
-#: 复制进来的 ``/v1/messages`` 后缀（``normalize_anthropic_base_url``）。
-#: 有覆盖的请求一律相对原样值，不按本规则归一化。
 BaseUrlRule = Literal[
     "as_is",
     "strip_version",
@@ -39,11 +33,9 @@ BaseUrlRule = Literal[
     "strip_messages",
 ]
 
-#: 路径中的占位符写法，与声明式定义的模板同形：``{{ model }}``、``{{ task_id }}``。
 _PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
 _MAX_PATH_LENGTH = 512
 
-#: 续跑回放的提交时 base_url（任务行的 ``submitted_base_url``）；路径覆盖层据此认出发往提交时 base 的请求。
 _replay_base_url: ContextVar[str | None] = ContextVar("path_override_replay_base_url", default=None)
 
 PathProblem = Literal["path_override_invalid_path", "path_override_placeholder_not_allowed"]
@@ -54,10 +46,8 @@ class EndpointRequest:
     """调用端点发出的一条可覆盖路径的请求。"""
 
     name: str
-    #: 前端 i18n key（dashboard ns），端点有多条请求时标在各自的地址条上方。
     display_name_key: str
     default_path: str
-    #: 覆盖路径里允许出现的占位符：只限该请求本身已有的值（API 模型名、任务 id 等）。
     placeholders: tuple[str, ...]
     base_url_rule: BaseUrlRule = "as_is"
 
@@ -170,7 +160,6 @@ class PathOverrideLayer:
         yield self._prefix, self._raw_path
 
     def rewrite(self, request: httpx.Request) -> None:
-        # 按未解码的路径匹配：前缀取自 base_url 原文，%2F 这类转义解码后就对不上；捕获的占位符值也原样写回
         raw_path = request.url.raw_path.decode("ascii").partition("?")[0]
         found = next(
             (
@@ -186,7 +175,6 @@ class PathOverrideLayer:
         match, override, base_raw_path = found
         values = {"model": self._model, **match.groupdict()}
         target = base_raw_path + _PLACEHOLDER.sub(lambda p: values.get(p.group(1), p.group(0)), override)
-        # 覆盖带 query 时整体替换原 query（docs/adr/0101）
         path, has_query, query = target.partition("?")
         request.url = (
             request.url.copy_with(path=path, query=query.encode()) if has_query else request.url.copy_with(path=path)

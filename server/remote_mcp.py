@@ -26,7 +26,6 @@ from server.tool_runtime import Services
 
 _UNPUBLISHED_ISSUER_URL = AnyHttpUrl("http://localhost/")
 
-# One decoded control byte may occupy six JSON bytes (``\u00XX``); leave 1 MiB for the MCP envelope.
 _MAX_REQUEST_BODY_BYTES = SourceLoader.DEFAULT_MAX_BYTES * 6 + 1024 * 1024
 
 
@@ -79,11 +78,6 @@ def build_remote_mcp_server(
         streamable_http_path="/",
         json_response=False,
         max_request_body_size=_MAX_REQUEST_BODY_BYTES,
-        # 端点每请求强制 arc- API Key，且该 Key 从不以 cookie / session 形式存在于浏览器，
-        # 重绑定到本端点的请求拿不到凭证、只能收 401——Host 白名单在此不构成安全边界，
-        # 只会拦下合法部署；Host 归属由反向代理与部署形态承担。浏览器型客户端的跨源防护由
-        # 应用级 CORSMiddleware（CORS_ORIGINS，见 server/cors_config.py）单点承担。
-        # 关闭该开关不影响 SDK 对 POST 的 Content-Type 校验。
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
 

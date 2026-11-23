@@ -86,7 +86,6 @@ logger = logging.getLogger(__name__)
 
 REPLAN_CANDIDATE_KEY = "episode_replan"
 
-#: 生成中途停止的原因：AI 在窗口里找不到切分点、模型或其他错误。创作者主动停止不记原因。
 REPLAN_INTERRUPTIONS = ("no_cut_point", "failed")
 
 
@@ -160,16 +159,11 @@ class ReplanScope:
     """从某一集起重新规划的范围。"""
 
     episode: int
-    #: 重新规划的起点：文件与文件内偏移。
     source_file: str
     offset: int
-    #: 从整本源文开头重新规划（有旧拆分流程的存量集，或源文已替换）。
     from_beginning: bool
-    #: 源文与账本记录的指纹不一致：现有分集的原文范围已对不上当前源文。
     source_replaced: bool
-    #: 会被替换的切出集，按播出顺序。
     replaced: list[int] = field(default_factory=list)
-    #: 其中已开始制作（有产物）的集。
     started: list[int] = field(default_factory=list)
 
 
@@ -337,17 +331,12 @@ def _require_candidate(project: Mapping[str, Any], candidate_id: str) -> dict[st
 class _Adoption:
     """一次采纳对账本的改动，由候选与当前账本推出。"""
 
-    #: 被替换的切出集，按播出顺序。
     replaced: list[int]
     retired: list[int]
     removed: list[int]
-    #: 已开始制作、且原文范围在候选里找不到一模一样的一集。
     needs_review: list[int]
-    #: 原文超出候选覆盖范围的被替换集（候选没有生成到整本源文结尾时）。
     uncovered: list[int]
-    #: 播出位置变了的其他集：（集 ID，原位置，新位置）。
     moved: list[tuple[int, int, int]]
-    #: 采纳后的播出顺序：``("old", 集 ID)`` 或 ``("new", 候选集下标)``；退下的集在末尾。
     order: list[tuple[str, int]]
 
 
@@ -421,7 +410,6 @@ def _plan_adoption(project_dir: Path, project: Mapping[str, Any], candidate: Map
             num for num in replaced if (placement := placements.get(num)) is None or placement.end_position > cursor
         ]
 
-    # 其他来源的集按锚点落位；第一个被替换的集之前的条目原位不动
     first = min((index for index, num in enumerate(ids) if num in replaced_set), default=len(entries))
     before: list[int] = []
     attached: list[list[int]] = [[] for _ in positions]
@@ -479,22 +467,14 @@ class ReplanAdoptionImpact:
     """采纳一份候选的变更清单。``revision`` 是这份清单的指纹，确认时回传。"""
 
     candidate: str
-    #: 发起重新规划的那一集。
     episode: int
-    #: 被替换的切出集数与候选集数。
     old_count: int
     new_count: int
-    #: 已开始制作，转为无原文的集并标 stale，移到播出顺序末尾。
     retired: list[int]
-    #: 没有产物，直接移除。
     removed: list[int]
-    #: 已开始制作且原文范围有变化。
     needs_review: list[int]
-    #: 原文超出新方案覆盖范围、同样按被替换处理的集（新方案没有生成到整本源文结尾时）。
     uncovered: list[int]
-    #: 播出位置变了的其他集：（集 ID，原位置，新位置）。
     moved: list[tuple[int, int, int]]
-    #: 勾选「一并删除」时退下的集会丢失的内容：集 ID → 删除一集的丢失清单。
     losses: dict[int, dict[str, Any]]
 
     @property
@@ -540,9 +520,7 @@ class ReplanConfirmationRequired:
 @dataclass(frozen=True)
 class ReplanAdoptionResult:
     impact: ReplanAdoptionImpact
-    #: 候选集分配到的新集 ID，按源文位置。
     episodes: list[int]
-    #: 勾选「一并删除」后删掉的集。
     deleted: list[int] = field(default_factory=list)
 
 
@@ -555,7 +533,6 @@ class _StaleConfirmation(Exception):
 def _write_new_episode_file(project_dir: Path, episode: int, text: str) -> None:
     path = episode_source_path(project_dir, episode)
     if path.exists() or path.is_symlink():
-        # 新集 ID 的同名文件不在账本里，不是任何一集的原文，先改名留底
         path.rename(archive_episode_file_path(path))
     path.parent.mkdir(exist_ok=True)
     path.write_text(text, encoding="utf-8", newline="\n")
@@ -577,7 +554,6 @@ def _apply_adoption(
     texts = {doc.rel_path: doc.text for doc in docs}
     entries = _entries(project)
     by_id = {parse_positive_episode_num(entry.get("episode")): entry for entry in entries}
-    # 旧拆分流程的存量集没有原文范围，集文件是它唯一的原文记录，无法从账本重造
     legacy = {num for num in adoption.replaced if parse_source_range(by_id[num]) is None}
     drafts = candidate_episodes(candidate)
     new_ids = allocate_episode_ids(project, len(drafts))
@@ -594,7 +570,6 @@ def _apply_adoption(
         }
         if isinstance(draft.get("outline"), Mapping):
             entry["outline"] = dict(draft["outline"])
-        # 新集 ID 在磁盘上已有产物（历史最高号之外的手工残留）时标 stale，产物不删除
         if has_downstream_products(project_dir, num, entry):
             script_review.mark_ledger_stale(project_dir, project, entry, num)
         new_entries.append(entry)

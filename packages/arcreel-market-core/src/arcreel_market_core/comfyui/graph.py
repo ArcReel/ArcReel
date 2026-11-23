@@ -117,7 +117,6 @@ def dependency_depth(workflow: Mapping[str, Any], node_id: str) -> int:
         if expanded:
             on_path.discard(current)
             parents = [parent for _, (parent, _slot) in upstream_of(workflow, current)]
-            # 此刻不在 memo 里的父节点只可能是回边：它还在当前路径上，按 0 计。
             memo[current] = 1 + max(memo.get(parent, 0) for parent in parents) if parents else 0
             continue
         if current in memo:
@@ -163,8 +162,6 @@ def resolve_literal(
     if not isinstance(node, Mapping):
         return UNRESOLVED
     inputs = node_inputs(node)
-    # 按键判在不在，而不是按值是不是 None：``"text": null`` 是个存在的字面值字段，填得进去，
-    # 与「这个节点根本没有这个入口」不是一回事。
     if input_name not in inputs:
         return UNRESOLVED
     raw = inputs[input_name]

@@ -11,8 +11,6 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field, field_validator, model_validator
-
-# pydantic 顶层不 re-export PydanticCustomError，只能直接依赖 pydantic-core。
 from pydantic_core import PydanticCustomError
 
 from lib import PROJECT_ROOT
@@ -43,11 +41,7 @@ router = APIRouter()
 assistant_service = AssistantService(project_root=PROJECT_ROOT)
 
 MAX_IMAGE_SOURCE_BYTES = 5 * 1024 * 1024
-# 前端把附图缩放重编码到这个预算之内；服务端合计上限按它折算，单张上限仍留 5 MB 作为
-# 绕过前端时的兜底。合计按 5 × 1.5 MB 计，base64 约 10 MB，稳在 Messages API 的
-# 32 MB 单请求上限（Bedrock 20 MB / Vertex 30 MB）之内。
 MAX_RESIZED_IMAGE_SOURCE_BYTES = 3 * 1024 * 1024 // 2
-# Base64 needs four characters for every three source bytes, rounded up to a full quartet.
 MAX_IMAGE_BASE64_CHARS = 4 * ((MAX_IMAGE_SOURCE_BYTES + 2) // 3)
 MAX_RESIZED_IMAGE_BASE64_CHARS = 4 * ((MAX_RESIZED_IMAGE_SOURCE_BYTES + 2) // 3)
 MAX_IMAGES_PER_REQUEST = 5
@@ -135,7 +129,6 @@ class ImageRequest(BaseModel):
 class SendRequest(ImageRequest):
     content: str = ""
     session_id: str | None = None
-    # 请求侧幂等键：同键重试返回既有权威条目，不产生重复。
     client_key: str | None = Field(default=None, max_length=128)
 
 
@@ -177,7 +170,6 @@ async def send_message(
     except TimeoutError as exc:
         raise HTTPException(status_code=504, detail=_t("sdk_session_timeout")) from exc
     except ValueError as exc:
-        # 空消息内容 / 非法项目名等坏请求，str(exc) 只进日志
         logger.warning("会话发送请求非法: %s", exc)
         raise BadRequestError("request_invalid") from exc
     except AgentStartupError as exc:

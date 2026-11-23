@@ -29,7 +29,6 @@ BUILTIN_DISCOVERY_FORMS: Mapping[str, DiscoveryForm] = {
     "agnes": "openai",
 }
 
-#: xAI 的 OpenAI 兼容接口地址；grok 的调用通道走 xai_sdk，不在配置里存地址。
 XAI_OPENAI_BASE_URL = "https://api.x.ai/v1"
 
 
@@ -88,7 +87,6 @@ def classify_model_ids(provider_id: str, model_ids: list[str]) -> list[Discovere
         if view.official:
             official.setdefault(view.api_model_name, []).append(view)
     result: list[DiscoveredBuiltinModel] = []
-    # 含点段的 ID 添加会被拒（见 model_id.py），不放进可添加列表
     for model_id in sorted({m for m in model_ids if not has_dot_segment(m)}):
         views = official.get(model_id)
         if views:
@@ -145,7 +143,6 @@ def _openai_base_url(provider_id: str, configured: str | None) -> str:
             return (configured or "").strip() or OFFICIAL_OPENAI_BASE_URL
 
 
-#: 模型列表接口单次请求的超时。调用方另有总时限，这里让线程随之结束，不按 SDK 默认的长超时与重试挂着。
 _LIST_TIMEOUT_SECONDS = 30
 #: 同一超时按 genai SDK ``HttpOptions.timeout`` 的单位（毫秒）；不设 ``retry_options`` 时它不重试。
 _GENAI_LIST_TIMEOUT_MS = _LIST_TIMEOUT_SECONDS * 1000

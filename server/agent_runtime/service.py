@@ -99,8 +99,6 @@ class AssistantService:
 
         self.pm = ProjectManager(self.data_root)
         self.meta_store = SessionMetaStore()
-        # 会话事件日志：UI 时间线唯一读源。store 与 SessionManager 共享同一实例，
-        # live 写入点（entry pipeline）与读取端（REST / SSE / 懒生成）落同一张表。
         self.event_log_store = EventLogStore()
         self.session_manager = SessionManager(
             project_root=self.project_root,
@@ -108,9 +106,6 @@ class AssistantService:
             data_root=self.data_root,
             event_log_store=self.event_log_store,
         )
-        # Shared with SessionManager (lazy-cached there) so reads via the
-        # adapter and writes via SDK options use the same per-user namespace.
-        # None when ARCREEL_SDK_SESSION_STORE=off.
         self._session_store = self.session_manager._build_session_store()
         self.transcript_adapter = SdkTranscriptAdapter(store=self._session_store)
         self.event_log = EventLogService(self.event_log_store, self.transcript_adapter)
@@ -122,19 +117,10 @@ class AssistantService:
         )
         self._startup_lock = asyncio.Lock()
         self._startup_done = False
-        # 新会话幂等映射：client_key 唯一索引按 (session_id, client_key) 分区，
-        # 覆盖不到 session_id 尚不存在的新会话受理——响应丢失后的重试若再走
-        # 新会话分支会重复建会话、重复执行同一 prompt。进程内 LRU 为快路径，
-        # 重启 / 淘汰后由事件日志的跨会话查询兜底（_find_accepted_new_session）。
         self._new_session_client_keys: OrderedDict[str, str] = OrderedDict()
         self._new_session_client_keys_max = 256
-        # 同一 client_key 的并发新建请求在此串行化，避免在途窗口内重复建会话
         self._new_session_locks = KeyedLocks()
-        # 同一（原会话, client_key）的并发改写请求在此串行化：分叉的幂等预检读的是
-        # 原会话的 superseded 指针，在途窗口内不串行会让两个请求各自分叉一次。
         self._rewrite_locks = KeyedLocks()
-        # 已有会话的消息受理锁：发送与改写互斥。改写从排队检查持有到分支发布，期间到达的发送
-        # 等它结束后看到原会话已被取代，不会排进一个即将被取代的会话。
         self._admission_locks = KeyedLocks()
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
@@ -299,7 +285,6 @@ class AssistantService:
                         f"session {session_id} has already been superseded by {meta.superseded_by}"
                     )
                 prompt = self._prepare_content(content, images)
-                # 旧会话懒生成先行：保证本条消息排在重放重建的历史之后。
                 await self.event_log.ensure_backfilled(
                     session_id, await self._aresolve_project_cwd_safe(meta.project_name)
                 )
@@ -319,8 +304,6 @@ class AssistantService:
         if existing is not None:
             return existing
 
-        # 同一 client_key 的并发请求在此串行化：send_new_session 在途期间
-        # 后来者等锁而非各自建会话，避免重复执行同一 prompt。
         lock = self._new_session_locks.lock_for(client_key)
         async with lock:
             existing = await self._find_accepted_new_session(client_key, project_name)
@@ -343,36 +326,17 @@ class AssistantService:
         if mapped_session_id is not None:
             entry = await self.event_log_store.find_by_client_key(mapped_session_id, client_key)
             if entry is None:
-                # 映射指向的会话条目已不存在（如会话已被删除）：映射已失效，
-                # 清掉后继续向下探测，避免返回指向已删除会话的幽灵 "accepted"
-                # 响应——调用方会据此连接一个不存在的会话，消息静默丢失。上一行
-                # await 期间该 key 可能已被其他并发请求写入更新的映射；仅当当前
-                # 值仍是本次读到的旧值时才清，避免清掉并发写入的新映射（DB 兜底
-                # 查询本身按 client_key 定位一定命中同一权威会话，误删只是白跑
-                # 一次查询，但仍以精确条件避免这层不必要的抖动）。
                 if self._new_session_client_keys.get(client_key) == mapped_session_id:
                     self._new_session_client_keys.pop(client_key, None)
             elif await self._new_session_matches_project(mapped_session_id, project_name):
-                # 命中即刷新 LRU 位置：否则被频繁重试命中的 key 仍按插入
-                # 顺序（而非访问顺序）淘汰，退化成 FIFO。上一行 await 期间
-                # 该 key 可能已被其他并发请求的淘汰逻辑移除，直接
-                # move_to_end 对不存在的键会抛 KeyError；复用
-                # _record_new_session_client_key 的赋值语义（不存在则插入，
-                # 存在则原地更新）再显式挪到最近使用端，两种情形都安全。
                 self._record_new_session_client_key(client_key, mapped_session_id)
                 return {"status": "accepted", "session_id": mapped_session_id, "entry": entry, "queued_message": None}
-            # else：映射命中的会话属于其他项目 → 视为未命中，落到 DB 兜底 / 新建
-            # 路径。不清映射：它对原项目仍有效；后续在当前项目新建会话时由
-            # _record_new_session_client_key 以本项目 session 覆盖同一 client_key。
         recovered = await self.event_log_store.find_new_session_by_client_key(client_key)
         if recovered is None:
             return None
         session_id, entry = recovered
         if not await self._new_session_matches_project(session_id, project_name):
             return None
-        # 上一行 await 期间该 key 可能已被其他并发请求记入新映射；仅当当前
-        # 无映射或已是同一 session_id 时才写入，避免用本次查到的（较旧）
-        # session_id 覆盖并发写入的映射。
         if self._new_session_client_keys.get(client_key) in (None, session_id):
             self._record_new_session_client_key(client_key, session_id)
         return {"status": "accepted", "session_id": session_id, "entry": entry, "queued_message": None}
@@ -422,8 +386,6 @@ class AssistantService:
             "queued_message": accepted.get("queued_message"),
         }
 
-    # 等待运行中轮次中断到终态的上限与轮询间隔：终态由 inbox 任务收到 SDK 的
-    # result 消息后推导，没有可等的 event，只能观察状态。
     _INTERRUPT_SETTLE_TIMEOUT = 30.0
     _INTERRUPT_SETTLE_POLL = 0.05
 
@@ -490,15 +452,12 @@ class AssistantService:
                 "message rewrite requires the DB transcript store (ARCREEL_SDK_SESSION_STORE=db)"
             )
 
-        # 原会话已被取代：同一 client_key 的重试在新分支里认领自己的权威条目，
-        # 其余情形是对一个已作废分支发起的改写，明确拒绝而非再分叉一次。
         if meta.superseded_by is not None:
             replay = await self._replay_rewrite(meta.superseded_by, client_key)
             if replay is not None:
                 return replay
             raise SessionSupersededError(f"session {session_id} has already been superseded by {meta.superseded_by}")
 
-        # 内容校验先于任何有副作用的步骤：空消息不该中断运行中的轮次。
         prompt = self._prepare_content(content, images)
 
         project_cwd = await self._aresolve_project_cwd_safe(meta.project_name)
@@ -506,12 +465,8 @@ class AssistantService:
         if anchor is None:
             raise RewriteAnchorError(f"anchor {anchor_entry_uuid} is not a user message of session {session_id}")
 
-        # 问答优先：未决问答卡片存在时不改写。卡片只活在内存里（回答经 future
-        # 交回运行中的轮次），会话被驱逐或进程重启后卡片已随之取消，冷会话没有
-        # 可回答的问答，读内存即读真相。
         if await self.session_manager.get_pending_questions_snapshot(session_id):
             raise PendingQuestionError(f"session {session_id} has pending questions")
-        # 排队检查到分支发布之间不受理新消息：中断只停当前轮，排队消息会接着执行，分支里也不会有它们
         async with self._admission_locks.lock_for(session_id):
             if self.session_manager.get_queued_messages_snapshot(session_id):
                 raise QueuedMessagesPendingError(f"session {session_id} has queued messages")
@@ -520,14 +475,9 @@ class AssistantService:
 
             branched = await self._branch_or_reject(session_id, anchor_entry_uuid)
         new_session_id = branched.session_id
-        # 分支一旦发布（superseded 指针已指向新会话），其后每一步都在补偿范围内：
-        # 中途失败若不撤回，原会话被隐藏、新会话又没收到改写后的消息，重试还会
-        # 撞上「已被取代」。send_message 抛出时不留下排队消息，也没有写入任何条目
-        # （条目在 Agent 接纳时才写），因此整体撤回不丢数据。
         try:
             new_meta = await self.meta_store.get(new_session_id)
             if branched.resumable:
-                # 懒生成先行：改写后的消息要排在复制来的前缀历史之后。
                 await self.event_log.ensure_backfilled(new_session_id, project_cwd)
             accepted = await self.session_manager.send_message(
                 new_session_id,
@@ -583,16 +533,12 @@ class AssistantService:
         try:
             return await self.session_branch.branch(session_id, anchor_entry_uuid)
         except BranchAnchorError as exc:
-            # 编排层的预检放行了、切片却拒绝：解析出的 uuid 在 transcript 里查无
-            # 此条（锚点是运行中轮次刚发出、SDK 尚未回放的那条），或该条目载有
-            # tool_result。都是调用方能改正的坏请求，与「分叉失败」区分开。
             raise RewriteAnchorError(
                 f"anchor {anchor_entry_uuid} is not a forkable user message of session {session_id}"
             ) from exc
         except SessionBranchError as exc:
             meta = await self.meta_store.get(session_id)
             if meta is not None and meta.superseded_by is not None:
-                # 预检与分叉之间输给了另一次改写（指针的条件更新只让一个赢）。
                 raise SessionSupersededError(
                     f"session {session_id} has already been superseded by {meta.superseded_by}"
                 ) from exc
@@ -606,8 +552,6 @@ class AssistantService:
         except Exception:
             logger.exception("关闭未完成分支会话失败 session_id=%s", new_session_id)
         try:
-            # 分叉本身不写事件日志，但派发路径可能已经写过；与 delete_session
-            # 同口径连日志一起清，避免撤回后留下无主条目。
             await self.event_log_store.delete_session(new_session_id)
         except Exception:
             logger.exception("删除未完成分支会话事件日志失败 session_id=%s", new_session_id)
@@ -655,7 +599,6 @@ class AssistantService:
         meta = await self.meta_store.get(session_id)
         if meta is None or meta.project_name != project_name:
             raise FileNotFoundError(f"session not found: {session_id}")
-        # 与发送共用受理锁：发送重建连接期间「未发送」消息暂离会话，撤回等连接建好后再找它
         async with self._admission_locks.lock_for(session_id):
             outcome, queued = await self.session_manager.withdraw_queued_message(session_id, message_id, intent)
         return {
@@ -669,7 +612,6 @@ class AssistantService:
         self, project_name: str, session_id: str, message_id: str, *, locale: str = DEFAULT_LOCALE
     ) -> dict[str, Any]:
         """把一条「未发送」消息重新交给 CLI，必要时先复活会话；响应带回这条排队消息。"""
-        # 与发送、改写共用受理锁：复活会话与送入 CLI 不与它们交错
         async with self._admission_locks.lock_for(session_id):
             meta = await self.meta_store.get(session_id)
             if meta is None or meta.project_name != project_name:
@@ -686,7 +628,6 @@ class AssistantService:
         meta = await self.meta_store.get(session_id)
         if meta is None or meta.project_name != project_name:
             raise FileNotFoundError(f"session not found: {session_id}")
-        # 同撤回：不与发送重建连接交错；对「未发送」消息还会自己重建连接，与重新发送一样串行
         async with self._admission_locks.lock_for(session_id):
             outcome = await self.session_manager.send_queued_message_now(session_id, message_id)
         return {"session_id": session_id, "id": message_id, "outcome": outcome}
@@ -760,15 +701,12 @@ class AssistantService:
             ready = await anext(stream, None)
             if not isinstance(ready, SubscriptionReady):
                 return
-            # 订阅已先行建立（无缝隙）；订阅与库读之间重复投递的条目由 seq
-            # 门槛过滤——身份比对，非内容比对。
             for entry in await self.event_log.list_entries(session_id, project_cwd, after_seq=last_seq):
                 last_seq = max(last_seq, self._entry_seq(entry))
                 yield self._entry_sse_event(entry)
 
             yield self._draft_sse_event(session_id)
 
-            # 快照与订阅之间重复投递的增量按排队消息 id 幂等应用，订阅先行保证最终一致
             yield self._sse_event(
                 "queue",
                 {"session_id": session_id, "messages": self.session_manager.get_queued_messages_snapshot(session_id)},
@@ -780,14 +718,11 @@ class AssistantService:
             status: SessionStatus = await self.session_manager.get_status(session_id) or meta.status
             yield self._sse_event("status", self._build_status_event_payload(status=status, session_id=session_id))
 
-            # result 只代表一轮结束，不推状态：会话离开 running 以 CLI 报 idle 为准，由 inbox
-            # 在本轮条目全部广播之后发出 runtime_status。
             async for stream_event in stream:
                 if request is not None and await request.is_disconnected():
                     break
 
                 if isinstance(stream_event, Heartbeat):
-                    # 驱逐等不经广播的状态变化由心跳对齐。
                     live_status = await self.session_manager.get_status(session_id) or status
                     if live_status != status:
                         status = live_status
@@ -805,8 +740,6 @@ class AssistantService:
                     msg_type in ("log_entry", "log_delta", "ask_user_question", "queued_message")
                     and status != "running"
                 ):
-                    # 发送、自主轮次都先切 running 再产出这些消息（发送登记排队消息与切 running 同步完成）：
-                    # 先推 running，新一轮的内容与排队消息不落在旧终态之下。
                     live_status = await self.session_manager.get_status(session_id) or status
                     if live_status == "running":
                         status = live_status
@@ -828,11 +761,9 @@ class AssistantService:
 
                 if msg_type == "queued_message":
                     if message.get("op") == "remove":
-                        # 按用户撤回移出时带上意图（``withdrawn``）与编辑时退回输入框的内容（``message``）
                         removed = {k: v for k, v in message.items() if k in ("id", "withdrawn", "message")}
                         yield self._sse_event("queue_remove", {"session_id": session_id, **removed})
                     elif message.get("op") == "reorder":
-                        # 立即发送把消息排到最前：重播整份快照，客户端按它重排托盘
                         yield self._sse_event("queue", {"session_id": session_id, "messages": message.get("messages")})
                     else:
                         yield self._sse_event(
@@ -953,7 +884,7 @@ class AssistantService:
             "is_error": is_error,
             "session_id": session_id,
         }
-        api_error_status = message.get("api_error_status")  # SDK 0.1.76+
+        api_error_status = message.get("api_error_status")
         if api_error_status is not None:
             payload["api_error_status"] = api_error_status
         return payload
@@ -974,12 +905,6 @@ class AssistantService:
         """Shutdown service gracefully."""
         await self.session_manager.shutdown_gracefully()
 
-    # Lucide icon hint for each user-invocable skill. The display name is
-    # **not** stored here — the frontend resolves it from i18n
-    # ``dashboard:skill_name_<id>`` (single source of truth for skill labels
-    # lives in ``frontend/src/i18n/{zh,en,vi}/dashboard.ts``).
-    # ``tests/unit/test_frontend_skill_i18n.py`` cross-checks SKILL.md against
-    # those keys so adding a user-invocable skill without translations fails CI.
     _SKILL_ICONS: ClassVar[dict[str, str]] = {
         "video-workflow": "clapperboard",
         "generate-storyboard": "images",
@@ -1047,14 +972,6 @@ class AssistantService:
 
     @staticmethod
     def _resolve_skill_entry_file(skill_dir: Path) -> Path | None:
-        # profile 端的 content_mode 变体（SKILL.narration.md / SKILL.drama.md）只在 sync
-        # 进项目目录时才会被物化为 SKILL.md；列表接口直接扫 profile 时必须自己识别变体，
-        # 否则 video-workflow 这类 variant-only skill 永远拿不到。
-        #
-        # 查找契约与 tests/unit/test_frontend_skill_i18n.py:_find_skill_md 保持一致：
-        # 用 is_file 严格筛文件、按 sorted(VALID_CONTENT_MODES) 显式枚举有效模式、
-        # 校验 common/variant 互斥、变体完整，且所有变体的 name/user-invocable 一致。
-        # 非法形态 warning 后返回 None，避免列表随机暴露某个 mode 的破损配置。
         variants = [skill_dir / f"SKILL.{mode}.md" for mode in sorted(VALID_CONTENT_MODES)]
         existing = [v for v in variants if v.is_file()]
         common = skill_dir / "SKILL.md"
@@ -1108,8 +1025,6 @@ class AssistantService:
                 "user_invocable": metadata.user_invocable,
             }
 
-        # Keep legacy body-only Skills readable; shipped profile files are required
-        # to have YAML frontmatter by the static profile lint.
         name = fallback_name
         description = ""
         user_invocable = True

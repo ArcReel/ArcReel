@@ -20,12 +20,8 @@ _SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 class SchemaVersionLevel(StrEnum):
     """文件 ``schema_version`` 相对当前版本的档位。"""
 
-    #: 同版：直接导入。
     DIRECT = "direct"
-    #: 同主版本但更旧：警告放行（当前 schema 只会比它更宽）。
     WARNING = "warning"
-    #: 文件更新，或主版本更低：需用户确认。前者可能含本版不认识的字段，后者语义已变。
-    #: 版本缺失或不是 semver 时也归此档——判不出新旧就不该悄悄放过去。
     CONFIRM = "confirm"
 
 

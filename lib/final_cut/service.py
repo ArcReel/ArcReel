@@ -336,7 +336,6 @@ class FinalCutService:
             )
         except UnitMaterialUnavailableError as exc:
             if checked.check.variant.with_narration:
-                # 选中的旁白配音快照损坏时，取材料就已失败；先认出损坏，报出是哪一版。
                 await asyncio.to_thread(self._verify_selected_narration, project_name, exc.unit_id)
             raise FinalCutError(
                 "final_cut_presentation_unavailable",

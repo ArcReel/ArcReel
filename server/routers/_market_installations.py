@@ -23,7 +23,6 @@ class EntryInstallationResponse(BaseModel):
     endpoint_key: str
     endpoint_display_name: str
     installed_version: str
-    #: 条目就在眼前，市场轴只会是 current / update_available。
     state: Literal["current", "update_available"]
     modified: bool
 
@@ -32,7 +31,6 @@ class EndpointInstallationResponse(BaseModel):
     source_key: str
     source_id: int | None
     source_display_name: str | None
-    #: 来源已删除时为空。
     source_enabled: bool | None
     slug: str
     installed_version: str
@@ -118,7 +116,6 @@ async def endpoint_installations(
             source_enabled=source.is_enabled if source else None,
             slug=record.slug,
             installed_version=record.installed_version,
-            # SQLite 读回的时间不带时区，库内一律按 UTC 存。
             installed_at=(
                 record.installed_at if record.installed_at.tzinfo else record.installed_at.replace(tzinfo=UTC)
             ).isoformat(),

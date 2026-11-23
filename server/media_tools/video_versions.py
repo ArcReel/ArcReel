@@ -46,7 +46,6 @@ def project_video_unit_ids(projects: ProjectManager, project_name: str, project:
             script = projects.load_script_readonly(project_name, script_name)
             items, id_field, _kind = resolve_items(script, kind=kind)
         except (ScriptEditError, ValueError, OSError):
-            # 读不出的剧本无法证明单元存在，跳过；其余剧本照常判定
             logger.warning("查找视频单元时跳过无法读取的剧本: %s", script_name, exc_info=True)
             continue
         found.update(str(item.get(id_field)) for item in items if isinstance(item, dict) and item.get(id_field))

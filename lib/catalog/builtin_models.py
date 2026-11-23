@@ -166,9 +166,6 @@ async def add_builtin_model(
         raise BuiltinModelError("builtin_model_media_type_required", model=model_id)
     binding = entry_binding.strip() if entry_binding else None
     if not official and binding:
-        # 从「模型目录」选条目时 model_id 是官方模型名，可能与清单里的 API 模型名不同（如方舟带日期的名字）：
-        # 这个供应商已收录对应这个条目的模型时启用它，不另建一个供应商调不通的用户添加模型。同一条目可以有多个
-        # 别名 API 名（如方舟 Seedream 5.0 Lite 的两个名字），启用清单顺序里的第一个。
         official = [
             v
             for v in views
@@ -201,7 +198,6 @@ async def add_builtin_model(
             provider_id, model_id, media_type=resolved_media, entry_binding=binding, endpoint=chosen
         )
     else:
-        # 官方数据已不再收录、只剩启用状态的行：转为用户添加的模型。
         row.user_added = True
         row.enabled = True
         row.media_type = resolved_media
@@ -299,7 +295,6 @@ async def update_builtin_model(
         row.model_id = target
     if endpoint is not None:
         checked = _checked_endpoint(provider_id, row.media_type or "", endpoint, model_id=target)
-        # 能力覆盖是按端点校验后保存的：换了端点又没有一并提交覆盖时清除，不让旧端点下的覆盖套到新端点上。
         if capability_overrides is _UNCHANGED and checked != builtin_endpoints.builtin_model_endpoint(
             provider_id, row.media_type or "", model_id
         ):

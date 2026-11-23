@@ -59,7 +59,6 @@ async def export_jianying_draft(
     caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[JianyingDraftToolValue]:
-    # 剪映草稿服务依赖 pyJianYingDraft 与呈现模型读侧，调用时才导入。
     from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
 
     value = request.value

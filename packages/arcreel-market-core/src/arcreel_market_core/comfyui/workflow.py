@@ -13,7 +13,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-#: 字面值恰好是数组时的包装键：带这层包装的字段一律按字面值看待。
 VALUE_WRAPPER_KEY = "__value__"
 
 _LINK_LENGTH = 2

@@ -58,8 +58,6 @@ def get_storyboard_items(script: dict) -> tuple[list[Any], str, str | None, str,
     异常上冒，避免脏数据被静默吞成 ``TypeError: 'NoneType' is not iterable``。
     """
     items, id_field, kind = resolve_items(script)
-    # 角色引用字段名查 SKELETONS 单一真相源（video_units→None 强制显式决策）；id_field 由
-    # resolve_items 按同一 kind 一并给出，各分支共用。
     char_field = SKELETONS[kind].chars_field
     if kind == "video_units":
         return ([], id_field, char_field, "scenes", "props")
@@ -72,7 +70,6 @@ def find_storyboard_item(
     resource_id: str,
 ) -> tuple[Any, int] | None:
     for index, item in enumerate(items):
-        # 条目来自磁盘剧本 JSON，只有外层 list 被校验过：非映射条目跳过而不是抛 AttributeError。
         if isinstance(item, dict) and str(item.get(id_field)) == str(resource_id):
             return item, index
     return None
@@ -109,8 +106,6 @@ def resolve_storyboard_image_ref(project_path: Path, storyboard_rel: object) -> 
     try:
         storyboard_file.relative_to(storyboards_root)
     except ValueError:
-        # 与越界/脏数据分开措辞：这一支是「项目内但不在 storyboards/」，唯一能自然落进来的
-        # 是外部编辑过的剧本，运维需要从失败原因直接看出是目录归属而非路径越界。
         raise ValueError(f"storyboard image path must stay under storyboards/: {storyboard_rel!r}") from None
     return storyboard_file
 

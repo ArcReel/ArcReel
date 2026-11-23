@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-# Base resolution for grid rendering (width reference for 16:9)
 _BASE_WIDTH = 1920
 
 
@@ -37,15 +36,10 @@ class GridLayout:
         return width, height
 
 
-# 未配置分辨率档时宫格渲染实际下发的档位（与 ``execute_grid_task`` 同源）
 GRID_FALLBACK_RESOLUTION = "2K"
 
-# 大宫格（4×4 / 5×5）要求的图像分辨率档：单格分辨率随格数缩水，低于该档时单格已不足以
-# 支撑下游视频画质，故按档位封顶到 3×3。
 _LARGE_GRID_RESOLUTION = "4K"
 
-# 档位阶梯：全部为 N×N 平方切分，单格比例因而恒等于整图比例，切格后 center-crop 近乎 no-op。
-# 顺序即选档顺序，(cell_count, grid_size, side)。
 _GRID_LADDER: tuple[tuple[int, str, int], ...] = (
     (4, "grid_4", 2),
     (9, "grid_9", 3),
@@ -53,10 +47,8 @@ _GRID_LADDER: tuple[tuple[int, str, int], ...] = (
     (25, "grid_25", 5),
 )
 
-# 整图比例直接取项目视频比例的规范朝向，单格比例与之一致
 _ORIENTATION_ASPECT: dict[str, str] = {"horizontal": "16:9", "vertical": "9:16"}
 
-# 存量 grid_6（曾经唯一的非方形档）写入时的整图比例，按 (rows, cols) 索引
 _LEGACY_NON_SQUARE_ASPECT: dict[tuple[int, int], str] = {(3, 2): "4:3", (2, 3): "3:4"}
 
 _GATED_MAX_CELL_COUNT = 9

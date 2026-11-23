@@ -58,7 +58,6 @@ if TYPE_CHECKING:
 
 router = APIRouter(dependencies=[Depends(require_project_migration_ok)])
 
-# 浏览器原生下载带不了 Authorization header，端点内校验短时效下载 token（见 docs/adr/0071）。
 self_auth_router = APIRouter()
 
 
@@ -105,7 +104,6 @@ def get_jianying_draft_service() -> TimelineJianyingDraftService:
     return TimelineJianyingDraftService(get_project_manager())
 
 
-# 具体类型只在 TYPE_CHECKING 下可见：pyJianYingDraft 是重依赖，运行期按需惰性导入。
 JianyingDraftServiceDep = Annotated[Any, Depends(get_jianying_draft_service)]
 
 _ERROR_STATUS: dict[str, int] = {
@@ -183,7 +181,6 @@ class RenderFinalCutBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     revision: int | None = Field(default=None, ge=1)
-    # 省略时按项目补齐：TTS 配音项目带旁白、其余不带旁白；字幕默认烧入。
     narration: DraftNarration | None = None
     subtitles: SubtitleMode | None = None
 
@@ -443,7 +440,6 @@ class ExportJianyingDraftBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     revision: int | None = Field(default=None, ge=1)
-    # 省略时按项目取默认旁白版本：TTS 配音项目带旁白，其余不带旁白。
     narration: DraftNarration | None = None
 
 

@@ -105,15 +105,9 @@ async def generate_storyboards(
             try:
                 project_data = services.projects.load_project(scope.project_name)
             except FileNotFoundError:
-                # project.json 缺失时允许降级到空 dict（style 走默认值）；
-                # JSON 损坏 / 权限错误等其他异常应该让外层 tool_error 暴露出来，
-                # 否则会用空 style 静默继续入队，丢掉了配置。
                 project_data = {}
 
             if project_data:
-                # 失配剧本在此被拒：按分镜图生视频该读的数组不在剧本里，继续走下去
-                # 会落进空结果的假成功，把成因埋掉。project.json 缺失时无生成模式可依，
-                # 沿用上面的降级放行。
                 ensure_route_skeleton(
                     script, resolve_content_mode(script, project_data), project_data.get("generation_mode")
                 )
@@ -159,8 +153,6 @@ async def generate_storyboards(
             return generation_batch_submission_outcome(submitted.batch)
         if specs:
             recorder = _FailureRecorder(project_dir / "storyboards")
-            # narration → segment_id / drama → scene_id：``id_field`` 是脚本里
-            # 的规范字段名，``"segment"`` / ``"scene"`` 是对应的资源类型。
             resource_type = "segment" if plan.id_field == "segment_id" else "scene"
             for br in submitted.failures:
                 recorder.record(br.resource_id, resource_type, br.error or "unknown")

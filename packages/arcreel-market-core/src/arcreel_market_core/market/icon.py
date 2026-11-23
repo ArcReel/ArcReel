@@ -14,7 +14,6 @@ from .issues import ROOT_PATH, MarketIssue, MarketIssueCode
 
 ICON_MAX_BYTES = 64 * 1024
 
-#: 扩展名 → (Pillow 识别出的格式, HTTP media type)；SVG 不经 Pillow，格式记 None。
 ICON_FORMATS: dict[str, tuple[str | None, str]] = {
     ".png": ("PNG", "image/png"),
     ".webp": ("WEBP", "image/webp"),
@@ -23,7 +22,6 @@ ICON_FORMATS: dict[str, tuple[str | None, str]] = {
 
 _SVG_LENGTH = re.compile(r"^\s*([0-9]*\.?[0-9]+)\s*(px)?\s*$")
 
-#: 根元素的合法名字：无命名空间，或 SVG 命名空间（expat 以空格连接命名空间与本地名）。
 _SVG_ROOT_NAMES = frozenset({"svg", "http://www.w3.org/2000/svg svg"})
 
 
@@ -52,11 +50,9 @@ def inspect_icon(file: str, data: bytes) -> list[MarketIssue]:
 
 def _raster_size(data: bytes, expected_format: str) -> tuple[float, float] | None:
     try:
-        # 只让扩展名对应的解码器读这份数据，其余格式一律判为不识别。
         with Image.open(BytesIO(data), formats=[expected_format]) as image:
             width, height = image.size
             image.verify()
-    # 解码器以 SyntaxError / ValueError 报告结构损坏（如 chunk 校验和不符、头部字段过长），verify() 会原样抛出。
     except (Image.DecompressionBombError, UnidentifiedImageError, OSError, SyntaxError, ValueError):
         return None
     return float(width), float(height)

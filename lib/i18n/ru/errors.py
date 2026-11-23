@@ -75,7 +75,6 @@ MESSAGES = {
     "task_not_found": "Задача «{id}» не существует",
     "task_running_not_cancellable": "Задача «{id}» уже запущена, её нельзя отменить; она выполнится до конца, а результат сохранится",
     "task_retry_download_unavailable": "Для задачи «{id}» повторное скачивание сейчас недоступно",
-    # Task failure reasons (GenerationWorker stores a code + params; tasks API renders per locale on read)
     "task_fail_provider_unsupported_media": "Провайдер {provider_id} не поддерживает генерацию {media_type}",
     "task_fail_provider_rejected": "Провайдер отклонил этот запрос на генерацию (HTTP {status})",
     "task_fail_dispatch_provider_requeue_failed": "Провайдер задачи изменился с {claimed_provider_id} на {actual_provider_id}, но задачу не удалось вернуть в очередь за новым слотом. Повторите попытку",

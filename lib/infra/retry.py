@@ -36,7 +36,6 @@ class NonRetryableError(RuntimeError):
     """
 
 
-# 字符串模式匹配：覆盖异常类型不在列表中但属于瞬态的情况（大小写不敏感）
 RETRYABLE_STATUS_PATTERNS = (
     "429",
     "resource_exhausted",
@@ -56,9 +55,6 @@ RETRYABLE_STATUS_PATTERNS = (
 
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS: tuple[int, ...] = (2, 4, 8)
-
-# 下载阶段没有独立的重试配置：产物取件与轮询同属「供应商任务已建成后的幂等取件」，共用
-# lib.backends.backend_runtime.with_artifact_retry 的失败预算与退避。
 
 
 class AsyncClock(Protocol):
@@ -81,8 +77,6 @@ class SystemClock:
 
 _SYSTEM_CLOCK = SystemClock()
 
-# 未显式传 ``clock`` 时生效的时钟。按 contextvars 语义只作用于绑定它的上下文及其后派生的
-# 任务与 ``to_thread`` 线程，同进程里其他上下文仍走系统时钟。
 _bound_clock: ContextVar[AsyncClock | None] = ContextVar("lib_infra_retry_bound_clock", default=None)
 
 

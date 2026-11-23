@@ -13,7 +13,6 @@ from typing import Literal
 
 from arcreel_catalog_core import CatalogEntry
 
-#: ``available`` 可用；``retiring`` 即将下线（关停日期在未来）；``discontinued`` 已下线。
 LifecycleStatus = Literal["available", "retiring", "discontinued"]
 
 
@@ -33,7 +32,6 @@ class Lifecycle:
         return self.status == "discontinued"
 
 
-#: 对应不上条目的模型没有生命周期信息，按可用处理。
 AVAILABLE = Lifecycle("available")
 
 

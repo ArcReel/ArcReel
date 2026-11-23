@@ -33,19 +33,12 @@ logger = logging.getLogger(__name__)
 
 _ERR_TRUNCATE = 200
 
-# 超时与其他网络异常同为 status_code=None；error 以此前缀开头即为「服务可达但
-# 响应慢」，classify 据此与「网络不通」分开。只有 ReadTimeout（连接已建立、请求已
-# 发出、等响应超时）能证明服务可达；ConnectTimeout / WriteTimeout / PoolTimeout
-# 不能，与其他网络异常同路径处理。
 _TIMEOUT_ERROR_PREFIX = "timeout: "
 
 # messages 探测上限。带推理的模型（如火山方舟 Agent Plan 的 doubao-seed 系列）
 # 首 token 常达 8~10s，上限须留出足够余量，否则正常端点会被误判为网络不通。
 _MESSAGES_PROBE_TIMEOUT_S = 30.0
 
-# 400 错误体里「缺参」措辞紧挨着 model 时 = 模型参数没传（而非模型名不被识别）。
-# 中间允许任意字符以容纳 "missing parameter model" 这类措辞，但限定邻近距离，
-# 避免 body 里另一个参数的缺参提示（如 missing max_tokens）连坐到 model。
 _MISSING_MODEL_RE = re.compile(r"(missing|required|empty).{0,16}model|model.{0,16}(missing|required|is empty)")
 
 
@@ -139,7 +132,6 @@ async def probe_messages(
             error=_truncate(resp.text),
         )
 
-    # 2xx：检查是否真的是 anthropic JSON（识别 OpenAI 兼容代理冒充）
     try:
         data = resp.json()
     except ValueError:
@@ -162,18 +154,15 @@ async def probe_messages(
 def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
     """把失败 ProbeResult 映射到 DiagnosisCode。"""
     if result.success:
-        return DiagnosisCode.UNKNOWN  # caller misuse
+        return DiagnosisCode.UNKNOWN
     err = (result.error or "").lower()
     code = result.status_code
     if code in (401, 403):
         return DiagnosisCode.AUTH_FAILED
     if code == 429:
         return DiagnosisCode.RATE_LIMITED
-    # 启发式：404 body 含 "model" 关键词即视为模型不存在；后端改措辞时会退化到 UNKNOWN
     if code == 404 and ("model" in err or "model_not_found" in err):
         return DiagnosisCode.MODEL_NOT_FOUND
-    # 400 + body 提到 model：网关在参数校验阶段就拒了。缺参（火山方舟的
-    # MissingParameter）与模型名不被识别是两种用户动作，按 body 关键词分开。
     if code == 400 and "model" in err:
         if _MISSING_MODEL_RE.search(err):
             return DiagnosisCode.MODEL_REQUIRED
@@ -224,7 +213,6 @@ async def run_test(
         preset = get_preset(preset_id)
         if preset is None:
             raise ValueError(f"unknown preset: {preset_id!r}")
-        # 覆盖了 preset.messages_url（如内部代理）时与自定义模式同路径；未覆盖时用目录值
         effective_base = validate_anthropic_base_url(base_url) if base_url else preset.messages_url
         effective_model = model or preset.default_model
     else:
@@ -235,8 +223,6 @@ async def run_test(
 
     messages_url = anthropic_endpoint_url(effective_base, ANTHROPIC_MESSAGES_PATH)
 
-    # 预设模型为空：messages 请求必然被上游以「缺 model」拒掉，直接短路，
-    # 让用户看到「请先填默认模型」而不是一条泛化的上游报错。
     if not effective_model:
         return TestConnectionResponse(
             overall="fail",

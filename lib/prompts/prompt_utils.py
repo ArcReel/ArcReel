@@ -36,18 +36,12 @@ def _dump_prompt_yaml(ordered: Mapping[str, Any]) -> str:
     )
 
 
-# 提示词正文里的排除项行：``Avoid:`` 顶行起，前缀后是本行的排除项措辞。识别按前缀而非整行——
-# 纯文本回贴带回来的可能是任一历史版本的完整声明（如不含 Logo 的旧行），整行比对只认得出被写死
-# 的那一版。冒号后只吃空格与制表符，换行不进前缀。
 _AVOID_LINE = re.compile(r"^Avoid:[ \t]*(.*)$")
 
 _AVOID_SEPARATOR = "，"
 
-# 正文里连续空行的塌缩上限：删掉 Avoid 行后留下的空行按此并成一个，与模版引擎对自身产生的连续
-# 换行所做的塌缩同一口径。
 _BLANK_RUN = re.compile(r"\n{3,}")
 
-# 预设选项：真相源是 lib.script.script_models 的 Literal 词表，此处派生避免双写漂移
 SHOT_TYPES: list[str] = list(get_args(ShotType))
 CAMERA_MOTIONS: list[str] = list(get_args(CameraMotion))
 
@@ -156,8 +150,6 @@ def video_prompt_to_yaml(video_prompt: dict) -> str:
     voice_profiles = video_prompt.get("voice_profiles") or []
 
     ordered: dict[str, Any] = {}
-    # Voice_Profiles 是集中声明段，须在顶部：调用方已按 dialogue speaker ∩ 非空 voice_style
-    # 角色资产派生好列表，此处只负责按序注入，不做二次过滤。
     if voice_profiles:
         ordered["Voice_Profiles"] = voice_profiles
     ordered["Action"] = video_prompt["action"]
@@ -233,8 +225,6 @@ def render_storyboard_video_prompt(
             if isinstance(item, Mapping) and "utterances" in item:
                 prompt = build_drama_video_prompt(prompt, item.get("utterances"), characters=voice_characters)
             else:
-                # utterances 迁移前的存量剧本：load_script 按原始 JSON 读盘不过 pydantic，不会被
-                # DramaScene._migrate_legacy 自动补齐，台词仍留在 video_prompt.dialogue。
                 prompt = build_drama_video_prompt_from_legacy_dialogue(prompt, characters=voice_characters)
     elif isinstance(prompt, str) and content_mode == "drama":
         prompt = _attach_drama_speech_text(prompt, item, characters=voice_characters)

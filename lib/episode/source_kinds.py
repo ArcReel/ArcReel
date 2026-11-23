@@ -29,7 +29,6 @@ SOURCE_KINDS: tuple[SourceKind, ...] = ("novel", "screenplay")
 
 DEFAULT_SOURCE_KIND: SourceKind = "novel"
 
-#: 整本源文清单项与账本条目上的字段名。
 SOURCE_KIND_FIELD = "source_kind"
 
 

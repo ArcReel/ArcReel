@@ -173,7 +173,6 @@ async def generate_narration_audio(
         )
 
         def select_targets() -> tuple[ArtifactCurrencyResolver, GenerationSelection, dict[str, GenerationProblem]]:
-            # 建产物时效判定器、按文件内容判定时效都是同步文件读写与哈希
             resolver = active_artifact_currency_resolver(
                 services.projects.get_project_path(scope.project_name), project
             )

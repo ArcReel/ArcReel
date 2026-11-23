@@ -71,7 +71,6 @@ from lib.custom_provider.model_facts import (
 
 logger = logging.getLogger(__name__)
 
-#: 界面上的维度顺序：模型事实在前（时长联动约束紧跟可选时长），通道事实随后。
 OVERRIDE_KEY_ORDER: tuple[str, ...] = (
     "image_input",
     "structured_output",
@@ -98,7 +97,6 @@ _IMAGE_CAPABILITY_BY_KEY: Mapping[str, ImageCapability] = {
     "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
 }
 
-#: 图片覆盖维度 → 调用通道须实现的能力，未实现时该维度不可编辑：参考图上限只对图生图路径有意义。
 _IMAGE_EDITABLE_REQUIRES: Mapping[str, ImageCapability] = {
     **_IMAGE_CAPABILITY_BY_KEY,
     "max_reference_images": ImageCapability.IMAGE_TO_IMAGE,
@@ -287,7 +285,6 @@ def custom_capability_view(
                 entry_binding=entry_binding,
             )
         except ValueError:
-            # 系统判定失败时沿用上面已记录的默认视图，仍允许用户修正配置。
             effective = None
         else:
             effective = {**base, **overrides, **_channel_json(caps)}

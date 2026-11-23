@@ -20,7 +20,6 @@ from lib.custom_provider.model_facts import matched_entry_summary
 
 logger = logging.getLogger(__name__)
 
-#: Anthropic 协议模型列表请求的 I/O 超时。
 _DISCOVERY_TIMEOUT_SECONDS = 15.0
 
 
@@ -175,7 +174,6 @@ def _build_result_list(
                 "is_default": is_default,
                 "is_enabled": True,
                 "max_output_tokens": (output_limits or {}).get(model_id) if media == "text" else None,
-                # 对应不上为 None，添加后费用记为未定价。
                 "matched_entry": matched_entry_summary(model_id, media) if entry is not None else None,
                 "recognized": entry is not None,
                 "endpoint_by_media_type": {m: infer_endpoint(model_id, discovery_format, m) for m in MEDIA_TYPES},

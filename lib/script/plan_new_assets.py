@@ -83,7 +83,6 @@ class UnregisteredReferencesError(ValueError):
 @dataclass(frozen=True)
 class _Outcome:
     kind: Literal["asset", "derivative", "skip"]
-    #: ``asset`` 为资产名，``derivative`` 为本体角色名，``skip`` 为称呼本身。
     name: str
     derivative: str = ""
 
@@ -114,7 +113,6 @@ class NewAssetResolution:
     registrations: dict[str, dict[str, _Registration]]
     derivatives: list[tuple[str, str, str]]
     aliases: list[tuple[str, str, str]]
-    #: 与已登记的同类资产同名、确认时自动归并的新增项：``(类型, 称呼, 资产名)``。
     auto_merged: list[tuple[str, str, str]]
 
     def rewrite_entries(self, entries: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -281,9 +279,7 @@ class _Resolver:
         parsed, self.problems = _parse_items(raw_items)
         self.registered, self.owners = _registered_names(project)
         self.namespace = _namespace_names(project)
-        #: 判重键 → 本次已登记的 (类型, 登记名)；两项新增的登记名只差大小写时后一项落不了地。
         self.claimed: dict[str, tuple[str, str]] = {}
-        #: (类型, 称呼判等键) → (下标, 新增项)；同类同名只留第一项。
         self.items: dict[tuple[str, str], tuple[int, PlanNewAsset]] = {}
         item_types: dict[str, str] = {}
         for index, item in enumerate(parsed):
@@ -312,7 +308,6 @@ class _Resolver:
                 continue
             item_types[key] = item.type
             self.items[(item.type, key)] = (index, item)
-        #: (类型, 登记名判等键) → 称呼判等键：``target`` 可以写另一项新增资产改过的登记名。
         self.registration_keys: dict[tuple[str, str], str] = {}
         for (asset_type, key), (_index, item) in self.items.items():
             if item.decision == "register" and item.asset_name:
@@ -320,7 +315,6 @@ class _Resolver:
         self.registrations: dict[str, dict[str, _Registration]] = {asset_type: {} for asset_type in _TYPES}
         self.aliases: list[tuple[str, str, str]] = []
         self.derivatives: list[tuple[str, str, str]] = []
-        #: 本体 → 本次新登记的衍生名（值不用）；同一本体下两项新增衍生只差大小写时后一项落不了地。
         self.claimed_derivatives: dict[str, dict[str, None]] = {}
         self.auto_merged: list[tuple[str, str, str]] = []
         self.outcomes: dict[tuple[str, str], _Outcome] = {}

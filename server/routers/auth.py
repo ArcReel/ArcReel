@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 公开端点：拿到 token 之前必须可达，注册时不挂 Bearer 依赖。
 public_router = APIRouter()
 
 

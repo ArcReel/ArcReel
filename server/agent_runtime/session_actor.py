@@ -32,16 +32,11 @@ async def _single_message(message: dict[str, Any]) -> AsyncIterator[dict[str, An
 @dataclass
 class SessionCommand:
     type: Literal["query", "interrupt", "cancel", "disconnect"]
-    # query 送入 CLI 的用户消息帧（带服务端分配的 uuid）
     message: dict[str, Any] | None = None
-    # cancel 要从 CLI 队列撤回的消息 uuid（送入时携带的那个）
     message_uuid: str | None = None
-    # cancel 的结果：True 表示已从 CLI 队列撤回，False 表示 CLI 已取走或从未收到这条消息
     cancelled: bool | None = None
     session_id: str = "default"
-    # disconnect 之前先中断当前轮：会话仍在 running 时由会话层置位
     interrupt_first: bool = False
-    # 命令处理完毕：query 已写入 CLI 输入流（不代表 CLI 已开始处理它），或 interrupt / cancel / disconnect 已执行
     done: asyncio.Event = field(default_factory=asyncio.Event)
     error: BaseException | None = None
 
@@ -96,8 +91,6 @@ class _MessagePump:
             try:
                 frame = await anext(frames)
             except StopAsyncIteration:
-                # 退出 actor 让会话层收到退出通知、按终态收尾；留着等命令的话，
-                # 后续 query 会送进已经没有 CLI 的 client。
                 raise MessageStreamClosed("SDK message stream closed") from None
             item = sdk_frames.parse_frame(frame)
             if item is not None:
@@ -119,8 +112,6 @@ class SessionActor:
     ):
         self._client_factory = client_factory
         self._on_message = on_message
-        # CLI 报告的用户消息去向（排队、被并入轮次、撤回等），与 on_message 按帧序在 actor task 内交付；
-        # 未提供时丢弃。
         self._on_command_lifecycle = on_command_lifecycle
         self._cmd_queue: asyncio.Queue[SessionCommand] = asyncio.Queue()
         self._task: asyncio.Task | None = None
@@ -153,7 +144,6 @@ class SessionActor:
             self._fatal = exc
             raise
         finally:
-            # 正常 / 异常退出都 drain 残留命令，避免调用方挂死
             self._drain_pending_commands(self._closed_error())
 
     def _closed_error(self) -> BaseException:
@@ -197,14 +187,13 @@ class SessionActor:
                     continue
                 cmd, cmd_task = cmd_task.result(), None
                 if await self._dispatch(client, cmd):
-                    return  # 触发 __aexit__，同 task disconnect
+                    return
         finally:
             pump.cancel()
             if cmd_task is not None:
                 if not cmd_task.done():
                     cmd_task.cancel()
                 elif not cmd_task.cancelled() and cmd_task.exception() is None:
-                    # 与消息流异常同轮取出、尚未处理的命令：不释放会让调用方挂死
                     cmd_task.result().complete(self._closed_error())
 
     async def _dispatch(self, client: Any, cmd: SessionCommand) -> bool:
@@ -274,7 +263,7 @@ class SessionActor:
         if self._task is None:
             return
         with contextlib.suppress(BaseException):
-            _ = await self._task  # result intentionally discarded; await 的等待副作用才是意图
+            _ = await self._task
 
     async def cancel_and_wait(self) -> None:
         """Cancel the actor task and wait for it to finish."""
@@ -282,4 +271,4 @@ class SessionActor:
             return
         self._task.cancel()
         with contextlib.suppress(BaseException):
-            _ = await self._task  # result intentionally discarded
+            _ = await self._task

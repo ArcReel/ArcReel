@@ -75,7 +75,6 @@ MESSAGES = {
     "task_not_found": "Tác vụ '{id}' không tồn tại",
     "task_running_not_cancellable": "Tác vụ '{id}' đã bắt đầu chạy nên không thể hủy; tác vụ sẽ chạy đến khi hoàn tất và giữ lại kết quả",
     "task_retry_download_unavailable": "Tác vụ '{id}' hiện không thể thử tải lại",
-    # Lý do tác vụ thất bại (GenerationWorker lưu mã lỗi + tham số; tasks API kết xuất theo ngôn ngữ khi đọc)
     "task_fail_provider_unsupported_media": "Nhà cung cấp {provider_id} không hỗ trợ tạo {media_type}",
     "task_fail_provider_rejected": "Nhà cung cấp đã từ chối yêu cầu tạo này (HTTP {status})",
     "task_fail_dispatch_provider_requeue_failed": "Nhà cung cấp tác vụ đã đổi từ {claimed_provider_id} sang {actual_provider_id}, nhưng không thể đưa tác vụ trở lại hàng đợi để nhận khe mới; vui lòng thử lại",
@@ -517,7 +516,6 @@ MESSAGES = {
     "ref_too_many_images": "Số lượng ảnh tham chiếu {count} vượt giới hạn {max_count} của {model}, đã giữ {max_count} ảnh đầu tiên",
     "ref_payload_too_large": "Dữ liệu ảnh tham chiếu vượt giới hạn của nhà cung cấp, đã thử lại với mức nén bổ sung",
     "ref_payload_floor_exceeded": "Ảnh tham chiếu quá lớn hoặc quá nhiều; ngay cả khi nén ở mức chất lượng thấp nhất vẫn vượt giới hạn kích thước yêu cầu của nhà cung cấp. Vui lòng giảm số lượng ảnh tham chiếu hoặc độ phân giải rồi thử lại",
-    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
     "ref_sora_single_ref": "Mô hình này chỉ nhận một ảnh tham chiếu, đã dùng ảnh đầu tiên",
     "ref_single_ref_only": "{model} chỉ nhận một ảnh tham chiếu, đã dùng ảnh đầu tiên",
     "ref_episode_not_found": "Không tìm thấy tập (id={episode})",

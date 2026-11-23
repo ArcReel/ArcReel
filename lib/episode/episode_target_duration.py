@@ -21,10 +21,6 @@ from typing import Any
 
 EPISODE_TARGET_DURATION_FIELD: str = "episode_target_duration"
 
-#: 单集目标时长的硬区间（闭区间，秒）。宽松区间只拦明显误输入（填了毫秒、填了分钟数、
-#: 填了整部剧的时长），区间内不做任何倾向性提示——具体取多少是创作决策。
-#: 下界 10 秒：短于此的「整集」装不下一个完整的最短档视频单元加一句台词，只可能是误输入。
-#: 上界 600 秒：十分钟已远超短视频单集体量，更长的成片诉求应走分集而非把一集撑大。
 MIN_EPISODE_TARGET_DURATION: int = 10
 MAX_EPISODE_TARGET_DURATION: int = 600
 

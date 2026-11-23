@@ -75,7 +75,6 @@ MESSAGES = {
     "task_not_found": "Task '{id}' does not exist",
     "task_running_not_cancellable": "Task '{id}' has already started and cannot be cancelled; it will run to completion and its result will be kept",
     "task_retry_download_unavailable": "Task '{id}' is not eligible for download retry",
-    # Task failure reasons (GenerationWorker stores a code + params; tasks API renders per locale on read)
     "task_fail_provider_unsupported_media": "Provider {provider_id} does not support {media_type} generation",
     "task_fail_provider_rejected": "The provider rejected this generation request (HTTP {status})",
     "task_fail_dispatch_provider_requeue_failed": "The task provider changed from {claimed_provider_id} to {actual_provider_id}, but the task could not be requeued for a new slot; please retry",
@@ -209,7 +208,6 @@ MESSAGES = {
     "scene_task_submitted": "Scene asset sheet generation task for '{name}' submitted",
     "prop_task_submitted": "Prop asset sheet generation task for '{name}' submitted",
     "product_task_submitted": "Merchandise asset sheet generation task for '{name}' submitted",
-    # Files
     "file_not_found": "File does not exist: {path}",
     "forbidden_access": "Access to files outside the project directory is forbidden",
     "invalid_upload_type": "Invalid upload type: {upload_type}",
@@ -313,14 +311,12 @@ MESSAGES = {
     "script_review_quarantine_unreadable": (
         "The draft needing fixes is corrupted or malformed and can't be read; discard it and generate again"
     ),
-    # Source loader
     "source_unsupported_format": "Unsupported source format: {ext} (supported: .txt / .md / .docx / .epub / .pdf)",
     "source_name_reserved": "File names like episode_N.txt are reserved for episode source files; rename the file before uploading it as part of the whole source",
     "source_decode_failed": "Failed to decode source file '{filename}' (tried: {tried})",
     "source_corrupt_file": "Source file '{filename}' is not parseable: {reason}",
     "source_too_large": "Source file '{filename}' is too large ({size_mb} MB > {limit_mb} MB)",
     "source_conflict": "Source file '{existing}' already exists; suggested rename: '{suggested}'",
-    # Providers
     "unknown_provider": "Unknown provider: {value}",
     "max_workers_must_be_positive_integer": "{field} must be a positive integer, got: {value}",
     "credentials_not_found": "Credentials not found",
@@ -337,7 +333,6 @@ MESSAGES = {
         "This submission mixes fields from more than one mutually exclusive credential group, so the "
         "switch target is ambiguous. Please fill in only one group."
     ),
-    # Assistant
     "assistant_image_too_large": "Each original image must be no larger than 5 MB",
     "assistant_images_total_too_large": "The images must be no larger than 7.5 MB in total",
     "session_not_found": "Session '{session_id}' does not exist",
@@ -347,7 +342,6 @@ MESSAGES = {
     "agent_startup_failed_title": "Failed to start agent",
     "interface_offline": "This interface is offline, please use the recommended interface",
     "answers_required": "answers cannot be empty",
-    # Custom Providers
     "model_id_required": "model_id must be provided for enabled models",
     "duplicate_model_id": "Duplicate model_id: {model_id}",
     "default_model_conflict": "Each media_type can have at most one default model. Conflict: {conflict}",
@@ -374,7 +368,6 @@ MESSAGES = {
     "custom_endpoint_not_found": "Endpoint does not exist",
     "custom_endpoint_definition_invalid": "The endpoint definition failed validation. Fix the reported issues and try again",
     "custom_endpoint_referenced_by_models": "This endpoint is used by {count} model(s). Remove those references before deleting it",
-    # ---- Market ----
     "market_source_not_found": "Market source does not exist",
     "market_source_official_undeletable": "The official market source cannot be deleted, but it can be disabled",
     "market_source_duplicate": "This market source has already been added",
@@ -397,7 +390,6 @@ MESSAGES = {
     "market_entry_icon_not_found": "This market entry has no icon",
     "market_entry_fetch_failed": "Could not fetch the entry file from the market source ({reason})",
     "market_entry_asset_invalid": "The entry file provided by the market source is unusable ({reason})",
-    # ---- Endpoint tests ----
     "endpoint_test_payload_required": "Missing payload field: when uploading assets, put the request JSON in the payload form field",
     "endpoint_test_payload_invalid": "Could not parse the request. Check the JSON format and field types",
     "endpoint_test_asset_too_large": "Asset {name} exceeds the {limit_mb} MB limit",
@@ -479,7 +471,6 @@ MESSAGES = {
     "path_override_unknown_request": "The endpoint of model {model_id} has no request {request} whose URL can be changed",
     "path_override_invalid_path": "Request URL {path} of model {model_id} is invalid: the path must start with /, contain no whitespace or #, and use braces only for placeholders",
     "path_override_placeholder_not_allowed": "Request URL {path} of model {model_id} uses a placeholder this request does not have; only {allowed} are available",
-    # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
     "ad_no_default_duration": "Ad/short-video projects do not support a default duration; shot lengths are planned against the target duration",
@@ -490,7 +481,6 @@ MESSAGES = {
     "project_deleted": "Project '{name}' moved to deleted projects. You can restore it within 30 days",
     "scene_updated": "Scene '{scene_id}' updated",
     "segment_updated": "Segment '{segment_id}' updated",
-    # Characters / Scenes / Props
     "character_already_exists": "Character '{name}' already exists",
     "character_deleted": "Character '{name}' deleted",
     "project_scene_already_exists": "Scene '{name}' already exists",
@@ -506,18 +496,13 @@ MESSAGES = {
         "{requested_type} name '{name}' is already used by {existing_type} '{existing_name}'. "
         "Characters, scenes, props, and merchandise in one project must have unique names"
     ),
-    # API Keys
     "jwt_auth_required": "API Key is not authorized to perform this action, please use JWT authentication",
     "api_key_name_exists": "Name '{name}' already exists",
     "api_key_not_found": "API Key {key_id} not found",
-    # Agent Chat
     "session_project_mismatch": "Session '{session_id}' belongs to project '{session_project}', which does not match the requested project '{request_project}'",
-    # Cost Estimation
     "cost_estimation_failed": "Cost estimation failed, please try again later",
-    # Validators
     "invalid_backend_format": "Model selection format is invalid; use provider/model",
     "backend_media_type_mismatch": "Model type mismatch: this setting needs a {expected} model, but {provider}/{model} is a {actual} model",
-    # Versions
     "unsupported_resource_type": "Unsupported resource type: {resource_type}",
     "invalid_resource_id": "Invalid resource ID: {resource_id}",
     "resource_id_required": "resource ID must not be empty",
@@ -525,7 +510,6 @@ MESSAGES = {
     "end_frame_source_not_found": "End frame source image not found: {path}",
     "end_frame_source_too_large": "End frame image exceeds the size limit ({max_mb} MB): {path}",
     "end_frame_reference_video_unsupported": "Reference video mode has no start/end frame concept; setting an end frame is not supported",
-    # Reference Video
     "ref_missing_asset": "Reference to {type} '{name}' is not in the project asset library, please generate it first",
     "ref_duration_exceeded": "The script runs {total}s, beyond {model}'s longest duration option; generated at {duration}s, so the clip is shorter than the script",
     "ref_duration_rounded_up": "The script runs {total}s, which is not one of {model}'s duration options; generated at {duration}s, so the clip is longer than the script",
@@ -533,7 +517,6 @@ MESSAGES = {
     "ref_too_many_images": "Reference image count {count} exceeds {model} limit of {max_count}, kept the first {max_count}",
     "ref_payload_too_large": "Reference image payload exceeded provider limits, retried with extra compression",
     "ref_payload_floor_exceeded": "Reference images are too large or too many; even compressed to the lowest quality they still exceed the provider's request size limit. Please reduce the number of reference images or their resolution and try again",
-    # 兼容键：只用于读取历史任务结果，新代码不再产出（改用 ref_single_ref_only）。
     "ref_sora_single_ref": "This model accepts only one reference image; the first one was used",
     "ref_single_ref_only": "{model} accepts only one reference image; the first one was used",
     "ref_episode_not_found": "Episode (id={episode}) not found",
@@ -542,7 +525,6 @@ MESSAGES = {
     "ref_unit_needs_replan": "This video unit has a speech-ownership or migration problem; replan it before generating",
     "ref_script_missing": "The script file bound to this episode does not exist",
     "ref_script_rebound": "This episode's script binding changed, please retry",
-    # Shot-script parse preview: degradation visibility
     "ref_warn_unregistered_mention": (
         "@[{name}] is not registered as merchandise, a character, scene, or prop: no reference image will be "
         "attached. Check the name or create the asset first"
@@ -583,18 +565,15 @@ MESSAGES = {
         "consistency does not apply; dialogue is used only as prompt context. Whether the rendered "
         "video actually has sound depends on the selected model"
     ),
-    # Storyboard scene text mentions that are not bound to a reference image
     "storyboard_warn_mention_unbound": (
         "The scene text of {unit_id} mentions @[{name}], which is not a registered asset or is not listed in "
         "that entry's reference fields: it is not numbered as a reference image and is sent as a plain name"
     ),
-    # Episode meta
     "episode_not_found": "Episode (id={episode}) not found or has no script file yet",
     "storyboard_batch_script_invalid": "The formal script of episode {episode} cannot be used for batch storyboard generation: its structure does not match the project generation mode, or it is not bound to this episode",
     "episode_source_empty": "Episode source text cannot be empty",
     "episode_source_derived": "This episode is cut from the whole source; its source text comes from episode planning and cannot be edited here",
     "episode_source_symlink": "The source file of this episode is a symbolic link and cannot be written",
-    # Manual episode splitting
     "manual_split_episode_not_found": "This episode is no longer in the episode list. Refresh and try again",
     "manual_split_episode_not_placed": "This episode's source is not in the whole source, so its boundaries cannot be adjusted on the source",
     "manual_split_source_file_not_found": "This file is not in the whole source, or it cannot be read",
@@ -643,7 +622,6 @@ MESSAGES = {
     "episode_replan_adopt_moved_item": "{name} → Episode {new}",
     "episode_replan_delete_heading": 'If "Delete them too" is checked, the following episodes and their outputs are moved to the project trash and kept for 30 days:',
     "episode_replan_delete_item": "{name}: {items}",
-    # Whole-source file changes
     "source_file_change_source_file_not_found": "This file is not in the whole source. Refresh and try again",
     "source_file_change_source_file_unreadable": "This file cannot be read or is not UTF-8 text. You can only delete it",
     "source_file_change_source_changed": "This file was changed outside ArcReel. You cannot replace, edit or reorder it until the episode ledger is updated; you can still delete it",
@@ -671,7 +649,6 @@ MESSAGES = {
     "source_name_not_whole_source": "File names starting with an underscore or shaped like episode_N.txt cannot join the whole source; use {filename} as an episode's source text or delete it",
     "about_update_check_failed": "Failed to check for updates, please try again later",
     "about_version_read_failed": "Failed to read app version",
-    # Image Capability
     "image_endpoint_mismatch_no_i2i": "Model {model} only supports text-to-image (no /v1/images/edits); remove reference images or pick a model that supports image edits",
     "image_endpoint_mismatch_no_t2i": "Model {model} only supports image-to-image (reference images required); supply reference images or pick a model that supports text-to-image",
     "image_seedream_edits_unavailable": "The current call endpoint for model {model} does not support generation with reference images; change it to “Seedream (1K) / Seedream (2K)” in model settings and try again",
@@ -683,14 +660,12 @@ MESSAGES = {
     "image_aspect_ratio_not_supported": "Model {model} does not support aspect ratio {aspect_ratio} (only {supported}); choose a supported aspect ratio",
     "image_reference_images_exceeded": "Model {model} accepts {limit} reference images. This request has {count}. Excess images: {names}. Reduce assets or mentions, split the shot, or choose a model with a higher limit.",
     "previous_storyboard_limit_hint": "Set this shot as a chapter break to stop referencing the previous storyboard {previous_storyboard}.",
-    # Image Edit
     "image_edit_resource_type_invalid": "Resource type '{resource_type}' does not support image editing",
     "image_edit_instruction_required": "Edit instruction must not be empty",
     "image_edit_script_file_required": "script_file is required when editing a storyboard image",
     "image_edit_no_current_image": "'{id}' has no current image to edit; generate or upload one first",
     "image_edit_i2i_unavailable": "No image provider with image-to-image (i2i) support is configured; configure one in Settings first",
     "image_edit_task_submitted": "Image edit task for '{id}' submitted",
-    # Video Capability
     "video_duration_invalid": "Video duration {duration} is not a valid integer number of seconds",
     "video_duration_not_supported": "Video duration {duration}s is not within the durations supported by this model ({supported})",
     "video_end_frame_durations_incompatible": "No end-frame video duration is available with the current settings. Change the video settings or remove the end frame.",
@@ -728,7 +703,6 @@ MESSAGES = {
     "video_prompt_too_long": "{provider}/{model} accepts prompts of at most {limit} characters but received {count}; the provider would silently truncate the excess, so generation was aborted. Shorten the prompt",
     "video_request_conflicts_with_active_task": "Unit '{resource_id}' already has a video task with a different confirmed request duration; wait for it to finish before retrying (a task that is still queued can be cancelled first).",
     "audio_restore_conflicts_with_active_task": "Unit '{resource_id}' has narration audio being generated; wait for it to finish before switching audio versions (a task that is still queued can be cancelled first).",
-    # Agent credentials
     "agent_preset_unknown": "Unknown preset provider: {preset_id}",
     "agent_base_url_required_custom": "base_url is required for custom configuration",
     "agent_api_key_required": "Provide an api_key or choose a custom provider to import from",
@@ -769,7 +743,6 @@ MESSAGES = {
     "project_config_invalid": "Invalid project configuration; check the parameters and retry",
     "invalid_discovery_format": "Unsupported model discovery format: {discovery_format}",
     "request_invalid": "Invalid request, please check and retry",
-    # Agent memory
     "memory_invalid_filename": "Invalid memory file name '{filename}': only top-level .md files are allowed",
     "memory_file_not_found": "Memory file '{filename}' does not exist",
     "memory_file_too_large": "Memory file '{filename}' exceeds the size limit (max {limit_kib} KiB)",
@@ -780,7 +753,6 @@ MESSAGES = {
     "market_entry_already_installed": "This entry is already installed; select its endpoint to update",
     "market_endpoint_already_installed": "This endpoint has another installation record and cannot be overwritten",
     "market_overwrite_target_not_duplicate": "Only an endpoint with the same author and name as this entry can be overwritten",
-    # Official service
     "official_service_disabled": "The official service is turned off",
     "official_service_unavailable": "Cannot reach the official service right now; please try again later",
     "market_entry_rating_not_installed": "Install this entry to rate it",
@@ -812,7 +784,6 @@ MESSAGES = {
     "official_service_error_github_unavailable": "The official service cannot reach GitHub right now; please try again later",
     "official_service_error_submissions_unconfigured": "The official service is not accepting submissions yet",
     "official_service_error_submission_not_found": "Submission not found",
-    # Edit timeline
     "edit_timeline_not_found": "Edit timeline '{timeline_id}' not found",
     "edit_timeline_revision_not_found": "Edit timeline '{timeline_id}' has no revision {revision} (latest revision is {latest_revision})",
     "edit_timeline_name_conflict": "Episode (id={episode}) already has an edit timeline named '{name}'",
@@ -822,7 +793,6 @@ MESSAGES = {
     "edit_timeline_invalid": "The edit timeline file is corrupted and cannot be read: {file}",
     "edit_timeline_revision_unchanged": "Revision {revision} has the same content as the latest revision, so there is nothing to restore",
     "edit_timeline_render_in_progress": "A final-cut or Jianying draft render is queued or running for this edit timeline ({task_id}); delete it after the render finishes",
-    # Final cut
     "final_cut_narration_unavailable": "Only TTS voiceover projects can render the final cut version with narration",
     "final_cut_presentation_unavailable": "Narration audio or subtitles for video unit {unit_id} cannot be used in the final cut; check the narration audio, then render again",
     "final_cut_blocked": "The edit timeline has issues that block rendering the final cut, in video units: {units}. Resolve them, then submit the render again",
@@ -833,7 +803,6 @@ MESSAGES = {
     "final_cut_render_failed": "Rendering the final cut failed; please try again",
     "final_cut_acceptance_failed": "The rendered final cut failed acceptance; please try again",
     "final_cut_render_in_progress": "A final-cut render with different parameters is already queued or running for this edit timeline ({task_id}); submit again after it finishes",
-    # Jianying draft
     "jianying_draft_narration_unavailable": "Only TTS voiceover projects can export the Jianying draft version with narration",
     "jianying_draft_blocked": "The edit timeline has issues that block exporting the Jianying draft, in video units: {units}. Resolve them, then submit the export again",
     "jianying_draft_empty": "The edit timeline has no clips to export",
@@ -843,7 +812,6 @@ MESSAGES = {
     "jianying_draft_presentation_unavailable": "Media for video unit {unit_id} cannot be used in the Jianying draft; check the video and narration audio, then export again",
     "jianying_draft_hold_frame_unavailable": "The out-point frame of clip {clip_id} could not be extracted, so the Jianying draft was not exported; please try again",
     "jianying_draft_acceptance_failed": "The generated Jianying draft failed acceptance; please try again",
-    # Episode management
     "episode_manage_episode_not_found": "This episode is no longer in the episode list. Refresh and try again",
     "episode_manage_ledger_invalid": "The episode ledger is malformed, so episodes cannot be changed",
     "episode_manage_cut_order_locked": "Episodes split from the whole source stay in source order; their order cannot be swapped",

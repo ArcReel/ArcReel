@@ -46,7 +46,7 @@ def snap_thumbnail_width(raw: str | None) -> int | None:
         return None
     try:
         requested = int(raw)
-    except ValueError:  # 超长数字串超过 int 转换位数上限
+    except ValueError:
         return THUMBNAIL_WIDTHS[-1]
     if requested <= 0:
         return None
@@ -106,13 +106,12 @@ def ensure_image_thumbnail(
         target.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(target, encoded, mtime_ns=source_stat.st_mtime_ns)
     except OSError:
-        # 缓存目录不可写等情形：缩略图只是优化，回退原图而不让请求失败
         logger.warning("写入图片缩略图缓存失败，回退原图: %s", target, exc_info=True)
         return None
     _remove_stale_versions(target.parent, keep={version, _current_version(source)})
 
     cached_stat = _regular_file_stat(target)
-    if cached_stat is None:  # 写入后被并发的旧版本清理删掉（源文件刚好在此期间变化）
+    if cached_stat is None:
         return None
     return target, cached_stat
 

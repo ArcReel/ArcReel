@@ -22,13 +22,10 @@ from .address import GITHUB_RAW_HOST
 from .index import INDEX_SCHEMA_VERSION, InvalidIndexError, MarketIndex, UnsupportedIndexSchemaError, parse_index
 from .issues import MarketIssue
 
-#: 一次抓取的总时限（含重定向与读取响应体），独立于共享客户端的默认超时。
 FETCH_TIMEOUT_SECONDS = 10.0
 INDEX_MAX_BYTES = 1024 * 1024
 MAX_REDIRECTS = 5
-#: 保存的 ETag 长度上限，与 ``market_source.etag`` 列宽一致；超长的 ETag 不保存，之后的自动刷新整份抓取。
 MAX_ETAG_LENGTH = 512
-#: 索引 JSON 的容器嵌套上限；合规索引只有三层（顶层对象 → entries → 条目）。
 MAX_JSON_DEPTH = 32
 CACHE_BUST_PARAM = "_ts"
 

@@ -62,8 +62,6 @@ async def require_video_bucket_capability(project: dict, generation_type: VideoG
     except ModelNotInCatalogError:
         raise
     except ValueError:
-        # 未配置任何供应商等其余解析失败：放行入队，由 worker 在任务面板暴露（与图片 / 视频
-        # 生成入口的既有行为一致，不把非能力类失败升级为提交期拒绝）
         return
 
 
@@ -104,12 +102,10 @@ def validate_backend_value(value: str, field_name: str) -> None:
             字段名只进诊断信息，不进面向使用者的摘要。
     """
     if "/" not in value:
-        # 裸 registry id（无 model）同样拒绝：运行时不按目录推荐补模型（docs/adr/0099）
         raise BadRequestError("invalid_backend_format").with_diagnostic(f"field: {field_name}")
     provider_id, model_id = value.split("/", 1)
     if provider_id not in PROVIDER_REGISTRY and not provider_id.startswith("custom-"):
         raise BadRequestError("unknown_provider", value=provider_id).with_diagnostic(f"field: {field_name}")
-    # 未登记的字段名不做这项校验：新增字段忘记登记时静默放行，而不是误报
     expected_media_type = MODEL_SETTING_MEDIA_TYPES.get(field_name)
     if expected_media_type is not None:
         model_info = catalog.get_model(provider_id, model_id)

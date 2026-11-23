@@ -82,11 +82,8 @@ class ResetConfirmationRequired:
 
     consumed_episodes: list[int]
     archived_files: list[str] = field(default_factory=list)
-    #: 账本里有产物、会转为无原文的集并标 stale 的集。
     retired_episodes: list[int] = field(default_factory=list)
-    #: 账本里没有产物、会移出账本的集。
     removed_episodes: list[int] = field(default_factory=list)
-    #: 会删除的派生集文件。
     deleted_files: list[str] = field(default_factory=list)
 
 
@@ -94,12 +91,10 @@ class ResetConfirmationRequired:
 class EpisodeResetResult:
     """重置执行结果：处置的集号与文件处置去向（相对项目根的 POSIX 路径）。"""
 
-    #: 移出账本的集（没有产物）。
     removed_episodes: list[int]
     deleted_files: list[str]
     archived_files: list[tuple[str, str]]
     consumed_episodes: list[int]
-    #: 转为无原文的集并标 stale、移到播出顺序末尾的集（有产物）。
     retired_episodes: list[int] = field(default_factory=list)
 
 
@@ -137,14 +132,8 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
     """
     raw_episodes = project.get("episodes")
     entries: dict[int, Mapping[str, Any]] = {}
-    # 损坏账本可能对同一集号写出多条条目（如首条 planned、后条 consumed，或首条带
-    # source_range、后条不带）：只取首条会丢失后条携带的证据，故已消费判定与
-    # 「文件是否可从账本重造」判定都按集号聚合全部条目，而非只看被 setdefault 留下的
-    # 那一条
     entries_by_num: dict[int, list[Mapping[str, Any]]] = {}
     consumed_by_ledger_status: set[int] = set()
-    # episodes 容器本身可能被写坏成非列表值（如 truthy 标量）：重置承诺零前置校验，
-    # 这种情形按空账本处理而非抛错，不能让逃生口本身崩溃
     for entry in raw_episodes if isinstance(raw_episodes, list) else []:
         if not isinstance(entry, Mapping):
             continue
@@ -157,10 +146,6 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         entries_by_num.setdefault(num, []).append(entry)
 
     episode_file_aliases = discover_episode_file_aliases(project_dir)
-    # 孤儿下游产物候选集号（账本无条目、无 source/episode_N.txt，但 scripts/ 或 drafts/
-    # 仍有该集产物）本身就是「该集已消费」的直接证据：has_downstream_products 只认
-    # episode_script_relpath 算出的规范路径，无法识别 discover_product_episode_nums 已
-    # 靠正则宽松匹配到的 padding 别名文件名（如 episode_01.json），必须单独纳入判定
     product_nums = discover_product_episode_nums(project_dir)
     consumed: list[int] = []
     deletes: list[Path] = []
@@ -174,10 +159,6 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         """
         return num not in retained
 
-    # 账本条目、磁盘派生文件、磁盘下游产物三者取并集：
-    # - 孤儿集文件（账本无对应条目）同样要处置：它无法证明可从账本重造，按留底处理，
-    #   重置后 source/ 里不留下与账本对不上的集文件
-    # - 孤儿下游产物同样要纳入已消费判定，否则会绕过确认直接清空
     for num in sorted(set(entries) | set(episode_file_aliases) | product_nums):
         if not _in_scope(num):
             continue
@@ -192,10 +173,6 @@ def _scan(project_dir: Path, project: Mapping[str, Any], *, retained: frozenset[
         paths = episode_file_aliases.get(num) or []
         if not paths:
             continue
-        # 同一集号可能存在多个 padding 别名（episode_1.txt / episode_01.txt），
-        # 全部按同一处置口径处理，否则未处理的别名会作为残留留在 source/ 里。
-        # 判定是否可删除取该集号全部重复条目的可重造性交集：任一条目无法证明文件可
-        # 从账本重造，都按无法重造处理——删除是不可逆操作，证据冲突时偏保守
         can_recreate = all(_has_recreatable_source_range(dupe) for dupe in dupes)
         target = deletes if can_recreate else archives
         target.extend(paths)
@@ -243,8 +220,6 @@ def _apply_files(
         except OSError as exc:
             raise EpisodeResetError(f"集文件留底改名失败，重置已中止：{path.name}: {exc}") from exc
         archived.append((_rel(project_dir, path), _rel(project_dir, target)))
-    # 余文文件不是源文，也不记录规划进度（起点由账本推导）；留着只会让用户在 source/ 下
-    # 看到一份与账本无关的陈旧剩余正文，随重置一并清理
     remaining = project_dir / "source" / "_remaining.txt"
     if remaining.is_file():
         try:
@@ -437,8 +412,6 @@ def reset_episode_planning(
 
     def _commit(p: dict[str, Any]) -> None:
         nonlocal commit_plan, retired_nums, snapshot_texts
-        # 锁内重新校验/重新扫描：确认清单与前置校验都是锁外读取时刻的快照，期间源文件
-        # 可能被外部改动、也可能出现清单之外的新消费集
         locked_boundary = _boundary(p)
         retained = _retained(p, locked_boundary)
         current = _scan(project_dir, p, retained=retained)
@@ -457,7 +430,6 @@ def reset_episode_planning(
             elif (
                 isinstance(entry, dict) and num is not None and num > 0 and num in consumed and num not in retired_nums
             ):
-                # 有产物的切出集按被替换的旧集处理：转为无原文的集、标 stale，产物与登记仍归它
                 entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.NONE.value
                 entry.pop("source_range", None)
                 script_review.mark_ledger_stale(project_dir, p, entry, num)
@@ -493,7 +465,6 @@ def reset_episode_planning(
                 commit_plan,
                 archive_targets=archive_targets,
             )
-            # 重置不改源文：在服务之外改动过的文件保留快照，留待更新分集账本时对齐
             sync_source_snapshots(project_dir, committed_project, snapshot_texts, refreshed=())
         committed.append(
             EpisodeResetResult(

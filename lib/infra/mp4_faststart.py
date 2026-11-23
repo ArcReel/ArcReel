@@ -27,13 +27,10 @@ from lib.infra.subprocess_deadline import DEFAULT_TERMINATE_GRACE_SECONDS, Spawn
 
 logger = logging.getLogger(__name__)
 
-#: 走 faststart 的扩展名：mp4 / mov / m4v 同属 ISO BMFF 容器家族
 FASTSTART_SUFFIXES: frozenset[str] = frozenset({".mp4", ".mov", ".m4v"})
 
-#: 重封装只拷贝码流，耗时取决于磁盘吞吐；产物上限 2 GiB 也留足余量
 DEFAULT_REMUX_DEADLINE_SECONDS = 300.0
 
-#: 顶层 box 遍历上限：正常文件只有寥寥几个顶层 box，超出即视为无法识别，不做处理
 _MAX_TOP_LEVEL_BOXES = 4096
 
 _BOX_HEADER_BYTES = 8
@@ -74,7 +71,6 @@ def _read_box_header(handle: BinaryIO, offset: int, file_size: int) -> tuple[byt
         if size < _BOX_HEADER_BYTES + _LARGE_SIZE_BYTES:
             return None
     elif size == 0:
-        # 0 表示一直延伸到文件尾
         size = file_size - offset
     elif size < _BOX_HEADER_BYTES:
         return None
@@ -109,7 +105,6 @@ def read_mp4_layout(path: Path) -> Mp4Layout | None:
                 return None
             box_type, size = parsed
             if index == 0 and box_type == b"ftyp" and size >= _BOX_HEADER_BYTES + 4:
-                # major brand 紧跟 box 头；装不下时视为没有，不越界读后一个 box
                 major_brand = _read_major_brand(handle, offset)
             elif box_type == b"moov" and moov_index is None:
                 moov_index = index
@@ -192,7 +187,6 @@ async def ensure_faststart(
         logger.warning("faststart 重封装出错，保留原文件: %s", path, exc_info=True)
         return False
     finally:
-        # 清理失败（如临时文件被其他进程占用）只记日志，不让尽力而为的重封装抛错或盖过取消
         try:
             # hard-delete: temp -- faststart 重封装的临时文件
             await run_sync_transaction(temp_path.unlink, missing_ok=True)

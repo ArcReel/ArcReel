@@ -13,7 +13,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-#: ``VideoGenerationRequest.poll_timeout_seconds`` 的缺省值，也是应用侧用户可配轮询超时的缺省值。
 DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS = 3600
 
 ProviderResponseStage = Literal["submit", "poll", "result"]
@@ -81,9 +80,6 @@ TERMINAL_PROVIDER_STATUSES: frozenset[ProviderJobStatus] = frozenset(
     {ProviderJobStatus.SUCCEEDED, ProviderJobStatus.FAILED, ProviderJobStatus.EXPIRED}
 )
 
-# 跨厂商状态同义词表（lowercase + strip 后查表）。OpenAI 兼容代理网关转发非原生型号时会把
-# 底层厂商的状态串原样透传，各后端若只认自家文档里的字面量，已就绪的任务会被当成"仍在跑"
-# 一路轮询到 max_wait —— 用户侧报超时失败，供应商侧成品已生成且已计费。
 _PROVIDER_STATUS_SYNONYMS: dict[str, ProviderJobStatus] = {
     "completed": ProviderJobStatus.SUCCEEDED,
     "succeeded": ProviderJobStatus.SUCCEEDED,
@@ -218,10 +214,6 @@ def audio_capability_pair_is_coherent(*, mode: object, count: int | None) -> boo
     return mode in {ReferenceAudioMode.NONE, ReferenceAudioMode.NONE.value} or count is None or count > 0
 
 
-#: 视频执行路径（任务类型桶）：``i2v`` 覆盖文生与图生首帧，``r2v`` 是参考生视频。
-#: 与 ``lib.config.resolver.VideoGenerationType`` 同一份词汇表，因分层契约（config 是最底层，
-#: backend 不得反向导入）而各层各声明一次，取值一致由
-#: ``tests/unit/lib/backends/video_backends/test_video_backend_capabilities.py`` 的守卫锁定。
 VideoRoute = Literal["i2v", "r2v"]
 
 
@@ -329,52 +321,26 @@ class VideoGenerationRequest:
     start_image: Path | None = None
     end_image: Path | None = None
     reference_images: list[Path] | None = None
-    # 与 ``reference_images`` 等长同序：第 i 项非 None 时，第 i 张参考图以这个供应商素材引用
-    # （如 ``asset://<id>``）代替图片内容发出，位置与提示词里的图片编号不变。只有对参考图槽位声明了
-    # 素材引用能力的 backend 会收到非 None 项；其余 backend 不读此字段。
     reference_image_asset_uris: list[str | None] | None = None
-    # 参考音频（音色复刻）。列表顺序即 prompt 中「音频N」的指认契约：编排层按该顺序拼指认
-    # 文本，后端按同一顺序下发，故任何一侧都不得重排或跳过。哪个角色对应哪段音频不进请求
-    # ——绑定由 prompt 文本表达，供应商 API 均无结构化的「角色-音频」字段。
     reference_audio_files: list[Path] | None = None
-    # 仅 ``VideoCapabilities.reference_audio_per_image`` 为 True 的 backend（如 wan2.7-r2v）
-    # 读取：与 ``reference_audio_files`` 等长同序，第 i 项是该段音频对应的
-    # ``reference_images`` 下标（0-based）。为 None 时这类 backend 按位置回退对齐，仅用于
-    # 未经编排层填充的调用方（如手写测试）——参考音频与参考图各自独立派生顺序，位置对齐
-    # 不构成契约，编排层（reference_video 渲染管线）必须显式提供。
     reference_audio_targets: list[int] | None = None
     generate_audio: bool = True
     poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 
-    # 项目上下文（用于构建文件服务 URL 等）
     project_name: str | None = None
 
-    # Worker 路径下从 task["task_id"] 传入，让 backend submit 后经
-    # `ProviderJobIdPersistenceMixin._persist_provider_job_id` 持久化 job_id。
-    # 非 worker 路径（grid / 直生 / 测试）保持 None，统一点据此跳过持久化。
     task_id: str | None = None
 
     on_provider_resubmit_unsafe: Callable[[], None] | None = None
 
-    # 收到供应商 JSON 响应时携阶段写入诊断留痕。非账本调用保持 None。
     on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None = None
 
-    # 自定义供应商包装层（`CustomVideoBackend`）在转发给协议 backend 前注入的协议标识，与 job_id
-    # 一并持久化到 `tasks.provider_endpoint`，记录本笔供应商任务的协议归属。内置供应商无此维度，
-    # 保持 None。续跑比对协议读的是 checkpoint 的 endpoint_guard，不读该列。
     execution_endpoint: str | None = None
 
-    # 续跑路径专用：提交本 job 时实际使用的请求域名，由 resume_executor 从 `tasks.submitted_base_url` 回放。
-    # backend 轮询时优先用它而非当下配置解析出的域名——域名是连接维度而非协议维度，
-    # 用户在途改配置后按新域名轮旧 job 会查无（404）而被误判成过期。提交路径恒 None。
     submitted_base_url: str | None = None
 
-    # 执行闸门判定所依据的能力（档位感知基底已叠加用户能力覆盖），由跑执行闸门的调用方（MediaGenerator、测试连接）填入。
-    # 按型号档案判定可发输入的 backend 读它而不是自身档案，让用户放宽的维度真实发出、由上游裁定；
-    # None（直接构造请求的调用方）时回落 backend 自身档案。
     video_capabilities: VideoCapabilities | None = None
 
-    # Seedance 特有
     service_tier: str = "default"
     seed: int | None = None
 
@@ -394,14 +360,8 @@ class VideoGenerationResult:
     task_id: str | None = None
     generate_audio: bool | None = None
 
-    # 这一次生成才确定、且要随成片一起留档的事实（如 ComfyUI 的实发 workflow 指纹）。调用方把
-    # 它并进产物版本元数据：请求侧的那份元数据在提交前就已定稿，装不下只有执行过一次才知道的值。
-    # 键名由各 backend 自己定，内容必须可 JSON 序列化——它会原样落进版本记录。
     provenance: Mapping[str, Any] | None = None
 
-    # 执行期产生的非阻断提示，形状与任务 ``result.warnings`` 同为 ``{"key", "params"}``：这一次
-    # 生成是成功的，但有一件事该让用户知道（如 ComfyUI 一次产出多个文件、只取了第一个）。调用方
-    # 把它并进任务结果，由读接口按当前语言渲染；``key`` 须在 ``lib/i18n`` 的各语言表里都有一条。
     warnings: tuple[Mapping[str, Any], ...] = ()
 
 

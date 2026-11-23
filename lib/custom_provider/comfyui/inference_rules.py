@@ -40,7 +40,6 @@ class SemanticKeyRules:
     input_names: tuple[str, ...]
     class_types: frozenset[str]
     input_name_class_types: Mapping[str, frozenset[str]]
-    #: 标题里的次级线索，大小写不敏感子串匹配。
     title_keywords: tuple[str, ...]
 
     def accepts(self, input_name: str, class_type: str) -> bool:
@@ -68,7 +67,6 @@ class InputName:
     """规则条目里的入口名：精确名，或 ComfyUI autogrow 口那样按前缀认的一族槽位。"""
 
     text: str
-    #: ``True`` 时 ``text`` 是前缀，``ref_images.ref_image_`` 认得出 ``ref_images.ref_image_0`` 起的每一格。
     prefix: bool = False
 
     def matches(self, input_name: str) -> bool:
@@ -88,7 +86,6 @@ class ConsumerPort:
     """读图节点的输出接到这个入口时，它承载的就是对应的语义键。"""
 
     input: InputName
-    #: 限定这个入口名只在这些节点上算数；空集即不限定。
     class_types: frozenset[str]
 
     def matches(self, input_name: str, class_type: str) -> bool:
@@ -102,7 +99,6 @@ class OutputCandidate:
     """产物节点候选。"""
 
     class_type: str
-    #: 该入口取 false 时此节点只预览不落盘。
     requires_true: str | None
 
 
@@ -131,11 +127,8 @@ class ExternalFamily:
 
     name: str
     prefix: str
-    #: 参数名写在哪个 input 上；写在标题上时为 ``None``。
     parameter_input: str | None
-    #: 参数名是否取自 ``_meta.title``。
     parameter_from_title: bool
-    #: 承载参数名本身、不作为可绑落点的字段。
     ignored_inputs: frozenset[str]
 
     def parameter_of(self, inputs: Mapping[str, Any], title: str) -> str | None:
@@ -152,7 +145,6 @@ class AudioTrackSource:
 
     class_type: str
     audio_input: str
-    #: 音频入口不在产物节点自身上时，先沿这个入口走到上游的成片节点。
     through_input: str | None
     through_class_types: frozenset[str]
 
@@ -172,7 +164,6 @@ class ManualOnlyNode:
 
     class_type: str
     binding_keys: tuple[str, ...]
-    #: 这个节点上收图、但收的不是参考图的入口。
     blocked_inputs: frozenset[str]
 
 

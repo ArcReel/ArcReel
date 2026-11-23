@@ -33,26 +33,22 @@ _STATUS: dict[str, int] = {"episode_not_found": 404}
 class CreateEpisodeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: 插在哪一集之后（集 ID）；缺省时放在播出顺序末尾。
     after: int | None = None
     title: Annotated[str, Field(max_length=200)] = ""
     hook: Annotated[str, Field(max_length=2000)] = ""
     source_text: str | None = None
-    #: 集原文的源文件类型，只对剧情演绎项目生效；缺省为小说。
     source_kind: SourceKind | None = None
 
 
 class DeleteEpisodeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: 创作者看过的丢失清单的 ``revision``；缺省或与当前清单不符时只返回清单，不删除。
     revision: str | None = None
 
 
 class MoveEpisodeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    #: 移到哪一集之后（集 ID）；null 时移到最前。
     after: int | None
 
 

@@ -117,9 +117,7 @@ async def get_episodes_view(name: str, _t: Translator) -> dict[str, Any]:
 
 
 class AdoptSourceFileRequest(BaseModel):
-    #: whole_source 加入整本源文末尾；episode 用作一集的原文。
     target: Literal["whole_source", "episode"]
-    #: target=episode 时填给这一集（须是无原文的集）；缺省时在播出顺序末尾新建一集。
     episode: int | None = None
 
 
@@ -153,9 +151,7 @@ async def adopt_source_file(name: str, filename: str, req: AdoptSourceFileReques
 
 
 class _ManualSplitBase(BaseModel):
-    #: 创作者在确认清单里看过的有产物的集；锁内复核出清单之外的有产物集时退回确认。
     confirm_episodes: list[int] = Field(default_factory=list)
-    #: 只返回波及清单，不写入。
     dry_run: bool = False
 
 
@@ -170,7 +166,6 @@ class SplitRequest(_ManualSplitBase):
     action: Literal["split"]
     episode: int
     at: int
-    #: ``at`` 所在的整本源文文件；缺省时按这一集起点所在的文件算。
     source_file: str | None = None
 
 
@@ -178,14 +173,12 @@ class MoveBoundaryRequest(_ManualSplitBase):
     action: Literal["move_boundary"]
     episode: int
     at: int
-    #: ``at`` 所在的整本源文文件；缺省时按这一集终点所在的文件算。
     source_file: str | None = None
 
 
 class MergeNextRequest(_ManualSplitBase):
     action: Literal["merge_next"]
     episode: int
-    #: 创作者在确认清单里看过的并入体量；与锁内复核出的体量不一致时退回确认。
     confirm_merged_units: int = 0
 
 
@@ -271,7 +264,6 @@ async def manual_split(name: str, req: ManualSplitRequest, _t: Translator) -> di
 
 class SetSourceFileKindRequest(BaseModel):
     source_kind: SourceKind
-    #: 已确认会让已开始制作的集的脚本规划判 stale。
     confirm: bool = False
 
 
@@ -313,7 +305,6 @@ async def set_source_file_kind(
 
 
 class _SourceFileChangeBase(BaseModel):
-    #: 创作者确认过的受影响集清单的版本；缺省或与锁内重算的不一致时只返回清单，不写入。
     revision: str | None = None
 
 

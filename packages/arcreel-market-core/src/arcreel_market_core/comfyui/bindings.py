@@ -15,7 +15,6 @@ from .workflow import node_inputs
 
 logger = logging.getLogger(__name__)
 
-#: 视频端点可用的全部语义键，也是 schema 里 ``bindings`` 的封闭键集。
 VIDEO_BINDING_KEYS = (
     "prompt",
     "negative_prompt",
@@ -32,7 +31,6 @@ VIDEO_BINDING_KEYS = (
     "output",
 )
 
-#: 图像端点可用的语义键：没有首尾帧，也没有帧数与帧率这两个时间轴维度。
 IMAGE_BINDING_KEYS = (
     "prompt",
     "negative_prompt",
@@ -44,13 +42,11 @@ IMAGE_BINDING_KEYS = (
     "output",
 )
 
-#: ``media_type`` → 该媒体类型允许的语义键。
 BINDING_KEYS_BY_MEDIA_TYPE: dict[str, frozenset[str]] = {
     "image": frozenset(IMAGE_BINDING_KEYS),
     "video": frozenset(VIDEO_BINDING_KEYS),
 }
 
-#: 两种媒体类型都必须绑定的语义键：没有提示词无从下笔，没有产物取不到成片。
 REQUIRED_BINDING_KEYS = ("prompt", "output")
 
 

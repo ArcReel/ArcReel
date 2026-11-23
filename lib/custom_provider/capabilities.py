@@ -38,21 +38,14 @@ if TYPE_CHECKING:
     from lib.custom_provider.endpoints import EndpointSpec
 
 
-# 覆盖键 → 值类型，直接从 VideoCapabilities dataclass 派生：新增能力维度自动进入覆盖
-# schema，无需 DB 迁移，也不存在手写副本与 dataclass 漂移的可能。
 # 走 get_type_hints 而非 field.type：base.py 启用 PEP 563，后者只给注解字符串。
 _CAPABILITY_TYPE_HINTS = get_type_hints(VideoCapabilities)
-# 参考图与参考音频段数上限在能力里可以是 ``None``（两侧都没有声明，即未收录），但覆盖是用户写下的一个具体
-# 上限：只收整数，``0`` 即不接受。想回到未收录就删掉这条覆盖。
 _INTEGER_ONLY_OVERRIDES = frozenset({"max_reference_images", "max_reference_audio_count"})
 CAPABILITY_OVERRIDE_FIELDS: dict[str, object] = {
     f.name: int if f.name in _INTEGER_ONLY_OVERRIDES else _CAPABILITY_TYPE_HINTS[f.name]
     for f in fields(VideoCapabilities)
 }
 
-#: 开放给能力覆盖的通道事实维度（docs/adr/0104）：输入模式、参考图与参考音频上限、提示词长度上限、
-#: 音轨形态。``reference_audio_per_image``、``first_frame_ratio_adaptive_only`` 是请求构造的形态，
-#: 改了也不会让调用通道换一种请求，不开放。
 CHANNEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset(
     {
         "text_to_video",
@@ -220,9 +213,6 @@ def filter_valid_overrides(
 
     if overrides is None:
         return {}
-    # ComfyUI 端点的能力全部由节点绑定推导（``docs/adr/0082``）：能改变执行形态的只有 workflow
-    # 本身，覆盖值在执行层没有对应物。写入侧已拒绝新的覆盖，这里丢掉存量值——回显与执行同走
-    # 本函数，忽略落在这一处，两侧就不会一个显示「已生效」一个照旧不认。
     if endpoint_spec is not None and endpoint_spec.kind == COMFYUI_KIND:
         if overrides:
             logger.warning("忽略 %s/%s 的能力覆盖：ComfyUI 端点的能力只从节点绑定推导", endpoint, model_id)
@@ -253,11 +243,6 @@ def filter_valid_overrides(
                 capability_type_name(expected),
             )
             continue
-        # 与写入侧同一判定（见 server/routers/custom_providers.py::_check_capability_overrides）：
-        # last_frame=True 但 endpoint 的 delegate 不下传 end_image 时，覆盖只会让合成层宣称
-        # 支持、执行层仍静默丢帧。写入侧已挡住新配置，这里再挡一遍存量行 / 非 API 写入路径。
-        # endpoint 本身可能已从注册表下线（升级移除）：get_endpoint_spec 此时抛 ValueError，
-        # 视同不支持尾帧处理——存量脏配置不该让响应过滤这道最后防线也跟着炸。
         if key == "last_frame" and value is True:
             try:
                 end_image_capable = (endpoint_spec or get_endpoint_spec(endpoint)).end_image_capable
@@ -270,8 +255,6 @@ def filter_valid_overrides(
                     model_id,
                 )
                 continue
-        # 同构于上：endpoint 的 delegate 不会把 reference_audio_files 组装进请求时，把模式
-        # 覆盖成 direct 只会让合成层宣称支持音色输入，执行层照样生成随机音色的视频。
         if key == "reference_audio_mode" and value == ReferenceAudioMode.DIRECT.value:
             try:
                 audio_capable = (endpoint_spec or get_endpoint_spec(endpoint)).reference_audio_capable

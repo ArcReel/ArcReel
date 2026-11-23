@@ -24,15 +24,10 @@ from dataclasses import dataclass
 from lib.project.asset_types import ASSET_SPECS
 from lib.references.reference_catalog import ReferenceCatalog
 
-#: 引用了目录里没有的名字。``reference_asset_missing`` 说的是「这条资产没有可用的图」，
-#: 与「根本没有这条资产」是两种修法（前者去生成资产图，后者去登记资产或改正文），故另立一码。
 UNREGISTERED_REFERENCE_CODE = "reference_asset_unregistered"
 
-#: 已登记但没有资产图，沿用参考素材缺失家族的失败码。
 SHEET_MISSING_CODE = "reference_asset_missing"
 
-#: 必须有资产图才放行的资产类型。商品不在其中：没有资产图时它的原图直接进下游参考，
-#: 是保真验收的锚点（``docs/adr/0034``）。
 SHEET_REQUIRED_ASSET_TYPES: frozenset[str] = frozenset({"character", "scene", "prop"})
 
 
@@ -48,9 +43,7 @@ class ReferenceAdmission:
     「这些名字没登记」与「这些资产还没出图」，而不是给用户一句合并后的含混提示。
     """
 
-    #: 目录里没有的引用名，按首次出现顺序。
     unregistered: tuple[str, ...] = ()
-    #: 已登记但没有资产图的引用，``(资产类型, 名称)``，按首次出现顺序。
     without_sheet: tuple[tuple[str, str], ...] = ()
 
     @property

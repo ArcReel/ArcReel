@@ -36,8 +36,6 @@ class _IdleMarker:
 
 IDLE = _IdleMarker()
 
-# 溢出信号哨兵：溢出策略清空被移除订阅者的队列后注入，iterate 遇之即结束流
-# （流结束即重连信号）。对组件外不可见——消费方看到的只是流结束。
 _END_OF_STREAM = object()
 
 
@@ -70,7 +68,7 @@ class EvictNonCriticalAndSignal:
             return True
         except asyncio.QueueFull:
             if not self._is_critical(item):
-                return True  # 非关键消息可接受丢弃
+                return True
         self._evict_one_non_critical(queue)
         try:
             queue.put_nowait(item)

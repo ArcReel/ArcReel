@@ -27,7 +27,6 @@ from server.services.project.provider_asset_import import import_provider_asset
 from server.services.tasks.image_edit_tasks import edit_version_resource_type
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest
 
-#: 可上传到素材库、也可从素材库选择已有图片的类型（与 inspect_images 同一套单数名称）。
 LinkableImageType = Literal["character", "scene", "prop", "product", "character_derivative"]
 
 _RESOURCE_ID = "资源 ID：资产为资产名称；character_derivative 为「本体名/衍生名」"

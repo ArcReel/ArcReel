@@ -167,7 +167,6 @@ class EpisodeSourceWrite:
 
     applied: bool
     origin: SourceOrigin
-    #: 会因改类型让脚本规划判 stale 的集：本集已有脚本规划且类型变了时为本集。
     affected_episodes: list[int]
 
 
@@ -298,7 +297,6 @@ def adopt_source_file_as_episode(pm: ProjectManager, project_name: str, filename
                 raise EpisodeSourceError("episode_not_found", f"集（id={episode}）不在账本中")
             if episode_source_origin(entry) is not SourceOrigin.NONE:
                 raise EpisodeSourceError("episode_source_present", f"集（id={episode}）已经有原文")
-        # 先删原文件再写集文件：原文件恰好就是目标集文件的同名文件时，写入不会被当成占位文件改名留底
         path.unlink()  # hard-delete: derived -- 源文件作为集原文采纳：全文按 NFC 与统一换行写入该集的原文文件，文本不丢，等同移动
         undo.callback(_restore_file, path, original)
         if entry is None or episode is None:
@@ -314,9 +312,7 @@ class SourceKindChange:
     """改整本源文文件类型的结果。"""
 
     changed: bool
-    #: 已写入。``changed`` 为 True 而它为 False 时，表示还需要确认。
     applied: bool
-    #: 会因改类型让脚本规划判 stale 的切出集（原文范围起点在这个文件、已有脚本规划），按播出顺序。
     affected_episodes: list[int]
 
 

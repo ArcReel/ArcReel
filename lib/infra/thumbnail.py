@@ -36,7 +36,6 @@ class FrameExtractionDeadlines:
 DEFAULT_DEADLINES = FrameExtractionDeadlines()
 
 VIDEO_THUMBNAIL_MAX_EDGE = 1280
-# 长边缩到不超过上限、不放大；短边按 -2 等比并取偶数
 VIDEO_THUMBNAIL_SCALE_FILTER = (
     f"scale=w='if(gte(iw,ih),min({VIDEO_THUMBNAIL_MAX_EDGE},iw),-2)'"
     f":h='if(gte(iw,ih),-2,min({VIDEO_THUMBNAIL_MAX_EDGE},ih))'"

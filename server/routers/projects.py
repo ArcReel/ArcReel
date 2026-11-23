@@ -26,8 +26,6 @@ from fastapi import Path as FastAPIPath
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
-
-# fastapi 只 re-export 复数的 BackgroundTasks，单数版本只能取 starlette。
 from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
@@ -140,8 +138,6 @@ from server.tool_runtime import truncation_problem
 
 router = APIRouter()
 
-# 自带认证端点：浏览器原生下载导航带不了 Authorization header，
-# 端点内 verify_download_token 校验短时效下载 token，注册时不挂 Bearer 依赖。
 self_auth_router = APIRouter()
 
 _project_detail_coalescer = RequestCoalescer()
@@ -195,8 +191,6 @@ def _merge_episode_summaries(project: dict[str, Any], summary: ProjectSummary) -
 
 
 async def get_archive_service() -> ProjectArchiveService:
-    # 在事件循环上构造：导出与导入跑在工作线程里，经捕获的事件循环收尾覆盖掉的现有项目、把导入的图片按全局设置保存，
-    # 并读写归档随带的供应商素材关联。
     bridge = EventLoopBridge.capture()
     return ProjectArchiveService(
         get_project_manager(),
@@ -222,8 +216,6 @@ def get_script_batch_editor_factory() -> Callable[[Any], ScriptBatchEditor]:
 ScriptBatchEditorFactoryDep = Annotated[Callable[[Any], ScriptBatchEditor], Depends(get_script_batch_editor_factory)]
 
 
-# 项目级模型字段：创建时逐一校验并写入 project.json，PATCH 时另加 audio_backend。
-# 值形如 provider/model 或裸 provider，空值 = 清除该层、回退下一层。
 _PROJECT_BACKEND_FIELDS = (
     "video_backend",
     "video_provider_i2v",
@@ -248,7 +240,6 @@ def _reject_bool_speech_rate(value: object) -> object:
     return value
 
 
-#: 创建 / PATCH 请求上的口播语速估算字段类型，两个模型共用同一把布尔守卫。
 SpeechRateOverride = Annotated[float | None, BeforeValidator(_reject_bool_speech_rate)]
 
 
@@ -287,44 +278,27 @@ def _validated_speech_rate(value: float, _t: Translator) -> float:
 class CreateProjectRequest(BaseModel):
     name: str | None = None
     title: str | None = None
-    style: str | None = ""  # 保留但不再是用户入口
+    style: str | None = ""
     content_mode: ContentMode | None = "narration"
     aspect_ratio: str | None = "9:16"
     default_duration: int | None = None
-    # 单集目标时长（秒）：可选软偏好，非 ad 项目适用；区间校验在 _validated_episode_target_duration。
     episode_target_duration: int | None = None
-    # 仅 content_mode=ad：目标总时长（秒）。UI 给四档（15/30/60/90，默认 60），
-    # 数据层不硬枚举，任意正整数合法。
     target_duration: int | None = Field(default=None, gt=0)
-    # 仅 content_mode=ad：创作诉求短文本（可空，不走 source_loader）
     brief: str | None = None
-    # 生成模式：创建时必须显式选择 storyboard 或 reference_video；缺失或旧 grid 值由
-    # Pydantic 校验返回 422。创建后不可更改（PATCH 模型结构上无此字段）。
     generation_mode: Literal["storyboard", "reference_video"]
-    # 宫格分镜开关：只改变分镜图的生产方式，不是独立生成模式；仅 storyboard 生成模式有意义，
-    # 创建后可经项目 PATCH 随时切换。ad 项目拒绝开启。
     grid_storyboard: bool = False
-    # 口播语速估算（阅读单位 / 秒）项目级覆盖：空 = 回退 lib.speech.speech_rate 的语言默认。
-    # 与 TTS 的 narration_speed（供应商配音倍率）无关，两者不联动。
     speech_rate_units_per_second: SpeechRateOverride = None
     style_template_id: str | None = None
     video_backend: str | None = None
-    # 视频任务类型桶（docs/adr/0054）项目级覆盖：i2v = 图生视频 / 宫格，r2v = 参考生视频；
-    # 空值 = 回退项目默认（video_backend）与全局层
     video_provider_i2v: str | None = None
     video_provider_r2v: str | None = None
-    # 图片任务类型桶（docs/adr/0054）项目级覆盖 + 项目默认模型：t2i = 文生图，i2i = 图生图；
-    # 桶为空 = 回退项目默认（default_image_backend）与全局层
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
-    # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 继承全局
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
     default_text_backend: str | None = None
     model_settings: dict[str, dict[str, str | None]] | None = None
-    # 旁白交付方式（docs/adr/0089）：必填的项目配置，缺省后期配音。选 TTS 配音时省略的模型、音色、
-    # 配音语速以全局默认预填；写入后成为项目快照，不再继承全局默认。显式 null 语速 = 不传语速。
     narration_delivery: NarrationDelivery = POST_PRODUCTION
     audio_backend: str | None = None
     narration_voice: str | None = None
@@ -344,13 +318,9 @@ class UpdateProjectRequest(BaseModel):
     style: str | None = None
     aspect_ratio: str | None = None
     default_duration: int | None = None
-    # 单集目标时长（秒）：显式 null 清除该偏好；ad 项目对字段出现本身即拒绝
     episode_target_duration: int | None = None
-    # 仅 ad 项目：目标总时长（秒），任意正整数合法，不可清空
     target_duration: int | None = Field(default=None, gt=0)
-    # 仅 ad 项目：创作诉求短文本；显式 null 清为空字符串
     brief: str | None = None
-    # 生成模式创建即定、不可变，PATCH 结构上无 generation_mode 字段；宫格开关随时可切
     grid_storyboard: bool | None = None
     video_backend: str | None = None
     video_provider_i2v: str | None = None
@@ -359,18 +329,12 @@ class UpdateProjectRequest(BaseModel):
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
     video_generate_audio: bool | None = None
-    # 角色声音绑定方式：prompt（默认，voice_style 提示词软约束）/ reference_audio（挂角色参考音频）
     character_voice_binding: str | None = None
-    # 旁白交付方式（docs/adr/0089）：随时可改，不让任何已有产物过期；不可清空
     narration_delivery: NarrationDelivery | None = None
-    # 旁白配音（TTS）快照：模型（provider/model）/ 音色 / 配音语速，不继承全局默认。
-    # TTS 配音项目的模型与音色不可清空；语速 null = 不向供应商传语速
     audio_backend: str | None = None
     narration_voice: str | None = None
     narration_speed: float | None = None
-    # 口播语速估算（阅读单位 / 秒）项目级覆盖；null = 清除、回退语言默认
     speech_rate_units_per_second: SpeechRateOverride = None
-    # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 清除、继承全局
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
     default_text_backend: str | None = None
@@ -404,7 +368,6 @@ def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
                 project[TTS_VOICE_FIELD] = voice
             else:
                 project.pop(TTS_VOICE_FIELD, None)
-        # 配音语速只做正有限数卫生校验，取值范围由各供应商约束
         if TTS_SPEED_FIELD in fields:
             if req.narration_speed is None:
                 project.pop(TTS_SPEED_FIELD, None)
@@ -435,11 +398,8 @@ async def import_project_archive(
     导入包升级时有调整或没能带入的内容时，未带 ``confirm_report`` 的请求以 409 返回
     ``confirmation_required`` 与 ``migration_report``，不留下任何项目数据；用户确认后带上它重新提交。
     """
-    # 临时文件一建好就登记路径，取消或失败时 finally 仍能清理
     upload_paths: list[str] = []
     try:
-        # 使用底层 SpooledTemporaryFile 的同步句柄，建临时文件与整个写循环 offload 到线程，
-        # 避免 async 读取 + 同步写入的混合模式阻塞事件循环
         raw_file = file.file
 
         def _write_upload() -> str:
@@ -485,7 +445,6 @@ async def import_project_archive(
             },
         )
     except ApiError:
-        # 导入的图片按全局设置保存到对象存储失败（502）或未配置连接（409）：带明确原因返回，项目没有安装。
         raise
     except Exception:
         logger.exception("请求处理失败")
@@ -556,8 +515,6 @@ async def export_project_archive(
     except pyjwt.InvalidTokenError as exc:
         raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
 
-    # zip 一落盘就登记：打包进行中被取消时返回值随之丢弃，finally 按登记回收；
-    # 交给 FileResponse 之后由响应的后台任务回收。
     archive_paths: list[Path] = []
 
     def _export() -> tuple[Path, str]:
@@ -567,7 +524,6 @@ async def export_project_archive(
 
     handed_off = False
     try:
-        # 归档带远端图片的真实内容：先取回被清理的工作文件，打包期间登记使用。
         async with archive_service.export_materials_held(name, scope=scope):
             archive_path, download_name = await run_sync_transaction(_export)
         response = FileResponse(
@@ -606,10 +562,6 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
             try:
                 if manager.project_exists(name):
                     project = manager.load_project(name)
-                    # 一次性预加载每集剧本，喂给 cover + status 两路下游，去除重复 JSON I/O。
-                    # key 为 episode['script_file'] 原值（match resolve_project_cover /
-                    # 项目摘要投影对 key 的期望）。任何一集加载失败都不影响列表：
-                    # 仅跳过入 map，下游消费者自然按"缺失"路径兜底。
                     preloaded_scripts: dict[str, dict] = {}
                     for ep in project.get("episodes") or []:
                         script_file = ep.get("script_file")
@@ -618,9 +570,6 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                         try:
                             preloaded_scripts[script_file] = manager.load_script(name, script_file)
                         except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError) as load_err:
-                            # 与 resolve_project_cover / 项目摘要投影对齐：I/O 缺失 +
-                            # JSON/schema 解析失败 → 跳过此集，继续预加载其他集；
-                            # 非预期异常（RuntimeError/MemoryError 等）让其冒泡到外层 try，走 basic info 兜底行。
                             logger.debug(
                                 "list_projects 预加载剧本失败 project=%s script=%s err=%s",
                                 name,
@@ -628,14 +577,8 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                                 load_err,
                             )
 
-                    # 封面走 resolve_project_cover fallback 链：
-                    # video_thumbnail → storyboard_image → scene_sheet → character_sheet
-                    # —— 同时覆盖分镜图生视频（含宫格装配）与参考生视频。
                     thumbnail = resolve_project_cover(manager, name, project, preloaded_scripts=preloaded_scripts)
 
-                    # 阶段与产物计数一律来自项目摘要投影（读时计算，产物口径取产物清单）。
-                    # 列表只看清单登记与文件在场：逐件比对规范状态要哈希每个项目的
-                    # 全部分镜图与引用图，N 个项目的列表付不起这个代价。
                     status = _project_status_payload(
                         summaries.get_project_summary(
                             name,
@@ -656,8 +599,6 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                     projects.append(
                         {
                             "name": name,
-                            # title 缺失/为 None/类型异常时统一归一为空串,前端 i18n
-                            # 兜底显示「未命名项目」,确保接口契约始终返回 str。
                             "title": raw_title if isinstance(raw_title, str) else "",
                             "style": project.get("style", ""),
                             "style_template_id": project.get("style_template_id"),
@@ -673,7 +614,6 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
                     {"name": name, "title": "", "style": "", "thumbnail": None, "status": {}, "last_activity_at": None}
                 )
 
-        # 没有活动时间的项目排在最后，彼此保持按名字的列举顺序。
         projects.sort(key=lambda p: last_activity.get(p["name"], _NO_ACTIVITY), reverse=True)
         return {"projects": projects}
 
@@ -718,8 +658,6 @@ async def create_project(
                     )
                 style_prompt = resolve_template_prompt(req.style_template_id)
 
-            # 模式专属字段互斥：target_duration/brief 仅 ad 可用；
-            # ad 不暴露 default_duration、不开放宫格分镜
             content_mode = req.content_mode or "narration"
             if content_mode == "ad":
                 if req.default_duration is not None:
@@ -739,14 +677,11 @@ async def create_project(
                 if value:
                     validate_backend_value(value, field_name)
 
-            # 口播语速估算：可选，未填则不落盘（缺省即回退 lib.speech.speech_rate 的语言默认）。
-            # 在 create_project 之前判，越界请求不留下半成品项目目录。
             speech_rate = (
                 None
                 if req.speech_rate_units_per_second is None
                 else _validated_speech_rate(req.speech_rate_units_per_second, _t)
             )
-            # 单集目标时长：同理在 create_project 之前判，越界请求不留下半成品项目目录。
             episode_target_duration = (
                 None
                 if req.episode_target_duration is None
@@ -783,7 +718,6 @@ async def create_project(
 
         return await run_sync_transaction(_sync)
     except ValueError as e:
-        # 项目名 / duration / brief 等配置校验失败，str(e) 只进日志
         logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
         raise BadRequestError("project_config_invalid") from e
     except (HTTPException, ApiError):
@@ -847,7 +781,6 @@ async def get_video_capabilities(
             resolution_override=resolution_override,
         )
         caps["duration_constraints"] = duration_constraints_payload(request_facts)
-        # 内容确认页的时长按剧本规划档位选与判：确认转换用的是同一份 planning_durations。
         caps["duration_constraints"]["planning"] = planning_durations(request_facts)
         await annotate_end_frame_tiers(
             caps,
@@ -861,17 +794,12 @@ async def get_video_capabilities(
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except VideoBucketCapabilityError as exc:
-        # 任务类型桶解析闸的报错自带 errors 目录 key 与渲染参数，转成结构化 400 让用户看到修复指引，
-        # 不被下面的通用 422 文案吞掉（ValueError 子类，须先于其捕获）
         raise BadRequestError(exc.code, **exc.params) from exc
     except VideoRequestFactsError as exc:
-        # 视频请求事实的问题码即 errors 目录 key（ValueError 子类，须先于其捕获）
         raise UnprocessableError(exc.code, **exc.params) from exc
     except ModelNotInCatalogError:
-        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
         raise
     except ValueError as exc:
-        # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
         logger.warning("项目 '%s' 视频模型能力解析失败: %s", name, exc)
         raise HTTPException(
             status_code=422,
@@ -975,8 +903,6 @@ async def get_project(
                     except FileNotFoundError:
                         logger.debug("剧本文件不存在，跳过: %s/%s", name, script_file)
 
-            # 衍生的「被引用」状态随读取返回、不落盘（见 docs/adr/0072）：脚本已在上面读齐，
-            # 判定只是在同一份数据上多扫一遍。
             project = annotate_derivative_references(project, scripts.values())
 
             project_path = manager.get_project_path(name)
@@ -1056,7 +982,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
             manager = get_project_manager()
 
             def _mutate(project: dict) -> None:
-                # 整段 read-modify-write 在单一 _project_lock 内完成，避免并发 PATCH / 任务回写丢更新
                 is_ad = project.get("content_mode") == "ad"
                 if req.title is not None:
                     project["title"] = req.title
@@ -1095,11 +1020,8 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                 if "grid_storyboard" in req.model_fields_set:
                     if is_ad and req.grid_storyboard:
                         raise HTTPException(status_code=400, detail=_t("ad_grid_not_supported"))
-                    # null 与 false 同义：宫格关闭态落盘为显式 false，与创建路径同形态
                     project["grid_storyboard"] = bool(req.grid_storyboard)
                 if "default_duration" in req.model_fields_set:
-                    # ad 项目对字段出现本身即拒绝（含 null）：与创建路径"禁写字段"契约一致，
-                    # 避免 null 走删除分支静默返回 200
                     if is_ad:
                         raise HTTPException(status_code=400, detail=_t("ad_no_default_duration"))
                     if req.default_duration is None:
@@ -1128,7 +1050,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 
                 if "style_template_id" in req.model_fields_set:
                     if req.style_template_id is None:
-                        # 取消模版选择：同时清掉展开的 style prompt，避免遗留孤儿文本
                         project.pop("style_template_id", None)
                         project["style"] = ""
                     else:
@@ -1143,7 +1064,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project.pop("style_description", None)
 
                 if req.clear_style_image:
-                    # 显式清除自定义参考图，用于"取消风格"流程
                     project.pop("style_image", None)
                     project.pop("style_description", None)
 
@@ -1154,12 +1074,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                         project["model_settings"] = req.model_settings
 
                 if "episodes" in req.model_fields_set and req.episodes is not None:
-                    # 合并 episodes：保留现有 episode 的完整数据，仅更新请求中显式提供的字段。
-                    # 使用 model_fields_set（而非 exclude_none）判断字段是否显式出现，使得
-                    # 传 null 可用于清空对应字段。可写字段由 EpisodePatch 自身界定（extra="ignore"）：
-                    # 读时计算的每集统计字段不在模型上，请求里带了也进不来。title 同样不可写：
-                    # 它以剧本顶层 title 为唯一真相源，经 _apply_episode_sync 单向同步进
-                    # episodes[].title，专用端点 PATCH /episodes/{episode} 写入。
                     existing_list = project.get("episodes", [])
                     patch_map: dict[int, EpisodePatch] = {}
                     for ep in req.episodes:
@@ -1187,8 +1101,6 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                     project["episodes"] = new_episodes
 
             with project_change_source("webui"):
-                # 单一 project 锁内完成字段更新与 episode 绑定所影响的 Manifest claim 清理；
-                # 返回升级后字段，无需二次 load_project。
                 project = manager.update_project_reconciling_episode_bindings(name, _mutate)
                 return {"success": True, "project": project}
 
@@ -1208,8 +1120,6 @@ async def delete_project(name: str, _t: Translator):
     try:
         manager = get_project_manager()
         project_dir = await asyncio.to_thread(manager.get_project_path, name)
-        # 收尾记录与移走目录在同一个事务里：移走或提交失败时记录回滚，目录移回原处。
-        # 排队任务不会在移走的目录上开跑，执行中的任务照常跑完但放弃落盘。
         tombstone: str | None = None
         try:
             async with retiring_project(async_session_factory, project_dir) as tombstone:
@@ -1241,7 +1151,6 @@ async def list_deleted_projects():
 @router.post("/deleted-projects/{deleted_id}/restore")
 async def restore_deleted_project(deleted_id: str):
     """整体恢复已删除项目：原名被占用时加后缀，记录改回恢复后的名字，再走启动时的迁移链"""
-    # 整段不可中断：移出途中被取消时落点随返回值丢弃，目录已回原位而记录仍挂在墓碑名下。
     project_dir = await run_noninterruptible_async(_restore_deleted_project(get_project_manager().layout, deleted_id))
     return {"name": project_dir.name}
 
@@ -1255,7 +1164,6 @@ async def _restore_deleted_project(layout: DataRootLayout, deleted_id: str) -> P
     except BaseException:
         await run_sync_transaction(project_dir.rename, layout.deleted_projects_dir / deleted_id)
         raise
-    # 记录先改回：迁移链按项目名查历史集 ID。
     await run_sync_transaction(
         deleted_projects.migrate_restored,
         project_dir,
@@ -1269,7 +1177,6 @@ async def purge_deleted_project(deleted_id: str):
     """彻底删除已删除项目（只开放给创作者，不给 Agent 工具）"""
     await run_sync_transaction(deleted_projects.purge, get_project_manager().layout, deleted_id)
     try:
-        # 项目已彻底删除，它的正式对象引用随之撤下；失败时维护循环在保留期过后兜底
         await release_holder(deleted_id)
     except Exception:
         logger.warning("撤下已删除项目的正式对象引用失败 deleted=%s", deleted_id, exc_info=True)
@@ -1375,7 +1282,6 @@ async def preview_script_item_prompts(
             if rendered.unavailable
             else None,
             "is_text_form": rendered.is_text_form,
-            # 渲染时产生的提示与任务结果的 warnings 同源，同样按请求语言渲染成成品文案
             "warnings": [render_message(warning["key"], warning["params"], _t, names) for warning in rendered.warnings],
         }
 
@@ -1387,7 +1293,6 @@ async def preview_script_item_prompts(
     }
 
 
-#: 可在时间线手动新增 / 移除的分镜条目形态；参考生视频单元走视频单元路由。
 _STORYBOARD_ITEM_KINDS = frozenset({"segments", "scenes", "shots"})
 
 
@@ -1405,9 +1310,7 @@ class InsertScriptItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     script_file: str
-    #: 新分镜插在这条分镜之后；缺省时追加到末尾，空脚本里即第一条。
     after_id: str | None = Field(default=None, min_length=1)
-    #: 旁白 / 解说分镜的正文即配音内容，新增时必填；其余形态插入空条目、忽略此字段。
     novel_text: str | None = None
 
 
@@ -1449,8 +1352,6 @@ async def insert_script_item(
                 )
             require_script_edit_result(result, operation_not_found=True)
             saved_items, _id_field, _kind = resolve_items(manager.load_script(name, req.script_file))
-            # 提交后到回读之间条目可能已被并发移除，此时 item 为 null。
-            # 批量编辑提交时由服务端发编号，blank_item_after 给的只是占位。
             inserted_id = result.affected_ids[0] if result.affected_ids else None
             inserted = next(
                 (entry for entry in saved_items if isinstance(entry, dict) and entry.get(id_field) == inserted_id),
@@ -1540,7 +1441,6 @@ class MoveScriptItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     script_file: str
-    #: 移到这条分镜之后；为 null 时移到最前。
     after_id: str | None = Field(min_length=1)
 
 
@@ -1658,8 +1558,6 @@ async def update_scene(
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
-        # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
-        # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
@@ -1700,10 +1598,8 @@ def _require_ad_script(script: dict, _t: Translator) -> list[dict]:
         raise ValueError("ad script field 'shots' must be a list")
     if not all(isinstance(s, dict) for s in shots):
         raise ValueError("ad script field 'shots' contains non-object elements")
-    # shot_id 缺失/脏类型同样拦下：否则 PATCH 按 id 定位会误报 404。
     if not all(isinstance(s.get("shot_id"), str) and s["shot_id"] for s in shots):
         raise ValueError("ad script field 'shots' contains elements missing valid 'shot_id'")
-    # shot_id 是单个分镜的身份键：重复值会让 PATCH 静默更新首个命中项
     shot_ids = [s["shot_id"] for s in shots]
     if len(set(shot_ids)) != len(shot_ids):
         raise ValueError("ad script field 'shots' contains duplicate 'shot_id' values")
@@ -1759,8 +1655,6 @@ async def update_shot(
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
-        # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
-        # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
@@ -1795,9 +1689,7 @@ class UpdateEpisodeRequest(BaseModel):
 
 class UpdateEpisodeSourceRequest(BaseModel):
     text: str
-    #: 剧情演绎项目这一集原文的源文件类型；缺省时保留已有类型，没有记录时记为小说。其他创作类型忽略。
     source_kind: SourceKind | None = None
-    #: 已确认改类型会让本集已有的脚本规划判 stale。
     confirm: bool = False
 
 
@@ -1868,8 +1760,6 @@ async def update_segment(
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
-        # 结构校验失败、集号错配、非法文件名都抛 ValueError（ScriptStructureValidationError
-        # 即其子类）：统一转 422 客户端错误，避免落到下面的 500 兜底。
         raise UnprocessableError("script_validation_failed").with_diagnostic(str(exc)) from exc
     except (HTTPException, ApiError):
         raise
@@ -1910,7 +1800,6 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                     manager.get_project_path(name) / "scripts" / manager.normalize_script_filename(script_file)
                 )
                 if script_path.is_file():
-                    # 剧本在两次读取之间被建出：标题改由剧本承载，请调用方重试
                     raise HTTPException(status_code=409, detail=_t("ref_script_rebound"))
                 meta = next(e for e in project["episodes"] if e.get("episode") == episode)
                 meta["title"] = title
@@ -1931,14 +1820,10 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
                         status_code=422, detail=_t("script_validation_failed", details=str(exc))
                     ) from exc
 
-            # 返回刚写入的值（前端保存后整体 refreshProject，不强依赖此返回）。
-            # 不再锁后二次 load_project：省一次读盘，且避免锁外读取被并发写者污染返回值。
             return {"success": True, "episode": {"episode": episode, "title": title}}
 
         return await run_sync_transaction(_sync)
     except (HTTPException, ApiError):
-        # ApiError 与 HTTPException 并列：_sync 内部抛出的 NotFoundError 不是
-        # HTTPException 子类，不并入这里会被下面的 except Exception 吞成 500
         raise
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -2057,15 +1942,12 @@ async def set_project_source(
                     overview = await manager.generate_overview(name)
                 result["overview"] = overview
             except ModelNotInCatalogError as ov_err:
-                # 文本模型已不在供应商清单中：回传「重新选择模型」指引，而非笼统的生成失败
                 logger.warning("上传后概览生成失败：模型不在清单中 (%s)", ov_err)
                 result["overview"] = None
                 result["overview_error"] = render_message(
                     failure_message_key(ov_err.code, ov_err.params), ov_err.params, _t, names
                 )
             except Exception as ov_err:
-                # 概览生成是上传的可选后续步骤，失败仅降级回传提示、不影响上传成功。
-                # 裸 str(ov_err) 可能携带服务器路径等内部细节，回传翻译后的通用文案。
                 logger.exception("上传后概览生成失败")
                 result["overview"] = None
                 result["overview_error"] = (
@@ -2091,8 +1973,6 @@ async def generate_overview(name: str, _t: Translator):
     try:
         await asyncio.to_thread(get_project_manager().get_project_path, name)
     except ValueError as e:
-        # 非法项目名（路径穿越等）先于生成流程拦截，避免落入下面 generate_overview()
-        # 内部供应商解析链路的 except ValueError，被误判为「未配置供应商」
         raise BadRequestError("invalid_project_name", name=name) from e
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -2103,13 +1983,10 @@ async def generate_overview(name: str, _t: Translator):
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
     def _provider_not_configured(exc: ValueError) -> BadRequestError:
-        # 非法项目名已由上方预校验拦截，此处均来自供应商解析链路（未配置/无可用供应商）；str(exc) 只进日志
         logger.warning("生成概述配置错误: name=%s (%s)", name, exc)
         return BadRequestError("text_provider_not_configured")
 
     try:
-        # EmptySourceError / PydanticValidationError / ModelNotInCatalogError / NoAvailableProviderError 都是 ValueError 子类，须放行给
-        # 下方各自的处理，不能被 domain_error_on_value_error 的通用 ValueError 处理误判为「未配置供应商」
         with (
             project_change_source("webui"),
             domain_error_on_value_error(
@@ -2127,12 +2004,9 @@ async def generate_overview(name: str, _t: Translator):
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except PydanticValidationError as exc:
-        # 模型输出未通过 schema 校验（后端降级仍失守时的最后防线），
-        # 裸 pydantic 错误串含模型原始输出片段，不透传给用户
         logger.exception("概述生成响应解析失败")
         raise HTTPException(status_code=400, detail=_t("overview_ai_response_invalid")) from exc
     except TextOutputTruncatedError as exc:
-        # 输出被最大输出长度截断：与各文本任务同一个问题票形状，前端据此给出登记输出长度或换模型的出路
         logger.warning("概述生成输出被截断: name=%s (%s)", name, exc)
         raise UnprocessableError(
             "text_output_truncated", provider_id=exc.provider_id or exc.provider, model=exc.model
@@ -2141,11 +2015,9 @@ async def generate_overview(name: str, _t: Translator):
         logger.warning("生成概述参数错误: name=%s (%s)", name, e)
         raise BadRequestError("overview_source_empty") from e
     except NoAvailableProviderError as exc:
-        # 没有文本默认模型：指引到默认模型设置（docs/standards/backend.md，带用户指引的异常先于宽捕获处理）
         logger.warning("生成概述缺少文本默认模型: name=%s", name)
         raise BadRequestError("text_default_model_not_set") from exc
     except json.JSONDecodeError as exc:
-        # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
         logger.exception("生成概述失败：项目数据损坏 name=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
     except (HTTPException, ApiError, ModelNotInCatalogError):
@@ -2165,7 +2037,6 @@ async def update_overview(name: str, req: UpdateOverviewRequest, _t: Translator)
             captured: dict[str, Any] = {}
 
             def _mutate(project: dict) -> None:
-                # 整段 RMW 在单一 _project_lock 内完成，避免与并发生成的 overview 回写互相覆盖
                 if "overview" not in project:
                     project["overview"] = {}
                 if req.synopsis is not None:

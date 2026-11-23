@@ -43,15 +43,8 @@ from lib.custom_provider.comfyui.request_builder import MediaInputs, build_workf
 
 logger = logging.getLogger(__name__)
 
-#: 本端点产出的是图像：产物扩展名白名单与失败文案共读这一个值
-#: （见 ``comfyui.artifacts.ARTIFACT_SUFFIXES_BY_MEDIA_TYPE``）。
 MEDIA_TYPE = "image"
 
-#: 一次图像执行等到终态的墙钟上限。
-#:
-#: 不读全局的 ``video_poll_timeout_seconds``：那个设置项说的是视频，把它的含义悄悄扩到图像上，
-#: 用户调它的时候就不知道自己在调几件事。图像这一维没有可配项——内置图像供应商都是一次同步调用，
-#: 而 ComfyUI 的出图既要排队又跑在用户自己的显卡上，故按后者的最坏情形取一个够宽的定值。
 IMAGE_POLL_TIMEOUT_SECONDS = 1800
 
 

@@ -40,11 +40,8 @@ class ProviderSpec:
 
     provider_id: str
     media_type: str
-    registry_backend: str  # 映射到哪个 media backend registry 名（合并两份 PROVIDER_ID_TO_BACKEND）
-    # model_id 为 None 只在模型目录没有给该供应商该媒体类型指定默认模型时出现，由 backend 自行处理
+    registry_backend: str
     build_backend: Callable[[LoadedConfig, str | None], Any]
-    # 这条构造对应的内置调用端点名：与自定义供应商共用的端点取端点注册表的键，只在内置供应商凭证下成立的端点
-    # 见 PROVIDER_ONLY_ENDPOINTS。
     endpoint: str
 
 
@@ -167,7 +164,6 @@ def _simple_spec(provider_id: str, media_type: str, endpoint: str, *, extra_keys
     )
 
 
-#: Seedance 各代的内置调用端点，按声明顺序；registry 名就是端点名（``lib.backends.video_backends.ark.SEEDANCE_BACKENDS``）。
 _SEEDANCE_ENDPOINTS = ("ark-seedance-1", "ark-seedance-2", "ark-seedance-2-5")
 
 
@@ -187,7 +183,6 @@ def seedance_endpoint_for_name(name: str) -> str | None:
     return None
 
 
-# 添加模型时按名字预填；运行中的通道只读取所选端点。
 _VIDU_PROFILES = {
     "viduq3-pro": "q3-pro",
     "viduq3-turbo": "q3-turbo",
@@ -211,7 +206,6 @@ _KLING_PROFILES = {
     "kling-v3": "audio",
     "kling-v3-omni": "audio",
     "kling-video-o1": "silent",
-    # 只在新版 API 上提供的型号（模型名写在路径里）
     "kling-4.0": "model-path",
     "kling-4.0-flash": "model-path",
     "kling-3.0-turbo": "model-path",
@@ -302,13 +296,6 @@ def _build_minimax_declarative_video(config: LoadedConfig, model_id: str | None,
     )
 
 
-# ── gemini 特例族 ──────────────────────────────────────────────────
-# gemini-aistudio / gemini-vertex 两个 provider_id 都映射到同一个 "gemini" media backend，
-# 差异只在 backend_type（aistudio | vertex）—— 由 spec 行声明（每个 provider_id 各一行），不在闭包内 if。
-# image/video/audio 对等透传 base_url：aistudio 用用户配置的自定义 endpoint。api_key 与 base_url 无条件
-# 透传（含 None），由 backend 内 resolve_gemini_api_key / normalize_base_url 处理 None（None base_url 省略）；
-# vertex 分支走 vertexai=True + 服务账号凭证，结构性忽略 base_url（无注入点），透传的 None 被丢弃。
-
 _GEMINI_REGISTRY_BACKEND = "gemini"
 
 
@@ -353,8 +340,6 @@ _GEMINI_BUILDS = {"image": _build_gemini_image, "audio": _build_gemini_audio}
 _GEMINI_ENDPOINTS = {"image": "gemini-image", "audio": "gemini-tts"}
 
 
-#: 视频请求协议 → backend_type → 该凭证下的视频端点名。Veo 的长任务是默认端点（AI Studio 的 Veo 在视频 backend
-#: registry 里登记为裸 "gemini"，其余端点名即 registry 名）；Gemini Omni 走 Interactions API。
 _GEMINI_VIDEO_ENDPOINTS: Mapping[str, Mapping[str, str]] = {
     "veo": {"aistudio": "gemini-video", "vertex": "gemini-vertex-video"},
     "interactions": {"aistudio": "gemini-interactions-video", "vertex": "gemini-vertex-interactions-video"},
@@ -383,17 +368,6 @@ def _gemini_video_spec(provider_id: str, endpoint: str, *, backend_type: str) ->
     )
 
 
-# ── kling 特例族 ──────────────────────────────────────────────────
-# 双模式鉴权二选一（同时填写 api_key 优先，判定收口于 lib.backends.kling_shared.kling_auth_mode，
-# backend_assembly 与 providers._test_kling 共用同一判定，避免两处各写一份分派逻辑漂移）：
-# - api_key 非空 → auth_mode=bearer（官方 API Key，全模型适用）；
-# - 否则 → auth_mode=jwt（access_key + secret_key，官方标注仅 3.0 及更早模型），
-#   双 secret 按列名直取，无条件透传含 None，由 backend 内 resolve_kling_jwt_credentials 处理。
-# base_url 兜底：db_config 显式填写 > registry default_base_url > 不传（KlingBackend 自带
-# KLING_BASE_URL 兜底）。image/video 共用单一构造 helper，仅 image 侧额外注入 api_model_name 解耦
-# （两栖别名键如 kling-v3-omni-image 读 registry api_model_name 发真实 API 名）；video backend 不
-# 接受 api_model_name 参数，故该注入仅对 image media_type 生效。
-
 _KLING_REGISTRY_BACKEND = "kling"
 
 
@@ -413,7 +387,6 @@ def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str,
             "model": model_id,
         }
     if media_type == "image":
-        # 两栖别名键读模型目录的 api_model_name 发真实 API 名；video backend 不接受该参数，仅 image 注入。
         model_info = catalog.get_model(PROVIDER_KLING, model_id) if model_id else None
         if model_info is not None and model_info.api_model_name:
             kwargs["api_model_name"] = model_info.api_model_name
@@ -431,20 +404,6 @@ def _kling_spec(media_type: str, *, endpoint: str | None = None) -> ProviderSpec
         build_backend=partial(_build_kling, media_type=media_type, endpoint=endpoint),
         endpoint=endpoint or f"kling-{media_type}",
     )
-
-
-# ── 文本族 ────────────────────────────────────────────────────────
-# 文本 backend 注册在独立的 lib.backends.text_backends.registry（非 media registry），构造形态与媒体有别：
-# api_key/base_url 透传规则、OpenAI-compat 别名映射、provider_name 计费归因透传各不相同，故文本侧
-# 不复用 _build_simple，各类形态挂专属闭包。三类：
-#   ① 简单文本（ark / ark-agent-plan / grok / agnes）—— model + api_key（无条件透传）+ base_url（user >
-#      registry default，仅非空才传，对称媒体简单族 base_url 优先级）。agnes 虽走 OpenAI 兼容
-#      chat/completions，但鉴权 / base_url 归一化收口在专属 AgnesTextBackend，故归此族而非 ③。
-#   ② gemini 文本 —— aistudio（model + api_key + base_url 无条件透传，含 None/空串）/ vertex
-#      （model + backend=vertex + gcs_bucket）按 provider_id 分两行，不在闭包内 if。
-#   ③ OpenAI-compat（openai / dashscope / minimax）—— 都映射到 "openai" registry backend；openai 直传
-#      用户 base_url（无条件，含 None），dashscope/minimax 由各自 helper 从 host 派生 base_url 并透传
-#      真实 provider_name，确保 usage 记账与计费查表命中自身（百炼/MiniMax）的 CNY 费率而非 OpenAI USD。
 
 
 def _build_text_simple(config: LoadedConfig, model_id: str | None, *, registry_backend: str) -> Any:
@@ -476,8 +435,6 @@ _TEXT_GEMINI_REGISTRY_BACKEND = "gemini"
 
 
 def _build_text_gemini_aistudio(config: LoadedConfig, model_id: str | None) -> Any:
-    # aistudio 允许用户填自定义 endpoint，无 registry default：base_url 无条件透传用户值（含 None/空串），
-    # 由 GeminiTextBackend 内部处理。文本 gemini 不接受 rate_limiter（保留迁移前非对称）。
     return _media_create_backend("text")(
         _TEXT_GEMINI_REGISTRY_BACKEND,
         model=model_id,
@@ -487,7 +444,6 @@ def _build_text_gemini_aistudio(config: LoadedConfig, model_id: str | None) -> A
 
 
 def _build_text_gemini_vertex(config: LoadedConfig, model_id: str | None) -> Any:
-    # vertex 走服务账号凭证文件 + gcs_bucket，不传 api_key/base_url（保留迁移前命令式分支）。
     return _media_create_backend("text")(
         _TEXT_GEMINI_REGISTRY_BACKEND,
         model=model_id,
@@ -508,12 +464,10 @@ def _text_gemini_spec(provider_id: str, *, build: Callable[[LoadedConfig, str | 
 
 
 _TEXT_OPENAI_COMPAT_REGISTRY_BACKEND = "openai"
-# 内置 openai 的文本走 Responses：o3-pro、gpt-5.5-pro 等只开放 Responses 的模型也能调用。
 _TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND = "openai-responses"
 
 
 def _dashscope_text_base_url(configured: str | None) -> str:
-    # 运行时 import：免轻量场景（CLI / 迁移）因 import 本表被动拉起 dashscope_shared。
     from lib.backends.dashscope_shared import dashscope_text_base_url
 
     return dashscope_text_base_url(configured)
@@ -568,27 +522,10 @@ def _text_openai_compat_spec(
             provider_name=provider_name,
             registry_backend=registry_backend,
         ),
-        # Chat Completions 与 Responses 各是一套请求结构，与自定义供应商的同名端点一致
         endpoint="openai-responses" if registry_backend == _TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND else "openai-chat",
     )
 
 
-# ── 内置调用端点注册表 ─────────────────────────────────────────────
-# 内置供应商的供应商模型先定下挂接的内置调用端点，再由端点构造 backend：供应商给凭证（Vertex 服务账号、可灵的双密钥、
-# 方舟推理凭证等鉴权差异都在各自的构造闭包里），端点决定请求。键 = (provider_id, 端点名)。
-#
-# 端点名与自定义供应商共用一个命名空间：请求结构与自定义供应商某个端点相同的，取端点注册表
-# （lib.custom_provider.endpoints.ENDPOINT_REGISTRY）里的同名键；只在内置供应商凭证下成立的请求结构（xAI SDK、
-# 方舟 SDK、Agnes 等），名字登记在 PROVIDER_ONLY_ENDPOINTS，自定义供应商挂不了。
-#
-# 简单族 = 媒体侧只需 api_key + model + base_url 的内置 provider，共享 _build_simple 闭包。「简单族」按构造形态界定
-# （不是 provider 名白名单），含 ark/ark-agent-plan/grok/openai/vidu 与 dashscope/minimax。ark-agent-plan 媒体侧复用
-# Ark image/video backend（registry 同名注册），与 ark 同为简单形态。特例族 = gemini（backend_type 双模式）与 kling
-# （JWT 双 secret + api_model_name 解耦），各挂专属 build 闭包；gemini 的两个 provider_id 各按 backend_type 登记（裸
-# "gemini" 是死路径——resolver 只产出带后缀 id，按 fail-loud 不登记兜底行）。文本族按构造形态分三类登记（简单文本 /
-# gemini 文本 / OpenAI-compat 文本，见各闭包）。未登记的 provider × media 抛 ValueError，不「缺席即默认」造静默错误 backend。
-
-#: 只在内置供应商凭证下成立的内置调用端点 → 媒体类型。其余内置供应商的端点都是端点注册表里的键。
 PROVIDER_ONLY_ENDPOINTS: Mapping[str, str] = {
     "ark-chat": "text",
     "grok-chat": "text",
@@ -618,7 +555,6 @@ _SIMPLE_MEDIA_ENDPOINTS: Mapping[tuple[str, str], str] = {
 
 _GEMINI_BACKEND_TYPES: dict[str, str] = {"gemini-aistudio": "aistudio", "gemini-vertex": "vertex"}
 
-#: MiniMax 视频的四个声明式端点，各是一份随版定义（一种请求形状 + 一组能力）；海螺 2.3 为默认端点。
 _MINIMAX_VIDEO_ENDPOINTS = ("minimax-hailuo-v1", "minimax-hailuo-v1-fast", "minimax-s2v-01", "minimax-h3")
 
 _specs: list[ProviderSpec] = [
@@ -642,8 +578,6 @@ _specs += [
     for provider_id, endpoints in _IMAGE_ENDPOINTS.items()
     for endpoint in endpoints
 ]
-#: 百炼音频的两个端点：multimodal-generation（qwen3-tts，默认端点）与 SpeechSynthesizer（qwen-audio-*-tts），
-#: registry 名就是端点名（``lib.backends.audio_backends.DASHSCOPE_AUDIO_BACKENDS``）。
 _DASHSCOPE_AUDIO_ENDPOINTS = ("dashscope-tts", "dashscope-speech-synthesizer")
 _specs += [
     ProviderSpec(
@@ -666,8 +600,6 @@ _specs += [
     for by_backend_type in _GEMINI_VIDEO_ENDPOINTS.values()
 ]
 _specs += [_kling_spec("image"), _kling_spec("image", endpoint="kling-image-single")]
-# MiniMax 图片：image-01 走简单族登记的 minimax-image（registry 名 minimax），H3 图像系列另走 minimax-h3-image；
-# 新增模型的预填按名字规则推断（infer_endpoint），不经 image_endpoint_for_name。
 _specs.append(
     ProviderSpec(
         provider_id="minimax",
@@ -692,7 +624,6 @@ _specs += [
     for provider, endpoints in (("grok", _GROK_ENDPOINTS), ("vidu", _VIDU_ENDPOINTS), ("kling", _KLING_ENDPOINTS))
     for endpoint in endpoints
 ]
-# 方舟 Agent Plan 的语音合成走 openspeech 主机上的专属接口，不经 /api/plan/v3，见 _build_ark_agent_plan_tts。
 _specs.append(
     ProviderSpec(
         provider_id="ark-agent-plan",
@@ -702,7 +633,6 @@ _specs.append(
         endpoint="ark-agent-plan-tts",
     )
 )
-# 方舟两个 provider_id 都可以挂 Seedance 三个端点；视频 lane 多报一项实际使用的推理凭证，见 _build_ark_video。
 _specs += [
     ProviderSpec(
         provider_id=ark_provider,
@@ -714,8 +644,6 @@ _specs += [
     for ark_provider in ("ark", "ark-agent-plan")
     for endpoint in _SEEDANCE_ENDPOINTS
 ]
-# dashscope video 比简单族多一个 wan3_base_url：万相 3.0 走独立 maas 域名（含地域与 workspace，推不出），未配置时
-# backend 自行回落通用 base_url。image/audio 两条 lane 不消费它，仍走简单族。
 for _provider, _endpoints in (
     (
         "dashscope",
@@ -754,10 +682,6 @@ _specs += [
     )
     for endpoint in _MINIMAX_VIDEO_ENDPOINTS
 ]
-# 文本：简单文本四家（registry_backend = provider_id 自身；agnes 虽走 OpenAI 兼容 chat/completions，但鉴权 / base_url
-# 归一化收口在专属 AgnesTextBackend，故归简单文本族）；gemini 两个 provider_id 按 backend 分两行；OpenAI-compat 三家
-# 共用一个构造闭包：dashscope/minimax 映射到 "openai"（Chat Completions），经 helper 派生 base_url + 透传 provider_name
-# 计费归因；openai 映射到 "openai-responses"（Responses），直传用户 base_url。
 _specs += [
     _text_simple_spec("ark", "ark-chat"),
     _text_simple_spec("ark-agent-plan", "ark-chat"),
@@ -786,7 +710,6 @@ def _declare_endpoints(provider_id: str, media_type: str, default: str) -> Provi
     return ProviderEndpoints(provider_id=provider_id, media_type=media_type, endpoints=endpoints, default=default)
 
 
-#: 有多个可选端点的「供应商 + 媒体类型」→ 默认端点；其余只有一个端点，它就是默认端点。
 _MULTI_ENDPOINT_DEFAULTS: Mapping[tuple[str, str], str] = {
     ("ark", "image"): "ark-seedream-4",
     ("ark-agent-plan", "image"): "ark-seedream-4",
@@ -803,12 +726,10 @@ _MULTI_ENDPOINT_DEFAULTS: Mapping[tuple[str, str], str] = {
     ("dashscope", "video"): "dashscope-always-on-video",
     ("dashscope", "audio"): "dashscope-tts",
     ("agnes", "video"): "agnes-video-2-5",
-    # 方舟的默认视频模型是 Seedance 2.0 系列
     ("ark", "video"): "ark-seedance-2",
     ("ark-agent-plan", "video"): "ark-seedance-2",
 }
 
-#: (provider_id, media_type) → 可选的内置调用端点与默认端点。默认端点就是官方收录的模型没有另行指定时实际使用的通道。
 PROVIDER_ENDPOINTS: dict[tuple[str, str], ProviderEndpoints] = {
     (spec.provider_id, spec.media_type): _declare_endpoints(
         spec.provider_id,
@@ -1063,8 +984,6 @@ def declared_builtin_video_capabilities(
         return declarative_video_capabilities(definition)
     from lib.backends.video_backends.registry import video_capabilities_for_model
 
-    # 调用通道只按模型对应的条目认定请求形态（音轨、提示词长度上限等），输入能力不按名字认定：官方收录的取清单所引
-    # 的条目，用户添加的取条目绑定或按名字现查的结果。
     return video_capabilities_for_model(
         spec.registry_backend, model_id, catalog.provider_model_entry(provider_id, model_id, "video")
     )
@@ -1093,7 +1012,6 @@ def builtin_video_metered_usage(
 
     if request.video_capabilities is None:
         request = replace(request, video_capabilities=builtin_video_capabilities_for_model(provider_id, model_id))
-    # 与能力声明、执行时实例装配同一个条目：官方收录的取清单所引的条目，用户添加的取条目绑定或按名字现查的结果。
     return metered_usage_for_model(
         spec.registry_backend,
         model_id,
@@ -1106,7 +1024,6 @@ def builtin_video_metered_usage(
 def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str, *, endpoint: str | None = None) -> bool:
     spec = _builtin_video_spec(provider_id, model_id, endpoint)
     if spec.registry_backend == "declarative":
-        # 计价口径与能力声明同源：定义声明成片恒无音轨时，默认执行档不可能产出人声。
         from arcreel_market_core.video_backend_contract import VideoAudioMode
 
         return (

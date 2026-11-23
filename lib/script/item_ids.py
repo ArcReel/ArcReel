@@ -15,7 +15,6 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-#: 集账本条目上的字段：本集条目编号用过的最大主序号。
 ITEM_ID_HIGH_WATER_FIELD = "item_id_high_water"
 
 ITEM_ID_LETTERS: dict[str, str] = {"segments": "S", "scenes": "S", "shots": "S", "video_units": "U"}

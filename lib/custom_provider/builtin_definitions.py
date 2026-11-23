@@ -26,7 +26,6 @@ from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
 
 BUILTIN_DEFINITIONS_DIR = Path(__file__).parent / "builtin_endpoints"
 
-#: 随版定义的作者署名。「复制为我的」产出的副本沿用它，用户改名改版本自便。
 BUILTIN_DEFINITION_AUTHOR = "ArcReel"
 
 

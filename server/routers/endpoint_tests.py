@@ -79,14 +79,10 @@ from server.i18n import DisplayNamesCatalog, Translator
 
 logger = logging.getLogger(__name__)
 
-#: 单个素材文件的上限。测试用的首帧 / 参考图与真实生成同量级，与参考音频上限取同一档。
 MAX_ASSET_BYTES = 15 * 1024 * 1024
 
-#: 单次请求的素材文件总数上限：覆盖最重的合法组合（H3 的 9 参考图 + 首尾帧 + 3 段音频）仍有余量。
 MAX_ASSET_FILES = 16
 
-#: 能跑测试连接的端点媒体类型。模型行这条入口据此拒掉文本 / 音频档的行——那些行被派发到
-#: 视频或图像端点上只会付费打给另一个模型。
 _TESTABLE_MEDIA_TYPES = frozenset({"video", "image"})
 
 router = APIRouter(tags=["Custom Endpoints"])
@@ -147,7 +143,6 @@ class PreviewRequestInput(BaseModel):
 class CheckResponseInput(BaseModel):
     definition: Any
     stage: Literal["submit", "poll", "result"]
-    #: 供应商响应体原样。字符串按 JSON 试解析，解析不了就按原始字符串验证。
     response_body: Any = None
 
 
@@ -197,9 +192,7 @@ class TrialRunResponse(BaseModel):
     video_url: str | None = None
     duration_seconds: int | None = None
     error: str | None = None
-    #: ``error`` 背后那个稳定失败码。读侧据它分流：失败码有对照表与排查方向可给，裸异常文本没有。
     error_code: str | None = None
-    #: 这条失败码该让用户去做什么（``GenerationAction``），与生成失败在项目页给出的是同一份判定。
     error_action: str | None = None
     has_artifact: bool = False
 
@@ -236,8 +229,6 @@ def _validated[T: BaseModel](model: type[T], payload: object) -> T:
 
 
 async def _read_assets(form: FormData) -> EndpointTestAssets:
-    # 件数上限按表单里的全部文件数判，不只数已登记的字段：换个字段名塞进来的文件同样已被
-    # 解析、缓冲或落进临时盘，只数认得的字段等于给出一个换个 key 就绕开的上限。
     if sum(1 for _name, item in form.multi_items() if isinstance(item, UploadFile)) > MAX_ASSET_FILES:
         raise BadRequestError("endpoint_test_too_many_assets", limit=MAX_ASSET_FILES)
     by_source: dict[str, AssetData | Sequence[AssetData] | None] = {}
@@ -251,7 +242,6 @@ async def _read_assets(form: FormData) -> EndpointTestAssets:
 
 
 async def _read_upload(upload: UploadFile) -> AssetData:
-    # 只读到上限 +1 字节：超限件不整块载入内存就能判超。
     content = await upload.read(MAX_ASSET_BYTES + 1)
     if len(content) > MAX_ASSET_BYTES:
         raise BadRequestError(
@@ -303,11 +293,8 @@ async def _resolve_credentials(
         return None
     if body_credentials.provider_id:
         if body_credentials.base_url or body_credentials.api_key:
-            # 混合两种来源时静默取其一，付费请求会打到调用方没明确选择的计费目标上。
             raise BadRequestError("endpoint_test_credentials_ambiguous")
         provider = await _custom_provider(body_credentials.provider_id, session)
-        # 库里的行存了空值时与内联缺字段同判：缺的凭证要在请求线程上露头，而不是等后台任务
-        # 渲染出一个空鉴权请求才失败。
         if (require_base_url and not provider.base_url) or (require_api_key and not provider.api_key):
             return None
         return EndpointTestCredentials(base_url=provider.base_url or "", api_key=provider.api_key or "")
@@ -370,8 +357,6 @@ async def preview_endpoint_request(
     except EndpointTestDefinitionError as exc:
         raise _invalid(exc.diagnostics, _t) from exc
     except (ComfyuiError, ImageCapabilityError, VideoCapabilityError) as exc:
-        # 构造期的 ComfyUI 失败（如参考图少于格子数、改图的级联触到产物节点、参考音频多于绑定段数）不是定义有错，而是
-        # 这份定义配上这组参数渲染不出请求。用失败码本身的三语文案说明，不另写一套措辞。
         raise BadRequestError(
             "endpoint_test_preview_failed", detail=render_failure(encode_failure(exc.code, **exc.params), _t, names)
         ) from exc
@@ -414,12 +399,9 @@ async def start_trial_run(
     body, assets = await _parse_body(request, TrialRunInput)
     parameters = body.parameters.to_parameters()
     if body.model_ref is not None and body.definition is not None:
-        # 两种目标形态并存时静默取其一会让付费请求打到调用方没选中的那个目标上。
         raise BadRequestError("endpoint_test_definition_and_model_ref_exclusive")
     if body.model_ref is not None:
         target, credentials, definition, path_overrides = await _model_ref_target(body.model_ref, session, resolver, _t)
-        # 结果体记录的模型与实际执行、记账的必须是同一个：model_ref 路径以模型行为准，
-        # 覆盖 parameters 里独立携带的 model。
         parameters = replace(parameters, model=body.model_ref.model_id)
     elif body.definition is not None:
         path_overrides = NO_PATH_OVERRIDES
@@ -434,7 +416,6 @@ async def start_trial_run(
         raise BadRequestError("endpoint_test_definition_or_model_ref_required")
 
     preview_payload = _preview_payload(definition, parameters, credentials, assets, _t, path_overrides)
-    # 临时目录在线程里建好就登记进来：取消落在落素材那一程时返回值会丢，靠它回收。
     staged: list[Path] = []
     try:
         persisted, sources = await run_sync_transaction(_stage_assets, assets, staged)
@@ -450,7 +431,6 @@ async def start_trial_run(
         await run_sync_transaction(_remove_staging, staged)
         raise ConflictError("trial_run_already_running") from exc
     except BaseException:
-        # manager 接手前失败（落素材、建结果目录）时临时目录还没有主人，留在盘上没人会回来删。
         await run_sync_transaction(_remove_staging, staged)
         raise
     return _run_response(run, _t, names)
@@ -541,20 +521,14 @@ async def _model_ref_target(
     自定义供应商的模型行还带出它生效的路径覆盖（``docs/adr/0101``），渲染请求段与真发一致。
     """
     if not is_custom_provider(model_ref.provider_id):
-        # 内置供应商同样要先核模型行：未登记的 model 会让装配层落到该供应商的默认视频模型，
-        # 已登记的非视频 model（如文本档）则会被派发到视频端点——两种都会付费打给另一个模型。
         info = catalog.get_model(model_ref.provider_id, model_ref.model_id)
         if info is None:
             raise NotFoundError("model_not_found")
         if info.media_type != "video":
             raise BadRequestError("endpoint_test_model_unavailable")
-        # 凭证也在请求线程上核：装配层缺凭证时抛的是各 backend 自己写的中文句子，而它跑在
-        # 脱离请求的后台任务里，会原样进结果体的 error 字段。
         config = await resolver.provider_config(model_ref.provider_id)
         if not _has_usable_credentials(PROVIDER_REGISTRY[model_ref.provider_id], config):
             raise BadRequestError("missing_credentials")
-        # 内置模型行走声明式装配时，诊断两段（渲染请求、逐阶段提取）与提交前渲染闸照给：
-        # 定义与凭证回落取装配同一份，Python backend 实现的行两段留空。
         definition = None
         credentials = None
         diagnostics = builtin_declarative_video_diagnostics(model_ref.provider_id, model_ref.model_id, config)
@@ -568,17 +542,12 @@ async def _model_ref_target(
     model = await CustomProviderRepository(session).get_model_by_ids(provider.id, model_ref.model_id)
     if model is None:
         raise NotFoundError("model_not_found")
-    # 只查存在不够：已禁用或非视频端点的行会让装配层回退到该供应商的默认视频模型——
-    # 付费测试打到并计费给另一个模型，而结果体仍标着请求的那一行。
     try:
         endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
     except ValueError:
         endpoint_spec = None
     if not model.is_enabled or endpoint_spec is None or endpoint_spec.media_type not in _TESTABLE_MEDIA_TYPES:
         raise BadRequestError("endpoint_test_model_unavailable")
-    # 凭证配置错误在请求线程上就能判，按翻译过的 400 拒掉：缺 base_url 时装配层只会抛一句
-    # 不可翻译的中文，且落在脱离请求的后台任务里、原样进结果体的 error 字段；缺 api_key 时
-    # 请求会带着空鉴权头发出去，付费打一个注定被拒的调用。
     if endpoint_spec.definition is not None:
         require_base_url, require_api_key = _support(endpoint_spec.definition).credential_needs(
             endpoint_spec.definition
@@ -589,8 +558,6 @@ async def _model_ref_target(
             raise BadRequestError("missing_credentials")
     definition = None
     if endpoint_spec.definition is not None:
-        # 内置声明式端点（newapi-video / v2 / minimax 系）与 ce-* 一样有定义：结果体的渲染请求、
-        # 逐阶段提取与提交前渲染闸按同一条路给出，不因定义随版发布而缺一段诊断。
         definition = _accepted_definition(dict(endpoint_spec.definition), _t, mode=EndpointTestMode.TRIAL_RUN)
     credentials = EndpointTestCredentials(base_url=provider.base_url, api_key=provider.api_key)
     target = model_ref_target(

@@ -74,7 +74,6 @@ class EpisodePlanningRequest(BaseModel):
     )
 
 
-#: 重新规划被拒的原因码 → 状态码；未列出的为 409。
 _REPLAN_STATUS: dict[str, int] = {
     "episode_not_found": 404,
     "candidate_not_found": 404,
@@ -196,9 +195,7 @@ class ReplanAdoptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidate_id: str
-    #: 创作者看过的变更清单的 ``revision``；缺省或与当前清单不符时只返回清单，不采纳。
     revision: str | None = None
-    #: 一并删除退下的集（已开始制作、转为无原文的集）。
     delete_retired: bool = False
 
 
@@ -240,7 +237,6 @@ async def adopt_replan(project_name: str, req: ReplanAdoptRequest, user: Current
     之间变了时再次返回确认，不采纳。
     """
     if req.revision is not None:
-        # 与手工切分同一道检查：要退下或移除的集有在途任务时拒绝，免得任务把产物写进被替换的集
         preview = await _run_replan(
             project_name,
             user.id,

@@ -163,11 +163,6 @@ def derive_voice_bindings(
 
     audio_speakers: list[str] = []
     if settings.is_silent:
-        # 只对带归属的台词知会：无归属旁白整段不进 prompt（见
-        # :func:`lib.script.reference_video.prompt_render._render_segment_two`），两条文案都说
-        # 「台词仅用于提示词参考」，对一份只有旁白的文稿会指错排查方向。未登记的说话人算带
-        # 归属——它的台词按原文照常渲染。本集关闭音频的提示优先于模型不产音——前者是用户
-        # 当下可改的开关。
         if any(entry.speaker for entry in utterances):
             if not settings.requested_generate_audio:
                 warnings.append(_warning(WARN_SILENT_EPISODE))
@@ -239,8 +234,6 @@ def build_script_preview(
     references, missing = derive_references_from_text(text, project)
 
     character_references = build_reference_catalog(project).reference_names("character")
-    # 同一个名字可能同时写在记号之外与说话人位，两处各自去重、彼此不排除；不减去 missing
-    # 会让同一个未登记衍生在预览面板上出现两条一模一样的提示。
     already_reported = set(missing)
     unknown_derivatives = [
         reference

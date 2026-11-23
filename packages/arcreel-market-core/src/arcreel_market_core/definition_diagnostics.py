@@ -20,7 +20,6 @@ from typing import Any
 
 from arcreel_market_core.validation_messages import Translator, ValidationMessage
 
-#: 诊断消息键的统一前缀：``code`` 与消息键一一对应，新增码必须同步三种语言的消息。
 MESSAGE_KEY_PREFIX = "val_ce_"
 
 ROOT_PATH = "$"

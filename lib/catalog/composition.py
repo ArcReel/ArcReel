@@ -17,7 +17,6 @@ from typing import Literal
 
 from arcreel_catalog_core import CatalogData, CatalogEntry, EntryKey, parse_dataset_version
 
-#: 条目由谁维护：``official`` 跟随官方数据；``modified`` 用户改过官方条目；``user_created`` 用户新建、由用户填写。
 EntrySource = Literal["official", "modified", "user_created"]
 
 

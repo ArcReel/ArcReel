@@ -28,11 +28,8 @@ from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.script.script_models import REFERENCE_UNIT_DURATION_RANGE
 from lib.speech.speech_rate import speech_rate_units_per_second
 
-#: 四个审定档位（秒）。非四档整数取距离最小的档位按比例适配；
-#: 等距时取更接近默认推荐档（30 秒）的一侧。
 AD_DURATION_TIERS: tuple[int, ...] = (15, 30, 60, 90)
 
-#: 默认推荐档（秒），档位等距 tie-break 的锚点。
 AD_DEFAULT_TIER = 30
 
 
@@ -53,7 +50,6 @@ def _format_products(products: dict) -> str:
         desc = data.get("description")
         if desc:
             lines.append(f"描述：{desc}")
-        # 只接受字符串列表：绕过白名单写入的脏值（如整串字符串）会被逐字符迭代成碎片卖点
         raw_points = data.get("selling_points")
         points = [p for p in raw_points if isinstance(p, str) and p.strip()] if isinstance(raw_points, list) else []
         if points:
@@ -124,10 +120,6 @@ def build_ad_prompt(
     """
     pacing = _pacing_slots(target_duration)
     duration_constraint = _shot_duration_constraint(generation_mode, supported_durations)
-    # 口播字数→时长折算从 lib.speech.speech_rate 单一真相源取（与 drama script_plan 下界、字幕派生同口径）：
-    # 项目级覆盖优先，否则按语言默认。语速表按语言代码（zh / en / vi / ru）登记；target_language 是
-    # 自由文本（默认「中文」），未登记值回退默认语速（zh 口径），量词（字 / 词）由
-    # reading_unit_noun 同源派生。
     speech_rate = speech_rate_units_per_second(target_language, speech_rate_override)
     return builtin_templates.render(
         "text/ad_storyboard_script",

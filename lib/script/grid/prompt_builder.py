@@ -140,11 +140,8 @@ def build_grid_prompt(
     total = rows * cols
     n_scenes = len(scenes)
     if n_scenes > total:
-        # 超员场景在成图中没有对应画格，切格回填会按位置错配——调用方应先按
-        # max_cell_count 切块（见 lib.script.grid.layout.plan_grid_chunks），此处 fail loud。
         raise ValueError(f"分镜数 {n_scenes} 超过 {rows}×{cols} 宫格的画格数 {total}，分组应先切块再构建 prompt")
 
-    # 格0 是首个分镜的开场，格1..n-1 是相邻分镜的过渡，其余格为占位。
     effective_grid_ar = grid_aspect_ratio or aspect_ratio
     first = scenes[0]
     transitions = [

@@ -431,7 +431,6 @@ MESSAGES = {
     "val_market_cli_generate_written": "Записан {path} (записей: {count})",
     "val_market_cli_generate_failed": "Не удалось сгенерировать индекс; найдено проблем: {count}",
     "arch_provider_asset_links_not_restored": "Проект импортирован, но {count} ссылок на библиотеку материалов сохранить не удалось; при генерации эти изображения отправляются как изображения. При необходимости загрузите их заново или выберите из библиотеки материалов",
-    # Draft diagnostics; Agent reports retain their original messages.
     "draft_violation_source_text_empty": "{label}: source_text пуст. Скопируйте исходный фрагмент для этой видеоединицы.",
     "draft_violation_source_text_not_verbatim": "{label}: source_text не совпадает с оригиналом: {excerpt}. Скопируйте текст без пересказа и перевода.",
     "draft_violation_fullwidth_braces": "{label}: полноширинные скобки в {excerpt}. Используйте фигурные скобки ASCII для реплик и закадрового голоса.",
@@ -455,7 +454,6 @@ MESSAGES = {
     "draft_violation_blank_novel_text": "{label}: novel_text пуст. Каждый кадр должен содержать закадровый текст, дословно взятый из оригинала.",
     "draft_violation_novel_text_coverage": "novel_text кадров не покрывает оригинал полностью, дословно и по порядку. Источник: {source}. Скопируйте и соедините фрагменты по порядку; если диапазон источника черновика указан неверно, сначала исправьте его.",
     "draft_violation_schema_invalid": "{path} черновика не соответствует структуре результата: {detail}. Проверьте обязательные поля, типы и значения.",
-    # Draft schema reasons by pydantic error type, rendered into draft_violation_schema_invalid's {detail}.
     "draft_schema_narration_dialogue_forbidden": "сегменты закадрового повествования не должны содержать реплики; перескажите речь персонажей в тексте повествования",
     "draft_schema_dialogue_speaker_required": "для реплики dialogue требуется непустое поле speaker",
     "draft_schema_voiceover_speaker_forbidden": "для реплики voiceover поле speaker должно быть пустым",

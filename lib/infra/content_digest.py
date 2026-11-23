@@ -19,13 +19,10 @@ from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 
-# 摘要算法标识：带此前缀的摘要串出现在产物清单、依据与项目修订号里，跨进程持久化。
 HASH_ALGORITHM = "sha256-v1"
-# 裸 hexdigest（内容摘要）与带算法前缀的摘要串各自的合法形态。
 CONTENT_DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
 PREFIXED_DIGEST_RE = re.compile(r"sha256-v1:[0-9a-f]{64}\Z")
 
-# 流式读取粒度：大文件不整体载入内存；取值只影响 I/O 次数，不影响摘要值。
 CHUNK_BYTES = 1024 * 1024
 
 
@@ -97,15 +94,12 @@ class TextModeDigest:
         return digest.hexdigest()
 
 
-# 文件摘要缓存的容量上限（条目数）。每条只存一个 64 字符摘要与大小，满了淘汰最久未用的一条。
-# 估算：90 集分镜模式最坏情况的文件数 × 每条约 250 字节，65536 条约 16MB，按序扫描不会反复冲刷。
 FILE_DIGEST_CACHE_CAPACITY = 65536
 # 刚被写过的文件不入缓存：mtime 距「读完」不足此窗口时，同一时间戳下的再次写入可能不改变任何一项
 # stat 标识（粗粒度文件系统的时间戳精度可达数毫秒到 2 秒），缓存会把「写了两次」当成「没变」。
 # 超过窗口之后再哈希的文件才入缓存，窗口内的读取照常哈希。
 FILE_DIGEST_RACY_WINDOW_NS = 3_000_000_000
 
-# stat 时这些错误码说明路径上没有可读的常规文件（与 ``Path.is_file`` 忽略的错误码一致）。
 _ABSENT_PATH_ERRNOS = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
 
 FileIdentity = tuple[int, int, int, int]
@@ -184,8 +178,6 @@ def sha256_file_with_size(path: Path) -> tuple[str, int]:
     try:
         file_stat = path.stat()
     except OSError as exc:
-        # 与 ``Path.is_file`` 同一口径：路径不存在、上级不是目录、符号链接成环判为不在场；
-        # 权限不足等其它错误照常抛出，不冒充「文件不存在」。
         if exc.errno in _ABSENT_PATH_ERRNOS:
             raise FileNotFoundError(path) from None
         raise

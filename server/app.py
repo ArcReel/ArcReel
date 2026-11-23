@@ -237,8 +237,6 @@ def check_sandbox_available(
             )
         return True
     if system == "Linux":
-        # Linux 依赖见 https://code.claude.com/docs/en/sandboxing#set-up-linux-and-wsl2：需同时安装
-        # （bwrap 做进程/文件隔离，socat 做网络代理转发）。
         missing = [name for name in ("bwrap", "socat") if which(name) is None]
         if missing:
             raise RuntimeError(
@@ -314,11 +312,6 @@ def detect_docker_environment(
     return "docker" in content or "podman" in content
 
 
-# 初始化日志：模块导入期只挂 stream handler。
-# file handler 推迟到 lifespan，前面要先跑 migrate_legacy_log_dir()
-# 把代码目录下的旧 logs 迁入数据根，否则 handler 先在新位置开出同名日志文件，
-# 旧文件就迁不过去；同时也避免 pytest 收集阶段 import server.app 时
-# 对真实文件系统产生副作用。
 setup_logging(file=False)
 logger = logging.getLogger(__name__)
 
@@ -359,23 +352,16 @@ async def _migrate_source_encoding_on_startup(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    # Startup
-    # 安全红线检测：先父进程 env 净化，再 sandbox 工具可用性，再 docker 检测
     assert_no_provider_secrets_in_environ()
     sandbox_enabled = check_sandbox_available()
-    # detect_docker_environment 仅在 sandbox 可用平台有意义（Linux 路径探测）；
-    # Windows 回退时跳过，避免无意义的文件系统调用。
     is_docker = detect_docker_environment() if sandbox_enabled else False
     logger.info("Sandbox runtime: enabled=%s docker=%s", sandbox_enabled, is_docker)
 
     app.state.in_docker = is_docker
     app.state.sandbox_enabled = sandbox_enabled
 
-    # 随包 ffmpeg 自检一次，结论缓存在进程内；不可用不阻断启动。
     await asyncio.to_thread(log_ffmpeg_status)
 
-    # 日志文件持久化：先把代码目录下的旧日志迁入数据根，再挂 file handler。
-    # 顺序很重要——handler 会在新位置创建 arcreel.log，提前挂会让旧的同名文件因冲突留在原处。
     await asyncio.to_thread(migrate_legacy_log_dir)
     attach_file_handler()
     warn_if_log_dir_env_set()
@@ -384,25 +370,16 @@ async def lifespan(app: FastAPI):
     ensure_auth_password()
     warn_if_auth_disabled()
 
-    # Run Alembic migrations (auto-creates tables on first start)
-    # 升级前的 revision 由 alembic/env.py 在改写它之前记下（lib.db.upgrade_source），先跑命令行迁移也一样；
-    # 记不下时迁移中止，异常抛出即中止启动。
     await init_db()
 
-    # 数据根布局迁移：排在挂文件日志 handler（迁移过程写进日志）与 Alembic（步骤会改写库）之后、
-    # 所有遍历项目的步骤之前——那些步骤按当前布局找项目，不能跑在半迁移的数据根上。失败即中止启动。
     layout = DataRootLayout.current()
     await migrate_data_root_layout(
         layout.root,
         session_factory=async_session_factory,
         sdk_config_dir=default_sdk_config_dir(),
     )
-    # 签名密钥可能落在数据根的 runtime/ 下，须在布局迁移之后解析：旧布局里名为 runtime 的项目
-    # 会被搬进 projects/，提前写入的密钥文件会随它进入项目目录。
     await asyncio.to_thread(ensure_token_secret)
 
-    # 源文件编码迁移（幂等；失败不阻塞启动）。先于 schema 迁移跑：源文一律先归到 UTF-8，
-    # 之后所有按 UTF-8 读源文的链路（分集规划、派生文件对账）才有统一的输入。
     source_migration_summary = await _migrate_source_encoding_on_startup(layout.projects_dir)
     migrated_total = sum(len(s.get("migrated") or []) for s in source_migration_summary.values())
     failed_total = sum(len(s.get("failed") or []) for s in source_migration_summary.values())
@@ -414,9 +391,6 @@ async def lifespan(app: FastAPI):
             len(source_migration_summary),
         )
 
-    # 目录查询的三层数据先于项目迁移装入：升级前推荐的还原要读已存的同步数据，此刻的推荐要读合成后的目录。
-    # 这三步只读库、装入内存，不依赖之后的步骤。
-    # 官方同步取回的目录数据装入目录查询；读不到时暂用出厂快照，等下一轮同步
     try:
         from lib.catalog.official_sync import load_synced_data
 
@@ -441,9 +415,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("loading user-added built-in provider models failed (non-fatal)")
 
-    # 升级前的选择（docs/adr/0099）：升级后首次启动时按升级前的版本、目录、停用状态与凭证算一次并存下，之后读回。
-    # 先于项目迁移：v19→v20 按它补全只写了内置供应商的项目模型字段。结果里有这一刻的凭证状态，必须在实例开始
-    # 接受请求之前算定：失败即中止启动，免得用户之后新加的凭证在重试时被当成升级前的状态。
     from lib.config import pre_upgrade_recommendations
     from lib.project.project_migrations.v19_to_v20_bare_provider_models import install_bare_provider_models
 
@@ -451,9 +422,6 @@ async def lifespan(app: FastAPI):
         pre_upgrade = await pre_upgrade_recommendations.capture(session)
     install_bare_provider_models(pre_upgrade.model)
 
-    # Run any pending project.json schema migrations (file-based).
-    # Both calls are synchronous filesystem walks — offload to a worker thread
-    # so they don't block the event loop during uvicorn startup.
     migration_summary = await asyncio.to_thread(
         run_project_migrations,
         layout.projects_dir,
@@ -468,10 +436,6 @@ async def lifespan(app: FastAPI):
         )
     await asyncio.to_thread(cleanup_stale_backups, layout.projects_dir, 7)
 
-    # 会话存储键对齐（幂等；失败不阻塞启动）：数据根换了绝对路径后，会话的 Agent 上下文改到当前项目目录派生的键下。
-    # 排在数据根布局迁移之后：布局迁移把旧布局的键改到 projects/ 下的目录，这里才按当前布局重算。
-    # 排在本地 transcript 导入之前：导入按当前键列本地会话、按当前键判断是否已导入，键没对齐时会在新键下
-    # 再导入一份，同一会话两个键下都有记录，对齐就不再改它。
     try:
         await align_session_keys(
             async_session_factory,
@@ -482,8 +446,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("会话存储键对齐失败（不阻塞启动）")
 
-    # Migrate any pre-existing local SDK jsonl transcripts into the DbSessionStore.
-    # Runs once (marker-gated); failures are non-fatal and logged.
     if session_store_enabled():
         try:
             store = DbSessionStore(async_session_factory)
@@ -499,8 +461,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("JSON→DB config migration failed (non-fatal): %s", exc)
 
-    # 旧任务级文本 backend 键 → 档位键（docs/adr/0051）。放在 JSON→DB 迁移之后：
-    # 旧 JSON 里的同名键经 catch-all 落库后也能被本迁移收编
     try:
         from lib.config.migration import migrate_text_tier_settings
 
@@ -509,10 +469,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("text tier settings migration failed (non-fatal): %s", exc)
 
-    # 默认模型固化（docs/adr/0099）：没有全局默认模型设置的媒体类型，写入升级前的版本会自动选中的模型。
-    # 放在 JSON→DB 与文本档位迁移之后（它们也写全局默认模型）。只应用上面算定的结果，不重读凭证与目录。
-    # 成功一次后不再跑；失败时下次启动重试，其间首次配置供应商不写推荐，没有默认模型的生成报错，
-    # 也不落到自定义供应商默认模型。
     try:
         from lib.config.recommended_models import freeze_effective_defaults
 
@@ -521,7 +477,6 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("freezing effective default models failed (non-fatal)")
 
-    # 官方市场源 seed：不存在则插入，地址常量变了就同步；不抓取
     try:
         from lib.market.sources import seed_official_source
 
@@ -530,7 +485,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("official market source seed failed (non-fatal): %s", exc)
 
-    # 把 agent_runtime_profile 物化到存量项目（文件 I/O → worker 线程）
     from lib.project.project_manager import get_project_manager
 
     _pm = get_project_manager()
@@ -557,16 +511,12 @@ async def lifespan(app: FastAPI):
         project_event_service.publish_assistant_session_resumed
     )
 
-    # 卡顿探针放在启动步骤之后：迁移等启动期同步工作不算线上卡顿，避免误报。
     stall_probe = start_loop_stall_probe()
-    # 模型目录的官方同步：启动时检查一次，之后每天一次；随应用关停取消
     catalog_sync = start_catalog_sync(async_session_factory)
     from server.services.project.trash_expiry import start_trash_expiry, stop_trash_expiry
 
     trash_expiry = start_trash_expiry(layout)
-    # 供应商素材库入库任务：启动时恢复中断的提交，之后推进中转上传、状态查询与中转副本清理；随应用关停取消
     asset_ingest = start_asset_ingest(async_session_factory)
-    # 远端素材：启动时结算中断的正式提交，之后重试删除待删除的正式对象、重算对象引用、清理闲置的本地工作文件（项目与全局资产库）；随应用关停取消
     material_maintenance = start_material_maintenance(
         async_session_factory, layout.projects_dir, layout.deleted_projects_dir, data_root=layout.root
     )
@@ -578,7 +528,6 @@ async def lifespan(app: FastAPI):
         await stop_asset_ingest(asset_ingest)
         await stop_trash_expiry(trash_expiry)
         await stop_official_sync(catalog_sync)
-        # 运行期异常或关停被取消时同样停掉探针，免得收尾阶段把关停工作误报成卡顿。
         await stop_loop_stall_probe(stall_probe)
 
     assistant.assistant_service.session_manager.set_autonomous_turn_listener(None)
@@ -590,10 +539,8 @@ async def lifespan(app: FastAPI):
     worker = getattr(app.state, "generation_worker", None)
     if worker:
         logger.info("正在停止 GenerationWorker...")
-        # 关停不取消在跑任务：worker.stop() 等在跑任务跑完再退出主循环。
         await worker.stop()
         logger.info("GenerationWorker 已停止")
-    # 测试连接的 run 不可续跑：随事件循环消亡会把账本 pending 行永远留下，关停前按取消路径结算。
     from lib.custom_provider.endpoint_test import shutdown_trial_runs
 
     await shutdown_trial_runs()
@@ -609,10 +556,6 @@ app = FastAPI(
     dependencies=[Depends(require_valid_project_name)],
 )
 
-# CORS 配置（env 驱动，解析见 server/cors_config.py；远程 MCP 挂载共用同一份白名单）。
-# 须在 register_error_handlers(app) 之前算出：未预期异常的 500 由
-# ServerErrorMiddleware 兜底发送，绕过 CORSMiddleware（见
-# server/error_handlers.py::_cors_headers_for），handler 需要这份配置手工补 CORS 头。
 _allow_origins, _allow_credentials = resolve_cors_policy()
 
 register_error_handlers(app, cors_allow_origins=_allow_origins, cors_allow_credentials=_allow_credentials)
@@ -642,8 +585,6 @@ def _resolve_listen_addr() -> tuple[str, int]:
     return host, port
 
 
-# 前端每 3s 轮询下述接口获取任务状态；稳态下成功响应会把真正的错误/慢请求淹没，
-# 所以对 2xx + 快速响应降级到 DEBUG，异常/慢响应仍走 INFO 保证可观测。
 _QUIET_POLL_ENDPOINTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/api/v1/tasks"),
@@ -690,11 +631,6 @@ async def request_logging_middleware(
     return response
 
 
-# 注册 API 路由
-#
-# 认证要求的唯一真相源就是这个区块：带 dependencies 的 router 要求 Bearer token，
-# 端点签名里的 CurrentUser 只表示「处理函数要用用户对象」，不承担授权职责。
-# 不挂依赖的两组另有说明，见下方分组注释。
 app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["项目管理"])
 app.include_router(characters.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["角色管理"])
 app.include_router(scenes.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["场景管理"])
@@ -866,12 +802,9 @@ app.include_router(
     prompt_templates.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["提示词模版"]
 )
 
-# 公开端点：匿名可达。登录入口是拿 token 的前提，静态媒体经 <img src> / <video src> 加载。
 app.include_router(auth_router.public_router, prefix="/api/v1", tags=["认证"])
 app.include_router(files.public_router, prefix="/api/v1", tags=["文件管理"])
 
-# 自带认证端点：浏览器原生下载导航带不了 Authorization header，
-# 端点内 verify_download_token 校验短时效下载 token（见 docs/adr/0071）。
 app.include_router(projects.self_auth_router, prefix="/api/v1", tags=["项目管理"])
 app.include_router(edit_timelines.self_auth_router, prefix="/api/v1", tags=["剪辑时间线"])
 
@@ -928,8 +861,6 @@ async def serve_agent_installation_guide(request: Request) -> Response:
     if not exists:
         return PlainTextResponse("Agent 安装指引不存在", status_code=404)
 
-    # 从请求推断 base URL；仅信任 x-forwarded-proto（反向代理标准头），
-    # host 使用连接实际目标地址，不接受可被用户伪造的 x-forwarded-host。
     forwarded_proto = request.headers.get("x-forwarded-proto")
     scheme = forwarded_proto or request.url.scheme or "http"
     host = request.url.netloc
@@ -939,8 +870,6 @@ async def serve_agent_installation_guide(request: Request) -> Response:
     return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
 
 
-#: 前端构建产物里带内容哈希的资源目录（Vite 默认 assetsDir）。文件名随内容变化，可永久缓存；
-#: dist 根目录下来自 public/ 的文件（favicon、style-thumbnails 等）不带哈希，不在此列。
 _HASHED_FRONTEND_ASSETS_PREFIX = "/assets/"
 _SPA_SHELL_CACHE_CONTROL = "no-store, no-cache, must-revalidate, max-age=0"
 _HASHED_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
@@ -1008,11 +937,9 @@ class ResponseCompressionMiddleware:
         await responder(scope, receive, send)
 
 
-# 最外层：前端缓存头中间件改写的是响应头，压缩不改变 content-type，两者顺序互不影响
 app.add_middleware(ResponseCompressionMiddleware)
 
 
-# 前端构建产物：SPA 静态文件服务。fallback 仅对 GET/HEAD 生效，写请求误入页面路径不再返回页面。
 # 挂载条件必须检查 index.html 而非目录：app.frontend 在启动期校验 fallback 文件，
 # 构建产物不完整时会抛 RuntimeError 拖垮整个应用（含全部 API）
 frontend_dist_dir = PROJECT_ROOT / "frontend" / "dist"
@@ -1025,7 +952,6 @@ if (frontend_dist_dir / "index.html").is_file():
         # 本路由注册在 app.frontend 之前，/app/ 下任何请求都会先到这里——若构建产物中
         # 恰好存在 dist/app/... 下的真实静态文件（URL 路径与 app.frontend 的映射规则一致，
         # 即相对 dist 根目录同路径），须优先返回该文件，避免被无条件遮蔽。
-        # rest 是用户可控的 URL 段：越界一律降级回 SPA 外壳，不暴露 dist 之外的文件
         candidate = try_safe_join(frontend_dist_dir / "app", rest, require_file=True)
         if candidate is not None:
             return FileResponse(candidate)
@@ -1033,7 +959,6 @@ if (frontend_dist_dir / "index.html").is_file():
 
     @app.get("/app/{_rest:path}", include_in_schema=False)
     async def spa_deep_link(_rest: str) -> FileResponse:
-        # 探测静态文件与 FileResponse 构造（首次 guess_type 会加载系统 mime 表）都触盘，整体卸到线程。
         return await asyncio.to_thread(_spa_deep_link_response, _rest)
 
     app.frontend("/", directory=frontend_dist_dir, fallback="index.html")

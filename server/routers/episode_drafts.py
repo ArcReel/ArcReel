@@ -61,7 +61,6 @@ def _raise_draft_error(exc: DraftWorkflowError, episode: int) -> NoReturn:
     if exc.code == "draft_repair_failed":
         logger.warning("草稿 AI 修复失败 episode=%s：%s", episode, exc.detail)
         raise UnprocessableError("draft_repair_failed").with_diagnostic({"code": exc.code}) from exc
-    # detail 面向 Agent，可能带服务端路径：只进日志，响应只带错误码。
     logger.warning("草稿命令失败 episode=%s code=%s：%s", episode, exc.code, exc.detail)
     raise UnprocessableError("draft_save_failed").with_diagnostic({"code": exc.code}) from exc
 
@@ -115,7 +114,6 @@ async def save_episode_draft(
 ):
     """手修保存：服务端全量重判，违约清零即采用为正式内容，否则返回刷新后的草稿视图。"""
     try:
-        # 用户自己的保存按 webui 广播，前端不当成外部改动去通知或跳转。
         with project_change_source("webui"):
             result = await EpisodeDraftService(get_project_manager()).save_draft(
                 project_name, episode, doc_type, req.content, req.base_revision

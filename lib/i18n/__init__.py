@@ -97,7 +97,6 @@ MESSAGES: dict[str, dict[str, str]] = {
 def _(key: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
     """Translate a message key to the given locale."""
     if key in {"image_reference_images_exceeded", "video_reference_images_exceeded"} and "names" not in kwargs:
-        # 旧任务及通道直接校验只记录数量，按序号显示超出的槽位。
         limit, count = kwargs.get("limit"), kwargs.get("count")
         if isinstance(limit, int) and isinstance(count, int):
             kwargs["names"] = f"#{limit + 1}" if count == limit + 1 else f"#{limit + 1}–#{count}"

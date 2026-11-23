@@ -140,8 +140,6 @@ class CustomImageBackend:
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         result = await self._delegate.generate(request)
-        # 没有声明计量的通道（ComfyUI、声明式图片、OpenAI Chat 出图）按通用口径上报张数；内置调用通道自己带的
-        # 计量原样保留并补上张数，计价交给对应条目的价目表（docs/adr/0100）。
         return replace(result, usage=with_image_counts(result.usage, len(request.reference_images)))
 
 
@@ -268,7 +266,6 @@ class CustomVideoBackend:
         rebind = getattr(self._delegate, "with_catalog_entry", None)
         if not callable(rebind):
             return self
-        # 协议 backend 的 with_catalog_entry 返回同类副本（见 name_family.EntryBoundCapabilities）。
         delegate = cast("VideoBackend", rebind(entry))
         return CustomVideoBackend(
             provider_id=self._provider_id,
@@ -331,8 +328,6 @@ class CustomVideoBackend:
 
             base = effective_video_capabilities(base, self._entry_facts)
         if self._capability_overrides:
-            # 合并后不变式与 synthesize 同口径：本路径也是一次「基底 ⊕ 稀疏覆盖」合并，
-            # 漏掉就会让档位查询产出 direct ⊕ 上限 0 这种合成侧已挡住的组合。
             from lib.custom_provider.capabilities import (
                 enforce_audio_capability_invariant,
                 merge_overrides,
@@ -349,9 +344,6 @@ class CustomVideoBackend:
         return base
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 注入实际执行的 endpoint，让下游协议 backend 在 submit 后与 job_id 一并持久化——
-        # 续跑据此判定协议是否已被换掉。replace 而非就地改写：request 由调用方持有，
-        # 包装层不该留下副作用。
         if self._endpoint is not None:
             request = replace(request, execution_endpoint=self._endpoint)
         result = await self._delegate.generate(request)
@@ -383,11 +375,8 @@ class CustomVideoBackend:
         return custom_video_usage(getattr(self._delegate, "metered_usage", None), model, request, result, entry=entry)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        # 透传到下游 backend；下游不支持 resume 时抛 NotImplementedError，
-        # 由 orphan handler 标 [resume_unsupported]。回放提交时的 base，让路径覆盖按它认出续跑请求。
         with replaying_base_url(request.submitted_base_url):
             result = await self._delegate.resume_video(job_id, request)
-        # 旧检查点没有冻结音轨：保留通道回报，不用当前模型覆盖改写已提交任务。
         if request.video_capabilities is None:
             return result
         mode = request.video_capabilities.audio_track_for_route("r2v" if request.reference_images else "i2v")

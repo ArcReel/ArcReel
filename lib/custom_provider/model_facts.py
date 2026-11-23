@@ -213,8 +213,6 @@ def video_model_facts(model_id: str, overrides: object | None, *, entry_binding:
     return VideoModelFacts(durations=durations, resolutions=resolutions, duration_constraints=constraints)
 
 
-#: ComfyUI 视频端点上唯一接受的覆盖维度：可选时长。ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），
-#: 但时长档位是用户在 workflow 原生时长之外自己增删的偏好，不是能力声明（docs/adr/0104）。
 COMFYUI_VIDEO_OVERRIDE_KEYS: frozenset[str] = frozenset({"durations"})
 
 

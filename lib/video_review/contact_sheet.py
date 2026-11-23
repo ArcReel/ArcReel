@@ -31,7 +31,6 @@ MAX_SHOT_FRAMES = 24
 MAX_SHEET_EDGE = 2000
 
 _EXTRACT_DEADLINE_SECONDS = 120.0
-# 抽出的帧先缩到这个长边再拼版：单帧铺满整张联系表时也不超过上限。
 _FRAME_EDGE = 1280
 _PNG_END = b"IEND\xaeB`\x82"
 _PADDING = 8
@@ -101,7 +100,6 @@ async def _extract_frames(video_path: Path, indices: list[int]) -> list[Image.Im
     chunks = [chunk + _PNG_END for chunk in result.stdout.split(_PNG_END) if chunk]
     if len(chunks) != len(indices):
         raise ContactSheetError(f"抽帧数量不符：{video_path.name} 期望 {len(indices)} 帧，得到 {len(chunks)} 帧")
-    # 逐帧解码 PNG 是纯 CPU 工作，放进工作线程，不占用事件循环。
     return await asyncio.to_thread(_decode_frames, chunks)
 
 

@@ -32,13 +32,10 @@ from lib.config.service import ConfigService
 
 logger = logging.getLogger(__name__)
 
-#: 已知推荐的全局设置键前缀，完整的键是 ``<前缀><provider>:<media_type>``，值是模型键。
 SEEN_KEY_PREFIX = "recommendation_seen:"
 
-#: 全局设置键：升级固化已完成，值是升级前的选择还原不了的媒体类型（JSON 数组）。只由成功的固化写入。
 FROZEN_SETTING_KEY = "default_models_frozen"
 
-#: 各媒体类型的全局默认模型键：推荐模型只写进默认层，不写任务类型桶与文本档位（docs/adr/0051、docs/adr/0054）。
 GLOBAL_DEFAULT_KEYS: dict[str, str] = {
     "text": "default_text_backend",
     "image": "default_image_backend",
@@ -153,7 +150,6 @@ async def freeze_effective_defaults(session: AsyncSession) -> None:
     unknown: list[str] = []
     for media_type, key in GLOBAL_DEFAULT_KEYS.items():
         if _is_set(await repo.get(key, "")):
-            # 已有全局默认模型：旧版本用的就是它，自动挑选不参与
             continue
         pick = table.auto_pick(media_type)
         if pick.kind == "unknown":

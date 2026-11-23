@@ -30,7 +30,6 @@ class EditTimelineError(Exception):
         self.params = params
 
 
-# 会展示给创作者的错误码 → 译文 key：项目与集复用通用 key。批量编辑的错误只回给 Agent，不在此登记；回滚的 revision_unchanged 两边都会遇到。
 _MESSAGE_KEYS: dict[str, str] = {
     "project_not_found": "project_not_found",
     "episode_not_found": "episode_not_found",
