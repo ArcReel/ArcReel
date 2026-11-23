@@ -8,4 +8,4 @@ status: accepted
 
 重命名在原子级联事务中更新资产索引、剧本引用、说话人、命名文件与相关路径，也更新宫格记录中冻结的参考图。分镜图和宫格如何判定改名后的时效见 [ADR 0062](0062-artifact-lifecycle-and-currency.md)。角色衍生随角色名迁移，见 [ADR 0072](0072-character-derivative-sub-identity.md)。与已有资产重名时拒绝，合并是独立操作。全局资产库与项目各持副本。
 
-进行中的生成任务与重命名不互斥。任务可能仍按旧名产出或失败，创作者可以重跑。
+资产重命名、资产合并与资产删除与进行中的生成任务共享资产准入锁并按整资产维度互斥，命中活跃任务时拒绝写入，见 [ADR 0126](0126-task-active-snapshot-and-asset-occupancy-guards.md)。

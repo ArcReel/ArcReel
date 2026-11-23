@@ -18,7 +18,7 @@
 - 处理剧本、内容确认或提示词编写 → [正式脚本与视觉提示词](../adr/0080-review-confirm-materializes-script-prompt-authoring-fills-pending.md)、[视频单元](../adr/0064-video-unit-body-is-the-only-truth.md)、[发声归属](../adr/0089-single-speech-owner-per-video-unit-narration-delivery-per-project.md)。
 - 判断产物时效、迁移或恢复项目 → [产物生命周期](../adr/0062-artifact-lifecycle-and-currency.md)、[存量补录](../adr/0098-backfill-keeps-existing-content-gaps-only-gate-generation.md)、[项目归档](../adr/0119-archives-carry-content-not-storage-locators.md)。
 - 更换素材存储或供应商素材关联 → [素材存储与供应商素材关联](../adr/0108-material-storage-independent-of-provider-registration.md)、[素材关联与入库](../adr/0111-asset-upload-job-and-link-share-one-record.md)、[远端内容版本](../adr/0116-remote-content-versions-saved-by-formal-commit-with-object-references.md)。
-- 提交、取消或接续生成 → [批量视频准入](../adr/0061-batch-video-admission-all-or-nothing.md)、[排队任务取消](../adr/0006-cancel-only-queued-tasks.md)、[在途任务恢复](../adr/0007-orphan-tasks-not-requeued-on-restart.md)。
+- 提交、取消或接续生成 → [批量视频准入](../adr/0061-batch-video-admission-all-or-nothing.md)、[排队任务取消](../adr/0006-cancel-only-queued-tasks.md)、[在途任务恢复](../adr/0007-orphan-tasks-not-requeued-on-restart.md)、[任务活跃快照与资产占用](../adr/0126-task-active-snapshot-and-asset-occupancy-guards.md)。
 - 修改会话、工具或凭证边界 → [会话运行时](../adr/0046-session-manager-decomposition-boundaries.md)、[工具声明](../adr/0087-agent-toolset-single-declaration.md)、[凭证隔离](../adr/0027-provider-secrets-banned-from-process-env.md)。
 
 ## 把内容写回负责的位置
