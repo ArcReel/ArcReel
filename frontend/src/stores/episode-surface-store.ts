@@ -1,10 +1,6 @@
 import { useEffect, useRef } from "react";
 import { create } from "zustand";
 
-/**
- * 集页画布上可以被点名打开的区域：脚本规划（内容确认与脚本规划草稿都在这里），
- * 参考生视频的提示词编写草稿，以及集原文（无原文的集的填写框）。
- */
 export type EpisodeSurface = "script_plan" | "prompt_authoring_draft" | "episode_source";
 
 interface EpisodeSurfaceRequest {
@@ -18,10 +14,6 @@ interface EpisodeSurfaceState {
   show: (request: EpisodeSurfaceRequest) => void;
 }
 
-/**
- * 制作进度面板里「去确认」「手动修改」这类跳转的投递处：面板只登记要看的区域，
- * 集页上的画布切到对应的标签页。每次登记都是一个新对象，重复点同一处也会再切一次。
- */
 export const useEpisodeSurfaceStore = create<EpisodeSurfaceState>((set) => ({
   request: null,
   show: (request) => set({ request: { ...request } }),

@@ -105,21 +105,16 @@ export interface ShotUploadResult {
 
 export interface ProjectEventStreamOptions {
   projectName: string;
-  /** 每次建连（含断线重建）后服务端都会先发一次 snapshot。 */
   onSnapshot?: (payload: ProjectEventSnapshotPayload) => void;
   onChanges?: (payload: ProjectChangeBatchPayload) => void;
-  /** 项目目录被删除后收到一次，随后服务端正常关流；订阅方应在此关闭句柄以停止自动重建。 */
   onProjectDeleted?: (payload: ProjectDeletedPayload) => void;
-  /** 项目下某个 Agent 会话自主回到 running；当前会话经常驻 entry 流收到这一轮，此通知供会话列表等其他视图使用。 */
   onAssistantSessionResumed?: (payload: AssistantSessionResumedPayload) => void;
-  /** 连接失败或中断；`retryable` 为 true 时客户端随后自动重建。 */
   onError?: (error: SseStreamError) => void;
 }
 
 export interface AssistantEntriesStreamOptions {
   projectName: string;
   sessionId: string;
-  /** 冷订阅游标（seq）；断线重建的续传由 `Last-Event-ID` 承担。 */
   after?: number;
   onEvent: (event: string, payload: Record<string, unknown>) => void;
   onError?: (error: SseStreamError) => void;

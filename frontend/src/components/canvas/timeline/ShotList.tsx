@@ -32,18 +32,14 @@ interface ShotListProps {
   aspectRatio?: "9:16" | "16:9";
   collapsed: boolean;
   onToggleCollapse: () => void;
-  /** 追加一条分镜到末尾；缺省时列表头部不显示新增按钮。 */
   onAppend?: InsertShotHandler;
   appendDisabled?: boolean;
-  /** 改序：把分镜移到 afterId 之后，null 移到最前；缺省时列表不可排序。 */
   onMove?: (itemId: string, afterId: string | null) => void | Promise<void>;
   moveDisabled?: boolean;
   footer?: ReactNode;
 }
 
 function getImagePromptScene(seg: Segment): string {
-  // 校验 scene 是 string 而非仅 key 存在 —— 类型允许 ImagePrompt | string，且实际数据中
-  // scene 可能为 null/undefined（手编 JSON、半生成态），返回 null 后下游 toLowerCase() 会炸。
   const ip = seg.image_prompt;
   if (typeof ip === "string") return ip;
   if (ip && typeof ip === "object") {
@@ -56,7 +52,6 @@ function getImagePromptScene(seg: Segment): string {
 function getSegmentText(seg: Segment, mode: ListContentMode): string {
   if (mode === "narration") return (seg as NarrationSegment).novel_text || "";
   if (mode === "ad") {
-    // 广告/短片：口播文案是一等内容，列表预览优先展示；无口播的纯画面分镜退回画面描述
     const voiceover = (seg as AdShot).voiceover_text;
     if (typeof voiceover === "string" && voiceover.trim()) return voiceover;
     return getImagePromptScene(seg);
@@ -64,10 +59,6 @@ function getSegmentText(seg: Segment, mode: ListContentMode): string {
   return getImagePromptScene(seg);
 }
 
-/**
- * 分镜列表：展开 220px，收起为 44px 的位置栏。展开时可搜索，并用把手拖动或键盘排序；
- * 按搜索词筛选时排序没有明确含义，把手禁用。
- */
 export function ShotList({
   segments,
   selectedIndex,
@@ -85,7 +76,6 @@ export function ShotList({
 }: ShotListProps) {
   const { t } = useTranslation("dashboard");
   const [search, setSearch] = useState("");
-  // 改序请求在途时先按新顺序显示，落定后回到 segments（成功时它已是新顺序，失败时回到原序）。
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const fingerprints = useProjectsStore((s) => s.assetFingerprints);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -118,7 +108,6 @@ export function ShotList({
 
   const selectedId = segments[selectedIndex] ? getScriptItemId(segments[selectedIndex], contentMode) : null;
 
-  // 选中项被键盘或详情里的翻页切走时，列表跟着滚到它；已在可见范围内时不动。
   useEffect(() => {
     if (!selectedId) return;
     const node = scrollRef.current?.querySelector<HTMLElement>(`[data-shot-id="${CSS.escape(selectedId)}"]`);

@@ -25,15 +25,10 @@ interface ShotSplitViewProps {
   contentMode: EditorContentMode;
   aspectRatio: "9:16" | "16:9";
   projectName: string;
-  /** 当前集号；给了才在分镜详情里提供单条「编写提示词」入口 */
   episode?: number;
-  /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
   scriptFile?: string;
-  /** 提交分镜字段的增量修改，失败时抛错，resolve 为项目是否已刷新；缺省时只读展示。 */
   onUpdatePrompt?: (segmentId: string, patch: Record<string, unknown>) => Promise<boolean>;
-  /** 分镜改序：移到 afterId 之后，null 移到最前；resolve 为是否移动成功 */
   onMoveShot?: (shotId: string, afterId: string | null) => Promise<boolean>;
-  /** 新增分镜（旁白带正文）：afterId 为 null 时追加到末尾；resolve 为是否成功 */
   onInsertShot?: InsertShotHandler;
   onRemoveShot?: (itemId: string) => Promise<boolean>;
   onGenerateStoryboard?: (segmentId: string) => void;
@@ -45,29 +40,18 @@ interface ShotSplitViewProps {
   generatingVideo?: (segmentId: string) => boolean;
   generatingNarration?: (segmentId: string) => boolean;
   durationOptions?: number[];
-  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
   durationEndpointFixed?: boolean;
   lastFrame?: boolean | null;
   capabilitiesLoading?: boolean;
-  /** 已保存时长越界的成因判定；缺省时 ShotDetail 退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
 
-/**
- * 选中项按分镜 ID 记，列表被重排或在前面插入分镜时选中态不跳走；
- * ID 为 null 或不在当前列表里（刚被移除）时退回记下的位置，并在渲染时认定该位置的 ID。
- */
 interface Selection {
   id: string | null;
   index: number;
-  /** 新增分镜后按位置选中：列表还是这一份时不认定 ID，等刷新出新分镜。 */
   staleIds?: readonly string[];
 }
 
-/**
- * 分镜分屏：左侧分镜列表（220px，可收为 44px）+ 右侧分镜详情。
- * 切换分镜经离开拦截：当前分镜有未保存修改时先询问。J / K 切换分镜，⌘S / Ctrl+S 保存当前分镜。
- */
 export function ShotSplitView({
   segments,
   contentMode,
@@ -123,7 +107,6 @@ export function ShotSplitView({
   const selectNext = useCallback(() => select(Math.min(ids.length - 1, safeIndex + 1)), [select, ids.length, safeIndex]);
   const saveSelected = useCallback(() => editRef.current?.save(), []);
 
-  // 分镜改序：请求在途时丢弃后续操作（快速连点会基于过期顺序计算锚点）。选中态按 ID 跟随原来的分镜。
   const handleMoveShot = onMoveShot
     ? async (shotId: string, afterId: string | null) => {
         if (movePending) return;
@@ -142,8 +125,6 @@ export function ShotSplitView({
       }
     : undefined;
 
-  // 新增 / 移除分镜：请求在途锁定切镜与增删入口。新增成功后选中紧随其后的新分镜；
-  // 移除成功后位置不动，落到原来的下一条（末条时夹紧到新的末条）。
   const runStructureChange = async (change: () => Promise<boolean>, onSuccess: () => void) => {
     if (structurePending) return false;
     setStructurePending(true);
@@ -159,8 +140,6 @@ export function ShotSplitView({
     ? (afterId, novelText) =>
         runStructureChange(
           () => onInsertShot(afterId, novelText),
-          // 插在当前分镜之后的选中紧随其后的新分镜；追加到末尾的选中新的末条。
-          // 新分镜的 ID 要等列表刷新后才知道，先按位置选中；切走前同样经离开拦截。
           () => {
             const index = afterId === null ? ids.length : safeIndex + 1;
             confirmLeave(() => setSelection({ id: null, index, staleIds: ids }), { saveLabel: t("save_and_switch") });
@@ -183,8 +162,6 @@ export function ShotSplitView({
     navDisabled: movePending || structurePending,
   });
 
-  // 定位到分镜（通知、制作进度、应用内链接、Agent 改动）：分屏布局只需切换选中分镜，不做 DOM 滚动。
-  // 切走前同样经离开拦截；Agent 改动带来的自动定位在有未保存修改时已由事件流自己略过，不会打断编辑。
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   useEffect(() => {
@@ -195,7 +172,6 @@ export function ShotSplitView({
       select(idx);
       clearScrollTarget(scrollTarget.request_id);
     } else if (Date.now() >= scrollTarget.expires_at) {
-      // 当前 segments 不含该分镜（如事件指向其他剧集），过期后清理避免下次 segments 变更误触发
       clearScrollTarget(scrollTarget.request_id);
     }
   }, [scrollTarget, ids, select, clearScrollTarget]);

@@ -3,7 +3,6 @@ import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import type { WorkspaceFocusTarget } from "@/types";
 
-/** 定位后跟随布局变化重新对齐的时长：跨页跳转后，新页面的布局在定位之后的几帧里才稳定。 */
 const SETTLE_MS = 1000;
 const USER_SCROLL_EVENTS = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
 
@@ -15,12 +14,6 @@ function scrollParentOf(el: HTMLElement): HTMLElement | null {
   return null;
 }
 
-/**
- * 把元素滚到视野中央，并在随后的 {@link SETTLE_MS} 内随它、所在滚动容器或容器内各块内容的尺寸变化重新对齐：
- * 跨页跳转时新页面刚挂载，滚动容器可能还没收到最终高度，只滚一次会停在按旧布局算出的位置；目标上方的内容
- * （如随状态加载变高的吸顶工具栏）变高也会把目标挤开，而目标与定高的滚动容器都不变尺寸。观察开始时的首次
- * 回调也重新对齐，因为它带的可能已是变化后的尺寸。用户开始滚动或操作时停止跟随。返回停止跟随的函数。
- */
 function scrollIntoViewUntilSettled(el: HTMLElement): () => void {
   const align = () => el.scrollIntoView({ behavior: "smooth", block: "center" });
   align();
@@ -46,17 +39,6 @@ interface UseScrollTargetOptions {
   prepareTarget?: (target: WorkspaceFocusTarget) => boolean;
 }
 
-/**
- * Hook that watches for scroll target events and scrolls to the matching element.
- * Each element that should be scrollable must have an id matching the pattern:
- * - Segments: id="segment-E1S01"
- * - Characters: id="character-林克"
- * - Clues: id="clue-玉佩"
- *
- * When a scroll target is triggered via `useAppStore.triggerScrollTo()`,
- * this hook retries until the target element is mounted, then scrolls it into
- * view and applies a workspace flash animation.
- */
 export function useScrollTarget(
   type: string,
   options?: UseScrollTargetOptions,

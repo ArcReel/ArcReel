@@ -1,20 +1,3 @@
-/**
- * 入队动作层：所有生成类入队操作的唯一入口。
- *
- * 每个动作内部固定封装三件事：
- * 1. 在**请求发出前**于 tasks-store 打乐观占用标记，请求失败即回滚，成功则用后端
- *    返回的 task_id 兑现（见 {@link submit}）——占用态因此从点击那一刻起就成立，
- *    调用方无须自备「请求在途」标记来覆盖网络往返窗口；目标集合由服务端决定的批量
- *    入口无法预先知道命中哪些资源，改在响应后按映射逐项补打（见 {@link markResourcesByTaskId}）；
- * 2. 调用对应 API 入队端点；
- * 3. 弹提示：后端 deduped=true（同资源任务已在处理中，该调用未新建）时统一
- *    弹 info 提示，否则沿用各操作原有的成功文案。
- *
- * 失败一律向上抛，由调用方决定错误提示。返回值统一归一化为 EnqueueResult，
- * 屏蔽各端点 task_id / task_ids 的形状差异。
- *
- * 组件禁止绕过本层直调入队类 API 方法（ESLint no-restricted-syntax 强制）。
- */
 import { API, derivativeResourceId } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
@@ -42,7 +25,6 @@ import {
 import { isTerminalStatus } from "@/types/task";
 import { episodeItemLabel } from "@/utils/episode-display";
 
-/** toast 不局限在集页面：条目按「标题 · 5」指称。 */
 function itemLabel(itemId: string): string {
   const { currentProjectData, currentScripts } = useProjectsStore.getState();
   return episodeItemLabel(itemId, currentScripts, currentProjectData?.episodes ?? [], i18n.t);
@@ -81,14 +63,6 @@ function markScriptFile(projectName: string, taskType: string, scriptFile: strin
   return useTasksStore.getState().beginOptimisticActiveForScriptFile(projectName, taskType, scriptFile);
 }
 
-/**
- * 入队请求的统一骨架：标记已在 `marks` 里打好，此处只负责发请求并按结果兑现——
- * 失败全部回滚后原样抛出，成功用 `taskIdsOf` 取出的 task_id 兑现（为空即回滚，
- * 后端没建任务行时标记永远等不到真实行）。
- *
- * 响应解析（`taskIdsOf`）与兑现同在 try 内：在途标记不被任何轮询写回清除，因此
- * 兑现前的任何异常路径都必须回滚，否则标记会残留到页面刷新为止。
- */
 async function submit<T>(
   marks: readonly OptimisticHandle[],
   request: () => Promise<T>,
@@ -96,8 +70,6 @@ async function submit<T>(
 ): Promise<T> {
   try {
     const res = await request();
-    // 逐标记取自己的任务行：标记要等它的 task_id 全部落库才让位，把整批清单发给每个标记
-    // 会让每个资源都等到全批出现，而任务列表快照只保留最新若干行，早的行可能再不出现。
     marks.forEach((m, index) => m.settle(taskIdsOf(res, index)));
     return res;
   } catch (e) {
@@ -114,13 +86,6 @@ function manyTaskIds(res: { task_ids: string[] }): string[] {
   return res.task_ids;
 }
 
-/**
- * 按后端返回的「资源 id → task_id」映射逐项补打资源粒度标记。
- *
- * 用于目标集合由服务端决定的批量入口：请求发出前调用方不知道会命中哪些资源，标记
- * 因此在响应后补打并立即认领自己那条任务行——每项只等自己的任务落库，未进映射的项
- * （服务端跳过或未入队成功）一律不打标。
- */
 function markResourcesByTaskId(
   projectName: string,
   resourceKind: ResourceKind,
@@ -182,7 +147,6 @@ export async function enqueueEpisodeNarration(
   scriptFile: string,
 ): Promise<EnqueueResult> {
   const res = await API.generateEpisodeNarrationAudio(projectName, scriptFile);
-  // 入队哪几段由服务端筛选（缺旁白且有原文），请求发出前无从打标，故按响应映射逐段补打。
   markResourcesByTaskId(projectName, "tts", "tts", res.task_ids_by_segment);
   notifyEnqueued(
     res.deduped,
@@ -206,10 +170,6 @@ export async function enqueueCharacter(
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 
-/**
- * 提交一次角色衍生资产图生成。衍生的占用槽按 `本体/衍生` 复合 id 独立成一格，与本体的
- * 生成任务互不遮蔽；指令由后端按当次登记重算，此处不传 prompt。
- */
 export async function enqueueCharacterDerivative(
   projectName: string,
   characterName: string,
@@ -231,8 +191,6 @@ export async function enqueueCharacterVoiceSample(
   text: string,
   voice: string,
 ): Promise<EnqueueResult> {
-  // 音色试听样本与该角色的资产图生成/编辑共用同一资源槽（kind "character"）：
-  // 二者互斥可接受——试听样本本就该在角色卡其它生成任务空闲时才发起。
   const res = await submit(
     [markResource(projectName, "character", name, "voice_sample")],
     () => API.generateCharacterVoiceSample(projectName, name, text, voice),
@@ -290,8 +248,6 @@ export async function enqueueImageEdit(
     scriptFile?: string | null;
   },
 ): Promise<EnqueueResult> {
-  // image_edit 与生成任务共享同一资源槽位：kind 按被编辑资源类型归槽，
-  // pendingTaskType 固定 image_edit，与 taskResourceKind 的归一化保持一致。
   const res = await submit(
     [markResource(projectName, params.resourceType, params.resourceId, "image_edit")],
     () => API.editImage(projectName, params),
@@ -307,15 +263,11 @@ export async function enqueueGrid(
   scriptFile: string,
   sceneIds?: string[],
 ): Promise<EnqueueResult> {
-  // task_ids 可能为空数组（如缺失即生成时各组分镜图都已就绪、或联合图都在等切分落格）：此时后端不产生任何任务行，
-  // settle([]) 会把标记回滚掉，不留下永远等不到真实行的残留。
   const res = await submit(
     [markScriptFile(projectName, "grid", scriptFile)],
     () => API.generateGrid(projectName, episode, scriptFile, sceneIds),
     manyTaskIds,
   );
-  // grid_id 由服务端现场生成，请求发出前不存在，故按响应映射在响应后逐格补打资源标记；
-  // 往返窗口由上面那个 scriptFile 粒度标记覆盖。
   markResourcesByTaskId(projectName, "grid", "grid", res.task_ids_by_grid);
   if (res.blocked?.length) useAppStore.getState().pushToast(res.message, "error");
   else notifyEnqueued(res.deduped, res.message);
@@ -335,7 +287,6 @@ export async function enqueueGridRegenerate(
     () => API.regenerateGrid(projectName, gridId),
     oneTaskId,
   );
-  // 重生成入口成功时静默（面板内已有状态反馈），仅 deduped 时弹提示。
   notifyEnqueued(res.deduped, null);
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
@@ -355,13 +306,6 @@ export async function enqueueReferenceVideoUnit(
   return { taskIds: [res.task_id], deduped: res.deduped };
 }
 
-/**
- * 批量视频生成：一次请求走全有或全无准入，由服务端评估全部目标单元。
- *
- * 三种结局都是评估成功，只有 `admitted` 建了任务——`confirmation_required` 与
- * `blocked` 一个任务也没建，故乐观占用标记随即整批回滚，由调用方按结论展示确认或缺口。
- * 请求体省略 unit_ids 时（缺失即生成）目标集合由服务端决定，前端无从打标，此时不打标。
- */
 export async function enqueueReferenceVideoBatch(
   projectName: string,
   episode: number,
@@ -383,14 +327,11 @@ export async function enqueueReferenceVideoBatch(
   if (res.decision === "admitted") {
     notifyEnqueued(
       res.deduped,
-      // 首个目标就没入队时一个任务也没建，「已提交 0 个」只会和下面那句中断提示打架。
       res.task_ids.length > 0
         ? i18n.t("dashboard:reference_batch_queued", { count: res.task_ids.length })
         : null,
       "info",
     );
-    // 入队中断不撤销已建的任务，所以「建了几个」与「哪些没建」要一起说：只报成功数
-    // 会让用户以为整批都在跑，回头发现少了几条却不知道为什么。
     const refused = res.units.flatMap((unit) => unit.problems
       .filter((problem) => problem.code === "video_reference_images_exceeded")
       .map((problem) => `${unit.unit_id} · ${problem.message ?? problem.detail}`));
@@ -409,12 +350,6 @@ export async function enqueueReferenceVideoBatch(
   return res;
 }
 
-/**
- * 一集分镜图 / 分镜视频的批量生成：目标集合由服务端决定（本集没有可用产物的分镜），
- * 占用标记在响应后按「分镜 → task_id」逐项补打。
- *
- * 分镜视频整批准入未通过时一个任务也没建，不提示成功，由调用方陈述结论。
- */
 export async function enqueueStoryboardBatch(
   projectName: string,
   episode: number,
@@ -440,11 +375,6 @@ export async function enqueueStoryboardBatch(
   return res;
 }
 
-/**
- * 资产图批量生成：目标集合由服务端按范围决定，占用标记在响应后按成员逐项补打；
- * 衍生成员占 `本体/衍生` 复合槽（character_derivative），与本体互不遮蔽。
- * 已有同资源任务（deduped）时弹统一去重提示，否则报入队张数；未建出任务的成员不打标。
- */
 export async function enqueueAssetSheetBatch(
   projectName: string,
   scope: AssetSheetBatchScope,
@@ -470,15 +400,10 @@ function memberTaskIds(batch: { members: ReadonlyArray<{ task_id?: string | null
   return batch.members.flatMap((member) => (member.task_id ? [member.task_id] : []));
 }
 
-/** 提示词编写任务的占用槽：一集一个文本任务，resource_id 与服务端 `episode-{N}` 一致。 */
 export function promptAuthoringResourceId(episode: number): string {
   return `episode-${episode}`;
 }
 
-/**
- * 提交提示词编写（「AI 编写 / AI 重写」）。显式重写需要确认覆盖时服务端 409，错误原样抛出，
- * 由调用方读 `diagnostic.prompt_overwrite` 弹确认框后带令牌重试。
- */
 export async function enqueuePromptAuthoring(
   projectName: string,
   episode: number,
@@ -500,11 +425,6 @@ export async function enqueuePromptAuthoring(
   return { taskIds, deduped };
 }
 
-/**
- * 提示词编写以空操作收尾（范围内没有待编写的条目，未调用文本模型）时弹提示，说明勾选覆盖可以重写。
- * 编写入口提交后即关闭，只能在入队层跟踪任务结果；任务都到达终态，或任务列表不再跟踪本项目
- * （切到别的项目、离开工作室）后停止跟踪，回来时不补弹过期的提示。
- */
 function watchPromptAuthoringNoop(projectName: string, taskIds: readonly string[]): void {
   const pending = new Set(taskIds);
   if (pending.size === 0) return;
@@ -526,15 +446,10 @@ function watchPromptAuthoringNoop(projectName: string, taskIds: readonly string[
   check(useTasksStore.getState());
 }
 
-/** 脚本规划任务的占用槽：一集一个文本任务，resource_id 与服务端 `episode-{N}` 一致。 */
 export function scriptPlanResourceId(episode: number): string {
   return `episode-${episode}`;
 }
 
-/**
- * 提交 AI 规划脚本。新的规划整份替换本集现有的规划与草稿，替换前的确认由调用方负责；
- * 准入不成立或本集已有进行中的规划时，服务端的错误原样抛出。
- */
 export async function enqueueScriptPlan(
   projectName: string,
   episode: number,
@@ -551,10 +466,6 @@ export async function enqueueScriptPlan(
   return { taskIds, deduped };
 }
 
-/**
- * 提交广告/短片「AI 生成脚本」，占用与提示词编写同一个槽（服务端同一任务类型、`episode-{N}`）。
- * 整份重做需要确认覆盖时服务端 409，错误原样抛出，由调用方读 `diagnostic.script_overwrite` 弹确认框后带令牌重试。
- */
 export async function enqueueAdScript(
   projectName: string,
   episode: number,
@@ -571,13 +482,8 @@ export async function enqueueAdScript(
   return { taskIds, deduped };
 }
 
-/** 分集规划的两个占用槽，与服务端一致：首窗占前一个，之后逐窗在两槽间交替。 */
 export const EPISODE_PLANNING_SLOTS = ["episode-planning", "episode-planning-next"] as const;
 
-/**
- * 提交 AI 规划分集：从规划起点逐窗规划到整本源文结尾。已有进行中的分集规划或准入不成立时，
- * 服务端的错误原样抛出。附加指令只随本次提交，不写进项目。
- */
 export async function enqueueEpisodePlanning(
   projectName: string,
   instructions: string | null,
@@ -594,10 +500,6 @@ export async function enqueueEpisodePlanning(
   return { taskIds, deduped };
 }
 
-/**
- * 发起重新规划：从这一集开始逐窗生成「新的分集方案」，与分集规划占同一对槽。已有方案或分集规划在进行时，
- * 服务端的错误原样抛出。附加指令随方案保存。
- */
 export async function enqueueEpisodeReplan(
   projectName: string,
   episode: number,
@@ -614,7 +516,6 @@ export async function enqueueEpisodeReplan(
   return { taskIds, deduped };
 }
 
-/** 接着生成中途停止的新的分集方案，与分集规划占同一对槽。服务端的拒绝原样抛出。 */
 export async function enqueueEpisodeReplanContinue(projectName: string, candidateId: string): Promise<EnqueueResult> {
   const res = await submit(
     [markResource(projectName, "text_episode_plan", EPISODE_PLANNING_SLOTS[0], "text_episode_plan")],
@@ -627,15 +528,10 @@ export async function enqueueEpisodeReplanContinue(projectName: string, candidat
   return { taskIds, deduped };
 }
 
-/** 草稿 AI 修复任务的占用槽：一份草稿一个，resource_id 与服务端 `episode-{N}-{doc_type}` 一致。 */
 export function draftRepairResourceId(episode: number, docType: DraftDocType): string {
   return `episode-${episode}-${docType}`;
 }
 
-/**
- * 提交待修复草稿的 AI 修复。修复读取的是 `baseRevision` 那一版已保存的草稿；草稿已变、本份草稿
- * 已有进行中的修复等服务端错误原样抛出。
- */
 export async function enqueueDraftRepair(
   projectName: string,
   episode: number,

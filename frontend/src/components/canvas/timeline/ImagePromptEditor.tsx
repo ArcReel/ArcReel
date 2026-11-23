@@ -9,7 +9,6 @@ import { PromptFieldSelect } from "./PromptFieldSelect";
 interface ImagePromptEditorProps {
   prompt: ImagePrompt;
   onUpdate: (patch: Partial<ImagePrompt>) => void;
-  /** 只读展示（引导演示项目）：字段可读不可改。 */
   readOnly?: boolean;
 }
 

@@ -5,17 +5,13 @@ import type { UsageRecord, UsageRecordDetail, UsageSummary } from "@/types";
 
 export const HEADER_RECENT_LIMIT = 10;
 
-/** 右栏只看已结束调用；进行中的那部分由左栏的任务与 pending 调用负责。 */
 const FINISHED_STATUSES = ["success", "failed", "cancelled"] as const;
 
 interface UsageHeaderState {
-  /** 顶栏入口当前挂靠的项目；演示项目与无项目时为 null，此时不发请求。 */
   projectName: string | null;
   summary: UsageSummary | null;
   recent: UsageRecord[];
-  /** 无任务代表的 pending 调用；有任务的那部分由任务 store 提供。 */
   pending: UsageRecord[];
-  /** 上一轮刷新里有请求失败：面板上的数据可能是旧的或缺的，界面据此给出提示与重试。 */
   loadFailed: boolean;
 
   detailId: number | null;
@@ -23,7 +19,6 @@ interface UsageHeaderState {
   detailLoading: boolean;
   detailFailed: boolean;
 
-  /** 切换挂靠项目：作废在途请求、清空上一项目的数据，再取一轮。 */
   setProject: (projectName: string | null) => Promise<void>;
   refresh: () => Promise<void>;
   openDetail: (recordId: number) => Promise<void>;
@@ -37,11 +32,6 @@ const EMPTY_DATA = {
   loadFailed: false,
 };
 
-/**
- * 多入口（挂载、打开悬浮层、事件流刷新信号）共用一份刷新：在途时把新的调用合并成
- * 「当前这轮结束后再跑一轮」，各调用方各自结算，避免并发刷新交错写回。目标恒为
- * 「当前挂靠项目」，故不需要按目标分桶。
- */
 function createMergedRefresh(run: (signal: AbortSignal) => Promise<void>) {
   let running = false;
   let queued: (() => void)[] = [];
@@ -63,7 +53,6 @@ function createMergedRefresh(run: (signal: AbortSignal) => Promise<void>) {
         queued = [];
       }
     } finally {
-      // run 意外抛出时也要回到空闲并结算排队方，否则之后的每次刷新都只会排队、永不执行。
       queued.forEach((resolve) => resolve());
       queued = [];
       running = false;
@@ -80,7 +69,6 @@ function createMergedRefresh(run: (signal: AbortSignal) => Promise<void>) {
         }
         void drain([resolve]);
       }),
-    /** 作废在途请求；调用方负责随后补一轮，否则界面停在上一项目的数据上。 */
     abort: () => controller?.abort(),
   };
 }
@@ -97,8 +85,6 @@ export const useUsageHeaderStore = create<UsageHeaderState>((set, get) => {
       ).catch(() => null),
       API.getUsageRecords({ projectName, statuses: ["pending"] }, { signal }).catch(() => null),
     ]);
-    // 被接管方作废时不写回：这一轮的结果属于上一个项目，或已有更新的一轮在跑。
-    // 作废在这里就返回，故三个 null 之中不含被 abort 的那种，只代表真的失败。
     if (signal.aborted || get().projectName !== projectName) return;
     set({
       summary: summary ?? get().summary,
@@ -121,7 +107,6 @@ export const useUsageHeaderStore = create<UsageHeaderState>((set, get) => {
     detailFailed: false,
 
     setProject: async (projectName) => {
-      // 同一项目再次登记是顶栏重新挂载（如从设置页返回）：离开期间的事件已错过，补一轮重取。
       if (get().projectName === projectName) {
         if (projectName !== null) await refresher.call();
         return;

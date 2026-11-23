@@ -6,7 +6,6 @@ export interface PromptAuthoringOpenRequest {
   projectName: string;
   episode: number;
   scope: PromptAuthoringScope;
-  /** 页面上当前选中的条目；给了才提供「当前单条」。 */
   currentEntryId?: string | null;
 }
 
@@ -16,10 +15,6 @@ interface PromptAuthoringState {
   close: () => void;
 }
 
-/**
- * 「编写提示词」弹窗的开关：分镜详情、时间线工具栏、参考生视频画布与制作状态的下一步
- * 都只登记要打开的范围，弹窗由集页上唯一的宿主渲染。
- */
 export const usePromptAuthoringStore = create<PromptAuthoringState>((set) => ({
   request: null,
   open: (request) => set({ request }),

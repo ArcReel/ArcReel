@@ -34,13 +34,10 @@ interface RefRow {
   thumbPath?: string;
   description?: string;
   isStale: boolean;
-  /** 本集新增资产（内容确认时可选），确认时才登记。 */
   isNew?: boolean;
-  /** 已选的「不登记」新增项：确认时从引用中移出，不是失效引用。 */
   isSkipped?: boolean;
 }
 
-/** 内容确认页额外的候选：本集新增项按类型给出名字。 */
 export type SegmentRefsNameSets = Partial<Record<SegmentAssetKind, ReadonlySet<string>>>;
 
 export interface SegmentRefsChanges {
@@ -52,9 +49,7 @@ export interface SegmentRefsChanges {
 interface SegmentRefsEditModalProps {
   open: boolean;
   onClose: () => void;
-  /** 确定：只带改动过的类型。返回的 Promise 落定前两个按钮禁用、不响应关闭。 */
   onSave: (changes: SegmentRefsChanges) => void | Promise<void>;
-  /** 提交中：禁用按钮并忽略关闭请求；由调用方维护 */
   saving?: boolean;
   initialCharacters: string[];
   initialScenes: string[];
@@ -64,9 +59,7 @@ interface SegmentRefsEditModalProps {
   props: Record<string, Prop>;
   projectName: string;
   onManageClick?: (kind: SegmentAssetKind) => void;
-  /** 本集新增、确认时登记的名字；须同时出现在对应的资产字典里。 */
   newNames?: SegmentRefsNameSets;
-  /** 本集新增里选了「不登记」的名字：不作候选，已选时按「确认时移出」呈现。 */
   skippedNames?: SegmentRefsNameSets;
 }
 
@@ -84,7 +77,6 @@ function getSheetPath(kind: SegmentAssetKind, asset: Asset): string | undefined 
 
 const NO_NAMES: ReadonlySet<string> = new Set();
 
-/** 已选但不在候选里的名字：「不登记」的新增项按确认时移出呈现，其余是失效引用。 */
 function appendUnlisted(
   rows: RefRow[],
   kind: SegmentAssetKind,
@@ -118,10 +110,6 @@ function buildRows<A extends Asset>(
   return appendUnlisted(rows, kind, selected, (n) => n in dict, skipped);
 }
 
-/**
- * 角色行按「形态」而非「资产条目」列：`characters_in_*` 收的是引用名，衍生
- * （`本体名/衍生名`）与本体一样可选（见 `docs/adr/0072`），各带自己的资产图与变化描述。
- */
 function buildCharacterRows(
   characters: Record<string, Character>,
   selected: string[],
@@ -198,7 +186,6 @@ export function SegmentRefsEditModal({
     };
   }, [charRows, sceneRows, propRows, q]);
 
-  // stale 计数基于未过滤的完整 rows，避免搜索词把 stale 项过滤后徽标消失
   const countSelectedStale = (rows: RefRow[], set: Set<string>) =>
     rows.reduce((n, r) => (r.isStale && set.has(r.name) ? n + 1 : n), 0);
   const staleCounts = {
@@ -398,7 +385,6 @@ interface RowProps {
   projectName: string;
 }
 
-/** 一条候选：整行是一个切换按钮，按下即选中。失效引用与「不登记」的新增项在第二行说明。 */
 function Row({ row, selected, onToggle, projectName }: RowProps) {
   const { t } = useTranslation("dashboard");
   const sheetFp = useProjectsStore((s) =>

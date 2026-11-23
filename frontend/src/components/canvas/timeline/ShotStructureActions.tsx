@@ -29,7 +29,6 @@ import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisod
 
 type StructureContentMode = "narration" | "drama" | "ad";
 
-/** 新增分镜；`afterId` 为 null 时追加到末尾（空脚本里即第一条）。resolve 为是否成功。 */
 export type InsertShotHandler = (afterId: string | null, novelText?: string) => Promise<boolean>;
 
 interface InsertShotButtonProps {
@@ -42,9 +41,6 @@ interface InsertShotButtonProps {
   variant: "icon" | "compact" | "primary";
 }
 
-/**
- * 新增分镜按钮。剧情演绎与广告直接新增空分镜；旁白分镜的正文即配音内容，先弹框填写正文再新增。
- */
 export function InsertShotButton({
   afterId,
   contentMode,
@@ -144,7 +140,6 @@ export function InsertShotButton({
 interface ShotStructureActionsProps {
   segmentId: string;
   contentMode: StructureContentMode;
-  /** 切镜同源的禁用条件（未保存修改、保存中、重排或增删在途）。 */
   disabled: boolean;
   disabledHint?: string;
   removeBlockedHint?: string;
@@ -152,9 +147,6 @@ interface ShotStructureActionsProps {
   onRemove?: (itemId: string) => Promise<boolean>;
 }
 
-/**
- * 分镜详情头部的「在此后插入」「移除分镜」动作。移除不可撤销，先确认并说明产物去向。
- */
 export function ShotStructureActions({
   segmentId,
   contentMode,
@@ -172,7 +164,6 @@ export function ShotStructureActions({
   if (!onInsert && !onRemove) return null;
 
   const handleRemove = async () => {
-    // 确认框打开后才出现的阻塞（如别处开始生成）同样拦下，不以打开时的状态为准。
     if (!onRemove || removing || removeBlockedHint !== undefined) return;
     setRemoving(true);
     try {

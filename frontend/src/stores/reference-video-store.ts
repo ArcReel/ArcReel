@@ -7,7 +7,6 @@ interface AddUnitPayload {
   prompt: string;
   duration_seconds?: number;
   note?: string | null;
-  /** 插在这个单元之后；缺省时追加到末尾。 */
   after_unit_id?: string;
 }
 
@@ -17,18 +16,12 @@ interface PatchUnitPayload {
   note?: string | null;
 }
 
-/** Cache key isolating units per (project, episode) — switching projects with
- * the same episode number must not surface the previous project's units. */
 export function referenceVideoCacheKey(projectName: string, episode: number): string {
   return `${projectName}::${episode}`;
 }
 
 interface ReferenceVideoStore {
   unitsByEpisode: Record<string, ReferenceVideoUnit[]>;
-  /**
-   * 同 key 下逐单元的服务端定桶结论（桶、档位、引用分裂），随单元列表一起到达，写入口的
-   * 响应按单元合并——正文改了引用，桶与档位当场随响应更新，画布不自判。
-   */
   unitCapabilitiesByEpisode: Record<string, ReferenceUnitCapabilityMap>;
   selectedUnitId: string | null;
   loading: boolean;
@@ -42,22 +35,9 @@ interface ReferenceVideoStore {
   select: (unitId: string | null) => void;
 }
 
-// 每个 cache key 上最新一次 loadUnits 的序号：`loadUnits` 有多个入口（画布 effect 随
-// 项目/剧集/任务完成失效重跑、单元写入后重拉、手动重试），同一 key 上可能有多个请求并发
-// 在途。没有这道校验时，先发后到的旧响应会盖掉新响应里已经生成的成片，界面停在「无成片」
-// 直到下一次失效。响应落定时序号已被更新的请求接管即丢弃，只让最新一次写回。
 const _loadSeqByKey = new Map<string, number>();
 let _loadSeq = 0;
 
-/**
- * 作废该 cache key 上所有在途加载。
- *
- * 写入口（增删改排序）落定后调用：迟到的 GET 读的是写入之前的列表，直接写回会把用户刚做的
- * 编辑、增删或排序在界面上暂时撤销，直到下一次失效才复原。
- *
- * 一并结算 `loading`：被作废的那次加载会在响应落定时直接丢弃，不再自己复位，而作废它的是
- * 写入口、不是另一次加载，没有接管方来收尾——不在这里落定，画布会一直停在加载态。
- */
 function invalidateInFlightLoads(cacheKey: string, set: (patch: { loading: false }) => void): void {
   _loadSeqByKey.set(cacheKey, ++_loadSeq);
   set({ loading: false });

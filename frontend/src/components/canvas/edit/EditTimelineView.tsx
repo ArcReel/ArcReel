@@ -46,30 +46,24 @@ import { useTimelinePlayback } from "./useTimelinePlayback";
 export interface EditTimelineActionsContext {
   timelineId: string;
   timelineName: string;
-  /** 当前读取结果的 issues；读取完成前为 null。 */
   issues: readonly EditTimelineIssue[] | null;
-  /** 滚动到「问题」列表并把焦点移过去。 */
   showIssues: () => void;
 }
 
 export interface EditTimelineEmptyStateContext {
-  /** 新建剪辑时间线后调用，重新读取列表并选中最近修改的那条。 */
   reload: () => void;
 }
 
 interface EditTimelineViewProps {
   projectName: string;
   episode: number;
-  /** 本集脚本：用于视频单元的源视频路径与缩略图。 */
   script: unknown;
   aspect: PreviewAspect;
-  /** 项目的旁白交付方式是否为 TTS 配音；否则为后期配音，旁白轨不按缺配音处理。 */
   ttsNarration: boolean;
   renderActions?: (context: EditTimelineActionsContext) => ReactNode;
   renderEmptyState: (context: EditTimelineEmptyStateContext) => ReactNode;
 }
 
-/** 应用内链接带来的一次性定位：打开哪条剪辑时间线（缺省为当前选中的）、定位到全局时间的哪一秒（缺省为不动播放头）。 */
 interface LinkJump {
   timelineId: string | null;
   seconds: number | null;
@@ -77,10 +71,6 @@ interface LinkJump {
 
 type Loaded<T> = { key: string; value: T } | { key: string; error: string };
 
-/**
- * 集页的剪辑视图：只读预览一条剪辑时间线，标签菜单可重命名与删除。上方播放器按剪辑时间线实时拼接播放，下方横向时间线；
- * 项目有变更（含 Agent 写入新修订）时重新读取。
- */
 export function EditTimelineView({
   projectName,
   episode,
@@ -99,9 +89,7 @@ export function EditTimelineView({
   const reload = useCallback(() => setRetry((n) => n + 1), []);
   const tabIdPrefix = useId();
 
-  // 链接参数 tl / t 读入后立刻从地址栏去掉：它们是一次性的定位指令，刷新页面不应再次跳走。
   const [searchParams, setSearchParams] = useSearchParams();
-  // 跳到别的项目时，地址先变、当前项目后切：这一刻地址栏里的参数属于即将挂载的那个视图，不在这里消费。
   const routeProject = useParams<{ projectName?: string }>().projectName;
   const linkForOtherProject = routeProject !== undefined && routeProject !== projectName;
   const linkTimeline = searchParams.get(LINK_TIMELINE_PARAM);
@@ -120,7 +108,6 @@ export function EditTimelineView({
       { replace: true },
     );
   }, [linkForOtherProject, linkTimeline, linkTime, setSearchParams]);
-  // 删除后选中的标签回落到默认那条（最近修改的）。
   const handleDeleted = useCallback(() => {
     setChosenId(null);
     setRetry((n) => n + 1);
@@ -137,7 +124,6 @@ export function EditTimelineView({
       .then(({ timelines }) => {
         if (controller.signal.aborted) return;
         setList({ key: listKey, value: timelines });
-        // 首次看到剪辑时间线时固定默认选中的那条，之后新建或修改其他时间线不会把正在看的标签切走。
         setChosenId((previous) => previous ?? pickDefaultTimeline(timelines));
       })
       .catch((cause: unknown) => {
@@ -146,7 +132,6 @@ export function EditTimelineView({
     return () => controller.abort();
   }, [episode, listKey, projectName]);
 
-  // 刷新期间沿用上一次的列表，避免每次项目变更都闪回加载态。
   const timelines = list && "value" in list ? list.value : null;
 
   const jumpTimelineId = jump?.timelineId ?? null;
@@ -154,7 +139,6 @@ export function EditTimelineView({
     timelines !== null && jumpTimelineId !== null && timelines.some((item) => item.id === jumpTimelineId)
       ? jumpTimelineId
       : null;
-  // 沿用中的旧列表可能还没有刚新建的那条，只按本轮读到的列表判定「不存在」。
   const listFresh = list?.key === listKey;
   // react-doctor-disable-next-line react-doctor/no-effect-chain -- 地址栏的定位指令与异步读到的列表齐备后才能判定目标不存在，需要提示一次，提示是副作用只能放在 effect
   useEffect(() => {
@@ -170,7 +154,6 @@ export function EditTimelineView({
       setJump(null);
     }
   }, [jump, jumpTimelineId, jumpTarget, listFresh, timelines, t]);
-  // 定位完成后把链接那条记为选中，此后标签不随定位指令清空而回落。
   const handleJumpApplied = useCallback(() => {
     if (jumpTarget !== null) setChosenId(jumpTarget);
     setJump(null);
@@ -184,7 +167,6 @@ export function EditTimelineView({
         : null);
   const selected = timelines?.find((item) => item.id === selectedId);
 
-  // 每次项目变更都重新读取：读取结果还取决于视频单元的 current 版本，不只取决于修订。
   const readoutKey = `${listKey}::${selectedId ?? ""}`;
   const [readout, setReadout] = useState<(Loaded<EditTimelineReadout> & { timelineId: string }) | null>(null);
   useEffect(() => {
@@ -196,7 +178,6 @@ export function EditTimelineView({
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted) return;
-        // 刷新失败时保留这条剪辑时间线上一次的读取结果，播放不被打断。
         setReadout((previous) =>
           previous?.timelineId === selectedId && "value" in previous
             ? previous
@@ -206,7 +187,6 @@ export function EditTimelineView({
     return () => controller.abort();
   }, [projectName, readoutKey, selectedId]);
 
-  // 旁白配音与字幕随读取结果一起刷新；读取失败时沿用上一次的结果，还没有结果时只是不出旁白、不显示字幕。
   const [previewMedia, setPreviewMedia] = useState<{ timelineId: string; value: EditTimelinePreviewMedia } | null>(
     null,
   );
@@ -240,12 +220,10 @@ export function EditTimelineView({
   const updatedJustNow = isJustNow(selected.updated_at);
   const updatedAt = formatRelativeTime(selected.updated_at, i18n.language) ?? selected.updated_at;
 
-  // 整个视图不滚动：标签行固定高度，下方的播放器、详情栏与轨道分掉剩余高度，只有详情栏自己滚动。
   return (
     <div className="@container-size/edit-view flex h-full min-h-0 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-2 px-4 edit-short:h-10">
         <div className="relative flex min-w-0 overflow-x-auto scroll-fade-x">
-          {/* 方向键移动焦点即切换：切换标签只换预览内容，不卸载别的东西 */}
           <Tabs value={selected.id} onValueChange={(value: string) => choose(value)} className="shrink-0">
             <TabsList aria-label={t("edit_view_timelines_aria")} activateOnFocus>
               {timelines.map((item) => (
@@ -277,7 +255,6 @@ export function EditTimelineView({
         role="tabpanel"
         id={panelId}
         aria-labelledby={tabId(selected.id)}
-        // 播放器、详情栏与轨道固定深色：浅底会干扰对画面明暗的判断
         className="dark flex min-h-0 flex-1 flex-col bg-background px-4 pb-4 text-foreground edit-short:pb-2"
       >
         {current && "value" in current ? (
@@ -309,7 +286,6 @@ interface TimelinePreviewProps {
   media: EditTimelinePreviewMedia | null;
   script: unknown;
   aspect: PreviewAspect;
-  /** 链接要求定位的位置；处理完调用 `onSeekHandled`。 */
   seekRequest: LinkJump | null;
   onSeekHandled: () => void;
 }
@@ -328,10 +304,8 @@ function TimelinePreview({
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
   const [showSubtitles, setShowSubtitles] = useState(true);
 
-  // 内容相同的重新读取不换计划引用，播放不因项目的无关变更而重新定位。
   const planJson = useMemo(() => JSON.stringify(buildPlaybackPlan(readout, media)), [readout, media]);
   const plan = useMemo(() => JSON.parse(planJson) as PlaybackPlan, [planJson]);
-  // 源视频地址只随视频单元的 current 版本变化；脚本对象每次刷新都换引用，这里只取它的形状。
   const referenceVideo = isReferenceVideoScript(script);
   const sourceUrl = useCallback(
     (segment: PlaybackSegment) =>
@@ -340,7 +314,6 @@ function TimelinePreview({
         : null,
     [projectName, referenceVideo],
   );
-  // 音频摆放与旁白配音地址同样按内容去重，内容不变的刷新不打断正在播放的音频。
   const audioJson = useMemo(
     () => JSON.stringify([...narrationPlacements(readout, media), ...bgmPlacements(readout, media)]),
     [readout, media],
@@ -362,7 +335,6 @@ function TimelinePreview({
       bgm: Record<string, string>;
     };
     return (placement: AudioPlacement) => {
-      // BGM 按字节登记（bgm/{随机 id}）、文件不再改写，地址本身就唯一，显式不带版本号。
       if (placement.kind === "bgm") {
         const path = sources.bgm[placement.sourceId];
         return path ? API.getFileUrl(projectName, path, null) : null;
@@ -385,7 +357,6 @@ function TimelinePreview({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 一次性的链接定位：移动播放头的同时选中对应片段
       if (location) setSelectedClipId(plan.segments[location.index].clipId);
     }
-    // 处理完立即作废，plan 随后的刷新不会再把播放头拉回去。
     onSeekHandled();
   }, [seekRequest, seek, plan, onSeekHandled]);
 
@@ -413,7 +384,6 @@ function TimelinePreview({
           onToggleSubtitles={() => setShowSubtitles((shown) => !shown)}
         />
       </div>
-      {/* 详情栏是视图里唯一的滚动区；可以只有说明文字，所以自身可聚焦，键盘也能滚动 */}
       <div
         role="region"
         aria-label={t("edit_view_details_aria")}

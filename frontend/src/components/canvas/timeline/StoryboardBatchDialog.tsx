@@ -21,12 +21,6 @@ import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import type { StoryboardBatchKind, StoryboardBatchPreview, WorkflowAdmission } from "@/types";
 
-/**
- * 一集分镜图 / 分镜视频批量补齐的确认框：列出要生成的分镜、跳过项与原因，能算出时给出预估费用。
- *
- * 分镜视频整批准入：预览时已知不满足就陈述原因、不给提交；预览之后状态有变、提交时才被拒绝的，
- * 同样在框内陈述，一个任务也没建。提交中忽略关闭请求。
- */
 export function StoryboardBatchDialog({
   projectName,
   episode,
@@ -145,7 +139,6 @@ export function StoryboardBatchDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
         </AlertDialogHeader>
-        {/* 跳过清单可能很长，正文可以用键盘滚动 */}
         <AlertDialogBody tabIndex={0} role="region" aria-label={title}>
           <AlertDialogDescription render={<div />}>{body}</AlertDialogDescription>
         </AlertDialogBody>

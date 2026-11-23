@@ -15,21 +15,13 @@ export function isApplePlatform(): boolean {
 }
 
 interface ShotShortcutsOptions {
-  /** 快捷键只在焦点位于这个容器内（或页面没有焦点元素）时生效，不抢 Agent 面板、页头与弹层的按键。 */
   rootRef: RefObject<HTMLElement | null>;
-  /** 回调需传稳定引用（useCallback）。 */
   onPrev: () => void;
   onNext: () => void;
-  /** ⌘S / Ctrl+S；传入时整页拦下浏览器的保存快捷键，不传时不拦截。 */
   onSave?: () => void;
   navDisabled: boolean;
 }
 
-/**
- * 分镜视图的快捷键：J / K 切到下一个与上一个分镜，焦点在输入框里时不响应；⌘S（Windows 为 Ctrl+S）保存当前分镜，
- * 在输入框里也可用。弹层渲染在容器之外，打开时不响应，只拦下 ⌘S 的浏览器默认行为；输入法组合输入中的按键与
- * 带其他修饰键的组合都放行。
- */
 export function useShotShortcuts({ rootRef, onPrev, onNext, onSave, navDisabled }: ShotShortcutsOptions): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

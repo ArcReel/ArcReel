@@ -2,15 +2,11 @@
 import type { AudioPlacement } from "./preview-tracks";
 
 export const DRIFT_DEADBAND = 0.03;
-/** 偏差超过这个值直接跳到应在的位置；介于两者之间时微调播放速度追上，避免频繁跳动出现爆音。 */
 export const DRIFT_RESEEK = 0.25;
 export const MAX_RATE_NUDGE = 0.1;
 const NUDGE_GAIN = 1;
-/** 起点前这么久就把音频对到入点，开始播放时不必再跳。 */
 export const AUDIO_LOOKAHEAD = 2;
-/** 起点前这么久（秒）才开始缓冲；更远的音频先不加载，长时间线打开时不会一次拉取全部音频。 */
 export const AUDIO_PRELOAD_AHEAD = 10;
-/** 媒体持续等待数据超过这么久（毫秒）才算缓冲卡住，吸收跳转后短暂的数据不足。 */
 export const STALL_GRACE_MS = 150;
 
 const HAVE_FUTURE_DATA = 3;
@@ -45,12 +41,6 @@ export interface AudioDirective {
   volume: number;
 }
 
-/**
- * 一段音频此刻该怎么做。`running` 表示全局时钟在走（播放中且没有卡住缓冲）。
- * 区间内：静止时偏差超出容差就先跳到位再播；播放中偏差大则跳，偏差小则按偏差微调速度，音频超前时放慢、落后时加快。
- * 区间外：不出声；即将开始时提前对到入点。跳转进行中不再下达新的跳转。
- * 源音频比区间先放完时停在结尾：对已结束的元素调用 play 会从头重放。
- */
 export function syncAudio(
   placement: AudioPlacement,
   t: number,
@@ -87,9 +77,7 @@ export function syncAudio(
 export interface MediaReadiness {
   readyState: number;
   seeking: boolean;
-  /** 加载失败的媒体不再等待，按没有这段媒体继续。 */
   errored: boolean;
-  /** 已放到结尾的媒体没有后续数据可等。 */
   ended: boolean;
 }
 

@@ -73,7 +73,6 @@ type Segment = NarrationSegment | DramaScene | AdShot;
 type DetailContentMode = "narration" | "drama" | "ad";
 
 type PromptSide = "image" | "video";
-/** `null` = 待编写：机械转换落盘的条目还没有这一侧提示词。 */
 type ImagePromptValue = ImagePrompt | string | null;
 type VideoPromptValue = VideoPrompt | string | null;
 
@@ -83,45 +82,32 @@ interface ShotDetailProps {
   contentMode: DetailContentMode;
   aspectRatio: "9:16" | "16:9";
   projectName: string;
-  /** 当前集号；给了才提供单条「编写提示词」入口 */
   episode?: number;
-  /** 当前剧集剧本文件名，分镜图/视频自主上传需要它定位剧本条目 */
   scriptFile?: string;
-  /** 上一分镜的当前分镜图路径；存在且未设章节切分点时，标出本分镜会参考它 */
   previousStoryboardPath?: string | null;
   selectedIndex: number;
   totalCount: number;
   onPrev: () => void;
   onNext: () => void;
-  /**
-   * 提交分镜字段的增量修改，失败时抛错。resolve 为保存后项目是否已刷新：
-   * 为 false 时界面上的剧本还是旧的，「保存并生成」不能接着生成。缺省时只读展示。
-   */
   onUpdatePrompt?: (segmentId: string, patch: Record<string, unknown>) => Promise<boolean>;
   onMoveShot?: (shotId: string, direction: "earlier" | "later") => void | Promise<void>;
   movePending?: boolean;
-  /** 在当前分镜之后新增分镜（旁白带正文），resolve 为是否成功；缺省时不渲染入口。 */
   onInsertShot?: InsertShotHandler;
-  /** 移除当前分镜，resolve 为是否成功；缺省时不渲染入口。 */
   onRemoveShot?: (itemId: string) => Promise<boolean>;
   structurePending?: boolean;
   onGenerateStoryboard?: (segmentId: string) => void;
   onGenerateVideo?: (segmentId: string) => void | Promise<void>;
   onGenerateNarration?: (segmentId: string) => void;
-  /** 版本恢复与媒体上传之后刷新项目；resolve 为 false 时刷新没成功（父级已提示），不再报告成功。 */
   onRestoreStoryboard?: () => Promise<unknown> | void;
   onRestoreVideo?: () => Promise<unknown> | void;
   generatingStoryboard?: boolean;
   generatingVideo?: boolean;
   generatingNarration?: boolean;
   durationOptions?: number[];
-  /** 档位为空是因为这一维由端点固定（workflow 自己定片长），不是型号没登记时长。 */
   durationEndpointFixed?: boolean;
   lastFrame?: boolean | null;
   capabilitiesLoading?: boolean;
-  /** 已保存时长越界的成因判定；缺省时退回不区分成因的通用警告文案。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
-  /** 分镜视图经它读当前分镜有无未保存修改、用 ⌘S / Ctrl+S 保存；卸载时清空。 */
   editRef?: RefObject<ShotEditHandle | null>;
 }
 
@@ -130,10 +116,6 @@ export interface ShotEditHandle {
   save: () => void;
 }
 
-/**
- * 分镜详情的编辑单元：提示词、口播与台词、旁白正文、时长、备注、引用与切分点。
- * 这些字段都先进入未保存修改，由提示条统一保存或放弃。可选字段只在对应内容类型下存在。
- */
 interface ShotFields {
   image_prompt: ImagePromptValue;
   video_prompt: VideoPromptValue;
@@ -168,18 +150,11 @@ type ShotFieldKey = (typeof SHOT_FIELD_KEYS)[number];
 
 const EMPTY_UTTERANCES: Utterance[] = [];
 
-// voiceover 的 speaker 允许缺省或 null，两种写法语义等价（无说话人）。比较前归一：
-// voiceover speaker 统一为 null、并固定键序，避免 `{}` 与 `{ speaker: null }` 判成不同，
-// 否则上游把画外音字段规范化后修改标记清不掉。
 const canonicalUtterance = (u: Utterance): Utterance =>
   u.kind === "dialogue"
     ? { kind: "dialogue", speaker: u.speaker, text: u.text }
     : { kind: "voiceover", speaker: null, text: u.text };
 
-/**
- * 字段的等值签名。字段集合稳定，JSON 即可：键序差异只会来自同一构造路径。
- * 尚无提示词（null）与空文本等价：既没有内容可保存，PATCH 也不接受清空提示词。
- */
 function fieldSig(key: ShotFieldKey, value: unknown): string {
   if (key === "image_prompt" || key === "video_prompt") return JSON.stringify(value ?? "");
   if (key === "utterances") return JSON.stringify(((value as Utterance[] | undefined) ?? []).map(canonicalUtterance));
@@ -194,7 +169,6 @@ function shotFieldsEqual(a: ShotFields, b: ShotFields): boolean {
   return a === b || SHOT_FIELD_KEYS.every((key) => fieldEqual(key, a, b));
 }
 
-/** 只提交改过的字段；角色引用按内容类型写回对应的字段名。 */
 function shotPatch(value: ShotFields, saved: ShotFields, charField: CharactersField): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   for (const key of SHOT_FIELD_KEYS) {
@@ -240,7 +214,6 @@ function shotFieldsOf(seg: Segment, mode: DetailContentMode): ShotFields {
   };
 }
 
-/** 配音的文本：旁白取正文，广告取口播；剧情演绎只在没有台词时取画外音。 */
 function narrationTextOf(fields: ShotFields, mode: DetailContentMode): string {
   if (mode === "narration") return fields.novel_text ?? "";
   if (mode === "ad") return fields.voiceover_text ?? "";
@@ -253,11 +226,6 @@ function narrationTextOf(fields: ShotFields, mode: DetailContentMode): string {
     .join("\n");
 }
 
-/**
- * 时长是否被在跑的任务锁住：分镜图与视频任务已捕获旧时长，改了两边就不一致。
- * 宫格任务另按 scriptFile 判：它的 resource_id 是 grid_id，切割阶段会覆写本集内多个分镜。
- * 读 tasks-store 的当前值，不吃渲染之后才启动的任务。
- */
 function durationLockedByTasks(projectName: string, segmentId: string, scriptFile?: string): boolean {
   return (
     isResourceBusy("storyboard", projectName, segmentId) ||
@@ -297,7 +265,6 @@ function DurationPill({
   const hintId = useId();
   const [open, setOpen] = useState(false);
 
-  // 打开时与选中时都复核占用态：面板打开后任务可能才启动，busy prop 只反映上次渲染。
   const rejectIfBusy = useCallback(() => {
     if (!busy && !durationLockedByTasks(projectName, segmentId, scriptFile)) return false;
     useAppStore.getState().pushToast(t("duration_locked_generating"), "info");
@@ -306,7 +273,6 @@ function DurationPill({
 
   const noOptions = durationOptions.length === 0;
   const locked = noOptions || busy;
-  // 转入锁定态时真正收起面板，而不只是遮蔽：只派生可见性的话，任务结束后旧面板会自行重现。
   const [prevLocked, setPrevLocked] = useState(locked);
   if (locked !== prevLocked) {
     setPrevLocked(locked);
@@ -316,7 +282,6 @@ function DurationPill({
   const warningReason = durationWarningReason?.(seconds) ?? null;
   const isIncompatible =
     durationOptions.length > 0 ? !durationOptions.includes(seconds) : warningReason !== null;
-  // 与项目默认时长的三种提示同一套判定（见 useModelCapabilities.durationOutOfRangeReason）。
   const incompatibleLabel = durationIncompatibleLabel(t, seconds, durationOptions, warningReason);
   const useSlider = isContinuousIntegerRange(durationOptions) && durationOptions.length >= 5;
 
@@ -379,7 +344,6 @@ function DurationPill({
       }}
     >
       <PopoverTrigger render={<Button variant="outline" size="xs" />}>{content}</PopoverTrigger>
-      {/* 弹层盖在编辑栏与媒体栏的控件上，fixed 定位与对话框同属浮层 */}
       <PopoverContent
         align="start"
         positionMethod="fixed"
@@ -497,14 +461,12 @@ export function ShotDetail({
   const isNarration = contentMode === "narration";
   const charField = charactersFieldFor(contentMode);
 
-  // 父级 ShotSplitView 按 segmentId 作 key 挂载：切换分镜前由离开拦截询问。
   const source = useMemo(() => shotFieldsOf(segment, contentMode), [segment, contentMode]);
   const save = useCallback(
     async (value: ShotFields, saved: ShotFields) => {
       if (!onUpdatePrompt) return;
       const patch = shotPatch(value, saved, charField);
       if (Object.keys(patch).length === 0) return;
-      // 在跑的任务已捕获旧时长：保存时再复核一次，不吃改完时长之后才启动的任务
       if (
         "duration_seconds" in patch &&
         (generatingStoryboard || generatingVideo || durationLockedByTasks(projectName, segmentId, scriptFile))
@@ -512,7 +474,6 @@ export function ShotDetail({
         throw new Error(t("duration_locked_generating"));
       }
       const refreshed = await onUpdatePrompt(segmentId, patch);
-      // 已落盘但界面上的剧本没刷新：不能当作保存成功，否则「保存并生成」会接着用旧剧本生成
       if (!refreshed) throw new PartialSaveError(t("shot_saved_not_refreshed"), { saved: value });
     },
     [onUpdatePrompt, charField, generatingStoryboard, generatingVideo, projectName, segmentId, scriptFile, t],
@@ -527,11 +488,8 @@ export function ShotDetail({
   });
   const { value: fields, setValue, dirty } = unit;
   const saving = unit.status === "saving";
-  // 结构化 → 文本切换在途：返回后整体替换该侧提示词，期间该侧的编辑会被覆盖。
-  // 与保存中一样占用编辑单元：结构化编辑入口与各保存入口一并禁用。
   const [formSwitching, setFormSwitching] = useState<PromptSide | null>(null);
   const editBusy = saving || formSwitching !== null;
-  // PATCH 已落盘但刷新失败时 savedValue 领先于剧本；直到新 source 到达才允许再生成或预览。
   const refreshPending = !shotFieldsEqual(source, unit.savedValue);
   const saveForPreview = unit.save;
   const preparePreview = useCallback(async () => !refreshPending && await saveForPreview(), [refreshPending, saveForPreview]);
@@ -560,13 +518,11 @@ export function ShotDetail({
   const [uploadingKind, setUploadingKind] = useState<"storyboard" | "video" | null>(null);
   const [endFrameSubmitting, setEndFrameSubmitting] = useState(false);
   const handleUpload = async (kind: "storyboard" | "video", file: File) => {
-    // 单个分镜同时只允许一个上传：两张卡写同一后端资源族，避免并发覆写
     if (!scriptFile || uploadingKind || restoringMedia || isResourceBusy(kind, projectName, segmentId) || isScriptFileBusy("grid", scriptFile, projectName)) return;
     setUploadingKind(kind);
     try {
       const result = await API.uploadShotMedia(projectName, scriptFile, segmentId, kind, file);
       useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
-      // 复用版本恢复的刷新管线（refreshProject 等由父级回调承载）；刷新失败时父级已提示，不同时报告成功
       const refreshed = kind === "storyboard" ? await onRestoreStoryboard?.() : await onRestoreVideo?.();
       if (refreshed === false) return;
       useAppStore.getState().pushToast(t("media_upload_success", { id: itemLabel }), "success");
@@ -604,8 +560,6 @@ export function ShotDetail({
 
   const handleDialogueChange = (dialogue: Dialogue[]) => handleVidUpdate({ dialogue });
 
-  // 提示词形态切换。结构化 → 文本以后端渲染结果为初值（前端不复刻渲染逻辑）；
-  // 文本 → 结构化不做解析，须显式确认丢弃文本。
   const [pendingStructSwitch, setPendingStructSwitch] = useState<PromptSide | null>(null);
   const [formSwitchError, setFormSwitchError] = useState<{ side: PromptSide; message: string } | null>(null);
   const formHintId = useId();
@@ -618,8 +572,6 @@ export function ShotDetail({
       const preview = await API.previewScriptItemPrompts(projectName, segmentId, scriptFile);
       const rendered = side === "image" ? preview.storyboard_image : preview.video;
       if (rendered.text === null) {
-        // 渲染不出最终文本（条目缺该提示词字段、或形状不合规）时不切换：以空正文落进文本形态，
-        // 既丢掉了不可用的原因，也只会在保存时被后端的非空校验以无关文案拒掉。
         setFormSwitchError({ side, message: rendered.unavailable ?? t("prompt_form_switch_unavailable") });
         return;
       }
@@ -644,8 +596,6 @@ export function ShotDetail({
   };
 
   const renderFormToggle = (side: PromptSide, isStructured: boolean) => {
-    // 结构化 → 文本的初值取自已保存内容，带着未保存修改切换会静默丢弃它们，须先保存；
-    // 文本 → 结构化本就丢弃文本，由确认框把关。
     const needsSave = isStructured && dirty;
     const blocked = readOnly || !scriptFile || formSwitching !== null || needsSave;
     const current = isStructured ? "structured" : "text";
@@ -693,7 +643,6 @@ export function ShotDetail({
       .catch(() => { if (!controller.signal.aborted) setPreviousReference(null); });
     return () => controller.abort();
   }, [projectName, segmentId, segment, scriptFile, previousStoryboardPath, fields.segment_break]);
-  // 预览与生成共用已保存剧本；未保存修改必须先保存并刷新成功。
   const renderPromptPreview = (side: PromptSide) => {
     if (!scriptFile) return null;
     const previewSide = side === "image" ? "storyboard_image" : "video";
@@ -720,7 +669,6 @@ export function ShotDetail({
   const assets = segment.generated_assets;
   const hasStoryboard = !!assets?.storyboard_image;
 
-  // 展示用去重：products_in_shot 无唯一性约束（同一商品多次入画合法），重复名直接作 key 会撞
   const productNames = isAd ? Array.from(new Set((segment as AdShot).products_in_shot ?? [])) : [];
 
   const handleRefsApply = (patch: Record<string, string[]>) => {
@@ -875,9 +823,6 @@ export function ShotDetail({
     </ShotGroup>
   );
 
-  // 台词：ad 编辑扁平 video_prompt.dialogue；drama 编辑分镜级 utterances（台词 + 画外音）。
-  // narration 不提供台词编辑（旁白正文即画外音，与台词并存会被判为混合发声）：已有台词只读列出，可清除。
-  // 草稿是文本形态时台词留在渲染文本里，不算清除。
   const savedLegacyDialogue = isNarration && isStructuredVideoPrompt(unit.savedValue.video_prompt)
     ? unit.savedValue.video_prompt.dialogue ?? []
     : [];
@@ -949,7 +894,6 @@ export function ShotDetail({
             </span>
           }
         >
-          {/* 旁白正文用衬线字体，与配音卡里的正文一致；字体由外层继承 */}
           <div className="display-serif">
             <Textarea
               id={`shot-narration-text-${segmentId}`}
@@ -1072,15 +1016,12 @@ export function ShotDetail({
       />
     ) : null;
 
-  // 重排在途也要锁定切镜：ShotSplitView 在移动完成回调里按当前 selectedIndex 偏移，
-  // 在途切换分镜会让偏移作用到新选中项，选中态跳到错误分镜。有未保存修改时切镜由离开拦截询问。
   const navDisabled = !!movePending || !!structurePending;
   const navDisabledHint = movePending
     ? t("shot_move_pending")
     : structurePending
       ? t("shot_structure_pending")
       : undefined;
-  // 增删会刷新整份剧本并改变选中项，有未保存修改时先保存或放弃
   const structureDisabled = navDisabled || dirty || saving;
   const structureDisabledHint = navDisabledHint ?? (dirty || saving ? t("shot_detail_save_first") : undefined);
   const durationBusy = !!generatingStoryboard || !!generatingVideo;
@@ -1140,7 +1081,6 @@ export function ShotDetail({
       navDisabled={navDisabled}
       navDisabledHint={navDisabledHint}
       notes={
-        // 备注只有落库才有意义：只读展示下不给入口，免得输入的备注静默丢弃
         readOnly ? null : (
           <NotesDrawer shotId={segmentId} value={fields.note} onChange={(note) => setField("note", note)} />
         )

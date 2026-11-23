@@ -57,12 +57,9 @@ interface ScriptReviewGateProps {
   episode: number;
   contentMode: "narration" | "drama";
   videoModelUnresolved?: boolean;
-  /** 切到本集时间线；确认后的只读态据此给出去时间线修改的入口，未提供时不渲染入口。 */
   onOpenTimeline?: () => void;
-  /** 当前视频模型与分辨率下的剧本规划时长档位（与确认转换同一口径）；未知时时长只读。 */
   durationOptions?: number[];
   durationEndpointFixed?: boolean;
-  /** 时长不在档位内的成因，决定说明文案；缺省时按「模型不支持」说明。 */
   durationWarningReason?: (seconds: number) => DurationOutOfRangeReason | null;
 }
 
@@ -75,7 +72,6 @@ interface PlanItemContext {
   speakerNames: string[];
 }
 
-/** 时长不在当前档位内：确认会被拒绝，卡片就地标红说明。档位未知时不判。 */
 function durationOutOfTier(seconds: number, options: number[] | null): boolean {
   return options != null && options.length > 0 && !options.includes(seconds);
 }
@@ -86,7 +82,6 @@ function SectionLabel({ children, className }: { children: React.ReactNode; clas
 
 type ReviewDraft = DramaNormalizedScript | NarrationScriptPlanDraft;
 
-/** 本面板承接 drama / narration 两个变体的内容，reference_video 变体不会路由到这里。 */
 function selectReviewContent(state: ScriptReviewState): ReviewDraft | null {
   return (state.content ?? null) as ReviewDraft | null;
 }
@@ -113,7 +108,6 @@ function ItemHeader({
   context,
   onChange,
 }: {
-  /** 条目在规划里的位置，从 1 起。 */
   position: number;
   durationSeconds: number;
   segmentBreak: boolean;
@@ -169,7 +163,6 @@ function ItemHeader({
   );
 }
 
-/** 条目的角色 / 场景 / 道具引用：可编辑时复用时间线的引用编辑，候选含本集新增资产。 */
 function ItemReferences({
   contentMode,
   characters,
@@ -259,7 +252,6 @@ function DramaSceneCard({
   onChange,
 }: {
   scene: DramaSceneContent;
-  /** 条目在规划里的位置，从 1 起。 */
   position: number;
   disabled: boolean;
   readOnly: boolean;
@@ -332,7 +324,6 @@ function NarrationSegmentCard({
   onChange,
 }: {
   segment: NarrationScriptPlanSegment;
-  /** 条目在规划里的位置，从 1 起。 */
   position: number;
   disabled: boolean;
   readOnly: boolean;
@@ -420,10 +411,6 @@ function isNarrationSegment(value: unknown): value is NarrationScriptPlanSegment
   );
 }
 
-/**
- * 草稿正文 → 可编辑卡片的形状。逐项收窄、不信任类型声明：草稿可能被 Agent 改坏，按卡片的字段契约
- * 硬渲染要么崩、要么把缺失字段补成用户没写过的值。收不成时返回 null，面板只呈现违约与处置入口。
- */
 function narrowDramaDraft(content: Record<string, unknown> | null): ReviewDraft | null {
   const scenes = content?.scenes;
   if (!Array.isArray(scenes) || !scenes.every(isDramaScene) || !hasValidNewAssets(content)) return null;
@@ -467,15 +454,6 @@ function newAssetEntries(content: ReviewDraft | null): NewAssetEntryRefs[] {
       }));
 }
 
-/**
- * script_plan→prompt_authoring web 内容确认面板：把 script_plan 结构化中间态在网页结构化呈现、可手动 / Agent 编辑，
- * 用户显式确认后才放行 prompt_authoring 视觉生成。drama（utterances + source_text）与 narration
- * （novel_text）共用本面板；reference_video 变体的专属面板见 `ReferenceScriptPlanPreviewPanel`。
- *
- * 待修复草稿在场时面板改为呈现草稿：违约挂到所在条目、整集层面的违约置顶，可就地改草稿后保存并
- * 校验，违约清零即采用。Agent 的可编辑草稿在场时只提示有一份未完成的修改，正式内容只读。确认之后
- * 脚本规划只读，卡片不渲染编辑控件，指引到时间线修改。
- */
 export function ScriptReviewGate({
   projectName,
   episode,
@@ -489,7 +467,6 @@ export function ScriptReviewGate({
   const { t } = useTranslation("dashboard");
   const episodeLedger = useEpisodeLedger();
   const episodeRef = episodeAgentRef(episodeLedger, episode, t);
-  // 父组件已给出模型能力（是否可解析、时长档位）时不再自查。
   const standaloneCapabilities = useModelCapabilities({
     projectName,
     enabled: videoModelUnresolved === undefined || durationOptions === undefined,
@@ -646,7 +623,6 @@ export function ScriptReviewGate({
       <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan variant="ghost" />
     ) : null;
 
-  // 待修复草稿在场：面板呈现草稿本身，正式内容此刻不可确认（确认端点按同一判据拒绝）。
   if (quarantine != null && quarantine.editable_by === "user") {
     const content = draftEditor.content;
     const items = reviewItems(content);
@@ -745,13 +721,10 @@ export function ScriptReviewGate({
     );
   }
 
-  // Agent 的可编辑草稿在场：正式内容只读，确认与编辑一并锁住，待 Agent 完成或丢弃这份修改。
   const agentEditing = quarantine != null;
-  // 已确认的脚本规划只读：保存端点按同一判据拒绝，内容修改改在时间线上做。
   const confirmed = status === "confirmed" && !agentEditing;
   const readOnly = confirmed || agentEditing;
   const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
-  // 已确认但该集没有正式脚本（迁移转换失败或文件被删）：确认仍可用，重新确认即转出正式脚本。
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = confirmed && !scriptMissing;
   const videoModelBlocked = modelUnresolved && !confirmLocked;
@@ -850,18 +823,14 @@ export function ScriptReviewGate({
           open={overwriteOpen}
           overwrite={overwrite}
           loading={confirming}
-          // 框在能力请求返回之前就可能被打开，之后答复模型无法解析：框内的确认按钮与触发它的
-          // 那颗按钮同一判据，否则这里还能提交一次注定被服务端拒绝的确认。
           confirmDisabled={confirmBlocked}
           onConfirm={async () => {
-            // 失败（如确认期间该集被并发写入）时框保持打开，呈现刷新后的覆盖清单。
             if (await handleConfirm({ overwriteRevision: overwrite.revision })) setOverwriteOpen(false);
           }}
           onCancel={() => setOverwriteOpen(false)}
         />
       )}
 
-      {/* 本集合计与项目目标的对比；未设目标时不渲染，超出只提示不阻断确认 */}
       <EpisodeDurationSummary
         totalSeconds={sumItemDuration(draft == null ? [] : "scenes" in draft ? draft.scenes : draft.segments)}
         targetSeconds={state?.episode_target_duration ?? null}

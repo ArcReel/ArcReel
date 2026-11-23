@@ -22,28 +22,9 @@ interface VersionTimeMachineProps {
   onRestore?: (version: number) => void | Promise<unknown>;
   iconOnly?: boolean;
   readOnly?: boolean;
-  /**
-   * 同资源正被生成/编辑占用（含 image_edit 乐观占用）：禁用版本恢复。
-   * image_edit 任务完成时会无条件把 current 覆盖为编辑结果，占用期间恢复旧版本会
-   * 显示成功但随后被编辑任务覆盖，用户最后一次选择丢失。
-   */
   busy?: boolean;
-  /**
-   * 版本恢复或删除的在途状态回传父级：`busy` 只做「外部占用 → 禁写入」这一向，兄弟控件
-   * （生成、上传）还需反向知道恢复正在写同一个资源文件，否则恢复返回前它们仍可点，
-   * 两个请求并发写同一路径、后完成者覆盖前者且双方都提示成功。
-   */
   onRestoringChange?: (restoring: boolean) => void;
-  /**
-   * 提交时刻的占用复核（新鲜读）：`busy` 是最近一次渲染的快照，版本面板打开期间
-   * Agent 入队、批量入口或轮询落库都可能占用该资源，新 prop 冲刷到按钮之前的点击
-   * 仍会发出恢复请求，与在跑的任务并发写同一个资源文件。返回 true 即拒绝本次恢复。
-   */
   checkBusy?: () => boolean;
-  /**
-   * 受控打开：由外部（如卡片的「更多」菜单）决定开合，不渲染自己的触发按钮，
-   * 弹层按 `anchor` 定位，关闭后焦点回到它。
-   */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   anchor?: RefObject<HTMLElement | null>;
@@ -57,7 +38,6 @@ function getImagePreviewHeightClass(
   return "h-64";
 }
 
-// 预览选中态记在所属资源身份与版本指纹之下：资源或其版本改变后不沿用另一份资源的选中
 interface VersionSelection {
   projectName: string;
   resourcePath: string;
@@ -67,14 +47,12 @@ interface VersionSelection {
 
 interface VersionDeleteButtonProps {
   version: number;
-  /** 不可删除的原因（当前版本、资源占用）；非空时图标置灰并说明，保留聚焦让键盘和读屏读得到原因。 */
   disabledReason: string | null;
   blocked: boolean;
   deleting: boolean;
   onConfirm: () => Promise<void>;
 }
 
-/** 版本旁的删除图标：点一下原地变成确认按钮，再点才移入项目回收站；Esc 或焦点离开即取消。 */
 function VersionDeleteButton({ version, disabledReason, blocked, deleting, onConfirm }: VersionDeleteButtonProps) {
   const { t } = useTranslation("dashboard");
   const [confirming, setConfirming] = useState(false);
@@ -104,12 +82,10 @@ function VersionDeleteButton({ version, disabledReason, blocked, deleting, onCon
         variant="destructive"
         size="xs"
         aria-label={t("version_delete_confirm_label", { version })}
-        // 确认期间版本变成当前版本或资源被占用时实时禁用；删除成功后这一项随版本移出而卸载
         disabled={deleting || blocked || disabledReason !== null}
         onBlur={(event) => dismissOnFocusLeave(event, dismiss)}
         onKeyDown={(event) => dismissOnEscape(event, dismiss)}
         onClick={(event) => {
-          // 双击图标的第二下落在同一位置，不算确认
           if (event.detail > 1) return;
           void onConfirm().finally(() => {
             returnFocusRef.current = true;
@@ -270,10 +246,6 @@ function VersionDetail({
   );
 }
 
-/**
- * 资源的历史版本：触发按钮打开弹层，列出版本号，选中一个即预览媒体与生成说明，
- * 非当前版本可切换为当前或移入项目回收站。弹层随触发按钮定位，滚动时跟随，不会自行关闭。
- */
 export function VersionTimeMachine({
   projectName,
   resourceType,
@@ -297,7 +269,6 @@ export function VersionTimeMachine({
     resourceType === "reference_videos" ? `reference_videos/${resourceId}.mp4` :
     resourceType === "audio" ? `audio/segment_${resourceId}.wav` :
     resourceType === "characters" ? `characters/${resourceId}.png` :
-    // 衍生的 resource id 本身是 `本体/衍生`，两段原样成为路径层级。
     resourceType === "character_derivatives" ? `characters/derivatives/${resourceId}.png` :
     resourceType === "scenes" ? `scenes/${resourceId}.png` :
     resourceType === "grids" ? `grids/${resourceId}.png` :
@@ -324,9 +295,7 @@ export function VersionTimeMachine({
   const writing = restoringVersion !== null || deletingVersion !== null;
   const currentPillRef = useRef<HTMLButtonElement>(null);
   const focusCurrentAfterDeleteRef = useRef(false);
-  // 删除失败后的补拉不切加载态：列表整块换成加载文字会丢掉键盘焦点
   const silentReloadRef = useRef(false);
-  // 面板会随选中项复用：删除返回时资源可能已切换，结果不能落到另一份资源的列表上
   const resourceKey = `${projectName}:${resourcePath}`;
   const resourceKeyRef = useRef(resourceKey);
   useEffect(() => {
@@ -363,19 +332,14 @@ export function VersionTimeMachine({
     return () => controller.abort();
   }, [open, resourceId, resourceFp, reload, loadVersions]);
 
-  // 删除成功后焦点所在的按钮随版本移出而消失，交给当前版本（预览也回到它）
   useEffect(() => {
     if (!focusCurrentAfterDeleteRef.current) return;
     focusCurrentAfterDeleteRef.current = false;
-    // 面板打开期间焦点可能已被用户移到别处，只接管确实丢失的焦点
     if (document.activeElement === document.body) currentPillRef.current?.focus();
   }, [versions]);
 
   async function handleRestore(version: number) {
-    // disabled 是响应式的 restoringVersion/busy：面板打开期间资源转为占用中时随之更新，
-    // 这里兜底防止禁用态生效前的一次点击仍发出恢复请求。
     if (busy || writing) return;
-    // 渲染快照之外再做一次新鲜读：状态已变、渲染未到的窗口里按钮仍可点。
     if (checkBusy?.()) {
       useAppStore.getState().pushToast(t("version_restore_busy_hint"), "error");
       return;
@@ -390,7 +354,6 @@ export function VersionTimeMachine({
         }
         await onRestore?.(version);
         setReload((current) => current + 1);
-        // 切换结果直接体现在「当前」标记与媒体上，成功时不弹提示；恢复已换了指纹，按最新指纹记选中
         setSelection({
           projectName,
           resourcePath,
@@ -410,7 +373,6 @@ export function VersionTimeMachine({
 
   async function handleDelete(info: VersionInfo) {
     const path = info.file;
-    // 占用期间不删：生成结算失败时要回退到上一个当前版本，版本记录被删后回退无处可去
     if (!path || busy || writing) return;
     if (checkBusy?.()) {
       useAppStore.getState().pushToast(t("version_delete_busy_hint"), "error");
@@ -447,7 +409,6 @@ export function VersionTimeMachine({
       })());
     } catch (err) {
       useAppStore.getState().pushToast(t("version_delete_failed", { version, message: errMsg(err) }), "error");
-      // 失败多半因为列表已过期（别处切换了当前版本或已删除）
       if (resourceKeyRef.current === startedFor) {
         silentReloadRef.current = true;
         setReload((current) => current + 1);

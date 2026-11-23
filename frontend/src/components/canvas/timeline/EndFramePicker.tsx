@@ -20,7 +20,6 @@ import { getScriptItems, type EditorContentMode } from "@/utils/script-shape";
 import { stripScriptsPrefix } from "@/utils/task-target";
 import { itemPositionLabel } from "@/utils/episode-display";
 
-/** 可选的项目内图片：path 是项目内相对路径，交给 /end-frame/select 做快照复制。 */
 interface PickableImage {
   path: string;
   label: string;
@@ -37,22 +36,12 @@ interface EndFramePickerProps {
   contentMode: EditorContentMode;
   aspectRatio: "9:16" | "16:9";
   onClose: () => void;
-  /** 选定项目内图片：交由父级调用设置 API（父级负责提交时刻的占用复核）。 */
   onPickProjectImage: (sourcePath: string) => void;
   onPickUpload: (file: File) => void;
-  /** 设置请求在途：禁用确认，避免重复提交。 */
   submitting?: boolean;
-  /** 弹窗打开后占用态发生变化（如本分镜被入队）：与提交在途一并禁用写入通道。 */
   disabled?: boolean;
 }
 
-/**
- * 尾帧选图器：单选，两条通道同一落点。
- *
- * 通道一是项目内图片按来源分组平铺（本集分镜图 / 本集宫格切图），
- * 选定后走 `/end-frame/select` 按相对路径快照复制；通道二是 header 的上传入口，
- * 走 `/end-frame/upload`。两者都不建立对源图的引用，源图后续变动不影响尾帧。
- */
 export function EndFramePicker({
   projectName,
   scriptFile,
@@ -72,8 +61,6 @@ export function EndFramePicker({
   const script = useProjectsStore((s) => s.currentScripts[scriptFile]);
   const [gridImages, setGridImages] = useState<PickableImage[]>([]);
 
-  // 宫格切图不在 store 里，弹窗打开时拉一次。取消走 AbortSignal：
-  // 弹窗在响应到达前被关闭时，不再往已卸载组件写 state。
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
@@ -99,7 +86,6 @@ export function EndFramePicker({
       })
       .catch(() => {
         if (signal.aborted) return;
-        // 宫格取不到不阻断选图：其余分组仍可用，空分组自然不渲染。
         setGridImages([]);
       });
     return () => {
@@ -124,7 +110,6 @@ export function EndFramePicker({
     <Dialog
       open
       onOpenChange={(open) => {
-        // 设置请求在途时忽略关闭：结果回来前关掉，成功与失败都无处落脚。
         if (!open && !submitting) onClose();
       }}
     >
