@@ -54,10 +54,6 @@ function SettingsBlock({
   );
 }
 
-/**
- * 「设置」Tab：市场源、GitHub 访问代理与官方服务。代理前缀是表单字段，经外壳底行的保存栏保存；
- * 市场源的增删、启停、排序与官方服务开关即时生效。这一区常驻，官方服务关闭后照常显示，是重新开启的入口。
- */
 export function MarketSettingsTab({
   active,
   sources,
@@ -112,7 +108,6 @@ export function MarketSettingsTab({
   );
 }
 
-/** 官方服务状态读取失败：保留区块与重试，否则「设置」里没有重新开启的入口。 */
 function OfficialServiceLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
   const { t } = useTranslation(["dashboard", "common"]);
   return (

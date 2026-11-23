@@ -11,12 +11,9 @@ export type ContentMode = "drama" | "narration" | "ad";
 
 export interface WizardBasicsValue {
   title: string;
-  /** 创作类型。null = 未选：必选，没有默认值。 */
   contentMode: ContentMode | null;
   aspectRatio: "9:16" | "16:9";
-  /** 生成模式，创建时锁定。null = 未选：必选，没有默认值。 */
   generationRoute: GenerationRoute | null;
-  /** 多宫格分镜装配开关；只对分镜图生视频有意义，广告项目不支持。 */
   gridStoryboard: boolean;
 }
 
@@ -83,13 +80,11 @@ export function WizardStepBasics({ value, onChange, titleRef }: WizardStepBasics
                 value={mode}
                 checked={value.contentMode === mode}
                 onChange={() =>
-                  // 广告项目不支持多宫格分镜：切到广告时清掉已打开的开关
                   onChange({ ...value, contentMode: mode, gridStoryboard: mode === "ad" ? false : value.gridStoryboard })
                 }
                 className="sr-only"
               />
               <span className="text-sm font-medium text-foreground">{t(labelKey)}</span>
-              {/* 选中项浅底上用中间档文字，保证对比度 */}
               <span className={cn("text-xs", value.contentMode === mode ? "text-subtle-foreground" : "text-muted-foreground")}>
                 {t(descKey)}
               </span>
@@ -123,7 +118,6 @@ export function WizardStepBasics({ value, onChange, titleRef }: WizardStepBasics
           onChange({
             ...value,
             generationRoute: next,
-            // 宫格是分镜图生视频内的装配选项：切到参考生视频即清空
             gridStoryboard: next === "storyboard" ? value.gridStoryboard : false,
           })
         }

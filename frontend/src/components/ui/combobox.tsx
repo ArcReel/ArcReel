@@ -84,7 +84,6 @@ function ComboboxInput({
   )
 }
 
-// 相对上游：搜索框保留不透明描边以满足 3:1，降低 input 填充不透明度以保留文字对比度。
 function ComboboxContent({
   className,
   side = "bottom",
@@ -106,7 +105,6 @@ function ComboboxContent({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
-        // 层级用 z-index token，与其他弹层原语一致
         className="isolate z-overlay"
       >
         <ComboboxPrimitive.Popup
@@ -120,7 +118,6 @@ function ComboboxContent({
   )
 }
 
-// 滚动条静止时可见：不用上游的 no-scrollbar（本仓 index.css 统一滚动条样式）
 function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
   return (
     <ComboboxPrimitive.List
@@ -216,7 +213,6 @@ function ComboboxSeparator({
   )
 }
 
-// 相对上游：降低 input 填充不透明度以保留文字对比度；失败态用完整红色描边与较强光晕。
 function ComboboxChips({
   className,
   ...props

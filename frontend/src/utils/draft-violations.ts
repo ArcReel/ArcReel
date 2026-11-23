@@ -3,7 +3,6 @@ import type { TFunction } from "i18next";
 import { itemPositionLabel } from "@/utils/episode-display";
 import { episodeItemKind } from "@/utils/episode-item";
 
-/** 草稿诊断按草稿下标称呼条目；提示词草稿可传正式剧本中的位置，避免按内部编号推算。 */
 export function draftViolationMessage(
   violation: Pick<ScriptReviewViolation, "message" | "label" | "item_id" | "item_index"> | DraftSoftViolation,
   t: TFunction,
@@ -28,10 +27,6 @@ function pushTo<V>(map: Map<number, V[]>, index: number, value: V): void {
   map.set(index, list);
 }
 
-/**
- * 按服务端下发的条目定位分组：优先取 `item_index`，只带 `item_id` 的按草稿里的条目 ID 找回下标。
- * 定位落在条目之外的违约（草稿已被改短、ID 已改名）归入整集层面，不会挂到不存在的条目上而消失。
- */
 export function groupDraftViolations(
   violations: ScriptReviewViolation[],
   itemIds: readonly string[],
@@ -47,7 +42,6 @@ export function groupDraftViolations(
   return { episodeLevel, byItem };
 }
 
-/** 降级提示按条目分组；`excludeCodes` 中的提示由调用方按当前正文实时判，不取服务端快照。 */
 export function groupSoftViolations(
   softViolations: DraftSoftViolation[],
   excludeCodes: ReadonlySet<string> = new Set(),

@@ -20,20 +20,9 @@ import { ONBOARDING_ANCHORS } from "./anchors";
 
 const DEMO_TOOL = "mcp__arcreel__generate_assets";
 
-/**
- * 演示工作台的 Agent 面板。
- *
- * 真实 Agent 面板（`AgentCopilot`）从头到尾都是写路径：建会话、SSE 订阅、跑工具，演示态一概不接。
- * 这里用消息区的同一套原语演出首次制作的时序：用户发「开始制作」→ 两条已完成的工序 → Agent 汇报
- * 推进。工序行的名称与摘要由真实会话同一个 `toolLabel` 生成，只是不可展开，不带参数与结果；
- * 输入框禁用并写「演示中不可用」。
- *
- * 引导第 7 步的 `workbench-agent` 锚点挂在根节点上，它占满 Agent 面板（见 `anchors.ts`）。
- */
 export function DemoAssistantPanel() {
   const { t } = useTranslation(["onboarding", "dashboard"]);
 
-  // 工序摘要列出演示项目里的资产名，随界面语言重建。
   const work = useMemo(() => {
     const names = (kind: "character" | "scene") => [1, 2, 3].map((n) => t(`onboarding:demo_${kind}_${n}_name`));
     return [

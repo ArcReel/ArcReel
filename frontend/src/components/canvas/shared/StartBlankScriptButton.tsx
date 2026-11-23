@@ -24,16 +24,11 @@ import { errMsg } from "@/utils/async";
 interface Props {
   projectName: string;
   episode: number;
-  /** 本集有未确认的脚本规划或待修复草稿：先确认弃置再建正式脚本。 */
   discardsPlan: boolean;
   variant?: "outline" | "ghost";
   className?: string;
 }
 
-/**
- * 「从空白开始」：本集没有正式脚本时建出空的正式脚本，之后在时间线上逐条添加分镜。
- * 成功后刷新项目，集页随正式脚本出现切到分镜。会弃置规划时先用 AlertDialog 确认。
- */
 export function StartBlankScriptButton({ projectName, episode, discardsPlan, variant = "outline", className }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -102,10 +97,6 @@ export function StartBlankScriptButton({ projectName, episode, discardsPlan, var
   );
 }
 
-/**
- * 没有脚本规划可走的集（广告/短片）在没有正式脚本时的画布：说明现状，「AI 生成脚本」与「从空白开始」并排。
- * 缺创作灵感与商品时「AI 生成脚本」置灰，并给出去填写的链接。
- */
 export function NoScriptBlankState({ projectName, episode, className }: { projectName: string; episode: number; className?: string }) {
   const { t } = useTranslation("dashboard");
   const { refusedReason } = useAdScriptEntry(projectName, episode);

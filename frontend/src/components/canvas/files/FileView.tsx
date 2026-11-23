@@ -28,10 +28,6 @@ type DirectoryState =
   | { status: "error"; message: string }
   | { status: "ready"; entries: FileViewEntry[] };
 
-/**
- * 已加载的目录（键为项目内相对路径，根目录为空串），目录展开时才请求它的子项；`refreshKey` 变化时重拉加载过的目录。
- * 还没有结果的目录按加载中显示；刷新时保留旧列表直到新结果到达，重试时由调用方先标成加载中。
- */
 function useDirectories(projectName: string, refreshKey: number) {
   const [directories, setDirectories] = useState<Record<string, DirectoryState>>({});
   const controllersRef = useRef(new Map<string, AbortController>());
@@ -66,7 +62,6 @@ function useDirectories(projectName: string, refreshKey: number) {
     [projectName],
   );
 
-  // 手动刷新，或项目回收站有增删（含 Agent 发起的删除与恢复）时，文件可能离开或回到目录树：重拉加载过的目录。
   const trashRevision = useAppStore((s) => s.trashRevision);
   useEffect(() => {
     const paths = loadedRef.current.size > 0 ? [...loadedRef.current] : [""];
@@ -81,8 +76,6 @@ function useDirectories(projectName: string, refreshKey: number) {
     [load],
   );
 
-  // 已移入回收站的文件立即从所在目录拿掉，不等重拉：否则解除占用后它还在树里，可以被再删一次。
-  // 所在目录的在途请求可能早于这次删除，先取消；随后的重拉以服务端为准。
   const dropEntry = useCallback((path: string) => {
     const parent = parentPath(path);
     controllersRef.current.get(parent)?.abort();
@@ -107,20 +100,12 @@ function findEntry(directories: Record<string, DirectoryState>, path: string): F
 
 type FileViewSection = "files" | "trash";
 
-/**
- * 项目级「文件」视图，分「文件」与「回收站」两个分区。
- * 文件分区：左侧按磁盘目录树列出项目文件，目录按需展开；右侧是选中文件的角色、预览、下载与所属界面入口。
- * 只有未引用文件能在这里移入回收站；被引用的文件跳到所属界面修改，未纳入整本源文的源文件交给「分集」。
- */
 export function FileView({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
   const [section, setSection] = useState<FileViewSection>("files");
-  // 回收站分区首次打开时才挂载；之后两个分区常驻，切换只隐藏，在途写操作的占用不随卸载丢失。
   const [trashMounted, setTrashMounted] = useState(false);
-  // 「刷新」重拉已挂载的分区：两个分区都把它和回收站失效信号一起作为重拉条件。
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // 分区面板放在 Tabs 之外，选项卡与面板的关联手动连上
   const id = useId();
   const tabId = (value: FileViewSection) => `${id}-${value}-tab`;
   const panelId = (value: FileViewSection) => `${id}-${value}-panel`;
@@ -134,7 +119,6 @@ export function FileView({ projectName }: { projectName: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* 分区与刷新靠左：窄屏下 Agent 面板浮在画布右侧，靠右的控件会被盖住 */}
       <header className="flex shrink-0 flex-col gap-2 border-b border-border px-6 py-3">
         <div className="min-w-0">
           <h1 className="text-base font-semibold">{t("file_view_title")}</h1>
@@ -403,7 +387,6 @@ function FileDetail({
   const [downloading, setDownloading] = useState(false);
   const target = ownerTarget(entry.owner, projectName);
   const unreferencedSource = entry.role === "unreferenced" && entry.owner?.kind === "source";
-  // 只有未引用文件能在这里删除；服务端同样校验，这里只决定是否给出按钮。
   const deletable = canDeleteFile(entry);
   const description = entry.role
     ? t(unreferencedSource ? "file_view_role_desc_unreferenced_source" : `file_view_role_desc_${entry.role}`)
@@ -476,7 +459,6 @@ function FileDetail({
       <div className="flex flex-col gap-4 px-6 py-4">
         {description ? <p className="text-sm text-subtle-foreground">{description}</p> : null}
         {entry.remote_only ? <p className="text-sm text-subtle-foreground">{t("file_view_remote_only_desc")}</p> : null}
-        {/* 同一路径的文件被改写后（修改时间或大小变化）重新挂载：等待新内容时显示加载中，不沿用旧预览 */}
         <FilePreview key={`${entry.modified_at}:${entry.size}`} projectName={projectName} entry={entry} />
       </div>
     </DetailPane>

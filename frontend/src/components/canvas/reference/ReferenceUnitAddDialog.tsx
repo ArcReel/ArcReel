@@ -15,10 +15,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-/**
- * 新增视频单元前填写正文。正文是单元唯一的内容真相，空正文的单元服务端以 needs_replan
- * 拒绝创建，因此正文为空时不能提交。正文由调用方持有：失败后原样保留，重新打开时清空。
- */
 export function ReferenceUnitAddDialog({
   open,
   prompt,

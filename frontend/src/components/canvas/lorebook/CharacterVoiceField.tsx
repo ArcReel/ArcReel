@@ -38,7 +38,6 @@ function formatAudioDuration(seconds: number | null): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-/** 参考音频的试听条。换音源时由调用方以 key 重建，播放进度不残留。 */
 function AudioPlayer({ src }: { src: string }) {
   const { t } = useTranslation(["dashboard", "assets"]);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -97,10 +96,6 @@ interface CharacterVoiceFieldProps {
   busy?: boolean;
 }
 
-/**
- * 角色的「声音」：声音风格进入未保存修改；参考音频的上传、删除与 TTS 生成样本立即执行。
- * 项目用提示词约束角色声音时参考音频不生效，折叠起来并说明怎样才生效。
- */
 export function CharacterVoiceField({
   projectName,
   name,
@@ -119,7 +114,6 @@ export function CharacterVoiceField({
   const [deleting, setDeleting] = useState(false);
   const track = useTrackWrite();
   const audioFp = useProjectsStore((s) => (referenceAudio ? s.getAssetFingerprint(referenceAudio) : null));
-  // 同扩展名替换（如 wav 换 wav）路径不变，靠指纹才能感知内容已更新
   const audioUrl = referenceAudio ? API.getFileUrl(projectName, referenceAudio, audioFp) : null;
   const disabled = busy || uploading || deleting;
 
@@ -142,7 +136,6 @@ export function CharacterVoiceField({
     }
   };
 
-  // 打开确认框与确认删除时都复核占用态
   const requestDelete = () => {
     if (disabled || rejectIfAssetBusy("character", projectName, name, t, "assets:delete_audio_busy_hint")) return;
     setConfirmingDelete(true);

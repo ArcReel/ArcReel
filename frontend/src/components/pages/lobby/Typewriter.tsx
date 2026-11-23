@@ -16,7 +16,6 @@ interface TypewriterProps {
   startDelay?: number;
   segmentGap?: number;
   caret?: boolean;
-  /** 同一 once key 同会话内只播放一次；后续 mount 直接显示完成态 */
   once?: string;
   className?: string;
   onDone?: () => void;
@@ -30,10 +29,6 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/**
- * 打字机吐字效果，按 segments 串行播放；首段尾部插入 `after`（如 <br />）后再起第二段。
- * 标点和段落边界自动延长停顿，节奏贴近电影编辑机。
- */
 export function Typewriter({
   segments,
   speed = 72,
@@ -53,8 +48,6 @@ export function Typewriter({
 
   const [pos, setPos] = useState(skip ? totalLen : 0);
   const [phase, setPhase] = useState<"typing" | "linger" | "done">(skip ? "done" : "typing");
-  // 文案 / skip 变化时立即重置进度，避免新文案被截断或卡在 done
-  // (React 19 推荐的 render-time setState 模式：snapshot prev，发现 diff 时同步 setState 触发重渲)
   const [prevSnapshot, setPrevSnapshot] = useState({ fullText, skip });
   if (prevSnapshot.fullText !== fullText || prevSnapshot.skip !== skip) {
     setPrevSnapshot({ fullText, skip });
@@ -66,9 +59,6 @@ export function Typewriter({
     onDoneRef.current = onDone;
   }, [onDone]);
 
-  // segments 抓在 ref 里：调用方常常内联构造 segments，每次重渲都生成新引用；
-  // 若把 segments 写进 effect 依赖，父组件无关重渲就会清旧定时器、重新 tick(0)，
-  // 后续 setPos(next) 会把 pos 倒退回首字。fullText 才是真正的内容键。
   const segmentsRef = useRef(segments);
   useEffect(() => {
     segmentsRef.current = segments;

@@ -9,13 +9,6 @@ interface Props {
   className?: string;
 }
 
-/**
- * 逐条问题的清单。每行按「在哪 · 什么原因 · 下一步」固定顺序陈述；带服务端原文的（数据损坏的
- * 阻断、批量端点的结论）把原文收进 `<details>`——先给一句能读懂的，排障细节要展开才出现。
- *
- * 这里只陈述，不提供动作按钮：动作属于步骤，由步骤自己按后端给的 `next_action` 呈现。
- * 问题行长出按钮就等于界面在替用户推断下一步，那正是这个面板要避免的事。
- */
 export function ProblemList({ problems, labelledBy, className }: Props) {
   const { t } = useTranslation("workflow");
   if (problems.length === 0) return null;

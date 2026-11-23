@@ -23,10 +23,6 @@ import { formatShortDateTime } from "@/utils/date-format";
 
 import { INDEX_LINE_LIMIT, memoryFilePath, type MemoryEntry } from "./memory-files";
 
-/**
- * `pane`：全出血区段的详情栏，编辑框占满正文高度、在框内滚动。
- * `flow`：限宽页里随页面主体滚动，编辑框随内容撑高到上限（半个视口高，整块编辑器在最矮的视口里也放得下）。
- */
 export type MemoryEditorLayout = "pane" | "flow";
 
 interface MemoryFileEditorProps {
@@ -34,19 +30,11 @@ interface MemoryFileEditorProps {
   entry: MemoryEntry;
   dir: string;
   layout: MemoryEditorLayout;
-  /** 保存成功后重取文件列表（说明、修改时间与索引行数随之更新）。 */
   onSaved: () => void;
   onDelete: () => void;
   onClear: () => void;
 }
 
-/**
- * 单个记忆文件的原文编辑器：含 frontmatter 的 Markdown 纯文本，不渲染。一个文件是一个编辑单元，
- * 未保存修改由内联提示条保存或放弃，切换文件、切换分页或离开时经离开拦截询问。
- *
- * 由调用点按文件名 remount（`key`），未保存修改与加载状态都属于上一个文件。
- * 保存是纯覆盖 PUT，服务端无冲突检测，后写者生效。
- */
 export function MemoryFileEditor({ scope, entry, dir, layout, onSaved, onDelete, onClear }: MemoryFileEditorProps) {
   const { t } = useTranslation("dashboard");
   const [content, setContent] = useState<string | null>(null);
@@ -64,7 +52,6 @@ export function MemoryFileEditor({ scope, entry, dir, layout, onSaved, onDelete,
         setContent(raw);
       } catch (err) {
         if (controller.signal.aborted) return;
-        // 列表里的文件可能已被 Agent 删除或读不出来；不落错误态就会永远停在加载态。
         setLoadError(errMsg(err));
       }
     };
@@ -82,7 +69,6 @@ export function MemoryFileEditor({ scope, entry, dir, layout, onSaved, onDelete,
     />
   );
 
-  // 详情栏的正文没有内边距，由编辑器自己给；限宽页里正文贴齐文件头
   const inset = layout === "pane" ? "px-6 py-4" : "";
   let body: ReactNode;
   if (loadError !== null) {
@@ -228,7 +214,6 @@ function LoadedMemoryEditor({
 
   const editor = (
     <Textarea
-      // 记忆是 Markdown 原文，按代码类输入用等宽字体
       mono
       value={unit.value}
       aria-label={filename}
@@ -239,7 +224,6 @@ function LoadedMemoryEditor({
   );
 
   const body = (
-    // 宽窗口下编辑框限宽，Markdown 原文的行不会横跨整栏
     <div className={cn("flex flex-col gap-3", layout === "pane" && "h-full min-h-72 max-w-252 px-6 py-4")}>
       <div className="flex min-h-0 flex-1 flex-col">{editor}</div>
       <UnsavedChangesBar unit={unit} className="shrink-0" />

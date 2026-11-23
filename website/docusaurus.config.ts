@@ -35,7 +35,6 @@ const config: Config = {
       "classic",
       {
         docs: {
-          // docs-only 模式：文档直接挂在站点根，因此 src/pages/index.* 不能存在（路由冲突）
           routeBasePath: "/",
           sidebarPath: "./sidebars.ts",
           editUrl: "https://github.com/ArcReel/ArcReel/tree/main/website/",

@@ -1,7 +1,3 @@
-/**
- * 顶层应用路由常量 —— 唯一真相源，`router.tsx` 的 `<Switch>` 路由表与
- * `OnboardingTour` 的主界面判断都从这里取值，避免两处字面量各自维护、悄悄漂移。
- */
 
 export const ROUTE_APP = "/app";
 export const ROUTE_APP_PROJECTS = "/app/projects";
@@ -25,12 +21,6 @@ export const SETTINGS_SECTIONS = [
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
-/**
- * 全局设置某个分区的地址；`params` 是该分区自己的定位参数，如使用记录的 `record`。
- * 分区名由 `SettingsSection` 校验，分区改名时 typecheck 报出全部旧链接。
- * 在嵌套路由里跳转时在前面加 `~`：`` `~${settingsSectionPath("usage")}` ``。
- * 供应商与调用端点的地址用 `providerSettingsPath` 与 `endpointSettingsPath`，不手拼查询参数。
- */
 export function settingsSectionPath(section: SettingsSection, params: Record<string, string> = {}): string {
   return `${ROUTE_APP_SETTINGS}?${new URLSearchParams({ section, ...params }).toString()}`;
 }
@@ -44,10 +34,6 @@ export function parseMarketMedia(value: string | null | undefined): MarketMediaT
   return MARKET_MEDIA_TYPES.find((media) => media === value) ?? null;
 }
 
-/**
- * 全局设置「市场」分区某个 Tab 的地址（`tab=`）。
- * 传 `media` 时写成 `media=<媒体类型>`，「浏览」打开时按它预设媒体类型筛选；市场没有的媒体类型（文本、音频）不写。
- */
 export function marketSettingsPath(tab: MarketTab = "browse", options: { media?: string | null } = {}): string {
   const params: Record<string, string> = tab === "browse" ? {} : { tab };
   const media = parseMarketMedia(options.media);
@@ -55,14 +41,6 @@ export function marketSettingsPath(tab: MarketTab = "browse", options: { media?:
   return settingsSectionPath("market", params);
 }
 
-/**
- * 「供应商」分区里要定位的对象，对应的地址参数：
- * - `{ preset, model? }` → `provider=<预置供应商 id>`；
- * - `{ custom, model? }` → `custom=<自定义供应商 id>`；
- *   两者带 `model=<模型 ID>` 时打开这个模型的 Sheet；
- * - `{ newCustom }` → `custom=new`，可带 `endpoint=<端点 key>` 与 `base_url=<接口地址>` 预填新建表单
- *   （调用端点的「新建供应商并使用」）。
- */
 export type ProviderTarget =
   | { preset: string; model?: string }
   | { custom: number; model?: string }
@@ -85,11 +63,6 @@ export function providerSettingsPath(target: ProviderTarget): string {
   return settingsSectionPath("providers", params);
 }
 
-/**
- * 全局设置「调用端点」分区中某个端点的地址：`endpoint=<端点 key>`。
- * 从自定义供应商跳来时传 `fromCustomProvider`，写成 `from=<自定义供应商 id>`：端点页据此在顶部显示
- * 「返回『供应商名』」，返回地址是 `providerSettingsPath({ custom: from })`。
- */
 export function endpointSettingsPath(endpointKey?: string, options: { fromCustomProvider?: number } = {}): string {
   const params: Record<string, string> = {};
   if (endpointKey) params.endpoint = endpointKey;
@@ -99,21 +72,11 @@ export function endpointSettingsPath(endpointKey?: string, options: { fromCustom
 
 export const APP_TOP_LEVEL_ROUTES = [ROUTE_APP, ROUTE_APP_PROJECTS, ROUTE_APP_SETTINGS, ROUTE_APP_ASSETS] as const;
 
-/**
- * `/app/projects/:projectName` 下的路由段常量——`router.tsx`（项目设置页）与
- * `StudioCanvasRouter`（内层 `<Switch>`）的 `<Route path>` 都从这里取值，
- * `APP_PROJECT_WORKSPACE_PATTERN` 同样由它们拼出，新增/改名路由只需改这一处。
- */
 export const WORKSPACE_ROUTE_SETTINGS = "settings";
 
 export const PROJECT_SETTINGS_TABS = ["basics", "style", "models", "voice", "memory", "agent"] as const;
 export type ProjectSettingsTab = (typeof PROJECT_SETTINGS_TABS)[number];
 
-/**
- * 项目设置某个分页的地址（顶层路由的绝对路径）。不传 `tab` 时落在默认的「基础」。
- * `params` 是分页自己的地址参数，如项目记忆选中的文件（`file=`）。
- * 在项目工作区的嵌套路由里跳转时在前面加 `~`。
- */
 export function projectSettingsPath(
   projectName: string,
   tab?: ProjectSettingsTab,
@@ -141,8 +104,6 @@ export function episodeEditViewPath(episode: number, timelineId?: string): strin
   return `/${WORKSPACE_ROUTE_EPISODES}/${episode}?${query.toString()}`;
 }
 
-/** 无子路径、直接匹配的工作区叶子路由段。`episodes` 除了「分集」视图本身还接受 `/:episodeId`（集页），
- *  在下面的正则里额外拼一条 `episodes/[^/]+` 分支覆盖后者。 */
 const WORKSPACE_STATIC_LEAF_ROUTES = [
   WORKSPACE_ROUTE_SETTINGS,
   WORKSPACE_ROUTE_EPISODES,

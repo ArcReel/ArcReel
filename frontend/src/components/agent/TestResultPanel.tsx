@@ -31,7 +31,6 @@ export function TestResultPanel({ result }: Props) {
 
       {diagnosis && <p className="text-subtle-foreground">{t(`diagnosis_${diagnosis}`)}</p>}
 
-      {/* 探测的就是 Agent 运行时调用的地址，二者同一个字符串 */}
       <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
         <span>{t("messages_url")}</span>
         <TruncatedText text={messages_url} className="font-mono" />

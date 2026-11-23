@@ -1,10 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { cn } from "cn";
 
-/**
- * 换图时交叉淡入：新图加载完成前保留上一张，加载后在上一张之上淡入，过渡结束再移除上一张。
- * 首次加载同样淡入；没有图或新图加载失败时显示占位，不让上一张冒充新图。只过渡透明度，减少动态效果时由全局规则保留。
- */
 export function CrossfadeImage({
   src,
   alt,
@@ -17,7 +13,6 @@ export function CrossfadeImage({
   alt: string;
   fallback: ReactNode;
   className?: string;
-  /** 透传给图片元素；列表里的卡片传 `"lazy"`，滚到视口附近才加载。 */
   loading?: "lazy" | "eager";
   onError?: () => void;
 }) {

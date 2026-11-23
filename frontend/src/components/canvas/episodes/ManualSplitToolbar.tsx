@@ -22,9 +22,6 @@ interface ManualSplitToolbarProps {
   onCancel: () => void;
 }
 
-/**
- * 插入光标下方的浮动操作条：预览分出的体量，确认或取消。←/→ 微调与 Enter / Esc 由视图统一接管。
- */
 export function ManualSplitToolbar({
   view,
   episodes,

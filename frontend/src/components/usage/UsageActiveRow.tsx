@@ -12,7 +12,6 @@ import type { UsageRecordView } from "./usage-record-view";
 
 interface UsageActiveRowProps {
   view: UsageRecordView;
-  /** 有任务代表的行才可能可取消；无任务的 pending 调用为 null。 */
   task: TaskItem | null;
   providerLabel: (provider: string | null) => string;
   onCancel?: (taskId: string) => void;
@@ -27,11 +26,6 @@ const TASK_STATUS_KEYS: Record<TaskItem["status"], string> = {
   cancelled: "cancelled_status",
 };
 
-/**
- * 进行中区的一行。左栏同时容纳两种来源：任务 store 里项目内进行中的任务，以及没有
- * 任务代表的 pending 调用（剧本生成、助手会话一类）。只有排队中的任务可取消：
- * 已开始执行的任务照常跑完，pending 调用没有任务可取消。
- */
 export function UsageActiveRow({
   view,
   task,

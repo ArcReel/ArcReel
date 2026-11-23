@@ -18,25 +18,15 @@ export interface AssetEditorSheetProps {
   assetType: AssetSheetType;
   assets: Record<string, GalleryAssetSource>;
   target: AssetEditorTarget | null;
-  /** 切换、关闭、改名与创建完成都经这里改选中项；有未保存修改时已先经离开拦截放行。 */
   onTargetChange: (target: AssetEditorTarget | null) => void;
-  /** 上一个与下一个的顺序，如画廊筛选后的资产名；当前资产不在其中时按全部资产的顺序。 */
   order?: readonly string[];
   statusByName: ReadonlyMap<string, AssetSheetStatusRow>;
   generatingNames?: ReadonlySet<string>;
-  /** 卡片上本地上传等写入，与详情里的入口互斥。 */
   writingNames?: ReadonlySet<string>;
   readOnly: boolean;
   onGenerate: (name: string) => unknown;
 }
 
-/**
- * 资产详情 Sheet：右侧约 560px、覆盖全视口的模态弹层，可以盖住 Agent 面板。头部有上一个与下一个，
- * 切换资产与关闭 Sheet 时有未保存修改先经离开拦截询问。
- *
- * 正在编辑的资产被外部删除或改名（如 Agent 的改动）时，有未保存修改就继续显示原来的内容，
- * 在底部提示条上说明；保存或放弃之后才关闭。
- */
 export function AssetEditorSheet({
   projectName,
   assetType,
@@ -52,25 +42,20 @@ export function AssetEditorSheet({
 }: AssetEditorSheetProps) {
   const { t } = useTranslation(["assets", "common"]);
   const confirmLeave = useConfirmLeave();
-  // 自己刚改的名：项目数据刷新之前新名称还不在 assets 里，先沿用旧名下的内容
   const [renamed, setRenamed] = useState<{ from: string; to: string } | null>(null);
-  // 编辑器的会话：打开、切换资产或创建完成时换一个新编辑器；自己改名不换，未保存修改不丢
   const targetKey = target === null ? null : target.mode === "create" ? "create" : `edit:${target.name}`;
   const [session, setSession] = useState({ key: targetKey, id: 0 });
   if (session.key !== targetKey) {
     const selfRename =
       renamed !== null && targetKey === `edit:${renamed.to}` && session.key === `edit:${renamed.from}`;
-    // 关闭时不换：关闭动画期间仍是原来的编辑器
     setSession({ key: targetKey, id: selfRename || targetKey === null ? session.id : session.id + 1 });
     if (!selfRename && renamed !== null) setRenamed(null);
   }
-  // 新名称已进项目数据：桥接结束，之后旧名下出现的是别的资产
   if (renamed !== null && session.key === `edit:${renamed.to}` && assets[renamed.to]) setRenamed(null);
 
   const name = target?.mode === "edit" ? target.name : null;
   const live =
     name === null ? undefined : (assets[name] ?? (renamed?.to === name ? assets[renamed.from] : undefined));
-  // 外部删除或改名后 live 为空，保留期间与关闭动画期间沿用最后一次的内容
   const [last, setLast] = useState<{ name: string; asset: GalleryAssetSource } | null>(null);
   if (name !== null && live && (last?.name !== name || last.asset !== live)) setLast({ name, asset: live });
   const [held, setHeld] = useState(false);

@@ -24,19 +24,12 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   providerId: string;
   providerName: string;
-  /** 内置供应商：「未启用的模型」一组只有内置供应商有，选中即启用。 */
   builtin: boolean;
-  /** 供应商当前的模型列表：取「未启用的模型」，并把已添加的目录条目标出来。 */
   models: ProviderModelItem[];
   onAdded: (model: ProviderModelItem) => void;
-  /** 「目录中找不到？手动填写」：带当前搜索词；不给时不显示这一入口。 */
   onManualEntry?: (query: string) => void;
 }
 
-/**
- * 「添加模型」对话框：搜索模型名称或输入模型 ID，可按媒体类型筛选。分组为「未启用的模型」（仅内置供应商，选中即启用）、
- * 「按模型 ID 添加」与「模型目录」。模型 ID 与名字的对应规则由服务端执行（docs/adr/0105）。
- */
 export function AddModelDialog({ open, onOpenChange, providerName, ...rest }: Props) {
   const { t } = useTranslation("dashboard");
   return (
@@ -166,7 +159,6 @@ function AddModelBody({
                   <CommandItem
                     key={`${entry.maker}/${entry.name}/${entry.media_type}`}
                     value={`entry:${entry.maker}/${entry.name}/${entry.media_type}`}
-                    // 结果就绪前，上一次的结果仍显示但不可选
                     disabled={busy || already || !search.settled}
                     onSelect={() =>
                       add({
@@ -184,7 +176,6 @@ function AddModelBody({
             </CommandGroup>
           )}
       </CommandList>
-      {/* 列表只放选项（listbox 的子元素要求），目录读取失败的说明与重试放在列表之外 */}
       {search.error !== null && (
         <div role="alert" className="flex flex-col items-start gap-2 border-t border-border px-3 py-3 text-sm">
           <p>{t("catalog_picker_load_failed")}</p>

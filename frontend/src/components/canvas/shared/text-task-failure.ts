@@ -8,7 +8,6 @@ export interface EpisodeTextTaskFailure {
   task: TaskItem;
 }
 
-/** 文本任务是否属于这一集：脚本规划与提示词编写占 `episode-{N}`，AI 修复占 `episode-{N}-{doc_type}`。 */
 function episodeTextTaskKind(task: TaskItem, episode: number): EpisodeTextTaskKind | null {
   const kind = taskResourceKind(task);
   const slot = `episode-${episode}`;

@@ -29,9 +29,6 @@ function checkDocTranslations() {
   );
 }
 
-// 全部标题须带 `{#id}`（各 locale 共用锚点作为链接目标）。译文与源同结构、受同一套规则约束：
-// 只扫源的话，译文漏写 `{#id}` 只有在恰好有链接指向该锚点时才会被 build 期 onBrokenAnchors 拦下。
-//
 // index.mdx 的首页卡片标题是 JSX `<h2>`，`{#id}` 语法在 JSX 里不生效，无法补锚点。这里显式登记
 // 豁免文件，而不是让扫描器对 JSX 标题沉默：新增 .mdx 若引入未登记的 JSX 标题会在此处 fail，逼
 // 审查者显式决定豁免还是改回 Markdown 标题；已登记文件若不再含 JSX 标题也会 fail（登记项过期，

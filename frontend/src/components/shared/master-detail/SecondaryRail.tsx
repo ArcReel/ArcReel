@@ -7,21 +7,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export interface SecondaryRailItem {
-  /** 在整个二级栏内唯一，与 `activeId` 比较。 */
   id: string;
   label: string;
   description?: string;
   icon: ReactNode;
-  /** 选中这一项的地址。选中项记在地址里，切换经路由，离开拦截因此覆盖切换。 */
   href: string;
 }
 
 export interface SecondaryRailGroup {
   id: string;
-  /** 多组时是 Tab 名；紧凑档是这一组列表的可访问名称。 */
   label: string;
   items: SecondaryRailItem[];
-  /** 组末尾的动作条目，如「添加自定义供应商」。不计入 Tab 上的数量。 */
   action?: SecondaryRailItem;
   emptyText?: string;
 }
@@ -30,21 +26,9 @@ interface SecondaryRailProps {
   label: string;
   groups: SecondaryRailGroup[];
   activeId: string | null;
-  /** 切换时替换当前历史记录，浏览器「后退」不在条目之间来回。 */
   replace?: boolean;
 }
 
-/**
- * 全出血主从布局的二级栏（供应商、调用端点、Agent 记忆共用），自己滚动。
- *
- * 按 `@container/page` 的宽度切换两种形态，不读视口：
- * - 标准档（内容区不窄于 64rem）：264px，条目两行（名称；状态或数量）。多组时顶部是 Tab，每次只列一组，
- *   Tab 带数量；没有手动切换过时 Tab 跟随选中项所在的组，手动切换后记住。
- * - 紧凑档：56px 图标栏，悬停或聚焦显示名称与第二行，多组上下叠放。
- *
- * 两种形态都在 DOM 里，靠容器查询只显示一种；被隐藏的那份是 `display: none`，不进入可访问树。
- * jsdom 不计算样式，Vitest 中两份都可见：按条目查询时限定在 `getByRole("tabpanel")` 内，或用 `getAllBy*`。
- */
 export function SecondaryRail({ label, groups, activeId, replace }: SecondaryRailProps) {
   const [chosenTab, setChosenTab] = useState<string | null>(null);
   const selectedGroup = groups.find(
@@ -98,10 +82,6 @@ export function SecondaryRail({ label, groups, activeId, replace }: SecondaryRai
   );
 }
 
-/**
- * 标准档的条目列表：两行条目（名称；状态或数量）加组末尾的动作条目，自身不滚动。
- * 限宽页里放不下二级栏时（如项目设置的「项目记忆」），单独用它列出条目，由页面主体滚动。
- */
 export function SecondaryRailList({
   group,
   activeId,

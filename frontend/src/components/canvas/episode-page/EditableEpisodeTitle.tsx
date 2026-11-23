@@ -9,9 +9,7 @@ import { Input } from "@/components/ui/input";
 interface EditableEpisodeTitleProps {
   title: string;
   placeholder?: string;
-  /** 保存回调；reject 时组件保持编辑态，错误提示由调用方负责（如 toast）。 */
   onSave: (next: string) => Promise<void>;
-  /** false 时纯展示、不暴露编辑入口（如无剧本文件的分集）。 */
   canEdit: boolean;
 }
 
@@ -22,8 +20,6 @@ export function EditableEpisodeTitle({ title, placeholder, onSave, canEdit }: Ed
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // draft 仅在编辑态被读取，进入编辑前必经 enterEdit/cancel 用当前 title 重新播种，
-  // 故无需 effect 跟随 title prop 同步（展示态直接渲染 title prop）。
   useEffect(() => {
     if (isEditing) {
       inputRef.current?.focus();
@@ -77,7 +73,6 @@ export function EditableEpisodeTitle({ title, placeholder, onSave, canEdit }: Ed
           onChange={(e) => setDraft(e.target.value)}
           placeholder={placeholder}
           onKeyDown={(e) => {
-            // 输入法组合输入中（如中文拼音）按 Enter 是在确认候选词，不应触发保存
             if (e.nativeEvent.isComposing) return;
             if (e.key === "Enter") {
               e.preventDefault();

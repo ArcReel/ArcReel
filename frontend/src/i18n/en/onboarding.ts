@@ -42,7 +42,6 @@ export default {
   'demo_action_unavailable': 'Unavailable in the demo',
   'demo_episode_placeholder': 'The demo only goes up to episode {{position}}: this one has a title but no script or shots.',
 
-  // Static conversation in the demo workbench agent panel: the user starts production, then the agent reports progress; the work rows in between are built from asset names
   'demo_chat_user_start': 'Start production',
   'demo_chat_agent_progress': 'Character images and scene images are done. Next I\'ll generate storyboard images and videos episode by episode and report progress here.',
 

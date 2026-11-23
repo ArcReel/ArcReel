@@ -25,7 +25,6 @@ import { useAssetPages } from "./useAssetPages";
 
 interface Props {
   type: AssetType;
-  /** 项目里已有的同类资产名，对应条目不可选。 */
   existingNames: Set<string>;
   onClose: () => void;
   onImport: (assetIds: string[]) => void;

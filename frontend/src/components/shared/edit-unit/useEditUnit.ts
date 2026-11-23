@@ -11,52 +11,28 @@ export type SaveStatus = "idle" | "saving" | "saved" | "error";
 const SAVED_DISPLAY_MS = 2000;
 
 export interface EditUnitOptions<T> {
-  /**
-   * 已保存的内容：加载结果，以及之后 SSE 推送、Agent 改写带来的新值。
-   * 没有未保存修改时新值直接生效；有未保存修改时保留修改，并标出外部更新。
-   */
   source: T;
-  /**
-   * 提交未保存修改。`savedValue` 是提交前的已保存内容，供按字段生成增量 PATCH。
-   * 返回服务端保存后的内容；不返回时以提交的内容为准。抛错即保存失败，错误信息显示在保存栏或提示条上。
-   * 一次保存分几步提交、前几步已经落盘时抛 `PartialSaveError`。需传稳定引用（`useCallback`）。
-   */
   save: (value: T, savedValue: T) => Promise<T | void>;
-  /** 判断两份内容是否相同，默认按 JSON 序列化比较。需传稳定引用（或模块级函数）。 */
   isEqual?: (a: T, b: T) => boolean;
   leaveTitle?: string;
-  /**
-   * 对返回 true 的应用内导航不拦截，用于不会卸载本编辑单元的跳转（如同一编辑单元的分页切换）。
-   * 参数是带查询串的目标路径。需传稳定引用。
-   */
   allowNavigation?: (to: string) => boolean;
 }
 
 export interface SaveAndGenerateOptions {
-  /** 保存前的确认（如「重新生成会让下游失效」），返回 false 时什么都不保存、不生成。 */
   confirm?: () => boolean | Promise<boolean>;
 }
 
 export interface EditUnit<T> {
   value: T;
-  /** 已保存的内容。按字段子集判断修改（如侧栏分页的修改标记）时与 `value` 比较。 */
   savedValue: T;
   setValue: (next: T | ((prev: T) => T)) => void;
   dirty: boolean;
   status: SaveStatus;
-  /** 最近一次保存失败的原因；再次编辑、放弃或保存成功时清除。 */
   error: string | null;
-  /** 有未保存修改期间，已保存内容被外部更新。放弃修改即采用新内容。 */
   externallyUpdated: boolean;
-  /** 外部移除或替换了当前单元，保留可见内容时的说明。 */
   externalChangeMessage?: string;
-  /** 提交未保存修改，返回是否成功；没有修改时直接返回 true。 */
   save: () => Promise<boolean>;
   discard: () => void;
-  /**
-   * 「保存并生成」：确认（如需要）→ 保存（有修改时）→ 生成。
-   * 确认被取消时什么都不保存，保存失败时不生成；返回是否执行了生成。
-   */
   saveAndGenerate: (generate: () => unknown, options?: SaveAndGenerateOptions) => Promise<boolean>;
 }
 
@@ -69,11 +45,6 @@ interface UnitState<T> {
   externallyUpdated: boolean;
 }
 
-/**
- * 保存只落盘了一部分（如项目 PATCH 成功、随后的参考图上传失败）：`saved` 成为新的已保存内容，
- * 放弃修改回到它，再次保存也以它为基准；`value` 是仍未保存的内容，缺省保留提交的内容。
- * 只抛普通错误会让已保存内容停在保存前，放弃修改后表单显示旧值，下次保存再把旧值写回。
- */
 export class PartialSaveError<T> extends Error {
   readonly saved: T;
   readonly value: T | undefined;
@@ -90,10 +61,6 @@ function jsonEqual<T>(a: T, b: T): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
-/**
- * 编辑单元：一次显式保存所提交的界面范围（一个设置视图、一张资产、一个分镜详情、一个记忆文件等）。
- * 单元内的字段先进入未保存修改，由 `save` 统一提交；挂载期间自动登记到离开拦截。
- */
 export function useEditUnit<T>({
   source,
   save: submit,
@@ -110,8 +77,6 @@ export function useEditUnit<T>({
     externallyUpdated: false,
   }));
 
-  // 已保存内容来自外部的变化：在渲染期同步（React 的「随 props 调整 state」写法），
-  // 避免先用旧内容渲染一帧。与当前已保存内容相同的推送（如自己保存后的回显）不算外部更新。
   let current = state;
   if (!isEqual(source, state.seenSource)) {
     if (isEqual(source, state.saved)) {
@@ -167,7 +132,6 @@ export function useEditUnit<T>({
         value: isEqual(prev.value, submitted) ? next : prev.value,
         status: "saved",
         error: null,
-        // 坚持保存时后写者生效，外部更新的标记随之清除
         externallyUpdated: false,
       }));
       return true;
@@ -199,9 +163,7 @@ export function useEditUnit<T>({
     [save],
   );
 
-  // 外部替换后，可见单元已与真实视图分离，旧视图的放行规则不能继续用于主动跳转。
   const discarding = useLeaveGuard({ dirty, saving: status === "saving", save, discard, title: leaveTitle, allowNavigation: retention?.message ? undefined : allowNavigation });
-  // 放弃修改后等待落定的删除自己移除了本单元，不当作外部移除保留
   useRetainWhile((dirty || status === "saving") && !discarding);
 
   return {

@@ -150,7 +150,6 @@ export function renderSection(search = "section=endpoints", { guarded = false } 
   return { ...render(<Router hook={location.hook}>{host}</Router>), location };
 }
 
-/** 点二级栏里的条目。标准档与图标栏各渲染一份（jsdom 不跑容器查询），取第一份。 */
 export async function clickRail(name: string | RegExp) {
   await userEvent.click((await screen.findAllByRole("link", { name }))[0]);
 }

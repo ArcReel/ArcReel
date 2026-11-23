@@ -3,16 +3,11 @@ import { Input } from "@/components/ui/input";
 
 export interface OptionalNumberFieldProps {
   label: string;
-  /** null = 未填，是合法取值。 */
   value: number | null;
   onChange: (next: number | null) => void;
   unit: ReactNode;
   hint: ReactNode;
   errorMessage: string;
-  /**
-   * 是否越界。判据留在调用方：各字段的硬区间与整数性要求不同，且提交前的 gating 读的是同一个
-   * 判据函数，壳内另算一份会造出两套真相。
-   */
   invalid: boolean;
   idSuffix: string;
   inputMode: "numeric" | "decimal";
@@ -20,12 +15,6 @@ export interface OptionalNumberFieldProps {
   step: number | "any";
 }
 
-/**
- * 可选数值字段：一个数字输入 + 量纲 + 行内提示，空串即清空取值。
- *
- * 原生约束不比调用方的判据更严，否则同一个值会同时呈现自定义有效与浏览器无效两种状态：
- * `min` 固定取 0（真实下界由 `invalid` 判），`max` / `step` 只表达量纲。
- */
 export function OptionalNumberField({
   label,
   value,
@@ -65,8 +54,6 @@ export function OptionalNumberField({
               return;
             }
             const next = Number(raw);
-            // 只挡非有限数（NaN / Infinity 会被序列化成 null，误触「清除」语义）；
-            // 区间校验交给下面的行内提示与后端，输入过程中不吞用户的按键
             if (Number.isFinite(next)) onChange(next);
           }}
           className="w-28"

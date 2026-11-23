@@ -13,9 +13,6 @@ interface ItemPositionOfTotalProps {
   className?: string;
 }
 
-/**
- * 详情页头的「5 / 24」。条目 ID 只在这里的悬停提示里出现，可复制，供排查问题用。
- */
 export function ItemPositionOfTotal({ itemId, kind, position, total, className }: ItemPositionOfTotalProps) {
   const { t } = useTranslation("common");
   const label = t(`item_position_${kind}`, { position });

@@ -38,7 +38,6 @@ function isTextField(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA");
 }
 
-/** 焦点所在的控件自己处理 Enter 与方向键（按钮、链接、下拉、菜单项、输入框）。 */
 function isKeyedControl(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
@@ -48,11 +47,6 @@ function isKeyedControl(target: EventTarget | null): boolean {
   );
 }
 
-/**
- * 「分集」视图的手工切分：插入光标、←/→ 微调（Shift 一次 10 字）、Enter 确认、Esc 取消，
- * 以及波及有产物的集或合并会并入未切分的原文时由服务端成文的确认清单。`onApplied` 收到切分或拆分出的新集 ID；
- * 随后的项目刷新没成功时收到 null，不定位。
- */
 export function useManualSplit(
   projectName: string,
   view: EpisodesView | null,
@@ -78,7 +72,6 @@ export function useManualSplit(
       setMoving(null);
       setTitle("");
       setConfirm(null);
-      // 刷新没成功时新集不在项目数据里，不定位过去
       const refreshed = await refreshAfterWrite(projectName, t);
       onApplied(refreshed === "success" ? response.episode : null);
     },
@@ -176,7 +169,6 @@ export function useManualSplit(
     [submit, t],
   );
 
-  // 键盘接管挂在 window 上：插入光标不是可聚焦元素，滚动原文时焦点也不在原文里
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
   useEffect(() => {
     keyHandler.current = (event: KeyboardEvent) => {
@@ -186,7 +178,6 @@ export function useManualSplit(
         return;
       }
       if (pending === null || view === null) return;
-      // 焦点在控件上时按键归控件；只有操作条里的标题框按 Enter 即确认
       const inToolbar = event.target instanceof HTMLElement && event.target.closest("[data-manual-split-toolbar]");
       const titleEnter = isTextField(event.target) && inToolbar && event.key === "Enter";
       if (isKeyedControl(event.target) && !titleEnter) return;

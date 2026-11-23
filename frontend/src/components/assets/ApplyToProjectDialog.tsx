@@ -42,7 +42,6 @@ export function ApplyToProjectDialog({ asset, onClose }: { asset: Asset | null; 
     <Dialog
       open={asset !== null}
       onOpenChange={(next) => {
-        // 请求在途时不响应 Esc 与遮罩点击，避免结果还没回来对话框先消失
         if (!next && !applying) onClose();
       }}
     >

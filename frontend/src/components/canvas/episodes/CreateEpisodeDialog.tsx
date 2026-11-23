@@ -28,24 +28,17 @@ import { SourceKindSelect } from "./SourceKindSelect";
 
 interface CreateEpisodeDialogProps {
   projectName: string;
-  /** 默认插在哪一集之后（集 ID）；缺省放在播出顺序末尾。 */
   initialAfter?: number | null;
   onClose: () => void;
-  /** 新建成功。收到新集 ID；随后的项目刷新没成功时为 null，新集不在项目数据里，不定位。 */
   onCreated: (episode: number | null) => void;
 }
 
-/**
- * 新建一集：选位置（插在任意一集之后，默认放在末尾），标题、钩子和原文都可选。
- * 标题留空时界面按播出位置显示「第 N 集」，插入或调序后随之变化。挂载即打开，关闭由调用方卸载。
- */
 export function CreateEpisodeDialog({ projectName, initialAfter = null, onClose, onCreated }: CreateEpisodeDialogProps) {
   const [busy, setBusy] = useState(false);
   return (
     <Dialog
       open
       onOpenChange={(next) => {
-        // 新建请求在途时不响应 Esc 与遮罩点击，避免集已建好却没有回到列表
         if (!next && !busy) onClose();
       }}
     >

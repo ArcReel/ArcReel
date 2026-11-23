@@ -9,35 +9,16 @@ import {
   type Token,
 } from "@/hooks/useUnitPromptHighlight";
 
-/**
- * Read-only rendering of a unit body, laid out the way the parser reads it.
- *
- * Description lines sit flush left; the lines the parser recognized as utterances
- * carry a tinted rule in the speaker's asset color. A writer can therefore see at a
- * glance which of their lines became dialogue and which stayed plain description.
- *
- * It takes only text plus the asset lookup: strictness lives upstream in whoever
- * parses and validates the body, never in how it is drawn, so any caller holding a
- * body and an asset table can render it.
- */
 export interface ScriptHighlightProps {
   text: string;
-  /** Asset name → kind, for mention coloring. Memoize to keep tokenization stable. */
   lookup: MentionLookup;
   className?: string;
-  /**
-   * Optional per-line annotation slot (e.g. inline violation callouts). Called once per
-   * raw source line, after its rendered `ScriptLine`. Stays domain-agnostic: this
-   * component knows nothing about "violations", only where source lines end.
-   */
   renderAfterLine?: (sourceLine: number) => ReactNode;
 }
 
 function SpeechToken({ token }: { token: Extract<Token, { kind: "speech" }> }) {
   const { t } = useTranslation("dashboard");
   const palette = assetColor(token.speakerKind);
-  // 记号原文逐字保留（含 `@[名称]` 与冒号），只加底色与说话人标签：预览要和作者写的
-  // 那一行对得上，改写会让「这段被认成台词了吗」难以核对。
   return (
     <span
       className={`rounded-sm bg-foreground/5 ${token.speaker ? palette.textClass : "text-foreground"}`}

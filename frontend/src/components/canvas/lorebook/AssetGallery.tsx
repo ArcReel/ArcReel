@@ -32,15 +32,10 @@ export interface AssetGalleryProps<T extends GalleryAssetSource> {
   title: string;
   assets: Record<string, T>;
   generatingNames?: Set<string>;
-  /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传等改写入口。 */
   readOnly: boolean;
   onGenerate: (name: string) => void;
   onRestoreVersion?: () => Promise<unknown> | void;
   onReload?: () => Promise<unknown> | void;
-  /**
-   * 入库预览的内容。传入即表示这类资产与全局资产库互通：卡片可加入资产库、并入同类资产，
-   * 工具栏可从资产库选择。商品不入资产库，不传。需传稳定引用。
-   */
   libraryPreview?: (asset: T) => LibraryImportPreview;
 }
 
@@ -58,7 +53,6 @@ export function AssetGallery<T extends GalleryAssetSource>({
 }: AssetGalleryProps<T>) {
   const { t } = useTranslation("assets");
   const occupiedNames = useAssetBusyNames(assetType, projectName);
-  // 演示项目不在服务端，没有资产图状态可取
   const demo = useDemoWorkbench();
   const rows = useAssetSheetStatus(projectName, !demo);
   const statusByName = useSheetStatusByName(rows, assetType);
@@ -66,7 +60,6 @@ export function AssetGallery<T extends GalleryAssetSource>({
   const [editorTarget, setEditorTarget] = useState<AssetEditorTarget | null>(null);
   const [viewName, setViewName] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
-  // 卡片上在途的上传、版本恢复与删除：查看器里的还原与它们互斥
   const [writingNames, setWritingNames] = useState<ReadonlySet<string>>(() => new Set());
   const handleWritingChange = useCallback((name: string, writing: boolean) => {
     setWritingNames((current) => {
@@ -106,11 +99,9 @@ export function AssetGallery<T extends GalleryAssetSource>({
   const openAsset = useCallback((name: string) => setEditorTarget({ mode: "edit", name }), []);
   const onAdd = readOnly ? undefined : () => setEditorTarget({ mode: "create" });
   const viewAsset = useCallback((name: string) => setViewName(name), []);
-  // 查看器只在有资产图的资产之间切换，顺序与筛选后的网格一致；判据与卡片的「查看大图」相同
   const viewable = shown
     .map(({ asset }) => asset)
     .filter((asset) => asset.sheetPath !== null && statusByName.get(asset.name)?.status !== "missing");
-  // 查看中的资产离开可查看列表时查看器随之关闭，同时结束查看：之后它重新可查看也不再自行弹出
   if (viewName !== null && !viewable.some((asset) => asset.name === viewName)) setViewName(null);
   const viewerBusy = new Set([...writingNames, ...occupiedNames]);
   generatingNames?.forEach((name) => viewerBusy.add(name));

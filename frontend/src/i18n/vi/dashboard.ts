@@ -549,9 +549,6 @@ export default {
   'cancelling': 'Đang hủy...',
   'confirm_cancel': 'Xác nhận hủy',
   'go_back': 'Quay lại',
-  // task_type display names (backend task_type không có enum tập trung — literal
-  // rải rác tại các điểm enqueue + key của lib/project/asset_types.ASSET_SPECS; giá trị
-  // ngoài bảng này sẽ hiển thị nguyên chuỗi gốc ở frontend)
   'task_type_image_edit': 'Chỉnh sửa ảnh',
   'task_type_storyboard': 'Storyboard',
   'task_type_video': 'Video',
@@ -1654,7 +1651,6 @@ export default {
   'cap_override_badge': 'Đã ghi đè',
   'cap_override_effective': 'Giá trị áp dụng: {{effective}} (nhận định: {{detected}})',
   'cap_override_on_unavailable': 'Endpoint này không gửi khung cuối nên không thể buộc bật.',
-  // Gợi ý tham chiếu bucket toàn cục (hiển thị khi chỉnh sửa năng lực; không chặn lưu)
   'global_bucket_label_default_video_backend': 'Model video mặc định',
   'global_bucket_label_default_video_backend_i2v': 'Ảnh sang video (i2v)',
   'global_bucket_label_default_video_backend_r2v': 'Tham chiếu sang video (r2v)',
@@ -2622,9 +2618,6 @@ export default {
   'chat_md_zoom_out': 'Thu nhỏ',
   'chat_image_attachment': 'Ảnh đính kèm {{index}}',
   'chat_image_enlarge': 'Phóng to ảnh đính kèm {{index}}',
-  // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
-  // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
-  // sẽ kiểm tra các ngôn ngữ đồng bộ, thêm tool backend mà thiếu zh/en/vi sẽ fail CI)
   'tool_name_list_pending_assets': 'Liệt kê tài sản chờ tạo',
   'tool_name_list_projects': 'Liệt kê dự án',
   'tool_name_create_project': 'Tạo dự án',
@@ -2789,8 +2782,6 @@ export default {
   'import_confirm_title': 'Xác nhận trước khi nhập',
   'import_confirm_description': 'Khi nâng cấp gói lên phiên bản hiện tại, các điều chỉnh dưới đây đã được thực hiện. Dự án chỉ xuất hiện trong danh sách sau khi xác nhận; nếu hủy, không dữ liệu nào được giữ lại.',
   'import_confirm_action': 'Xác nhận nhập',
-  // Skill display names (single source of truth: user-invocable SKILL.md
-  // dưới agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py kiểm tra đồng bộ)
   'skill_name_video_workflow': 'Quy trình sáng tạo video',
   'skill_name_generate_storyboard': 'Tạo storyboard',
   'skill_name_generate_grid': 'Tạo ảnh phân cảnh đa lưới',
@@ -3919,7 +3910,6 @@ export default {
   'ad_products_view_all': 'Xem tất cả',
   'ad_products_empty_hint': 'Thêm ảnh sản phẩm và điểm bán hàng để AI xây dựng kịch bản quanh sản phẩm. Không có sản phẩm, bạn vẫn có thể tạo kịch bản chỉ từ ý tưởng sáng tạo.',
   'image_fullscreen_preview': 'Xem ảnh lớn của {{name}}',
-  // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
   'catalog_picker_title': 'Chọn từ danh mục mô hình',
   'catalog_picker_description': 'Tìm trong danh mục mô hình và chọn một mô hình.',
   'catalog_picker_search': 'Tìm theo tên mô hình',

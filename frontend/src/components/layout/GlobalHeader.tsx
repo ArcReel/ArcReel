@@ -32,7 +32,6 @@ export function GlobalHeader() {
   const fetchConfigStatus = useConfigStatusStore((s) => s.fetch);
   const demoMode = useDemoWorkbench();
 
-  // 导出提示里的剪辑视图链接：在集页时指向当前集，否则指向播出顺序上的第一集；文案用集名。
   const routeEpisode = /\/episodes\/(\d+)/.exec(location)?.[1];
   const projectEpisodes = currentProjectData?.episodes ?? [];
   const editViewEpisodeId = routeEpisode !== undefined ? Number(routeEpisode) : projectEpisodes[0]?.episode;
@@ -49,14 +48,9 @@ export function GlobalHeader() {
   });
   const exporting = projectExport.exporting !== null;
 
-  // 演示项目在后端没有用量记录，入口整个不渲染。demoMode 在演示→真实切换时先于 store
-  // 变为 false，currentProjectName 单独判一次兜住这一帧仍读到旧演示项目名的窗口。
   const usageProjectName =
     demoMode || !currentProjectName || isDemoProject(currentProjectName) ? null : currentProjectName;
 
-  // 导出对话框打开期间切到别的项目或演示项目（如浏览器前进 / 后退复用同一路由实例）时随即关闭：
-  // 对话框在打开时记下了当时的项目，留着会在选定范围后导出上一个项目；触发按钮已按 demoMode
-  // 禁用，但已打开的对话框不受影响，仍可点击「导出」。
   const closeExport = projectExport.close;
   useEffect(() => {
     closeExport();

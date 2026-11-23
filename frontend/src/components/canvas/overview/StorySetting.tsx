@@ -43,14 +43,11 @@ interface StorySettingProps {
   projectName: string;
   overview: ProjectOverview | undefined;
   readOnly: boolean;
-  /** 项目有可读的原文（整本源文或已有故事设定），提供「从原文生成」。 */
   canGenerate: boolean;
   generating: boolean;
   generateError: StoryGenerateError | null;
   onGenerate: () => void;
-  /** 标题下的一句说明，如广告项目「故事设定」tab 里说明保存后脚本的去向。 */
   description?: string;
-  /** 不会卸载本编辑单元的应用内跳转（见 `useEditUnit` 的同名参数）。需传稳定引用。 */
   allowNavigation?: (to: string) => boolean;
 }
 
@@ -251,7 +248,6 @@ function FieldBlock({ id, label, children }: { id: string; label: string; childr
       <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
         {label}
       </label>
-      {/* 字段向两侧伸出自身的内边距，静止时正文与标签左对齐 */}
       <div className="-mx-2.5">{children}</div>
     </div>
   );

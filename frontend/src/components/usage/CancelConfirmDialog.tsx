@@ -16,14 +16,6 @@ interface CancelConfirmDialogProps {
   onDismiss: () => void;
 }
 
-/**
- * 取消确认。行内 `alertdialog`：它属于所在列表的一次操作，弹到屏幕中央会让用户
- * 失去「取消的是哪一行」的上下文。
- *
- * 焦点按行内确认的约定（docs/standards/frontend.md）：打开时落在「返回」上；请求在途时两个按钮
- * 禁用，请求失败、按钮解除禁用后焦点回到「返回」；「返回」或 Esc 退出确认并把焦点交还触发它的元素；焦点离开确认区域
- * 也退出，焦点留在用户去的地方。确认成功后由调用方卸载。
- */
 export function CancelConfirmDialog({
   request,
   cancelling,
@@ -37,7 +29,6 @@ export function CancelConfirmDialog({
   const backRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
 
-  // 预览请求返回前焦点仍在触发取消的按钮上，挂载时记下它，退出确认时交还
   useEffect(() => {
     const active = document.activeElement;
     if (active instanceof HTMLElement && active !== document.body) triggerRef.current = active;
@@ -50,7 +41,6 @@ export function CancelConfirmDialog({
   const dismissedRef = useRef(false);
 
   const dismiss = (returnFocus: boolean) => {
-    // 交还焦点会触发区域的 blur，已退出时不再重复退出
     if (cancelling || dismissedRef.current) return;
     dismissedRef.current = true;
     const trigger = triggerRef.current;

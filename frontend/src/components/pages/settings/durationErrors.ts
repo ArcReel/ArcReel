@@ -10,7 +10,6 @@ export const DURATION_ERROR_KEY: Record<DurationParseErrorCode, string> = {
   unparseable: "supported_durations_err_unparseable",
 };
 
-/** 支持秒数的格式错误；空值或格式正确时为 null。 */
 export function durationsError(t: TFunction, text: string): string | null {
   if (!text.trim()) return null;
   try {

@@ -5,7 +5,6 @@ import { useAppStore, type Toast } from "@/stores/app-store";
 
 const AUTO_DISMISS_MS = 5000;
 
-// 提示队列只在这里：其余代码经 useAppStore 的 pushToast 发提示
 const toastQueue = ToastPrimitive.createToastManager();
 
 function enqueue({ id, text, tone, action }: Toast) {
@@ -26,11 +25,6 @@ function enqueue({ id, text, tone, action }: Toast) {
   });
 }
 
-/**
- * 全局提示：把 app-store 里每条新发出的 toast 转交提示队列显示。
- * 直接订阅 store 而不经渲染读取：同一批次里连发的几条在渲染前会合并成最后一条，订阅按写入逐条收到。
- * 队列同时最多显示 3 条，更早的提示被挤出；错误提示由读屏立即播报。
- */
 export function ToastOverlay() {
   useEffect(() => {
     const current = useAppStore.getState().toast;

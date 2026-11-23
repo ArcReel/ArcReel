@@ -75,23 +75,14 @@ export interface CharacterDerivativeRowProps {
   name: string;
   derivative: CharacterDerivative;
   status: CharacterDerivativeStatus | undefined;
-  /** 本体是否已有资产图。生成的衍生图是对它的一次编辑，没有本体图就不能生成，但可以上传。 */
   ownerHasSheet: boolean;
   readOnly: boolean;
   busy: boolean;
   onView: (image: { src: string; alt: string; title: string }) => void;
-  /** 改名已提交、项目数据刷新之前调用，让这一行沿用原来的编辑单元。 */
   onRenamed: (from: string, to: string) => void;
   onSheetsChanged: () => void;
 }
 
-/**
- * 角色详情「衍生」区块里的一条衍生：缩略图、名称、可复制的引用记号、脚本引用状态、外观变化与生成入口。
- *
- * 外观变化是这一条自己的编辑单元，在行内保存，与资产本体的编辑单元并存，离开拦截覆盖两者。
- * 改名、删除、局部修改、上传、从供应商素材库选择与版本恢复是立即执行的动作。上传或选择的衍生图是成品，
- * 不需要本体资产图。上传到供应商素材库与解除关联只改关联记录，不写衍生图。
- */
 export function CharacterDerivativeRow({
   projectName,
   characterName,
@@ -144,7 +135,6 @@ export function CharacterDerivativeRow({
   const saving = unit.status === "saving";
   const rowBusy = busy || generating || restoring || importing || pending;
 
-  // 从供应商素材库导入在对话框里进行：在途期间计入详情的写入占用，与上传、删除等写入同口径
   const handleImportingChange = (value: boolean) => {
     setImporting(value);
     if (value) {
@@ -160,7 +150,6 @@ export function CharacterDerivativeRow({
   };
   useEffect(() => () => importSettled.current?.(), []);
 
-  // 状态读回前按登记的衍生图判定，与画廊卡片的 sheetStateOf 同口径，避免先闪成待生成
   const artifactStatus = status
     ? (status.artifact_status ?? (status.stale ? "stale" : status.character_sheet ? "current" : "missing"))
     : derivative.character_sheet
@@ -229,9 +218,7 @@ export function CharacterDerivativeRow({
   });
 
   const generate = () => {
-    // 提交前复核：从渲染到点击之间，本体或这条衍生可能刚被别处占用
     if (rejectIfBusy()) return;
-    // 衍生图由外观变化生成：改了它，保存后这张图就会过期，服务端此刻的判定还看不到
     const willBeStale = unit.value !== unit.savedValue;
     void unit.saveAndGenerate(handleGenerate, {
       confirm: async () => {
@@ -260,12 +247,10 @@ export function CharacterDerivativeRow({
     if (rejectIfBusy()) return;
     setRenameDraft(name);
     setRenaming(true);
-    // 菜单关闭后焦点会回到「更多」，等它落定再移到输入框
     requestAnimationFrame(() => renameInputRef.current?.select());
   };
 
   const submitRename = async () => {
-    // 与后端同口径（strip + NFC），行映射登记的是落盘后的真名
     const next = normalizeAssetName(renameDraft);
     if (!next || next === name) {
       setRenaming(false);
@@ -283,7 +268,6 @@ export function CharacterDerivativeRow({
   const handleDelete = async () => {
     const ok = await run(() =>
       API.deleteCharacterDerivative(projectName, characterName, name).then(() => {
-        // 删除确认已写明外观变化会一起删除：这一行的草稿随之放弃，不作为「外部删除」保留
         unit.discard();
         return refreshAfterWrite(projectName, t);
       }),
@@ -358,7 +342,6 @@ export function CharacterDerivativeRow({
                 onChange={(e) => setRenameDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {
-                    // Esc 只退出改名，不连带关闭外层 Sheet
                     e.preventDefault();
                     e.stopPropagation();
                     if (!pending) setRenaming(false);
@@ -403,7 +386,6 @@ export function CharacterDerivativeRow({
                       <DropdownMenuItem
                         disabled={rowBusy}
                         onClick={() => {
-                          // 打开文件选择前复核占用态，选好文件提交时由 run 再复核一次
                           if (!rejectIfBusy()) uploadRef.current?.click();
                         }}
                       >

@@ -79,27 +79,15 @@ const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] =
 ];
 
 interface CustomProviderFormProps {
-  /** 已保存的供应商；不传时是新建表单。 */
   existing?: CustomProviderInfo | null;
-  /** 已保存的供应商倍率，与 `existing` 一起取回；新建表单与未传时按默认值 1。 */
   providerMultiplier?: ProviderMultiplierInfo;
-  /** 从「调用端点」接线过来的预填接口地址（定义里的 meta.hints.base_url）。 */
   initialBaseUrl?: string;
-  /** 接线时预选的调用端点：新建表单据此起一行模型。 */
   initialEndpoint?: EndpointKey;
-  /** 深链里的模型 ID：打开时直接打开它的 Sheet。 */
   focusModelId?: string;
-  /** 保存成功后调用，带回保存后的供应商（新建时是刚创建的供应商，调用方据此选中它）。 */
   onSaved: (provider?: CustomProviderInfo) => void;
   onDeleted?: () => void;
 }
 
-/**
- * 自定义供应商详情：打开即是表单，没有只读态。页头显示协议与接口地址，「删除供应商」在更多操作菜单；
- * 名称、接口地址、密钥、并发上限与供应商倍率是一个编辑单元，由详情栏底部的保存栏统一提交。
- * 已保存的供应商的模型是模型列表：启用开关立即生效，其余设置在模型 Sheet 里逐个保存，不随这个编辑单元提交，
- * 因此整份保存不会覆盖在列表里做的修改。新建表单里模型随供应商一起创建。
- */
 export function CustomProviderForm({
   existing,
   providerMultiplier,
@@ -111,7 +99,6 @@ export function CustomProviderForm({
 }: CustomProviderFormProps) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
 
-  // 端点目录（后端单一真相源）：媒体类型、默认互斥分组与协议配对都从这里读。
   const endpointToMediaType = useEndpointCatalogStore((s) => s.endpointToMediaType);
   const endpointToImageCapabilities = useEndpointCatalogStore((s) => s.endpointToImageCapabilities);
   const catalogEndpoints = useEndpointCatalogStore((s) => s.endpoints);
@@ -122,16 +109,12 @@ export function CustomProviderForm({
   }, [fetchEndpointCatalog]);
 
   const [newForm] = useState(() => newProviderForm(initialBaseUrl, initialEndpoint));
-  // 供应商倍率不在供应商详情里，单独读写：保存后以 PUT 的回显为准，供应商重取不会带回它
   const [savedMultiplier, setSavedMultiplier] = useState(providerMultiplier ?? DEFAULT_PROVIDER_MULTIPLIER);
   const source = useMemo(
     () => (existing ? formFromProvider(existing, savedMultiplier) : newForm),
     [existing, savedMultiplier, newForm],
   );
 
-  // 接线过来的端点定协议：ComfyUI 端点只挂得上 ComfyUI 供应商（docs/adr/0081 的双向配对），
-  // 让用户自己去把协议改过来就是先让他撞一次保存失败。端点目录是异步取的，因此这里取派生值：
-  // 目录到齐后协议随之落定。
   const wiredFormat: DiscoveryFormat | null = useMemo(() => {
     const descriptor = catalogEndpoints.find((item) => item.key === initialEndpoint);
     return descriptor && isComfyuiEndpoint(descriptor) ? "comfyui" : null;
@@ -150,8 +133,6 @@ export function CustomProviderForm({
     [catalogInitialized, catalogEndpoints, formatOf],
   );
 
-  // 删除后离开：供应商已不存在，未保存的修改无处可存，这次跳转不经离开拦截询问。
-  // （新建后跳到新供应商不需要放行：跳转发生在保存在途时，拦截会等保存落定、修改清空后放行。）
   const deletedRef = useRef(false);
   const allowNavigation = useCallback(() => deletedRef.current, []);
 
@@ -164,24 +145,19 @@ export function CustomProviderForm({
       const keyOptional = value.noApiKey || isComfyuiProtocol(discoveryFormat);
       const models = deriveModels(value);
       const enabledModels = models.filter((m) => m.is_enabled);
-      // 保存失败的原因显示在保存栏上：先说用户自己填漏的字段，再说要等的端点目录
       const fail = (message: string): never => {
         throw new Error(message);
       };
       if (!value.displayName.trim()) fail(t("fill_provider_name"));
       if (!value.baseUrl.trim()) fail(t("fill_base_url"));
       if (!existing && !keyOptional && !value.apiKey.trim()) fail(t("fill_api_key"));
-      // 已保存的供应商不在表单里编辑模型（value.models 恒为空），以下模型校验只对新建表单起作用
       if (!existing && enabledModels.length === 0) fail(t("enable_one_model"));
       if (enabledModels.some((m) => !m.model_id.trim())) fail(t("enabled_model_needs_id"));
-      // 目录没取回来时行挂不挂得住当前协议判不了：接线端点还没解析出来，协议就回退成了 openai，
-      // 那一行照样吃 422。两种情形都没有时表单停在默认协议与默认端点上，本来就不用查目录。
       const catalogPending =
         !catalogInitialized &&
         value.models.length > 0 &&
         (initialEndpoint !== undefined || value.pickedFormat !== null);
       if (catalogPending) fail(t("cp_endpoint_catalog_pending"));
-      // 停在未选择端点上的行：服务端按行校验协议配对，一行没有端点整份配置都落不了库
       if (models.some((m) => !m.endpoint)) fail(t("cp_model_endpoint_unselected"));
       if (models.some((m) => parseMultiplier(m.multiplier_text) === undefined)) fail(t("cp_model_multiplier_invalid"));
       const durationsEditable = (endpoint: EndpointKey) => {
@@ -206,14 +182,12 @@ export function CustomProviderForm({
 
       const workers = { image_max_workers: imageMax ?? null, video_max_workers: videoMax ?? null, audio_max_workers: audioMax ?? null };
       if (existing) {
-        // 只更新供应商本身：不带 models，模型保持在列表与 Sheet 里保存的样子
         await API.fullUpdateCustomProvider(existing.id, {
           display_name: value.displayName,
           base_url: value.baseUrl,
           ...(value.noApiKey ? { api_key: "" } : value.apiKey ? { api_key: value.apiKey } : {}),
           ...workers,
         });
-        // 供应商倍率是另一份配置，改了才写；失败时供应商已经落库，按部分保存报告
         let multiplierInfo = savedMultiplier;
         let multiplierError: unknown = null;
         if (value.providerMultiplier !== savedValue.providerMultiplier) {
@@ -223,14 +197,12 @@ export function CustomProviderForm({
             multiplierError = e;
           }
         }
-        // 入库内容以重取结果为准；重取失败不算保存失败
         let updated: CustomProviderInfo | undefined;
         try {
           updated = await API.getCustomProvider(existing.id);
         } catch {
           updated = undefined;
         }
-        // 与供应商一起交出去，两份已保存内容在同一次渲染里更新，不会先拼出一份新倍率配旧供应商的中间态
         setSavedMultiplier(multiplierInfo);
         onSaved(updated);
         const savedForm = updated
@@ -258,8 +230,6 @@ export function CustomProviderForm({
         ...workers,
       });
       useCapabilitiesStore.getState().invalidate();
-      // 倍率挂在供应商 id 上，只能在创建之后写。供应商已经建好，倍率写失败不回退：
-      // 提示后照常切到新供应商，在那里重新填写即可
       if (multiplier != null && multiplier !== newProviderDefaultMultiplier(isComfyuiProtocol(discoveryFormat))) {
         try {
           await API.setProviderMultiplier(customProviderKey(created.id), multiplier);
@@ -286,8 +256,6 @@ export function CustomProviderForm({
     [setValue],
   );
 
-  // 用户改动以派生后的行为基准写回，派生结果就此坐实。否则那些由派生兜底改写的字段（改挂的端点、
-  // 随之作废的默认标记）会在下一次派生里被同一条规则再改一遍，用户的改动看不见效果。
   const updateModels = useCallback(
     (change: (rows: ModelRow[]) => ModelRow[]) =>
       setValue((prev) => ({ ...prev, models: change(deriveModels(prev)) })),
@@ -305,7 +273,6 @@ export function CustomProviderForm({
   }, []);
 
   const comfyuiEndpoints = useMemo(() => catalogEndpoints.filter(isComfyuiEndpoint), [catalogEndpoints]);
-  // ComfyUI 协议下新行必须挂 ComfyUI 端点：没有可挂的端点时按钮禁用并给出去处
   const noComfyuiEndpointYet = isComfyui && comfyuiEndpoints.length === 0;
   const addModel = () => {
     const endpoint = isComfyui ? comfyuiEndpoints[0]?.key : undefined;
@@ -314,18 +281,12 @@ export function CustomProviderForm({
     setExpanded((prev) => new Set(prev).add(row.key));
   };
 
-  // --- 测试连接与获取模型：用表单当前内容，不经保存 ---
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const showError = useCallback((msg: string) => useAppStore.getState().pushToast(msg, "error"), []);
 
-  // base_url 相对存储值是否变更：变更后必须用 UI 上的新地址 + 新密钥走明文路径，
-  // 否则 by-id 端点会用 DB 中的旧 base_url，与保存的新地址错位。
   const baseUrlChanged = !!existing && value.baseUrl.trim() !== existing.base_url.trim();
-  // 编辑时未输入新密钥且接口地址未变，用已存储凭证（by-id 端点）；新建或接口地址变更时必须明文
-  // 密钥。勾选「无需密钥」后保存写入的是空密钥，测试与发现须同样走明文空密钥路径。
   const useStoredCredential = !!existing && !value.apiKey && !baseUrlChanged && !value.noApiKey;
-  // ComfyUI 本体零鉴权，反向代理的凭据模板写在端点定义的 auth 节（docs/adr/0081），密钥留空是常态。
   const keyOptional = value.noApiKey || isComfyui;
 
   const checkConnectionInputs = () => {
@@ -340,7 +301,6 @@ export function CustomProviderForm({
     return true;
   };
 
-  // 获取模型：连接信息在打开对话框时定下，对话框里的列表不随表单之后的输入重取
   const [fetchConnection, setFetchConnection] = useState<{
     discovery_format: DiscoveryFormat;
     base_url: string;
@@ -354,7 +314,6 @@ export function CustomProviderForm({
     async (signal: AbortSignal): Promise<FetchProviderModelsResponse> => {
       if (!fetchConnection) return { models: [], not_applicable: false, reason: null };
       const res = await API.discoverModels(fetchConnection, { signal });
-      // 用 getState 读最新目录映射：目录在挂载时异步拉取，打开对话框时可能还没到
       const mediaMap = useEndpointCatalogStore.getState().endpointToMediaType;
       return { ...res, models: res.models.map((m) => discoveredToFetched(m, (endpoint) => mediaMap[endpoint])) };
     },
@@ -368,7 +327,6 @@ export function CustomProviderForm({
     (selections: FetchSelection[]) => {
       const { endpointToMediaType: mediaMap, endpointToImageCapabilities: capsMap } =
         useEndpointCatalogStore.getState();
-      // 每种媒体类型勾选的第一个模型标为默认，与已有行的默认冲突时由合并让出
       const seenMedia = new Set<string>();
       const rows = selections.map((selection) => {
         const media = selection.endpoint ? mediaMap[selection.endpoint] : undefined;
@@ -403,9 +361,6 @@ export function CustomProviderForm({
     }
   };
 
-  // 勾选「无需密钥」后才需要知道哪些端点其实要密钥，因而只在那时拉一次自定义端点列表。
-  // 内置端点一律按需要密钥处理：它们的定义都带 auth 节，无凭证接口只可能是用户自建的。
-  // null 表示尚未成功拉到列表：此时不计算冲突提示——空 Set 会把全部模型行误报成需要密钥。
   const [authFreeEndpoints, setAuthFreeEndpoints] = useState<Set<string> | null>(null);
   useEffect(() => {
     if (!value.noApiKey) return;
@@ -438,7 +393,6 @@ export function CustomProviderForm({
           .filter((m) => m.is_enabled && m.model_id.trim() && !authFreeEndpoints.has(m.endpoint))
           .map((m) => m.model_id);
 
-  // 模型 Sheet 保存或移除之后重取供应商：删除确认里的模型数与「无需密钥」的冲突提示都读它
   const refreshAfterModelChange = useCallback(() => {
     if (!existing) return;
     voidCall(
@@ -457,7 +411,6 @@ export function CustomProviderForm({
     setDeleteError(null);
     try {
       await API.deleteCustomProvider(existing.id);
-      // 该供应商上的模型与能力覆盖随之消失，项目会退回解析别的模型；这同样不落任何项目字段。
       useCapabilitiesStore.getState().invalidate();
       deletedRef.current = true;
       setConfirmDelete(false);
@@ -486,7 +439,6 @@ export function CustomProviderForm({
 
   const header = (
     <div className="flex items-start gap-3">
-      {/* 自定义供应商不按名称猜品牌图标：中转站与协议无关，统一用名称首字 */}
       <span
         aria-hidden
         className="mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-sm text-subtle-foreground"
@@ -638,7 +590,6 @@ export function CustomProviderForm({
               {t("cp_no_api_key")}
             </label>
           </FieldRow>
-          {/* ComfyUI 协议下探针可能被反向代理的自定义头鉴权挡住，据此提前说明判据。 */}
           {isComfyui && <p className="text-sm text-muted-foreground">{t("cp_comfyui_connectivity_hint")}</p>}
           {testResult && (
             <Alert variant={testResult.success ? "default" : "destructive"}>

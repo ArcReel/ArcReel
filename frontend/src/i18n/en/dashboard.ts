@@ -552,9 +552,6 @@ export default {
   'cancelling': 'Cancelling...',
   'confirm_cancel': 'Confirm Cancel',
   'go_back': 'Back',
-  // task_type display names (backend task_type has no central enum — scattered
-  // literals at enqueue call sites + lib/project/asset_types.ASSET_SPECS keys; unknown
-  // values outside this table fall back to the raw string on the frontend)
   'task_type_image_edit': 'Image Edit',
   'task_type_storyboard': 'Storyboard',
   'task_type_video': 'Video',
@@ -2395,9 +2392,6 @@ export default {
   'chat_md_zoom_out': 'Zoom out',
   'chat_image_attachment': 'Image attachment {{index}}',
   'chat_image_enlarge': 'Enlarge image attachment {{index}}',
-  // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
-  // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
-  // enforces all locales stay in sync — adding a backend tool without wiring zh/en/vi fails CI)
   'tool_name_list_pending_assets': 'List pending assets',
   'tool_name_list_projects': 'List projects',
   'tool_name_create_project': 'Create project',
@@ -2562,8 +2556,6 @@ export default {
   'import_confirm_title': 'Confirm before importing',
   'import_confirm_description': 'Upgrading the archive to the current version made the changes below. The project appears in the project list only after you confirm; cancelling keeps no data.',
   'import_confirm_action': 'Confirm import',
-  // Skill display names (single source of truth: user-invocable SKILL.md files
-  // under agent_runtime_profile/.claude/skills/; tests/test_frontend_skill_i18n.py enforces parity)
   'skill_name_video_workflow': 'Video creation workflow',
   'skill_name_generate_storyboard': 'Generate storyboard',
   'skill_name_generate_grid': 'Generate multi-grid storyboard',
@@ -3914,7 +3906,6 @@ export default {
   'ad_products_view_all': 'View all',
   'ad_products_empty_hint': 'Add product photos and selling points, and AI script generation will build around the product. Without a product, you can still generate from the creative brief alone.',
   'image_fullscreen_preview': 'View full-size image of {{name}}',
-  // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
   'catalog_picker_title': 'Choose from model catalog',
   'catalog_picker_description': 'Search the model catalog and pick a model.',
   'catalog_picker_search': 'Search model name',

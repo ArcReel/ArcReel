@@ -10,15 +10,11 @@ import { totalBreakdown } from "@/utils/cost-format";
 
 interface EpisodeCardProps {
   ep: EpisodeMeta;
-  /** 在播出顺序（episodes[] 排列）中的位置，从 1 起；徽标显示它而不是集 ID。 */
   position: number;
   active: boolean;
   onClick: () => void;
-  /** ad 项目隐藏集语义：徽标不显示播出位置，改用场记板图标。 */
   showEpisodeBadge?: boolean;
-  /** ep.title 为空时的兜底显示文本（ad 项目用项目标题）。 */
   fallbackTitle?: string;
-  /** 项目生成模式：决定条目数报「分镜数」还是「视频单元数」。必填，漏接线时类型报错而不是静默显示错名词。 */
   route: GenerationRoute;
 }
 
@@ -51,8 +47,6 @@ export function EpisodeCard({
   const status = ep.status ?? "draft";
   const statusLabel = t(STATUS_LABEL_KEY[status] ?? STATUS_LABEL_KEY.draft);
 
-  // 进度按视频产物的可用数算——可用 = current ∪ stale，与工作台同一份计数。
-  // 视频总数为 0（尚未成脚本）时退回剧本条目数，只用于显示"这集有几件内容"。
   const videoTotal = ep.videos?.total ?? 0;
   const itemCount = ep.item_count ?? 0;
   const totalShots = videoTotal || itemCount;
@@ -60,8 +54,6 @@ export function EpisodeCard({
   const progress = videoTotal > 0 ? Math.round((availableVideos / videoTotal) * 100) : 0;
   const showProgress = videoTotal > 0 && (active || progress > 0);
 
-  // stale 是可用产物，不进缺口计数：单独报一个数说明有几件可以考虑重生。
-  // 汇总该集全部产物类型，与大厅卡片上那一行同口径。
   const staleCount = (ep.storyboards?.stale ?? 0) + (ep.videos?.stale ?? 0);
 
   const episodeCost = useCostStore((s) => s.getEpisodeCost(ep.episode));

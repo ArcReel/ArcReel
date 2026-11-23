@@ -23,7 +23,6 @@ import type { PendingQuestion } from "@/types";
 
 type Question = PendingQuestion["questions"][number];
 
-// Agent 自带的「其他」选项由自由输入框代替，不再单独列出
 function isOtherOption(label: string | undefined): boolean {
   const normalized = (label ?? "").trim().toLowerCase();
   return normalized === "其他" || normalized === "other";
@@ -39,7 +38,6 @@ function choicesOf(question: Question) {
   );
 }
 
-/** 按 Agent 提问的原文回传答案；多选与自由输入合并成一句，用逗号分隔。 */
 function collectAnswers(questions: Question[], form: FormData): Record<string, string> {
   const answers: Record<string, string> = {};
   questions.forEach((question, index) => {
@@ -100,7 +98,6 @@ export function AgentQuestionnaire({ pendingQuestion, answering, error, onSubmit
           <span className="min-w-0 flex-1 truncate text-subtle-foreground">{t("question_waiting")}</span>
           <QuestionnaireProgress
             className="min-w-0"
-            // 原语的进度名称与朗读文字写死为英文，按界面语言覆盖
             render={(props, state) => {
               const text = t("question_progress", { current: state.current, total: state.total });
               return (

@@ -13,7 +13,6 @@ interface Props {
   "aria-invalid"?: boolean;
 }
 
-/** 音色表只作候选，克隆音色与表外系统音色照常手填。 */
 export function NarrationVoiceInput({ id, value, onChange, voices, disabled, ...aria }: Props) {
   return (
     <Autocomplete.Root

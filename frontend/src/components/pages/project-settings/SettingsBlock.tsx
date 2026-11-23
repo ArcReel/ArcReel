@@ -17,10 +17,8 @@ export function SettingsBlock({
   children,
 }: {
   title: string;
-  /** 内容需要以标题作可访问名称时（如单选组的 `aria-labelledby`）传入。 */
   titleId?: string;
   description?: ReactNode;
-  /** 标题行右侧的标记，如「创建后不可更改」。 */
   aside?: ReactNode;
   children: ReactNode;
 }) {

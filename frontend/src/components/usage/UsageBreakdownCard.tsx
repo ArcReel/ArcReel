@@ -10,7 +10,6 @@ import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import { formatRatio, projectTitleResolver, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
 
-/** 构成表的三个维度；模型行按 (provider, model) 分组。 */
 type BreakdownDim = "project" | "provider" | "model";
 
 const DIMS: { value: BreakdownDim; labelKey: string }[] = [
@@ -214,10 +213,6 @@ interface RowLabels {
   agentSessions: string;
 }
 
-/**
- * 三个维度投影成同一行形状。点击写入的筛选按维度不同：模型行同时写供应商，
- * 因为跨供应商的同名模型只有配上供应商才唯一。
- */
 function buildRows(
   dim: BreakdownDim,
   summary: UsageSummary | null,
@@ -245,7 +240,6 @@ function buildRows(
   } else if (dim === "provider") {
     for (const row of summary.breakdown.provider.rows) {
       if (row.agent) {
-        // 点击在两个视图间切换：Agent 记录只在「Agent 会话」视图里按供应商筛选。
         const active = filters.view === "agent";
         rows.push({
           key: "provider:agent",
@@ -290,7 +284,6 @@ function buildRows(
         sub: labels.providerLabel(row.provider),
         stats: row,
         active,
-        // 取消只撤回模型：供应商是可以单独成立的筛选，留着它由用户自己的 chip 清除。
         filters: active ? { model: null } : { provider: row.provider, model: row.model },
       });
     }

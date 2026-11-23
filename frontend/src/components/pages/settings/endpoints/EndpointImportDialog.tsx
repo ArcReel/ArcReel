@@ -23,7 +23,6 @@ import type {
 import { formatNameList } from "@/utils/list-format";
 import { EndpointDuplicateChoices } from "./EndpointDuplicateChoices";
 
-/** 三种载荷形状各自的提示；端点定义是常态，不占版面。 */
 const SHAPE_NOTICE_KEYS: Partial<Record<EndpointImportShape, string>> = {
   comfyui_api_workflow: "ce_import_shape_comfyui_api",
   comfyui_ui_workflow: "ce_import_shape_comfyui_ui",
@@ -31,10 +30,6 @@ const SHAPE_NOTICE_KEYS: Partial<Record<EndpointImportShape, string>> = {
 
 const MEDIA_TYPES: readonly ComfyuiMediaType[] = ["video", "image"];
 
-/**
- * 导入：在弹窗里交出一份载荷——上传文件或直接粘贴，两条路走同一次校验——再看形状与校验结果，
- * 决定新建副本、覆盖既有、去绑定节点，还是取消。
- */
 export function EndpointImportDialog({
   open,
   fileName,
@@ -56,30 +51,20 @@ export function EndpointImportDialog({
   definition: AnyEndpointDefinition | null;
   validation: EndpointValidateResponse | null;
   busy: boolean;
-  /** 落盘请求在途：已经发出就收不回，期间不能取消。 */
   saving: boolean;
   pending: boolean;
-  /** 交出一份载荷：上传的文件带文件名，粘贴的不带。 */
   onSource: (text: string, fileName: string) => void;
-  /** 原始 workflow 按哪一种媒体类型包装；服务端据它选推断规则与语义键名录。 */
   mediaType: ComfyuiMediaType;
   onMediaTypeChange: (mediaType: ComfyuiMediaType) => void;
   onCreateCopy: () => void;
   onOverwrite: (id: number) => void;
-  /** ComfyUI 两种形状都先进绑定编辑器，不在这里落盘。 */
   onBindNodes: () => void;
   onCancel: () => void;
 }) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
-  // 手上这份待识别的载荷。选了文件就把内容铺进文本框，用户改过之后它不再算那个文件的内容。
   const [source, setSource] = useState({ text: "", fileName: "" });
-  // 最后一次交出去识别的原文。文本框改过之后它与 source.text 不再相等，手上那份识别结果说的
-  // 就不是屏幕上这份载荷了——此时按导入会把旧载荷存下去，故一律当作还没识别过。
   const [detected, setDetected] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  // 来源输入的接管序号：``file.text()`` 没有可取消的句柄，读完之前用户可以再选一个文件，也可以
-  // 直接往文本框里粘一份。任一动作先领一个号，在途的读回来时号已经不是最新的就整份丢弃——父层
-  // 那个 run token 拦不住这一格，它要等 onSource 发出去之后才递增。
   const sourceSeq = useRef(0);
 
   const stale = detected !== null && detected !== source.text;
@@ -95,9 +80,7 @@ export function EndpointImportDialog({
   const minAppVersion = result?.min_app_version;
   const shapeNoticeKey = result ? SHAPE_NOTICE_KEYS[result.import_shape] : undefined;
   const isRawWorkflow = result?.import_shape === "comfyui_api_workflow";
-  // ComfyUI 端点在弹窗里只走到「进绑定编辑器」；同作者同名的判定留到那边改完名字再说。
   const toBindings = detectedDefinition?.kind === "comfyui";
-  // 自动包装出来的定义节点绑定必然是空的，这一条在此刻不是错误、是它的真实状态。
   const errors = (result?.errors ?? []).filter(
     (issue) => !(isRawWorkflow && issue.code === "comfyui_binding_required"),
   );
@@ -115,7 +98,6 @@ export function EndpointImportDialog({
     <Dialog
       open={open}
       onOpenChange={(next: boolean) => {
-        // 请求在途时不响应 Esc 与遮罩点击；识别与推断在途时「取消」仍可用，它会作废在途的请求
         if (!next && !busy) onCancel();
       }}
     >
@@ -145,7 +127,6 @@ export function EndpointImportDialog({
                   className="hidden"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
-                    // 同一份文件再选一次也要触发 change，因此每次读完就清空。
                     event.target.value = "";
                     if (!file) return;
                     sourceSeq.current += 1;

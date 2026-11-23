@@ -25,7 +25,6 @@ import { FormSection } from "./endpoint-form-primitives";
 import { RequestPreview, TestCard, TestField, TestSelect } from "./endpoint-test-primitives";
 import { useTrialRun } from "./use-trial-run";
 
-/** 命中值的展示文案。`image_b64` 的命中值是后端给的字节数摘要 `{ image_bytes }`，不是原串。 */
 function fieldValueText(field: EndpointExtractionField, t: TFunction): string {
   const { value } = field;
   if (field.key !== "image_b64" || typeof value !== "object" || value === null || !("image_bytes" in value)) {

@@ -43,7 +43,6 @@ export default {
   'demo_action_unavailable': '演示中不可用',
   'demo_episode_placeholder': '演示内容只到第 {{position}} 集：这一集只有标题，没有脚本和分镜。',
 
-  // 演示工作台 Agent 面板的静态对话：用户发起制作 → Agent 汇报推进；中间的工序行用资产名称拼出
   'demo_chat_user_start': '开始制作',
   'demo_chat_agent_progress': '角色形象图和场景图已生成。接下来逐集生成分镜图和视频，进度会在这里汇报。',
 

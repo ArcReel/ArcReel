@@ -22,7 +22,6 @@ interface CharacterDerivativesFieldProps {
   projectName: string;
   characterName: string;
   derivatives: Record<string, CharacterDerivative>;
-  /** 本体资产图路径；没有时衍生不能生成。 */
   ownerSheet?: string;
   readOnly: boolean;
   busy: boolean;
@@ -38,12 +37,9 @@ export function CharacterDerivativesField({
 }: CharacterDerivativesFieldProps) {
   const { t } = useTranslation(["assets", "common"]);
   const ownerFp = useProjectsStore((s) => (ownerSheet ? s.getAssetFingerprint(ownerSheet) : null));
-  // 登记或本体图变化时重新读取衍生图状态（过期判定依赖二者）
   const revision = `${JSON.stringify(derivatives)}#${ownerSheet ?? ""}#${ownerFp ?? ""}`;
   const entries = Object.entries(derivatives);
   const { statuses, refresh } = useCharacterDerivativeSheets(projectName, characterName, revision, entries.length > 0);
-  // 行标识与衍生名无关：改名后新名称沿用原来那一行，行内未保存的外观变化不丢；
-  // 旧名之后被新衍生复用时另发标识，两行不会撞在一起
   const [rowKeys, setRowKeys] = useState<{ byName: Record<string, string>; next: number }>({ byName: {}, next: 0 });
   if (entries.some(([name]) => !(name in rowKeys.byName))) {
     setRowKeys((prev) => {
@@ -53,7 +49,6 @@ export function CharacterDerivativesField({
       return { byName, next };
     });
   }
-  // 关闭动画期间标题沿用上一张图
   const [viewing, setViewing] = useState<{ src: string; alt: string; title: string; open: boolean } | null>(null);
 
   const handleRenamed = useCallback((from: string, to: string) => {
@@ -63,7 +58,6 @@ export function CharacterDerivativesField({
     });
   }, []);
 
-  // 每条衍生独立保留：外部删除或改名只替换无修改的行，其他行继续接收真实数据。
   const liveRows = new Map(
     entries.flatMap(([name, derivative]) => {
       const key = rowKeys.byName[name];
@@ -187,9 +181,7 @@ function AddDerivative({
     <Popover
       open={open}
       onOpenChange={(next) => {
-        // 提交中不响应关闭，请求在途时输入不丢
         if (!next && submitting) return;
-        // 打开时复核占用：渲染之后到点击之间，本体可能刚被别处占用
         if (next && rejectIfAssetBusy("character", projectName, characterName, t, "assets:derivative_busy_hint")) return;
         setOpen(next);
         if (!next) reset();

@@ -1,8 +1,3 @@
-/**
- * 剧本形状分派（与后端 SCRIPT_SHAPES 同口径）：content_mode → 条目 ID / 角色引用字段。
- *
- * 时间线编辑器各组件（列表 / 分屏 / 详情 / 引用区）共用，避免三元映射在多处漂移。
- */
 
 import type {
   AdEpisodeScript,
@@ -28,11 +23,6 @@ export function getScriptItemId(item: ScriptItem, mode: EditorContentMode): stri
   return (item as DramaScene).scene_id;
 }
 
-/**
- * 取剧集剧本在该模式下的条目数组（segments / shots / scenes）。
- *
- * 未注册的模式返回空数组：以其他模式的形状渲染会让保存分派到错误端点。
- */
 export function getScriptItems(
   script: EpisodeScript | null | undefined,
   mode: EditorContentMode,
@@ -50,12 +40,6 @@ export function charactersFieldFor(mode: EditorContentMode): CharactersField {
   return "characters_in_segment";
 }
 
-/**
- * 集总时长 = 逐条目 `duration_seconds` 求和。
- *
- * 它是派生值，剧本不落盘一份（服务端由项目摘要按同一口径读时计算）。各画布共用这一份
- * 实现，避免同一个数在时间线与宫格两处各写一遍、健壮度还不一致。
- */
 export function sumItemDuration(
   items: readonly { duration_seconds?: number | null }[],
 ): number {

@@ -552,8 +552,6 @@ export default {
   'cancelling': '取消中…',
   'confirm_cancel': '确认取消',
   'go_back': '返回',
-  // task_type display names（后端 task_type 无集中枚举，散落在各入队调用点字面量 +
-  // lib/project/asset_types.ASSET_SPECS 的 key；词表外未知值前端兜底显示原始串）
   'task_type_image_edit': '图片编辑',
   'task_type_storyboard': '分镜图',
   'task_type_video': '视频',
@@ -1093,7 +1091,6 @@ export default {
   'reference_units_count': '{{count}} 个视频单元',
   'reference_needs_replan': '该单元需先重新规划，修复后才能生成。',
   'reference_preview_video_aria': '视频单元 {{id}} 的预览视频',
-  // Reference video unit UI status labels — derived from task queue state.
   'reference_status_pending': '未生成',
   'reference_status_running': '生成中',
   'reference_status_ready': '已就绪',
@@ -1649,7 +1646,6 @@ export default {
   'supported_durations_err_range_too_large': "片段 '{{seg}}' 区间过大（>{{max_span}}）",
   'supported_durations_err_range_inverted': "片段 '{{seg}}' 区间右端必须 ≥ 左端",
   'supported_durations_err_unparseable': "无法解析片段 '{{seg}}'",
-  // 能力覆盖（模型行内三态控件，首批仅 last_frame）
   'cap_override_last_frame_label': '尾帧',
   'cap_override_group_label': '尾帧能力覆盖',
   'cap_override_follow': '跟随判定',
@@ -1849,7 +1845,6 @@ export default {
   'reference_tab_preview': '视频',
   'reference_tab_aria': '编辑与预览切换',
 
-  // ArcReel 工作台 v3 — 参考生视频
   'no_episode_search_results': '没有匹配的分集',
   'episode_collapsed_button_label': '{{position}} · {{title}}',
   'reference_batch_nothing_to_do': '所有视频单元都已生成或正在生成中',
@@ -2023,7 +2018,6 @@ export default {
   'line_placeholder': '台词',
   'add_dialogue': '添加对话',
   'dialogue_remove': '删除对话',
-  // script_plan → prompt_authoring 内容确认
   'utterance_kind_dialogue': '台词',
   'utterance_kind_voiceover': '画外音',
   'utterance_toggle_kind': '在台词与画外音间切换',
@@ -2119,7 +2113,6 @@ export default {
   'review_structure_hint': '确认后可在时间线增删、调整顺序',
   'review_video_model_unresolved_action': '前往项目设置',
 
-  // ReferenceScriptPlanPreviewPanel（reference_video 变体 script_plan 按集预览）
   'reference_script_plan_source_text_label': '原文',
   'reference_script_plan_source_anchor_broken': '非源文逐字子串',
   'reference_script_plan_edit_text': '编辑文稿',
@@ -2180,7 +2173,6 @@ export default {
   'more_actions': '更多操作',
   'delete_project': '删除项目',
 
-  // ---- Workbench v3 ----
   'project_switcher_current': '当前项目',
   'project_switcher_new': '新建项目…',
   'project_switcher_label': '切换项目（当前：{{name}}）',
@@ -2372,14 +2364,11 @@ export default {
   'tool_summary_operations_other': '{{count}} 处修改',
   'tool_summary_project_overview': '项目概述',
   'tool_summary_project_settings': '项目设置',
-  // ToolCallWithResult
-  // 时间线 typed 条目（interrupt / AskUserQuestion 答复）
   'chat_interrupt_notice': '已停止，这一轮的回复没有完成',
   'chat_compacted_label': '上下文已压缩',
   'chat_transcript_label': '对话记录',
   'chat_code_block_label': '代码块',
   'chat_table_label': '表格',
-  // Markdown 正文里代码块、表格、图表与链接的工具条（Streamdown translations）
   'chat_md_close': '关闭',
   'chat_md_copied': '已复制',
   'chat_md_copy_code': '复制代码',
@@ -2403,9 +2392,6 @@ export default {
   'chat_md_zoom_out': '缩小',
   'chat_image_attachment': '图片附件 {{index}}',
   'chat_image_enlarge': '放大图片附件 {{index}}',
-  // MCP tool display names (single source of truth: ARCREEL_MCP_TOOL_IDS in
-  // server/agent_toolset/toolset.py; tests/unit/test_frontend_mcp_tool_i18n.py
-  // 会校验缺漏，新增 backend tool 必须同步补全 zh/en/vi)
   'tool_name_list_pending_assets': '查询待生成资产',
   'tool_name_list_projects': '列出项目',
   'tool_name_create_project': '创建项目',
@@ -2469,7 +2455,6 @@ export default {
   'tool_name_merge_asset': '合并资产',
   'tool_name_retry_project_migration': '重试数据升级',
 
-  // 顶栏状态条（ProjectStatusBar）：集进度、项目层的下一步与数据升级失败形态
   'guide_hand_to_agent': '交给 Agent',
   'guide_alt_create_episode': '新建一集',
   'guide_alt_agent': '交给 Agent：{{step}}',
@@ -2524,7 +2509,6 @@ export default {
   'migration_repair_title': '本项目需要修复',
   'migration_repair_body': '数据升级没有完成，生成功能暂时关闭。已有的脚本与画面照常可以查看。点「重试」重新运行数据升级。',
   'migration_repair_prefill': '这个项目的数据升级失败了，请按失败明细逐条说明是哪一集、哪个文件、违了什么约，用 patch_project / patch_episode_meta / rename_asset 修好后调用 retry_project_migration 重试升级。',
-  // 数据升级报告：项目页的一次性提示与导入前的确认窗
   'migration_report_notice_one': '本次升级调整了 {{count}} 项内容',
   'migration_report_notice_other': '本次升级调整了 {{count}} 项内容',
   'migration_report_dismiss': '关闭升级提示',
@@ -2572,8 +2556,6 @@ export default {
   'import_confirm_title': '导入前请确认',
   'import_confirm_description': '导入包升级到当前版本时做了下列调整。确认后项目才会出现在项目列表里；取消则不保留任何数据。',
   'import_confirm_action': '确认导入',
-  // Skill display names (single source of truth: agent_runtime_profile/.claude/skills/*/SKILL.md
-  // 中 user-invocable: true 的 skill；tests/test_frontend_skill_i18n.py 校验三语齐全)
   'skill_name_video_workflow': '视频创作工作流',
   'skill_name_generate_storyboard': '生成分镜图',
   'skill_name_generate_grid': '生成多宫格分镜图',
@@ -3924,7 +3906,6 @@ export default {
   'ad_products_view_all': '查看全部',
   'ad_products_empty_hint': '添加商品图和卖点，AI 生成脚本时会围绕商品来写。没有商品时，也可以只凭创作灵感生成。',
   'image_fullscreen_preview': '查看「{{name}}」的大图',
-  // 共享组件：模型目录选择面板（模型厂商名取品牌通行写法）
   'catalog_picker_title': '从模型目录选择',
   'catalog_picker_description': '搜索模型目录并选择一个模型。',
   'catalog_picker_search': '搜索模型名称',

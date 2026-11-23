@@ -23,10 +23,6 @@ function credentialKey(c: AssetLibraryBindableCredential): string {
   return `${c.credential_type}-${c.credential_id}`;
 }
 
-/**
- * 「推理凭证绑定」块：为每条推理凭证选择它可以使用的素材库账号。选择即确认，立即生效；
- * 推理凭证或账号在确认后有变化时显示「需要重新确认」，确认前不使用该账号的素材。
- */
 export function AssetLibraryBindingsBlock({
   accounts,
   reloadToken,

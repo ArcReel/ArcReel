@@ -3,11 +3,9 @@ import type { CostBreakdown } from "./cost";
 
 export type AssetSheetType = "character" | "scene" | "prop" | "product";
 
-/** 产物清单对一张资产图的判定：missing 即待生成（含登记了文件却读不到）。 */
 export type AssetSheetStatus = "current" | "stale" | "missing" | "blocked";
 
 export interface AssetSheetRef {
-  /** `<类型>/<名字>`；衍生为 `<类型>/<本体>/<衍生>`。 */
   unit_id: string;
   asset_type: AssetSheetType;
   name: string;
@@ -20,7 +18,6 @@ export interface AssetSheetStatusRow extends AssetSheetRef {
   image_to_image: boolean;
 }
 
-/** 批量生成的范围：画廊类型页或集层，二选一。 */
 export type AssetSheetBatchScope = { asset_type: AssetSheetType } | { episode_id: number };
 
 export type AssetSheetSkipReason = "generating" | "missing_description" | "owner_sheet_missing" | "unavailable";
@@ -28,9 +25,7 @@ export type AssetSheetSkipReason = "generating" | "missing_description" | "owner
 export interface AssetSheetBatchPreview {
   targets: (AssetSheetRef & { depends_on: string | null })[];
   skipped: (AssetSheetRef & { reason: AssetSheetSkipReason })[];
-  /** 只合计已定价的部分；一项都没有定价时为 `null`。 */
   estimated_cost: CostBreakdown | null;
-  /** 价目表算不出价、未计入 `estimated_cost` 的项数。 */
   unpriced_count: number;
 }
 

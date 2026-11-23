@@ -25,7 +25,6 @@ interface Props {
   projectName: string;
   view: EpisodesView;
   active: boolean;
-  /** 已提交规划或交给 Agent：调用方据此收起弹层。 */
   onStarted?: () => void;
 }
 
@@ -39,7 +38,6 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
   const tasks = useTasksStore((s) => s.tasks);
   const targetSeconds = useProjectsStore((s) => s.currentProjectData?.episode_target_duration ?? null);
   const failure = useMemo(() => (active ? null : lastPlanningFailure(tasks, projectName)), [active, tasks, projectName]);
-  // 规划结束即了结停止请求，下一次规划从头开始
   if (!active && (stopRequested || finishingWindow)) {
     setStopRequested(false);
     setFinishingWindow(false);
@@ -47,7 +45,6 @@ export function EpisodePlanningPanel({ projectName, view, active, onStarted }: P
 
   const remaining = remainingUnits(view);
   const started = view.cut_units > 0;
-  // 删除中间的切出集留下的空段不在接续规划的范围里，要用空段上的按钮单独规划
   const hasGaps = view.files.some((file) => file.segments.some((segment) => segment.gap && segment.units > 0));
   const percent = view.units === 0 ? 0 : Math.round((view.cut_units / view.units) * 100);
 

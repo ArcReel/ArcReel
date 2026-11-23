@@ -8,7 +8,6 @@ export type DimKey = keyof typeof DIMENSIONS;
 export type DimValue = PriceDimensionValue;
 export type Currency = (typeof PRICE_CURRENCIES)[number];
 
-/** 一行「条件 → 单价」；`when` 缺省的维度表示任意取值。编辑中尚未填写的单价为 `null`。 */
 export interface PriceRow {
   when: Record<string, DimValue>;
   price: number | null;
@@ -18,15 +17,11 @@ export interface PriceMeter {
   meter: string;
   dims: string[];
   rows: PriceRow[];
-  /** 请求缺少某个维度取值时使用的取值。 */
   defaults?: Record<string, DimValue>;
-  /** 每次请求的免费额度，按计量项的计数单位计。 */
   free_allowance?: number;
-  /** 只用于字符数：汉字计 2 个字符。 */
   cjk_double?: boolean;
 }
 
-/** 价目表。编辑过程中 `meters` 可以为空（只选了币种）；保存时用 {@link priceForSave} 转成「没有价目表」。 */
 export interface PriceTable {
   currency: string;
   meters: PriceMeter[];
@@ -111,10 +106,6 @@ function sameCondition(a: PriceRow["when"], b: PriceRow["when"]): boolean {
   return [...keys].every((key) => a[key] === b[key]);
 }
 
-/**
- * 添加一档：沿用最后一档的条件，再在可点选的维度（有声、服务档等）上换一个还没出现过的取值，上下文档取比已有更大的下界。
- * 标签类维度（分辨率等）没有候选，沿用最后一档的取值，由用户点选修改。
- */
 export function withRow(meter: PriceMeter): PriceMeter {
   const last = meter.rows[meter.rows.length - 1];
   const when: PriceRow["when"] = { ...last?.when };
@@ -209,7 +200,6 @@ export function priceIssues(table: PriceTable): PriceIssue[] {
   return issues;
 }
 
-/** 上下文档首档写 0，且各计费项分界相同：整个请求只落入一档，各计费项都按这一档取单价。 */
 function contextTierIssues(table: PriceTable): PriceIssue[] {
   const issues: PriceIssue[] = [];
   let grid: string | null = null;
@@ -232,10 +222,6 @@ export function isPriceTableValid(table: PriceTable): boolean {
   return priceIssues(table).length === 0;
 }
 
-/**
- * 保存用的价目表：没有任何计费项时是 `null`（不填价格，调用费用记为未定价）。
- * 价目表必须先通过 {@link isPriceTableValid}。
- */
 export function priceForSave(table: PriceTable): CatalogPriceTable | null {
   return table.meters.length === 0 ? null : (table as CatalogPriceTable);
 }
@@ -244,7 +230,6 @@ export function priceTableOf(saved: CatalogPriceTable | null | undefined): Price
   return saved ? structuredClone(saved) : emptyPriceTable();
 }
 
-/** 两份价目表在保存时是否等价：没有计费项的价目表与「没有价目表」等价。 */
 export function samePrice(a: PriceTable | null | undefined, b: PriceTable | null | undefined): boolean {
   const normalize = (table: PriceTable | null | undefined) => (table && table.meters.length > 0 ? table : null);
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));

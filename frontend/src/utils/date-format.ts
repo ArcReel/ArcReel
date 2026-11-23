@@ -14,8 +14,6 @@ function getFormatter(lang: string | undefined, options: Intl.DateTimeFormatOpti
   return fmt;
 }
 
-// ISO 字符串若没有显式时区后缀（Z / ±HH(:MM)），按 UTC 处理避免浏览器歧义。
-// 时间戳解析规则在时刻展示与时长计算之间共用，故导出。
 export function parseIsoTimestamp(value: string): Date {
   const hasTz = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/.test(value);
   return new Date(hasTz ? value : `${value}Z`);
@@ -72,16 +70,12 @@ function getRelativeFormatter(lang: string): Intl.RelativeTimeFormat {
   return fmt;
 }
 
-// 与当前相差不足一分钟（含时钟偏差造成的略晚于当前）算「刚刚」；解析失败返回 false。
-// 「刚刚」要嵌进整句话，措辞因句子而异，由调用方各自选文案，不交给 Intl 的「现在」。
 export function isJustNow(value: string | null | undefined, now: number = Date.now()): boolean {
   if (!value) return false;
   const time = parseIsoTimestamp(value).getTime();
   return !Number.isNaN(time) && Math.abs(time - now) < JUST_NOW_MS;
 }
 
-// 相对当前的粗粒度时间（「3 小时前」），按界面语言成文；不足一分钟交给 Intl 成文（「现在」），解析失败返回 null。
-// 需要「刚刚」的调用方先用 isJustNow 判断。
 export function formatRelativeTime(
   value: string | null | undefined,
   lang: string,

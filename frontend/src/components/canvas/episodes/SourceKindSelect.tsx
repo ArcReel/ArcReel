@@ -12,7 +12,6 @@ interface SourceKindSelectProps {
   disabled?: boolean;
 }
 
-/** 源文件类型下拉：小说 / 剧本。只在剧情演绎项目里出现；选项下方说明两种类型的区别。 */
 export function SourceKindSelect({ value, onChange, label, disabled }: SourceKindSelectProps) {
   const { t } = useTranslation("dashboard");
   const items = SOURCE_KINDS.map((kind) => ({

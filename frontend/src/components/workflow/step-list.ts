@@ -16,13 +16,6 @@ import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-mod
 import type { EpisodeSurface } from "@/stores/episode-surface-store";
 import { formatNameList } from "@/utils/list-format";
 
-/**
- * 制作进度面板的「步骤清单」投影：把后端的制作状态（内容现状、各操作准入、建议的下一步）
- * 排成一行一类内容，下一步挂在它所属的那一行上。
- *
- * 每行只陈述自己那类内容此刻的样子，不看前面的步骤——前一步没做完，后面一行照样写「还没有」，
- * 不写「等待上一步」。过期、缺描述这类提醒挂在对应行上，不进下一步。
- */
 
 export type StepRowKey =
   | "brief"
@@ -58,10 +51,6 @@ export type StepIntent =
   | { type: "view_unit"; unitId: string }
   | { type: "route"; path: string };
 
-/**
- * 一个入口。`agent` 是「交给 Agent」（实心），`ai` 是直接 AI 调用（描边），`nav` 是跳转或手动去做（文字链），
- * `danger` 是需确认的破坏性操作（红字链）。`disabledReason` 非空时入口照常显示但不可点，悬停说明原因。
- */
 export interface StepAct {
   key: string;
   label: string;
@@ -84,11 +73,9 @@ export interface StepRowView {
   status: string;
   notes: StepNote[];
   acts: StepAct[];
-  /** 归到这一行的后端步骤：任务、结构问题、过期产物与整批准入从这里取。 */
   steps: WorkflowPlanStep[];
 }
 
-/** 附加指令：`persist` 非空时按集保存到对应字段，为 null 时只随本次调用带上。 */
 export interface StepInstruction {
   initial: string;
   persist: "prompt_authoring" | null;
@@ -109,29 +96,22 @@ export interface StepListView {
   rows: StepRowView[];
   next: NextStepView | null;
   summary: string;
-  /** 广告/短片标题行的「总时长 / 目标时长」；`over` 为超出目标 10% 以上。 */
   adDuration: { total: number | null; target: number; over: boolean } | null;
 }
 
 export interface StepListContext {
   t: TFunction;
-  /** 界面语言，名单按它连接。 */
   lang: string;
   episodeId: number;
-  /** 集名连同集 ID 的指称，预填给 Agent 用（`episodeAgentRef`）。 */
   episodeRef: string;
   itemLabel: (itemId: string) => string;
-  /** 预填给 Agent 的条目指称：位置连同条目 ID（`episodeItemAgentRef`）。 */
   itemAgentRef: (itemId: string) => string;
-  /** 本集正式脚本的总时长（秒），项目摘要给出；未知时为 null。 */
   episodeDurationSeconds: number | null;
   adTargetSeconds: number | null;
   assetRoute: (name: string) => string | null;
   savedPromptInstructions: string;
-  /** 集页上是否挂着「编写提示词」的宿主（有正式脚本时才有）。 */
   canAuthorPrompts: boolean;
   canViewUnit: boolean;
-  /** 本集的剪辑概况；还没取到或本集没有剪辑时间线时为 null。 */
   editOverview: EpisodeEditOverview | null;
 }
 
@@ -146,7 +126,6 @@ const PROMPT_AUTHORING_DRAFT_KIND = "reference_video_prompt_authoring";
 
 const AD_DURATION_OVER_RATIO = 1.1;
 
-/** 整批准入与任务失败交回的动作：它们的入口在视频行的准入陈述里，不在下一步里另起按钮。 */
 const ADMISSION_ACTIONS = new Set<WorkflowNextAction["type"]>([
   "retry",
   "fix_input",
@@ -168,7 +147,6 @@ function ids(collection: WorkflowArtifactCollection | undefined, key: "current_i
   return Array.isArray(value) ? value : [];
 }
 
-/** 准入被拒时悬停显示的原因，准入成立时为 null。「此类项目不适用」的操作由调用方用 `operationApplies` 过滤掉入口。 */
 export function refusalReason(t: TFunction, operation: WorkflowOperation | undefined): string | null {
   if (!operation || operation.state === "admitted") return null;
   const reason = operation.reason ?? "unknown";
@@ -295,7 +273,6 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     }
     const planDraft = draftOf(content, false);
     const planState = status.artifacts.script_plan?.state;
-    // 填写集原文的界面只在本集既没有规划也没有草稿时显示，其余时候这个入口点了没有去处。
     const sourceSurfaceShown = (planState === undefined || planState === "missing") && content.drafts.length === 0;
     const acts: StepAct[] =
       !present &&
@@ -338,10 +315,8 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     const planOffered = !planDraft && planState === "missing" && nextType !== "prepare_script_plan" && operationApplies(planOp);
     let planActs: StepAct[] = [];
     if (planOffered && formal !== "present") {
-      // 首次规划只在「脚本规划」tab 的起步区里做，这里只跳过去。
       planActs = [{ ...goPlanScriptAct(t), disabledReason: refusalReason(t, planOp) }];
     } else if (planOffered && formal === "present") {
-      // 已有正式脚本（如从空白开始）时也能整集交给 AI 规划；新规划待确认，经覆盖确认才替换正式脚本。
       planActs = [
         {
           key: "plan",
@@ -380,7 +355,6 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     scriptStatus = t("workflow:status_none");
     scriptTone = "todo";
   }
-  // 广告/短片的整份重做：服务端先报输入缺失，`formal_script_exists` 只拦首次生成，不拦重做。
   const generateOp = status.operations.generate_script;
   const scriptActs: StepAct[] =
     facts.isAd && formal === "present" && operationApplies(generateOp)
@@ -507,7 +481,6 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
   return rows.map(withRunning);
 }
 
-/** 剪辑的两个入口：交给 Agent 剪辑为主，按脚本机械新建一条剪辑时间线为次；准入是本集至少有一个可用视频。 */
 function editActs(facts: Facts, ctx: StepListContext): StepAct[] {
   const { t } = ctx;
   const refusal = refusalReason(t, facts.plan.status.operations.create_edit_timeline);
@@ -523,7 +496,6 @@ function editActs(facts: Facts, ctx: StepListContext): StepAct[] {
   ];
 }
 
-/** 本集剪辑时间线条数：优先取剪辑概况，取不到时按计划里的剪辑时间线 ID 计。 */
 function editTimelineCount(facts: Facts, ctx: StepListContext): number {
   const ids = facts.plan.status.artifacts.edit_timelines?.timeline_ids;
   return ctx.editOverview?.timeline_count ?? (Array.isArray(ids) ? ids.length : 0);
@@ -556,7 +528,6 @@ function editRow(facts: Facts, ctx: StepListContext): StepRowView {
       act: openEditViewAct(ctx, "final-cut-stale-render", t("workflow:act_go_render"), stale[0].id),
     });
   }
-  // 剪辑是下一步时入口就地展开在下一步里；其余时候有正式脚本条目就常驻在本行，准入不满足时置灰。
   const hasItems = content.formal_script === "present" && (content.script_item_count ?? 0) > 0;
   const acts = hasItems && plan.next_action.type !== "create_edit_timeline" ? editActs(facts, ctx) : [];
   if (count > 0) acts.push(openEditViewAct(ctx, "open-edit-view", t("workflow:act_open_edit_view")));
@@ -679,7 +650,6 @@ function agentAct(t: TFunction, text: string, label?: string, disabledReason?: s
   };
 }
 
-/** 广告/短片「AI 生成脚本」：带上下一步的附加指令直接提交，结果写成正式脚本。 */
 function adScriptAct(t: TFunction, disabledReason?: string | null): StepAct {
   return {
     key: "ai-generate-script",
@@ -894,7 +864,6 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
     case "generate_grid":
     case "generate_videos": {
       const primary = [agentAct(t, t(`workflow:agent_prefill_${action.type}`, { episodeRef }))];
-      // 分镜图生视频的批量入口与时间线工具栏同一个确认框；宫格图与参考生视频各有自己的入口。
       const batchKind: StoryboardBatchKind | null =
         facts.plan.status.project.generation_mode === "reference_video"
           ? null
@@ -969,10 +938,6 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
   }
 }
 
-/**
- * 引用了还没有资产图的资产时，生成入口会拒绝引用它们的分镜：下一步照常给出，另附一条跳转提示。
- * 提示只说数量，具体是哪些资产、为什么没有资产图由资产图行的提醒陈述。视频只在参考生视频模式直接引用资产。
- */
 function unsheetedAssetsHint(facts: Facts, ctx: StepListContext, actionType: WorkflowNextAction["type"]): StepNote | null {
   const names = facts.content.referenced_assets_without_sheet;
   if (names.length === 0) return null;

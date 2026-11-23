@@ -2,22 +2,17 @@ import type { PresentationResourceType } from "./presentation";
 
 export type ProjectEventSource = "webui" | "worker" | "filesystem";
 
-/** 项目事件的定位窗格：资产按其资产表名（须覆盖后端资产类型表），剧本条目统一为 episode。 */
 export type ProjectChangePane = "characters" | "scenes" | "props" | "products" | "episode";
 
 export interface ProjectChangeFocus {
   pane: ProjectChangePane;
   episode?: number;
-  // segment/drama_scene/shot 三种骨架条目走时间线画布，锚点类型统一为 segment；video_units 走参考
-  // 生视频画布，锚点类型为 reference_unit（与 WorkspaceFocusTarget["type"] 及画布守卫对齐）。
   anchor_type?: "character" | "scene" | "prop" | "product" | "segment" | "reference_unit";
   anchor_id?: string;
   tab?: string;
 }
 
 export interface ProjectChange {
-  // segment/drama_scene/shot/reference_unit 为四种剧本骨架条目类型（narration/drama/ad/参考生视频），
-  // 驱动分组标签映射；drama 用 drama_scene 避免与命名实体 scene 撞组。
   entity_type:
     | "project"
     | "character"
@@ -32,13 +27,8 @@ export interface ProjectChange {
     | "overview"
     | "draft"
     | "grid"
-    // task 不是项目实体，而是任务终态的刷新信号（important=false / focus=null）：
-    // 只用来重拉任务列表与受影响画布，不进通知与聚焦跳转。
     | "task"
-    // usage_record 同样是刷新信号：一次供应商调用结算落库（成功/失败/取消），
-    // 用来重拉用量与成本，不进通知与聚焦跳转。
     | "usage_record"
-    // trash 同样是刷新信号：项目回收站有增删，用来重拉文件视图与回收站分区。
     | "trash";
   action:
     | "created"
@@ -56,16 +46,12 @@ export interface ProjectChange {
     | "task_cancelled"
     | "recorded";
   entity_id: string;
-  /** 后端按默认语言渲染的条目标签，只作日志与旧发布方兜底；界面文案以 label_key 为准。 */
   label: string;
-  /** 条目标签的稳定标识，对应 `events` 命名空间的 `label.*`。 */
   label_key?: string;
   label_params?: Record<string, string | number>;
   script_file?: string;
   episode?: number;
-  /** 仅 entity_type === "task" 携带：终态任务的任务类型，用于判定哪类画布需重拉。 */
   task_type?: string;
-  /** 仅 entity_type === "usage_record" 携带：这次调用结算成的终态。 */
   status?: string;
   focus?: ProjectChangeFocus | null;
   important: boolean;
@@ -87,12 +73,10 @@ export interface ProjectEventSnapshotPayload {
   generated_at: string;
 }
 
-/** 项目事件流终止事件负载——项目目录被删除后下发，随后流正常结束。 */
 export interface ProjectDeletedPayload {
   project_name: string;
 }
 
-/** 项目下的 Agent 会话未经用户发送、自主开启新一轮（后台任务完成后唤醒）时下发。 */
 export interface AssistantSessionResumedPayload {
   project_name: string;
   session_id: string;
@@ -119,10 +103,6 @@ export interface WorkspaceFocusTargetInput {
   expires_at?: number;
 }
 
-/**
- * 请求打开某个视频单元的预览（Agent 回复里的单元链接）：预览在窄屏下被收进子页签时切到前台，
- * `seconds` 不为 null 时播放器再从该时间开始播放。一次性：播放器消费后清除，一段时间内无人消费也作废。
- */
 export interface PlaybackStartRequest {
   request_id: string;
   resource_type: PresentationResourceType;

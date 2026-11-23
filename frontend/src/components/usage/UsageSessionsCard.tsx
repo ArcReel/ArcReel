@@ -29,7 +29,6 @@ interface UsageSessionsCardProps {
   summary: UsageSummary | null;
   sessions: UsageAgentSession[];
   loading: boolean;
-  /** 会话请求失败：不渲染空态，失败提示由区块统一给出。 */
   failed?: boolean;
   total: number;
   pageIndex: number;
@@ -48,7 +47,6 @@ function HintedText({ hint, children }: { hint: string; children: ReactNode }) {
   );
 }
 
-/** 已定价部分的合计：按币种分别写出；全是 0 元时写 0，没有任何已定价记录时写破折号。 */
 function costText(cost: Record<string, number>): string {
   const entries = costEntries(cost);
   if (entries.length > 0) {
@@ -73,7 +71,6 @@ export function UsageSessionsCard({
   const headingId = useId();
   const titleOf = projectTitleResolver(summary);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  // 筛选已固定某个项目时隐藏项目列，避免整列重复同一个值。
   const showProject = filters.project === null;
   const columns = showProject ? 6 : 5;
   const from = total === 0 ? 0 : pageIndex * USAGE_PAGE_SIZE + 1;
@@ -200,7 +197,6 @@ export function UsageSessionsCard({
                     {open && (
                       <tr id={detailId} className="bg-muted/20">
                         <td colSpan={columns} className="px-3 pb-3">
-                          {/* 列表刷新后最近一轮的时间变了，明细随之重取 */}
                           <SessionDetail
                             key={session.last_started_at}
                             sessionId={session.session_id}
@@ -322,7 +318,6 @@ function SessionDetail({ sessionId, title }: { sessionId: string; title: string 
             cache_write_1h_tokens: write1h,
           } = record;
           const hasWrite = write5m !== null || write1h !== null;
-          // 记录里的总输入含缓存读写；对外的「输入」只指没有命中也没有写入缓存的那部分。
           const uncachedInput =
             input === null ? null : Math.max(0, input - (cacheRead ?? 0) - (write5m ?? 0) - (write1h ?? 0));
           const open = openRows.has(record.id);

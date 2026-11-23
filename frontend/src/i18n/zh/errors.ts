@@ -89,7 +89,6 @@ export default {
   'source_conflict': '源文件「{{existing}}」已存在',
   'image_endpoint_mismatch_no_i2i': '模型 {{model}} 仅支持文生图（不支持 /v1/images/edits）；请去掉参考图或换一个支持图生图的模型',
   'image_endpoint_mismatch_no_t2i': '模型 {{model}} 仅支持图生图（必须传参考图）；请提供参考图或换一个支持文生图的模型',
-  // 接口层与事件流的兜底文案（服务端没有给出原因时）
   'request_failed': '请求失败',
   'session_expired': '认证已过期，请重新登录',
   'content_mode_immutable': '项目创建后不支持修改 content_mode',

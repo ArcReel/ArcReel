@@ -69,7 +69,6 @@ export function PromptAuthoringHost({ projectName, episode, script, savedInstruc
   if (!request || request.projectName !== projectName || request.episode !== episode || !script) return null;
   return (
     <PromptAuthoringDialog
-      // 每次打开都从请求重新初始化范围与指令，不沿用上一次弹窗里未提交的状态。
       key={`${projectName}:${episode}:${request.scope}:${request.currentEntryId ?? ""}`}
       projectName={projectName}
       episode={episode}
@@ -125,7 +124,6 @@ export function PromptAuthoringDialog({
   const [overwrite, setOverwrite] = useState<PromptOverwrite | null>(null);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
-  // 脚本在弹窗打开期间变化（条目被删）时，自选范围只算仍在脚本里的条目，按剧本顺序。
   const selectedIds = useMemo(
     () => entries.filter((entry) => selectedSet.has(entry.id)).map((entry) => entry.id),
     [entries, selectedSet],
@@ -324,7 +322,6 @@ export function PromptAuthoringDialog({
       <AlertDialog
         open={overwrite !== null}
         onOpenChange={(next) => {
-          // 提交中不响应 Esc，避免请求还在途时对话框先消失
           if (!next && !submitting) setOverwrite(null);
         }}
       >

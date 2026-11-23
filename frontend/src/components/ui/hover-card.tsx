@@ -30,7 +30,6 @@ function HoverCardContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
-        // 层级用仓库的弹层 token，与 Popover、Tooltip 同层
         className="isolate z-overlay"
       >
         <PreviewCardPrimitive.Popup

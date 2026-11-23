@@ -3,7 +3,6 @@ import { useId, type ReactNode } from "react";
 interface FieldRowProps {
   label: ReactNode;
   htmlFor?: string;
-  /** 一行里有多个控件（如价格）：整行作为以标签命名的 group，控件各自带 `aria-label`。 */
   group?: boolean;
   hint?: ReactNode;
   children: ReactNode;

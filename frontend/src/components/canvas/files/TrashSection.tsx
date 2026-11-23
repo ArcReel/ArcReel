@@ -38,10 +38,6 @@ function isAssetType(value: unknown): value is (typeof ASSET_TYPES)[number] {
   return ASSET_TYPES.includes(value as (typeof ASSET_TYPES)[number]);
 }
 
-/**
- * 分镜与视频单元按删除时的称呼快照指称：「集名 · 5」，集名取当前账本。
- * 没有快照的旧记录返回 null，由调用方退回编号显示。
- */
 function itemAtDeletion(t: TFunction<"dashboard">, object: TrashRecord["object"], episodes: EpisodeLedger) {
   if (typeof object.episode !== "number" || typeof object.item_position !== "number") return null;
   return `${episodeDisplayName(episodes, object.episode, t)} · ${object.item_position}`;
@@ -130,7 +126,6 @@ function recordMetaKey(record: TrashRecord): string {
 }
 
 interface PurgeRequest {
-  /** 彻底删除的那条记录；清空时为空，与所有恢复中的记录冲突。 */
   recordId?: string;
   title: string;
   description: string;
@@ -143,11 +138,9 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
   const trashRevision = useAppStore((s) => s.trashRevision);
   const episodes = useProjectsStore((s) => s.currentProjectData?.episodes) ?? NO_EPISODES;
   const [state, setState] = useState<ListingState>({ status: "loading" });
-  // 可以同时恢复多条记录：每条记录各自占用，完成时只释放自己。
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const [purge, setPurge] = useState<PurgeRequest | null>(null);
 
-  // 自动重拉与「重试」共用一个控制器：每次加载都取消上一次，旧响应不会覆盖新列表。
   const controllerRef = useRef<AbortController | null>(null);
   const load = useCallback(() => {
     controllerRef.current?.abort();
@@ -171,10 +164,6 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
 
   const afterChange = () => useAppStore.getState().invalidateTrash();
 
-  /**
-   * 服务端已确认移除的记录立即从列表里拿掉，不等重拉：否则已恢复或已删除的记录还留在列表里、又解除了占用，可以被再操作一次。
-   * 在途的列表请求可能早于这次变更，先取消；随后的重拉以服务端为准。
-   */
   const dropRecords = (keep: (record: TrashRecord) => boolean) => {
     controllerRef.current?.abort();
     setState((current) => {
@@ -223,7 +212,6 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
   const { records, total_size: totalSize, retention_days: retentionDays } = state.listing;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* 清空按钮靠左：窄屏下 Agent 面板浮在画布右侧，靠右的控件会被盖住 */}
       <div className="flex shrink-0 flex-col items-start gap-2 border-b border-border px-6 py-3">
         <p className="min-w-0 text-sm text-subtle-foreground">
           {t("trash_summary", { total: records.length, size: formatFileSize(totalSize), days: retentionDays })}
@@ -314,7 +302,6 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
       <PurgeConfirmDialog
         request={purge}
         onSucceeded={(request) => dropRecords(request.recordId ? (item) => item.id !== request.recordId : () => false)}
-        // 打开后才开始的恢复同样挡住确认：提交时再按当前占用判一次
         blocked={purge !== null && (purge.recordId ? busyIds.has(purge.recordId) : busyIds.size > 0)}
         onClose={() => setPurge(null)}
         onDone={afterChange}
@@ -383,7 +370,6 @@ function PurgeConfirmDialog({
   const { t } = useTranslation("dashboard");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 关闭动画期间沿用上一次的内容；换了请求时清掉上一次的错误
   const [shown, setShown] = useState(request);
   if (request !== null && request !== shown) {
     setShown(request);
@@ -410,7 +396,6 @@ function PurgeConfirmDialog({
     <AlertDialog
       open={request !== null}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
         if (!next && !running) onClose();
       }}
     >

@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 
 import type { EditUnit } from "./useEditUnit";
 
-/** 保存栏与内联提示条只用到编辑单元里与内容类型无关的部分。 */
 export type EditUnitControls = Pick<
   EditUnit<unknown>,
   "dirty" | "status" | "error" | "externallyUpdated" | "externalChangeMessage" | "save" | "discard"
@@ -44,7 +43,6 @@ export function SaveStatus({ unit }: { unit: EditUnitControls }) {
         ) : null}
       </p>
       {unit.externallyUpdated && unit.status !== "saving" ? (
-        // 采用新内容即放弃本地修改，回到外部更新后的已保存内容
         <Button variant="link" size="sm" onClick={unit.discard}>
           {t("adopt_new_content")}
         </Button>

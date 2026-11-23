@@ -1,14 +1,4 @@
-/* === 首次使用引导 — driver.js 皮肤 ===
- *
- * driver.js 的 popover 用 `all: unset` 起手，所有观感都要在这里显式给出。皮肤与应用里的弹层同一规范：
- * 不透明的 popover 表面加 shadow-overlay，圆角取 --radius（10px），不加背景模糊；按钮与 Button 的
- * default、outline、ghost 变体同一外观。只有颜色与透明度过渡，不做位移动效。
- *
- * 作用域全部挂在 `.arc-tour` 上（driver 的 popoverClass），不改 driver 默认皮肤，
- * 避免将来引入 hints 等其他 driver 形态时互相打架。
- */
 
-/* 遮罩色不在这里：driver 把它写进 SVG 的 fill，取值见 tour.ts（引用 --scrim）。 */
 
 /* 层级取 index.css 的 --z-onboarding，遮罩与气泡都高于弹层与 Toast。
    driver 把遮罩层级写在内联样式里（10000），气泡写在默认皮肤里，只能用 !important 覆盖。 */
@@ -33,7 +23,6 @@
     padding: 20px 20px 16px;
 }
 
-/* 箭头与气泡同色：driver 按方位把其中一条边染成背景色，其余透明 */
 .driver-popover.arc-tour .driver-popover-arrow {
     border-color: var(--popover);
 }
@@ -64,13 +53,12 @@
 
 
 .driver-popover.arc-tour .driver-popover-title {
-    /* 编辑体标题，与大厅海报卡同一张脸 */
     font-family: var(--font-editorial);
     font-size: 24px;
     font-weight: 400;
     line-height: 1.2;
     color: var(--foreground);
-    padding-right: 28px; /* 让开右上角的关闭按钮 */
+    padding-right: 28px;
 }
 
 .driver-popover.arc-tour .driver-popover-description {
@@ -115,7 +103,6 @@
     margin-left: 0;
 }
 
-/* 进度：胶片齿孔。轨道宽度恒定，格数随步数变化；语义由页脚的 sr-only 文本承载，齿孔本身是装饰。 */
 .arc-tour-filmstrip {
     display: flex;
     gap: 3px;
@@ -183,7 +170,6 @@
     background: color-mix(in oklab, var(--input) 20%, transparent);
 }
 
-/* 跳过：ghost，排在最左。它是退出路径，不是导航 */
 .driver-popover.arc-tour .arc-tour-skip-btn {
     margin-right: auto;
     color: var(--muted-foreground);
@@ -224,8 +210,6 @@
         width: 56px;
     }
 
-    /* 进度条 + 跳过 + 上一步/继续两组按钮，英、越文案比中文长得多，三者挤在一行
-     * 在窄屏（~320px）会溢出。这里让进度条独占一行，按钮组换到下一行。 */
     .driver-popover.arc-tour .driver-popover-footer {
         flex-wrap: wrap;
         row-gap: 10px;

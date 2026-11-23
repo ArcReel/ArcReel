@@ -58,13 +58,11 @@ export default function SponsorsNav({
   onClick,
 }: {
   mobile?: boolean;
-  // 移动端抽屉传入的关闭回调，与内置 navbar 项一样转给链接。
   onClick?: () => void;
 }): ReactNode {
   const labels = useLabels();
   const sponsors = getSponsors();
 
-  // 移动端抽屉放不下浮层，退化为每家一行链接。
   if (mobile) {
     return sponsors.map((sponsor) => (
       <li key={sponsor.name} className="menu__list-item">

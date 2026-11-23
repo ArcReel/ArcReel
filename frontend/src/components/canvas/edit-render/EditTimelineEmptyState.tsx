@@ -18,12 +18,6 @@ interface EditTimelineEmptyStateProps {
   onCreated: (created: EditTimelineReadout) => void;
 }
 
-/**
- * 剪辑视图在本集还没有剪辑时间线时的空状态。
- *
- * 两个入口与 WorkflowPanel「剪辑」行同一套：「交给 Agent 剪辑」只把请求预填进对话输入框并打开面板，
- * 由用户确认发送；「新建剪辑时间线」直接按脚本机械新建，不经过 Agent。出片从不自动新建剪辑时间线。
- */
 export function EditTimelineEmptyState({
   projectName,
   episode,
@@ -32,8 +26,6 @@ export function EditTimelineEmptyState({
   const { t } = useTranslation(["dashboard", "workflow"]);
   const ledger = useEpisodeLedger();
   const [creating, setCreating] = useState(false);
-  // 准入取集页制作状态里的同一操作（本集至少有一个可用视频），与服务端新建时的拒绝同源；
-  // 制作状态尚未取回或属于别的集时不置灰，提交时由服务端复核。
   const operation = useWorkflowStore((s) =>
     s.planKey === workflowPlanKey(projectName, episode) ? s.plan?.status.operations.create_edit_timeline : undefined,
   );
@@ -71,7 +63,6 @@ export function EditTimelineEmptyState({
           <h2 className="text-base font-semibold text-foreground">{t("edit_view_empty_title")}</h2>
           <p className="text-sm text-muted-foreground">{t("edit_view_empty_description")}</p>
         </div>
-        {/* 禁用的 button 不触发悬停，准入原因挂在外层容器上。 */}
         <div className="flex flex-wrap items-center justify-center gap-2" title={blockedReason}>
           <Button size="sm" onClick={handleHandToAgent} disabled={blocked}>
             <Bot data-icon="inline-start" aria-hidden />

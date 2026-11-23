@@ -4,11 +4,6 @@ import { useTranslation } from "react-i18next";
 import { formatDurationsLabel } from "@/utils/duration_format";
 import type { VoiceConsistencyTier } from "@/types";
 
-// ---------------------------------------------------------------------------
-// 声音一致性档位元数据。
-//
-// 档位含义只在此处声明一次：颜色/图标/文案随档位联动，避免各调用点各拼一份判断。
-// ---------------------------------------------------------------------------
 
 const TIER_ICON: Record<VoiceConsistencyTier, typeof Mic> = {
   native: Mic,
@@ -28,7 +23,6 @@ export function VoiceConsistencyBadge({ tier }: { tier: VoiceConsistencyTier }) 
   const label = t(`voice_consistency_${tier}_label`);
   const desc = t(`voice_consistency_${tier}_desc`);
   return (
-    // 降级口径只挂 title 的话读屏用户读不到；补 role="note" + aria-label 让它进无障碍树。
     <span
       role="note"
       title={desc}
@@ -42,10 +36,8 @@ export function VoiceConsistencyBadge({ tier }: { tier: VoiceConsistencyTier }) 
 }
 
 export interface VideoModelSpecBarProps {
-  /** 未收窄的模型原生时长全集；未知为 null。 */
   durations: number[] | null;
   resolutions: string[];
-  /** 声音一致性档位；未知（能力未查到）为 null。音轨格同源于此——tier !== "none" 即有声。 */
   tier: VoiceConsistencyTier | null;
 }
 
@@ -54,7 +46,6 @@ export function VideoModelSpecBar({ durations, resolutions, tier }: VideoModelSp
 
   const cells: { label: string; content: React.ReactNode }[] = [
     {
-      // 规格条展示的是模型支持的时长全集，不是 templates:duration_label（「默认时长」，用户偏好）。
       label: t("video_spec_duration_label"),
       content:
         durations && durations.length > 0 ? (
@@ -91,7 +82,6 @@ export function VideoModelSpecBar({ durations, resolutions, tier }: VideoModelSp
     },
   ];
 
-  // 两列还是四列取决于规格条自身的宽度：它会出现在全局设置、项目设置与新建项目向导里。
   return (
     <div className="@container">
       <div className="grid grid-cols-2 gap-y-3 rounded-md border border-border bg-muted/40 px-3 py-2.5 @md:grid-cols-4 @md:gap-y-0">

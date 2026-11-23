@@ -2,14 +2,6 @@ import { create } from "zustand";
 
 import { useAssistantStore } from "@/stores/assistant-store";
 
-/**
- * 故事设定提炼完成后的一次性就地提示。
- *
- * 待显示的项目与各项目上一次看到的故事设定是否为空都记在内存里：概览因切换视图卸载再回来时提示还在，
- * 离开期间后台生成填好的故事设定也算由空变为有内容；刷新页面后不再出现。
- * 点「知道了」或在这个项目里向 Agent 发出消息（提示出现之前发出的也算）后按项目记入 localStorage，
- * 之后这个项目不再提示。
- */
 
 const DISMISSED_KEY_PREFIX = "arcreel_handoff_tip_dismissed:";
 
@@ -53,8 +45,6 @@ export const useHandoffTipStore = create<HandoffTipState>((set, get) => ({
   },
 }));
 
-// 在项目的任何视图里向 Agent 发出消息，都关闭并记住该项目的提示，提示出现之前发出的也算：
-// 订阅挂在 store 上而不随概览卸载。发送与改写都会把 sending 置真；只认当前项目的会话
 useAssistantStore.subscribe((state, prev) => {
   if (!state.sending || prev.sending || !state.currentProject) return;
   if (!readDismissed(state.currentProject)) useHandoffTipStore.getState().dismiss(state.currentProject);

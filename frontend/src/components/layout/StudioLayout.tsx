@@ -44,27 +44,12 @@ interface StudioLayoutProps {
   children: React.ReactNode;
 }
 
-/**
- * 项目工作区外壳：顶栏横跨全宽，下方是「侧栏 | 画布 | Agent 面板」三栏，三栏之间用调宽手柄分隔。
- *
- * - 外壳是唯一按视口切换档位的地方（1280）。标准档的 Agent 面板挤压画布，画布至少保留 480px；
- *   紧凑档的 Agent 面板是覆盖在画布右侧的非模态层，焦点在面板内时 Esc 收起，侧栏收为图标栏。
- * - 侧栏在单集页与分集视图自动收为图标栏，可临时展开，换页后恢复；离开这些页面后回到用户自己的选择。
- * - Agent 面板的开合与宽度在 `app-store`；收起时内容保持挂载，输入中的文字与会话连接不受影响。
- * - 尺寸容器：侧栏 `@container/sidebar`，画布 `@container/canvas`（宽度查询），Agent 面板
- *   `@container-size/agent`（宽高都可查询，输入框的 `40cqh` 按面板高度计算）。
- */
 export function StudioLayout({ children }: StudioLayoutProps) {
   const { t } = useTranslation("dashboard");
   const [location] = useLocation();
   const currentProjectName = useProjectsStore((s) => s.currentProjectName);
-  // 演示项目在后端不存在：任务 / 项目事件流和 Agent 都是真实写路径，演示态下整条都不接
   const demoMode = useDemoWorkbench();
 
-  // demoMode 演示→真实切换时先于 store 变为 false，currentProjectName 单独判一次
-  // 兜住这一帧仍读到旧演示项目名的窗口，避免对不存在的演示项目建一次必然失败的 SSE 连接。
-  // useTaskRefresh 的 projectName=null 语义是「不按项目过滤」而非「停用」，enabled 必须
-  // 同步这一判定，否则该帧会退化成对全局任务的轮询而非真正停用。
   const isEffectivelyDemo = demoMode || isDemoProject(currentProjectName);
   const sseProjectName = isEffectivelyDemo ? null : currentProjectName;
   useTaskRefresh(sseProjectName, !isEffectivelyDemo);
@@ -74,7 +59,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const storeOpen = useAppStore((s) => s.assistantPanelOpen);
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
   const agentWidth = useAppStore((s) => s.assistantPanelWidth);
-  // 演示面板不可收起，也不覆盖画布：引导后面几步要在画布上高亮
   const agentOpen = demoMode || storeOpen;
   const overlay = compact && !demoMode;
 
@@ -104,7 +88,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const agentFrameRef = useRef<HTMLElement>(null);
   const sidebarPanelRef = usePanelRef();
   const agentPanelRef = usePanelRef();
-  // 记住的侧栏宽度只在命令式调宽时读取，不参与渲染，更新时不重绘外壳
   const [initialSidebarWidth] = useState(readSidebarWidth);
   const sidebarWidthRef = useRef(initialSidebarWidth);
   const latest = useRef({ sidebarCollapsed, agentOpen, agentWidth });
@@ -112,7 +95,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     latest.current = { sidebarCollapsed, agentOpen, agentWidth };
   });
 
-  // 面板的 defaultSize 是双击手柄复位到的默认宽度；挂载时与之后的开合、折叠都在这里按记住的宽度落到面板上。
   useLayoutEffect(() => {
     const panel = sidebarPanelRef.current;
     if (!panel) return;
@@ -123,7 +105,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   useLayoutEffect(() => {
     const panel = agentPanelRef.current;
     if (!panel) return;
-    // 开合时宽度瞬时切换，不做宽度动画：给宽度做动画会让画布逐帧重新排版
     if (agentOpen) panel.resize(latest.current.agentWidth);
     else panel.collapse();
   }, [agentOpen, agentPanelRef]);
@@ -140,8 +121,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     store.persistAssistantPanelWidth();
   }, []);
 
-  // 键盘调宽与双击复位都经库的命令式接口完成，库同步通知布局变化，但不标记为用户操作；
-  // 调整期间记下「用户在调宽」，结果就和拖动一样被记住，不会被拉回原来的宽度。
   const userResizingRef = useRef(false);
   const resizeByKeyboard = (panelRef: typeof sidebarPanelRef, width: number) => {
     const panel = panelRef.current;
@@ -153,7 +132,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       userResizingRef.current = false;
     }
   };
-  // 双击由库在 document 的捕获阶段处理，window 的捕获阶段先于它
   useEffect(() => {
     let resetTimer: ReturnType<typeof setTimeout> | undefined;
     const handleDoubleClick = () => {
@@ -187,8 +165,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
       }
       return;
     }
-    // 其余变化来自视口与档位：库按变化前的百分比缩放面板，或为画布的最小宽度挤窄面板。展开着的面板回到记住的
-    // 像素宽度；放不下时库把结果夹在约束内，布局不变也就不会再次触发。
     if (sidebar && !current.sidebarCollapsed && !sidebar.isCollapsed()) {
       const sidebarWidth = sidebarWidthRef.current;
       if (Math.abs(sidebar.getSize().inPixels - sidebarWidth) > 1) sidebar.resize(sidebarWidth);
@@ -198,13 +174,11 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     }
   };
 
-  // 覆盖模式下画布按「画布栏 + Agent 面板」的宽度排版，被面板盖住而不是被挤窄
   const handleAgentResize = (size: PanelSize) => {
     const covered = size.inPixels > 0 ? size.inPixels + HANDLE_WIDTH : 0;
     shellRef.current?.style.setProperty("--workspace-agent-width", `${covered}px`);
   };
 
-  // 焦点在面板内时收起面板，焦点回到顶栏的「Agent」开关，不落到页面开头
   const restoreFocusRef = useRef(false);
   useEffect(
     () =>
@@ -221,12 +195,10 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     document.getElementById(AGENT_PANEL_TOGGLE_ID)?.focus();
   }, [agentOpen]);
 
-  // 紧凑档的覆盖层是非模态的：焦点在面板内时 Esc 收起面板。监听挂在 document 的冒泡阶段，面板内的控件先处理自己的 Esc
   useEffect(() => {
     if (!overlay || !agentOpen) return;
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // 只认 DOM 上在面板内的按键；从面板里打开的对话框经 Portal 渲染，按 Esc 关的是对话框
       if (!(event.target instanceof Node) || !agentFrameRef.current?.contains(event.target)) return;
       event.preventDefault();
       useAppStore.getState().toggleAssistantPanel();
@@ -236,7 +208,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   }, [overlay, agentOpen]);
 
   return (
-    // 外壳根节点是定位元素，文档本身不滚动；滚动只发生在侧栏、画布与 Agent 面板各自的区域里。
     <div ref={shellRef} className="relative flex h-dvh flex-col overflow-hidden text-foreground">
       <TaskFailureListener projectName={sseProjectName} />
       <ScriptGenerationNoticeListener />
@@ -278,7 +249,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
             {children}
           </main>
         </ResizablePanel>
-        {/* 面板收起时手柄贴在分栏右缘，命中区会伸出外壳，因此隐藏；手柄仍留在 DOM 里并禁用，库就不在这条边界上生成拖动区域 */}
         <WorkspaceResizeHandle
           panelRef={agentPanelRef}
           panelSide="after"
@@ -297,7 +267,6 @@ export function StudioLayout({ children }: StudioLayoutProps) {
           defaultSize={ASSISTANT_PANEL_DEFAULT_WIDTH}
           groupResizeBehavior="preserve-pixel-size"
           onResize={handleAgentResize}
-          // 收起后宽度为 0，内容保持最小宽度挂载在原处、不可见，由这一层裁掉
           // eslint-disable-next-line shadcn/no-inline-styles -- 覆盖库写在内层的内联 overflow
           style={{ overflow: "hidden" }}
         >

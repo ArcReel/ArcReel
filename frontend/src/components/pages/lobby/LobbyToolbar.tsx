@@ -8,10 +8,6 @@ interface LobbyToolbarProps {
   counts: Record<LobbyFilter, number>;
 }
 
-/**
- * 吸顶在外壳主体顶端的工具栏：左边是带计数的筛选，右边说明排序方式。排序固定按最近活动，不提供切换。
- * 底色不透明，滚过的卡片不会透出来。
- */
 export function LobbyToolbar({ filter, onFilterChange, counts }: LobbyToolbarProps) {
   const { t } = useTranslation("dashboard");
   return (
@@ -21,7 +17,6 @@ export function LobbyToolbar({ filter, onFilterChange, counts }: LobbyToolbarPro
         size="sm"
         value={[filter]}
         onValueChange={(next: string[]) => {
-          // 再次点击当前筛选不会取消选中。
           const picked = next.find((value): value is LobbyFilter => (LOBBY_FILTERS as readonly string[]).includes(value));
           if (picked) onFilterChange(picked);
         }}

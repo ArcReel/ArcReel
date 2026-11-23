@@ -1,15 +1,3 @@
-/**
- * 引导演示用的项目数据。
- *
- * 纯前端常量，用真实的 `ProjectSummary` / `ProjectData` / `EpisodeScript` 类型标注 ——
- * 字段随类型演化漂移时会在编译期暴露，而不是在引导跑到某一步时才显形。这份数据不入库、
- * 不落盘、不进项目列表，进演示工作台时灌进 store，离开即随之清空。
- *
- * 数字取自一个推进到「制作中」的项目：分集拍完一半、角色差一个、道具还在补。引导要讲的是
- * 「界面上这些格子分别代表什么」，所以每一类都取不满的值，让统计格都有话说。
- *
- * 内容只完整到第 1 集：8 集都有标题，第 1 集有 6 条分镜。文案全部走 i18n，结构留在这里。
- */
 
 import type { TFunction } from "i18next";
 import type {
@@ -27,15 +15,10 @@ import type {
 } from "@/types";
 import { demoPlaceholder } from "./demo-placeholder";
 
-/**
- * 演示项目的标识。含下划线，后端 `PROJECT_NAME_PATTERN`（`^[A-Za-z0-9-]+$`）永远拒绝，
- * 所以磁盘上不可能出现同名真实项目来遮蔽演示路由。
- */
 export const DEMO_PROJECT_NAME = "onboarding_demo";
 
 export const DEMO_SCRIPTED_EPISODE = 1;
 
-/** 该分集的剧本文件名，与 `EpisodeMeta.script_file` 去掉 `scripts/` 前缀后一致。 */
 const DEMO_SCRIPT_FILE = "E1.json";
 
 // 路由参数大小写不敏感比较：wouter 编译路由时带 `i` 标志（见 APP_PROJECT_WORKSPACE_PATTERN），
@@ -57,12 +40,6 @@ const DEMO_STATUS: ProjectStatus = {
   source_remaining: false,
 };
 
-/**
- * 8 集的状态分布，与 `DEMO_STATUS.episodes_summary` 的计数对齐。
- * 只有第 1 集在演示里带剧本，真实后端对没有剧本的分集只会算出 draft（见
- * `lib/workflow/workflow_state.py::_episode_production_status`）——第 2-8 集因此不能标成
- * scripted/completed，否则点进去发现只有占位说明，统计与内容对不上。
- */
 const EPISODE_STATUSES: NonNullable<EpisodeMeta["status"]>[] = [
   "in_production",
   "draft",
@@ -162,7 +139,6 @@ export function buildDemoProject(t: DemoT): ProjectSummary {
     style_image: null,
     thumbnail: null,
     status: DEMO_STATUS,
-    // 演示项目没有真实的修改记录，卡片上不写「几天前更新」。
     last_activity_at: null,
   };
 }
@@ -173,7 +149,6 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
     characters[name] = {
       description: t(`demo_character_${i + 1}_desc`),
       voice_style: t(`demo_character_${i + 1}_voice`),
-      // 第 4 个角色还没出图，对应统计格里的 3/4
       ...(i < 3 ? { character_sheet: demoPlaceholder(name, "character") } : {}),
     };
   });
@@ -190,7 +165,6 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
   propNames(t).forEach((name, i) => {
     props[name] = {
       description: t(`demo_prop_${i + 1}_desc`),
-      // 第 3 个道具还没出图，对应统计格里的 2/3
       ...(i < 2 ? { prop_sheet: demoPlaceholder(name, "prop") } : {}),
     };
   });
@@ -214,7 +188,6 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
               available: SEGMENT_SKELETONS.filter((s) => s.hasStoryboard).length,
               stale: 0,
             },
-            // 视频没有可用的占位形态（占位图只能替静态图），演示里一条都没出片
             videos: { total: segmentCount, available: 0, stale: 0 },
           }
         : { script_status: "none" as const }),
@@ -242,7 +215,6 @@ export function buildDemoProjectData(t: DemoT): ProjectData {
   };
 }
 
-/** 演示工作台用的剧本集合，键与 `EpisodeMeta.script_file` 去前缀后对应。 */
 export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScript> {
   const chars = characterNames(t);
   const scns = sceneNames(t);
@@ -281,7 +253,6 @@ export function buildDemoScripts(t: DemoT): Record<string, NarrationEpisodeScrip
         storyboard_last_image: null,
         grid_id: null,
         grid_cell_index: null,
-        // 视频与配音没有可用的占位形态，演示里保持未生成
         video_clip: null,
         video_thumbnail: null,
         video_uri: null,

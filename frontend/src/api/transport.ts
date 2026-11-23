@@ -1,7 +1,3 @@
-/**
- * API 传输层：请求封装、鉴权头、未授权处理、SSE 胶水与只读闸门。
- * 只读闸门的状态是本模块的单例，全站所有请求共用这一份。
- */
 
 import { getToken, clearToken } from "@/utils/auth";
 import type { SseStreamError } from "@/utils/sse-stream";
@@ -24,10 +20,6 @@ import {
 
 export const API_BASE = "/api/v1";
 
-/**
- * 检查 fetch 响应状态，抛出包含后端错误信息的 Error。
- * 用于不经过 API.request() 的自定义 fetch 调用。
- */
 export async function throwIfNotOk(response: Response, fallbackMsg: string): Promise<void> {
   if (!response.ok) {
     handleUnauthorized(response);
@@ -53,8 +45,6 @@ export function handleUnauthorized(response: Response): void {
 
 function redirectToLogin(): void {
   clearToken();
-  // 携带当前所在的站内地址，登录成功后回跳；仅对 /app/ 下的页面附加 from，
-  // 避免把登录页自身等非应用路径写进回跳参数。
   const current = `${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
   globalThis.location.href = current.startsWith("/app/")
     ? `/login?from=${encodeURIComponent(current)}`
@@ -63,29 +53,14 @@ function redirectToLogin(): void {
 
 let apiReadOnly = false;
 
-/**
- * 进入 / 离开只读态（引导演示工作台）。只读期间任何非 GET / HEAD 请求会在发出前被拒绝。
- *
- * 演示工作台是用真组件渲染假数据，写操作的入口都已经不渲染；这道闸门是结构性兜底 ——
- * 漏掉一个入口时会得到一个明确的异常，而不是一条真写进用户项目的请求。
- */
 export function setApiReadOnly(readOnly: boolean): void {
   apiReadOnly = readOnly;
 }
 
-// 静态归档导入端点，不是「项目名恰好叫 import」——项目名允许字母数字中划线，
-// `import` 本身是合法项目名（ProjectManager.normalize_project_name 不排除它），
-// 按精确路径匹配而非按名称黑名单，避免把 `/projects/import/...`（真实项目名为
-// import 的写请求）一并误判成不带项目归属
 const RESERVED_PROJECT_ENDPOINTS = new Set(["/projects/import"]);
 
-// 不带项目归属、但本身不写入任何项目数据的系统级端点：闸门默认拦截所有无项目归属的
-// 写请求（全局资产库、供应商凭证等），这里是唯一的窄豁免。引导 tour 退出时会在仍处于
-// 演示路由（apiReadOnly 尚未复位）期间写这一条「已看过」标记，它只影响当前用户的引导
-// 状态，不属于闸门要防的「误写演示态/其他项目数据」范畴。
 const READ_ONLY_GATE_EXEMPT_ENDPOINTS = new Set(["/onboarding/seen"]);
 
-/** 从形如 `/projects/{name}` 或 `/projects/{name}/...` 的 endpoint 中取出项目名；非项目路径或静态保留端点返回 null */
 function extractProjectName(endpoint: string): string | null {
   if (RESERVED_PROJECT_ENDPOINTS.has(endpoint)) return null;
   const match = /^\/projects\/([^/?]+)/.exec(endpoint);
@@ -93,12 +68,6 @@ function extractProjectName(endpoint: string): string | null {
   return decodeURIComponent(match[1]);
 }
 
-/**
- * 只读闸门是否应拦截这次请求。指向某个具体真实项目的写请求放行 ——
- * 演示态可能在该请求发出前才切入，但它拦不住已经从真实项目发起的操作；
- * 指向演示项目本身或不带项目归属的请求（全局资产库等）仍按闸门原意拦截，
- * 窄豁免名单中的系统端点除外。
- */
 function isReadOnlyGateBlocking(endpoint: string): boolean {
   if (!apiReadOnly) return false;
   if (READ_ONLY_GATE_EXEMPT_ENDPOINTS.has(endpoint)) return false;
@@ -152,9 +121,6 @@ export function sseErrorHandler(onError?: (error: SseStreamError) => void) {
   };
 }
 
-/**
- * 通用请求：拼接 API 前缀、注入凭证并过只读闸门，非 2xx 时按错误契约抛出对应错误。
- */
 export async function requestJson<T = unknown>(
   endpoint: string,
   options: RequestInit = {}

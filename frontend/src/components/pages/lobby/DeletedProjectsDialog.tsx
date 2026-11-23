@@ -37,14 +37,9 @@ type ListingState = { status: "loading" } | { status: "error"; message: string }
 interface DeletedProjectsDialogProps {
   open: boolean;
   onClose: () => void;
-  /** 有项目恢复回来，重新加载项目列表并返回结算值；刷新失败时不报告恢复成功。 */
   onRestored: () => Promise<RefreshProjectResult>;
 }
 
-/**
- * 项目列表页的「已删除项目」：可以整体恢复或彻底删除。恢复直接执行（可以再删回去），彻底删除先二次确认。
- * 组件常驻在页面上、只切换对话框开合，关闭对话框时在途操作的占用不会丢。
- */
 export function DeletedProjectsDialog({ open, onClose, onRestored }: DeletedProjectsDialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [state, setState] = useState<ListingState>({ status: "loading" });
@@ -75,10 +70,6 @@ export function DeletedProjectsDialog({ open, onClose, onRestored }: DeletedProj
 
   const titleOf = (project: DeletedProject) => getProjectDisplayName(project.title, project.name);
 
-  /**
-   * 服务端已确认移走的项目立即从列表里拿掉，不等重拉，免得解除占用后又能被操作一次。
-   * 再重拉一次：作废的在途列表可能带着这期间新删除的项目。
-   */
   const dropProject = (id: string) => {
     setState((current) =>
       current.status === "ready"
@@ -101,7 +92,6 @@ export function DeletedProjectsDialog({ open, onClose, onRestored }: DeletedProj
     try {
       const { name } = await API.restoreDeletedProject(project.id);
       dropProject(project.id);
-      // 成功提示只在项目列表刷新成功后给：失败时已有刷新失败的提示，被新一轮刷新或离开页面作废时静默。
       if ((await onRestored()) !== "success") return;
       const title = titleOf(project);
       useAppStore
@@ -224,7 +214,6 @@ function PurgeDeletedProjectDialog({
   const { t } = useTranslation(["dashboard", "common"]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 关闭动画期间沿用上一次的内容；换了项目时清掉上一次的错误
   const [shown, setShown] = useState({ project, title });
   if (project !== null && project !== shown.project) {
     setShown({ project, title });
@@ -250,7 +239,6 @@ function PurgeDeletedProjectDialog({
     <AlertDialog
       open={project !== null}
       onOpenChange={(next) => {
-        // 提交中不响应 Esc，避免请求还在途时对话框先消失
         if (!next && !running) onClose();
       }}
     >

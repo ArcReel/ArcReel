@@ -48,10 +48,6 @@ type LoadState =
 
 type TestState = { status: "idle" } | { status: "testing" } | { status: "ok" } | { status: "failed"; error: unknown };
 
-/**
- * 「对象存储」块：查看、配置、测试与删除实例唯一的 TOS 连接，并选择新增图片的保存位置。
- * 连接在对话框里提交；保存位置选中即保存。两者都立即生效。
- */
 export function ObjectStorageBlock() {
   const { t } = useTranslation(["dashboard", "common"]);
   const headingId = useId();
@@ -82,7 +78,6 @@ export function ObjectStorageBlock() {
     return () => loadController.current?.abort();
   }, [fetchConnection]);
 
-  // 连接被替换或删除后，在途的测试结果属于旧连接，不再落地
   const testGeneration = useRef(0);
   const resetTest = useCallback(() => {
     testGeneration.current += 1;
@@ -92,7 +87,6 @@ export function ObjectStorageBlock() {
   const patchSettings = useCallback((patch: Partial<ObjectStorageSettings>) => {
     setLoad((prev) => (prev.status === "ready" ? { status: "ready", settings: { ...prev.settings, ...patch } } : prev));
   }, []);
-  // 页面可能打开很久：对话框打开时取一次最新的入库任务数，取不到时保留已有数量，不打断编辑
   const refreshPendingIngest = useCallback(async () => {
     try {
       const latest = await API.getObjectStorageConnection();
@@ -265,10 +259,6 @@ function ConnectionCard({
   );
 }
 
-/**
- * 新增图片保存位置：选中即保存，只影响之后提交的图片内容版本。没有连接时不能选对象存储
- * （只配置连接用于中转，不等于启用远端保存）。
- */
 function NewImageTargetField({
   target,
   connectionConfigured,
@@ -308,7 +298,6 @@ function NewImageTargetField({
       value: "object_storage",
       title: t("new_image_target_object_storage"),
       hint: connectionConfigured ? t("new_image_target_object_storage_hint") : t("new_image_target_needs_connection"),
-      // 已选中时保持可见可读：连接在别处被删掉的少见情况下，仍能看出当前设置并改回本地
       disabled: !connectionConfigured && target !== "object_storage",
     },
   ];
@@ -469,7 +458,6 @@ function ObjectStorageDialog({
     }
   }, [complete, region, endpoint, bucket, accessKeyId, secretAccessKey, changesBucket, deleteRemote, onSaved]);
 
-  // 保存会立即删除旧桶里的文件，不可恢复，须先确认。「保存并离开」也走这里：确认前留在原处，不算保存成功
   const handleSubmit = useCallback(async (): Promise<boolean> => {
     if (!complete) return false;
     if (changesBucket && deleteRemote) {
@@ -483,7 +471,6 @@ function ObjectStorageDialog({
     if (!(await submit())) setConfirmingCleanup(false);
   };
 
-  // 未保存的填写登记到离开拦截；关闭对话框也经它询问，不静默丢弃
   useLeaveGuard({ dirty, saving: submitting, save: handleSubmit, discard: onCancel });
   const confirmLeave = useConfirmLeave();
   const requestClose = () => {

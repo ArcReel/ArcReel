@@ -48,7 +48,6 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** 供应商模型 Sheet 的地址：自定义供应商的记录写的是 `custom-<id>`。 */
 function providerModelPath(provider: string, model: string): string {
   const custom = /^custom-(\d+)$/.exec(provider);
   return custom
@@ -56,10 +55,6 @@ function providerModelPath(provider: string, model: string): string {
     : providerSettingsPath({ preset: provider, model });
 }
 
-/**
- * 调用的模型：供应商还在供应商设置里时打开它的 Sheet；Agent 凭证、已删除的自定义供应商、不再内置的旧值与没有供应商的
- * 旧记录只显示模型名。
- */
 function ProviderModelLink({ provider, model, linkable }: { provider: string; model: string; linkable: boolean }) {
   const { t } = useTranslation("dashboard");
   if (!linkable) return model;
@@ -82,9 +77,7 @@ function Field({
 }: {
   label: string;
   value: ReactNode;
-  /** 悬停、点按标签或按 Enter/Space 时显示的说明。 */
   hint?: string;
-  /** 从属于上一行的明细（如缓存写入的两档）。 */
   indent?: boolean;
 }) {
   return (
@@ -104,7 +97,6 @@ function Field({
   );
 }
 
-/** 项目内相对路径的缩略图；文件已不存在时换成占位，历史记录也能照常打开。 */
 function Thumbnail({
   projectName,
   path,
@@ -124,7 +116,6 @@ function Thumbnail({
         </div>
       ) : (
         <img
-          // 用量记录引用的图可能已被覆盖或删除，这里没有指纹可用：显式不带版本，走服务端的协商缓存
           src={API.getFileUrl(projectName, path, null, { width: 320 })}
           alt={itemIdsInEpisodeText(caption ?? path)}
           onError={() => setBroken(true)}
@@ -238,7 +229,6 @@ function UsageGroup({ detail }: { detail: UsageRecordDetail }) {
     return <p className="text-sm text-muted-foreground">{t("usage_detail_empty")}</p>;
   }
   const hasWrite = write5m !== null || write1h !== null;
-  // 记录里的总输入含缓存读写；对外的「输入」只指没有命中也没有写入缓存的那部分。
   const uncachedInput =
     input === null ? null : Math.max(0, input - (cacheRead ?? 0) - (write5m ?? 0) - (write1h ?? 0));
   const show = (value: number | null) => (value === null ? "—" : formatTokens(value));
@@ -286,7 +276,6 @@ export function UsageRecordDetailModal({
   const registeredErrorKey = (value: string) =>
     [`errors:${value}`, `errors:task_fail_${value}`].find((key) => i18n.exists(key));
   const domainKey = detail?.error_code && detail.error_params ? registeredErrorKey(detail.error_code) : undefined;
-  // 领域异常的 error_message 就是它的 key 本身，已登记的 key 不作为原文小字显示。
   const messageIsDomainKey = detail?.error_message ? registeredErrorKey(detail.error_message) !== undefined : false;
   const domainParams = { ...detail?.error_params };
   const { limit, count } = domainParams;

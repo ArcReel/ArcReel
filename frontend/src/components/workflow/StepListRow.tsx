@@ -12,7 +12,6 @@ import { StepActButton } from "./StepActButton";
 import { problemViews } from "./problem-views";
 import type { NextStepView, StepAct, StepNote, StepRowTone, StepRowView } from "./step-list";
 
-/** 行首圆点：已齐实心、还没有虚线空心、部分半填、进行中呼吸。形状先于颜色，灰度下仍可区分。 */
 function ToneDot({ tone }: { tone: StepRowTone }) {
   if (tone === "todo") return <span aria-hidden className="size-2 rounded-full border border-dashed border-muted-foreground" />;
   if (tone === "partial") {
@@ -56,10 +55,6 @@ interface NextProps {
   busy: boolean;
 }
 
-/**
- * 就地展开的下一步：说明、附加指令、主次入口、「或者 …」。强调色底只铺在这一块上，
- * 块里的次要文字一律用 subtle 档：muted 叠在弹层底色加强调色上不到 4.5:1。
- */
 function NextStepBlock({ next, instruction, onInstructionChange, onRun, busy }: NextProps) {
   const { t } = useTranslation("workflow");
   const inputId = useId();
@@ -114,13 +109,8 @@ interface Props {
   busy: boolean;
 }
 
-/** 分镜图与视频的过期产物可以就地查看与重生；资产图的过期只作提醒并跳到画廊。 */
 const REGENERABLE_STEPS = new Set(["storyboard", "video"]);
 
-/**
- * 归到这一行的后端步骤的明细：过期产物、进行中的任务、步骤自己的问题与视频整批准入。
- * 每条提示只出自一处——视频整批准入的逐单元问题只在准入结论里，计划不再把它复制到步骤问题。
- */
 function StepDetails({ step, onViewUnit, onRegenerate, onConfirmDurations, busy }: {
   step: WorkflowPlanStep;
   onViewUnit?: (unitId: string) => void;

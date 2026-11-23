@@ -35,27 +35,19 @@ import {
   WORKSPACE_ROUTE_SETTINGS,
 } from "@/app-routes";
 
-// 首屏之外的整页按路由拆 chunk：项目大厅、项目工作区与登录页是落地页，保持随入口加载；
-// 全局设置（含用量图表 Recharts）、项目设置与资产库进入时再拉取。
 const SystemConfigPage = lazyNamed(() => import("@/components/pages/SystemConfigPage"), "SystemConfigPage");
 const ProjectSettingsPage = lazyNamed(
   () => import("@/components/pages/ProjectSettingsPage"),
   "ProjectSettingsPage",
 );
 const AssetLibraryPage = lazyNamed(() => import("@/components/pages/AssetLibraryPage"), "AssetLibraryPage");
-// 引导（driver.js）不参与首屏绘制，拆出后与页面并行加载；它自身不渲染 DOM，加载期间无需占位。
 const OnboardingTour = lazyNamed(() => import("@/onboarding/OnboardingTour"), "OnboardingTour");
 
-/** 记录最近停留的应用页面，全局设置与资产库的「返回」据此回到进入之前的位置。 */
 function ReturnToTracker() {
   useTrackReturnTo();
   return null;
 }
 
-/**
- * 引导开启后预取设置页 chunk：引导会从大厅跨到设置页高亮其中的元素，锚点等待有上限，
- * chunk 在跨页那一刻才开始拉取会挤占这段等待。
- */
 function OnboardingChunkPreloader() {
   const active = useOnboardingStore((s) => s.active);
   useEffect(() => {
@@ -65,11 +57,6 @@ function OnboardingChunkPreloader() {
 }
 
 
-/**
- * 配置完整性（红点 / 必需设置提醒）的单点加载器，始终挂载在路由根，跨页面导航存活。
- * 单例 store 一次初始化即覆盖所有落地页（首页 / 设置 / 项目），不再依赖某个具体页面
- * 是否在 mount 时拉取。首次失败（如后端尚未就绪）时带界次数退避重试，无需手动刷新页面。
- */
 function ConfigStatusLoader() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
@@ -124,16 +111,11 @@ function StudioWorkspace() {
   const projectName = params.projectName ?? null;
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
   const { t } = useTranslation("onboarding");
-  // 把 t 通过 ref 暴露给首屏加载的 onError 回调，避免切语言触发 t 重建 → effect
-  // 依赖跟着重建 → 真实项目整条加载重跑（下方 effect 依赖里刻意不含 t，理由见下）。
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
   }, [t]);
 
-  // 项目生命周期：清空上一个项目的 Agent 状态，再按项目类型取数据。
-  // 依赖里不含 `t` —— 界面语言变化只该重灌演示常量（见下一个 effect），不该让真实项目
-  // 整条加载重跑（会先清空 store 闪一次空态，还会连带清掉 Agent 会话状态）。
   useEffect(() => {
     if (!projectName) return;
 
@@ -144,8 +126,6 @@ function StudioWorkspace() {
     assistantState.setSessionStatus(null);
     assistantState.setIsDraftSession(false);
 
-    // 引导演示项目在磁盘上并不存在：数据直接来自前端常量，不发请求，并在这段生命周期内
-    // 锁死写请求。数据本身由下一个 effect 灌入。
     if (isDemoProject(projectName)) {
       setApiReadOnly(true);
       setProjectDetailLoading(false);
@@ -157,10 +137,6 @@ function StudioWorkspace() {
 
     setApiReadOnly(false);
     setProjectDetailLoading(true);
-    // 先落地项目名（数据置空）：refreshProject 的写入门槛要求 currentProjectName 已等于
-    // 目标项目，否则响应落地时会被判成「非当前项目」而丢弃（见 projects-store.ts
-    // isCurrentProject 的注释）。这一步同时轮换取消域，上一个项目的在途请求随之作废，
-    // 首屏加载与 refreshProject 的其余调用方共用同一取消域。
     setCurrentProject(projectName, null);
     void useProjectsStore
       .getState()
@@ -169,8 +145,6 @@ function StudioWorkspace() {
           useAppStore.getState().pushToast(tRef.current("dashboard:project_load_failed", { message: errMsg(err) }), "error"),
       })
       .then((result) => {
-        // "cancelled" 代表本轮未同步（项目已被切走、取消域已轮换），loading 状态交由
-        // 接管的新一轮自行结算，此处不动共享状态。
         if (result === "cancelled") return;
         setProjectDetailLoading(false);
       });
@@ -194,7 +168,6 @@ function StudioWorkspace() {
 
 
 export function AppRoutes() {
-  // 离开拦截包住全部路由：未保存修改在任何应用内跳转前先询问
   return (
     <LeaveGuardProvider>
       <ConfigStatusLoader />
@@ -203,7 +176,6 @@ export function AppRoutes() {
       <LazyBoundary variant="none">
         <OnboardingTour />
       </LazyBoundary>
-      {/* 懒加载页面的 chunk 未到达时显示整页加载占位、最终失败时显示整页失败提示；工作区画布另有局部边界，不会退到这里 */}
       <LazyBoundary variant="screen">
         <Switch>
           <Route path="/login" component={LoginPage} />
@@ -241,14 +213,12 @@ export function AppRoutes() {
             <Redirect to={ROUTE_APP_SETTINGS} />
           </Route>
 
-          {/* Project settings — full-screen, must be before the nested workspace route */}
           <Route path={`${ROUTE_APP_PROJECTS}/:projectName/${WORKSPACE_ROUTE_SETTINGS}`}>
             <AuthGuard>
               <ProjectSettingsPage />
             </AuthGuard>
           </Route>
 
-          {/* Studio workspace (three-column layout)；未注册的子路径由画布内层 Switch 的兜底路由显示空状态 */}
           <Route path={`${ROUTE_APP_PROJECTS}/:projectName`} nest>
             <AuthGuard>
               <StudioWorkspace />

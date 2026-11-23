@@ -8,7 +8,6 @@ export type ModelLifecycleNotices = Record<string, Notice>;
 export interface ModelLifecycleNoticeProps {
   value: string;
   notices?: ModelLifecycleNotices;
-  /** 这一处引用所在的位置，决定可切换的目标：任务类型桶按桶取，其余取默认层。 */
   layer?: ModelReferenceLayer;
   modelNames?: Record<string, string>;
   onSwitch: (target: string) => void;
@@ -25,11 +24,6 @@ function messageKey(notice: Notice, hasSuccessor: boolean): string {
   return hasSuccessor ? base : `${base}_no_successor`;
 }
 
-/**
- * 引用处的下线提示：选中的模型即将下线或已下线时，在下拉下方写明下线日期与官方后继；后继在同一供应商下、
- * 且是这一处的候选时附一键切换。选中的模型已不在清单里、也查不到生命周期时，提示不可用。只提示、不替用户切换
- * （docs/adr/0103），也没有弹窗。
- */
 export function ModelLifecycleNotice({ value, notices, layer = "default", modelNames, onSwitch }: ModelLifecycleNoticeProps) {
   const { t } = useTranslation("templates");
   const notice = value ? notices?.[value] : undefined;

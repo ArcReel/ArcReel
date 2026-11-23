@@ -34,7 +34,6 @@ function toBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-/** 本地或官方服务预检的诊断清单；422 响应的 `diagnostic.diagnostics`。 */
 function diagnosticsOf(error: unknown): MarketSubmissionDiagnostic[] | null {
   if (!(error instanceof ApiRequestError) || error.status !== 422) return null;
   const raw =
@@ -79,10 +78,6 @@ function DiagnosticList({ diagnostics }: { diagnostics: MarketSubmissionDiagnost
   );
 }
 
-/**
- * 分享到官方市场：先展示本地校验结果，通过后才可提交。提交的是端点已保存的定义与可选图标；
- * 同一 slug 的提交在 PR 合并前再次提交会进入同一个 PR。
- */
 export function ShareToMarketDialog({
   endpointId,
   initialSlug,
@@ -104,11 +99,9 @@ export function ShareToMarketDialog({
   const [slug, setSlug] = useState(initialSlug);
   const [githubUsername, setGithubUsername] = useState("");
   const [icon, setIcon] = useState<{ name: string; value: MarketSubmissionIcon } | null>(null);
-  // 每次选择或移除图标都递增；读取完成时序号已变说明被更新的选择取代，结果丢弃。
   const iconRead = useRef(0);
   const [readingIcon, setReadingIcon] = useState(false);
   const [iconError, setIconError] = useState<string | null>(null);
-  // null：校验中或尚未取回。
   const [diagnostics, setDiagnostics] = useState<MarketSubmissionDiagnostic[] | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -189,7 +182,6 @@ export function ShareToMarketDialog({
     <Dialog
       open
       onOpenChange={(next: boolean) => {
-        // 提交在途时不响应 Esc 与遮罩点击，避免对话框先于结果消失
         if (!next && !submitting) onClose();
       }}
     >

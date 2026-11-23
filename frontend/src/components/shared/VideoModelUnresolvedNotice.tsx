@@ -4,10 +4,6 @@ import { Link } from "wouter";
 import { projectSettingsPath } from "@/app-routes";
 import { buttonVariants } from "@/components/ui/button";
 
-/**
- * 内容确认页的「视频模型未解析」提示：确认转出要按视频模型能力给分镜定时长档位，
- * 服务端明确答复模型未配置或无法解析时，确认必然被拒，先在确认按钮附近说明并指引到项目设置。
- */
 export function VideoModelUnresolvedNotice({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
   return (

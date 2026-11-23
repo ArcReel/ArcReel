@@ -33,7 +33,6 @@ import {
   usageRecordToView,
 } from "./usage-record-view";
 
-/** 进行中区非空时的兜底轮询间隔；设置页不订阅事件流。 */
 const PENDING_POLL_MS = 3000;
 
 const VIEWS: { value: UsageView; labelKey: string }[] = [
@@ -41,13 +40,11 @@ const VIEWS: { value: UsageView; labelKey: string }[] = [
   { value: "agent", labelKey: "usage_view_agent" },
 ];
 
-/** 时间范围不作用于进行中区，其余维度同样作用于任务行。 */
 function taskMatchesFilters(task: TaskItem, filters: UsageRecordsFilters): boolean {
   if (filters.project !== null && task.project_name !== filters.project) return false;
   if (filters.mediaType !== null && task.media_type !== filters.mediaType) return false;
   if (filters.provider !== null && task.provider_id !== filters.provider) return false;
   if (filters.segment !== null && task.resource_id !== filters.segment) return false;
-  // 排队中的任务还没解析出模型（model 为 null），按模型筛选时算不匹配。
   if (filters.model !== null && task.model !== filters.model) return false;
   return true;
 }
@@ -65,7 +62,6 @@ export function UsageRecordsSection() {
   );
   const recordId = useMemo(() => parseUsageRecordId(search), [search]);
 
-  // 设置页不挂工作台外壳，需在这里登记任务刷新作用域，直达页面也能看到当前进行中任务。
   useTaskRefresh(filters.project);
 
   const summary = useUsageRecordsStore((s) => s.summary);
@@ -95,8 +91,6 @@ export function UsageRecordsSection() {
     useShallow((s) => s.tasks.filter((task) => isActiveStatus(task.status))),
   );
 
-  // 打开与筛选变化时取数；URL 是筛选的真相源，刷新后从 URL 恢复走的是同一条路径。
-  // store 跨挂载常驻，打开那次要连 summary 一起重取，离开期间结束的调用才进 KPI 与图表。
   const openedRef = useRef(false);
   useEffect(() => {
     const opened = openedRef.current;
@@ -112,8 +106,6 @@ export function UsageRecordsSection() {
     void openDetail(recordId);
   }, [recordId, openDetail, closeDetail]);
 
-  // 供应商显示名随 summary 由服务端按请求语言渲染；切换语言后只重取 summary，
-  // 记录页与分页位置不动。挂载那次的取数由上方筛选 effect 负责。
   const languageRef = useRef(i18n.language);
   useEffect(() => {
     if (languageRef.current === i18n.language) return;
@@ -126,7 +118,6 @@ export function UsageRecordsSection() {
       const params = new URLSearchParams(search);
       mutate(params);
       const qs = params.toString();
-      // 一律 replace：筛选与详情的每一次微调都压进历史会让「后退」变成逐格倒带。
       navigate(qs ? `${location}?${qs}` : location, { replace: true });
     },
     [search, location, navigate],
@@ -149,7 +140,6 @@ export function UsageRecordsSection() {
     [writeQuery],
   );
 
-  // 进行中区 = 任务 store（有任务的调用）∪ 无任务的 pending 调用，两者不相交。
   const showInProgress =
     filters.view === "generation" &&
     pageIndex === 0 &&
@@ -165,7 +155,6 @@ export function UsageRecordsSection() {
     ]);
   }, [showInProgress, activeTasks, filters, pendingRecords]);
 
-  // 只看「有没有」进行中行：行数变化（任务陆续入队）不该重置计时器，否则轮询会被一直推迟。
   const hasInProgress = inProgress.length > 0;
   useEffect(() => {
     if (!hasInProgress) return;
@@ -175,9 +164,6 @@ export function UsageRecordsSection() {
     return () => clearInterval(timer);
   }, [hasInProgress, refreshPending]);
 
-  // 进行中行消失意味着一次调用已结束（任务终态或 pending 调用落账），记录表、KPI 与图表
-  // 要接住它，整体重取一次。只认同一视图（筛选与页码不变）下的收缩：筛选与翻页引起的
-  // 消失由各自的取数路径负责。
   const inProgressKeys = useMemo(() => inProgress.map((row) => row.key), [inProgress]);
   const viewKey = `${JSON.stringify(filters)}|${pageIndex}`;
   const lastInProgressRef = useRef<{ viewKey: string; keys: readonly string[] } | null>(null);
@@ -196,8 +182,6 @@ export function UsageRecordsSection() {
 
   const hasAttention = (summary?.attention.length ?? 0) > 0;
 
-  // 「全部取消」只清排队中，与顶栏悬浮层同一套确认流程。项目未固定时无从取消——
-  // 取消接口按项目作用，跨项目一次清空不是这个按钮的语义。
   const cancellation = useTaskCancellation(
     filters.project,
     useCallback(
@@ -318,7 +302,6 @@ export function UsageRecordsSection() {
       {recordId !== null && (
         <UsageRecordDetailModal
           recordId={recordId}
-          // URL 直接换 id 时 store 要到 effect 才切换，首帧不能把上一条的正文挂在新标题下。
           detail={detailId === recordId ? detail : null}
           loading={detailLoading}
           failed={detailFailed}

@@ -5,7 +5,6 @@ export interface EndpointUsage {
   model: CustomProviderModelInfo;
 }
 
-/** 按端点键分组自定义供应商的模型行；只有自定义供应商的模型能指定端点。 */
 export function groupUsagesByEndpoint(providers: CustomProviderInfo[]): Map<string, EndpointUsage[]> {
   const byEndpoint = new Map<string, EndpointUsage[]>();
   for (const provider of providers) {

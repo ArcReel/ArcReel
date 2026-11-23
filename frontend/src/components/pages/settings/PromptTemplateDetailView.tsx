@@ -155,7 +155,6 @@ function DetailBody({
             <p className="text-sm text-muted-foreground">{t("prompt_templates_output_schema_desc")}</p>
           </div>
           <CollapsibleContent className="mt-3">
-            {/* 字段路径很长时表格横向滚动，里面没有可聚焦的元素，区域自身可聚焦，键盘才能滚动 */}
             <div
               role="region"
               // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 只读的滚动区域需要键盘聚焦才能滚动

@@ -1,17 +1,3 @@
-/**
- * 集页视图路由：当前视图记在地址的 `?view=` 上，取值与可用条件只在这里定义。
- *
- * | 取值 | 视图 | 何时出现 |
- * | --- | --- | --- |
- * | `setting` | 故事设定（广告项目的梗概、类型、主题与世界观） | 只在广告项目出现，排第一 |
- * | `plan` | 脚本规划（内容确认页；剧本未生成时是集原文确认） | 非广告项目，有脚本规划中间稿、集原文待确认，或参考生视频项目 |
- * | `grid` | 多宫格分镜图 | 分镜图生视频且开启宫格；集原文待确认时不可选 |
- * | `board` | 分镜（参考生视频项目称「视频单元」） | 恒有；有脚本规划却还没有正式剧本时不可选 |
- * | `edit` | 剪辑 | 有正式剧本的非演示项目 |
- *
- * 缺省视图：有正式剧本时是 `board`，否则有脚本规划时是 `plan`。地址只在所选视图不是缺省视图时
- * 写 `view`，剧本生成后停在缺省视图上的页面因此自动落到分镜。取值无效或当前不可选时按缺省视图显示。
- */
 import { EPISODE_VIEW_EDIT, EPISODE_VIEW_PARAM } from "@/app-routes";
 import type { EpisodeMeta, ProjectData } from "@/types";
 import type { EpisodeScript } from "@/types/script";
@@ -19,24 +5,18 @@ import type { GenerationRoute } from "@/utils/generation-mode";
 
 export const EPISODE_VIEWS = ["setting", "plan", "grid", "board", EPISODE_VIEW_EDIT] as const;
 export type EpisodeView = (typeof EPISODE_VIEWS)[number];
-/** 画布承担的视图；故事设定与剪辑视图替换整个画布。 */
 export type CanvasView = Exclude<EpisodeView, "setting" | "edit">;
 
-/** 决定集页有哪些视图的事实，由路由层按项目与这一集算出。 */
 export interface EpisodeViewFacts {
   isAd: boolean;
   route: GenerationRoute;
   grid: boolean;
   hasScript: boolean;
-  /** 已有脚本规划中间稿（`script_status` 为 segmented 或 generated）。 */
   hasDraft: boolean;
-  /** 剧本与中间稿都没有，脚本规划视图显示集原文确认。 */
   sourceReview: boolean;
-  /** 演示项目：没有剪辑视图。 */
   demo: boolean;
 }
 
-/** 视图 tab 的元素 id，视图区以它作为无障碍名。 */
 export function episodeViewTabId(view: EpisodeView): string {
   return `episode-view-tab-${view}`;
 }
@@ -45,10 +25,6 @@ export function hasEpisodeDraft(meta: EpisodeMeta | undefined): boolean {
   return meta?.script_status === "segmented" || meta?.script_status === "generated";
 }
 
-/**
- * 脚本规划视图呈现集原文：已选集，但正式剧本与中间稿都没有。
- * 广告/短片恒单集、演示项目没有源文可切，走各自画布。
- */
 export function showsEpisodeSource(
   projectData: ProjectData | null,
   episode: number,
@@ -59,15 +35,10 @@ export function showsEpisodeSource(
   return meta !== undefined && !script && !hasEpisodeDraft(meta) && projectData?.content_mode !== "ad" && !demo;
 }
 
-/** 本集原文的来源，以分集账本为准；账本没写时按有无原文范围推断，不看磁盘上有没有同名文件。 */
 export function episodeSourceOrigin(meta: EpisodeMeta | undefined): NonNullable<EpisodeMeta["source_origin"]> {
   return meta?.source_origin ?? (meta?.source_range ? "whole_source" : "none");
 }
 
-/**
- * 集页提供只读的「查看原文」：已有正式剧本，且账本记录本集有原文。没有剧本时原文由脚本规划视图呈现；
- * 广告/短片与演示项目没有集原文可看。
- */
 export function canViewEpisodeSource(
   projectData: ProjectData | null,
   episode: number,
@@ -94,7 +65,6 @@ export function episodeViewTabs(facts: EpisodeViewFacts): EpisodeViewTab[] {
   if (facts.isAd) tabs.push({ view: "setting", disabled: false });
   if (plan) tabs.push({ view: "plan", disabled: false });
   if (facts.grid) tabs.push({ view: "grid", disabled: facts.sourceReview });
-  // 参考生视频的单元列表在中间稿阶段就可查看；分镜图生视频要等正式剧本。没有脚本规划时分镜是唯一视图。
   const boardEnabled =
     facts.hasScript || !plan || (facts.route === "reference_video" && !facts.sourceReview);
   tabs.push({ view: "board", disabled: !boardEnabled });
@@ -112,10 +82,6 @@ export function resolveEpisodeView(requested: string | null, facts: EpisodeViewF
   return tab && !tab.disabled ? tab.view : defaultEpisodeView(facts);
 }
 
-/**
- * 切到 `next` 后的查询参数：缺省视图不写 `view`，其余参数原样保留。返回新对象、不改动传入的参数——
- * 跳转被离开拦截挡下时，当前地址的参数不能已经变了。
- */
 export function withEpisodeView(params: URLSearchParams, next: EpisodeView, facts: EpisodeViewFacts): URLSearchParams {
   const result = new URLSearchParams(params);
   if (next === defaultEpisodeView(facts)) result.delete(EPISODE_VIEW_PARAM);
@@ -123,14 +89,6 @@ export function withEpisodeView(params: URLSearchParams, next: EpisodeView, fact
   return result;
 }
 
-/**
- * 应用内跳转 `to` 之后是否仍停留在当前视图：同一集，且地址上的 `view` 按上面的规则落到同一个视图。
- *
- * 脚本规划、多宫格分镜图与分镜之间切换时画布实例不卸载，但画布里的编辑单元只挂在其中一个视图下
- * （分镜详情、视频单元正文只在分镜视图渲染）：画布实例不卸载不等于编辑单元不卸载。编辑单元把它作为
- * `allowNavigation`，只有不会卸载自己的跳转才不询问；去别的视图、剪辑视图或别的集都照常拦截。
- * `to` 与 `here` 都带嵌套路由的 base，`view` 缺省时按 `facts` 算出的缺省视图判断。
- */
 export function staysInEpisodeView(to: string, here: string, facts: EpisodeViewFacts): boolean {
   const current = new URL(here, "http://episode-view.invalid");
   const target = new URL(to, current);

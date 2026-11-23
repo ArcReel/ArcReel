@@ -24,7 +24,6 @@ import type { AssetIdentity, AssetType } from "@/types/asset";
 import { ASSET_TYPE_ICON } from "./asset-type-icons";
 import { AssetThumb } from "./AssetThumb";
 
-/** 入库预览展示的项目资产内容，取项目里已保存的数据：入库时后端照这份数据复制。 */
 export interface LibraryImportPreview {
   description: string;
   voiceStyle?: string;
@@ -38,7 +37,6 @@ interface Props {
   resourceId: string;
   projectName: string;
   preview: LibraryImportPreview;
-  /** 资源被生成或编辑任务占用：禁用入库，避免把编辑前的旧图复制进全局资产库。 */
   busy?: boolean;
 }
 
@@ -74,14 +72,12 @@ export function AddToLibraryDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        // 请求在途时不响应 Esc 与遮罩点击，避免入库结果还没回来对话框先消失
         if (!next && submitting) return;
         onOpenChange(next);
       }}
     >
       <DialogContent showCloseButton={!submitting}>
         <AddToLibraryForm
-          // 名称输入框以资源名为初值：换了资源就整表重建，不沿用上一个资源的输入
           key={`${props.resourceType}:${props.resourceId}`}
           {...props}
           busy={busy}
@@ -141,8 +137,6 @@ function AddToLibraryForm({
 
   const submit = async (target?: AssetIdentity) => {
     if (!trimmedName || submitting) return;
-    // 弹窗打开后资源可能经 SSE、其他标签页或 Agent 进入生成或编辑占用态：提交时复核最新占用态，
-    // 避免把占用期间的旧图复制进全局资产库。
     if (busy || isAssetBusy(resourceType, projectName, resourceId)) {
       setError(t("add_to_library_busy_hint"));
       return;

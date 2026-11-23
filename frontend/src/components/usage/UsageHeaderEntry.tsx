@@ -10,7 +10,6 @@ import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import { UsagePopover } from "./UsagePopover";
 
-/** 无使用记录时也占住同样的宽度：第一笔参考费用出现时顶栏不能抖动。 */
 const FALLBACK_CURRENCY = "USD";
 
 export function UsageHeaderEntry({ projectName }: { projectName: string }) {
@@ -24,7 +23,6 @@ export function UsageHeaderEntry({ projectName }: { projectName: string }) {
   const queued = useTasksStore((s) => s.stats.queued);
   const activeCount = running + queued;
 
-  // 打开即取一轮：面板平时靠事件刷新，打开这一刻拿到的应当是最新的。
   useEffect(() => {
     if (open) void refresh();
   }, [open, refresh]);

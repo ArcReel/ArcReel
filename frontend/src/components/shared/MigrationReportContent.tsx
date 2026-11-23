@@ -132,10 +132,6 @@ function Section({
 
 const ITEM = "flex min-w-0 flex-col gap-1 rounded-md border bg-card px-3 py-2 text-sm text-subtle-foreground";
 
-/**
- * 迁移报告的只读内容：「已调整」列出规整的取舍、补的占位与修复的结构，「未能带入」列出原地保留、
- * 没有登记的文件。项目页的升级提示与导入前确认窗共用。
- */
 export function MigrationReportContent({
   report,
   episodes,

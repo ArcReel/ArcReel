@@ -39,28 +39,12 @@ export function resolveUnitStatus(
 
 export interface UnitStatusInput {
   hasClip: boolean;
-  /** 该单元的最新任务行；「最新行胜出」由 selectLatestTaskByResource 保证。 */
   queueRow: TaskItem | undefined;
-  /** 占用集命中——真实任务行占用或入队动作层的乐观标记。 */
   busy: boolean;
   uploading?: boolean;
-  /**
-   * 本画布是否提供手动上传成片入口。提供时成片可能来自上传而非生成，历史失败行不该
-   * 覆盖已有的可播放资产；不提供时成片只能来自生成，最新行失败即本次尝试失败，必须
-   * 展示失败而不能被旧成片压成 ready，否则失败原因无处可见。
-   */
   supportsManualUpload?: boolean;
 }
 
-/**
- * 视频单元的展示状态：两个参考生视频画布共用的单一推导口径。
- *
- * 判定按优先级依次落位——上传中 → 队列行活跃 → 队列行失败 → 乐观占用窗口。
- * 展示语义用 isActiveStatus；控件禁用看占用集 `busy`，独立于本函数的返回值另行接线。
- *
- * 乐观分支要求 `!queueRow`：有任务行时状态一律由该行决定。重试与重新生成这两条路径上
- * 任务行始终在，乐观窗口内的禁用因此不能只看本函数返回值——见 `busy` 的说明。
- */
 export function deriveUnitStatus({
   hasClip,
   queueRow,
@@ -68,11 +52,8 @@ export function deriveUnitStatus({
   uploading = false,
   supportsManualUpload = false,
 }: UnitStatusInput): UnitStatus {
-  // 上传中视为 running：批量生成按状态挑 pending 目标，否则上传期间会被再次入队，
-  // 与生成回写同一个成片文件。
   if (uploading) return "running";
   if (queueRow && isActiveStatus(queueRow.status)) return "running";
-  // 失败任务行 DB 持久化、不会过期，故成片是否压过失败取决于成片能否来自上传。
   if (queueRow?.status === "failed" && !(supportsManualUpload && hasClip)) return "failed";
   if (!queueRow && busy) return "running";
   return hasClip ? "ready" : "pending";
