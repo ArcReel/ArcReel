@@ -11,8 +11,15 @@ status: accepted
 ## 提交与恢复边界
 
 - 供应商提交之前写入检查点。收到供应商任务号后，在轮询之前持久化该号码。持久化失败立即终止本地等待并记录 `provider_job_id_persist_failed`。
+- 检查点协议守卫只决定能否继续查询和拉取结果，续跑执行器仍校验提交时冻结的供应商、供应商模型与调用通道模型身份。`resume_guard_accepts` 仅在以下情形放行：提交与当前守卫完全相同（含两者均为空）；旧版提交守卫为空且当前仍为内置调用端点（`builtin:` 前缀）；提交端点已退役且当前端点在 `RETIRED_ENDPOINT_SUCCESSORS` 中显式登记为该退役端点的后继，且内置与自定义归属前缀及路径覆盖串均一致。同一退役端点的兄弟后继互换、跨内置与自定义切换或变更路径覆盖一律拒绝，实现见 [续跑协议守卫](../../lib/backends/resume_guard.py) 与 [续跑执行器](../../server/services/tasks/resume_executor.py)。
 - 缺少任务号、检查点不可用、供应商不支持续查或任务已过期都会失败。分流和故障码由 [恢复服务](../../lib/generation/restart_recovery.py) 和 [任务故障契约](../../lib/generation/task_failure.py) 定义。
 - 提交使用任务专属的引用媒体副本，恢复继续使用冻结的请求事实。任务结束时清理自身暂存副本，已登记的产物继续保留。
 - 执行期的提交、降档和取件重试见 [ADR 0123](0123-provider-submission-and-retrieval-retry-boundaries.md)。执行检查点与请求一致性见 [ADR 0086](0086-video-request-facts-evaluated-once.md)。
 
-孤儿判定依赖单服务进程的任务所有权。引入多 worker 或多实例部署时，必须区分已终止的任务与其他实例仍在执行的任务。用户主动取消的范围见 [ADR 0006](0006-cancel-only-queued-tasks.md)。
+## 进程启动与存活期孤儿收口
+
+孤儿判定依赖单服务进程的任务所有权；引入多 worker 或多实例部署时，必须区分已终止的任务与其他实例仍在执行的任务。孤儿任务扫描之后才收口挂起的调用记录，使无法接续的任务先落终态，再按任务结局决定调用记录如何结算。
+
+- Worker 首次持有租约完成启动收口时，以 Worker 构造时刻作为严格上界（`started_at < _constructed_at`），一并收口无任务身份的 `pending` 调用行（如文本调用与测试连接），不触碰构造时刻及之后发起的调用。
+- 启动收口完成后，主循环异常或丢失租约超过 3 倍 TTL 再重新取得租约会触发存活期重扫；此时跳过全部无任务身份的调用行（它们可能仍在当前进程执行），仅检查绑定了任务身份的行。
+- 结算中断调用时，跳过对应任务仍处于非终态的行；缺失任务行按 `failed`（`interrupted`）收口，已取消任务按 `cancelled` 收口，已失败或已成功任务的未结算调用统一按 `failed` 收口，避免在缺乏可信计量维度时为已成功任务凭空补记费用。收口记录金额置 0、耗时留空，且每条更新带 `status = 'pending'` 守卫，避免覆写并发完成的正常结算。实现见 [工作进程](../../lib/generation/generation_worker.py) 与 [用量仓储](../../lib/db/repositories/usage_repo.py)。用户主动取消的范围见 [ADR 0006](0006-cancel-only-queued-tasks.md)。
