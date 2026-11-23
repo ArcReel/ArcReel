@@ -1,8 +1,11 @@
+// 由 scripts/generate_price_vocabulary.py 从 arcreel_catalog_core.vocabulary 生成，不要手改。
+// 计量项与选择维度的封闭集合以代码为准，集合改动后重新运行脚本。
 
 export const PRICE_CURRENCIES = ["USD", "CNY"] as const;
 export const PRICE_SERVICE_TIERS = ["standard", "flex", "fast"] as const;
 export const CJK_DOUBLE_METER = "characters";
 
+/** 计量项：`kind` 为 token 的是同一份 token 总量拆出的各部分；`per` 是单价对应的计数量。 */
 export const METERS = {
   uncached_input_tokens: { kind: "token", per: 1000000, mediaTypes: ["text", "image", "audio"] },
   cache_read_tokens: { kind: "token", per: 1000000, mediaTypes: ["text", "image"] },
@@ -23,6 +26,7 @@ export const METERS = {
   requests: { kind: "count", per: 1, mediaTypes: ["text", "image", "video", "audio"] },
 } as const;
 
+/** 选择维度：`kind` 是取值形态。 */
 export const DIMENSIONS = {
   context_tier: { kind: "tier", mediaTypes: ["text", "image", "audio"] },
   resolution: { kind: "label", mediaTypes: ["image", "video"] },
