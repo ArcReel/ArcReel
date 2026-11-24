@@ -1,4 +1,7 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { defaultTaskStats, useTasksStore } from "@/stores/tasks-store";
+import { AssetGallery } from "@/components/canvas/lorebook/AssetGallery";
+import { makeTask } from "@/test/factories";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
@@ -156,4 +159,36 @@ describe("AddToLibraryDialog", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("生成或编辑进行中，暂无法加入资产库");
     expect(addSpy).not.toHaveBeenCalled();
   });
+});
+
+it("keeps overwrite locked while an active asset task is outside the latest 200 rows", async () => {
+  vi.spyOn(API, "findAssetByName").mockResolvedValue({ asset: EXISTING });
+  const add = vi.spyOn(API, "addAssetFromProject");
+  const hero = makeTask({ task_type: "character", resource_id: "Hero", project_name: "demo" });
+  const items = Array.from({ length: 200 }, (_, i) => makeTask({ task_id: String(i), status: "succeeded" }));
+  vi.spyOn(API, "listTasks").mockResolvedValue({ items, total: 201, page: 1, page_size: 200 });
+  vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+  vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [hero], truncated: false });
+  const { setRefreshScope, refreshTasks } = useTasksStore.getState();
+  setRefreshScope({ projectName: "demo" });
+  vi.spyOn(API, "getAssetSheetStatus").mockResolvedValue({ assets: [] });
+  const { rerender } = render(
+    <AssetGallery
+      projectName="demo" assetType="character" title="角色" readOnly={false}
+      assets={{ Hero: { description: "Hero" } }} libraryPreview={() => PREVIEW}
+      onGenerate={vi.fn()}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "「Hero」的更多操作" }));
+  await user.click(await screen.findByRole("menuitem", { name: "加入资产库" }));
+  const overwrite = await screen.findByRole("button", { name: "覆盖已有" });
+  expect(overwrite).toBeEnabled();
+  await act(refreshTasks);
+  expect(overwrite).toBeDisabled();
+  rerender(dialogFor(false));
+  await userEvent.click(await screen.findByRole("button", { name: "覆盖已有" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("生成或编辑进行中");
+  expect(add).not.toHaveBeenCalled();
+  setRefreshScope(null);
 });

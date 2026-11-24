@@ -1,8 +1,9 @@
+import { seedTaskState } from "@/test/task-state";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
-import { useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, useTasksStore } from "@/stores/tasks-store";
 import { useUsageRecordsStore } from "@/stores/usage-records-store";
 import { makeTask } from "@/test/factories";
 import type { UsageRecordPage } from "@/types";
@@ -37,10 +38,12 @@ describe("UsageRecordsSection cancel-all", () => {
     useUsageRecordsStore.setState(useUsageRecordsStore.getInitialState(), true);
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
+    useTasksStore.getState().setRefreshScope({ projectName: PROJECT });
+    vi.spyOn(API, "getActiveTasks").mockImplementation(async () => ({ items: selectRecentTasks(useTasksStore.getState()), truncated: false }));
     vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
     vi.spyOn(API, "getUsageRecords").mockResolvedValue(EMPTY_PAGE);
     vi.spyOn(API, "listTasks").mockImplementation(async () => {
-      const tasks = useTasksStore.getState().tasks;
+      const tasks = selectRecentTasks(useTasksStore.getState());
       return { items: tasks, total: tasks.length, page: 1, page_size: 200 };
     });
     vi.spyOn(API, "getTaskStats").mockResolvedValue({
@@ -55,20 +58,20 @@ describe("UsageRecordsSection cancel-all", () => {
     });
   });
 
-  it("cancels the queued tasks of the filtered project after confirmation", async () => {
+  it("refreshes after bulk cancellation and keeps a task that started running", async () => {
     vi.spyOn(API, "cancelAllPreview").mockResolvedValue({ queued_count: 2 });
     let cancelled = false;
     const cancelAllSpy = vi.spyOn(API, "cancelAllQueued").mockImplementation(async () => {
       cancelled = true;
-      return { cancelled_count: 2, skipped_running_count: 0 };
+      return { cancelled_count: 1, skipped_running_count: 1 };
     });
-    useTasksStore.setState({
-      tasks: [queuedTask("t-q1", "E1S10", 3), queuedTask("t-q2", "E1S11", 4)],
-    });
-    vi.mocked(API.listTasks).mockImplementation(async () => {
-      const tasks = cancelled ? [] : useTasksStore.getState().tasks;
-      return { items: tasks, total: tasks.length, page: 1, page_size: 200 };
-    });
+    const first = queuedTask("t-q1", "E1S10", 3);
+    const second = queuedTask("t-q2", "E1S11", 4);
+    vi.mocked(API.getActiveTasks).mockImplementation(async () => ({
+      items: cancelled ? [{ ...second, status: "running" }] : [first, second],
+      truncated: false,
+    }));
+    vi.mocked(API.listTasks).mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
 
     renderUsageRecordsSection(PROJECT_QUERY);
 
@@ -83,10 +86,13 @@ describe("UsageRecordsSection cancel-all", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "全部取消" })).not.toBeInTheDocument(),
     );
+    expect(await screen.findByRole("img", { name: "分镜 4" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "分镜 3" })).not.toBeInTheDocument();
+    expect(useTasksStore.getState().rowsById.get("t-q2")?.status).toBe("running");
   });
 
   it("hides the action when the in-progress block holds no queued task", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ ...queuedTask("t-run", "E1S10"), status: "running" })],
     });
 
@@ -97,7 +103,8 @@ describe("UsageRecordsSection cancel-all", () => {
   });
 
   it("hides the action while no project is selected", async () => {
-    useTasksStore.setState({ tasks: [queuedTask("t-q1", "E1S10")] });
+    useTasksStore.getState().setRefreshScope({ projectName: null });
+    seedTaskState({ tasks: [queuedTask("t-q1", "E1S10")] });
 
     renderUsageRecordsSection("section=usage");
 
@@ -106,7 +113,7 @@ describe("UsageRecordsSection cancel-all", () => {
   });
 
   it("hides the action when queued tasks belong to another project", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ ...queuedTask("t-q1", "E1S10"), project_name: "雨夜侦探" })],
     });
 

@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import userEvent from "@testing-library/user-event";
@@ -879,8 +880,8 @@ describe("StudioCanvasRouter", () => {
       expect(API.generateCharacter).toHaveBeenCalledWith("demo", "Hero");
       expect(useAppStore.getState().toast?.text).toContain("生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "character", "demo", optimisticActive).has("Hero")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "character", "demo").has("Hero")).toBe(true);
     });
   });
 
@@ -927,8 +928,8 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-scene"));
     await waitFor(() => {
       expect(API.generateProjectScene).toHaveBeenCalledWith("demo", "Temple");
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "scene", "demo", optimisticActive).has("Temple")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "scene", "demo").has("Temple")).toBe(true);
     });
   });
 
@@ -949,8 +950,8 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(screen.getByText("generate-prop"));
     await waitFor(() => {
       expect(API.generateProjectProp).toHaveBeenCalledWith("demo", "Sword");
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "prop", "demo", optimisticActive).has("Sword")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "prop", "demo").has("Sword")).toBe(true);
     });
   });
 
@@ -976,11 +977,11 @@ describe("StudioCanvasRouter", () => {
       expect(generateSpy).toHaveBeenCalledWith("demo", "Phone");
       expect(useAppStore.getState().toast?.text).toContain("资产图生成任务已提交");
       expect(useAppStore.getState().toast?.tone).toBe("success");
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "product", "demo", optimisticActive).has("Phone")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "product", "demo").has("Phone")).toBe(true);
     });
 
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     fireEvent.click(screen.getByText("generate-product"));
     await waitFor(() => {
       expect(useAppStore.getState().toast?.text).toContain("提交失败");
@@ -1458,8 +1459,8 @@ describe("StudioCanvasRouter", () => {
         "drama image prompt",
         "episode_1.json",
       );
-      const { tasks, optimisticActive } = useTasksStore.getState();
-      expect(selectActiveResourceIds(tasks, "storyboard", "demo", optimisticActive).has("SEG-1")).toBe(true);
+      const state = useTasksStore.getState();
+      expect(selectActiveResourceIds(state, "storyboard", "demo").has("SEG-1")).toBe(true);
     });
   });
 
@@ -1831,9 +1832,9 @@ describe("StudioCanvasRouter", () => {
     fireEvent.click(await screen.findByText("generate-grid"));
     await waitFor(() => {
       expect(API.generateGrid).toHaveBeenCalledWith("demo", 1, "episode_1.json", undefined);
-      const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+      const state = useTasksStore.getState();
       expect(
-        selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "demo", optimisticActiveScriptFile),
+        selectHasActiveTaskForScriptFile(state, "grid", "episode_1.json", "demo"),
       ).toBe(true);
     });
   });
@@ -1867,9 +1868,9 @@ describe("StudioCanvasRouter", () => {
       expect(useAppStore.getState().toast?.text).toBe("已提交 0 个多宫格分镜生成任务");
     });
 
-    const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+    const state = useTasksStore.getState();
     expect(
-      selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "demo", optimisticActiveScriptFile),
+      selectHasActiveTaskForScriptFile(state, "grid", "episode_1.json", "demo"),
     ).toBe(false);
   });
 });

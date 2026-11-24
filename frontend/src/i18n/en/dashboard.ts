@@ -781,6 +781,7 @@ export default {
   'usage_close_panel': 'Close usage records panel',
   'usage_in_progress': 'In progress',
   'usage_recently_finished': 'Recently finished',
+  'usage_active_incomplete': 'Only part of the active task list is shown.',
   'usage_no_in_progress': 'No calls in progress right now.',
   'usage_no_finished': 'No finished calls yet.',
   'usage_popover_empty': 'This project has no usage records yet. Calls appear here once generation starts.',

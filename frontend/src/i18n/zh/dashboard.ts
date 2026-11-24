@@ -781,6 +781,7 @@ export default {
   'usage_close_panel': '关闭使用记录面板',
   'usage_in_progress': '进行中',
   'usage_recently_finished': '最近已结束',
+  'usage_active_incomplete': '进行中任务未完整加载。',
   'usage_no_in_progress': '当前没有进行中的调用。',
   'usage_no_finished': '还没有已结束的调用。',
   'usage_popover_empty': '本项目还没有使用记录。开始生成后，这里会显示进行中与已结束的调用。',

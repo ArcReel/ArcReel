@@ -267,6 +267,15 @@ async function recordsReady(page: Page) {
 
 defineRegionScenarios("使用记录", [
   {
+    name: "活跃快照截断时显示进行中任务未完整加载",
+    path: USAGE,
+    api: { ...STRESS, "GET /api/v1/tasks/active": { status: 200, body: { items: [], truncated: true } } },
+    ready: usageReady,
+    act: async (page) => {
+      await expect(page.getByText("进行中任务未完整加载。")).toBeVisible();
+    },
+  },
+  {
     name: "没有任何调用时的空态",
     path: USAGE,
     ready: async (page) => {

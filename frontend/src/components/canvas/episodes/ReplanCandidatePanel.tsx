@@ -1,3 +1,4 @@
+import { useShallow } from "zustand/react/shallow";
 import { useId, useState, type ReactNode, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -10,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useAppStore } from "@/stores/app-store";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodeMeta, EpisodesView, ReplanAdoptionImpact, ReplanSummary, SourcePoint } from "@/types";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { errMsg } from "@/utils/async";
@@ -42,7 +43,7 @@ export function ReplanCandidatePanel({ projectName, view, replan, episodes, gene
   const [busy, setBusy] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [adoption, setAdoption] = useState<PendingAdoption | null>(null);
-  const tasks = useTasksStore((s) => s.tasks);
+  const tasks = useTasksStore(useShallow(selectRecentTasks));
   const deleteRetiredId = useId();
   if (!generating && stopRequested) setStopRequested(false);
 

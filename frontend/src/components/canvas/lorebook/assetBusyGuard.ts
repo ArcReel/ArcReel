@@ -9,8 +9,8 @@ export function isAssetBusy(kind: ResourceKind, projectName: string, name: strin
     return owner !== name && isAssetBusy("character", projectName, owner);
   }
   if (kind !== "character") return false;
-  const { tasks, optimisticActive } = useTasksStore.getState();
-  return [...selectActiveResourceIds(tasks, "character_derivative", projectName, optimisticActive)]
+  const state = useTasksStore.getState();
+  return [...selectActiveResourceIds(state, "character_derivative", projectName)]
     .some((id) => id.startsWith(`${name}/`));
 }
 

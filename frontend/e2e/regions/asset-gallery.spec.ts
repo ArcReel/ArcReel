@@ -106,7 +106,7 @@ const BASE: ApiOverrides = {
     new Set(["沈砚"]),
     new Set(["阿岚", "小满"]),
   ),
-  "GET /api/v1/tasks?page_size=200&project_name=demo": RUNNING_TASKS,
+  "GET /api/v1/tasks/active?project_name=demo": { status: 200, body: { items: RUNNING_TASKS.body.items, truncated: false } },
   "GET /api/v1/projects/demo/versions/characters/林夕": {
     status: 200,
     body: {
@@ -143,7 +143,7 @@ const MANY_API: ApiOverrides = {
   ...BASE,
   "GET /api/v1/projects/demo": projectWith(MANY),
   "GET /api/v1/projects/demo/asset-sheets/status": { status: 200, body: { assets: [] } },
-  "GET /api/v1/tasks?page_size=200&project_name=demo": { status: 200, body: { items: [], total: 0, page: 1, page_size: 200 } },
+  "GET /api/v1/tasks/active?project_name=demo": { status: 200, body: { items: [], truncated: false } },
 };
 
 const DELETE_PREVIEW_KEY = "DELETE /api/v1/projects/demo/characters/林夕?dry_run=true";

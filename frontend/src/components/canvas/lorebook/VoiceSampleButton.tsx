@@ -18,7 +18,7 @@ import { NarrationVoiceInput } from "@/components/shared/NarrationVoiceInput";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, useTasksStore } from "@/stores/tasks-store";
 import { isTerminalStatus, type TaskItem } from "@/types";
 import { isAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
@@ -82,24 +82,26 @@ export function VoiceSampleButton({
 
   const audioConfigured = useConfigStatusStore((s) => s.availableMediaTypes.includes("audio"));
 
-  const liveTask = useTasksStore((s) => (taskId ? s.tasks.find((item) => item.task_id === taskId) : undefined));
+  const liveTask = useTasksStore((s) => (taskId ? selectRecentTasks(s).find((item) => item.task_id === taskId) : undefined));
 
   const [settledTask, setSettledTask] = useState<TaskItem | null>(null);
   useEffect(() => {
     if (!open || taskId === null) return;
     const controller = new AbortController();
+    const release = useTasksStore.getState().retainTask(projectName, taskId);
     const captureTerminalTask = (tasks: TaskItem[]) => {
       if (controller.signal.aborted) return;
       const found = tasks.find((item) => item.task_id === taskId);
       if (found && isTerminalStatus(found.status)) setSettledTask(found);
     };
-    const unsubscribe = useTasksStore.subscribe((state) => captureTerminalTask(state.tasks));
-    void Promise.resolve().then(() => captureTerminalTask(useTasksStore.getState().tasks));
+    const unsubscribe = useTasksStore.subscribe((state) => captureTerminalTask(selectRecentTasks(state)));
+    void Promise.resolve().then(() => captureTerminalTask(selectRecentTasks(useTasksStore.getState())));
     return () => {
       controller.abort();
       unsubscribe();
+      release();
     };
-  }, [open, taskId]);
+  }, [open, projectName, taskId]);
   const task = settledTask?.task_id === taskId ? settledTask : liveTask;
 
   useEffect(() => {

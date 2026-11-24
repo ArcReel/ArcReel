@@ -5,38 +5,13 @@ import {
   useProjectsStore,
   useTasksStore,
 } from "@/stores";
-import type { DraftState, TaskItem, TimelineEntry } from "@/types";
+import type { DraftState, TimelineEntry } from "@/types";
 
 function resetAllStores(): void {
   useAppStore.setState(useAppStore.getInitialState(), true);
   useAssistantStore.setState(useAssistantStore.getInitialState(), true);
   useProjectsStore.setState(useProjectsStore.getInitialState(), true);
   useTasksStore.setState(useTasksStore.getInitialState(), true);
-}
-
-function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
-  return {
-    task_id: "task-1",
-    project_name: "demo",
-    task_type: "storyboard",
-    media_type: "image",
-    resource_id: "segment-1",
-    resource_type: null,
-    script_file: null,
-    payload: {},
-    status: "queued",
-    result: null,
-    error_message: null,
-    cancelled_by: null,
-    provider_id: null,
-    provider_job_id: null,
-    source: "webui",
-    queued_at: "2026-02-01T00:00:00Z",
-    started_at: null,
-    finished_at: null,
-    updated_at: "2026-02-01T00:00:00Z",
-    ...overrides,
-  };
 }
 
 describe("stores", () => {
@@ -115,30 +90,6 @@ describe("stores", () => {
     app.invalidateAllEntities();
     expect(app.getEntityRevision("segment:S1")).toBe(2);
     expect(app.getEntityRevision("clue:missing")).toBe(1);
-  });
-
-  it("replaces tasks via setTasks and updates task stats", () => {
-    const tasks = useTasksStore.getState();
-    const first = makeTask();
-    const second = makeTask({
-      task_id: "task-2",
-      status: "running",
-      updated_at: "2026-02-01T00:01:00Z",
-    });
-
-    tasks.setTasks([first]);
-    expect(useTasksStore.getState().tasks).toHaveLength(1);
-    expect(useTasksStore.getState().tasks[0].status).toBe("queued");
-
-    tasks.setTasks([second, first]);
-    expect(useTasksStore.getState().tasks).toHaveLength(2);
-    expect(useTasksStore.getState().tasks[0].task_id).toBe("task-2");
-
-    tasks.setStats({ queued: 1, running: 1, succeeded: 0, failed: 0, cancelled: 0, total: 2 });
-    expect(useTasksStore.getState().stats.total).toBe(2);
-
-    tasks.setConnected(true);
-    expect(useTasksStore.getState().connected).toBe(true);
   });
 
   it("updates projects store fields", () => {

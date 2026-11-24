@@ -1,8 +1,8 @@
+import { seedTaskState } from "@/test/task-state";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import { API } from "@/api";
-import { useTasksStore } from "@/stores/tasks-store";
 import type { DramaScene } from "@/types";
 
 
@@ -132,7 +132,7 @@ describe("ShotDetail 时长候选与越界提示", () => {
 
 describe("ShotDetail 时长编辑的占用态门控", () => {
   afterEach(() => {
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
   });
 
   it("该分镜生成中时禁用时长 pill 并说明原因", () => {
@@ -192,7 +192,7 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     renderDetail({ onUpdatePrompt });
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
 
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           project_name: "demo",
@@ -227,7 +227,7 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     renderDetail({ onUpdatePrompt });
     fireEvent.click(screen.getByRole("button", { name: /4 秒/ }));
 
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           project_name: "demo",
@@ -261,7 +261,7 @@ describe("ShotDetail 时长编辑的占用态门控", () => {
     const onUpdatePrompt = saved();
     renderDetail({ onUpdatePrompt });
 
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           project_name: "demo",

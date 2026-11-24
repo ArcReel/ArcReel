@@ -1,3 +1,4 @@
+import { useTasksStore } from "@/stores/tasks-store";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { API, ApiRequestError } from "@/api";
@@ -130,7 +131,7 @@ export function useTaskCancellation(
     }
     try {
       try {
-        if (request.kind === "single") await API.cancelTask(request.taskId);
+        if (request.kind === "single") await useTasksStore.getState().cancelTask(request.taskId);
         else await API.cancelAllQueued(request.projectName);
       } catch (error) {
         updateSession(gen, {

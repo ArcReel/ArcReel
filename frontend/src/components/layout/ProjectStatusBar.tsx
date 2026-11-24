@@ -18,7 +18,7 @@ import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { isResourceBusy, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, isResourceBusy, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import type { EpisodeMeta } from "@/types";
 import type { EpisodeNextStep, WorkflowStatus } from "@/types/workflow";
 import { errMsg } from "@/utils/async";
@@ -55,7 +55,7 @@ function useProjectWorkflowStatus(projectName: string, enabled: boolean): Workfl
   const [status, setStatus] = useState<WorkflowStatus | null>(null);
   const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
   const taskFingerprint = useTasksStore((s) =>
-    s.tasks
+    selectRecentTasks(s)
       .filter((task) => task.project_name === projectName)
       .map((task) => `${task.task_id}:${task.status}`)
       .join("|"),

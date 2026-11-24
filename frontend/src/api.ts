@@ -2543,6 +2543,17 @@ class API {
     return task;
   }
 
+  static getActiveTasks(projectName: string | null): Promise<{ items: TaskItem[]; truncated: boolean }> {
+    const query = projectName ? "?" + new URLSearchParams({ project_name: projectName }).toString() : "";
+    return this.request(`/tasks/active${query}`);
+  }
+
+  static lookupTasks(taskIds: string[], projectName: string | null, signal: AbortSignal): Promise<{ items: TaskItem[]; missing_ids: string[] }> {
+    return this.request("/tasks/lookup", {
+      method: "POST", signal, body: JSON.stringify({ task_ids: taskIds, project_name: projectName }),
+    });
+  }
+
   static async listTasks(
     filters: TaskListFilters = {}
   ): Promise<{ items: TaskItem[]; total: number; page: number; page_size: number }> {

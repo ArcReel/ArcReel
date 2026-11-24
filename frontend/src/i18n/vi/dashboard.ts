@@ -775,6 +775,7 @@ export default {
   'usage_close_panel': 'Đóng bảng nhật ký sử dụng',
   'usage_in_progress': 'Đang chạy',
   'usage_recently_finished': 'Vừa kết thúc',
+  'usage_active_incomplete': 'Chỉ hiển thị một phần danh sách tác vụ đang chạy.',
   'usage_no_in_progress': 'Hiện không có lệnh gọi nào đang chạy.',
   'usage_no_finished': 'Chưa có lệnh gọi nào kết thúc.',
   'usage_popover_empty': 'Dự án này chưa có nhật ký sử dụng. Các lệnh gọi sẽ hiện ở đây khi bắt đầu tạo.',

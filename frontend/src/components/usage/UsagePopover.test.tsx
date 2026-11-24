@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { seedTaskState } from "@/test/task-state";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
@@ -72,6 +73,18 @@ describe("UsagePopover", () => {
     await i18n.changeLanguage("zh");
   });
 
+  it("shows incomplete active coverage until the next complete snapshot", async () => {
+    vi.spyOn(API, "getActiveTasks").mockResolvedValueOnce({items: [], truncated: true}).mockResolvedValue({items: [], truncated: false});
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({stats: useTasksStore.getInitialState().stats});
+    useTasksStore.getState().setRefreshScope({ projectName: HEADER_PROJECT });
+    openPopover({});
+    await act(useTasksStore.getState().refreshTasks);
+    expect(await screen.findByText("进行中任务未完整加载。")).toBeInTheDocument();
+    await act(useTasksStore.getState().refreshTasks);
+    expect(screen.queryByText("进行中任务未完整加载。")).not.toBeInTheDocument();
+  });
+
   it("shows only the guidance line and the records link when nothing was ever called", () => {
     openPopover({ summary: makeUsageSummary({ kpi: EMPTY_KPI, primary_currency: null }) });
 
@@ -84,7 +97,7 @@ describe("UsagePopover", () => {
   });
 
   it("keeps a placeholder in the finished column while only tasks are running", () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         makeTask({
           task_id: "t-1",

@@ -266,6 +266,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           void refreshProject();
         }
         if (previousFingerprint) {
+          void useTasksStore.getState().refreshTasks();
           void useUsageHeaderStore.getState().refresh();
           useAppStore.getState().invalidateTrash();
         }

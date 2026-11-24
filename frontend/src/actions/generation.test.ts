@@ -1,3 +1,4 @@
+import { seedTaskState, seedTasks } from "@/test/task-state";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import i18n from "@/i18n";
@@ -32,31 +33,33 @@ import { makeTask } from "@/test/factories";
 const SINGLE_OK = { success: true, task_id: "t1", deduped: false, message: "ok" };
 
 function occupied(projectName: string, resourceKind: ResourceKind, resourceId: string): boolean {
-  const { tasks, optimisticActive } = useTasksStore.getState();
-  return selectActiveResourceIds(tasks, resourceKind, projectName, optimisticActive).has(resourceId);
+  const state = useTasksStore.getState();
+  return selectActiveResourceIds(state, resourceKind, projectName).has(resourceId);
 }
 
 function scriptFileOccupied(projectName: string, taskType: string, scriptFile: string): boolean {
-  const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+  const state = useTasksStore.getState();
   return selectHasActiveTaskForScriptFile(
-    tasks,
+    state,
     taskType,
     scriptFile,
     projectName,
-    optimisticActiveScriptFile,
   );
 }
 
 function markCounts(): { resource: number; scriptFile: number } {
   const s = useTasksStore.getState();
-  return { resource: s.optimisticActive.size, scriptFile: s.optimisticActiveScriptFile.size };
+  const marks = [...s.optimisticMarks.values()];
+  return {
+    resource: marks.filter((mark) => mark.target.kind === "resource").length,
+    scriptFile: marks.filter((mark) => mark.target.kind === "script").length,
+  };
 }
 
 beforeEach(() => {
-  useTasksStore.setState({
+  seedTaskState({
     tasks: [],
-    optimisticActive: new Set(),
-    optimisticActiveScriptFile: new Set(),
+    optimisticMarks: new Map(),
   });
   useAppStore.setState({ toast: null });
 });
@@ -232,15 +235,13 @@ describe("enqueueEpisodeNarration", () => {
 
     await enqueueEpisodeNarration("demo", "episode_1.json");
 
-    useTasksStore.getState().setTasks([
-      {
-        task_id: "t1",
-        project_name: "demo",
-        task_type: "tts",
-        resource_id: "E1S01",
-        status: "completed",
-      },
-    ] as never);
+    seedTasks([makeTask({
+      task_id: "t1",
+      project_name: "demo",
+      task_type: "tts",
+      resource_id: "E1S01",
+      status: "succeeded",
+    })]);
 
     expect(occupied("demo", "tts", "E1S01")).toBe(false);
     expect(occupied("demo", "tts", "E1S02")).toBe(true);
@@ -314,15 +315,13 @@ describe("enqueueGrid", () => {
 
     await enqueueGrid("demo", 1, "episode_1.json");
 
-    useTasksStore.getState().setTasks([
-      {
-        task_id: "t1",
-        project_name: "demo",
-        task_type: "grid",
-        resource_id: "g1",
-        status: "completed",
-      },
-    ] as never);
+    seedTasks([makeTask({
+      task_id: "t1",
+      project_name: "demo",
+      task_type: "grid",
+      resource_id: "g1",
+      status: "succeeded",
+    })]);
 
     expect(occupied("demo", "grid", "g1")).toBe(false);
     expect(occupied("demo", "grid", "g2")).toBe(true);
@@ -416,7 +415,7 @@ describe("enqueuePromptAuthoring", () => {
     status: "succeeded" | "failed" = "succeeded",
     taskId = "t-author",
   ): void {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         makeTask({
           task_id: taskId,
@@ -558,15 +557,13 @@ describe("enqueueReferenceVideoBatch", () => {
       unit_ids: ["E1U1", "E1U2"],
     });
 
-    useTasksStore.getState().setTasks([
-      {
-        task_id: "t1",
-        project_name: "demo",
-        task_type: "reference_video",
-        resource_id: "E1U1",
-        status: "completed",
-      },
-    ] as never);
+    seedTasks([makeTask({
+      task_id: "t1",
+      project_name: "demo",
+      task_type: "reference_video",
+      resource_id: "E1U1",
+      status: "succeeded",
+    })]);
 
     expect(occupied("demo", "reference_video", "E1U1")).toBe(false);
     expect(occupied("demo", "reference_video", "E1U2")).toBe(true);

@@ -8,7 +8,7 @@ import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { TaskFailureDetails } from "@/components/shared/TaskFailureDetails";
 import { Button } from "@/components/ui/button";
 import { isAdScriptTask } from "@/hooks/useAdScriptEntry";
-import { useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, useTasksStore } from "@/stores/tasks-store";
 import { outputTruncationOf } from "@/utils/output-truncation";
 
 import { latestEpisodeTextTaskFailure, type EpisodeTextTaskKind } from "./text-task-failure";
@@ -31,7 +31,7 @@ export function TextTaskFailureNote({
   hasScript?: boolean;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
-  const failure = useTasksStore(useShallow((s) => latestEpisodeTextTaskFailure(s.tasks, projectName, episode)));
+  const failure = useTasksStore(useShallow((s) => latestEpisodeTextTaskFailure(selectRecentTasks(s), projectName, episode)));
   const [dismissedTaskId, setDismissedTaskId] = useState<string | null>(null);
   if (failure === null || failure.task.task_id === dismissedTaskId) return null;
   const truncation = outputTruncationOf(failure.task);

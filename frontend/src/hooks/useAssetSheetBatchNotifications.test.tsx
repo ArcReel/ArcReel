@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
@@ -5,7 +6,6 @@ import { useAssetSheetBatchNotifications } from "@/hooks/useAssetSheetBatchNotif
 import { useTaskFailureNotifications } from "@/hooks/useTaskFailureNotifications";
 import { useAppStore } from "@/stores/app-store";
 import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import type { AssetSheetBatchMember } from "@/types";
 
@@ -42,7 +42,7 @@ afterEach(() => vi.restoreAllMocks());
 beforeEach(() => {
   useAppStore.setState(useAppStore.getInitialState(), true);
   useAssetSheetBatchStore.setState({ batches: {}, trackedTaskIds: new Set() });
-  useTasksStore.setState({ tasks: [], connected: true });
+  seedTaskState({ tasks: [], connected: true });
   useAssetSheetBatchStore.getState().track({
     batchId: "b1",
     projectName: "demo",
@@ -52,7 +52,7 @@ beforeEach(() => {
 
 describe("useAssetSheetBatchNotifications", () => {
   it("includes a member outside the paginated task list in the batch result", async () => {
-    useTasksStore.setState({ tasks: [makeTask({ ...OWNER, status: "succeeded" })] });
+    seedTaskState({ tasks: [makeTask({ ...OWNER, status: "succeeded" })] });
     vi.spyOn(API, "getTask").mockResolvedValue(
       makeTask({ ...DERIVATIVE, status: "failed", error_code: "cascade_blocked_dependency" }),
     );
@@ -68,13 +68,13 @@ describe("useAssetSheetBatchNotifications", () => {
   });
 
   it("sums up a failed batch in one locatable notification instead of one per task", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ ...OWNER, status: "running" }), makeTask({ ...DERIVATIVE, status: "queued" })],
     });
     render(<Harness />);
 
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [
           makeTask({ ...OWNER, status: "failed" }),
           makeTask({ ...DERIVATIVE, status: "failed", error_code: "cascade_blocked_dependency" }),
@@ -92,14 +92,14 @@ describe("useAssetSheetBatchNotifications", () => {
   });
 
   it("waits for every member before reporting a successful batch", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ ...OWNER, status: "succeeded" }), makeTask({ ...DERIVATIVE, status: "running" })],
     });
     render(<Harness />);
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
 
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [makeTask({ ...OWNER, status: "succeeded" }), makeTask({ ...DERIVATIVE, status: "succeeded" })],
       });
     });
@@ -112,13 +112,13 @@ describe("useAssetSheetBatchNotifications", () => {
   });
 
   it("counts results whose asset was deleted during generation apart from generated sheets", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ ...OWNER, status: "running" }), makeTask({ ...DERIVATIVE, status: "running" })],
     });
     render(<Harness />);
 
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [
           makeTask({ ...OWNER, status: "succeeded" }),
           makeTask({ ...DERIVATIVE, status: "succeeded", result: { target_deleted: true, trash_record_id: "r1" } }),
@@ -143,11 +143,11 @@ describe("useAssetSheetBatchNotifications", () => {
         member({ unit_id: "character/Alice/战损", derivative: "战损", task_id: null, status: "failed", problem_code: "generation_dependency_failed" }),
       ],
     });
-    if (queued) useTasksStore.setState({ tasks: [makeTask({ ...OWNER, status: "running" })] });
+    if (queued) seedTaskState({ tasks: [makeTask({ ...OWNER, status: "running" })] });
     render(<Harness />);
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(queued ? 0 : 1);
     if (queued) {
-      act(() => useTasksStore.setState({ tasks: [makeTask({ ...OWNER, status: "succeeded" })] }));
+      act(() => seedTaskState({ tasks: [makeTask({ ...OWNER, status: "succeeded" })] }));
     }
 
     await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));

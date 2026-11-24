@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useTaskRefresh } from "@/hooks/useTaskRefresh";
-import { useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem, TaskStats } from "@/types";
 
 function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
@@ -33,6 +33,7 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
 describe("useTaskRefresh", () => {
   beforeEach(() => {
     useTasksStore.setState(useTasksStore.getInitialState(), true);
+    vi.spyOn(API, "getActiveTasks").mockResolvedValue({items: [], truncated: false});
     vi.useFakeTimers();
   });
 
@@ -65,7 +66,7 @@ describe("useTaskRefresh", () => {
 
     expect(listSpy).toHaveBeenCalledTimes(1);
     expect(statsSpy).toHaveBeenCalledTimes(1);
-    expect(useTasksStore.getState().tasks).toHaveLength(1);
+    expect(selectRecentTasks(useTasksStore.getState())).toHaveLength(1);
     expect(useTasksStore.getState().stats).toEqual(stats);
     expect(useTasksStore.getState().connected).toBe(true);
 
@@ -116,7 +117,8 @@ describe("useTaskRefresh", () => {
     renderHook(() => useTaskRefresh("demo"));
     await act(async () => {});
 
-    const { tasks, stats } = useTasksStore.getState();
+    const { stats } = useTasksStore.getState();
+    const tasks = selectRecentTasks(useTasksStore.getState());
     expect(tasks).toHaveLength(2);
     expect(tasks[0].task_id).toBe("t1");
     expect(tasks[1].task_id).toBe("t2");
@@ -157,11 +159,11 @@ describe("useTaskRefresh", () => {
       initialProps: { enabled: true },
     });
     await act(async () => {});
-    expect(useTasksStore.getState().tasks).toHaveLength(1);
+    expect(selectRecentTasks(useTasksStore.getState())).toHaveLength(1);
 
     rerender({ enabled: false });
 
-    expect(useTasksStore.getState().tasks).toEqual([]);
+    expect(selectRecentTasks(useTasksStore.getState())).toEqual([]);
     expect(useTasksStore.getState().stats).toEqual({
       queued: 0,
       running: 0,

@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -5,7 +6,6 @@ import { API } from "@/api";
 import { LeaveGuardProvider, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import type { AssetSheetStatusRow, AssetSheetType, ProjectData } from "@/types";
 import { AssetGallery } from "./AssetGallery";
@@ -71,7 +71,7 @@ describe("AssetGallery", () => {
   });
 
   afterEach(() => {
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     vi.restoreAllMocks();
   });
 
@@ -129,7 +129,7 @@ describe("AssetGallery", () => {
     await user.click(await screen.findByRole("button", { name: "v1" }));
     expect(screen.getByRole("button", { name: "切换到此版本" })).toBeEnabled();
 
-    act(() => useTasksStore.setState({
+    act(() => seedTaskState({
       tasks: [makeTask({ project_name: "demo", task_type: "scene", resource_id: "庭院", status: "running" })],
     }));
 
@@ -161,7 +161,7 @@ describe("AssetGallery", () => {
     const user = userEvent.setup();
     renderGallery();
     const menu = await openMenu(user, "庭院");
-    act(() => useTasksStore.setState({
+    act(() => seedTaskState({
       tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "庭院", status: "running" })],
     }));
 
@@ -176,7 +176,7 @@ describe("AssetGallery", () => {
     const uploadFile = vi.spyOn(API, "uploadFile").mockResolvedValue({ path: "x" } as never);
     renderGallery();
     const card = screen.getByRole("article", { name: "庭院" });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "庭院", status: "running" })],
     });
 
@@ -202,7 +202,7 @@ describe("AssetGallery", () => {
     renderGallery();
     await user.click(within(await openMenu(user, "庭院")).getByRole("menuitem", { name: "从供应商素材库选择" }));
     const select = await screen.findByRole("button", { name: "选择 供应商庭院" });
-    act(() => useTasksStore.setState({
+    act(() => seedTaskState({
       tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "庭院", status: "running" })],
     }));
     await user.click(select);
@@ -338,7 +338,7 @@ describe("AssetGallery", () => {
         const remove = vi.spyOn(API, "deleteProjectAsset").mockResolvedValue({ success: true });
         const leave = await confirmDeletion(user);
 
-        act(() => useTasksStore.setState({
+        act(() => seedTaskState({
           tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "书房", status: "running" })],
         }));
         await user.click(leave.getByRole("button", { name: "放弃修改" }));
@@ -407,7 +407,7 @@ describe("AssetGallery", () => {
       await act(async () => finishUpload({ path: "x" } as never));
       await waitFor(() => expect(confirm).toBeEnabled());
 
-      act(() => useTasksStore.setState({
+      act(() => seedTaskState({
         tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "书房", status: "running" })],
       }));
       expect(confirm).toBeDisabled();

@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render as rtlRender, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -11,7 +12,7 @@ import type { EpisodeViewFacts } from "@/components/canvas/episode-page/episode-
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
 import { useReferenceVideoStore, referenceVideoCacheKey } from "@/stores/reference-video-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useActiveResourceIds, useLatestTasksByResource, useTasksStore } from "@/stores/tasks-store";
+import { useActiveResourceIds, useLatestTasksByResource } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { API, ReferenceProjectionError } from "@/api";
@@ -145,11 +146,10 @@ describe("ReferenceVideoCanvas", () => {
     vi.mocked(useLatestTasksByResource).mockImplementation(mockHolder.realLatestTasksByResource);
     useReferenceVideoStore.setState({ unitsByEpisode: {}, selectedUnitId: null, loading: false, error: null });
     useProjectsStore.setState({ currentProjectName: "proj", currentProjectData: STUB_PROJECT, currentScripts: {} });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [],
       connected: false,
-      optimisticActive: new Set(),
-      optimisticActiveScriptFile: new Set(),
+      optimisticMarks: new Map(),
     });
     useAppStore.setState({ toast: null });
     vi.spyOn(API, "precheckReferenceVideoDuration").mockResolvedValue({
@@ -283,7 +283,7 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^(Remove unit|移除单元)$/ }));
 
     act(() => {
-      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+      seedTaskState({ tasks: [runningTask("E1U1")] as never });
     });
     const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: /^(Move to project trash|移入项目回收站)$/ });
     await waitFor(() => expect(confirm).toBeDisabled());
@@ -322,7 +322,7 @@ describe("ReferenceVideoCanvas", () => {
       const leaveDialog = await editThenConfirmRemoval();
 
       act(() => {
-        useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+        seedTaskState({ tasks: [runningTask("E1U1")] as never });
       });
       fireEvent.click(within(leaveDialog).getByRole("button", { name: "放弃修改" }));
 
@@ -345,7 +345,7 @@ describe("ReferenceVideoCanvas", () => {
 
   it("blocks removing a unit while its narration audio is being generated", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
-    useTasksStore.setState({ tasks: [{ ...runningTask("E1U1"), task_type: "tts" }] as never });
+    seedTaskState({ tasks: [{ ...runningTask("E1U1"), task_type: "tts" }] as never });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
 
     await screen.findByTestId("unit-row-E1U1");
@@ -1213,7 +1213,7 @@ describe("ReferenceVideoCanvas", () => {
 
   it("重试失败 unit 后在真实任务行落库前即禁用按钮", async () => {
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")], unit_capabilities: {} });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "t1",
@@ -1254,7 +1254,7 @@ describe("ReferenceVideoCanvas", () => {
     const unit = mkUnit("E1U1");
     unit.generated_assets.video_clip = "videos/E1U1.mp4";
     vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [unit], unit_capabilities: {} });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "t1",
@@ -1303,7 +1303,7 @@ describe("ReferenceVideoCanvas", () => {
     expect(generate).toBeEnabled();
 
     act(() => {
-      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+      seedTaskState({ tasks: [runningTask("E1U1")] as never });
     });
 
     fireEvent.click(generate);
@@ -1325,7 +1325,7 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(batch).toBeEnabled());
 
     act(() => {
-      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+      seedTaskState({ tasks: [runningTask("E1U1")] as never });
     });
 
     fireEvent.click(batch);
@@ -1395,7 +1395,7 @@ describe("ReferenceVideoCanvas", () => {
     expect(input).not.toBeNull();
 
     act(() => {
-      useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
+      seedTaskState({ tasks: [runningTask("E1U1")] as never });
     });
 
     fireEvent.change(input!, { target: { files: [new File(["x"], "clip.mp4", { type: "video/mp4" })] } });
