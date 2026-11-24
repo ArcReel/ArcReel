@@ -5,14 +5,21 @@ import asyncio
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.artifacts.version_manager import VersionManager
+from lib.asset_library.control_plane import ProviderAssetDetail
+from lib.asset_library.links import record_imported_link
+from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.models.user import User
+from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.generation.asset_admission import AssetResourceBusy, AssetTarget, require_asset_idle
 from lib.generation.generation_queue import GenerationQueue
 from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
-from server.routers import assets, generate
+from server.routers import assets, characters, generate
+from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
 from server.tool_runtime import CallerContext
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.fakes import observe_file_lock_contention, use_assets_router_sessions, use_project_manager
@@ -185,3 +192,198 @@ async def test_agent_asset_generation_reports_conflicting_edit(asset_project, fi
     outcome = await run_declared_tool("generate_assets", harness, {"type": "character", "names": ["Héro"]})
     assert outcome.problem is not None
     assert outcome.problem.code == "asset_resource_busy"
+
+
+@pytest.fixture
+async def apply_client(asset_project, file_db_factory, monkeypatch):
+    use_project_manager(monkeypatch, asset_project)
+    use_assets_router_sessions(monkeypatch, file_db_factory)
+    app = FastAPI()
+    register_error_handlers(app)
+    override_auth(app)
+    for router in (assets.router, characters.router, generate.router):
+        app.include_router(router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+
+async def _library_sheet(client, name, content):
+    response = await client.post(
+        "/api/v1/assets",
+        data={"type": "character", "name": name, "description": "library description"},
+        files={"image": ("sheet.png", content, "image/png")},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["asset"]
+
+
+async def _apply_library_sheets(client, policy, *asset_ids):
+    return await client.post(
+        "/api/v1/assets/apply-to-project",
+        json={"asset_ids": asset_ids, "target_project": "demo", "conflict_policy": policy},
+        headers={"Accept-Language": "en"},
+    )
+
+
+async def _project_links(factory):
+    async with factory() as session:
+        rows = await session.scalars(
+            select(ProviderAssetLink).where(ProviderAssetLink.project_name == "demo").order_by(ProviderAssetLink.id)
+        )
+        return [tuple(getattr(row, col.key) for col in row.__table__.columns) for row in rows]
+
+
+async def test_apply_rechecks_new_overwrite_after_concurrent_creation_and_admission(
+    apply_client,
+    asset_project,
+    file_db_factory,
+    monkeypatch,
+):
+    archer = await _library_sheet(apply_client, "Archer", b"incoming archer")
+    mage = await _library_sheet(apply_client, "Mage", b"incoming mage")
+    assert "Archer" not in asset_project.load_project("demo")["characters"]
+
+    reading_inputs = asyncio.Event()
+    release_apply = asyncio.Event()
+    committing = asyncio.Event()
+    release_enqueue = asyncio.Event()
+    contended = observe_file_lock_contention(monkeypatch)
+    ensure_global_image = assets.ensure_global_image
+
+    async def hold_library_image(data_root, path):
+        if path == archer["image_path"]:
+            reading_inputs.set()
+            await asyncio.wait_for(release_apply.wait(), 10)
+        return await ensure_global_image(data_root, path)
+
+    monkeypatch.setattr(assets, "ensure_global_image", hold_library_image)
+
+    class PausedCommitSession(AsyncSession):
+        async def commit(self):
+            committing.set()
+            await asyncio.wait_for(release_enqueue.wait(), 10)
+            await super().commit()
+
+    factory = async_sessionmaker(file_db_factory.kw["bind"], class_=PausedCommitSession, expire_on_commit=False)
+    queue = GenerationQueue(session_factory=factory, project_manager=asset_project)
+    monkeypatch.setattr(generate, "get_generation_queue", lambda: queue)
+    project_dir = asset_project.get_project_path("demo")
+    sheet = project_dir / "characters" / "Archer.png"
+    versions = VersionManager(project_dir)
+
+    async with asyncio.TaskGroup() as group:
+        applying = group.create_task(_apply_library_sheets(apply_client, "overwrite", archer["id"], mage["id"]))
+        await asyncio.wait_for(reading_inputs.wait(), 10)
+        created = await apply_client.post(
+            "/api/v1/projects/demo/characters", json={"name": "Archer", "description": "project description"}
+        )
+        assert created.status_code == 200, created.text
+        content_version = await asyncio.to_thread(
+            install_manual_asset_sheet_upload,
+            project_manager=asset_project,
+            project_name="demo",
+            asset_type="character",
+            name="Archer",
+            sheet_path="characters/Archer.png",
+            content=b"original",
+            original_filename="Archer.png",
+        )
+        assert content_version is not None
+        entry = asset_project.load_project("demo")["characters"]["Archer"]
+        history = versions.get_versions("characters", "Archer")
+        async with file_db_factory() as session:
+            account = await AssetLibraryRepository(session).create_account(
+                site="volcengine",
+                name="test",
+                region="cn-beijing",
+                project_name="film",
+                access_key_id="TEST-ADMISSION-AK",
+                secret_access_key="TEST-ADMISSION-SK",
+            )
+            await record_imported_link(
+                session,
+                project_name="demo",
+                content_version=content_version,
+                account=account,
+                asset=ProviderAssetDetail(
+                    id="existing-archer",
+                    name="Archer",
+                    asset_type="Image",
+                    status="active",
+                    group_id="group-1",
+                    error_code=None,
+                    error_message=None,
+                ),
+            )
+            await session.commit()
+        original_links = await _project_links(file_db_factory)
+        assert len(original_links) == 1
+        queued = group.create_task(apply_client.post("/api/v1/projects/demo/generate/character/Archer"))
+        await asyncio.wait_for(committing.wait(), 10)
+        release_apply.set()
+        try:
+            await asyncio.wait_for(contended.wait(), 5)
+        finally:
+            release_enqueue.set()
+
+    enqueue_response = queued.result()
+    assert enqueue_response.status_code == 200, enqueue_response.text
+    assert enqueue_response.json()["task_id"]
+    response = applying.result()
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["succeeded"] == [{"id": mage["id"], "name": "Mage"}]
+    assert result["skipped"] == []
+    assert [(row["id"], row["reason"]) for row in result["failed"]] == [(archer["id"], "resource_busy")]
+    assert asset_project.load_project("demo")["characters"]["Archer"] == entry
+    assert sheet.read_bytes() == b"original"
+    assert versions.get_versions("characters", "Archer") == history
+    assert await _project_links(file_db_factory) == original_links
+    assert (project_dir / "characters" / "Mage.png").read_bytes() == b"incoming mage"
+    assert versions.get_current_version("characters", "Mage") is not None
+
+
+@pytest.mark.parametrize(
+    ("policy", "result_key", "name"),
+    [("overwrite", "failed", None), ("skip", "skipped", "Héro"), ("rename", "succeeded", "Héro (2)")],
+)
+async def test_apply_conflict_policies_during_voice_sample(
+    apply_client,
+    asset_project,
+    file_db_factory,
+    policy,
+    result_key,
+    name,
+):
+    asset = await _library_sheet(apply_client, "Héro", b"library")
+    path = asset_project.get_project_path("demo")
+    asset_project.install_asset_sheet_bytes("character", "demo", "Héro", "characters/Héro.png", b"original")
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=asset_project)
+    await queue.enqueue_task(
+        project_name="demo",
+        task_type="voice_sample",
+        media_type="audio",
+        resource_id="He\u0301ro",
+        provider_id="test",
+    )
+
+    before = asset_project.load_project("demo")
+    response = await _apply_library_sheets(apply_client, policy, asset["id"])
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert {key for key, rows in result.items() if rows} == {result_key}
+    if policy == "overwrite":
+        assert asset_project.load_project("demo") == before
+        [failure] = result["failed"]
+        assert failure["id"] == asset["id"]
+        assert failure["reason"] == "resource_busy"
+        assert (
+            failure["message"]
+            == "The project asset has a queued or running task and cannot be overwritten. Try again when the task finishes."
+        )
+    else:
+        assert result[result_key] == [{"id": asset["id"], "name": name}]
+    assert (path / "characters" / "Héro.png").read_bytes() == b"original"
+    if policy == "rename":
+        assert (path / "characters" / "Héro (2).png").read_bytes() == b"library"

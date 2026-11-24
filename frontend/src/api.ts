@@ -3864,7 +3864,7 @@ class API {
     return this.request<{
       succeeded: Array<{ id: string; name: string }>;
       skipped: Array<{ id: string; name: string }>;
-      failed: Array<{ id: string; reason: string }>;
+      failed: Array<{ id: string; reason: string; message?: string }>;
     }>(`/assets/apply-to-project`, {
       method: "POST",
       body: JSON.stringify(payload),

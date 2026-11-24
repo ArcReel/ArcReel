@@ -2,6 +2,7 @@ import type enErrors from "@/i18n/en/errors";
 
 export default {
   "asset_resource_busy": "Tài sản này có tác vụ đang chờ hoặc đang chạy. Hãy thử lại khi tác vụ hoàn tất.",
+  "apply_failed_resource_busy": "Không thể ghi đè tài nguyên trong dự án khi tác vụ của tài nguyên đang chờ hoặc đang chạy. Hãy thử lại khi tác vụ hoàn tất.",
   "text_default_model_not_set": "Chưa đặt mô hình văn bản mặc định: hãy chọn trong Cài đặt → Mô hình mặc định; nếu chưa cấu hình nhà cung cấp nào, hãy thêm trong Cài đặt → Nhà cung cấp trước",
   "audio_default_model_not_set": "Chưa đặt mô hình lồng tiếng thuyết minh mặc định: hãy chọn trong Cài đặt → Mô hình mặc định; nếu chưa cấu hình nhà cung cấp hỗ trợ chuyển văn bản thành giọng nói, hãy thêm trong Cài đặt → Nhà cung cấp trước",
   "image_default_model_not_set": "Chưa đặt mô hình hình ảnh mặc định: hãy chọn trong Cài đặt → Mô hình mặc định",

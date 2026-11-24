@@ -56,6 +56,8 @@ When you save a project asset to the global asset library, or apply an asset fro
 - Only **Available** links are copied. Tasks that are still uploading or that failed are not copied; upload again in the target project if needed.
 - After you delete the source project or asset, the global asset library and the projects it was applied to keep working, and the assets in the provider asset library are not deleted.
 
+When you choose "Overwrite the project's asset of the same type", an asset with a queued or running task, including a character voice preview, stays as it is. Other idle assets in the batch can still be applied. Try overwriting again when the task finishes, or choose "Add with a new name".
+
 ## Project ZIPs and Provider Asset Links {#asset-library-in-project-zip}
 
 When you export a project ZIP, the **Available** links of the image versions in the package go along with the images. They still belong to the original asset library account, site, region, and project. After you import the ZIP into another ArcReel instance, if the asset library account bound to the inference credential belongs to the same cloud account as the original account, generation uses these assets directly, without uploading again.

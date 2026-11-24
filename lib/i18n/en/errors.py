@@ -1,5 +1,6 @@
 MESSAGES = {
     "asset_resource_busy": "This asset has a queued or running task. Try again when it finishes.",
+    "apply_failed_resource_busy": "The project asset has a queued or running task and cannot be overwritten. Try again when the task finishes.",
     "episode_position_name": "Episode {position}",
     "episode_unlisted_name": "Untitled episode",
     "episode_script_name": "Script for “{name}”",
