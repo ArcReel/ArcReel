@@ -95,9 +95,9 @@ flowchart TB
 
 ### 取消与中断的来源 {#cancellation-sources}
 
-创作者可以取消排队中的生成任务。服务正常关停时会等待 Worker 完成在途任务；客户端断开时任务可继续执行，各条 SSE 流按各自的生命周期终止。
+创作者可以取消排队中的生成任务；客户端断开时在途任务继续执行。服务收到停机信号后，立即关闭新任务领取与重试下载准入，主动结束项目事件流与 Agent 会话流等活跃 SSE 连接（前端随后自动重连并同步状态，远程 MCP 流式连接随同一停机周期退出），再在停机宽限期内并行等待在途生成任务完成与常驻 Agent 会话优雅退出。
 
-在途生成任务可能因超时或进程中断而结束。服务重启后，已记录供应商任务号且调用通道支持续查的视频任务可以取回原结果，其余中断的在途任务则需要创作者手动重试。恢复实现见 `lib/generation/restart_recovery.py`，线程写入和落账的取消约束见[后端规范](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/backend.md)。测试连接与 Agent 会话另有各自的取消入口。参见 [ADR 0006](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0006-cancel-only-queued-tasks.md)。
+在途生成任务可能因超时或进程在宽限期外终止而中断。服务停机时不主动取消超时的在途任务；重启后，仍处于运行中、已记录供应商任务号、执行检查点有效且调用通道支持续查的视频任务会自动继续轮询并取回原结果，其余中断的在途任务则标记为失败，由创作者决定是否重试。恢复实现见 `lib/generation/restart_recovery.py`，线程写入和落账的取消约束见[后端规范](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/backend.md)。测试连接与 Agent 会话另有各自的取消入口。参见 [ADR 0006](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0006-cancel-only-queued-tasks.md)、[ADR 0007](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0007-orphan-tasks-not-requeued-on-restart.md) 与 [ADR 0046](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0046-session-manager-decomposition-boundaries.md)。
 
 ### 用量和费用 {#usage-and-cost}
 
