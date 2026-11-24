@@ -53,7 +53,6 @@ from lib.episode.episode_sources import (
     cut_episode_placements,
     cut_insert_index,
     discover_sources,
-    source_snapshot_path,
     sync_source_snapshots,
     whole_source_files,
 )
@@ -484,9 +483,9 @@ def _run(
 
     new_ids = [episode_id_high_water(project) + 1] if edit.new_range is not None else []
     touched = {*edit.ranges, *edit.dropped, *new_ids}
+    source_files = whole_source_files(project)
     formal_paths = [episode_source_path(project_dir, episode) for episode in sorted(touched)]
-    formal_paths.extend(source_snapshot_path(project_dir, rel) for rel in whole_source_files(project))
-    archives = EpisodeFileArchives(project_dir, new_ids, formal_paths)
+    archives = EpisodeFileArchives(project_dir, new_ids, formal_paths, source_files=source_files)
     committed: dict[str, Any] = {}
 
     def _commit(p: dict[str, Any]) -> None:
@@ -497,14 +496,18 @@ def _run(
             raise _NeedsConfirmation(locked_impact)
         locked_touched = {*locked_edit.ranges, *locked_edit.dropped}
         locked_new_ids = [episode_id_high_water(p) + 1] if locked_edit.new_range is not None else []
-        if not locked_touched <= touched or locked_new_ids != new_ids:
+        if (
+            not locked_touched <= touched
+            or locked_new_ids != new_ids
+            or not set(whole_source_files(p)) <= set(source_files)
+        ):
             raise ManualSplitError("conflict", "分集账本刚被改动，本次调整没有执行")
         archives.apply()
         committed["episode"] = _apply(project_dir, p, locked_layout, locked_edit, locked_impact)
         committed["impact"] = locked_impact
 
     try:
-        pm.update_project(project_name, _commit, formal_paths=archives.protected_paths)
+        pm.update_project(project_name, _commit, formal_paths=archives.prepare_protected_paths)
     except _NeedsConfirmation as exc:
         return ManualSplitConfirmationRequired(impact=exc.impact)
     result_impact: ManualSplitImpact = committed["impact"]
