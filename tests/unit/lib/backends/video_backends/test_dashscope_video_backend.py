@@ -231,12 +231,12 @@ class TestCapabilities:
 
     def test_unknown_bare_series_falls_back_to_default(self):
         """仅系列名无变体后缀（裸 "happyhorse"）无法判别 t2v/i2v/r2v → 认不得请求形态档，取通道声明。"""
-        from lib.backends.video_backends.dashscope import _CHANNEL_CAPABILITIES, DashScopeVideoBackend
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         assert _profile_key("happyhorse") is None
-        assert DashScopeVideoBackend(api_key="sk", model="happyhorse").video_capabilities == replace(
-            _CHANNEL_CAPABILITIES, audio_track=DashScopeVideoBackend.endpoint.audio_track
-        )
+        caps = DashScopeVideoBackend(api_key="sk", model="happyhorse").video_capabilities
+        assert caps.max_prompt_chars is None
+        assert caps.audio_track == "always_on"
 
     def test_wan27_declares_prompt_char_limit(self):
         """wan2.7 全家族 prompt ≤ 5000 字符；超限官方静默截断并照常计费，故须付费前拦。"""

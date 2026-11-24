@@ -10,8 +10,7 @@
   自定义供应商 endpoint 的系统判定）与模型条目两侧求值、再叠加能力覆盖的结果，i2v 取 ``first_frame``、r2v 取
   参考图上限的生效值（未收录或大于 0 即接受；条目显式记为 0 张时不进 r2v 桶）。ComfyUI 端点不看条目。
 
-桶承诺的是「选中的组合执行得了」，故与执行闸门读同一个求值结果。视频两维的判定式本身由
-``lib.config.resolver.video_capability_satisfied`` 提供，与解析层的能力闸共用同一份，两处不会漂。
+视频候选与解析闸共用纯能力内核的桶判定。
 
 判定不出（endpoint 已下线、backend 未声明能力函数）时返回空集而非全集：候选列表宁缺勿滥，
 配进去的组合执行期一样必败，不如不出现在下拉里。
@@ -24,9 +23,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
-from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+from lib.backends.backend_assembly.specs import builtin_video_snapshot
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_capabilities import (
     builtin_channel_capabilities,
@@ -39,9 +38,9 @@ from lib.backends.image_capabilities import (
     intersect_image_capabilities,
 )
 from lib.backends.input_limits import LimitState
+from lib.capabilities.kernel import CapabilitySnapshot, bucket_fit
 from lib.catalog.query import CatalogModel, user_added_capability_overrides
-from lib.config.resolver import video_capability_satisfied
-from lib.custom_provider.capabilities import synthesize_video_capabilities
+from lib.custom_provider.capabilities import custom_video_snapshot
 from lib.custom_provider.endpoints import (
     EndpointSpec,
     endpoint_reference_image_limit,
@@ -96,22 +95,9 @@ def _image_fit(
     return BucketFit("image", unmet)
 
 
-_VIDEO_BUCKET_DIMENSION: dict[GenerationTypeBucket, BucketDimension] = {
-    "i2v": "first_frame",
-    "r2v": "max_reference_images",
-}
-
-
-def _video_fit(has_i2v: bool, max_reference_images: int | None) -> BucketFit:
+def _video_fit(snapshot: CapabilitySnapshot | None) -> BucketFit:
     return BucketFit(
-        "video",
-        {
-            generation_type: (_VIDEO_BUCKET_DIMENSION[generation_type],)
-            for generation_type in ("i2v", "r2v")
-            if not video_capability_satisfied(
-                generation_type=generation_type, first_frame=has_i2v, max_reference_images=max_reference_images
-            )
-        },
+        "video", cast(dict[GenerationTypeBucket, tuple[BucketDimension, ...]], bucket_fit("video", snapshot))
     )
 
 
@@ -138,10 +124,10 @@ def builtin_model_bucket_fit(provider_id: str, model_id: str, model_info: Catalo
         return BucketFit(model_info.media_type)
 
     try:
-        caps = builtin_video_capabilities_for_model(provider_id, model_id)
+        caps = builtin_video_snapshot(provider_id, model_id)
     except ValueError:
-        return BucketFit.undetermined("video")
-    return _video_fit(caps.first_frame, caps.max_reference_images)
+        return _video_fit(None)
+    return _video_fit(caps)
 
 
 def custom_model_buckets(
@@ -198,7 +184,7 @@ def custom_model_bucket_fit(
         return BucketFit(media_type)
 
     try:
-        video_caps = synthesize_video_capabilities(
+        video_caps = custom_video_snapshot(
             endpoint=endpoint,
             model_id=model_id,
             overrides=capability_overrides,
@@ -206,5 +192,5 @@ def custom_model_bucket_fit(
             entry_binding=entry_binding,
         )
     except ValueError:
-        return BucketFit.undetermined("video")
-    return _video_fit(video_caps.first_frame, video_caps.max_reference_images)
+        return _video_fit(None)
+    return _video_fit(video_caps)

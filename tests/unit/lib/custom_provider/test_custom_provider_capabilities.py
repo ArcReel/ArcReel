@@ -183,8 +183,8 @@ class TestOptionalDimensionSchema:
     def test_integer_override_is_coerced_to_float_on_merge(self):
         """校验放行整数字面量后，合并须还原成 float，字段不留 int。"""
         caps = synthesize_video_capabilities(
-            endpoint="vidu-video-q3-turbo",
-            model_id="viduq3",
+            endpoint="ark-seedance-2",
+            model_id="doubao-seedance-2-0-260128",
             overrides={"max_reference_audio_total_seconds": 12},
         )
         assert caps.max_reference_audio_total_seconds == 12.0
@@ -265,11 +265,11 @@ class TestSynthesize:
         assert caps.last_frame is False
         assert caps.first_frame is True
 
-    def test_int_field_override(self):
+    def test_reference_image_override_cannot_expand_single_wire_slot(self):
         caps = synthesize_video_capabilities(
             endpoint="openai-video", model_id="sora-2", overrides={"max_reference_images": 3}
         )
-        assert caps.max_reference_images == 3
+        assert caps.max_reference_images == 1
 
     def test_system_capabilities_not_mutated_across_calls(self):
         """合成返回新实例，不得就地改写系统判定（caps_fn 可能返回共享对象）。"""

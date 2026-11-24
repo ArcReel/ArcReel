@@ -65,12 +65,6 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
     audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
     default_model: ClassVar[str] = "gemini-omni-1.2-flash"
 
-    @classmethod
-    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """通道实现文生视频、首帧、尾帧与参考图四条路径；参考图张数是模型事实，由条目给出。"""
-        del model, entry
-        return VideoCapabilities(last_frame=True, max_reference_images=None, audio_track=cls.audio_track)
-
     @property
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._video_model)

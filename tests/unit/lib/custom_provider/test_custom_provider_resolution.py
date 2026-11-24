@@ -263,7 +263,7 @@ async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSes
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
     bad_spec = dataclasses.replace(
-        ENDPOINT_REGISTRY["ark-seedance-2"], video_max_reference_images=None, video_caps_for_model=None
+        ENDPOINT_REGISTRY["ark-seedance-2"], video_max_reference_images=None, describe_video=None
     )
     monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance-2", bad_spec)
 
@@ -298,7 +298,7 @@ async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSes
     with pytest.raises(VideoBucketCapabilityError) as excinfo:
         await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
     assert excinfo.value.code == "video_capability_reference_unavailable"
-    assert "declares neither video_max_reference_images" in str(excinfo.value.__cause__)
+    assert "invalid video capability declaration" in str(excinfo.value.__cause__)
 
 
 @pytest.mark.asyncio
@@ -306,16 +306,17 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     """endpoint cap=None，caps 函数返回负数 → raise ValueError（不静默下传坏值）。"""
     import dataclasses
 
-    from arcreel_market_core.video_backend_contract import VideoCapabilities
     from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
     from lib.config.service import ConfigService
     from lib.custom_provider import make_provider_id
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 
-    def _negative_caps(model: str, entry: object = None) -> VideoCapabilities:
-        return VideoCapabilities(max_reference_images=-1)
+    def _negative_caps(model: str, entry: object = None):
+        from lib.capabilities.kernel import Endpoint
 
-    bad_spec = dataclasses.replace(ENDPOINT_REGISTRY["ark-seedance-2"], video_caps_for_model=_negative_caps)
+        return Endpoint("video", limits={"max_reference_images": -1})
+
+    bad_spec = dataclasses.replace(ENDPOINT_REGISTRY["ark-seedance-2"], describe_video=_negative_caps)
     monkeypatch.setitem(ENDPOINT_REGISTRY, "ark-seedance-2", bad_spec)
 
     provider = CustomProvider(
@@ -349,7 +350,7 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
     with pytest.raises(VideoBucketCapabilityError) as excinfo:
         await resolver._resolve_video_capabilities_from_project(svc, db_session, project)
     assert excinfo.value.code == "video_capability_reference_unavailable"
-    assert "invalid backend max_reference_images" in str(excinfo.value.__cause__)
+    assert "invalid endpoint limit" in str(excinfo.value.__cause__)
 
 
 async def _seed_image_provider(db_session: AsyncSession, *, endpoint: str, model_id: str) -> str:

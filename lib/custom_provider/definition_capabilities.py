@@ -3,15 +3,9 @@
 from collections.abc import Mapping
 from typing import Any
 
-from arcreel_market_core.comfyui.bindings import targets_of
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND, definition_media_type, requires_image_input
-from lib.capabilities.kernel import AudioProtocol, DurationMode, Endpoint, EndpointDurations, FixedDuration
-from lib.custom_provider.comfyui.capabilities import (
-    default_supported_durations,
-    derive_video_capabilities,
-    duration_is_fixed,
-    frame_rate_is_missing,
-)
+from lib.capabilities.kernel import AudioProtocol, Endpoint
+from lib.custom_provider.comfyui.capabilities import comfyui_description
 
 _AUDIO = {
     "controllable": AudioProtocol.SWITCH,
@@ -23,7 +17,7 @@ _AUDIO = {
 def decode_definition(definition: Mapping[str, Any]) -> Endpoint:
     media = definition_media_type(definition)
     if definition["kind"] == COMFYUI_KIND:
-        return _comfyui(definition, media)
+        return comfyui_description(definition, media)
     declared = dict(definition.get("capabilities", {}))
     count = int(declared.get("max_reference_images", 0))
     if media == "image":
@@ -51,42 +45,4 @@ def decode_definition(definition: Mapping[str, Any]) -> Endpoint:
         defaults=declared,
         audio=primary,
         reference_audio=_AUDIO[reference] if reference else None,
-    )
-
-
-def _comfyui(definition: Mapping[str, Any], media: str) -> Endpoint:
-    bindings = definition["bindings"]
-    if media == "image":
-        count = len(targets_of(bindings.get("reference_images")))
-        slots = {"image_to_image", "reference_images"} if count else {"text_to_image"}
-        return Endpoint("image", frozenset(slots), limits={"max_reference_images": count}, binding_owned=True)
-    if media != "video":
-        raise ValueError(media)
-    caps = derive_video_capabilities(definition)
-    slots = {key for key in ("text_to_video", "first_frame", "last_frame") if getattr(caps, key)}
-    if caps.max_reference_images:
-        slots.add("reference_images")
-    if caps.max_reference_audio_count:
-        slots.add("reference_audio")
-    seconds = default_supported_durations(definition)
-    mode: DurationMode
-    if seconds:
-        mode = EndpointDurations(tuple(seconds))
-    elif duration_is_fixed(bindings):
-        mode = FixedDuration("no_frames")
-    elif frame_rate_is_missing(definition):
-        mode = FixedDuration("missing_fps")
-    else:
-        mode = FixedDuration("no_whole_seconds")
-    return Endpoint(
-        "video",
-        frozenset(slots),
-        limits={
-            "max_reference_images": caps.max_reference_images,
-            "max_reference_audio_count": caps.max_reference_audio_count,
-        },
-        defaults={"reference_audio_mode": "direct" if caps.max_reference_audio_count else "none"},
-        audio=_AUDIO[caps.audio_track],
-        duration=mode,
-        binding_owned=True,
     )

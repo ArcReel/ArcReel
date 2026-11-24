@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
 from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 from arcreel_market_core.endpoint_definition.media_type import definition_media_type
-from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
+from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 from lib.backends.audio_backends.dashscope_speech_synthesizer import (
     SPEECH_SYNTHESIZER_PATH,
@@ -62,6 +62,8 @@ from lib.backends.video_backends.kling import KLING_BACKENDS
 from lib.backends.video_backends.kling_model_path import KlingModelPathVideoBackend
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 from lib.backends.video_backends.vidu import VIDU_BACKENDS
+from lib.backends.video_capabilities import channel_projection, video_endpoint
+from lib.capabilities.kernel import Endpoint, EndpointDurations, FixedDuration
 from lib.config.url_utils import (
     ANTHROPIC_MESSAGES_PATH,
     ensure_google_base_url,
@@ -81,17 +83,14 @@ from lib.custom_provider.builtin_definitions import (
     declarative_display_name,
     declarative_family,
     declarative_request_path,
-    declarative_video_capabilities,
     load_builtin_definitions,
 )
 from lib.custom_provider.comfyui.capabilities import (
-    default_supported_durations,
     duration_is_fixed,
-    frame_rate_is_missing,
     native_short_edge,
     size_is_fixed,
 )
-from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
+from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.comfyui_image_backend import (
     ComfyuiImageBackend,
     binding_image_capabilities,
@@ -109,6 +108,7 @@ from lib.custom_provider.declarative_image_backend import (
     definition_reference_limit,
     image_capabilities_from_definition,
 )
+from lib.custom_provider.definition_capabilities import decode_definition
 from lib.custom_provider.path_overrides import (
     NO_PATH_OVERRIDES,
     BaseUrlRule,
@@ -153,12 +153,33 @@ class EndpointSpec:
     source: Literal["builtin", "custom"] = "builtin"
     image_capabilities: frozenset[ImageCapability] | None = None
     video_max_reference_images: int | None = None
-    video_caps_for_model: Callable[[str, CatalogEntry | None], VideoCapabilities] | None = None
-    end_image_capable: bool = False
-    reference_audio_capable: bool = False
+    describe_video: Callable[[str, CatalogEntry | None], Endpoint] | None = None
     definition: Mapping[str, Any] | None = None
     requests: tuple[EndpointRequest, ...] = ()
     metering_backend: type | None = None
+
+    def video_description(self, model_id: str, entry: CatalogEntry | None = None) -> Endpoint:
+        if self.media_type != "video":
+            raise ValueError(f"endpoint {self.key!r} is {self.media_type}, not video")
+        if self.describe_video is not None:
+            return self.describe_video(model_id, entry)
+        if self.video_max_reference_images is None or self.video_max_reference_images < 0:
+            raise ValueError(f"invalid video capability declaration for {self.key!r}")
+        return video_endpoint(VideoCapabilities(max_reference_images=self.video_max_reference_images))
+
+    @property
+    def video_caps_for_model(self) -> Callable[[str, CatalogEntry | None], VideoCapabilities] | None:
+        if self.describe_video is None:
+            return None
+        return lambda model, entry=None: channel_projection(self.video_description(model, entry))
+
+    @property
+    def end_image_capable(self) -> bool:
+        return self.media_type == "video" and "last_frame" in self.video_description("").slots
+
+    @property
+    def reference_audio_capable(self) -> bool:
+        return self.media_type == "video" and "reference_audio" in self.video_description("").slots
 
     @property
     def kind(self) -> str:
@@ -199,6 +220,8 @@ class EndpointSpec:
         是「用户能不能编辑档位」。绑了 ``frames`` 却读不到帧率来源时档位同样是空集，但那是一份
         可修的定义（补一个 ``fps`` 绑定或手填帧率），不是这份 workflow 的时长天生固定。
         """
+        if self.media_type == "video" and self.kind == COMFYUI_KIND:
+            return self.video_description("").duration == FixedDuration("no_frames")
         return (
             self.definition is not None and self.kind == COMFYUI_KIND and duration_is_fixed(self.definition["bindings"])
         )
@@ -211,7 +234,11 @@ class EndpointSpec:
         :attr:`duration_tier_empty`）。两位都为假而档位仍为空，说的是第三支：帧数已绑定、帧率也
         读得到，只是换算不出一档能原样写回的整秒时长——那一支既不是「天生固定」也补不出帧率来。
         """
-        return self.definition is not None and self.kind == COMFYUI_KIND and frame_rate_is_missing(self.definition)
+        return (
+            self.kind == COMFYUI_KIND
+            and self.media_type == "video"
+            and self.video_description("").duration == FixedDuration("missing_fps")
+        )
 
     @property
     def endpoint_durations(self) -> list[int] | None:
@@ -225,7 +252,8 @@ class EndpointSpec:
         """
         if self.definition is None or self.kind != COMFYUI_KIND or self.media_type != "video":
             return None
-        return default_supported_durations(self.definition)
+        mode = self.video_description("").duration
+        return list(mode.seconds) if isinstance(mode, EndpointDurations) else []
 
     @property
     def duration_tier_empty(self) -> bool:
@@ -938,7 +966,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_openai_video,
         requests=_OPENAI_VIDEO_REQUESTS,
         metering_backend=OpenAIVideoBackend,
-        video_caps_for_model=OpenAIVideoBackend.video_capabilities_for_model,
+        describe_video=OpenAIVideoBackend.describe_video_endpoint,
     ),
     **{
         key: EndpointSpec(
@@ -951,9 +979,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             build_backend=partial(_build_ark_seedance, endpoint=key),
             requests=_ARK_SEEDANCE_REQUESTS,
             metering_backend=backend_class,
-            video_caps_for_model=backend_class.video_capabilities_for_model,
-            end_image_capable=True,
-            reference_audio_capable=True,
+            describe_video=backend_class.describe_video_endpoint,
         )
         for key, backend_class in SEEDANCE_BACKENDS.items()
     },
@@ -983,9 +1009,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             build_backend=partial(_build_vidu_video, endpoint=key),
             requests=_VIDU_VIDEO_REQUESTS,
             metering_backend=backend,
-            video_caps_for_model=backend.video_capabilities_for_model,
-            end_image_capable=True,
-            reference_audio_capable=backend.endpoint.max_reference_audio > 0,
+            describe_video=backend.describe_video_endpoint,
         )
         for key, backend in VIDU_BACKENDS.items()
     },
@@ -1048,8 +1072,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_gemini_video,
         requests=_GEMINI_VIDEO_REQUESTS,
         metering_backend=GeminiVideoBackend,
-        video_caps_for_model=GeminiVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
+        describe_video=GeminiVideoBackend.describe_video_endpoint,
     ),
     "gemini-interactions-video": EndpointSpec(
         key="gemini-interactions-video",
@@ -1065,8 +1088,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         ),
         requests=_GEMINI_INTERACTIONS_VIDEO_REQUESTS,
         metering_backend=GeminiInteractionsVideoBackend,
-        video_caps_for_model=GeminiInteractionsVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
+        describe_video=GeminiInteractionsVideoBackend.describe_video_endpoint,
     ),
     "minimax-tts": EndpointSpec(
         key="minimax-tts",
@@ -1099,9 +1121,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             build_backend=partial(_build_dashscope_async_video, endpoint=endpoint),
             requests=_DASHSCOPE_ASYNC_VIDEO_REQUESTS,
             metering_backend=backend,
-            video_caps_for_model=backend.video_capabilities_for_model,
-            end_image_capable=True,
-            reference_audio_capable=True,
+            describe_video=backend.describe_video_endpoint,
         )
         for endpoint, backend in DASHSCOPE_VIDEO_BACKENDS.items()
     },
@@ -1155,8 +1175,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
             build_backend=partial(_build_kling_video, endpoint=key),
             requests=_KLING_VIDEO_REQUESTS,
             metering_backend=backend,
-            video_caps_for_model=backend.video_capabilities_for_model,
-            end_image_capable=True,
+            describe_video=backend.describe_video_endpoint,
         )
         for key, backend in KLING_BACKENDS.items()
     },
@@ -1170,8 +1189,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_kling_model_path_video,
         requests=_KLING_MODEL_PATH_VIDEO_REQUESTS,
         metering_backend=KlingModelPathVideoBackend,
-        video_caps_for_model=KlingModelPathVideoBackend.video_capabilities_for_model,
-        end_image_capable=True,
+        describe_video=KlingModelPathVideoBackend.describe_video_endpoint,
     ),
 }
 
@@ -1187,20 +1205,18 @@ def validate_video_caps_declaration(spec: EndpointSpec) -> None:
     """
     key = spec.key
     cap = spec.video_max_reference_images
-    caps_fn = spec.video_caps_for_model
+    caps_fn = spec.describe_video
     has_int = cap is not None
     if caps_fn is not None and not callable(caps_fn):
         raise ValueError(f"endpoint {key!r} declares non-callable video_caps_for_model: {caps_fn!r}")
     has_fn = callable(caps_fn)
-    if spec.media_type != "video" and spec.reference_audio_capable:
-        raise ValueError(f"non-video endpoint {key!r} must not declare reference_audio_capable")
     if spec.media_type == "video":
         if has_int == has_fn:
             raise ValueError(
                 f"video endpoint {key!r} must declare exactly one of video_max_reference_images "
                 f"(int) or video_caps_for_model (callable), got "
                 f"video_max_reference_images={cap!r}, "
-                f"video_caps_for_model={caps_fn!r}"
+                f"describe_video={caps_fn!r}"
             )
         if cap is not None and cap < 0:
             raise ValueError(f"video endpoint {key!r} declares negative video_max_reference_images: {cap}")
@@ -1208,7 +1224,7 @@ def validate_video_caps_declaration(spec: EndpointSpec) -> None:
         raise ValueError(
             f"non-video endpoint {key!r} must not declare video caps, got "
             f"video_max_reference_images={cap!r}, "
-            f"video_caps_for_model={caps_fn!r}"
+            f"describe_video={caps_fn!r}"
         )
 
 
@@ -1345,7 +1361,7 @@ def declarative_endpoint_spec(
     """
     media_type = definition_media_type(definition)
     is_video = media_type == "video"
-    caps = declarative_video_capabilities(definition) if is_video else None
+    description = decode_definition(definition) if is_video else None
     spec = EndpointSpec(
         key=key,
         media_type=media_type,
@@ -1356,9 +1372,7 @@ def declarative_endpoint_spec(
         request_path_template=declarative_request_path(definition),
         build_backend=_build_declarative_video(definition) if is_video else _build_declarative_image(definition),
         image_capabilities=None if is_video else image_capabilities_from_definition(definition),
-        video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
-        end_image_capable=caps.last_frame if caps is not None else False,
-        reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
+        describe_video=(lambda _model_id, _entry: description) if description is not None else None,
         definition=definition,
         requests=declarative_requests(definition),
     )
@@ -1430,7 +1444,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
     """
     media_type = definition_media_type(definition)
     is_video = media_type == "video"
-    caps = binding_video_capabilities(definition) if is_video else None
+    description = decode_definition(definition) if is_video else None
     spec = EndpointSpec(
         key=key,
         media_type=media_type,
@@ -1441,9 +1455,7 @@ def comfyui_endpoint_spec(key: str, definition: Mapping[str, Any]) -> EndpointSp
         request_path_template="/prompt",
         build_backend=_build_comfyui_runtime(definition),
         image_capabilities=None if is_video else binding_image_capabilities(definition),
-        video_caps_for_model=(lambda _model_id, _entry=None: caps) if caps is not None else None,
-        end_image_capable=caps.last_frame if caps is not None else False,
-        reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
+        describe_video=(lambda _model_id, _entry: description) if description is not None else None,
         definition=definition,
     )
     validate_video_caps_declaration(spec)
@@ -1553,7 +1565,9 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     """把 EndpointSpec 转成可序列化的纯数据 dict（剥掉不可 JSON 化的 build_backend 闭包）。"""
     data = asdict(spec)
     data.pop("build_backend", None)
-    data.pop("video_caps_for_model", None)
+    data.pop("describe_video", None)
+    data["end_image_capable"] = spec.end_image_capable
+    data["reference_audio_capable"] = spec.reference_audio_capable
     data.pop("metering_backend", None)
     data.pop("definition", None)
     data["kind"] = spec.kind

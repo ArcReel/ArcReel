@@ -605,6 +605,11 @@ def _view(key: str, indexed: _IndexedModel, *, min_app_version_satisfied: bool =
     )
 
 
+def provider_model_view(provider_id: str, model_id: str) -> ProviderModelView | None:
+    indexed = _indexed_model(provider_id, model_id, None)
+    return _view(model_id, indexed) if indexed is not None else None
+
+
 def provider_models(provider_id: str) -> list[ProviderModelView]:
     """列出内置供应商的全部供应商模型：官方收录的按清单顺序在前，用户添加的随后。
 

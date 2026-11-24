@@ -54,8 +54,30 @@ class EndpointDurations:
 
 
 @dataclass(frozen=True)
+class DurationCorrection:
+    by_subpath: Mapping[str, tuple[int, ...]]
+    fallback: int
+    preferred: int | None = None
+
+    def __post_init__(self):
+        object.__setattr__(
+            self, "by_subpath", MappingProxyType({key: tuple(seconds) for key, seconds in self.by_subpath.items()})
+        )
+
+    def correct(self, subpath: str, requested: int | None) -> int:
+        allowed = self.by_subpath.get(subpath)
+        if not allowed:
+            return requested or self.fallback
+        if requested is None:
+            if self.preferred is not None and self.preferred in allowed:
+                return self.preferred
+            return self.fallback if self.fallback in allowed else allowed[0]
+        return min(allowed, key=lambda value: abs(value - requested))
+
+
+@dataclass(frozen=True)
 class ModelDurations:
-    pass
+    correction: DurationCorrection | None = None
 
 
 type DurationMode = FixedDuration | EndpointDurations | ModelDurations
@@ -80,6 +102,11 @@ class RequestConditions:
     service_tier: str = "default"
     inputs: frozenset[str] = frozenset()
 
+    def __post_init__(self):
+        object.__setattr__(self, "resolution", self.resolution.lower() if self.resolution else None)
+        object.__setattr__(self, "service_tier", (self.service_tier or "default").lower())
+        object.__setattr__(self, "inputs", frozenset(self.inputs))
+
 
 @dataclass(frozen=True)
 class PathRestriction:
@@ -88,12 +115,14 @@ class PathRestriction:
     bucket: Route | None = None
     resolutions: frozenset[str | None] = frozenset()
     tiers: frozenset[str] = frozenset()
+    except_resolutions: frozenset[str] = frozenset()
+    except_tiers: frozenset[str] = frozenset()
     required_inputs: frozenset[str] = frozenset()
     disabled_slots: frozenset[str] = frozenset()
     audio: AudioProtocol | None = None
 
     def __post_init__(self):
-        for name in ("resolutions", "tiers", "required_inputs", "disabled_slots"):
+        for name in ("resolutions", "tiers", "except_resolutions", "except_tiers", "required_inputs", "disabled_slots"):
             object.__setattr__(self, name, frozenset(getattr(self, name)))
 
     def matches(self, request: RequestConditions) -> bool:
@@ -101,6 +130,8 @@ class PathRestriction:
             (self.bucket is None or request.bucket == self.bucket)
             and (not self.resolutions or request.resolution in self.resolutions)
             and (not self.tiers or request.service_tier in self.tiers)
+            and request.resolution not in self.except_resolutions
+            and request.service_tier not in self.except_tiers
             and self.required_inputs <= request.inputs
         )
 
@@ -118,6 +149,7 @@ class Endpoint:
     duration: DurationMode = ModelDurations()
     exclusive_inputs: tuple[frozenset[str], ...] = ()
     paths: tuple[PathRestriction, ...] = ()
+    context_free_disabled_slots: frozenset[str] = frozenset()
     binding_owned: bool = False
 
     def __post_init__(self):
@@ -130,6 +162,7 @@ class Endpoint:
             for k, v in self.limits.items()
         ):
             raise ValueError("invalid endpoint limit")
+        object.__setattr__(self, "context_free_disabled_slots", frozenset(self.context_free_disabled_slots))
         slots = frozenset(self.slots)
         if self.media == "image":
             slots = slots - {"reference_images"}
@@ -197,7 +230,11 @@ class Endpoint:
         for key in invalid:
             result.pop(key, None)
         values = _compose(self, facts, result, self.slots)
-        if values.get("reference_audio_mode") == "direct" and values.get("max_reference_audio_count") == 0:
+        if (
+            values.get("reference_audio_mode") == "direct"
+            and values.get("max_reference_audio_count") == 0
+            and (strict or result.get("reference_audio_mode") == "direct")
+        ):
             for key in ("reference_audio_mode", "max_reference_audio_count"):
                 if key in result:
                     invalid.add(key)
@@ -229,6 +266,13 @@ def _compose(endpoint: Endpoint, facts: Values, overrides: Values, slots: frozen
             values["reference_audio_mode"] = overrides.get(
                 "reference_audio_mode", "direct" if facts.get("reference_audio") or endpoint.binding_owned else "none"
             )
+        if not facts.get("reference_audio") and not endpoint.binding_owned:
+            if "max_reference_audio_count" not in overrides:
+                values["max_reference_audio_count"] = 0
+            if "max_reference_audio_total_seconds" not in overrides:
+                values["max_reference_audio_total_seconds"] = None
+        if "reference_audio" not in slots:
+            values["max_reference_audio_total_seconds"] = None
         if isinstance(endpoint.duration, FixedDuration):
             values["durations"] = ()
         elif isinstance(endpoint.duration, EndpointDurations):
@@ -261,8 +305,8 @@ class CapabilitySnapshot:
     def duration(self) -> DurationMode:
         return self.endpoint.duration
 
-    def audio_track(self, route: Route) -> Literal["controllable", "always_on", "always_off"]:
-        decision = self.audio(route, requested=True)
+    def audio_track(self, route: Route, *, base: bool = False) -> Literal["controllable", "always_on", "always_off"]:
+        decision = self.audio(route, requested=True, base=base)
         if not decision.output:
             return "always_off"
         return "controllable" if decision.switch is not None else "always_on"
@@ -285,14 +329,24 @@ class CapabilitySnapshot:
             object.__setattr__(self, name, _freeze(getattr(self, name)))
         object.__setattr__(self, "editable", frozenset(self.editable))
 
-    def audio(self, route: Route, *, requested: bool) -> AudioDecision:
+    def audio(self, route: Route, *, requested: bool, base: bool = False) -> AudioDecision:
         protocol = self.reference_protocol if route == "r2v" else self.primary_protocol
-        has_audio = self.effective.get("has_audio_track", True)
+        values = self.base if base else self.effective
+        has_audio = values.get("has_audio_track", True)
         if route == "r2v":
-            has_audio = self.effective.get("reference_route_has_audio_track", has_audio)
+            has_audio = values.get("reference_route_has_audio_track", has_audio)
         switch = requested if protocol == AudioProtocol.SWITCH else None
         output = protocol != AudioProtocol.SILENT and has_audio and switch is not False
         return AudioDecision(requested, switch, output, self.always_bill_audio or output)
+
+
+def video_bucket_unmet(first_frame: bool, reference_images: InputLimit[int]) -> dict[str, tuple[str, ...]]:
+    result = {}
+    if not first_frame:
+        result["i2v"] = ("first_frame",)
+    if not reference_images.accepts_input:
+        result["r2v"] = ("max_reference_images",)
+    return result
 
 
 def bucket_fit(media: Media, snapshot: CapabilitySnapshot | None) -> dict[str, tuple[str, ...]]:
@@ -303,6 +357,8 @@ def bucket_fit(media: Media, snapshot: CapabilitySnapshot | None) -> dict[str, t
     }.get(media, {})
     if snapshot is None:
         return dict.fromkeys(dimensions, ())
+    if media == "video":
+        return video_bucket_unmet(snapshot.effective["first_frame"], snapshot.reference_images)
     result = {}
     for bucket, key in dimensions.items():
         if bucket in ("r2v", "i2i"):
@@ -337,7 +393,7 @@ def resolve(
     applied = (
         endpoint._overrides(overrides, facts, strict=False) if isinstance(overrides, Mapping) and not official else {}
     )
-    slots = endpoint.slots
+    slots = endpoint.slots if request else endpoint.slots - endpoint.context_free_disabled_slots
     primary, reference = endpoint.audio, endpoint.protocol("r2v")
     if request:
         if any(group <= request.inputs for group in endpoint.exclusive_inputs):
@@ -350,6 +406,8 @@ def resolve(
                 elif path.audio is not None:
                     primary = _restrict_audio(primary, path.audio)
     base = _compose(endpoint, facts, {}, slots)
+    if request is None:
+        slots |= endpoint.context_free_disabled_slots.intersection(applied)
     values = _compose(endpoint, facts, applied, slots)
     for projection in (base, values):
         if endpoint.media == "video":
@@ -357,10 +415,8 @@ def resolve(
             reference_has_audio = projection.get("reference_route_has_audio_track", primary_has_audio)
             projection["has_audio_track"] = primary != AudioProtocol.SILENT and primary_has_audio
             projection["reference_route_has_audio_track"] = reference != AudioProtocol.SILENT and reference_has_audio
-            if projection.get("reference_audio_mode") != "direct" or projection.get("max_reference_audio_count") == 0:
-                projection.update(
-                    reference_audio_mode="none", max_reference_audio_count=0, max_reference_audio_total_seconds=None
-                )
+            if projection.get("max_reference_audio_count") == 0:
+                projection["reference_audio_mode"] = "none"
         elif endpoint.media == "image":
             if not projection["image_to_image"]:
                 projection["max_reference_images"] = 0

@@ -12,7 +12,9 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.backends.video_backends.name_family import catalog_entry_of
+from lib.backends.video_capabilities import VideoEndpointCapabilities, video_endpoint
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import Endpoint
 
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry
@@ -55,6 +57,13 @@ def video_capabilities_for_model(name: str, model_id: str, entry: CatalogEntry |
     if not isinstance(caps, VideoCapabilities):
         raise ValueError(f"video backend {name!r} video_capabilities_for_model returned {type(caps).__name__}")
     return caps
+
+
+def describe_video_endpoint(name: str, model_id: str, entry: CatalogEntry | None) -> Endpoint:
+    factory = _BACKEND_FACTORIES.get(name)
+    if isinstance(factory, type) and issubclass(factory, VideoEndpointCapabilities):
+        return factory.describe_video_endpoint(model_id, entry)
+    return video_endpoint(video_capabilities_for_model(name, model_id, entry))
 
 
 def effective_generate_audio_for_model(name: str, model_id: str, entry: CatalogEntry | None = None) -> bool:

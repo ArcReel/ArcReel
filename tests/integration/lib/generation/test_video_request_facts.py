@@ -236,6 +236,7 @@ async def test_custom_model_constraint_override_replaces_entry_constraints(resol
     provider_id = await _seed_custom_video_models(
         db_factory,
         {
+            "endpoint": "v2-video-generations",
             "model_id": "vendor/Veo-3.1-Generate-001",
             "resolution": "1080p",
             "is_default": True,
@@ -297,6 +298,7 @@ async def test_configured_identity_change_after_bucket_validation_fails(db_facto
     provider_id = await _seed_custom_video_models(
         db_factory,
         {
+            "endpoint": "v2-video-generations",
             "model_id": "m-selected",
             "capability_overrides": {"durations": [5], "first_frame": True, "max_reference_images": 4},
         },

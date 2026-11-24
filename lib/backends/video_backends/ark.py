@@ -14,7 +14,6 @@ import httpx
 
 from arcreel_catalog_core import CatalogEntry
 from arcreel_market_core.video_backend_contract import (
-    ReferenceAudioMode,
     ResumeExpiredError,
     VideoCapabilities,
     VideoGenerationRequest,
@@ -38,7 +37,9 @@ from lib.backends.provider_assets import (
 from lib.backends.providers import PROVIDER_ARK
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
+from lib.backends.video_capabilities import VideoEndpointCapabilities
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import AudioProtocol, Endpoint
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -203,7 +204,7 @@ def _task_failure(task: Any, request: VideoGenerationRequest) -> str | None:
     return f"Ark 视频生成失败(status={task.status}): {error or 'Unknown error'}"
 
 
-class ArkVideoBackend(ProviderJobIdPersistenceMixin):
+class ArkVideoBackend(VideoEndpointCapabilities, ProviderJobIdPersistenceMixin):
     """Ark (火山方舟) 视频生成后端：Seedance 各代端点的公共实现，请求结构与计量的差异由 :attr:`endpoint` 给出。
 
     三个端点各是一个子类（:class:`Seedance1VideoBackend` 等），注册表、能力声明与计量按子类认定端点，不按型号名。
@@ -302,27 +303,12 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         )
 
     @classmethod
-    def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:
-        """方舟视频调用通道的声明（通道事实）—— 纯计算，不构造 SDK client（无需 api_key），与型号名无关。
-
-        通道对任何型号都按同一份请求构造发出首帧、尾帧（``role: first_frame / last_frame``）、参考图
-        （``role: reference_image``）与参考音频（``role: reference_audio``），不限张数与段数。各型号接受哪些
-        输入、能接受多少是模型事实，记在模型条目上，与本声明两侧求值（``lib.backends.video_capabilities``，
-        docs/adr/0104）。首帧比例约束随端点声明（Seedance 2.5 在首帧在场时比例必须交给上游按首帧自适应，下发
-        固定 ratio 会与首帧尺寸冲突）。``model`` 与 ``entry`` 是能力契约的统一入参，本通道不读。
-
-        音轨形态全系取 ``VideoCapabilities`` 的默认值（开关可控）：``_build_payload`` 无条件把
-        ``generate_audio`` 放进请求体，各档 Seedance 都认这个开关，故无需分支声明。
-        """
-        del model, entry
-        return VideoCapabilities(
-            text_to_video=True,
-            first_frame=True,
-            last_frame=True,
-            max_reference_images=None,
-            reference_audio_mode=ReferenceAudioMode.DIRECT,
-            max_reference_audio_count=None,
-            first_frame_ratio_adaptive_only=cls.endpoint.first_frame_ratio_adaptive_only,
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        return Endpoint(
+            "video",
+            frozenset({"text_to_video", "first_frame", "last_frame", "reference_images", "reference_audio"}),
+            audio=AudioProtocol.SWITCH,
+            defaults={"first_frame_ratio_adaptive_only": cls.endpoint.first_frame_ratio_adaptive_only},
         )
 
     @property

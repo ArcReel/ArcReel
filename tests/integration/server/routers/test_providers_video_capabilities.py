@@ -282,7 +282,7 @@ async def test_disabled_candidate_never_returns_default_model(
                     provider_id=provider.id,
                     model_id=model_id,
                     display_name=model_id,
-                    endpoint="newapi-video",
+                    endpoint="v2-video-generations",
                     is_default=default,
                     is_enabled=default or disable_after_gate,
                     capability_overrides={"durations": [5], "first_frame": True, "max_reference_images": 4},

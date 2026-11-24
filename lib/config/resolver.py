@@ -29,6 +29,7 @@ from lib.backends.backend_assembly.specs import (
 )
 from lib.backends.input_limits import InputLimit
 from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
+from lib.capabilities.kernel import video_bucket_unmet
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError, ModelNotSelectedError
 from lib.config.registry import PROVIDER_REGISTRY
@@ -308,18 +309,9 @@ def video_capability_satisfied(
     text_to_video: bool = True,
     has_image: bool = True,
 ) -> bool:
-    """一组视频能力声明是否满足某个桶——桶归属判定的唯一口径。
-
-    解析闸（``_ensure_video_bucket_capability``）与桶候选下拉（``lib.backends.generation_type_buckets``）共用本
-    函数，不各写一份布尔式：下拉挡掉的组合解析层必然也挡，反之亦然。``has_image`` 区分
-    i2v 桶内的纯文生与带首帧请求。取标量参数而非
-    ``VideoCapabilities``，一是不在 lib.config 层导入 arcreel_market_core.video_backend_contract（分层契约），二是让
-    内置与自定义供应商的生效能力（条目与通道两侧求值 ⊕ 能力覆盖）都能直接喂进来。``max_reference_images`` 是参考图
-    上限的生效值：``None`` 为未收录（接受参考图、不限张数），``0`` 为不接受。
-    """
-    if generation_type == "i2v":
-        return first_frame if has_image else text_to_video
-    return InputLimit.from_json(max_reference_images).accepts_input
+    """检查请求对应的任务类型桶；i2v 桶内无首帧时检查文生路径。"""
+    unmet = video_bucket_unmet(first_frame if has_image else text_to_video, InputLimit.from_json(max_reference_images))
+    return generation_type not in unmet
 
 
 def builtin_video_audio_track(

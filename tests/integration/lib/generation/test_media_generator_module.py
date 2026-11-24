@@ -1308,7 +1308,7 @@ class TestMediaGenerator:
         user_added_video_model("ark", {"last_frame": True})
         gen = _build_generator(tmp_path)
         gen._video_provider_id = "ark"
-        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
+        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=True))
         end_image = tmp_path / "end.png"
         end_image.write_bytes(b"fake-end-image")
 
@@ -1341,7 +1341,9 @@ class TestMediaGenerator:
         user_added_video_model("dashscope", {"last_frame": True, "max_reference_images": 6})
         gen = _build_generator(tmp_path)
         gen._video_provider_id = "dashscope"
-        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
+        gen._video_backend = _FakeVideoBackend(
+            video_capabilities=VideoCapabilities(last_frame=True, max_reference_images=1)
+        )
 
         await gen.generate_video_async(prompt="p", resource_type="videos", resource_id="E1S11")
 
@@ -1376,7 +1378,7 @@ class TestMediaGenerator:
 
         class _TierAwareVideoBackend(_FakeVideoBackend):
             def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None):
-                return VideoCapabilities(last_frame=service_tier == "pro")
+                return VideoCapabilities(last_frame=service_tier == "pro", max_reference_images=1)
 
         user_added_video_model("kling", {"max_reference_images": 2}, entry_binding="kuaishou/kling-v3")
         gen = _build_generator(tmp_path)
@@ -1384,24 +1386,17 @@ class TestMediaGenerator:
         gen._video_backend = _TierAwareVideoBackend(video_capabilities=VideoCapabilities())
         end_image = tmp_path / "end.png"
         end_image.write_bytes(b"fake-end-image")
-        refs = []
-        for i in range(2):
-            ref = tmp_path / f"ref{i}.png"
-            Image.new("RGB", (8, 8)).save(ref)
-            refs.append(ref)
-
         await gen.generate_video_async(
             prompt="p",
             resource_type="videos",
             resource_id="E1S10",
             end_image=end_image,
-            reference_images=refs,
             service_tier="pro",
         )
 
         call = gen._video_backend.calls[0]
         assert call.end_image == end_image
-        assert len(call.reference_images) == 2
+        assert call.video_capabilities.max_reference_images == 2
 
     @pytest.mark.asyncio
     async def test_end_image_rejected_when_tier_aware_backend_reports_std_tier(self, tmp_path):
