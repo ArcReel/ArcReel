@@ -14,6 +14,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.generation.batch_admission import BatchAdmissionDecision
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.video_request_facts import VideoRequestCostFacts
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import ProjectManager
 from server.services.admission.cost_estimation import load_video_price_source, quote_video_request_from_price
 from server.services.admission.storyboard_batch import (
@@ -209,6 +210,89 @@ async def test_image_batch_reports_a_segment_already_generating_and_submits_the_
     assert {task.resource_id for task in enqueued} == {"E1S01", "E1S02", "E1S03"}
     assert next(task for task in enqueued if task.resource_id == "E1S01").deduped
     assert [member.unit_id for member in batch.members] == ["E1S01", "E1S02", "E1S03"]
+
+
+async def test_image_batch_counts_active_previous_even_when_it_cannot_join_the_batch(
+    board_projects, board_queue, monkeypatch
+):
+    async def zero_limit(*_args):
+        return (0, "zero")
+
+    monkeypatch.setattr("server.services.admission.storyboard_batch.reference_image_limit", zero_limit)
+    _write_episode(board_projects, [_segment("E1S01", image_prompt=None), _segment("E1S02")])
+    await board_queue.enqueue_task(
+        project_name=PROJECT,
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01",
+        payload={"prompt": "村口黄昏"},
+        script_file="episode_1.json",
+        source="webui",
+        user_id=DEFAULT_USER_ID,
+    )
+
+    _, plan = await load_storyboard_image_batch_plan(
+        board_projects, board_queue, project_name=PROJECT, episode_id=1, user_id=DEFAULT_USER_ID
+    )
+
+    assert plan.task_specs(source="webui") == []
+    problem = next(item.problem for item in plan.preflight.items if item.unit_id == "E1S02")
+    assert problem is not None
+    assert problem.code == "image_reference_images_exceeded"
+    assert problem.params == {"model": "zero", "limit": 0, "count": 1, "names": "E1S01", "previous_storyboard": "E1S01"}
+
+
+@pytest.mark.parametrize("finish_before_query", [True, False], ids=["before-probe", "after-probe"])
+async def test_image_batch_counts_previous_that_finishes_during_queue_probe(
+    board_projects, board_queue, monkeypatch, finish_before_query
+):
+    async def zero_limit(*_args):
+        return (0, "zero")
+
+    monkeypatch.setattr("server.services.admission.storyboard_batch.reference_image_limit", zero_limit)
+    target = _segment("E1S02")
+    _write_episode(board_projects, [_segment("E1S01"), target])
+    previous = await board_queue.enqueue_task(
+        project_name=PROJECT,
+        task_type="storyboard",
+        media_type="image",
+        resource_id="E1S01",
+        payload={"prompt": "村口黄昏"},
+        script_file="episode_1.json",
+        source="webui",
+        user_id=DEFAULT_USER_ID,
+    )
+    assert await board_queue.claim_next_task("image")
+    original_probe = board_queue.get_active_tasks_for_resources
+
+    def commit_previous():
+        first = _with_storyboard(board_projects, "E1S01")
+        _write_episode(board_projects, [first, target])
+        _claim_storyboards(board_projects, "E1S01")
+
+    async def finish_previous():
+        await run_sync_transaction(commit_previous)
+        assert await board_queue.mark_task_succeeded(previous["task_id"], {"file_path": "storyboards/scene_E1S01.png"})
+
+    async def probe(**kwargs):
+        if finish_before_query:
+            await finish_previous()
+        active = await original_probe(**kwargs)
+        if not finish_before_query:
+            await finish_previous()
+        return active
+
+    monkeypatch.setattr(board_queue, "get_active_tasks_for_resources", probe)
+    _, plan = await load_storyboard_image_batch_plan(
+        board_projects, board_queue, project_name=PROJECT, episode_id=1, user_id=DEFAULT_USER_ID
+    )
+
+    assert plan.task_specs(source="webui") == []
+    assert [item.unit_id for item in plan.preflight.skipped] == ["E1S01"]
+    problem = next(item.problem for item in plan.preflight.items if item.unit_id == "E1S02")
+    assert problem is not None
+    assert problem.code == "image_reference_images_exceeded"
+    assert problem.params == {"model": "zero", "limit": 0, "count": 1, "names": "E1S01", "previous_storyboard": "E1S01"}
 
 
 async def test_image_batch_rejects_an_unknown_episode_and_a_reference_project(

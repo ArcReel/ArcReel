@@ -57,6 +57,7 @@ from server.auth import CurrentUser
 from server.i18n import Translator
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
 from server.services.admission.image_references import (
+    active_storyboard_ids,
     check_asset_image_limit,
     check_storyboard_image_limit,
     planned_previous_storyboard_id,
@@ -158,23 +159,17 @@ async def generate_storyboard(
     queue = get_generation_queue()
     maximum, model = await reference_image_limit(project_name, project, path)
     if maximum is not None:
-        pending_previous_id: str | None = None
-        if previous_id is not None:
-            active_previous = await queue.get_active_tasks_for_resources(
-                project_name=project_name,
-                task_type="storyboard",
-                resource_ids=[previous_id],
-                script_file=req.script_file,
-                user_id=user.id,
-            )
-            if any(str(task.get("resource_id") or "") == previous_id for task in active_previous):
-                pending_previous_id = previous_id
+        planned_ids = await active_storyboard_ids(
+            queue,
+            project_name=project_name,
+            resource_ids=[previous_id] if previous_id is not None else [],
+            script_file=req.script_file,
+            user_id=user.id,
+        )
 
         def check_limit() -> None:
             current_script = (
-                get_project_manager().load_script(project_name, req.script_file)
-                if previous_id is not None and pending_previous_id is None
-                else script
+                get_project_manager().load_script(project_name, req.script_file) if previous_id is not None else script
             )
             check_storyboard_image_limit(
                 project,
@@ -183,7 +178,7 @@ async def generate_storyboard(
                 episode=episode,
                 resource_id=segment_id,
                 limit=(maximum, model),
-                pending_previous_id=pending_previous_id,
+                planned_ids=planned_ids,
             )
 
         try:
