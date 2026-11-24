@@ -1,22 +1,21 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Bot, Loader2, PenLine, RotateCcw, X } from "lucide-react";
-import { enqueuePromptAuthoring, promptAuthoringResourceId } from "@/actions/generation";
-import { PromptOverwriteDialog, readPromptOverwrite } from "@/components/canvas/shared/PromptOverwriteDialog";
+import { usePromptAuthoringSubmit } from "@/hooks/usePromptAuthoringSubmit";
+import { PromptOverwriteDialog } from "@/components/canvas/shared/PromptOverwriteDialog";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { Button } from "@/components/ui/button";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
-import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
-import type { PromptOverwrite, ReferenceVideoUnit } from "@/types";
-import { errMsg } from "@/utils/async";
+import type { ReferenceVideoUnit } from "@/types";
 import { episodeAgentRef, itemPositionLabel } from "@/utils/episode-display";
 import {
   buildPartialAuthoringAgentPrefill,
   formatPartialAbortReason,
   formatPartialFailureMessage,
   formatReferenceUnitText,
+  partialFailureSummary,
+  partialAbortSummary,
   referenceUnitPosition,
   type ReferenceAuthoringPartialResult,
 } from "./prompt-authoring-partial";
@@ -26,6 +25,8 @@ interface PromptAuthoringPartialNoticeProps {
   episode: number;
   partial: ReferenceAuthoringPartialResult;
   units: readonly ReferenceVideoUnit[];
+  unitSaving?: boolean;
+  runWithSave?: (action: () => Promise<boolean>) => Promise<boolean>;
   onEditUnit: (unitId: string) => void;
   onDismiss: () => void;
 }
@@ -35,16 +36,21 @@ export function PromptAuthoringPartialNotice({
   episode,
   partial,
   units,
+  unitSaving = false,
+  runWithSave,
   onEditUnit,
   onDismiss,
 }: PromptAuthoringPartialNoticeProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const scripts = useProjectsStore((s) => s.currentScripts);
   const episodeLedger = useEpisodeLedger();
-  const busy = useActiveResourceIds("text_episode_script", projectName).has(promptAuthoringResourceId(episode));
 
-  const [submitting, setSubmitting] = useState(false);
-  const [overwrite, setOverwrite] = useState<PromptOverwrite | null>(null);
+  const { busy, submitting, overwrite, enqueue, confirmOverwrite, closeOverwrite } = usePromptAuthoringSubmit(
+    projectName,
+    episode,
+  );
+  const [retrying, setRetrying] = useState(false);
+  const retryBusy = submitting || retrying || unitSaving;
 
   const unitsById = useMemo(() => new Map(units.map((unit) => [unit.unit_id, unit])), [units]);
   const retryableUnits = useMemo(
@@ -69,30 +75,22 @@ export function PromptAuthoringPartialNotice({
   );
 
   const submitRetry = async (overwriteRevision: string | null) => {
-    if (submitting || retryIds.length === 0) return;
-    if (isResourceBusy("text_episode_script", projectName, promptAuthoringResourceId(episode))) {
-      useAppStore.getState().pushToast(t("prompt_authoring_busy"), "error");
-      return;
-    }
-    setSubmitting(true);
+    if (retryBusy) return;
+    if (overwriteRevision === null && retryIds.length === 0) return;
+    setRetrying(true);
     try {
-      await enqueuePromptAuthoring(projectName, episode, {
-        entry_ids: retryIds,
-        rewrite: rewriteMode,
-        instructions: partial.instructions,
-        overwrite_revision: overwriteRevision,
-      });
-      setOverwrite(null);
-    } catch (err) {
-      const loss = readPromptOverwrite(err);
-      if (loss) {
-        setOverwrite(loss);
-      } else {
-        setOverwrite(null);
-        useAppStore.getState().pushToast(errMsg(err), "error");
-      }
+      const run = () =>
+        overwriteRevision !== null
+          ? confirmOverwrite(overwriteRevision)
+          : enqueue({
+              entry_ids: retryIds,
+              rewrite: rewriteMode,
+              instructions: partial.instructions,
+              overwrite_revision: null,
+            });
+      await (runWithSave ? runWithSave(run) : run());
     } finally {
-      setSubmitting(false);
+      setRetrying(false);
     }
   };
 
@@ -143,11 +141,11 @@ export function PromptAuthoringPartialNotice({
               <Button
                 variant="outline"
                 size="xs"
-                disabled={busy || submitting}
+                disabled={busy || retryBusy}
                 title={busy ? t("prompt_authoring_busy") : undefined}
                 onClick={() => void submitRetry(null)}
               >
-                {submitting ? (
+                {retryBusy ? (
                   <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
                 ) : (
                   <RotateCcw aria-hidden data-icon="inline-start" />
@@ -196,11 +194,18 @@ export function PromptAuthoringPartialNotice({
                       </span>
                     )}
                   </div>
-                  {message && <p className="m-0 text-destructive wrap-break-word">{message}</p>}
-                  {abortReason && (
+                  <p className="m-0 text-destructive wrap-break-word">{partialFailureSummary(item, t)}</p>
+                  {item.abort_reason && (
                     <p className="m-0 text-subtle-foreground wrap-break-word">
-                      {t("prompt_authoring_partial_abort_reason", { reason: abortReason })}
+                      {t("prompt_authoring_partial_abort_reason", { reason: partialAbortSummary(item.abort_reason, t) })}
                     </p>
+                  )}
+                  {(message || abortReason) && (
+                    <details className="text-muted-foreground wrap-break-word">
+                      <summary>{t("common:error_details")}</summary>
+                      {message && <p>{message}</p>}
+                      {abortReason && <p>{abortReason}</p>}
+                    </details>
                   )}
                 </div>
                 {liveUnit && (
@@ -223,10 +228,10 @@ export function PromptAuthoringPartialNotice({
       <PromptOverwriteDialog
         overwrite={overwrite}
         text={overwrite ? formatReferenceUnitText(overwrite.text, units, scripts, t) : null}
-        submitting={submitting}
+        submitting={retryBusy}
         confirmDisabled={busy}
         onConfirm={(revision) => void submitRetry(revision)}
-        onClose={() => setOverwrite(null)}
+        onClose={closeOverwrite}
       />
     </>
   );

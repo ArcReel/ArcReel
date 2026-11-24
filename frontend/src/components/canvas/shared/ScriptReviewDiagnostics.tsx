@@ -1,8 +1,12 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Clock, OctagonAlert, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Clock, Loader2, Lock, OctagonAlert, RotateCcw, Save } from "lucide-react";
 import { cn } from "cn";
 import type { DraftSoftViolation, ScriptReviewViolation } from "@/types";
+import {
+  AlertDialog, AlertDialogBody, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { draftViolationMessage } from "@/utils/draft-violations";
@@ -10,6 +14,7 @@ import { withUniqueKeys, type ReviewItemJump } from "./script-review-diagnostics
 
 interface ScriptReviewStatusHeaderProps {
   confirmed: boolean;
+  readOnly: boolean;
   scriptMissing: boolean;
   overwrite: boolean;
   blockingCount: number;
@@ -20,12 +25,20 @@ interface ScriptReviewStatusHeaderProps {
   dirty: boolean;
   outdated: boolean;
   busy: boolean;
+  saving: boolean;
+  confirming: boolean;
+  confirmLocked: boolean;
+  confirmBlocked: boolean;
+  confirmBlockedHint?: string;
+  saveLabel: string;
+  confirmLabel: string;
+  onSave: () => void;
+  onConfirm: () => void;
+  onRequestOverwrite: () => void;
   onReloadLatest: () => void;
   onHandToAgent?: () => void;
   onOpenTimeline?: () => void;
   regenerateAction: ReactNode;
-  saveAction: ReactNode;
-  confirmAction: ReactNode;
 }
 
 function StatusHeaderIcon({ hasBlocking, confirmed }: { hasBlocking: boolean; confirmed: boolean }) {
@@ -94,6 +107,7 @@ function StatusHeaderSummary({
 }
 
 function StatusHeaderBanner({
+  confirmed,
   outdated,
   hasBlocking,
   dirty,
@@ -105,17 +119,34 @@ function StatusHeaderBanner({
   dirty: boolean;
   busy: boolean;
   onReloadLatest: () => void;
+  confirmed: boolean;
 }) {
   const { t } = useTranslation("dashboard");
   if (outdated) {
     return (
       <div role="alert" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-warn">
         <AlertTriangle className="size-3 shrink-0" aria-hidden="true" />
-        <span className="wrap-break-word">{t("review_outdated_hint")}</span>
-        <Button variant="link" size="xs" onClick={onReloadLatest} disabled={busy}>
-          <RotateCcw aria-hidden data-icon="inline-start" />
-          {t("review_reload_latest")}
-        </Button>
+        <span className="wrap-break-word">{t(confirmed ? "review_confirmed_conflict_hint" : "review_outdated_hint")}</span>
+        <AlertDialog>
+          <AlertDialogTrigger render={<Button variant="link" size="xs" disabled={busy} />}>
+            <RotateCcw aria-hidden data-icon="inline-start" />
+            {t("review_reload_latest")}
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("review_reload_latest")}</AlertDialogTitle>
+            </AlertDialogHeader>
+            <AlertDialogBody>
+              <AlertDialogDescription>{t("common:leave_dialog_description")}</AlertDialogDescription>
+            </AlertDialogBody>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t("common:cancel")}</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={onReloadLatest}>
+                {t("common:discard_changes")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   }
@@ -125,8 +156,73 @@ function StatusHeaderBanner({
   return null;
 }
 
+function StatusHeaderConfirmButton({
+  confirmed,
+  scriptMissing,
+  overwrite,
+  busy,
+  confirming,
+  confirmLocked,
+  confirmBlocked,
+  confirmBlockedHint,
+  confirmLabel,
+  onConfirm,
+  onRequestOverwrite,
+}: {
+  confirmed: boolean;
+  scriptMissing: boolean;
+  overwrite: boolean;
+  busy: boolean;
+  confirming: boolean;
+  confirmLocked: boolean;
+  confirmBlocked: boolean;
+  confirmBlockedHint?: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  onRequestOverwrite: () => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  if (overwrite) {
+    return (
+      <Button
+        variant="destructive"
+        size="sm"
+        onClick={onRequestOverwrite}
+        disabled={busy || confirmBlocked}
+        title={confirmBlockedHint}
+      >
+        <AlertTriangle aria-hidden data-icon="inline-start" />
+        {confirming ? t("review_confirming") : t("review_overwrite_action")}
+      </Button>
+    );
+  }
+  const label = confirming
+    ? t("review_confirming")
+    : scriptMissing
+      ? t("review_rematerialize_action")
+      : confirmed
+        ? t("review_confirmed_badge")
+        : confirmLabel;
+  return (
+    <Button
+      size="sm"
+      onClick={onConfirm}
+      disabled={busy || confirmLocked || confirmBlocked}
+      title={confirmBlockedHint}
+    >
+      {confirmLocked ? (
+        <Lock aria-hidden data-icon="inline-start" />
+      ) : (
+        <CheckCircle2 aria-hidden data-icon="inline-start" />
+      )}
+      {label}
+    </Button>
+  );
+}
+
 export function ScriptReviewStatusHeader({
   confirmed,
+  readOnly,
   scriptMissing,
   overwrite,
   blockingCount,
@@ -137,12 +233,20 @@ export function ScriptReviewStatusHeader({
   dirty,
   outdated,
   busy,
+  saving,
+  confirming,
+  confirmLocked,
+  confirmBlocked,
+  confirmBlockedHint,
+  saveLabel,
+  confirmLabel,
+  onSave,
+  onConfirm,
+  onRequestOverwrite,
   onReloadLatest,
   onHandToAgent,
   onOpenTimeline,
   regenerateAction,
-  saveAction,
-  confirmAction,
 }: ScriptReviewStatusHeaderProps) {
   const { t } = useTranslation("dashboard");
   const hasBlocking = blockingCount > 0;
@@ -199,12 +303,34 @@ export function ScriptReviewStatusHeader({
               {t("review_hand_to_agent")}
             </Button>
           )}
-          {saveAction}
-          {confirmAction}
+          {!readOnly && dirty && (
+            <Button variant="outline" size="sm" onClick={onSave} disabled={busy}>
+              {saving ? (
+                <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
+              ) : (
+                <Save aria-hidden data-icon="inline-start" />
+              )}
+              {saving ? t("common:saving") : saveLabel}
+            </Button>
+          )}
+          <StatusHeaderConfirmButton
+            confirmed={confirmed}
+            scriptMissing={scriptMissing}
+            overwrite={overwrite}
+            busy={busy}
+            confirming={confirming}
+            confirmLocked={confirmLocked}
+            confirmBlocked={confirmBlocked}
+            confirmBlockedHint={confirmBlockedHint}
+            confirmLabel={confirmLabel}
+            onConfirm={onConfirm}
+            onRequestOverwrite={onRequestOverwrite}
+          />
         </div>
       </div>
 
       <StatusHeaderBanner
+        confirmed={confirmed}
         outdated={outdated}
         hasBlocking={hasBlocking}
         dirty={dirty}

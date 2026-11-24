@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, Loader2, Lock, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
 import { cn } from "cn";
 import type {
   DraftSoftViolation,
@@ -521,7 +521,7 @@ export function ScriptReviewGate({
   }
 
   const status = state?.status ?? "no_script_plan";
-  if (status === "no_script_plan" || draft == null) {
+  if (draft == null || (status === "no_script_plan" && !dirty)) {
     const formalScript = state?.script_overwrite != null || onOpenTimeline !== undefined;
     if (status === "no_script_plan" && !formalScript) {
       return (
@@ -541,22 +541,23 @@ export function ScriptReviewGate({
   }
 
   const blankStartAction =
-    state?.script_overwrite == null && status !== "confirmed" ? (
+    state?.script_overwrite == null && status !== "confirmed" && status !== "no_script_plan" ? (
       <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan variant="ghost" />
     ) : null;
 
   const confirmed = status === "confirmed";
-  const readOnly = confirmed;
-  const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
+  const removed = status === "no_script_plan";
+  const readOnly = confirmed || removed;
+  const overwrite = readOnly ? null : (state?.script_overwrite ?? null);
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = confirmed && !scriptMissing;
-  const blockingIssues = confirmLocked ? [] : (state?.blocking_issues ?? []);
+  const blockingIssues = outdated ? [] : (state?.blocking_issues ?? []);
   const items = reviewItems(draft);
   const groups = groupDraftViolations(
     blockingIssues,
     items.map((item) => item.id),
   );
-  const softByItem = groupSoftViolations(state?.soft_violations ?? []);
+  const softByItem = groupSoftViolations(outdated ? [] : (state?.soft_violations ?? []));
   const videoModelBlocked = modelUnresolved && !confirmLocked;
   const durationBlocked =
     !confirmLocked &&
@@ -566,15 +567,17 @@ export function ScriptReviewGate({
   const hasBlockingIssues = blockingIssues.length > 0;
   const onlyCapabilityBlocking =
     videoModelBlocked && hasBlockingIssues && blockingIssues.every((issue) => issue.code === "video_capability_unavailable");
-  const confirmBlocked = videoModelBlocked || durationBlocked || hasBlockingIssues;
+  const confirmBlocked = outdated || removed || videoModelBlocked || durationBlocked || hasBlockingIssues;
   const confirmBlockedHint =
-    hasBlockingIssues && !onlyCapabilityBlocking
-      ? t("dashboard:review_blocking_confirm_disabled_hint", { count: blockingIssues.length })
-      : videoModelBlocked
-        ? t("dashboard:review_video_model_unresolved_hint")
-        : durationBlocked
-          ? t("dashboard:review_duration_out_of_tier_hint")
-          : undefined;
+    outdated || removed
+      ? t(confirmed ? "dashboard:review_confirmed_conflict_hint" : "dashboard:review_outdated_hint")
+      : hasBlockingIssues && !onlyCapabilityBlocking
+        ? t("dashboard:review_blocking_confirm_disabled_hint", { count: blockingIssues.length })
+        : videoModelBlocked
+          ? t("dashboard:review_video_model_unresolved_hint")
+          : durationBlocked
+            ? t("dashboard:review_duration_out_of_tier_hint")
+            : undefined;
 
   const notesFor = (index: number): ItemReviewNotes => ({
     position: index + 1,
@@ -590,6 +593,7 @@ export function ScriptReviewGate({
     <div className="mx-auto flex w-full max-w-240 flex-col gap-3">
       <ScriptReviewStatusHeader
         confirmed={confirmed}
+        readOnly={readOnly}
         scriptMissing={scriptMissing}
         overwrite={overwrite != null}
         blockingCount={blockingIssues.length}
@@ -604,6 +608,16 @@ export function ScriptReviewGate({
         dirty={dirty}
         outdated={outdated}
         busy={busy}
+        saving={saving}
+        confirming={confirming}
+        confirmLocked={confirmLocked}
+        confirmBlocked={confirmBlocked}
+        confirmBlockedHint={confirmBlockedHint}
+        saveLabel={t("dashboard:review_save_action")}
+        confirmLabel={t("dashboard:review_confirm_action")}
+        onSave={voidPromise(handleSave)}
+        onConfirm={voidPromise(() => handleConfirm())}
+        onRequestOverwrite={() => setOverwriteOpen(true)}
         onReloadLatest={reloadLatest}
         onHandToAgent={
           !confirmed && hasBlockingIssues
@@ -618,55 +632,9 @@ export function ScriptReviewGate({
               projectName={projectName}
               episode={episode}
               replaces={confirmed ? "confirmed_plan" : "pending_plan"}
-              disabledReason={dirty && !confirmed ? t("dashboard:script_plan_dirty_hint") : null}
+              disabledReason={dirty ? t("dashboard:script_plan_dirty_hint") : null}
             />
           </>
-        }
-        saveAction={
-          dirty && !confirmed ? (
-            <Button variant="outline" size="sm" onClick={voidPromise(handleSave)} disabled={busy}>
-              {saving ? (
-                <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <Save aria-hidden data-icon="inline-start" />
-              )}
-              {saving ? t("common:saving") : t("dashboard:review_save_action")}
-            </Button>
-          ) : null
-        }
-        confirmAction={
-          overwrite ? (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setOverwriteOpen(true)}
-              disabled={busy || confirmBlocked}
-              title={confirmBlockedHint}
-            >
-              <AlertTriangle aria-hidden data-icon="inline-start" />
-              {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              onClick={voidPromise(() => handleConfirm())}
-              disabled={busy || confirmLocked || confirmBlocked}
-              title={confirmBlockedHint}
-            >
-              {confirmLocked ? (
-                <Lock aria-hidden data-icon="inline-start" />
-              ) : (
-                <CheckCircle2 aria-hidden data-icon="inline-start" />
-              )}
-              {confirming
-                ? t("dashboard:review_confirming")
-                : scriptMissing
-                  ? t("dashboard:review_rematerialize_action")
-                  : confirmed
-                    ? t("dashboard:review_confirmed_badge")
-                    : t("dashboard:review_confirm_action")}
-            </Button>
-          )
         }
       />
 

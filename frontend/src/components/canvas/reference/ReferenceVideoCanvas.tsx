@@ -75,6 +75,7 @@ import {
 import {
   isResourceBusy,
   useActiveResourceIds,
+  useLatestEpisodeAuthoringTask,
   useLatestTasksByResource,
 } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
@@ -154,12 +155,14 @@ function UnitPromptEdit({
   unitLabel,
   onSave,
   allowNavigation,
+  editRef,
   children,
 }: {
   unit: ReferenceVideoUnit;
   unitLabel: string;
   onSave: (unitId: string, prompt: string) => Promise<string>;
   allowNavigation: (to: string) => boolean;
+  editRef?: React.RefObject<EditUnit<string> | null>;
   children: (edit: EditUnit<string>) => ReactNode;
 }) {
   const { t } = useTranslation("dashboard");
@@ -171,6 +174,13 @@ function UnitPromptEdit({
     allowNavigation,
     leaveTitle: t("reference_unit_leave_title", { id: unitLabel }),
   });
+  useLayoutEffect(() => {
+    if (!editRef) return;
+    editRef.current = edit;
+    return () => {
+      if (editRef.current === edit) editRef.current = null;
+    };
+  }, [edit, editRef]);
   return <>{children(edit)}</>;
 }
 
@@ -318,8 +328,8 @@ export function ReferenceVideoCanvas({
   }, [projectName, t, voiceLegacyNotice.characterNames]);
 
   const tasksByUnit = useLatestTasksByResource(projectName, "reference_video");
-  const latestAuthoringTask = useLatestTasksByResource(projectName, "text_episode_script").get(
-    promptAuthoringResourceId(episode),
+  const latestAuthoringTask = useLatestEpisodeAuthoringTask(
+    projectName, promptAuthoringResourceId(episode), hasScript && showPreprocess,
   );
   const partialAuthoring = useMemo(
     () => (hasScript && showPreprocess ? parseReferenceAuthoringPartial(latestAuthoringTask) : null),
@@ -770,13 +780,30 @@ export function ReferenceVideoCanvas({
 
   const onGenerateVoid = useCallback((id: string) => void handleGenerate(id), [handleGenerate]);
 
+  const [unitPromptSaving, setUnitPromptSaving] = useState(false);
   const handlePromptSave = useCallback(
     async (unitId: string, prompt: string) => {
-      const saved = await patchUnit(projectName, episode, unitId, { prompt });
-      return saved.text;
+      setUnitPromptSaving(true);
+      try {
+        const saved = await patchUnit(projectName, episode, unitId, { prompt });
+        return saved.text;
+      } finally {
+        setUnitPromptSaving(false);
+      }
     },
     [patchUnit, projectName, episode],
   );
+  const activeEditRef = useRef<EditUnit<string> | null>(null);
+  const runWithUnitSave = useCallback(async (action: () => Promise<boolean>): Promise<boolean> => {
+    const edit = activeEditRef.current;
+    if (!edit) return action();
+    if (edit.status === "saving") return false;
+    let result = false;
+    const ok = await edit.saveAndGenerate(async () => {
+      result = await action();
+    });
+    return ok && result;
+  }, []);
   const allowNavigation = useStaysInEpisodeView();
 
   const videoGap = useBatchGap(projectName, episode, "videos", "reference_video");
@@ -1128,6 +1155,8 @@ export function ReferenceVideoCanvas({
               episode={episode}
               partial={visiblePartialAuthoring}
               units={units}
+              unitSaving={unitPromptSaving}
+              runWithSave={runWithUnitSave}
               onEditUnit={editUnitReferences}
               onDismiss={() => setDismissedPartialTaskId(visiblePartialAuthoring.taskId)}
             />
@@ -1190,6 +1219,7 @@ export function ReferenceVideoCanvas({
               unitLabel={unitPositionOf(selected.unit_id)}
               onSave={handlePromptSave}
               allowNavigation={allowNavigation}
+              editRef={activeEditRef}
             >
               {(edit) => renderSelectedUnit(selected, edit)}
             </UnitPromptEdit>

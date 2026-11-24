@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { API } from "@/api";
+import { errMsg } from "@/utils/async";
 import { useAppStore } from "@/stores/app-store";
 import type { TaskItem, TaskStats, TaskStatus } from "@/types";
 import { isTerminalStatus } from "@/types/task";
@@ -523,6 +525,30 @@ export function useLatestTasksByResource(
   return useTasksStore(
     useShallow((s) => selectLatestTaskByResource([...selectRecentTasks(s), ...selectActiveTasks(s)], { projectName, taskType })),
   );
+}
+
+export function useLatestEpisodeAuthoringTask(projectName: string, resourceId: string, enabled: boolean) {
+  const recent = useLatestTasksByResource(projectName, "text_episode_script").get(resourceId);
+  const fullPage = useTasksStore((s) => s.recentTaskIds.length >= TASKS_PAGE_SIZE);
+  const connected = useTasksStore((s) => s.connected);
+  const [archived, setArchived] = useState<TaskItem>();
+  if (recent && archived) {
+    setArchived(undefined);
+  }
+  useEffect(() => {
+    if (!enabled || !connected || recent || !fullPage) return;
+    const controller = new AbortController();
+    void API.listTasks(
+      { projectName, resourceId, taskType: "text_episode_script", pageSize: 1 },
+      { signal: controller.signal },
+    ).then(({ items }) => {
+      if (!controller.signal.aborted) setArchived(items[0]);
+    }).catch((err: unknown) => {
+      if (!controller.signal.aborted) useAppStore.getState().pushToast(errMsg(err), "error");
+    });
+    return () => controller.abort();
+  }, [enabled, connected, fullPage, recent, projectName, resourceId]);
+  return recent ?? (fullPage && archived?.project_name === projectName && archived.resource_id === resourceId ? archived : undefined);
 }
 
 export function useTaskRowsByIds(taskIds: readonly string[]): Map<string, TaskItem> {

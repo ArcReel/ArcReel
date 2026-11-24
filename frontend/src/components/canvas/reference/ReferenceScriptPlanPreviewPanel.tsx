@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, Lock, OctagonAlert, Pencil, RotateCcw, Save } from "lucide-react";
+import { AlertTriangle, ChevronDown, OctagonAlert, Pencil, RotateCcw } from "lucide-react";
 import type {
   DraftSoftViolation,
   PlanNewAsset,
@@ -214,6 +214,10 @@ function UnitCard({
     [unit.scriptText, lookup, projectHasScene],
   );
   const durationOptions = onDurationChange && supportedDurations?.length ? supportedDurations : null;
+  const lineViolations = useMemo(
+    () => [...violations.byLine.entries()].sort(([a], [b]) => a - b).flatMap(([, list]) => list),
+    [violations.byLine],
+  );
 
   return (
     <article
@@ -299,12 +303,15 @@ function UnitCard({
 
       <div className="mt-3">
         {editing && onTextChange ? (
-          <Textarea
-            value={unit.scriptText}
-            onChange={(e) => onTextChange(e.target.value)}
-            disabled={busy}
-            aria-label={t("reference_script_plan_unit_text_label", { unit: unitLabel })}
-          />
+          <>
+            <Textarea
+              value={unit.scriptText}
+              onChange={(e) => onTextChange(e.target.value)}
+              disabled={busy}
+              aria-label={t("reference_script_plan_unit_text_label", { unit: unitLabel })}
+            />
+            <InlineViolations violations={lineViolations} position={unit.position} />
+          </>
         ) : (
           <ScriptHighlight
             text={unit.scriptText}
@@ -441,7 +448,7 @@ export function ReferenceScriptPlanPreviewPanel({
   }
 
   const status = state?.status ?? "no_script_plan";
-  if (status === "no_script_plan" || draft == null) {
+  if (draft == null || (status === "no_script_plan" && !dirty)) {
     if (status === "no_script_plan" && state?.script_overwrite == null) {
       return <ScriptPlanStart projectName={projectName} episode={episode} savedInstructions={savedInstructions} />;
     }
@@ -456,16 +463,17 @@ export function ReferenceScriptPlanPreviewPanel({
   }
 
   const blankStartAction =
-    state?.script_overwrite == null && status !== "confirmed" ? (
+    state?.script_overwrite == null && status !== "confirmed" && status !== "no_script_plan" ? (
       <StartBlankScriptButton projectName={projectName} episode={episode} discardsPlan />
     ) : null;
 
   const confirmed = status === "confirmed";
-  const readOnly = confirmed;
-  const overwrite = confirmed ? null : (state?.script_overwrite ?? null);
+  const removed = status === "no_script_plan";
+  const readOnly = confirmed || removed;
+  const overwrite = readOnly ? null : (state?.script_overwrite ?? null);
   const scriptMissing = confirmed && state?.script_overwrite == null;
   const confirmLocked = confirmed && !scriptMissing;
-  const blockingIssues = confirmLocked ? [] : (state?.blocking_issues ?? []);
+  const blockingIssues = outdated ? [] : (state?.blocking_issues ?? []);
   const videoModelBlocked = modelUnresolved && !confirmLocked;
   const displayUnits = structuredDisplayUnits(draft);
   const groups = groupDraftViolations(
@@ -474,7 +482,7 @@ export function ReferenceScriptPlanPreviewPanel({
   );
   const newAssets = draft.new_assets ?? [];
   const reviewLookup = lookupWithNewAssets(lookup, newAssets);
-  const softByUnit = groupSoftViolations(state?.soft_violations ?? [], LIVE_SOFT_VIOLATION_CODES);
+  const softByUnit = groupSoftViolations(outdated ? [] : (state?.soft_violations ?? []), LIVE_SOFT_VIOLATION_CODES);
   const durationTiers = state?.duration_tiers ?? null;
   const outOfTierUnitKeys = new Set(
     displayUnits
@@ -497,22 +505,26 @@ export function ReferenceScriptPlanPreviewPanel({
   const hasBlockingIssues = blockingIssues.length > 0;
   const onlyCapabilityBlocking =
     videoModelBlocked && hasBlockingIssues && blockingIssues.every((issue) => issue.code === "video_capability_unavailable");
-  const confirmBlocked = videoModelBlocked || outOfTierUnitKeys.size > 0 || unknownUnitKeys.size > 0 || hasBlockingIssues;
+  const confirmBlocked =
+    outdated || removed || videoModelBlocked || outOfTierUnitKeys.size > 0 || unknownUnitKeys.size > 0 || hasBlockingIssues;
   const confirmBlockedHint =
-    hasBlockingIssues && !onlyCapabilityBlocking
-      ? t("dashboard:review_blocking_confirm_disabled_hint", { count: blockingIssues.length })
-      : videoModelBlocked
-        ? t("dashboard:review_video_model_unresolved_hint")
-        : firstUnknownProblem
-          ? firstUnknownProblem.hint
-          : outOfTierUnitKeys.size > 0
-            ? t("reference_script_plan_duration_out_of_tier_hint")
-            : undefined;
+    outdated || removed
+      ? t(confirmed ? "dashboard:review_confirmed_conflict_hint" : "dashboard:review_outdated_hint")
+      : hasBlockingIssues && !onlyCapabilityBlocking
+        ? t("dashboard:review_blocking_confirm_disabled_hint", { count: blockingIssues.length })
+        : videoModelBlocked
+          ? t("dashboard:review_video_model_unresolved_hint")
+          : firstUnknownProblem
+            ? firstUnknownProblem.hint
+            : outOfTierUnitKeys.size > 0
+              ? t("reference_script_plan_duration_out_of_tier_hint")
+              : undefined;
 
   return (
     <div className="flex flex-col gap-3">
       <ScriptReviewStatusHeader
         confirmed={confirmed}
+        readOnly={readOnly}
         scriptMissing={scriptMissing}
         overwrite={overwrite != null}
         blockingCount={blockingIssues.length}
@@ -527,6 +539,16 @@ export function ReferenceScriptPlanPreviewPanel({
         dirty={dirty}
         outdated={outdated}
         busy={busy}
+        saving={saving}
+        confirming={confirming}
+        confirmLocked={confirmLocked}
+        confirmBlocked={confirmBlocked}
+        confirmBlockedHint={confirmBlockedHint}
+        saveLabel={t("common:save")}
+        confirmLabel={t("reference_script_plan_confirm_continue")}
+        onSave={voidPromise(handleSave)}
+        onConfirm={voidPromise(() => handleConfirm())}
+        onRequestOverwrite={() => setOverwriteOpen(true)}
         onReloadLatest={reloadLatest}
         onHandToAgent={
           !confirmed && hasBlockingIssues
@@ -541,55 +563,9 @@ export function ReferenceScriptPlanPreviewPanel({
               projectName={projectName}
               episode={episode}
               replaces={confirmed ? "confirmed_plan" : "pending_plan"}
-              disabledReason={!readOnly && dirty ? t("dashboard:script_plan_dirty_hint") : null}
+              disabledReason={dirty ? t("dashboard:script_plan_dirty_hint") : null}
             />
           </>
-        }
-        saveAction={
-          !readOnly && dirty ? (
-            <Button variant="outline" size="sm" onClick={voidPromise(handleSave)} disabled={busy}>
-              {saving ? (
-                <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <Save aria-hidden data-icon="inline-start" />
-              )}
-              {saving ? t("common:saving") : t("common:save")}
-            </Button>
-          ) : null
-        }
-        confirmAction={
-          overwrite ? (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setOverwriteOpen(true)}
-              disabled={busy || confirmBlocked}
-              title={confirmBlockedHint}
-            >
-              <AlertTriangle aria-hidden data-icon="inline-start" />
-              {confirming ? t("dashboard:review_confirming") : t("dashboard:review_overwrite_action")}
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              onClick={voidPromise(() => handleConfirm())}
-              disabled={busy || confirmLocked || confirmBlocked}
-              title={confirmBlockedHint}
-            >
-              {confirmLocked ? (
-                <Lock aria-hidden data-icon="inline-start" />
-              ) : (
-                <CheckCircle2 aria-hidden data-icon="inline-start" />
-              )}
-              {confirming
-                ? t("dashboard:review_confirming")
-                : scriptMissing
-                  ? t("dashboard:review_rematerialize_action")
-                  : confirmed
-                    ? t("dashboard:review_confirmed_badge")
-                    : t("reference_script_plan_confirm_continue")}
-            </Button>
-          )
         }
       />
 

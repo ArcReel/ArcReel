@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
+import { useRetainWhile } from "@/components/shared/edit-unit/edit-unit-retention";
 import { API, ApiRequestError } from "@/api";
 import type { ScriptOverwrite, ScriptReviewState } from "@/types";
 import { useAppStore } from "@/stores/app-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 
 type ScriptReviewContent = NonNullable<ScriptReviewState["content"]>;
 
@@ -41,7 +44,7 @@ function isRevisionConflictError(err: unknown): boolean {
 }
 
 function isReadOnly(state: ScriptReviewState): boolean {
-  return state.status === "confirmed";
+  return state.status === "confirmed" || state.status === "no_script_plan";
 }
 
 function isDirty(draft: unknown, serverContent: unknown): boolean {
@@ -74,7 +77,7 @@ interface ScriptReviewDraftHandle<TDraft extends ScriptReviewContent> {
   retry: () => void;
   refresh: () => void;
   reloadLatest: () => void;
-  save: () => Promise<void>;
+  save: () => Promise<boolean>;
   confirm: (options?: { overwriteRevision?: string }) => Promise<boolean>;
 }
 
@@ -88,6 +91,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   const pushToast = useAppStore((s) => s.pushToast);
   const scriptPlanRevision = useAppStore((s) => s.getEntityRevision(`script_plan:episode_${episode}`));
   const draftRevision = useAppStore((s) => s.getEntityRevision(`draft:episode_${episode}_script_plan`));
+  const capabilitiesRevision = useCapabilitiesStore((s) => s.revision);
 
   const [state, setState] = useState<ScriptReviewState | null>(null);
   const [draft, setDraft] = useState<TDraft | null>(null);
@@ -113,17 +117,20 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
 
   const loadControllerRef = useRef<AbortController | null>(null);
   const loadInFlightRef = useRef(false);
+  const loadEpochRef = useRef(0);
+  const forceAdoptRef = useRef(false);
 
   const adopt = useCallback(
-    (next: ScriptReviewState) => {
+    (next: ScriptReviewState, startEpoch?: number) => {
       const abandonedLoad = loadInFlightRef.current;
+      const staleAgainstLoad = startEpoch !== undefined && loadEpochRef.current !== startEpoch;
       loadControllerRef.current?.abort();
       loadInFlightRef.current = false;
       setConflict(false);
       setState(next);
       setDraft(clone(selectContent(next)));
       setBaseFingerprint(next.fingerprint);
-      if (abandonedLoad) setReloadNonce((n) => n + 1);
+      if (abandonedLoad || staleAgainstLoad) setReloadNonce((n) => n + 1);
     },
     [selectContent],
   );
@@ -139,20 +146,16 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   }, []);
 
   const reloadLatest = useCallback(() => {
-    setConflict(false);
-    dirtyRef.current = false;
-    if (state != null) {
-      setDraft(clone(selectContent(state)));
-      setBaseFingerprint(state.fingerprint);
-    }
+    forceAdoptRef.current = true;
     setReloadNonce((n) => n + 1);
-  }, [selectContent, state]);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
     loadControllerRef.current = controller;
     loadInFlightRef.current = true;
+    loadEpochRef.current += 1;
     const hadResponse = state != null;
     const hasContent = draft != null;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 首屏拉取前须同步点亮加载态，已有响应时静默刷新
@@ -160,9 +163,13 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
     API.getScriptReview(projectName, episode, { signal })
       .then((next) => {
         if (signal.aborted) return;
+        const forced = forceAdoptRef.current;
+        forceAdoptRef.current = false;
         setLoadError(null);
         setState(next);
-        if (!dirtyRef.current || isReadOnly(next)) {
+        if (!forced && dirtyRef.current && isReadOnly(next)) setConflict(true);
+        if (forced || !dirtyRef.current) {
+          dirtyRef.current = false;
           setConflict(false);
           setDraft(clone(selectContent(next)));
           setBaseFingerprint(next.fingerprint);
@@ -170,6 +177,10 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       })
       .catch((err: unknown) => {
         if (signal.aborted) return;
+        if (forceAdoptRef.current) {
+          forceAdoptRef.current = false;
+          pushToast(scriptReviewErrorMessage(err) || t("dashboard:review_load_failed"), "error");
+        }
         if (!hasContent) setLoadError({ message: scriptReviewErrorMessage(err) });
       })
       .finally(() => {
@@ -182,7 +193,7 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- state/draft 仅用于决定加载态与错误态分支，加入 deps 会在每次刷新后重新拉取造成循环
-  }, [projectName, episode, scriptPlanRevision, draftRevision, reloadNonce, selectContent]);
+  }, [projectName, episode, scriptPlanRevision, draftRevision, capabilitiesRevision, reloadNonce, selectContent]);
 
   const handleSaveError = useCallback(
     (err: unknown) => {
@@ -204,28 +215,35 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
   );
 
   const save = useCallback(async () => {
-    if (!draft) return;
+    if (!draft || (state != null && isReadOnly(state))) return false;
     setSaving(true);
+    const startEpoch = loadEpochRef.current;
     try {
       const next = await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint);
-      adopt(next);
+      adopt(next, startEpoch);
       const remaining = next.blocking_issues?.length ?? 0;
       if (remaining > 0) {
         pushToast(t("dashboard:review_saved_with_blocking_issues", { count: remaining }), "warning");
       } else {
         pushToast(t("dashboard:review_saved"), "success");
       }
+      return true;
     } catch (err) {
       handleSaveError(err);
+      return false;
     } finally {
       setSaving(false);
     }
-  }, [draft, baseFingerprint, projectName, episode, adopt, handleSaveError, pushToast, t]);
+  }, [draft, state, baseFingerprint, projectName, episode, adopt, handleSaveError, pushToast, t]);
+
+  const discarding = useLeaveGuard({ dirty, saving: busy, save, discard: reloadLatest });
+  useRetainWhile((dirty || busy) && !discarding);
 
   const confirm = useCallback(async (options: { overwriteRevision?: string } = {}): Promise<boolean> => {
     setConfirming(true);
     try {
       if (dirty && draft) {
+        const startEpoch = loadEpochRef.current;
         let saved: ScriptReviewState;
         try {
           saved = await API.saveScriptReviewContent(projectName, episode, draft, baseFingerprint);
@@ -233,14 +251,15 @@ export function useScriptReviewDraft<TDraft extends ScriptReviewContent>({
           handleSaveError(err);
           return false;
         }
-        adopt(saved);
+        adopt(saved, startEpoch);
         const remaining = saved.blocking_issues?.length ?? 0;
         if (remaining > 0) {
           pushToast(t("dashboard:review_saved_with_blocking_issues", { count: remaining }), "warning");
           return false;
         }
       }
-      adopt(await API.confirmScriptReview(projectName, episode, options));
+      const confirmEpoch = loadEpochRef.current;
+      adopt(await API.confirmScriptReview(projectName, episode, options), confirmEpoch);
       onConfirmed();
       return true;
     } catch (err) {

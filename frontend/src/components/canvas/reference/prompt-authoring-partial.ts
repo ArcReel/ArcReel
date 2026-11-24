@@ -119,6 +119,27 @@ export function formatPartialAbortReason(
   return formatReferenceUnitText(cleaned, units, scripts, t);
 }
 
+const failureKeys: Record<string, string> = {
+  missing_unit: "prompt_partial_missing",
+  duplicate_unit: "prompt_partial_duplicate",
+  dialogue_mismatch: "prompt_partial_dialogue",
+  dialogue_rewritten: "prompt_partial_dialogue",
+  dialogue_line_count_changed: "prompt_partial_dialogue",
+  duration_off_tier: "prompt_partial_duration",
+  formal_revision_conflict: "prompt_partial_conflict",
+  speakers_over_limit: "prompt_partial_speakers",
+};
+
+export function partialFailureSummary(item: ReferenceAuthoringFailedUnit, t: TFunction): string {
+  return t(`dashboard:${failureKeys[item.code] ?? "prompt_partial_invalid"}`);
+}
+
+export function partialAbortSummary(reason: string, t: TFunction): string {
+  if (LEADING_CONFLICT_CODE.test(reason)) return t("dashboard:prompt_partial_conflict");
+  if (reason === "视频模型能力不可用") return t("dashboard:prompt_partial_capability");
+  return t("dashboard:prompt_partial_stopped");
+}
+
 export function buildPartialAuthoringAgentPrefill(
   t: TFunction,
   options: {
@@ -136,8 +157,8 @@ export function buildPartialAuthoringAgentPrefill(
       const pos = referenceUnitPosition(item.unit_id, units, scripts);
       const label = itemPositionLabel("unit", pos, t);
       const ref = t("common:item_agent_ref", { label, id: item.unit_id });
-      const reason = formatPartialFailureMessage(item.message, units, scripts, t);
-      const abort = formatPartialAbortReason(item.abort_reason, units, scripts, t);
+      const reason = partialFailureSummary(item, t);
+      const abort = item.abort_reason && partialAbortSummary(item.abort_reason, t);
       const detail = abort
         ? `${reason}（${t("dashboard:prompt_authoring_partial_abort_reason", { reason: abort })}）`
         : reason;
