@@ -1574,6 +1574,7 @@ class TestUnsentQueuedMessages:
         await TestQueuedMessages()._start_running_turn(service, client)
         stream = _EntryStream(service, SDK_ID)
         try:
+            await stream.next("queue")
             queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1"))[
                 "queued_message"
             ]
