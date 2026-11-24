@@ -81,7 +81,6 @@ interface TasksState extends TaskRows {
   setRefreshScope: (scope: TasksRefreshScope | null) => void;
   refreshTasks: () => Promise<void>;
   retainTask: (projectName: string, taskId: string) => () => void;
-  settleVoiceSample: (task: TaskItem) => void;
   cancelTask: (id: string) => Promise<void>;
   retryDownload: (id: string) => Promise<void>;
   beginOptimisticActive: (project: string, kind: ResourceKind, id: string, taskType: string) => OptimisticHandle;
@@ -352,7 +351,6 @@ export const useTasksStore = create<TasksState>((set, get) => {
       const { task } = await API.retryTaskDownload(id);
       if (epoch === generation) applyRows([task]);
     },
-    settleVoiceSample: (task) => applyRows([task]),
     beginOptimisticActive: (project, resourceKind, resourceId, type) =>
       begin(project, type, { kind: "resource", resourceKind, resourceId }),
     beginOptimisticActiveForScriptFile: (project, type, file) =>

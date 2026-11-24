@@ -9,29 +9,46 @@ export interface TrackedAssetSheetBatch {
 
 interface AssetSheetBatchState {
   batches: Record<string, TrackedAssetSheetBatch>;
-  trackedTaskIds: Set<string>;
+  settledTaskProjects: Map<string, string>;
   track: (batch: TrackedAssetSheetBatch) => void;
-  settle: (batchId: string) => void;
+  settle: (batch: TrackedAssetSheetBatch, recentTaskIds: readonly string[]) => void;
+  pruneSuppression: (projectName: string | null | undefined, recentTaskIds: readonly string[]) => void;
 }
 
 export const useAssetSheetBatchStore = create<AssetSheetBatchState>((set) => ({
   batches: {},
-  trackedTaskIds: new Set(),
-  track: (batch) =>
+  settledTaskProjects: new Map(),
+  track: (batch) => set((s) => ({ batches: { ...s.batches, [batch.batchId]: batch } })),
+  settle: (batch, recentTaskIds) =>
     set((s) => {
-      const trackedTaskIds = new Set(s.trackedTaskIds);
-      for (const member of batch.members) {
-        if (member.task_id) trackedTaskIds.add(member.task_id);
+      const { [batch.batchId]: _settled, ...batches } = s.batches;
+      const recent = new Set(recentTaskIds);
+      const settledTaskProjects = new Map(s.settledTaskProjects);
+      for (const { task_id } of batch.members) {
+        if (task_id && recent.has(task_id)) settledTaskProjects.set(task_id, batch.projectName);
       }
-      return { batches: { ...s.batches, [batch.batchId]: batch }, trackedTaskIds };
+      return { batches, settledTaskProjects };
     }),
-  settle: (batchId) =>
+  pruneSuppression: (projectName, recentTaskIds) =>
     set((s) => {
-      const { [batchId]: _settled, ...batches } = s.batches;
-      return { batches };
+      if (!s.settledTaskProjects.size) return s;
+      const recent = new Set(recentTaskIds);
+      const keep = [...s.settledTaskProjects].filter(([id, project]) => project === projectName && recent.has(id));
+      return keep.length === s.settledTaskProjects.size ? s : { settledTaskProjects: new Map(keep) };
     }),
 }));
 
-export function isAssetSheetBatchTask(taskId: string): boolean {
-  return useAssetSheetBatchStore.getState().trackedTaskIds.has(taskId);
+export function suppressedAssetSheetTaskIds(projectName: string | null | undefined): Set<string> {
+  const { batches, settledTaskProjects } = useAssetSheetBatchStore.getState();
+  const ids = new Set<string>();
+  for (const [id, project] of settledTaskProjects) {
+    if (project === projectName) ids.add(id);
+  }
+  for (const batch of Object.values(batches)) {
+    if (batch.projectName !== projectName) continue;
+    for (const { task_id } of batch.members) {
+      if (task_id) ids.add(task_id);
+    }
+  }
+  return ids;
 }

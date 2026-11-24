@@ -24,13 +24,14 @@ export function TaskChips({ tasks }: { tasks: WorkflowTaskObservation[] }) {
       <ul className="flex flex-col gap-1">
         {tasks.map((task) => {
           const row = taskRows.get(task.task_id);
+          const status = row?.status ?? task.status;
           return (
             <li key={task.task_id} className="flex flex-wrap items-center gap-1.5">
               <EpisodeItemRef itemId={task.unit_id} />
-              <span className={cn("rounded-full border px-2 py-0.5 text-xs", taskToneClass(task.status))}>
+              <span className={cn("rounded-full border px-2 py-0.5 text-xs", taskToneClass(status))}>
                 {t(`task_type_${task.task_type}`, { defaultValue: t("task_fallback_type") })}
                 {" · "}
-                {t(`task_status_${task.status}`, { defaultValue: t("task_status_unknown") })}
+                {t(`task_status_${status}`, { defaultValue: t("task_status_unknown") })}
               </span>
               {row && <TaskElapsedReadout task={row} className="text-xs text-muted-foreground" />}
             </li>

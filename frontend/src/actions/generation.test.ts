@@ -4,6 +4,7 @@ import { API } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import {
+  defaultTaskStats,
   selectActiveResourceIds,
   selectHasActiveTaskForScriptFile,
   useTasksStore,
@@ -466,6 +467,43 @@ describe("enqueuePromptAuthoring", () => {
     finish({ message: "没有待编写的条目", no_pending_authoring: true });
 
     expect(useAppStore.getState().toast).toBeNull();
+  });
+
+  it("有成员结果不可用时继续等待其他成员，收尾后释放全部跟踪", async () => {
+    const missingId = "t-missing";
+    const noopId = "t-noop";
+    vi.spyOn(API, "authorPrompts").mockResolvedValue({
+      batch: {
+        batch_id: "b1",
+        members: [{ unit_id: "part-1", task_id: missingId }, { unit_id: "part-2", task_id: noopId }],
+      },
+    });
+    vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [], truncated: false });
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+    vi.spyOn(API, "lookupTasks")
+      .mockResolvedValueOnce({
+        items: [makeTask({ task_id: noopId, project_name: "demo", status: "running" })],
+        missing_ids: [missingId],
+      })
+      .mockResolvedValueOnce({
+        items: [makeTask({
+          task_id: noopId, project_name: "demo", status: "succeeded", result: { no_pending_authoring: true },
+        })],
+        missing_ids: [],
+      });
+
+    await enqueuePromptAuthoring("demo", 1, { entry_ids: null, rewrite: false });
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useAppStore.getState().toast?.text).toBe(i18n.t("dashboard:prompt_authoring_queued"));
+    expect(useTasksStore.getState().tracked.has(missingId)).toBe(false);
+    expect(useTasksStore.getState().tracked.get(noopId)?.status).toBe("pending");
+
+    await useTasksStore.getState().refreshTasks();
+
+    expect(useAppStore.getState().toast?.text).toBe(i18n.t("dashboard:prompt_authoring_nothing_pending"));
+    expect(useTasksStore.getState().tracked.has(noopId)).toBe(false);
   });
 
   it("任务结束后停止跟踪：同一任务行再次刷新不重复提示", async () => {

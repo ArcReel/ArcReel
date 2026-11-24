@@ -324,6 +324,7 @@ export default {
   'voice_sample_confirm': '确认并保存',
   'voice_sample_confirming': '保存中…',
   'voice_sample_task_failed': '生成失败，请重试',
+  'voice_sample_task_missing': '试听结果已不可用，请重新生成',
   'voice_sample_task_submitted_toast': '「{{name}}」的语音试听样本生成任务已提交',
   'voice_sample_resource_busy': '该角色刚被其他任务占用，请稍后再试',
 

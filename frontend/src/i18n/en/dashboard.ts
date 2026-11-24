@@ -324,6 +324,7 @@ export default {
   'voice_sample_confirm': 'Confirm & save',
   'voice_sample_confirming': 'Saving…',
   'voice_sample_task_failed': 'Generation failed, please try again',
+  'voice_sample_task_missing': 'This voice sample is no longer available. Generate a new one.',
   'voice_sample_task_submitted_toast': 'Voice sample generation for "{{name}}" submitted',
   'voice_sample_resource_busy': 'This character is currently busy with another task, please try again later',
 

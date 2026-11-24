@@ -338,6 +338,10 @@ Confirm:
 - Merchandise;
 - Style references.
 
+When a batch of asset sheets finishes, the project sends one summary notification. The summary counts any unavailable results separately. You can switch projects and return to receive the summary for a batch that was still running. After a browser refresh, the project shows tasks in progress again. Summaries for batches submitted before the refresh are no longer sent.
+
+When you generate reference audio with TTS in the character details, you can play the voice sample and confirm to save it when it is ready. If the dialog says the sample is no longer available, generate a new one or close the dialog.
+
 #### Character derivative sheets {#derivative-sheets}
 
 A character's other persistent looks, such as a costume change or a transformation, are registered as derivatives and viewed and edited in the "Derivatives" block of the character details. A derivative sheet comes from one of two sources:

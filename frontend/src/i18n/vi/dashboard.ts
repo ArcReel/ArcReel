@@ -327,6 +327,7 @@ export default {
   'voice_sample_confirm': 'Xác nhận & lưu',
   'voice_sample_confirming': 'Đang lưu…',
   'voice_sample_task_failed': 'Tạo không thành công, vui lòng thử lại',
+  'voice_sample_task_missing': 'Mẫu giọng nói không còn khả dụng. Hãy tạo lại.',
   'voice_sample_task_submitted_toast': 'Đã gửi tác vụ tạo mẫu giọng đọc thử cho "{{name}}"',
   'voice_sample_resource_busy': 'Nhân vật này đang bận với tác vụ khác, vui lòng thử lại sau',
 
