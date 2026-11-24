@@ -1,0 +1,389 @@
+"""供应商模型的协议硬边界、能力覆盖与单次求值。"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from enum import StrEnum
+from types import MappingProxyType
+from typing import Any, Literal
+
+from lib.capabilities.limits import InputLimit
+from lib.capabilities.override_schema import INPUT_SLOT, LEGACY_AUDIO_KEYS, OVERRIDE_KEYS, normalized_value, valid_value
+
+type Values = Mapping[str, Any]
+type Media = Literal["text", "image", "video"]
+type Route = Literal["i2v", "r2v"]
+
+
+class AudioProtocol(StrEnum):
+    SWITCH = "switch"
+    NO_SWITCH = "no_switch"
+    SILENT = "forced_silent"
+
+
+def _restrict_audio(base: AudioProtocol, restriction: AudioProtocol) -> AudioProtocol:
+    if AudioProtocol.SILENT in (base, restriction):
+        return AudioProtocol.SILENT
+    if AudioProtocol.NO_SWITCH in (base, restriction):
+        return AudioProtocol.NO_SWITCH
+    return AudioProtocol.SWITCH
+
+
+@dataclass(frozen=True)
+class AudioDecision:
+    requested: bool
+    switch: bool | None
+    output: bool
+    billed: bool
+
+
+@dataclass(frozen=True)
+class FixedDuration:
+    reason: Literal["no_frames", "missing_fps", "no_whole_seconds"]
+
+
+@dataclass(frozen=True)
+class EndpointDurations:
+    seconds: tuple[int, ...]
+
+    def __post_init__(self):
+        if not self.seconds or not all(type(n) is int and n > 0 for n in self.seconds):
+            raise ValueError("endpoint durations")
+        object.__setattr__(self, "seconds", tuple(self.seconds))
+
+
+@dataclass(frozen=True)
+class ModelDurations:
+    pass
+
+
+type DurationMode = FixedDuration | EndpointDurations | ModelDurations
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({k: _freeze(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(v) for v in value)
+    if isinstance(value, StrEnum):
+        return value.value
+    if value is None or type(value) in (str, bool, int, float):
+        return value
+    raise ValueError(f"invalid capability value: {type(value).__name__}")
+
+
+@dataclass(frozen=True)
+class RequestConditions:
+    bucket: Route
+    resolution: str | None = None
+    service_tier: str = "default"
+    inputs: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class PathRestriction:
+    """满足所有非空条件时，收窄协议可传输的槽位或音轨。"""
+
+    bucket: Route | None = None
+    resolutions: frozenset[str | None] = frozenset()
+    tiers: frozenset[str] = frozenset()
+    required_inputs: frozenset[str] = frozenset()
+    disabled_slots: frozenset[str] = frozenset()
+    audio: AudioProtocol | None = None
+
+    def __post_init__(self):
+        for name in ("resolutions", "tiers", "required_inputs", "disabled_slots"):
+            object.__setattr__(self, name, frozenset(getattr(self, name)))
+
+    def matches(self, request: RequestConditions) -> bool:
+        return (
+            (self.bucket is None or request.bucket == self.bucket)
+            and (not self.resolutions or request.resolution in self.resolutions)
+            and (not self.tiers or request.service_tier in self.tiers)
+            and self.required_inputs <= request.inputs
+        )
+
+
+@dataclass(frozen=True)
+class Endpoint:
+    """槽位与硬上限描述所有可达请求，paths 按本次请求收窄。defaults 只参与软默认合成。"""
+
+    media: Media
+    slots: frozenset[str] = frozenset()
+    limits: Mapping[str, int | float] = field(default_factory=dict)
+    defaults: Values = field(default_factory=dict)
+    audio: AudioProtocol = AudioProtocol.NO_SWITCH
+    reference_audio: AudioProtocol | None = None
+    duration: DurationMode = ModelDurations()
+    exclusive_inputs: tuple[frozenset[str], ...] = ()
+    paths: tuple[PathRestriction, ...] = ()
+    binding_owned: bool = False
+
+    def __post_init__(self):
+        if set(self.defaults) - (
+            OVERRIDE_KEYS[self.media] | {"qualities", "first_frame_ratio_adaptive_only", "reference_audio_per_image"}
+        ):
+            raise ValueError("unknown endpoint capability")
+        if any(
+            not k.startswith("max_") or k not in OVERRIDE_KEYS[self.media] or not valid_value(k, v)
+            for k, v in self.limits.items()
+        ):
+            raise ValueError("invalid endpoint limit")
+        slots = frozenset(self.slots)
+        if self.media == "image":
+            slots = slots - {"reference_images"}
+            if "image_to_image" in slots:
+                slots |= {"reference_images"}
+        object.__setattr__(self, "slots", slots)
+        object.__setattr__(self, "paths", tuple(self.paths))
+        object.__setattr__(self, "exclusive_inputs", tuple(frozenset(group) for group in self.exclusive_inputs))
+        object.__setattr__(self, "limits", _freeze(self.limits))
+        object.__setattr__(self, "defaults", _freeze(self.defaults))
+
+    def protocol(self, route: Route) -> AudioProtocol:
+        return (self.reference_audio or self.audio) if route == "r2v" else self.audio
+
+    @property
+    def editable(self) -> frozenset[str]:
+        keys = OVERRIDE_KEYS[self.media]
+        if self.binding_owned or not isinstance(self.duration, ModelDurations):
+            return frozenset({"durations"}) if isinstance(self.duration, EndpointDurations) else frozenset()
+        return frozenset(k for k in keys if self._supported(k))
+
+    def _supported(self, key: str) -> bool:
+        if key in LEGACY_AUDIO_KEYS.values():
+            route = "i2v" if key == "has_audio_track" else "r2v"
+            return self.protocol(route) != AudioProtocol.SILENT
+        if key in {"text_to_image", "image_to_image", "first_frame", "last_frame", "text_to_video", *INPUT_SLOT}:
+            return INPUT_SLOT.get(key, key) in self.slots
+        return True
+
+    def validate(self, raw: Values, *, facts: Values | None = None, official: bool = False) -> dict[str, Any]:
+        if official and raw:
+            raise ValueError("official model")
+        return self._overrides(raw, {} if self.binding_owned else facts or {}, strict=True)
+
+    def _overrides(self, raw: Values, facts: Values, *, strict: bool) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        invalid = set()
+        for original, value in raw.items():
+            key = LEGACY_AUDIO_KEYS.get(original, original)
+            if original in LEGACY_AUDIO_KEYS and value in ("always_on", "controllable", "always_off"):
+                route = "i2v" if original == "audio_track" else "r2v"
+                if strict and value == "controllable" and self.protocol(route) != AudioProtocol.SWITCH:
+                    invalid.add(key)
+                    continue
+                value = value != "always_off"
+            elif original in LEGACY_AUDIO_KEYS:
+                invalid.add(key)
+                continue
+            silent_false = (
+                key in LEGACY_AUDIO_KEYS.values()
+                and value is False
+                and not self.binding_owned
+                and isinstance(self.duration, ModelDurations)
+            )
+            if (
+                key not in OVERRIDE_KEYS[self.media]
+                or (key not in self.editable and not silent_false)
+                or not valid_value(key, value)
+                or (key in result and result[key] != value)
+                or (key in self.limits and (value is None or value > self.limits[key]))
+            ):
+                invalid.add(key)
+                continue
+            result[key] = normalized_value(key, value)
+        for key in invalid:
+            result.pop(key, None)
+        values = _compose(self, facts, result, self.slots)
+        if values.get("reference_audio_mode") == "direct" and values.get("max_reference_audio_count") == 0:
+            for key in ("reference_audio_mode", "max_reference_audio_count"):
+                if key in result:
+                    invalid.add(key)
+                    del result[key]
+        if strict and invalid:
+            raise ValueError(", ".join(sorted(invalid)))
+        return result
+
+
+def _compose(endpoint: Endpoint, facts: Values, overrides: Values, slots: frozenset[str]) -> dict[str, Any]:
+    values = dict(endpoint.defaults)
+    values.update({k: v for k, v in facts.items() if k in OVERRIDE_KEYS[endpoint.media] and v is not None})
+    values.update(overrides)
+    flags = {"video": ("first_frame", "last_frame", "text_to_video"), "image": ("text_to_image", "image_to_image")}
+    for key in flags.get(endpoint.media, ()):
+        values[key] = key in slots and values.get(key, endpoint.binding_owned or key != "last_frame")
+    for key in OVERRIDE_KEYS[endpoint.media]:
+        if not key.startswith("max_"):
+            continue
+        if key in INPUT_SLOT and INPUT_SLOT[key] not in slots:
+            values[key] = 0
+            continue
+        bounds = [overrides[key]] if key in overrides else [facts.get(key), endpoint.defaults.get(key)]
+        values[key] = min((v for v in [*bounds, endpoint.limits.get(key)] if v is not None), default=None)
+    if endpoint.media == "video":
+        if "reference_audio" not in slots:
+            values["reference_audio_mode"] = "none"
+        else:
+            values["reference_audio_mode"] = overrides.get(
+                "reference_audio_mode", "direct" if facts.get("reference_audio") or endpoint.binding_owned else "none"
+            )
+        if isinstance(endpoint.duration, FixedDuration):
+            values["durations"] = ()
+        elif isinstance(endpoint.duration, EndpointDurations):
+            values["durations"] = overrides.get("durations", endpoint.duration.seconds)
+    return values
+
+
+@dataclass(frozen=True)
+class CapabilitySnapshot:
+    endpoint: Endpoint
+    base: Values
+    overrides: Values
+    effective: Values
+    editable: frozenset[str]
+    reference_images: InputLimit[int]
+    primary_protocol: AudioProtocol
+    reference_protocol: AudioProtocol
+    default_resolution: str | None
+    model_facts: Values
+    official: bool
+    provider_id: str
+    model_id: str
+    always_bill_audio: bool
+
+    @property
+    def media(self) -> Media:
+        return self.endpoint.media
+
+    @property
+    def duration(self) -> DurationMode:
+        return self.endpoint.duration
+
+    def audio_track(self, route: Route) -> Literal["controllable", "always_on", "always_off"]:
+        decision = self.audio(route, requested=True)
+        if not decision.output:
+            return "always_off"
+        return "controllable" if decision.switch is not None else "always_on"
+
+    def for_request(self, request: RequestConditions) -> CapabilitySnapshot:
+        return resolve(
+            self.endpoint,
+            facts=self.model_facts,
+            overrides=self.overrides,
+            request=request,
+            official=self.official,
+            default_resolution=self.default_resolution,
+            provider_id=self.provider_id,
+            model_id=self.model_id,
+            always_bill_audio=self.always_bill_audio,
+        )
+
+    def __post_init__(self):
+        for name in ("base", "overrides", "effective", "model_facts"):
+            object.__setattr__(self, name, _freeze(getattr(self, name)))
+        object.__setattr__(self, "editable", frozenset(self.editable))
+
+    def audio(self, route: Route, *, requested: bool) -> AudioDecision:
+        protocol = self.reference_protocol if route == "r2v" else self.primary_protocol
+        has_audio = self.effective.get("has_audio_track", True)
+        if route == "r2v":
+            has_audio = self.effective.get("reference_route_has_audio_track", has_audio)
+        switch = requested if protocol == AudioProtocol.SWITCH else None
+        output = protocol != AudioProtocol.SILENT and has_audio and switch is not False
+        return AudioDecision(requested, switch, output, self.always_bill_audio or output)
+
+
+def bucket_fit(media: Media, snapshot: CapabilitySnapshot | None) -> dict[str, tuple[str, ...]]:
+    """返回未满足的桶及维度。空元组表示无法判定。"""
+    dimensions = {
+        "image": {"t2i": "text_to_image", "i2i": "image_to_image"},
+        "video": {"i2v": "first_frame", "r2v": "max_reference_images"},
+    }.get(media, {})
+    if snapshot is None:
+        return dict.fromkeys(dimensions, ())
+    result = {}
+    for bucket, key in dimensions.items():
+        if bucket in ("r2v", "i2i"):
+            if not snapshot.reference_images.accepts_input:
+                missing_slot = bucket == "i2i" and snapshot.reference_images.state == "unsupported"
+                result[bucket] = ("image_to_image" if missing_slot else "max_reference_images",)
+        elif not snapshot.effective[key]:
+            result[bucket] = (key,)
+    return result
+
+
+def resolve(
+    endpoint: Endpoint,
+    *,
+    facts: Values | None = None,
+    overrides: object = None,
+    request: RequestConditions | None = None,
+    official: bool = False,
+    default_resolution: str | None = None,
+    provider_id: str = "",
+    model_id: str = "",
+    always_bill_audio: bool = False,
+) -> CapabilitySnapshot:
+    allowed_facts = OVERRIDE_KEYS[endpoint.media]
+    if endpoint.media == "image":
+        allowed_facts |= {"qualities", "resolutions"}
+    elif endpoint.media == "video":
+        allowed_facts |= {"reference_audio"}
+    facts = {k: v for k, v in (facts or {}).items() if k in allowed_facts}
+    if endpoint.binding_owned:
+        facts = {}
+    applied = (
+        endpoint._overrides(overrides, facts, strict=False) if isinstance(overrides, Mapping) and not official else {}
+    )
+    slots = endpoint.slots
+    primary, reference = endpoint.audio, endpoint.protocol("r2v")
+    if request:
+        if any(group <= request.inputs for group in endpoint.exclusive_inputs):
+            raise ValueError("incompatible input combination")
+        for path in endpoint.paths:
+            if path.matches(request):
+                slots = slots - path.disabled_slots
+                if path.audio is not None and request.bucket == "r2v":
+                    reference = _restrict_audio(reference, path.audio)
+                elif path.audio is not None:
+                    primary = _restrict_audio(primary, path.audio)
+    base = _compose(endpoint, facts, {}, slots)
+    values = _compose(endpoint, facts, applied, slots)
+    for projection in (base, values):
+        if endpoint.media == "video":
+            primary_has_audio = projection.get("has_audio_track", True)
+            reference_has_audio = projection.get("reference_route_has_audio_track", primary_has_audio)
+            projection["has_audio_track"] = primary != AudioProtocol.SILENT and primary_has_audio
+            projection["reference_route_has_audio_track"] = reference != AudioProtocol.SILENT and reference_has_audio
+            if projection.get("reference_audio_mode") != "direct" or projection.get("max_reference_audio_count") == 0:
+                projection.update(
+                    reference_audio_mode="none", max_reference_audio_count=0, max_reference_audio_total_seconds=None
+                )
+        elif endpoint.media == "image":
+            if not projection["image_to_image"]:
+                projection["max_reference_images"] = 0
+            projection["resolutions"] = facts.get("resolutions", ())
+            projection["qualities"] = facts.get("qualities", ()) if "explicit_quality" in slots else ()
+    supports_images = "reference_images" in slots and values.get("image_to_image", True)
+    limit = InputLimit.from_json(values.get("max_reference_images")) if supports_images else InputLimit.unsupported()
+    if endpoint.media == "image":
+        for projection in (base, values):
+            projection["image_to_image"] = projection["image_to_image"] and projection["max_reference_images"] != 0
+    return CapabilitySnapshot(
+        endpoint=endpoint,
+        base=base,
+        overrides=applied,
+        effective=values,
+        editable=frozenset() if official else endpoint.editable,
+        reference_images=limit,
+        primary_protocol=primary,
+        reference_protocol=reference,
+        default_resolution=default_resolution,
+        model_facts=facts,
+        official=official,
+        provider_id=provider_id,
+        model_id=model_id,
+        always_bill_audio=always_bill_audio,
+    )
