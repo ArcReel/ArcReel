@@ -2036,7 +2036,7 @@ class ProjectManager:
         mutate_fn: Callable[[dict], None],
         *,
         on_commit: Callable[[Path], None] | None = None,
-        formal_paths: Sequence[Path] = (),
+        formal_paths: Sequence[Path] | Callable[[], Sequence[Path]] = (),
     ) -> dict:
         """原子性地更新 project.json：加文件锁 → 读 → 修改 → 原子写回。
 
@@ -2054,7 +2054,8 @@ class ProjectManager:
 
         with self._project_lock(project_name), ExitStack() as transaction:
             if on_commit is not None or formal_paths:
-                transaction.enter_context(formal_write_transaction(project_file, *formal_paths))
+                paths = formal_paths() if callable(formal_paths) else formal_paths
+                transaction.enter_context(formal_write_transaction(project_file, *paths))
             project = self.update_project_locked(project_name, mutate_fn)
             if on_commit is not None:
                 on_commit(project_file)

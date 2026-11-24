@@ -18,7 +18,7 @@ import json
 import logging
 import unicodedata
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any, TypeGuard
@@ -29,6 +29,7 @@ from lib.episode.episode_ledger import (
     SourceDoc,
     SourceSpan,
     compute_source_fingerprints,
+    discover_episode_file_aliases,
     is_derived_episode_name,
     mismatched_source_fingerprints,
     normalize_source_text,
@@ -476,6 +477,27 @@ def archive_episode_file_path(path: Path) -> Path:
     return candidate
 
 
+@dataclass
+class EpisodeFileArchives:
+    project_dir: Path
+    episode_ids: Collection[int]
+    other_paths: Collection[Path]
+    targets: dict[Path, Path] = field(default_factory=dict, init=False)
+
+    def protected_paths(self) -> list[Path]:
+        if not self.episode_ids:
+            return list(self.other_paths)
+        aliases = discover_episode_file_aliases(self.project_dir)
+        self.targets = {
+            path: archive_episode_file_path(path) for episode in self.episode_ids for path in aliases.get(episode, ())
+        }
+        return [*self.other_paths, *self.targets, *self.targets.values()]
+
+    def apply(self) -> None:
+        for path, target in self.targets.items():
+            path.rename(target)
+
+
 def source_snapshot_path(project_dir: Path, rel: str) -> Path:
     """整本源文文件 ``rel`` 的快照路径。"""
     return project_dir / SOURCE_SNAPSHOTS_DIR / PurePosixPath(rel).name
@@ -567,6 +589,7 @@ __all__ = [
     "SOURCE_SNAPSHOTS_DIR",
     "WHOLE_SOURCE_FILES_KEY",
     "CutPlacement",
+    "EpisodeFileArchives",
     "SourceOrigin",
     "append_whole_source_file",
     "changed_outside_service",
