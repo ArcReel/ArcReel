@@ -224,6 +224,7 @@ class TestMainEntry:
         assert options == {
             "host": "127.0.0.1",
             "port": 18080,
+            "timeout_graceful_shutdown": 10,
             "reload": True,
             "reload_dirs": ["server", "lib"],
         }

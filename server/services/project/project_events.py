@@ -33,7 +33,7 @@ from server.services.project.project_state_projection import (
     diff_snapshots,
     draft_state_key,
 )
-from server.sse_channel import IDLE, DropSubscriber, SseChannel
+from server.sse_channel import IDLE, DropSubscriber, SseChannel, empty_stream
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +176,7 @@ class ProjectEventService:
         self._read_state: ProjectStateReader = read_state or (lambda name: read_project_state(self.pm, name))
         self.poll_interval = max(0.1, float(poll_interval))
         self._channels: dict[str, _ProjectChannel] = {}
+        self._stopping = False
         self._listener_unregister = None
         self._batch_listener_unregister = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -187,6 +188,12 @@ class ProjectEventService:
         self._loop = asyncio.get_running_loop()
         self._listener_unregister = register_project_change_listener(self._on_hint)
         self._batch_listener_unregister = register_project_change_batch_listener(self._on_batch_hint)
+
+    def stop_streams(self) -> None:
+        self._stopping = True
+        for channel in self._channels.values():
+            channel.sse.end_streams()
+            channel.ready_event.set()
 
     async def shutdown(self) -> None:
         unregister = self._listener_unregister
@@ -263,7 +270,6 @@ class ProjectEventService:
         Private: the only consumer is :meth:`stream_events`, which owns the
         deterministic unsubscribe via its context-manager ``__aexit__``.
         """
-        await asyncio.to_thread(self.pm.get_project_path, project_name)
         channel = self._channels.get(project_name)
         if channel is None:
             channel = self._create_channel(project_name)
@@ -306,9 +312,16 @@ class ProjectEventService:
         carried by ``__aexit__`` (see ADR-0046). Consume as
         ``async with stream_events(...) as stream: async for item in stream``.
         """
+        if not self._stopping:
+            await asyncio.to_thread(self.pm.get_project_path, project_name)
+        if self._stopping:
+            yield empty_stream()
+            return
         sse, queue, snapshot = await self._subscribe(project_name)
 
         async def _iter() -> AsyncIterator[tuple[str, Any] | dict[str, Any]]:
+            if self._stopping:
+                return
             yield ("snapshot", snapshot)
             async for item in sse.iterate(queue, idle_timeout=idle_timeout):
                 yield {"type": "_idle"} if item is IDLE else item

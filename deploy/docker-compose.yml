@@ -1,5 +1,6 @@
 services:
   arcreel:
+    stop_grace_period: 60s
     image: arcreel/arcreel:latest
     # build: ../  # 本地构建时取消注释，注释掉 image 行
     ports:
