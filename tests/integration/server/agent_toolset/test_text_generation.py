@@ -1023,10 +1023,11 @@ async def test_normalize_drama_script_injects_episode_into_prompt(fake_ctx: Tool
     project_path = fake_ctx.project_path
     src = project_path / "source"
     src.mkdir(parents=True)
-    (src / "chapter2.txt").write_text("第二集开场", encoding="utf-8")
+    fake_ctx.pm.project_payload["episodes"].append({"episode": 2, "source_origin": "own"})
+    (src / "episode_2.txt").write_text("第二集开场", encoding="utf-8")
 
     out = await run_declared_tool(
-        "generate_script_plan", fake_ctx, {"episode_id": 2, "dry_run": True, "source": "source/chapter2.txt"}
+        "generate_script_plan", fake_ctx, {"episode_id": 2, "dry_run": True, "source": "source/episode_2.txt"}
     )
     assert out.problem is None, out
     prompt_text = said(out)
@@ -1149,7 +1150,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     fake_ctx.pm.project_payload = project
     project_file = fake_ctx.project_path / "project.json"
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    source_path = fake_ctx.project_path / "source" / "selected.txt"
+    source_path = fake_ctx.project_path / "source" / "episode_1.txt"
     source_path.parent.mkdir(parents=True)
     frozen_source = "被显式选中的生成原文"
     source_path.write_text(frozen_source, encoding="utf-8")
@@ -1195,7 +1196,7 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
     result = await run_declared_tool(
         "generate_script_plan",
         fake_ctx,
-        {"episode_id": 1, "source": "source/selected.txt"},
+        {"episode_id": 1, "source": "source/episode_1.txt"},
     )
 
     assert result.problem is None, result
@@ -1219,20 +1220,23 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
         "source_kind": "novel",
         "source_language": "中文",
         "overview": {},
-        "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        "episodes": [
+            {"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json", "source_origin": "own"}
+        ],
     }
     fake_ctx.pm.project_payload = project
     project_file = fake_ctx.project_path / "project.json"
     project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
     source_dir = fake_ctx.project_path / "source"
     source_dir.mkdir(parents=True)
-    selected_source = source_dir / "selected.txt"
+    selected_source = source_dir / "episode_1.txt"
     selected_source.write_text("实际发送给供应商的原文", encoding="utf-8")
-    (source_dir / "episode_1.txt").write_text("激活器可重建的另一份原文", encoding="utf-8")
+
     expected = build_script_plan_basis("实际发送给供应商的原文", episode=1, project=project)
 
     class _Generator:
         async def generate(self, _request, project_name=None):
+            await asyncio.to_thread(selected_source.write_text, "激活器可重建的另一份原文", encoding="utf-8")
             activated = {**project, "schema_version": 8}
             fake_ctx.pm.project_payload = activated
             await asyncio.to_thread(
@@ -1270,7 +1274,7 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
     use_text_generator(monkeypatch, fake_create)
 
     result = await generate_script_plan(
-        ToolRequest(GenerateScriptPlanRequest(episode_id=1, source="source/selected.txt")),
+        ToolRequest(GenerateScriptPlanRequest(episode_id=1, source="source/episode_1.txt")),
         fake_ctx.scope,
         fake_ctx.caller,
         fake_ctx.services,
@@ -1367,7 +1371,7 @@ async def test_normalize_drama_script_rejects_an_empty_explicit_source(fake_ctx:
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "", "dry_run": True})
 
     assert out.problem is not None
-    assert "源文件路径不能为空" in problem_of(out).detail
+    assert "本集规范集原文路径" in problem_of(out).detail
 
 
 async def test_normalize_drama_script_treats_a_default_source_symlink_escape_as_no_episode_source(
@@ -1382,7 +1386,7 @@ async def test_normalize_drama_script_treats_a_default_source_symlink_escape_as_
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
 
     problem = problem_of(out)
-    assert problem.params == {"operation": "prepare_script_plan", "reason": "episode_source_missing"}
+    assert "无法读取非空原文" in problem.detail
     assert "项目外内容" not in problem.detail
     assert "source/episode_1.txt" in problem.detail
 
@@ -1401,7 +1405,7 @@ async def test_normalize_drama_script_refuses_when_the_episode_derived_source_is
     assert out.problem is not None
     detail = problem_of(out).detail
     assert "source/episode_1.txt" in detail
-    assert "plan_episodes" in detail
+    assert "恢复本集原文" in detail
 
 
 async def test_normalize_drama_script_injects_instructions(fake_ctx: ToolHarness, video_request_facts) -> None:

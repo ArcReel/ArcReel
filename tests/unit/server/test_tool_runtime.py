@@ -484,6 +484,7 @@ async def test_patch_episode_meta_returns_typed_domain_outcome(tmp_path: Path, m
     assert all(thread != caller_thread for thread in mutation_threads)
 
 
+@pytest.mark.usefixtures("video_request_facts")
 async def test_content_readers_return_body_and_revision_from_the_same_snapshot(tmp_path: Path, monkeypatch) -> None:
     project_dir = tmp_path / "projects" / "demo"
     (project_dir / "scripts").mkdir(parents=True)
@@ -537,10 +538,11 @@ async def test_content_readers_return_body_and_revision_from_the_same_snapshot(t
     assert script_plan.problem is None
     assert script_plan.value is not None
     assert script_plan.value.content["title"] == "第一集"
-    assert len(reader_threads) == 3
+    assert len(reader_threads) == 4
     assert all(thread != caller_thread for thread in reader_threads)
 
 
+@pytest.mark.usefixtures("video_request_facts")
 async def test_file_readers_share_a_business_file_allowlist_and_reject_symlinks(tmp_path: Path) -> None:
     project_dir = tmp_path / "projects" / "demo"
     (project_dir / "source").mkdir(parents=True)

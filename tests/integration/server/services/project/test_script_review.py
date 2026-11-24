@@ -2173,7 +2173,9 @@ class TestOwnSourceEpisodes:
         """逐集登记的自带原文的集走同一条内容确认出口。"""
         pm = _make_manual_split_project(tmp_path, "drama")
         pm.add_character("demo", "阿离", "少女")
-        assert register_project_sources(pm, "demo", own_episodes=("任意原文内容",)) == [1]
+        assert register_project_sources(
+            pm, "demo", own_episodes=(_admitted_drama_script_plan()["scenes"][0]["source_text"],)
+        ) == [1]
         _write_script_plan(pm, "drama", _admitted_drama_script_plan())
 
         confirmed = await _service(pm).confirm("demo", 1)

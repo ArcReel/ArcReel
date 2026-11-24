@@ -72,6 +72,7 @@ from server.agent_toolset.repair_channel import MERGE_ASSET
 from server.agent_toolset.script_authoring import (
     CONFIRM_SCRIPT_REVIEW,
     GENERATE_EPISODE_SCRIPT,
+    GENERATE_SCRIPT_PLAN,
     OPEN_DRAFT,
     PATCH_DRAFT,
     PROMOTE_DRAFT,
@@ -819,6 +820,29 @@ async def test_a_text_generation_dry_run_returns_the_same_prompt_in_both_hosts(
     assert "DRY RUN" in remote.structuredContent["text_generation"]["message"]
     assert _embedded_json(embedded) == remote.structuredContent
     assert _texts(embedded) == _texts(remote)
+
+
+@pytest.mark.parametrize(
+    ("source", "dry_run"),
+    [(None, True), ("source/episode_1.txt", True), ("source/custom.txt", True), ("source/custom.txt", False)],
+)
+async def test_script_plan_source_contract_in_both_hosts(
+    seeded_projects, services, source, dry_run, video_request_facts
+):
+    seeded_projects.update_project(
+        "demo", lambda project: project.update(episodes=[{"episode": 1, "source_origin": "own"}])
+    )
+    args = {"episode_id": 1, "dry_run": dry_run}
+    if source is not None:
+        args["source"] = source
+    embedded = await _call_embedded(GENERATE_SCRIPT_PLAN, args, services)
+    remote = await _call_remote(GENERATE_SCRIPT_PLAN, {"project": "demo", **args}, services)
+    assert _embedded_json(embedded) == remote.structuredContent
+    assert embedded.isError is remote.isError is (source == "source/custom.txt")
+    if embedded.isError:
+        assert "本集规范集原文路径" in remote.structuredContent["problem"]["detail"]
+    else:
+        assert "第一集原文" in remote.structuredContent["text_generation"]["message"]
 
 
 @pytest.fixture

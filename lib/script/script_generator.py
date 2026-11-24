@@ -764,6 +764,7 @@ class ScriptGenerator:
         expected_plan_revision: str,
         expected_script_fingerprint: str | None,
         project_update: Callable[[dict[str, Any]], None],
+        validate_locked: Callable[[dict[str, Any], Path], None] | None = None,
     ) -> ScriptPlanMaterializationReceipt:
         """内容确认时把脚本规划整份转为正式剧本：旧剧本（若有）整份被替换，不沿用任何条目。
 
@@ -791,7 +792,15 @@ class ScriptGenerator:
         if unregistered:
             raise UnregisteredReferencesError(unregistered)
 
+        plan_path = script_plan_path(self.project_path, self.project_json, episode)
+        if plan_path is None:
+            raise FileNotFoundError(f"集（id={episode}）不适用脚本规划")
+
         def update_project(project: dict[str, Any]) -> None:
+            if validate_locked is not None:
+                validate_locked(project, plan_path)
+            if resolve_new_assets(project, self._script_plan_new_assets) != new_assets:
+                raise ValueError("本集新增资产的处理结果已变化，请刷新后重新确认")
             new_assets.apply_to_project(project)
             project_update(project)
 
@@ -803,9 +812,6 @@ class ScriptGenerator:
         id_field = entry_id_field(plan_kind)
         previous = await asyncio.to_thread(formal_script_overwrite, self.project_path, self.project_json, episode)
         previous_ids = tuple(entry.entry_id for entry in previous.entries) if previous is not None else ()
-        plan_path = script_plan_path(self.project_path, self.project_json, episode)
-        if plan_path is None:
-            raise FileNotFoundError(f"集（id={episode}）不适用脚本规划")
         claim = self._script_plan_input_claim
 
         def _commit() -> None:

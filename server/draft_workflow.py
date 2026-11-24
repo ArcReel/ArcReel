@@ -262,6 +262,7 @@ async def revalidate_reference_script_plan_draft(
         project,
         episode,
         "reference_video",
+        legacy_draft=True,
     )
     split_caps = await fetch_reference_split_caps(project, config_resolver=config_resolver)
 
@@ -684,6 +685,7 @@ async def revalidate_drama_script_plan_draft(
         project,
         episode,
         "drama",
+        legacy_draft=True,
     )
     _default_duration, supported_durations = await fetch_storyboard_durations(project, config_resolver=config_resolver)
     schema = build_drama_normalized_script_model(supported_durations)
@@ -857,6 +859,7 @@ async def revalidate_narration_script_plan_draft(
         project,
         episode,
         "narration",
+        legacy_draft=True,
     )
     _default_duration, supported_durations = await fetch_storyboard_durations(project, config_resolver=config_resolver)
 

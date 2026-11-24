@@ -86,6 +86,7 @@ async def test_script_plan_without_episode_source_is_refused_with_the_status_rea
     projects = _project(tmp_path, "narration")
     _manual_episode(projects)
 
+    (projects.get_project_path("demo") / "source/episode_1.txt").write_text("残留文件", encoding="utf-8")
     outcome = await generate_script_plan(
         ToolRequest(GenerateScriptPlanRequest(episode_id=1)), _scope(projects), _CALLER, _services(projects, db_factory)
     )

@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from lib.config.resolver import ConfigResolver
 from lib.episode.episode_target_duration import project_episode_target_duration
@@ -45,21 +45,37 @@ from lib.script.draft_quarantine import (
 from lib.script.plan_new_assets import NEW_ASSETS_FIELD, NewAssetsError, UnregisteredReferencesError, resolve_new_assets
 from lib.script.script_generator import ScriptGenerator, UnitDurationOffTier
 from lib.script.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
-from lib.script.script_plan_validation import reference_soft_violations
+from lib.script.script_plan_validation import read_episode_plan_source, validate_script_plan
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, admit_script_unit
 from server.services.tasks.video_caps import (
     reference_request_facts_lookup,
     reference_unit_capabilities,
 )
-from server.text_generation import fetch_reference_split_caps, soft_violation_entries
+from server.text_generation import (
+    PlanCapabilities,
+    plan_capability_inputs,
+    resolve_plan_capabilities,
+    soft_violation_entries,
+)
 
 logger = logging.getLogger(__name__)
+
 
 _SCRIPT_PLAN_CONTENT_MODEL: dict[str, type[BaseModel]] = {
     "drama": DramaNormalizedScript,
     "narration": NarrationScriptPlanDraft,
     "reference_video": ReferenceScriptPlanDraft,
 }
+
+
+class ScriptPlanContent(BaseModel):
+    blocking_issues: list[dict[str, Any]] = Field(default_factory=list)
+    soft_violations: list[dict[str, Any]] = Field(default_factory=list)
+    revision: str
+    etag: str
+    episode: int
+    path: str
+    content: Any
 
 
 class ScriptReviewError(Exception):
@@ -200,6 +216,76 @@ class ScriptReviewService:
         )
         return content, updated or project
 
+    def _diagnostics(
+        self, project_path: Path, project: dict[str, Any], episode: int, content: object, capabilities: PlanCapabilities
+    ) -> dict[str, Any]:
+        kind = script_review.script_plan_kind(project)
+        if kind is None:
+            return {"blocking_issues": [], "soft_violations": []}
+        try:
+            candidate = _SCRIPT_PLAN_CONTENT_MODEL[kind].model_validate(content).model_dump()
+        except ValidationError as exc:
+            return {
+                "blocking_issues": [{"code": "invalid_content", "message": str(exc), "label": "", "line": None}],
+                "soft_violations": [],
+            }
+        validation = validate_script_plan(
+            kind,
+            candidate,
+            project=project,
+            project_path=project_path,
+            episode=episode,
+            source=read_episode_plan_source(project_path, project, episode),
+            capabilities=capabilities,
+        )
+        return {
+            "blocking_issues": violation_entries(validation.blocking_issues),
+            "soft_violations": soft_violation_entries(validation.soft_violations),
+        }
+
+    async def read_agent_content(
+        self, project_name: str, episode: int, read: Callable[[Path, dict[str, Any]], ScriptPlanContent]
+    ) -> ScriptPlanContent | None:
+        project = await asyncio.to_thread(self.pm.load_project, project_name)
+        supported = await self._resolve_supported_durations(project)
+        caps = await resolve_plan_capabilities(project, self.config_resolver)
+
+        def snapshot() -> ScriptPlanContent | None:
+            project_path = self.pm.get_project_path(project_name)
+            path = script_review.script_plan_path(project_path, project, episode)
+            if path is None:
+                return None
+            if path.parent.is_symlink() or path.parent.parent.is_symlink():
+                raise ValueError("symbolic links are not allowed")
+            prompt_lock = (
+                self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING))
+                if script_review.script_plan_kind(project) == "reference_video"
+                else nullcontext()
+            )
+            with prompt_lock, self.pm.file_lock(path):
+                current = self.pm.load_project(project_name)
+                if plan_capability_inputs(current) != plan_capability_inputs(project):
+                    raise ScriptReviewError("conflict", "视频模型配置已变化，请重新读取规划")
+                result = read(project_path, current)
+                if (
+                    script_review.script_plan_kind(current) == "reference_video"
+                    and result.path == path.relative_to(project_path).as_posix()
+                ):
+                    updated, _ = script_review.migrate_script_plan_draft_in_place(
+                        project_path,
+                        result.content,
+                        episode=episode,
+                        update_project=lambda mutate: self.pm.update_project(project_name, mutate),
+                        supported_durations=supported,
+                    )
+                    if updated is not None:
+                        current = updated
+                        result = read(project_path, current)
+                diagnostics = self._diagnostics(project_path, current, episode, result.content, caps)
+                return result.model_copy(update=diagnostics)
+
+        return await run_sync_transaction(snapshot)
+
     async def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
         """返回该集内容确认状态 + 结构化中间态内容（供 web 渲染）。
 
@@ -214,29 +300,10 @@ class ScriptReviewService:
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         supported_durations = await self._resolve_supported_durations(project)
-        state = await run_sync_transaction(self._get_state_sync, project_name, project, episode, supported_durations)
-        state["soft_violations"] = []
-        content = state["content"]
-        if script_review.script_plan_kind(project) == "reference_video" and isinstance(content, dict):
-            try:
-                caps = await fetch_reference_split_caps(project, config_resolver=self.config_resolver)
-            except VideoRequestFactsError:
-                return state
-            units = content.get("units") or []
-            texts = [str(unit.get("text") or "") if isinstance(unit, dict) else "" for unit in units]
-            unit_ids = [
-                unit_id for unit in units if isinstance(unit, dict) and isinstance(unit_id := unit.get("unit_id"), str)
-            ]
-            state["soft_violations"] = soft_violation_entries(
-                reference_soft_violations(
-                    texts,
-                    project,
-                    episode=episode,
-                    voice=caps.voice,
-                    unit_ids=unit_ids if len(unit_ids) == len(units) else None,
-                )
-            )
-        return state
+        caps = await resolve_plan_capabilities(project, self.config_resolver)
+        return await run_sync_transaction(
+            self._get_state_sync, project_name, project, episode, supported_durations, caps
+        )
 
     def _get_state_sync(
         self,
@@ -244,6 +311,8 @@ class ScriptReviewService:
         project: dict[str, Any],
         episode: int,
         supported_durations: list[int] | None,
+        caps: PlanCapabilities,
+        edit: tuple[object, str | None] | None = None,
     ) -> dict[str, Any]:
         """``get_state`` 的同步主体：分集自愈、读时迁移、状态与指纹派生，全部在一个线程内完成。
 
@@ -252,10 +321,13 @@ class ScriptReviewService:
         """
         project_path = self.pm.get_project_path(project_name)
         path = script_review.script_plan_path(project_path, project, episode)
+        if path is None and edit is not None:
+            raise ScriptReviewError("not_applicable")
         if path is not None:
             project = self._require_episode(project_name, project, episode)
         content: dict[str, Any] | None = None
         fingerprint: str | None = None
+        diagnostics = {"blocking_issues": [], "soft_violations": []}
         if path is not None:
             prompt_authoring_lock = (
                 self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING))
@@ -263,14 +335,26 @@ class ScriptReviewService:
                 else nullcontext()
             )
             with prompt_authoring_lock, self.pm.file_lock(path):
+                current = self.pm.load_project(project_name)
+                if plan_capability_inputs(current) != plan_capability_inputs(project):
+                    raise ScriptReviewError("conflict", "视频模型配置已变化，请重新读取规划")
+                project = current
                 content, project = self._read_script_plan_migrated(
                     project_name, project, episode, path, project_path, supported_durations
                 )
+                if edit is not None:
+                    content = self._save_content_locked(
+                        project_name, project, episode, project_path, path, content, *edit
+                    )
                 fingerprint = script_review.content_fingerprint(path)
+                if fingerprint is not None:
+                    diagnostics = self._diagnostics(project_path, project, episode, content, caps)
                 status = script_review.review_status(project_path, project, episode)
         else:
             status = script_review.review_status(project_path, project, episode)
         return {
+            **diagnostics,
+            "revision": script_review.published_revision(fingerprint),
             "episode": episode,
             "content_mode": project.get("content_mode"),
             "status": status,
@@ -404,27 +488,31 @@ class ScriptReviewService:
         现值比对，不一致（编辑期间另一写入方已改过 script_plan）抛 ``conflict``、不落盘——后写方拿
         409 冲突提示去刷新合并，先写方的内容不被静默覆盖。``None`` 不比对（无基线的直连调用）。
 
-        落盘本身全同步（不做时长收编，无需档位表），整段卸到线程；随后的 ``get_state`` 自行
-        解析档位表，保存的响应与 GET 首次加载因此同源。
         """
-        await run_sync_transaction(self._save_content_sync, project_name, episode, content, base_fingerprint)
-        return await self.get_state(project_name, episode)
+        project = await asyncio.to_thread(self.pm.load_project, project_name)
+        supported = await self._resolve_supported_durations(project)
+        caps = await resolve_plan_capabilities(project, self.config_resolver)
+        return await run_sync_transaction(
+            self._get_state_sync, project_name, project, episode, supported, caps, (content, base_fingerprint)
+        )
 
-    def _save_content_sync(
-        self, project_name: str, episode: int, content: object, base_fingerprint: str | None
-    ) -> None:
-        """``save_content`` 的同步主体：结构校验、基线比对、落盘。"""
-        project = self.pm.load_project(project_name)
-        project_path = self.pm.get_project_path(project_name)
-        path = script_review.script_plan_path(project_path, project, episode)
-        if path is None:
-            raise ScriptReviewError("not_applicable")
-        project = self._require_episode(project_name, project, episode)
+    def _save_content_locked(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        episode: int,
+        project_path: Path,
+        path: Path,
+        previous: object,
+        content: object,
+        base_fingerprint: str | None,
+    ) -> dict[str, Any]:
         kind, model = self._resolve_script_plan_model(project, episode)
+        self._reject_readonly_script_plan(project_name, project_path, episode)
         try:
             validated = model.model_validate(content).model_dump()
         except ValidationError as exc:
-            _require_changed_speech_admitted(kind, _read_json(path), content)
+            _require_changed_speech_admitted(kind, previous, content)
             raise ScriptReviewError("invalid_content", str(exc)) from exc
         if kind == "drama":
             for scene in validated["scenes"]:
@@ -432,27 +520,24 @@ class ScriptReviewService:
                     scene.pop("needs_replan", None)
         if not validated.get(NEW_ASSETS_FIELD):
             validated.pop(NEW_ASSETS_FIELD, None)
-        expected = base_fingerprint if base_fingerprint is not None else script_review.UNCHECKED_FINGERPRINT
+        expected = (
+            script_review.fingerprint_of_revision(base_fingerprint)
+            if base_fingerprint is not None
+            else script_review.UNCHECKED_FINGERPRINT
+        )
         try:
-            if kind == "reference_video":
-                prompt_authoring_path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-                with (
-                    self.pm.file_lock(prompt_authoring_path),
-                    script_review.script_plan_write_lock(project_path, episode),
-                ):
-                    self._reject_readonly_script_plan(project_name, project_path, episode)
-                    _require_changed_speech_admitted(kind, _read_json(path), validated)
-                    script_review.write_script_plan_locked(
-                        project_path, episode, validated, expected_fingerprint=expected
-                    )
-            else:
-                with script_review.formal_script_plan_lock(project_path, episode, path):
-                    self._reject_readonly_script_plan(project_name, project_path, episode)
-                    script_review.assert_base_fingerprint(path, expected)
-                    _require_changed_speech_admitted(kind, _read_json(path), validated)
-                    script_review.write_formal_script_plan_locked(project_path, episode, path, validated)
+            script_review.assert_base_fingerprint(path, expected)
+            _require_changed_speech_admitted(kind, previous, validated)
+            script_review.write_formal_script_plan_locked(
+                project_path,
+                episode,
+                path,
+                validated,
+                dependent_quarantine=QUARANTINE_KIND_PROMPT_AUTHORING if kind == "reference_video" else None,
+            )
         except script_review.ScriptPlanWriteConflict as exc:
             raise ScriptReviewError("conflict", str(exc)) from exc
+        return validated
 
     def _reject_readonly_script_plan(self, project_name: str, project_path: Path, episode: int) -> None:
         """持正式规划锁按最新确认记录与 Agent 草稿归属拒绝只读规划的保存。"""
@@ -493,11 +578,20 @@ class ScriptReviewService:
             episode,
             plan_fingerprint=fingerprint,
             script_fingerprint=overwrite.fingerprint if overwrite is not None else None,
+            capabilities=await resolve_plan_capabilities(project, self.config_resolver),
+            capability_inputs=plan_capability_inputs(project),
         )
         return await self.get_state(project_name, episode)
 
     async def _materialize(
-        self, project_path: Path, episode: int, *, plan_fingerprint: str, script_fingerprint: str | None
+        self,
+        project_path: Path,
+        episode: int,
+        *,
+        plan_fingerprint: str,
+        script_fingerprint: str | None,
+        capabilities: PlanCapabilities,
+        capability_inputs: tuple[object, ...],
     ) -> None:
         """整集转换与确认记录一起落盘；转换期间脚本规划或正式脚本被改过即按冲突拒绝。"""
         confirmed_at = datetime.now(UTC).isoformat()
@@ -506,6 +600,16 @@ class ScriptReviewService:
             if not script_review.apply_confirmation(project, episode, plan_fingerprint, confirmed_at):
                 raise ScriptReviewError("episode_not_found")
 
+        def validate_locked(project: dict[str, Any], path: Path) -> None:
+            if plan_capability_inputs(project) != capability_inputs:
+                raise ScriptReviewError("conversion_conflict", "视频模型配置已变化")
+            quarantine = script_review.script_plan_quarantine_path(project_path, project, episode)
+            if quarantine is not None and quarantine.exists():
+                raise ScriptReviewError("quarantined")
+            diagnostics = self._diagnostics(project_path, project, episode, _read_json(path), capabilities)
+            if issues := diagnostics["blocking_issues"]:
+                raise ScriptReviewError("conversion_refused", "\n".join(issue["message"] for issue in issues))
+
         generator = await asyncio.to_thread(ScriptGenerator, project_path, config_resolver=self.config_resolver)
         try:
             await generator.materialize_script_plan(
@@ -513,6 +617,7 @@ class ScriptReviewService:
                 expected_plan_revision=plan_fingerprint,
                 expected_script_fingerprint=script_fingerprint,
                 project_update=_record_confirmation,
+                validate_locked=validate_locked,
             )
         except SpeechAdmissionError as exc:
             raise ScriptReviewError("speech_admission", admission=exc.admission) from exc
@@ -591,11 +696,7 @@ class ScriptReviewService:
                     admission = admit_script_unit("video_units", unit)
                     if not admission.allowed:
                         raise ScriptReviewError("speech_admission", admission=admission)
-                script_review.write_script_plan_locked(project_path, episode, dumped)
-                fingerprint = script_review.content_fingerprint_of_data(dumped)
-            else:
-                fingerprint = script_review.content_fingerprint_of_data(content)
-        return fingerprint
+            return script_review.content_fingerprint_of_data(content)
 
 
 def _overwrite_dict(project_path: Path, project: Mapping[str, Any], episode: int) -> dict[str, Any] | None:

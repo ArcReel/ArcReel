@@ -21,7 +21,6 @@ from lib.script.draft_quarantine import (
     draft_revision,
     quarantine_path,
     read_quarantine,
-    render_report,
     write_quarantine,
 )
 from lib.script.item_ids import format_item_id
@@ -62,6 +61,7 @@ from tests.integration.server.agent_tool_support import (
     rv_source,
     rv_unit,
     said,
+    seed_legacy_reference_draft,
     use_fake_caps,
     write_drama_script_plan,
     write_nr_script_plan,
@@ -83,42 +83,20 @@ _RV_VIOLATION_CASES = [
 
 
 @pytest.mark.parametrize(("code", "unit"), _RV_VIOLATION_CASES, ids=[c for c, _ in _RV_VIOLATION_CASES])
-async def test_split_reference_video_units_quarantines_each_violation_class(
+async def test_first_reference_plan_preserves_blocked_content_on_regeneration(
     fake_ctx: ToolHarness, monkeypatch, code: str, unit: dict
 ) -> None:
-    """六类阻断违约逐类：产物落草稿、正式文件不被写出、报告按违约类逐条定位。"""
     rv_source(fake_ctx)
-    out = await run_rv_split(fake_ctx, monkeypatch, [unit])
-
-    assert out.problem is not None
-    assert not rv_script_plan_path(fake_ctx).exists()
-
-    envelope = read_rv_quarantine(fake_ctx)
-    assert envelope["kind"] == QUARANTINE_KIND_SCRIPT_PLAN
-    assert [v["code"] for v in envelope["violations"]] == [code]
-    assert envelope["violations"][0]["label"] == "unit E1U01"
-    assert envelope["content"]["units"][0]["text"] == unit["text"]
-    assert "shots" not in envelope["content"]["units"][0]
-
-    report = said(out)
-    draft = read_quarantine(fake_ctx.project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
-    assert draft is not None
-    assert (
-        report
-        == render_report(
-            rv_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path),
-            QUARANTINE_KIND_SCRIPT_PLAN,
-            [DraftViolation(v["message"], code=v["code"]) for v in draft.violations],
-            episode=1,
-        )
-        + "\n⚠️ 降级提示（不阻断，非违约、无需为此重改，草稿仍在场）:\n- unit E1U01：本单元未引用场景，画面地点将由模型自由决定"
-    )
-    assert out.problem.params == {"count": 1}
-    assert f"[{code}]" in report
-    assert "unit E1U01" in report
-    assert rv_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path).as_posix() in report
-    assert str(fake_ctx.project_path) not in report
-    assert "promote_draft" in report
+    first = await run_rv_split(fake_ctx, monkeypatch, [unit])
+    assert first.problem is None
+    assert code in said(first)
+    before = rv_script_plan_path(fake_ctx).read_bytes()
+    retry = await run_rv_split(fake_ctx, monkeypatch, [unit])
+    assert retry.problem is not None
+    assert code in said(retry)
+    assert "原规划" in said(retry)
+    assert rv_script_plan_path(fake_ctx).read_bytes() == before
+    assert not rv_quarantine_path(fake_ctx).exists()
 
 
 async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
@@ -133,11 +111,9 @@ async def test_split_reference_video_units_reports_all_bad_units_in_one_round(
     ]
     out = await run_rv_split(fake_ctx, monkeypatch, units)
 
-    assert out.problem is not None
-    envelope = read_rv_quarantine(fake_ctx)
-    assert [v["label"] for v in envelope["violations"]] == ["unit E1U02", "unit E1U03"]
-    assert [v["code"] for v in envelope["violations"]] == ["unregistered_asset", "braces_in_description"]
-    assert len(envelope["content"]["units"]) == 3
+    assert out.problem is None
+    assert [v["code"] for v in out.value.blocking_issues] == ["unregistered_asset", "braces_in_description"]
+    assert len(json.loads(rv_script_plan_path(fake_ctx).read_bytes())["units"]) == 3
 
 
 async def test_reference_script_plan_write_transaction_does_not_block_event_loop(
@@ -184,7 +160,7 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
 async def test_promote_draft_promotes_after_repair(fake_ctx: ToolHarness, monkeypatch) -> None:
     """Agent 修好草稿后晋升：正式 script_plan 落盘、草稿清除、结构由正文机械派生。"""
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
 
     envelope = read_rv_quarantine(fake_ctx)
     envelope["content"]["units"][0]["text"] = "@[张三] 在 @[村口] 出场"
@@ -202,7 +178,7 @@ async def test_promote_draft_promotes_after_repair(fake_ctx: ToolHarness, monkey
 async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolHarness, monkeypatch) -> None:
     """再违约则再返回刷新后的报告、草稿留在原地，可反复晋升——无收敛轮次上限。"""
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
 
     for _round in range(3):
         out = await promote_reference_draft(fake_ctx)
@@ -220,7 +196,7 @@ async def test_promote_draft_reports_again_without_round_limit(fake_ctx: ToolHar
 
 async def test_promote_draft_rejects_stale_draft_revision(fake_ctx: ToolHarness, monkeypatch) -> None:
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
     args = {"episode_id": 1, "doc_type": "reference_script_plan"}
     opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
     updated = copy.deepcopy(opened["content"])
@@ -334,11 +310,9 @@ async def test_promote_without_base_fingerprint_meta_promotes_unchecked(fake_ctx
     assert not rv_quarantine_path(fake_ctx).exists()
 
 
-async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: ToolHarness, monkeypatch) -> None:
-    """拆分违约落草稿时同样记基线：修好晋升前正式文件被并发改写的话按基线中止。
-    首拆时正式文件不存在，基线为 null——晋升时若正式文件已被另一次拆分写出，同样判冲突。"""
+async def test_legacy_draft_with_absent_baseline_conflicts_after_first_plan(fake_ctx: ToolHarness) -> None:
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
 
     meta = read_rv_quarantine(fake_ctx)["meta"]
     assert "base_fingerprint" in meta
@@ -358,10 +332,14 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
     assert script_review.content_fingerprint(rv_script_plan_path(fake_ctx)) == formal_fingerprint
 
 
-async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: ToolHarness, monkeypatch) -> None:
+@pytest.mark.parametrize("existing", [False, True])
+async def test_split_violation_keeps_pre_generation_formal_baseline(
+    fake_ctx: ToolHarness, monkeypatch, existing: bool
+) -> None:
 
     rv_source(fake_ctx)
-    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
+    if existing:
+        write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     expected = script_review.content_fingerprint(rv_script_plan_path(fake_ctx))
     started = asyncio.Event()
     release = asyncio.Event()
@@ -396,14 +374,16 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
         await asyncio.gather(generation, return_exceptions=True)
         raise
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 在 @[村口] 等候")])
+    winner = rv_script_plan_path(fake_ctx).read_bytes()
     release.set()
 
-    with pytest.raises(TextGenerationError):
+    with pytest.raises(TextGenerationError, match="formal_revision_conflict"):
         await asyncio.wait_for(generation, timeout=10)
 
     current = script_review.content_fingerprint(rv_script_plan_path(fake_ctx))
+    assert rv_script_plan_path(fake_ctx).read_bytes() == winner
     assert current != expected
-    assert read_rv_quarantine(fake_ctx)["meta"]["base_fingerprint"] == expected
+    assert not rv_quarantine_path(fake_ctx).exists()
 
 
 @pytest.mark.parametrize(
@@ -422,7 +402,7 @@ async def test_promote_draft_rejects_schema_breach(fake_ctx: ToolHarness, monkey
     改成非档位值或整个删掉（收成 0 秒）就能一路进正式 script_plan。
     """
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
 
     envelope = read_rv_quarantine(fake_ctx)
     mutate(envelope["content"]["units"][0])
@@ -453,7 +433,7 @@ async def test_promote_draft_reports_broken_outer_shape(fake_ctx: ToolHarness, m
     刷新报告的话，这几种就被甩出了「按报告改完再晋升」的循环。
     """
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
 
     envelope = read_rv_quarantine(fake_ctx)
     mutate_content(envelope["content"])
@@ -495,7 +475,7 @@ async def test_schema_breach_reaches_the_agent_verbatim(
 ) -> None:
     """Web 本地化补充的参数不改变 Agent 经 promote_draft 与 open_draft 读到的 code 与 message。"""
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
     envelope = read_rv_quarantine(fake_ctx)
     mutate_content(envelope["content"])
     if envelope["content"]["units"]:
@@ -540,7 +520,7 @@ async def test_custom_schema_breach_reaches_tools_verbatim(fake_ctx: ToolHarness
 async def test_promote_draft_requires_source_provenance(fake_ctx: ToolHarness, monkeypatch) -> None:
     """meta.source 被改掉后不晋升：按整个 source/ 重解析比产出时更松，别集的原文锚会恰好命中。"""
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
 
     envelope = read_rv_quarantine(fake_ctx)
     assert "source" in envelope["meta"], "拆分侧须一律写出 source 键（未指定源文时为 null）"
@@ -558,7 +538,7 @@ async def test_promote_draft_requires_source_provenance(fake_ctx: ToolHarness, m
 async def test_promote_draft_reports_promotion_not_split(fake_ctx: ToolHarness, monkeypatch) -> None:
     """晋升成功的摘要要说「晋升」：说成「拆分」会让 Agent 以为自己的修改被一次重抽覆盖了。"""
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
     envelope = read_rv_quarantine(fake_ctx)
     envelope["content"]["units"][0]["text"] = "@[张三] 起身"
     rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
@@ -578,20 +558,11 @@ def _rv_scenes(fake_ctx: ToolHarness, scenes: dict[str, Any]) -> None:
     )
 
 
-async def _rv_draft_with(fake_ctx: ToolHarness, monkeypatch, texts: list[str]) -> None:
-    """铺一份待修复草稿，正文按 ``texts`` 覆盖（产出时用一条必违约的正文把草稿逼出来）。"""
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场") for _ in texts])
-    envelope = read_rv_quarantine(fake_ctx)
-    for unit, text in zip(envelope["content"]["units"], texts, strict=True):
-        unit["text"] = text
-    rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
-
-
 async def test_promote_draft_report_names_units_without_scene_reference(fake_ctx: ToolHarness, monkeypatch) -> None:
     """晋升被硬违约挡下时，报告也带软违约段：Agent 修草稿的每一轮都要看得见降级提示。"""
     rv_source(fake_ctx)
     _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
-    await _rv_draft_with(fake_ctx, monkeypatch, ["@[张三] 起身", "@[不存在的人] 出场"])
+    seed_legacy_reference_draft(fake_ctx, ["@[张三] 起身", "@[不存在的人] 出场"])
 
     out = await promote_reference_draft(fake_ctx)
 
@@ -609,7 +580,7 @@ async def test_promote_draft_report_silent_when_every_unit_references_a_scene(
     """每个 unit 都引用了场景时报告不带软违约段——没有降级可提示。"""
     rv_source(fake_ctx)
     _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
-    await _rv_draft_with(fake_ctx, monkeypatch, ["@[村口] 黄昏，@[不存在的人] 出场"])
+    seed_legacy_reference_draft(fake_ctx, ["@[村口] 黄昏，@[不存在的人] 出场"])
 
     out = await promote_reference_draft(fake_ctx)
 
@@ -621,7 +592,7 @@ async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: Too
     """晋升回执带软违约段，与拆分回执同口径——软违约不阻断晋升，正式文件照常落盘。"""
     rv_source(fake_ctx)
     _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
-    await _rv_draft_with(fake_ctx, monkeypatch, ["@[村口] 黄昏，@[张三] 推门", "@[张三] 起身"])
+    seed_legacy_reference_draft(fake_ctx, ["@[村口] 黄昏，@[张三] 推门", "@[张三] 起身"])
 
     out = await promote_reference_draft(fake_ctx)
 
@@ -638,7 +609,7 @@ async def test_promote_receipt_silent_when_every_unit_references_a_scene(fake_ct
     """每个 unit 都引用了场景时回执不带软违约段。"""
     rv_source(fake_ctx)
     _rv_scenes(fake_ctx, {"村口": {"description": "黄昏的村口"}})
-    await _rv_draft_with(fake_ctx, monkeypatch, ["@[村口] 黄昏，@[张三] 推门"])
+    seed_legacy_reference_draft(fake_ctx, ["@[村口] 黄昏，@[张三] 推门"])
 
     out = await promote_reference_draft(fake_ctx)
 
@@ -650,7 +621,7 @@ async def test_cancelled_reference_script_plan_promotion_finishes_commit_and_cle
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
     envelope = read_rv_quarantine(fake_ctx)
     envelope["content"]["units"][0]["text"] = "@[张三] 起身"
     rv_quarantine_path(fake_ctx).write_text(json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
@@ -983,7 +954,7 @@ async def test_split_reference_video_units_clears_stale_quarantine_on_success(
 ) -> None:
     """重拆分成功即清掉上一轮的草稿——留着会让内容确认与生成侧继续阻塞在已被取代的产物上。"""
     rv_source(fake_ctx)
-    await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[不存在的人] 出场")])
+    seed_legacy_reference_draft(fake_ctx, ["@[不存在的人] 出场"])
     assert rv_quarantine_path(fake_ctx).exists()
 
     out = await run_rv_split(fake_ctx, monkeypatch, [rv_unit("@[张三] 起身")])
@@ -1338,18 +1309,10 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
     assert "formal_revision_conflict" in said(out)
     formal = json.loads(drama_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert formal["scenes"][0]["scene_description"] == "并发正式内容"
-    assert read_drama_quarantine(fake_ctx)["content"]["scenes"][0]["scene_description"] == "本次生成内容"
+    assert not drama_quarantine_path(fake_ctx).exists()
 
 
-async def test_split_narration_segments_quarantines_violation_instead_of_discarding(
-    fake_ctx: ToolHarness, monkeypatch
-) -> None:
-    """违约产出落草稿而非丢弃：正式文件不写，报告带违约类与分镜定位，草稿里是这次的产出。
-
-    丢弃重抽既烧钱又不收敛（同一模型对同一份原文大概率再犯同一类错），本机制的全部要点就是
-    让 Agent 就地改这份已付费的产出。
-    """
-
+async def test_first_narration_plan_reports_blocking_asset(fake_ctx: ToolHarness, monkeypatch) -> None:
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 4, _RV_NOVEL, characters_in_segment=["王五"])]
     use_fake_caps(fake_ctx)
@@ -1357,18 +1320,10 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 
-    assert out.problem is not None
-    report = said(out)
-    assert nr_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path).as_posix() in report
-    assert str(fake_ctx.project_path) not in report
-    assert "[unregistered_asset]" in report
-    assert "segment E1S02" in report
-    assert not nr_script_plan_path(fake_ctx).exists(), "正式文件一步不动"
-    envelope = read_nr_quarantine(fake_ctx)
-    assert envelope["kind"] == QUARANTINE_KIND_NARRATION_SCRIPT_PLAN
-    assert envelope["content"]["segments"][0]["segment_id"] == "E1S02"
-    assert envelope["meta"]["source"] == "source/episode_1.txt"
-    assert envelope["meta"]["base_fingerprint"] is None
+    assert out.problem is None
+    assert "[unregistered_asset]" in said(out)
+    assert nr_script_plan_path(fake_ctx).exists()
+    assert not nr_quarantine_path(fake_ctx).exists()
 
 
 async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_ctx: ToolHarness, monkeypatch) -> None:

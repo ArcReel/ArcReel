@@ -24,6 +24,7 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
     quarantine_path,
+    write_quarantine,
 )
 from server.agent_toolset.declaration import ToolDeclaration, invoke_declaration
 from server.agent_toolset.envelope import json_value
@@ -369,6 +370,17 @@ async def run_rv_split(
 
 def rv_quarantine_path(fake_ctx: ToolHarness):
     return quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_SCRIPT_PLAN)
+
+
+def seed_legacy_reference_draft(fake_ctx: ToolHarness, texts: list[str]) -> None:
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_SCRIPT_PLAN,
+        content={"units": [rv_unit(text) for text in texts]},
+        violations=[],
+        meta={"source": "source/episode_1.txt", "base_fingerprint": None},
+    )
 
 
 def read_rv_quarantine(fake_ctx: ToolHarness) -> dict:

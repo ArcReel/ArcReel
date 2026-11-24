@@ -51,6 +51,7 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
+    clear_quarantine,
     draft_owner,
     quarantine_path,
     read_quarantine,
@@ -404,6 +405,7 @@ def write_formal_script_plan_locked(
     dependent_quarantine: str | None = None,
     clear_dependent_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
+    generated_from: dict[str, Any] | None = None,
 ) -> bool:
     """任一变体正式 script_plan 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
     下游草稿。返回内容是否发生变化。
@@ -429,12 +431,39 @@ def write_formal_script_plan_locked(
     changed = previous != content
     quarantine = None if dependent_quarantine is None else quarantine_path(project_path, episode, dependent_quarantine)
     paths = (path,) if quarantine is None else (path, quarantine)
+    source_entry = find_episode(generated_from, episode) if generated_from is not None else None
+    settle_stale = (
+        source_entry is not None
+        and source_entry.get("ledger_status") == "stale"
+        and STALE_SCRIPT_PLAN_REVISION_FIELD in source_entry
+    )
+    draft_kind = script_plan_quarantine_kind(generated_from) if generated_from is not None else None
+    if draft_kind:
+        paths += (quarantine_path(project_path, episode, draft_kind),)
+    if settle_stale:
+        paths += (project_path / "project.json",)
+
+    def settle(current: dict[str, Any]) -> None:
+        entry = find_episode(current, episode)
+        if (
+            not entry
+            or entry.get("ledger_status") != "stale"
+            or source_entry is None
+            or entry.get(STALE_SCRIPT_PLAN_REVISION_FIELD) != source_entry[STALE_SCRIPT_PLAN_REVISION_FIELD]
+        ):
+            raise ScriptPlanRebuildCompletionError("baseline_conflict", "分集重建基线已变化")
+        entry[STALE_SCRIPT_PLAN_REBUILT_REVISION_FIELD] = content_fingerprint_of_data(content)
+
     from lib.script.planning_draft_trash import trash_planning_draft
 
     record = None
     try:
         with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
             atomic_write_json(path, content)
+            if draft_kind:
+                clear_quarantine(project_path, episode, draft_kind, record_activity=False)
+            if settle_stale:
+                ProjectManager.for_project_dir(project_path).update_project_locked(project_path.name, settle)
             if changed and clear_dependent_quarantine and quarantine is not None:
                 record = trash_planning_draft(project_path, episode, quarantine)
     except BaseException:

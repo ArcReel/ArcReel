@@ -230,6 +230,7 @@ from server.services.admission.video_batch_admission import generation_action_fo
 from server.services.project.asset_identity import merge_project_asset, rename_project_asset
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
+from server.services.project.script_review import ScriptPlanContent, ScriptReviewError, ScriptReviewService
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.services.tasks.episode_activity import episode_has_active_tasks
 from server.services.tasks.video_caps import (
@@ -994,7 +995,7 @@ class GenerateScriptPlanRequest(BaseModel):
 
     episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     source: str | SkipJsonSchema[None] = Field(
-        default=None, description="可选的项目内源文件相对路径；缺省读取本集派生源文 source/episode_N.txt"
+        default=None, description="仅接受本集规范集原文路径 source/episode_N.txt，可省略"
     )
     instructions: _TextInstructions | SkipJsonSchema[None] = None
     dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
@@ -1182,14 +1183,6 @@ class SourceTextContent(BaseModel):
     etag: str
     path: str
     text: str
-
-
-class ScriptPlanContent(BaseModel):
-    revision: str
-    etag: str
-    episode: int
-    path: str
-    content: Any
 
 
 class ProjectFilesContent(BaseModel):
@@ -1471,19 +1464,15 @@ async def get_source_text(
         return ToolOutcome(problem=_file_problem("get_source_text", exc))
 
 
-def _get_script_plan_content_sync(
-    project_name: str, episode: int, projects: ProjectManager
-) -> ScriptPlanContent | None:
-    project = projects.load_project(project_name)
+def _get_script_plan_content_sync(project_dir: Path, project: dict[str, Any], episode: int) -> ScriptPlanContent:
     kind = script_plan_kind(project)
     if kind is None:
-        return None
+        raise FileNotFoundError
     names = (
         (REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME, REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME)
         if kind == "reference_video"
         else (SCRIPT_PLAN_FILENAMES[kind], *SCRIPT_PLAN_LEGACY_FILENAMES.get(kind, ()))
     )
-    project_dir = projects.get_project_path(project_name)
     for name in names:
         relative = f"drafts/episode_{episode}/{name}"
         try:
@@ -1502,10 +1491,17 @@ async def get_script_plan_content(
 ) -> ToolOutcome[ScriptPlanContent]:
     episode = request.value.episode_id
     try:
-        result = await asyncio.to_thread(_get_script_plan_content_sync, scope.project_name, episode, services.projects)
+        service = ScriptReviewService(services.projects, config_resolver=services.capabilities)
+        result = await service.read_agent_content(
+            scope.project_name,
+            episode,
+            lambda path, project: _get_script_plan_content_sync(path, project, episode),
+        )
         if result is None:
             return ToolOutcome(problem=ToolProblem("script_plan_not_applicable", "当前项目没有 script_plan 中间态"))
         return ToolOutcome(value=result)
+    except ScriptReviewError as exc:
+        return ToolOutcome(problem=ToolProblem(exc.code, exc.message))
     except Exception as exc:
         return ToolOutcome(problem=_file_problem("get_script_plan_content", exc))
 
@@ -3380,6 +3376,8 @@ def _text_result_payload(value: TextGenerationResult) -> dict[str, Any]:
         payload["new_assets"] = list(value.new_assets)
     if isinstance(value, ReferenceAuthoringResult):
         payload.update(outcome=value.outcome, written_ids=value.written_ids, failed_units=value.failed_units)
+    if value.blocking_issues:
+        payload["blocking_issues"] = value.blocking_issues
     if value.no_pending_authoring:
         payload["no_pending_authoring"] = True
     return payload
