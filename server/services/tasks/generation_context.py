@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from lib.backends.audio_backends.base import AudioCapability, VoiceOption
 from lib.backends.backend_assembly import assemble_backend, callable_model_key
-from lib.backends.backend_assembly.specs import builtin_model_endpoint
+from lib.backends.builtin_endpoints import builtin_model_endpoint
 from lib.backends.gemini_shared import get_shared_rate_limiter
 from lib.backends.image_capabilities import (
     backend_image_quality_options,

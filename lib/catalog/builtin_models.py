@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import MEDIA_TYPES
-from lib.backends.backend_assembly import specs as builtin_endpoints
+from lib.backends.builtin_endpoints import builtin_model_endpoint, get_provider_endpoints
+from lib.backends.endpoint_prefill import infer_builtin_endpoint
 from lib.catalog import query as catalog
 from lib.catalog.model_id import has_dot_segment
 from lib.config import registry
@@ -210,7 +211,7 @@ async def add_builtin_model(
 def endpoint_options(provider_id: str, media_type: str) -> tuple[str, ...]:
     """内置供应商在这个媒体类型下可选的内置调用端点；没有这个媒体类型的调用通道时为空。"""
     try:
-        return builtin_endpoints.get_provider_endpoints(provider_id, media_type).endpoints
+        return get_provider_endpoints(provider_id, media_type).endpoints
     except ValueError:
         return ()
 
@@ -218,7 +219,7 @@ def endpoint_options(provider_id: str, media_type: str) -> tuple[str, ...]:
 def _checked_endpoint(provider_id: str, media_type: str, endpoint: str | None, *, model_id: str) -> str:
     """用户添加的模型要记下的端点：给了就核对它在可选端点里，没给时按名字预填。"""
     if endpoint is None:
-        return builtin_endpoints.infer_builtin_endpoint(provider_id, media_type, model_id)
+        return infer_builtin_endpoint(provider_id, media_type, model_id)
     if endpoint not in endpoint_options(provider_id, media_type):
         raise BuiltinModelError("builtin_model_endpoint_unavailable", endpoint=endpoint, media_type=media_type)
     return endpoint
@@ -295,7 +296,7 @@ async def update_builtin_model(
         row.model_id = target
     if endpoint is not None:
         checked = _checked_endpoint(provider_id, row.media_type or "", endpoint, model_id=target)
-        if capability_overrides is _UNCHANGED and checked != builtin_endpoints.builtin_model_endpoint(
+        if capability_overrides is _UNCHANGED and checked != builtin_model_endpoint(
             provider_id, row.media_type or "", model_id
         ):
             capability_overrides = None

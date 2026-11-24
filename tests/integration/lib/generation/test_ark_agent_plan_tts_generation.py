@@ -18,7 +18,7 @@ import pytest
 
 from arcreel_catalog_core import parse_entry
 from lib.backends.audio_backends.ark_agent_plan import ArkAgentPlanAudioBackend
-from lib.backends.backend_assembly.specs import builtin_model_endpoint
+from lib.backends.builtin_endpoints import builtin_model_endpoint
 from lib.billing.ledger import Ledger
 from lib.catalog import query
 from lib.db.repositories.usage_repo import UsageRepository

@@ -193,7 +193,7 @@ class TestCapabilities:
     def test_decorated_model_name_resolves_r2v_request_shape(self):
         """代理中转的前缀/后缀装饰名（infer_endpoint 会按子串路由到 百炼异步视频端点）
         必须解析出 r2v 的请求形态（必须带参考图），而非退回通道声明。"""
-        from lib.backends.backend_assembly.specs import dashscope_video_endpoint_for_name
+        from lib.backends.endpoint_prefill import dashscope_video_endpoint_for_name
 
         for model, _expected_key in (
             ("proxy/happyhorse-1.0-r2v", "happyhorse-1.0-r2v"),

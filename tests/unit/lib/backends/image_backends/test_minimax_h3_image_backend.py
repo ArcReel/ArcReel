@@ -115,7 +115,8 @@ class TestChannelFacts:
         assert backend.model == "MiniMax-H3-Image-Highspeed"
 
     def test_builtin_minimax_provider_routes_the_endpoint_to_this_channel(self):
-        from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINT_SPECS, PROVIDER_ENDPOINTS
+        from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINT_SPECS
+        from lib.backends.builtin_endpoints import PROVIDER_ENDPOINTS
 
         declared = PROVIDER_ENDPOINTS[("minimax", "image")]
         assert declared.endpoints == ("minimax-image", "minimax-h3-image")
@@ -483,7 +484,7 @@ class TestCatalogAndVersionFloor:
         }
 
     def test_catalog_accepts_h3_token_prices_and_gates_older_versions(self, monkeypatch: pytest.MonkeyPatch):
-        from lib.backends.backend_assembly.specs import builtin_model_endpoint
+        from lib.backends.builtin_endpoints import builtin_model_endpoint
         from lib.catalog.user_entries import new_entry
         from tests.catalog_support import install_catalog
 

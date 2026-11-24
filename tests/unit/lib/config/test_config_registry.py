@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 
 from arcreel_catalog_core import AudioFacts, CatalogEntry
-from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINTS
+from lib.backends.builtin_endpoints import PROVIDER_ENDPOINTS
 from lib.catalog import query as catalog
 from lib.config.registry import (
     PROVIDER_REGISTRY,

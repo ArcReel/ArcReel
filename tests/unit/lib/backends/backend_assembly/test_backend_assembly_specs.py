@@ -14,6 +14,7 @@ import pytest
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import (
+    PROVIDER_ENDPOINT_SPECS,
     PROVIDER_SPEC_REGISTRY,
     ProviderSpec,
     _validate_provider_specs,
@@ -635,21 +636,21 @@ class TestRegistryShape:
 
 
 class TestValidateProviderSpecs:
-    """import 期不变式：build 可调用、键与 spec 字段一致、media_type 合法。misconfig fail-fast。"""
+    """内置装配表的条目与端点清单须在导入时通过校验。"""
 
     def test_passes_on_real_registry(self):
         _validate_provider_specs()
         assert PROVIDER_SPEC_REGISTRY
 
     def test_non_callable_build_rejected(self, monkeypatch: pytest.MonkeyPatch):
-        bad = dataclasses.replace(PROVIDER_SPEC_REGISTRY[("ark", "image")], build_backend="not-callable")
-        monkeypatch.setitem(PROVIDER_SPEC_REGISTRY, ("ark", "image"), bad)
+        bad = dataclasses.replace(PROVIDER_ENDPOINT_SPECS[("ark", "ark-seedream-4")], build_backend="not-callable")
+        monkeypatch.setitem(PROVIDER_ENDPOINT_SPECS, ("ark", "ark-seedream-4"), bad)
         with pytest.raises(ValueError, match="non-callable build_backend"):
             _validate_provider_specs()
 
     def test_key_field_mismatch_rejected(self, monkeypatch: pytest.MonkeyPatch):
-        bad = dataclasses.replace(PROVIDER_SPEC_REGISTRY[("ark", "image")], provider_id="drifted")
-        monkeypatch.setitem(PROVIDER_SPEC_REGISTRY, ("ark", "image"), bad)
+        bad = dataclasses.replace(PROVIDER_ENDPOINT_SPECS[("ark", "ark-seedream-4")], provider_id="drifted")
+        monkeypatch.setitem(PROVIDER_ENDPOINT_SPECS, ("ark", "ark-seedream-4"), bad)
         with pytest.raises(ValueError, match=r"key .* does not match spec"):
             _validate_provider_specs()
 
@@ -666,7 +667,8 @@ class TestValidateProviderSpecs:
             "audio": set(audio_names()),
             "text": set(text_names()),
         }
-        for (_provider, media), spec in PROVIDER_SPEC_REGISTRY.items():
+        for spec in PROVIDER_ENDPOINT_SPECS.values():
+            media = spec.media_type
             if spec.registry_backend == "declarative":
                 continue
             assert spec.registry_backend in registered[media], (

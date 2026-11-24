@@ -72,7 +72,7 @@
 
 ## 仅内置供应商可用的端点
 
-以下协议设有独立索引，其余专用端点请查阅对应的供应商页。完整命名见 [`PROVIDER_ONLY_ENDPOINTS`](../../../lib/backends/backend_assembly/specs.py)。
+以下协议设有独立索引，其余专用端点请查阅对应的供应商页。完整命名见 [`PROVIDER_ONLY_ENDPOINTS`](../../../lib/backends/builtin_endpoints.py)。
 
 - [ark-agent-plan-tts](ark-agent-plan-tts.md)
 - [grok-tts](grok-tts.md)

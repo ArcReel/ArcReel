@@ -31,7 +31,7 @@ from arcreel_catalog_core import (
     VideoFacts,
     dump_entry,
 )
-from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS, builtin_model_endpoint
+from lib.backends.builtin_endpoints import PROVIDER_ONLY_ENDPOINTS, builtin_model_endpoint
 from lib.billing.multipliers import get_provider_multiplier
 from lib.catalog import builtin_discovery, builtin_models
 from lib.catalog import query as catalog

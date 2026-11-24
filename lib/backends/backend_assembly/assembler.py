@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
-from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINT_SPECS, builtin_model_endpoint, get_provider_endpoints
+from lib.backends.backend_assembly.specs import PROVIDER_ENDPOINT_SPECS
+from lib.backends.builtin_endpoints import builtin_model_endpoint, get_provider_endpoints
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY

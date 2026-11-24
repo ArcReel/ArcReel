@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
-from lib.backends.backend_assembly.specs import _VIDU_PROFILES, request_profile_endpoint_for_name
+from lib.backends.endpoint_prefill import _VIDU_PROFILES, request_profile_endpoint_for_name
 from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.video_backends.vidu import (
     DEFAULT_MODEL,
@@ -932,7 +932,8 @@ class TestQ3ReferenceOnlyModelsInCatalog:
     def test_only_reference_to_video_is_open(
         self, monkeypatch: pytest.MonkeyPatch, model: str, endpoint: str, audio_track: str, reference_audio: int
     ):
-        from lib.backends.backend_assembly.specs import builtin_model_endpoint, builtin_video_capabilities_for_model
+        from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+        from lib.backends.builtin_endpoints import builtin_model_endpoint
         from tests.catalog_support import install_catalog
 
         install_catalog(monkeypatch, self._catalog(), app_version="0.37.1")

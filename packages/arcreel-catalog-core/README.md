@@ -118,7 +118,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 
 ### 端点清单
 
-端点清单定义在 `arcreel_catalog_core.endpoints`，是主仓代码中调用端点定义的副本，由主仓测试保证二者一致：
+应用与目录构建共用 `arcreel_catalog_core.endpoints` 中的端点清单。主仓测试校验清单与内置装配及自定义端点注册表一致。
 
 - `BUILTIN_ENDPOINTS`：内置供应商可挂接的各个内置调用端点的媒体类型及可选起始版本 `since`。清单首次发布时已有的端点均为基线端点，不带起始版本。
 - `BUILTIN_PROVIDER_ENDPOINTS`：每个内置供应商按媒体类型列出的可选端点与默认端点。
