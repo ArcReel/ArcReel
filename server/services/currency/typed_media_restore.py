@@ -22,6 +22,7 @@ from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import resource_relative_path
 from lib.script.script_skeleton import SKELETON_ENTITY_TYPES, SKELETON_ITEM_LABEL_KEYS, resolve_script_kind
 from server.services.currency.artifact_version_restore import (
+    UploadedVideoRestoreTarget,
     get_typed_media_restore_target,
     restore_typed_media_version,
 )
@@ -64,13 +65,16 @@ async def restore_typed_media_resource(
 ) -> dict[str, Any]:
     """把一个 typed 媒体资源（audio / videos / reference_videos）切回指定历史版本。
 
-    版本不存在抛 ``NotFoundError``，缺完整取证描述的历史版本抛 ``BadRequestError``，音频正被任务
-    使用时抛 ``ConflictError``；成功返回还原信息、``file_path`` 与 ``asset_fingerprints``。
+    版本不存在抛 ``NotFoundError``，缺取证描述的生成版本或归属不唯一的上传版本抛
+    ``BadRequestError``。音频正在被任务使用时抛 ``ConflictError``。成功返回还原信息、
+    ``file_path`` 与 ``asset_fingerprints``。
     """
     try:
         target = await asyncio.to_thread(
             get_typed_media_restore_target,
             versions,
+            project_manager=project_manager,
+            project_name=project_name,
             resource_type=resource_type,
             resource_id=resource_id,
             version=version,
@@ -80,12 +84,16 @@ async def restore_typed_media_resource(
             project_path = project_manager.get_project_path(project_name)
             current_file, file_path = resolve_media_file(resource_type, resource_id, project_path)
             video_kind = None
-            if resource_type in {"videos", "reference_videos"}:
-                video_kind = (
-                    "video_units"
-                    if resource_type == "reference_videos"
-                    else resolve_script_kind(project_manager.load_script_readonly(project_name, target.script_file))
-                )
+            if resource_type == "reference_videos":
+                video_kind = "video_units"
+            elif resource_type == "videos":
+                try:
+                    script = project_manager.load_script_readonly(project_name, target.script_file)
+                except FileNotFoundError as exc:
+                    if isinstance(target, UploadedVideoRestoreTarget):
+                        raise ValueError("upload owner script disappeared during video restore") from exc
+                    raise
+                video_kind = resolve_script_kind(script)
             result = restore_typed_media_version(
                 project_manager=project_manager,
                 project_name=project_name,
@@ -96,6 +104,7 @@ async def restore_typed_media_resource(
                 version=version,
                 current_file=current_file,
                 artifact_path=file_path,
+                target=target,
             )
 
             asset_fingerprints: dict[str, int] = {}
