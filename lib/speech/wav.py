@@ -9,11 +9,13 @@ _CHUNK = struct.Struct("<4sI")
 _SIZE = struct.Struct("<I")
 _FORMAT = struct.Struct("<HHIIHH")
 _FOURCC = re.compile(rb"[ -~]{4}")
+_TRAILING_FOURCC = re.compile(rb"[A-Za-z0-9]{2,4} *")
+_EMPTY_FILLER_IDS = {b"JUNK", b"PAD "}
 _PCM_SUBFORMAT = bytes.fromhex("01000000 0000 1000 8000 00aa00389b71")
 
 
 def _is_streaming_size(size: int) -> bool:
-    return 0x7FFF0000 <= size <= 0x7FFFFFFF or size == 0xFFFFFFFF
+    return size == 0 or 0x7FFF0000 <= size <= 0x7FFFFFFF or 0xFFFF0000 <= size <= 0xFFFFFFFF
 
 
 def _format_frame_size(content: bytes, start: int, end: int) -> int | None:
@@ -34,30 +36,61 @@ def _format_frame_size(content: bytes, start: int, end: int) -> int | None:
     return frame_size
 
 
+def _has_list_subchunks(content: bytes, start: int, end: int) -> bool:
+    offset = start + 4
+    if offset == end:
+        return False
+    while offset + _CHUNK.size <= end:
+        name, size = _CHUNK.unpack_from(content, offset)
+        if not _FOURCC.fullmatch(name):
+            return False
+        offset += _CHUNK.size + size + (size & 1)
+    return offset == end
+
+
 def _find_data_size(content: bytes, start: int, frame_size: int) -> int:
-    """Infer PCM length from the longest complete suffix of aligned RIFF chunks."""
+    """Infer PCM length from frame alignment and the trailing RIFF chunk chain.
+
+    A LIST with complete subchunks supports retaining its chain. Without that
+    structure, require a unique frame-aligned interpretation.
+    """
     end = len(content)
-    suffix = [end]
-    boundaries = {end}
+    boundaries = {end: False}
+    structured_boundary = None
     for offset in range((end - _CHUNK.size) & ~1, start - 1, -2):
         size = _SIZE.unpack_from(content, offset + 4)[0]
-        next_chunk = offset + _CHUNK.size + size + (size & 1)
-        if next_chunk not in boundaries or not _FOURCC.fullmatch(content, offset, offset + 4):
+        chunk_end = offset + _CHUNK.size + size
+        if chunk_end == end:
+            next_chunk = end
+        else:
+            next_chunk = chunk_end + (size & 1)
+            if size & 1 and (next_chunk > end or content[next_chunk - 1] != 0):
+                continue
+        has_list = boundaries.get(next_chunk)
+        if has_list is None or not _TRAILING_FOURCC.fullmatch(content, offset, offset + 4):
             continue
-        if size & 1 and content[next_chunk - 1] != 0:
+        name = content[offset : offset + 4]
+        if size == 0 and name not in _EMPTY_FILLER_IDS:
             continue
-        while suffix[-1] != next_chunk:
-            boundaries.remove(suffix.pop())
-        suffix.append(offset)
-        boundaries.add(offset)
+        if name == b"LIST":
+            list_start = offset + _CHUNK.size
+            if size < 4 or not _TRAILING_FOURCC.fullmatch(content, list_start, list_start + 4):
+                continue
+            has_list = has_list or _has_list_subchunks(content, list_start, chunk_end)
+        boundaries[offset] = has_list
+        if has_list:
+            structured_boundary = offset
 
-    suffix_start = suffix[-1]
-    span = suffix_start - start
+    candidate_boundaries = boundaries if structured_boundary is None else (structured_boundary,)
     sizes = []
-    if span % frame_size == 0:
-        sizes.append(span)
-    if span > 0 and span % 2 == 0 and content[suffix_start - 1] == 0 and (span - 1) % frame_size == 0:
-        sizes.append(span - 1)
+    for boundary in candidate_boundaries:
+        span = boundary - start
+        if span % frame_size == 0:
+            sizes.append(span)
+        if span > 0 and span % 2 == 0 and content[boundary - 1] == 0 and (span - 1) % frame_size == 0:
+            sizes.append(span - 1)
+        if len(sizes) > 1:
+            break
     if len(sizes) != 1:
         raise ValueError("Invalid WAV: cannot determine PCM data length")
     return sizes[0]
@@ -97,7 +130,10 @@ def normalize_wav_header(content: bytes) -> bytes:
             if not seen_format or seen_data:
                 raise ValueError("Invalid WAV: expected one data chunk after fmt")
             seen_data = True
-            if start + size > len(content) and _is_streaming_size(size):
+            is_streaming_data = (start + size > len(content) and _is_streaming_size(size)) or (
+                size == 0 and start < len(content) and riff_size != actual_riff_size
+            )
+            if is_streaming_data:
                 if frame_size is None:
                     raise ValueError("Invalid WAV: streaming data requires PCM")
                 size = _find_data_size(content, start, frame_size)
@@ -127,9 +163,11 @@ def normalize_wav_header(content: bytes) -> bytes:
             position, size = data_size_fix
             normalized.seek(position)
             normalized.write(_SIZE.pack(size))
-        normalized.seek(0)
-        try:
-            with wave.open(normalized, "rb"):
-                return normalized.getvalue()
-        except (wave.Error, EOFError) as exc:
-            raise ValueError("Invalid WAV: repaired header is unreadable") from exc
+        if frame_size is not None:
+            normalized.seek(0)
+            try:
+                with wave.open(normalized, "rb"):
+                    pass
+            except (wave.Error, EOFError) as exc:
+                raise ValueError("Invalid WAV: repaired header is unreadable") from exc
+        return normalized.getvalue()

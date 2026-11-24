@@ -230,7 +230,7 @@ ArcReel 的旁白能力可以使用阿里百炼 Qwen TTS 与 qwen-audio TTS、Mi
 
 阿里百炼语音分为两个调用端点：「阿里百炼（语音合成）」调用 Qwen TTS（`qwen3-tts` 等），「阿里百炼（qwen-audio 语音合成）」调用 qwen-audio TTS（`qwen-audio-3.0-tts`、`qwen-audio-3.1-tts` 系列）。两个端点的音色不通用，qwen-audio 的各个模型也只能使用各自的音色，完整列表见百炼[音色列表](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list)。qwen-audio 端点支持配音语速，范围 0.5～2.0，超出范围时按最近的边界值提交。添加模型时，名称含 `qwen-audio` 的模型预填 qwen-audio 端点，其余百炼语音模型预填 Qwen TTS 端点，在[模型设置](#model-settings)里可以修改。
 
-ArcReel 保存百炼配音前会修正 WAV 头中的流式长度占位值。无法安全修复的 WAV 会导致配音任务失败，且不会因此再次提交合成请求。
+ArcReel 保存百炼配音前会修正 WAV 头中的流式长度占位值。推断音频长度时，文件尾部识别出的 RIFF 块会保留在音频数据之外，包括零长度的 `JUNK` 和 `PAD ` 填充块。无法安全修复的 WAV 会导致配音任务失败，且不会因此再次提交合成请求。
 
 Grok TTS 的配音语速范围是 0.7～1.5。超出范围时合成任务在提交前失败，不产生费用，也不会自动改成边界值，需要在设置里调整或清空配音语速。
 
