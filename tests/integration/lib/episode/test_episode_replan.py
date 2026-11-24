@@ -562,18 +562,27 @@ async def test_snapshot_failure_restores_ledger_files_and_backups(
     alias.write_bytes(b"legacy\r\n")
     canonical.write_bytes(b"other legacy")
     (source / f"_{alias.name}.bak").write_bytes(b"older backup")
+    snapshots_dir = source / "snapshots"
+    snapshots_dir.mkdir(exist_ok=True)
+    stale_snapshot = snapshots_dir / "stale.txt"
+    stale_snapshot.write_bytes(b"stale snapshot")
     candidate = await _generate(project_dir, 1, ["重逢离别。"]) if operation == "replan" else ""
 
     def state():
         return {p: p.read_bytes() for p in [project_dir / "project.json", *source.rglob("*")] if p.is_file()}
 
+    module = __import__(f"lib.episode.episode_{operation}", fromlist=["sync_source_snapshots"])
+    real_sync = module.sync_source_snapshots
+
     def fail_sync(*args, **kwargs):
         assert not alias.exists()
         assert (source / f"_{alias.name}.1.bak").read_bytes() == b"legacy\r\n"
+        real_sync(*args, **kwargs)
+        assert not stale_snapshot.exists()
         raise OSError("snapshot failure")
 
     before = state()
-    monkeypatch.setattr(f"lib.episode.episode_{operation}.sync_source_snapshots", fail_sync)
+    monkeypatch.setattr(module, "sync_source_snapshots", fail_sync)
 
     async def perform_operation():
         if operation == "replan":

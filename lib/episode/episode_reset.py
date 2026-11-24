@@ -47,14 +47,13 @@ from lib.episode.episode_ledger import (
 )
 from lib.episode.episode_sources import (
     SOURCE_ORIGIN_FIELD,
-    SOURCE_SNAPSHOTS_DIR,
     SourceOrigin,
     archive_episode_file_path,
     discover_sources,
     episode_entry,
     first_cut_episode_id,
     is_cut_episode,
-    source_snapshot_path,
+    source_snapshot_transaction_paths,
     span_text,
     sync_source_snapshots,
     whole_source_files,
@@ -458,12 +457,7 @@ def reset_episode_planning(
         transaction_paths = [*commit_plan.deletes, remaining]
         for source, target in archive_targets.items():
             transaction_paths.extend((source, target))
-        snapshot_dir = project_dir / SOURCE_SNAPSHOTS_DIR
-        if snapshot_dir.is_dir() and not snapshot_dir.is_symlink():
-            transaction_paths.extend(path for path in snapshot_dir.iterdir() if path.is_file())
-        transaction_paths.extend(
-            source_snapshot_path(project_dir, rel) for rel in whole_source_files(committed_project)
-        )
+        transaction_paths.extend(source_snapshot_transaction_paths(project_dir, whole_source_files(committed_project)))
 
         with formal_write_transaction(*transaction_paths):
             deleted, archived = _apply_files(

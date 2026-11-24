@@ -69,7 +69,6 @@ from lib.episode.episode_sources import (
     is_cut_episode,
     legacy_cut_episode_ids,
     planning_start,
-    source_snapshot_path,
     span_text,
     sync_source_snapshots,
     unsplit_range_ending_at,
@@ -676,9 +675,13 @@ class EpisodePlanner:
 
         formal_paths = [episode_source_path(self.project_path, num) for num in protected_ids]
         formal_paths.append(self.project_path / "source" / "_remaining.txt")
-        formal_paths.extend(source_snapshot_path(self.project_path, rel) for rel in whole_source_files(project))
-        archives = EpisodeFileArchives(self.project_path, protected_ids, formal_paths)
-        final_project = await self._update_project(_commit, formal_paths=archives.protected_paths)
+        archives = EpisodeFileArchives(
+            self.project_path,
+            protected_ids,
+            formal_paths,
+            source_files=whole_source_files(project),
+        )
+        final_project = await self._update_project(_commit, formal_paths=archives.prepare_protected_paths)
         exhausted = bool(committed["exhausted"])
         return PlanResult(
             episodes=summaries,

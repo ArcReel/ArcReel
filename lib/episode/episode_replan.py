@@ -73,7 +73,6 @@ from lib.episode.episode_sources import (
     first_cut_episode_id,
     is_cut_episode,
     legacy_cut_episode_ids,
-    source_snapshot_path,
     sync_source_snapshots,
     whole_source_files,
 )
@@ -621,8 +620,12 @@ def adopt_replan_candidate(
         legacy.difference_update(adoption.retired)
     touched = [*adoption.replaced, *new_ids]
     formal_paths = [episode_source_path(project_dir, num) for num in touched]
-    formal_paths.extend(source_snapshot_path(project_dir, rel) for rel in whole_source_files(project))
-    archives = EpisodeFileArchives(project_dir, legacy.union(new_ids), formal_paths)
+    archives = EpisodeFileArchives(
+        project_dir,
+        legacy.union(new_ids),
+        formal_paths,
+        source_files=whole_source_files(project),
+    )
     committed: dict[str, Any] = {}
 
     def _commit(p: dict[str, Any]) -> None:
@@ -638,7 +641,7 @@ def adopt_replan_candidate(
         )
 
     try:
-        pm.update_project(project_name, _commit, formal_paths=archives.protected_paths)
+        pm.update_project(project_name, _commit, formal_paths=archives.prepare_protected_paths)
     except _StaleConfirmation as exc:
         return ReplanConfirmationRequired(impact=exc.impact)
     deleted = _delete_retired(pm, project_name, impact.retired) if delete_retired else []
