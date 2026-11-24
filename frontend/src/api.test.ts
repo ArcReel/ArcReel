@@ -655,6 +655,7 @@ describe("API", () => {
 
       const { signal } = new AbortController();
       await API.getTask("task id", { signal });
+      await API.getActiveTasks("demo", { signal });
       await API.listTasks({
         projectName: "demo",
         status: "running",
@@ -662,7 +663,7 @@ describe("API", () => {
         source: "webui",
         page: 2,
         pageSize: 10,
-      });
+      }, { signal });
       await API.listProjectTasks("demo", {
         status: "failed",
         taskType: "image",
@@ -670,7 +671,7 @@ describe("API", () => {
         page: 3,
         pageSize: 20,
       });
-      await API.getTaskStats("demo");
+      await API.getTaskStats("demo", { signal });
       await API.getVersions("demo", "storyboards", "seg-1");
       await API.restoreVersion("demo", "storyboards", "seg-1", 3);
 
@@ -684,13 +685,15 @@ describe("API", () => {
       await API.deleteAssistantSession("demo", "session-1");
 
       expect(requestSpy).toHaveBeenCalledWith("/tasks/task%20id", { signal });
+      expect(requestSpy).toHaveBeenCalledWith("/tasks/active?project_name=demo", { signal });
       expect(requestSpy).toHaveBeenCalledWith(
         "/tasks?project_name=demo&status=running&task_type=video&source=webui&page=2&page_size=10",
+        { signal },
       );
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/tasks?status=failed&task_type=image&source=agent&page=3&page_size=20",
       );
-      expect(requestSpy).toHaveBeenCalledWith("/tasks/stats?project_name=demo");
+      expect(requestSpy).toHaveBeenCalledWith("/tasks/stats?project_name=demo", { signal });
       expect(requestSpy).toHaveBeenCalledWith(
         "/projects/demo/assistant/sessions?status=running",
         { signal: undefined },

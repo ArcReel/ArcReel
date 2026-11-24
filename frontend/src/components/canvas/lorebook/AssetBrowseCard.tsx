@@ -123,7 +123,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     status: sheetStatus,
     hasSheet: Boolean(asset.sheetPath),
     onGenerate: () => {
-      if (!localBusy && !rejectIfAssetBusy("image", type, projectName, name, t, "assets:gallery_busy_hint")) onGenerate(name);
+      if (!localBusy && !generating && !rejectIfAssetBusy("image", type, projectName, name, t, "assets:gallery_busy_hint")) onGenerate(name);
     },
   });
 
@@ -146,7 +146,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
 
   const openGuarded = (key: DialogKey) => {
     const dimension = key === "merge" || key === "delete" ? "whole_asset" : "image";
-    if (localBusy || rejectIfAssetBusy(dimension, type, projectName, name, t, "assets:gallery_busy_hint")) return;
+    if (localBusy || generating || rejectIfAssetBusy(dimension, type, projectName, name, t, "assets:gallery_busy_hint")) return;
     setDialog(key);
   };
   const closeDialog = (open: boolean) => {
@@ -199,13 +199,13 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                 {!readOnly && (
                   <>
                     <DropdownMenuItem disabled={imageBusy || !describable} onClick={() => {
-                      if (!localBusy && !rejectIfAssetBusy("image", type, projectName, name, t, "assets:gallery_busy_hint")) staleConfirm.request();
+                      if (!localBusy && !generating && !rejectIfAssetBusy("image", type, projectName, name, t, "assets:gallery_busy_hint")) staleConfirm.request();
                     }}>
                       <Sparkles aria-hidden />
                       {asset.sheetPath ? t("dashboard:regenerate_design") : t("dashboard:generate_design")}
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled={imageBusy} onClick={() => {
-                      if (!localBusy && !rejectIfAssetBusy("image", type, projectName, name, t)) uploadRef.current?.click();
+                      if (!localBusy && !generating && !rejectIfAssetBusy("image", type, projectName, name, t)) uploadRef.current?.click();
                     }}>
                       <ImageUp aria-hidden />
                       {t("assets:upload_sheet")}
@@ -341,7 +341,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
                 assetType={type}
                 name={name}
                 description={asset.description}
-                busy={localBusy}
+                busy={localBusy || generating}
                 writingNames={writingNames}
               />
             </>

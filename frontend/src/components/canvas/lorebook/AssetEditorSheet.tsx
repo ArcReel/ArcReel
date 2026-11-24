@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
 import { AssetCreateForm } from "./AssetCreateForm";
+import { hasActiveAssetName } from "./assetBusyGuard";
 import { AssetDetailEditor } from "./AssetDetailEditor";
 import type { GalleryAssetSource } from "./gallery-model";
 
@@ -147,7 +148,7 @@ export function AssetEditorSheet({
                   name={shown.name}
                   asset={shown.asset}
                   sheetStatus={statusByName.get(shown.name)}
-                  generating={generatingNames?.has(shown.name) ?? false}
+                  generating={hasActiveAssetName(generatingNames, shown.name)}
                   writing={writingNames?.has(shown.name) ?? false}
                   readOnly={readOnly}
                   onGenerate={onGenerate}

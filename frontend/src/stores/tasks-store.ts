@@ -7,7 +7,7 @@ import { isTerminalStatus } from "@/types/task";
 
 const TASKS_PAGE_SIZE = 200;
 const LOOKUP_LIMIT = 200;
-const LOOKUP_TIMEOUT_MS = 10_000;
+const TASK_READ_TIMEOUT_MS = 10_000;
 
 export type ResourceKind =
   | "character"
@@ -100,6 +100,17 @@ export function selectActiveTasks(s: TaskRows): TaskItem[] {
   return Array.from(s.activeTaskIds, (id) => s.rowsById.get(id)!);
 }
 
+export function selectProjectTaskFingerprint(s: TaskRows, projectName: string): string {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const task of [...selectRecentTasks(s), ...selectActiveTasks(s)]) {
+    if (task.project_name !== projectName || seen.has(task.task_id)) continue;
+    seen.add(task.task_id);
+    parts.push(`${task.task_id}:${task.status}`);
+  }
+  return parts.join("|");
+}
+
 function versionOrder(a: TaskItem, b: TaskItem): number {
   const millis = Date.parse(a.updated_at) - Date.parse(b.updated_at);
   if (millis) return millis;
@@ -111,7 +122,7 @@ function versionOrder(a: TaskItem, b: TaskItem): number {
   return rank(a.status) - rank(b.status);
 }
 
-function collect(s: TaskRows) {
+function pruneUnreferencedRows(s: TaskRows) {
   const referenced = new Set([...s.activeTaskIds, ...s.recentTaskIds, ...s.tracked.keys()]);
   for (const id of s.rowsById.keys()) if (!referenced.has(id)) s.rowsById.delete(id);
   return s;
@@ -136,7 +147,7 @@ function reconcile(s: TaskRows, landed: Set<string>, missing = new Set<string>()
     if (!pendingIds.length) s.optimisticMarks.delete(key);
     else if (pendingIds.length !== mark.pendingIds.length) s.optimisticMarks.set(key, { ...mark, pendingIds });
   }
-  return collect(s);
+  return pruneUnreferencedRows(s);
 }
 
 function copyRows(s: TaskRows): TaskRows {
@@ -157,6 +168,11 @@ function mergeRow(s: TaskRows, row: TaskItem) {
   s.rowsById.set(row.task_id, row);
   if (isTerminalStatus(row.status)) s.activeTaskIds.delete(row.task_id);
   return true;
+}
+
+function hasNewReferenceOutput(row: TaskItem, previous: TaskItem | undefined): boolean {
+  return (row.task_type === "reference_video" || row.task_type === "tts") &&
+    row.status === "succeeded" && previous?.status !== "succeeded";
 }
 
 export function mergeTaskSnapshot(
@@ -186,22 +202,26 @@ export const useTasksStore = create<TasksState>((set, get) => {
   let revision = 0;
   let markSeq = 0;
   let connectedOnce = false;
-  let writes = new Map<string, number>();
+  let writeRevisions = new Map<string, number>();
   let flight: Promise<void> | null = null;
   let waiters: Array<() => void> = [];
-  let lookupAbort: AbortController | undefined;
+  let requestAbort: AbortController | undefined;
 
   function applyRows(items: TaskItem[], missing = new Set<string>()) {
     const next = copyRows(get());
     const landed = new Set<string>();
+    let invalidateReferenceUnits = false;
     for (const row of items) {
+      const previous = next.rowsById.get(row.task_id);
       if (!mergeRow(next, row)) continue;
       if (isActiveStatus(row.status)) next.activeTaskIds.add(row.task_id);
-      writes.set(row.task_id, ++revision);
+      writeRevisions.set(row.task_id, ++revision);
       landed.add(row.task_id);
+      invalidateReferenceUnits ||= hasNewReferenceOutput(row, previous);
     }
     for (const id of missing) next.activeTaskIds.delete(id);
     set(reconcile(next, landed, missing));
+    if (invalidateReferenceUnits) useAppStore.getState().invalidateReferenceVideoUnits();
   }
 
   async function lookupPending(projectName: string | null, seenRows: TaskItem[], epoch: number) {
@@ -220,13 +240,13 @@ export const useTasksStore = create<TasksState>((set, get) => {
     if (!ids.size) return;
 
     const controller = new AbortController();
-    lookupAbort = controller;
-    const timeout = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
+    requestAbort = controller;
+    const timeout = setTimeout(() => controller.abort(), TASK_READ_TIMEOUT_MS);
     const start = revision;
     const lookup = async (chunk: string[]) => {
       const result = await API.lookupTasks(chunk, projectName, controller.signal);
       if (generation !== epoch || controller.signal.aborted) return;
-      const untouched = (id: string) => (writes.get(id) ?? 0) <= start;
+      const untouched = (id: string) => (writeRevisions.get(id) ?? 0) <= start;
       const items = result.items.filter((row) => untouched(row.task_id) || get().rowsById.has(row.task_id));
       applyRows(items, new Set(result.missing_ids.filter(untouched)));
     };
@@ -239,7 +259,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
       await Promise.allSettled(batches);
     } finally {
       clearTimeout(timeout);
-      if (lookupAbort === controller) lookupAbort = undefined;
+      if (requestAbort === controller) requestAbort = undefined;
     }
   }
 
@@ -249,31 +269,44 @@ export const useTasksStore = create<TasksState>((set, get) => {
     const epoch = generation;
     const { projectName } = scope;
     const start = ++revision;
-    writes.clear();
+    writeRevisions.clear();
+    const controller = new AbortController();
+    requestAbort = controller;
+    const { signal } = controller;
+    const timeout = setTimeout(() => controller.abort(), TASK_READ_TIMEOUT_MS);
+    let observedActive: TaskItem[] = [];
     try {
       const [active, recent, stats] = await Promise.all([
-        API.getActiveTasks(projectName),
-        API.listTasks({ projectName: projectName ?? undefined, pageSize: TASKS_PAGE_SIZE }),
-        API.getTaskStats(projectName),
+        API.getActiveTasks(projectName, { signal }),
+        API.listTasks({ projectName: projectName ?? undefined, pageSize: TASKS_PAGE_SIZE }, { signal }),
+        API.getTaskStats(projectName, { signal }),
       ]);
       if (generation !== epoch) return;
+      signal.throwIfAborted();
       const prev = get();
-      const protectedIds = new Set([...prev.activeTaskIds].filter((id) => (writes.get(id) ?? 0) > start));
-      const visible = (row: TaskItem) => !writes.has(row.task_id) || prev.rowsById.has(row.task_id);
+      const protectedIds = new Set([...prev.activeTaskIds].filter((id) => (writeRevisions.get(id) ?? 0) > start));
+      const notDeletedLocally = (row: TaskItem) => !writeRevisions.has(row.task_id) || prev.rowsById.has(row.task_id);
       const next = mergeTaskSnapshot(
-        prev, { ...active, items: active.items.filter(visible) }, recent.items.filter(visible), protectedIds,
+        prev,
+        { ...active, items: active.items.filter(notDeletedLocally) },
+        recent.items.filter(notDeletedLocally),
+        protectedIds,
       );
       const invalidate = connectedOnce && selectRecentTasks(next).some((row) =>
-        (row.task_type === "reference_video" || row.task_type === "tts") &&
-        row.status === "succeeded" && prev.rowsById.get(row.task_id)?.status !== "succeeded",
+        hasNewReferenceOutput(row, prev.rowsById.get(row.task_id)),
       );
       connectedOnce = true;
       set({ ...next, stats: stats.stats, connected: true });
       if (invalidate) useAppStore.getState().invalidateReferenceVideoUnits();
-      if (generation === epoch) await lookupPending(projectName, active.items, epoch);
+      observedActive = active.items;
     } catch {
+      controller.abort();
       if (generation === epoch) set({ connected: false });
+    } finally {
+      clearTimeout(timeout);
+      if (requestAbort === controller) requestAbort = undefined;
     }
+    if (generation === epoch) await lookupPending(projectName, observedActive, epoch);
   }
 
   function startRefresh(): Promise<void> {
@@ -297,7 +330,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
       const next = copyRows(get());
       next.optimisticMarks.set(key, { ...mark, phase: "awaiting_server", pendingIds: [...new Set(ids)] });
       const landed = next.activeTruncated ? new Set<string>() : next.activeTaskIds;
-      for (const id of ids) if (landed.has(id)) writes.set(id, ++revision);
+      for (const id of ids) if (landed.has(id)) writeRevisions.set(id, ++revision);
       set(reconcile(next, landed));
     }
     return { settle, rollback: () => settle([]) };
@@ -312,8 +345,8 @@ export const useTasksStore = create<TasksState>((set, get) => {
       waiters.forEach((resolve) => resolve());
       waiters = [];
       flight = null;
-      lookupAbort?.abort();
-      writes = new Map();
+      requestAbort?.abort();
+      writeRevisions = new Map();
       set({ ...emptyRows(), refreshScope: scope, stats: defaultTaskStats, connected: false });
     },
     refreshTasks() {
@@ -339,7 +372,7 @@ export const useTasksStore = create<TasksState>((set, get) => {
         if (!lease) return;
         if (lease.retainCount === 1) state.tracked.delete(id);
         else state.tracked.set(id, { ...lease, retainCount: lease.retainCount - 1 });
-        set(collect(state));
+        set(pruneUnreferencedRows(state));
       };
     },
     async cancelTask(id) {

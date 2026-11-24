@@ -351,7 +351,7 @@ A character's other persistent looks, such as a costume change or a transformati
 
 Both generated and uploaded derivative sheets go into the version history, and you can switch between them at any time. After switching back to a generated version, staleness is judged again from the base sheet and the appearance change. The appearance change still applies after an upload: the character's appearance in storyboard and video prompts is the base description plus the appearance change.
 
-When a generation or image edit task for a base sheet is queued or running, its derivative sheets must wait, and vice versa. Different derivatives can be generated and edited independently. You can generate and save voice samples and edit aliases while a sheet task is active. You can still work on sheets while a voice sample task is active. Wait for the sample task to finish before renaming, deleting, or merging the character.
+When a generation or image edit task for a base sheet is queued or running, its derivative sheets must wait, and vice versa. Different derivatives can be generated and edited independently. You can generate and save voice samples and edit asset aliases while a sheet task is active. You can still work on sheets while a voice sample task is active. Wait for the sample task to finish before renaming, deleting, or merging the character.
 
 #### Merge assets registered twice {#merge-assets}
 

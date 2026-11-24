@@ -55,7 +55,7 @@ import { errMsg } from "@/utils/async";
 import { normalizeAssetName } from "@/utils/reference-mentions";
 import type { AssetSheetStatusRow, CharacterDerivative, CharacterDerivativeStatus } from "@/types";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { isAssetBusy, rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
+import { hasActiveDerivativeId, isAssetBusy, rejectIfAssetBusy, useAssetBusy } from "./assetBusyGuard";
 import { hasUsableDescription } from "./AssetSheetStatusBadge";
 import type { GalleryMarker } from "./gallery-model";
 import { GalleryStatusMarker } from "./GalleryStatusMarker";
@@ -112,7 +112,7 @@ export function CharacterDerivativeRow({
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   const resourceId = derivativeResourceId(characterName, name);
-  const generating = useActiveResourceIds("character_derivative", projectName).has(resourceId);
+  const generating = hasActiveDerivativeId(useActiveResourceIds("character_derivative", projectName), resourceId);
   const token = derivativeToken(characterName, name);
   const qualified = `${characterName}/${name}`;
 

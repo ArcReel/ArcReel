@@ -65,12 +65,20 @@ function BatchNotification({ batch, scope }: { batch: TrackedAssetSheetBatch; sc
       : failed.length > 0
         ? t("sheet_batch_done_with_failures", { succeeded, failed: failed.length })
         : t("sheet_batch_done", { count: succeeded });
-    if (ownerMissing > 0) text = `${text}；${t("sheet_batch_owner_missing", { count: ownerMissing })}`;
-    if (targetDeleted > 0) text = `${text}；${t("sheet_batch_target_deleted", { count: targetDeleted })}`;
+    const clauseSeparator = t("sheet_batch_clause_separator");
+    if (ownerMissing > 0) text = `${text}${clauseSeparator}${t("sheet_batch_owner_missing", { count: ownerMissing })}`;
+    if (targetDeleted > 0) text = `${text}${clauseSeparator}${t("sheet_batch_target_deleted", { count: targetDeleted })}`;
     const focus = (failed[0] ?? unavailable[0] ?? results[0])?.member;
     const tone = failed.length > 0 ? "error" : targetDeleted > 0 || unavailable.length > 0 ? "warning" : "success";
+    const retainOffPageIds = new Set(
+      results
+        .filter(({ member, status, task }) =>
+          member.task_id !== null && (status === "failed" || (status === "succeeded" && task?.result?.target_deleted === true)),
+        )
+        .map(({ member }) => member.task_id!),
+    );
 
-    batches.settle(batch, tasks.recentTaskIds);
+    batches.settle(batch, tasks.recentTaskIds, retainOffPageIds);
     useAppStore.getState().pushNotification(text, tone, {
       target: focus ? assetNotificationTarget(focus.asset_type, focus.name) : null,
     });
