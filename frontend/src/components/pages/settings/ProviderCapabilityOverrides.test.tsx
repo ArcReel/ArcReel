@@ -7,14 +7,15 @@ import { ProviderCapabilityOverrides } from "./ProviderCapabilityOverrides";
 
 const VIDEO: ProviderModelCapabilities = {
   media_type: "video",
-  editable: ["durations", "duration_constraints", "resolutions", "last_frame", "audio_track"],
-  displayed: ["durations", "duration_constraints", "resolutions", "last_frame", "audio_track"],
+  editable: ["durations", "duration_constraints", "resolutions", "last_frame", "has_audio_track", "reference_route_has_audio_track"],
+  displayed: ["audio_switch_controllable", "durations", "duration_constraints", "resolutions", "last_frame", "has_audio_track", "reference_route_has_audio_track"],
   base: {
     durations: [4, 8],
     duration_constraints: null,
     resolutions: null,
     last_frame: false,
-    audio_track: "controllable",
+    audio_switch_controllable: true,
+    has_audio_track: true,
   },
   overrides: {},
   effective: {},
@@ -56,7 +57,7 @@ describe("ProviderCapabilityOverrides", () => {
     expect(within(rowOf("可选时长")).getByText("4, 8 秒")).toBeInTheDocument();
     expect(within(rowOf("分辨率")).getByText("未收录")).toBeInTheDocument();
     expect(within(rowOf("尾帧")).getByText("不支持")).toBeInTheDocument();
-    expect(within(rowOf("音轨形态")).getByText("可开关")).toBeInTheDocument();
+    expect(within(rowOf("端点音轨开关")).getByText("支持")).toBeInTheDocument();
   });
 
   it("shows the effective capabilities of an official model read-only, in the order the server lists them", () => {
@@ -187,13 +188,21 @@ describe("ProviderCapabilityOverrides", () => {
     expect(screen.queryByText("0 表示不接受参考图；修改上限不会开启调用端点未实现的图生图能力") !== null).toBe(shown);
   });
 
-  it("edits the audio track as a whole dimension", () => {
+  it("keeps reference audio inherited while editing model audio", () => {
     render(<Harness />);
+    expect(within(rowOf("端点音轨开关")).queryByRole("button")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "修改「模型成片音轨」" }));
+    fireEvent.click(within(rowOf("模型成片音轨")).getByText("无声"));
+    expect(current()).toEqual({ has_audio_track: false });
+    expect(rowOf("参考生视频成片音轨")).toHaveTextContent("继承主路径（无声）");
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: "修改「音轨形态」" }));
-
-    expect(current()).toEqual({ audio_track: "controllable" });
-    expect(screen.getByRole("combobox", { name: "「音轨形态」的值" })).toBeInTheDocument();
+  it("locks silent reference output and endpoint-fixed durations", () => {
+    render(<Harness capabilities={{ ...VIDEO, editable: [], displayed: ["durations", "reference_route_has_audio_track"],
+      base: { duration_fixed: true, durations: [], reference_route_has_audio_track: false } }} />);
+    expect(rowOf("可选时长")).toHaveTextContent("此 workflow 时长固定");
+    expect(rowOf("参考生视频成片音轨")).toHaveTextContent("无声");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });
 

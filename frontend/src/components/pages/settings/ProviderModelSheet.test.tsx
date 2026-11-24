@@ -66,15 +66,15 @@ function unmatchedVideo(overrides: Partial<ProviderModelDetail> = {}): ProviderM
     entry_binding: null,
     capabilities: {
       media_type: "video",
-      editable: ["durations", "duration_constraints", "resolutions", "first_frame", "last_frame", "audio_track"],
-      displayed: ["durations", "duration_constraints", "resolutions", "first_frame", "last_frame", "audio_track"],
+      editable: ["durations", "duration_constraints", "resolutions", "first_frame", "last_frame", "has_audio_track"],
+      displayed: ["durations", "duration_constraints", "resolutions", "first_frame", "last_frame", "has_audio_track"],
       base: {
         durations: [4, 8],
         duration_constraints: null,
         resolutions: null,
         first_frame: true,
         last_frame: true,
-        audio_track: "controllable",
+        has_audio_track: true,
       },
       overrides: {},
       effective: {},

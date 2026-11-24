@@ -294,12 +294,12 @@ def test_user_added_video_model_overrides_take_effect_at_runtime(models_client: 
 
     detail = models_client.get("/api/v1/providers/ark/models/my-video-ep").json()
     caps = detail["capabilities"]
-    assert (caps["base"]["durations"], caps["base"]["resolutions"], caps["base"]["audio_track"]) == (
+    assert (caps["base"]["durations"], caps["base"]["resolutions"], caps["base"]["audio_switch_controllable"]) == (
         [4, 8],
         None,
-        "controllable",
+        True,
     )
-    assert {"durations", "duration_constraints", "resolutions", "audio_track"} <= set(caps["editable"])
+    assert {"durations", "duration_constraints", "resolutions", "has_audio_track"} <= set(caps["editable"])
     assert (detail["multiplier"], detail["entry"]) == (1.0, None)
 
     resp = models_client.patch(
@@ -443,19 +443,19 @@ async def test_custom_kling_omni_reference_audio_is_read_only(
         [{"model_id": model_id, "display_name": model_id, "endpoint": "kling-video-audio", "is_enabled": True}],
     )
     url = f"/api/v1/providers/custom-{db_id}/models/{model_id}"
-    field = "reference_route_audio_track"
+    field = "reference_route_has_audio_track"
 
-    saved = models_client.patch(url, json={"capability_overrides": {field: "always_on"}})
-    assert saved.status_code == 200
+    saved = models_client.patch(url, json={"capability_overrides": {field: True}})
+    assert saved.status_code == 422
 
     detail = models_client.get(url)
     assert detail.status_code == 200
     caps = detail.json()["capabilities"]
     assert field in caps["displayed"]
-    assert caps["effective"][field] == "always_off"
+    assert caps["effective"][field] is False
     assert field not in caps["overrides"]
     assert field not in caps["editable"]
-    assert "audio_track" in caps["editable"]
+    assert "has_audio_track" in caps["editable"]
 
 
 async def test_custom_model_rename_rewrites_and_remove_clears_references(
@@ -875,8 +875,7 @@ def test_builtin_user_added_model_prefills_and_switches_its_endpoint(models_clie
     assert declared_builtin_video_capabilities("minimax", "MiniMax-H3-Preview").text_to_video is False
 
 
-def test_switching_the_endpoint_alone_clears_overrides_checked_against_the_old_one(models_client: TestClient) -> None:
-    """能力覆盖按端点校验后保存；只换端点不一并提交覆盖时，旧端点下的覆盖不套到新端点上。"""
+def test_switching_endpoint_keeps_compatible_duration_override(models_client: TestClient) -> None:
     _add_user_model(models_client, "ark", "my-switch-ep", "video")
     url = "/api/v1/providers/ark/models/my-switch-ep"
     assert models_client.patch(url, json={"endpoint": "ark-seedance-1"}).status_code == 200
@@ -888,7 +887,7 @@ def test_switching_the_endpoint_alone_clears_overrides_checked_against_the_old_o
 
     switched = models_client.patch(url, json={"endpoint": "ark-seedance-2"}).json()
     assert switched["endpoint"] == "ark-seedance-2"
-    assert switched["capabilities"]["effective"]["durations"] == switched["capabilities"]["base"]["durations"]
+    assert switched["capabilities"]["effective"]["durations"] == [5]
 
     resubmitted = models_client.patch(
         url, json={"endpoint": "ark-seedance-1", "capability_overrides": {"durations": [5]}}
@@ -1329,3 +1328,122 @@ def test_editing_an_image_entry_keeps_its_qualities(models_client: TestClient, m
     assert saved is not None
     assert (saved.facts.resolutions, saved.facts.qualities) == (("1K", "2K"), qualities)
     assert builtin_image_quality_options("openai", "gpt-image-2") == qualities
+
+
+@pytest.mark.parametrize("custom", [False, True], ids=["builtin", "custom"])
+@pytest.mark.parametrize(
+    ("provider", "endpoint", "invalid"),
+    [
+        ("dashscope", "dashscope-video", {"audio_track": "controllable", "has_audio_track": True}),
+        ("dashscope", "dashscope-video", {"has_audio_track": False, "audio_track": "always_on"}),
+        ("kling", "kling-video-audio", {"reference_route_has_audio_track": True}),
+        ("minimax", "minimax-s2v-01", {"last_frame": True}),
+        ("vidu", "vidu-video-q3-turbo", {"max_prompt_chars": 5001}),
+        ("kling", "kling-video-audio", {"reference_audio_mode": "direct"}),
+    ],
+)
+async def test_video_model_writes_enforce_endpoint_boundaries(
+    models_client, db_factory, custom, provider, endpoint, invalid
+):
+    model = "relay-alias"
+    if custom:
+        pid = await _custom_provider(db_factory, [{"model_id": model, "display_name": model, "endpoint": endpoint}])
+        provider = f"custom-{pid}"
+    else:
+        added = models_client.post(
+            f"/api/v1/providers/{provider}/models",
+            json={"model_id": model, "media_type": "video", "endpoint": endpoint},
+        )
+        assert added.status_code == 201, added.text
+    url = f"/api/v1/providers/{provider}/models/{model}"
+    rejected = models_client.patch(url, json={"capability_overrides": invalid})
+    assert rejected.status_code == 422, rejected.text
+    accepted = models_client.patch(
+        url, json={"capability_overrides": {"audio_track": "always_off", "has_audio_track": False}}
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert models_client.get(url).json()["capabilities"]["overrides"] == {"has_audio_track": False}
+
+
+@pytest.mark.parametrize("custom", [False, True], ids=["builtin", "custom"])
+async def test_endpoint_change_preserves_only_compatible_video_overrides(models_client, db_factory, custom):
+    model = "relay-vidu"
+    if custom:
+        pid = await _custom_provider(
+            db_factory, [{"model_id": model, "display_name": model, "endpoint": "vidu-video-q4"}]
+        )
+        provider = f"custom-{pid}"
+    else:
+        provider = "vidu"
+        added = models_client.post(
+            "/api/v1/providers/vidu/models",
+            json={"model_id": model, "media_type": "video", "endpoint": "vidu-video-q4"},
+        )
+        assert added.status_code == 201
+    url = f"/api/v1/providers/{provider}/models/{model}"
+    overrides = {"max_reference_audio_count": 2, "reference_audio_mode": "direct", "max_prompt_chars": 1200}
+    assert models_client.patch(url, json={"capability_overrides": overrides}).status_code == 200
+    rebound = models_client.patch(url, json={"endpoint": "vidu-video-q3-turbo"})
+    assert rebound.status_code == 200, rebound.text
+    assert models_client.get(url).json()["capabilities"]["overrides"] == {"max_prompt_chars": 1200}
+
+
+async def test_builtin_legacy_audio_survives_detail_edit_and_runtime_reload(models_client, db_factory):
+    from lib.backends.backend_assembly.specs import builtin_video_snapshot
+    from lib.capabilities.kernel import RequestConditions
+    from lib.db.repositories.builtin_provider_model_repo import BuiltinProviderModelRepository
+    from server.routers.provider_models import reload_user_added_models
+
+    model = "relay-wan"
+    _add_user_model(models_client, "dashscope", model, "video")
+    async with db_factory() as session:
+        row = await BuiltinProviderModelRepository(session).get("dashscope", model)
+        assert row
+        row.capability_overrides = {"audio_track": "always_off"}
+        await session.commit()
+        await reload_user_added_models(session)
+    url = f"/api/v1/providers/dashscope/models/{model}"
+    opened = models_client.get(url).json()["capabilities"]["overrides"]
+    assert opened == {"has_audio_track": False}
+    saved = models_client.patch(url, json={"capability_overrides": {**opened, "max_prompt_chars": 250}})
+    assert saved.status_code == 200, saved.text
+    reopened = models_client.get(url).json()["capabilities"]["overrides"]
+    assert reopened == {"has_audio_track": False, "max_prompt_chars": 250}
+    async with db_factory() as session:
+        row = await BuiltinProviderModelRepository(session).get("dashscope", model)
+        assert row
+        assert row.capability_overrides == reopened
+    snapshot = builtin_video_snapshot("dashscope", model)
+    for route in ("i2v", "r2v"):
+        assert not snapshot.for_request(RequestConditions(route)).audio(route, requested=True).output
+
+
+@pytest.mark.parametrize("custom", [False, True], ids=["builtin", "custom"])
+async def test_single_save_validates_overrides_with_newly_bound_model_facts(models_client, db_factory, custom):
+    model = "relay-voice"
+    if custom:
+        pid = await _custom_provider(
+            db_factory, [{"model_id": model, "display_name": model, "endpoint": "ark-seedance-2"}]
+        )
+        provider = f"custom-{pid}"
+    else:
+        provider = "ark"
+        _add_user_model(models_client, provider, model, "video")
+    url = f"/api/v1/providers/{provider}/models/{model}"
+    entry = {
+        "maker": "acme",
+        "name": "voice",
+        "media_type": "video",
+        "facts": {"durations": [5], "reference_audio": True, "max_reference_audio_count": 2},
+    }
+    saved = models_client.patch(
+        url,
+        json={
+            "new_entry": entry,
+            "endpoint": "ark-seedance-2",
+            "capability_overrides": {"reference_audio_mode": "direct"},
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    effective = models_client.get(url).json()["capabilities"]["effective"]
+    assert (effective["reference_audio_mode"], effective["max_reference_audio_count"]) == ("direct", 2)

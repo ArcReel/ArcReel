@@ -5,6 +5,8 @@ import { compactRangeFormat } from "@/utils/duration_format";
 export type Constraints = NonNullable<CapabilityOverrides["duration_constraints"]>;
 
 export const BOOL_KEYS = new Set<CapabilityKey>([
+  "has_audio_track",
+  "reference_route_has_audio_track",
   "image_input",
   "structured_output",
   "text_to_image",
@@ -16,8 +18,6 @@ export const BOOL_KEYS = new Set<CapabilityKey>([
 
 export const ENUM_OPTIONS: Partial<Record<CapabilityKey, string[]>> = {
   reference_audio_mode: ["none", "direct"],
-  audio_track: ["controllable", "always_on", "always_off"],
-  reference_route_audio_track: ["controllable", "always_on", "always_off"],
 };
 
 export function asConstraints(value: unknown): Constraints {
@@ -44,6 +44,7 @@ export function scalarText(value: unknown): string {
 
 export function capabilityValueText(t: TFunction, key: CapabilityKey, value: unknown): string {
   if (value === null || value === undefined) return t("pm_cap_value_unrecorded");
+  if (key === "has_audio_track" || key === "reference_route_has_audio_track") return t(value ? "pm_cap_audible" : "pm_cap_silent");
   if (BOOL_KEYS.has(key)) return t(value ? "pm_cap_value_supported" : "pm_cap_value_unsupported");
   if (key === "durations") {
     const list = value as number[];
@@ -66,7 +67,7 @@ export function capabilityValueText(t: TFunction, key: CapabilityKey, value: unk
     }
     return parts.length ? parts.join(t("pm_cap_value_group_separator")) : t("pm_cap_value_none");
   }
-  if (ENUM_OPTIONS[key]) return t(`pm_cap_option_${key === "reference_audio_mode" ? "audio_mode" : "audio_track"}_${scalarText(value)}`);
+  if (ENUM_OPTIONS[key]) return t(`pm_cap_option_audio_mode_${scalarText(value)}`);
   if (key === "max_reference_audio_total_seconds") return t("pm_cap_value_seconds", { list: scalarText(value) });
   return scalarText(value);
 }

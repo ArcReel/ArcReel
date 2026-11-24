@@ -410,12 +410,9 @@ class TestSaveValidatesOpenOverrides:
         assert resp.status_code == 422
         assert "reference_audio_mode" in resp.json()["detail"]
 
-    def test_reference_audio_none_accepted_on_endpoint_without_audio_support(self, capability_client: TestClient):
-        """守卫只拦「宣称支持」的方向：关掉音色能力无需运输能力背书。"""
-        pid = _create_provider(capability_client, [_video_model(capability_overrides={"reference_audio_mode": "none"})])
-
-        models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
-        assert models[0]["capability_overrides"] == {"reference_audio_mode": "none"}
+    def test_unimplemented_reference_audio_dimension_is_locked(self, capability_client: TestClient):
+        resp = _post_provider(capability_client, [_video_model(capability_overrides={"reference_audio_mode": "none"})])
+        assert resp.status_code == 422
 
     def test_reference_audio_direct_accepted_on_audio_capable_endpoint(self, capability_client: TestClient):
         resp = _post_provider(
@@ -548,8 +545,8 @@ class TestModelFactOverrides:
             "durations": [5, 10],
             "resolutions": ["720p", "1080p"],
             "duration_constraints": {"by_resolution": {"1080p": [5]}},
-            "max_reference_images": 2,
-            "audio_track": "always_off",
+            "max_reference_images": 1,
+            "has_audio_track": False,
         }
         text = {"image_input": False, "structured_output": True, "max_output_tokens": 4096}
         image = {"text_to_image": False}
@@ -696,12 +693,9 @@ class TestFullUpdateOverrideSemantics:
         reloaded = capability_client.get(f"/api/v1/custom-providers/{pid}")
         assert reloaded.json()["models"][0]["capability_overrides"] is None
 
-    async def test_endpoint_change_validated_even_when_override_dict_unchanged(
+    async def test_endpoint_change_drops_incompatible_carried_override(
         self, capability_client: TestClient, custom_providers_app_session_factory
     ):
-        """每行都按提交上来的 (endpoint, 覆盖值) 校验：model_id 与覆盖字典原样不动、只切 endpoint
-        时，校验结果天然随新 endpoint 变化（last_frame=True 是否合法依赖 endpoint 的
-        end_image_capable），须针对新 endpoint 拒绝。"""
         pid = await _seed_provider_with_raw_models(
             custom_providers_app_session_factory,
             [
@@ -730,7 +724,8 @@ class TestFullUpdateOverrideSemantics:
                 ],
             },
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 200
+        assert resp.json()["models"][0]["capability_overrides"] is None
 
 
 class TestResolverReturnsEffectiveCapabilities:
@@ -1022,3 +1017,54 @@ def test_custom_model_catalog_exposes_effective_audio_for_settings(capability_cl
     assert model["audio_track"] == expected
     assert model["reference_route_audio_track"] == expected
     assert model["voice_consistency"] == ("none" if expected == "always_off" else "soft")
+
+
+async def test_legacy_silent_model_survives_full_replacement(capability_client, custom_providers_app_session_factory):
+    pid = await _seed_provider_with_raw_models(
+        custom_providers_app_session_factory,
+        [_video_model(endpoint="newapi-video", capability_overrides={"audio_track": "always_off"})],
+    )
+    url = f"/api/v1/custom-providers/{pid}"
+    model = capability_client.get(url).json()["models"][0]
+    assert model["capability_overrides"] == {"has_audio_track": False}
+    model["capability_overrides"]["max_prompt_chars"] = 500
+    saved = capability_client.put(
+        url, json={"models": [model], "display_name": "Relay", "base_url": "https://relay.test/v1"}
+    )
+    assert saved.status_code == 200, saved.text
+    reopened = capability_client.get(url).json()["models"][0]
+    assert reopened["capability_overrides"] == {"has_audio_track": False, "max_prompt_chars": 500}
+    async with custom_providers_app_session_factory() as session:
+        (row,) = await CustomProviderRepository(session).list_models(pid)
+        assert row.capability_overrides == reopened["capability_overrides"]
+        caps = synthesize_video_capabilities(
+            endpoint=row.endpoint, model_id=row.model_id, overrides=row.capability_overrides
+        )
+        assert caps.audio_track_for_route("i2v").value == caps.audio_track_for_route("r2v").value == "always_off"
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "overrides"),
+    [
+        ("dashscope-video", {"audio_track": "controllable"}),
+        ("dashscope-video", {"audio_track": "always_off", "has_audio_track": True}),
+        ("kling-video-audio", {"reference_route_has_audio_track": True}),
+        ("openai-video", {"max_reference_images": 2}),
+    ],
+)
+def test_batch_save_rejects_invalid_video_overrides_atomically(capability_client, endpoint, overrides):
+    initial = _video_model(endpoint=endpoint, capability_overrides={"has_audio_track": True})
+    pid = _create_provider(capability_client, [initial])
+    url = f"/api/v1/custom-providers/{pid}"
+    response = capability_client.put(
+        url,
+        json={
+            "display_name": "Changed",
+            "base_url": "https://relay.test/v1",
+            "models": [{**initial, "capability_overrides": overrides}],
+        },
+    )
+    assert response.status_code == 422
+    saved = capability_client.get(url).json()
+    assert saved["display_name"] == "Relay"
+    assert saved["models"][0]["capability_overrides"] == {"has_audio_track": True}
