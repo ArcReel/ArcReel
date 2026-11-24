@@ -1,6 +1,6 @@
 """万相 / happyhorse 家族判定的组合矩阵回归测试。
 
-`lib.backends.video_backends.dashscope.classify_wan_model` 是家族归属、分隔符归一化、标识符边界、
+`lib.backends.dashscope_model_names.classify_wan_model` 是家族归属、分隔符归一化、标识符边界、
 image-to-video 续接语法、videoedit 模态排除的唯一判定入口；端点路由
 （`lib.custom_provider.endpoints.infer_endpoint`）、请求形态档
 （`lib.backends.video_backends.dashscope._profile_key_for_model`）、时长档

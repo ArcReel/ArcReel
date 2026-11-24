@@ -755,7 +755,7 @@ def test_omni_names_prefill_the_interactions_video_endpoint(model: str, discover
 
 
 def test_vertex_interactions_is_not_a_custom_provider_endpoint():
-    from lib.backends.backend_assembly.specs import PROVIDER_ONLY_ENDPOINTS
+    from lib.backends.builtin_endpoints import PROVIDER_ONLY_ENDPOINTS
 
     assert "gemini-vertex-interactions-video" in PROVIDER_ONLY_ENDPOINTS
     assert "gemini-vertex-interactions-video" not in ENDPOINT_REGISTRY

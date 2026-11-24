@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from functools import cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -42,6 +43,12 @@ def load_builtin_definitions(directory: Path | None = None) -> dict[str, dict[st
     if not base.is_dir():
         raise BuiltinDefinitionError(f"随版定义目录不存在: {base}")
     return {path.stem: load_builtin_definition(path) for path in sorted(base.glob("*.json"))}
+
+
+@cache
+def builtin_definitions() -> Mapping[str, dict[str, Any]]:
+    """内置装配与自定义端点注册表共用的随版定义。"""
+    return load_builtin_definitions()
 
 
 def load_builtin_definition(path: Path) -> dict[str, Any]:

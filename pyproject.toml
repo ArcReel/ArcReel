@@ -148,7 +148,6 @@ ignore_imports = [
     "lib.backends.backend_assembly.specs -> lib.backends.text_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.declarative_backend",
-    "lib.backends.backend_assembly.specs -> lib.custom_provider.endpoints",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.capabilities",
     "lib.project.project_manager -> lib.backends.text_backends.base",
     "lib.backends.text_generator -> lib.backends.text_backends.base",
@@ -162,6 +161,25 @@ ignore_imports = [
     "lib.db.repositories.custom_provider_repo -> lib.custom_provider.endpoints",
     "lib.db.models.custom_provider -> lib.custom_provider",
 ]
+
+[[tool.importlinter.contracts]]
+name = "内置端点查询与预填不依赖装配或端点实现"
+type = "forbidden"
+source_modules = ["lib.backends.builtin_endpoints", "lib.backends.endpoint_prefill"]
+forbidden_modules = [
+    "lib.backends.backend_assembly",
+    "lib.backends.image_backends",
+    "lib.backends.video_backends",
+    "lib.backends.audio_backends",
+    "lib.backends.text_backends",
+    "lib.custom_provider",
+]
+
+[[tool.importlinter.contracts]]
+name = "模型目录与自定义端点注册表不依赖内置装配"
+type = "forbidden"
+source_modules = ["lib.catalog.builtin_models", "lib.custom_provider.endpoints"]
+forbidden_modules = ["lib.backends.backend_assembly"]
 
 [[tool.importlinter.contracts]]
 name = "ComfyUI 端点实现不依赖声明式运行时"

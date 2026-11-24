@@ -27,7 +27,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
 )
 from lib.backends.artifact_download_guard import ArtifactDestinationRejectedError
-from lib.backends.backend_assembly.specs import builtin_model_endpoint
+from lib.backends.builtin_endpoints import builtin_model_endpoint
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.video_backends.kling import KLING_BACKENDS, KlingVideoBackend
