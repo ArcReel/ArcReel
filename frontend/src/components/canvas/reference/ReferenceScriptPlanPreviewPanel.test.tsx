@@ -1,5 +1,5 @@
 import { itemIdsInEpisodeText } from "@/utils/episode-display";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { API, ApiRequestError } from "@/api";
@@ -1079,6 +1079,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(useAppStore.getState().toast?.tone).toBe("warning");
 
     fireEvent.click(screen.getByRole("button", { name: "放弃修改并载入最新" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
     expect(await screen.findByDisplayValue("@[阿离] 服务端最新正文 @[长街]")).toBeInTheDocument();
     expect(screen.queryByText("脚本规划已在别处更新，当前未保存的修改不会被自动覆盖")).not.toBeInTheDocument();
   });
@@ -1115,6 +1116,52 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("本集合计 8 秒 / 目标 30 秒")).toBeInTheDocument());
+  });
+
+  it("keeps line-level blocking diagnostics visible when entering edit mode", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(
+      pendingState({
+        content: {
+          units: [
+            { unit_id: "E1U01", duration_seconds: 8, source_text: "阿离撑伞走过长街。", text: "门开了\n@[阿离]：｛我来了。｝" },
+          ],
+        },
+        blocking_issues: [
+          { code: "fullwidth_braces", label: "unit E1U01", message: "unit E1U01 第 2 行使用了全角花括号", line: 1, item_index: 0 },
+        ],
+      }),
+    );
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    expect(await screen.findByText("视频单元 1 第 2 行使用了全角花括号")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
+    expect(screen.getByRole("textbox", { name: "视频单元 1 正文" })).toBeInTheDocument();
+    expect(screen.getByText("视频单元 1 第 2 行使用了全角花括号")).toBeInTheDocument();
+  });
+
+  it("retains unsaved local edits read-only when remote removes the plan and blocks confirm while outdated", async () => {
+    vi.spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(pendingState())
+      .mockResolvedValue(pendingState({ status: "no_script_plan", content: null, fingerprint: null }));
+
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "视频单元 1 正文" }), {
+      target: { value: "@[阿离] 本地未保存稿 @[长街]" },
+    });
+
+    act(() => {
+      useAppStore.getState().invalidateEntities(["script_plan:episode_1"]);
+    });
+
+    expect(await screen.findByText("脚本规划已在别处更新，当前未保存的修改不会被自动覆盖")).toBeInTheDocument();
+    expect(screen.getByText(/本地未保存稿/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
+    expect(screen.queryByRole("heading", { name: "这一集还没有脚本" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改并载入最新" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
+    expect(await screen.findByRole("heading", { name: "这一集还没有脚本" })).toBeInTheDocument();
   });
 
   it("shows no comparison when the project has no target", async () => {

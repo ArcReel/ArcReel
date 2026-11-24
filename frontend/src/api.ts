@@ -2564,6 +2564,7 @@ class API {
     const params = new URLSearchParams();
     if (filters.projectName) params.append("project_name", filters.projectName);
     if (filters.status) params.append("status", filters.status);
+    if (filters.resourceId) params.append("resource_id", filters.resourceId);
     if (filters.taskType) params.append("task_type", filters.taskType);
     if (filters.source) params.append("source", filters.source);
     if (filters.page) params.append("page", String(filters.page));
@@ -2578,6 +2579,7 @@ class API {
   ): Promise<{ items: TaskItem[]; total: number; page: number; page_size: number }> {
     const params = new URLSearchParams();
     if (filters.status) params.append("status", filters.status);
+    if (filters.resourceId) params.append("resource_id", filters.resourceId);
     if (filters.taskType) params.append("task_type", filters.taskType);
     if (filters.source) params.append("source", filters.source);
     if (filters.page) params.append("page", String(filters.page));

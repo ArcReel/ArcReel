@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { API, ApiRequestError } from "@/api";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { useAppStore } from "@/stores/app-store";
+import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import type { DramaNormalizedScript, ScriptReviewState } from "@/types";
 
 function reviewState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
@@ -207,7 +208,7 @@ describe("useScriptReviewDraft", () => {
     act(() => {
       result.current.setDraft((prev) => (prev ? editFirstUtterance(prev, "我的本地编辑") : prev));
     });
-    let saving: Promise<void>;
+    let saving: Promise<boolean>;
     act(() => {
       saving = result.current.save();
     });
@@ -298,5 +299,29 @@ describe("useScriptReviewDraft", () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(result.current.state?.blocking_issues).toEqual([issue]);
     expect(useAppStore.getState().toast?.text).toContain("1 项确认阻断项");
+  });
+
+  it("re-fetches review state when video model capabilities are invalidated", async () => {
+    const capabilityIssue = {
+      code: "video_capability_unavailable",
+      label: "",
+      message: "视频模型能力不可用",
+      line: null,
+      item_index: null,
+    };
+    const get = vi
+      .spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(reviewState({ blocking_issues: [capabilityIssue] }))
+      .mockResolvedValueOnce(reviewState({ blocking_issues: [] }));
+
+    const { result } = renderDraft();
+    await waitFor(() => expect(result.current.state?.blocking_issues).toEqual([capabilityIssue]));
+
+    act(() => {
+      useCapabilitiesStore.getState().invalidate();
+    });
+
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.state?.blocking_issues).toEqual([]));
   });
 });

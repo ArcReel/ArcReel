@@ -1108,6 +1108,7 @@ class TaskRepository(BaseRepository):
         project_name: str | None = None,
         status: str | None = None,
         task_type: str | None = None,
+        resource_id: str | None = None,
         source: str | None = None,
         page: int = 1,
         page_size: int = 50,
@@ -1123,6 +1124,8 @@ class TaskRepository(BaseRepository):
             filters.append(Task.status == status)
         if task_type:
             filters.append(Task.task_type == task_type)
+        if resource_id is not None:
+            filters.append(Task.resource_id == resource_id)
         if source:
             filters.append(Task.source == source)
 

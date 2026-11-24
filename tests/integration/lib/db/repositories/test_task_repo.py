@@ -512,6 +512,10 @@ class TestTaskRepository:
             script_file="ep2.json",
         )
 
+        result = await repo.list_tasks(resource_id="E1S02", page_size=1)
+        assert result["total"] == 1
+        assert result["items"][0]["resource_id"] == "E1S02"
+
         result = await repo.list_tasks(project_name="demo")
         assert result["total"] == 1
 

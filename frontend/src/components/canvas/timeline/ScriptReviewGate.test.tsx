@@ -197,7 +197,11 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(await screen.findByRole("button", { name: "保存" }));
 
     await waitFor(() => expect(screen.queryByRole("textbox")).not.toBeInTheDocument());
-    expect(screen.getByText("你终于回来了。")).toBeInTheDocument();
+    expect(screen.getByText("我的本地编辑")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("下方保留了你未保存的内容");
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改并载入最新" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
+    expect(await screen.findByText("你终于回来了。")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
   });
 
@@ -653,6 +657,7 @@ describe("ScriptReviewGate", () => {
     expect(useAppStore.getState().toast?.tone).toBe("warning");
 
     fireEvent.click(screen.getByRole("button", { name: "放弃修改并载入最新" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
     expect(await screen.findByDisplayValue("服务端最新台词")).toBeInTheDocument();
     expect(screen.queryByText("脚本规划已在别处更新，当前未保存的修改不会被自动覆盖")).not.toBeInTheDocument();
   });
@@ -680,6 +685,29 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByDisplayValue("我的本地编辑")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("服务端覆盖文案")).not.toBeInTheDocument();
     expect(screen.getByText("脚本规划已在别处更新，当前未保存的修改不会被自动覆盖")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeDisabled();
+  });
+
+  it("retains unsaved local edits read-only when remote removes the plan until explicitly discarded", async () => {
+    vi.spyOn(API, "getScriptReview")
+      .mockResolvedValueOnce(dramaState())
+      .mockResolvedValue(dramaState({ status: "no_script_plan", content: null, fingerprint: null }));
+
+    render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
+    fireEvent.change(await screen.findByDisplayValue("你终于回来了。"), { target: { value: "我的本地草稿" } });
+
+    act(() => {
+      useAppStore.getState().invalidateEntities(["script_plan:episode_1"]);
+    });
+
+    expect(await screen.findByText("脚本规划已在别处更新，当前未保存的修改不会被自动覆盖")).toBeInTheDocument();
+    expect(screen.getByText("我的本地草稿")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认并继续" })).toBeDisabled();
+    expect(screen.queryByRole("heading", { name: "这一集还没有脚本" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改并载入最新" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "放弃修改" }));
+    expect(await screen.findByRole("heading", { name: "这一集还没有脚本" })).toBeInTheDocument();
   });
 
   it("shows the first-plan starter when the episode has neither a plan nor a formal script", async () => {

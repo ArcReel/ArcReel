@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
-import { ApiRequestError } from "@/api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,12 +12,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { PromptOverwrite } from "@/types";
-
-export function readPromptOverwrite(err: unknown): PromptOverwrite | null {
-  if (!(err instanceof ApiRequestError) || err.status !== 409) return null;
-  const diagnostic = err.diagnostic as { prompt_overwrite?: PromptOverwrite } | undefined;
-  return diagnostic?.prompt_overwrite ?? null;
-}
 
 interface PromptOverwriteDialogProps {
   overwrite: PromptOverwrite | null;
