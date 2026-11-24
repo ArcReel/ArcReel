@@ -30,9 +30,8 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
-from lib.artifacts.generation_input import project_input_observation, storyboard_image_input
+from lib.artifacts.generation_input import project_input_observation
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
-from lib.artifacts.visual_artifact_provenance import VisualReference
 from lib.backends.image_errors import ImageCapabilityError
 from lib.config.resolver import ConfigResolver
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
@@ -62,7 +61,6 @@ from lib.infra.async_thread import run_sync_transaction
 from lib.infra.schema_guards import is_int
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.prompts.prompt_builders import render_storyboard_image_prompt
-from lib.prompts.reference_image_numbering import PREVIOUS_STORYBOARD_ROLE, require_reference_image_limit
 from lib.references.reference_admission import admit_storyboard_item
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script.script_models import get_generated_assets, resolve_content_mode
@@ -78,7 +76,12 @@ from server.services.admission.cost_estimation import (
     load_video_price_source,
     quote_video_request_from_price,
 )
-from server.services.admission.image_references import limit_problem, reference_image_limit
+from server.services.admission.image_references import (
+    active_storyboard_ids,
+    check_storyboard_image_limit,
+    limit_problem,
+    reference_image_limit,
+)
 from server.services.admission.reference_admission import reference_admission_problems
 from server.services.admission.video_batch_admission import (
     admit_storyboard_video_request,
@@ -292,6 +295,7 @@ def plan_storyboard_image_batch(
     project_path: Path,
     image_limit: tuple[int | None, str],
     requested_ids: Sequence[str] | None = None,
+    active_ids: frozenset[str] = frozenset(),
 ) -> StoryboardImageBatchPlan:
     """选出这一批的分镜图目标并逐项判准入；``requested_ids`` 为 ``None`` 时只选缺分镜图的分镜。"""
 
@@ -319,9 +323,8 @@ def plan_storyboard_image_batch(
     targets: list[GenerationTargetState] = []
     missing_prompt: set[str] = set()
     reference_blocked: set[str] = set()
-    maximum, model = image_limit
-    observation = project_input_observation(project_path) if maximum is not None else None
-    admitted_ids: set[str] = set()
+    observation = project_input_observation(project_path) if image_limit[0] is not None else None
+    planned_ids = set(active_ids)
     for state in sorted(selection.targets, key=lambda state: index_by_id[state.unit_id]):
         item = items_by_id[state.unit_id]
         reference_problem = next(
@@ -343,28 +346,17 @@ def plan_storyboard_image_batch(
                     action=GenerationAction.FIX_INPUT,
                 )
         if problem is None and observation is not None:
-            assembled = storyboard_image_input(
-                project, script, episode=episode, resource_id=state.unit_id, observation=observation
-            )
-            visuals = [ref.visual for ref in assembled.references]
-            index = index_by_id[state.unit_id]
-            previous = str(items[index - 1].get(id_field)) if index else None
-            if (
-                previous
-                and previous in admitted_ids
-                and not item.get("segment_break")
-                and not any(ref.role == PREVIOUS_STORYBOARD_ROLE for ref in visuals)
-            ):
-                visuals.append(
-                    VisualReference(
-                        project_path / "storyboards" / f"scene_{previous}.png",
-                        role=PREVIOUS_STORYBOARD_ROLE,
-                        logical_type="storyboard",
-                        logical_id=previous,
-                    )
-                )
             try:
-                require_reference_image_limit(visuals, maximum, model=model)
+                check_storyboard_image_limit(
+                    project,
+                    script,
+                    project_path,
+                    episode=episode,
+                    resource_id=state.unit_id,
+                    limit=image_limit,
+                    planned_ids=planned_ids,
+                    observation=observation,
+                )
             except ImageCapabilityError as exc:
                 problem = limit_problem(exc)
                 reference_blocked.add(state.unit_id)
@@ -378,7 +370,7 @@ def plan_storyboard_image_batch(
             )
             continue
         targets.append(state)
-        admitted_ids.add(state.unit_id)
+        planned_ids.add(state.unit_id)
 
     return StoryboardImageBatchPlan(
         script_file=script_file,
@@ -392,6 +384,7 @@ def plan_storyboard_image_batch(
         },
         missing_prompt=frozenset(missing_prompt),
         reference_blocked=frozenset(reference_blocked),
+        generating=active_ids.intersection(state.unit_id for state in targets),
     )
 
 
@@ -407,29 +400,34 @@ async def load_storyboard_image_batch_plan(
 
     loaded = await run_sync_transaction(load_episode_storyboard_script, projects, project_name, episode_id)
     image_limit = await reference_image_limit(project_name, loaded.project, loaded.project_path)
+    items, id_field, *_ = get_storyboard_items(loaded.script)
+    resource_ids = [str(item[id_field]) for item in items if item.get(id_field)]
+    active_ids = await active_storyboard_ids(
+        queue,
+        project_name=project_name,
+        script_file=loaded.script_file,
+        resource_ids=resource_ids,
+        user_id=user_id,
+    )
 
     def _plan():
+        current = (
+            replace(loaded, script=projects.load_script(project_name, loaded.script_file)) if resource_ids else loaded
+        )
         resolver = active_artifact_currency_resolver(loaded.project_path, loaded.project)
-        return plan_storyboard_image_batch(
-            project=loaded.project,
-            script=loaded.script,
-            script_file=loaded.script_file,
-            episode=loaded.episode,
+        plan = plan_storyboard_image_batch(
+            project=current.project,
+            script=current.script,
+            script_file=current.script_file,
+            episode=current.episode,
             resolver=resolver,
             project_path=loaded.project_path,
             image_limit=image_limit,
+            active_ids=active_ids,
         )
+        return current, plan
 
-    plan = await asyncio.to_thread(_plan)
-    generating = await _active_resource_ids(
-        queue,
-        project_name=project_name,
-        task_type="storyboard",
-        script_file=loaded.script_file,
-        resource_ids=plan.target_ids,
-        user_id=user_id,
-    )
-    return loaded, replace(plan, generating=generating)
+    return await run_sync_transaction(_plan)
 
 
 async def submit_storyboard_image_batch(

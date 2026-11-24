@@ -1103,6 +1103,7 @@ class TestQueuedMessages:
         await self._start_running_turn(service, client)
         stream = _EntryStream(service, SDK_ID)
         try:
+            await stream.next("queue")
             queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID))["queued_message"]
             client.push_frame(assistant_frame({"type": "text", "text": "读完了"}, uuid="a-2", session_id=SDK_ID))
             client.push_frame(started_frame(session_id=SDK_ID))
@@ -1345,6 +1346,7 @@ class TestQueuedMessages:
         await self._start_running_turn(service, client)
         stream = _EntryStream(service, SDK_ID)
         try:
+            await stream.next("queue")
             await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1")
             with patch.object(
                 service.event_log_store, "append_user_entry", new=AsyncMock(side_effect=RuntimeError("db down"))
@@ -1367,6 +1369,7 @@ class TestQueuedMessages:
         await self._start_running_turn(service, client)
         stream = _EntryStream(service, SDK_ID)
         try:
+            await stream.next("queue")
             queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1"))[
                 "queued_message"
             ]
@@ -1418,6 +1421,7 @@ class TestQueuedMessageWithdrawal:
         await TestQueuedMessages()._start_running_turn(service, client)
         stream = _EntryStream(service, SDK_ID)
         try:
+            await stream.next("queue")
             queued = (
                 await service.send_or_create(
                     "demo", "加一段旁白", session_id=SDK_ID, images=[SimpleNamespace(**image)], client_key="ck-1"
@@ -1574,6 +1578,7 @@ class TestUnsentQueuedMessages:
         await TestQueuedMessages()._start_running_turn(service, client)
         stream = _EntryStream(service, SDK_ID)
         try:
+            await stream.next("queue")
             queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1"))[
                 "queued_message"
             ]

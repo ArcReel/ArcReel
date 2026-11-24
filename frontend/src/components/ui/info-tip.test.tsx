@@ -1,6 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { InfoTip, InfoTipContent, InfoTipTrigger } from "./info-tip";
 
 const HINT = "不含缓存命中与缓存写入的部分";
@@ -26,22 +27,138 @@ describe("InfoTip", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("opens on hover", async () => {
+  it("opens on hover and closes when the pointer leaves", async () => {
     const user = userEvent.setup();
     render(<InputHint />);
 
     await user.hover(trigger());
 
     expect(await screen.findByRole("dialog")).toHaveTextContent(HINT);
+    await user.unhover(trigger());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("opens on click, for touch users", async () => {
+  it.each([0, 1_000])(
+    "pins a hover-opened hint across pointer leave on the first click after %d ms and closes on the second click",
+    async (elapsed) => {
+      vi.useFakeTimers();
+      try {
+        render(<InputHint />);
+        const button = trigger();
+
+        fireEvent.pointerOver(button, { pointerType: "mouse" });
+        fireEvent.mouseEnter(button);
+        expect(screen.getByRole("dialog")).toHaveTextContent(HINT);
+        fireEvent.pointerDown(button, { pointerType: "mouse" });
+        await act(() => vi.advanceTimersByTimeAsync(elapsed));
+        fireEvent.click(button, { detail: 1 });
+
+        expect(button).toHaveAttribute("aria-expanded", "true");
+        fireEvent.mouseLeave(button);
+        expect(button).toHaveAttribute("aria-expanded", "true");
+        expect(screen.getByRole("dialog")).toHaveTextContent(HINT);
+
+        fireEvent.click(button, { detail: 1 });
+        expect(button).toHaveAttribute("aria-expanded", "false");
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("closes a hover-pinned hint on Escape after pointer leave", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<InputHint />);
+      const button = trigger();
+
+      fireEvent.pointerOver(button, { pointerType: "mouse" });
+      fireEvent.mouseEnter(button);
+      fireEvent.pointerDown(button, { pointerType: "mouse" });
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      fireEvent.click(button, { detail: 1 });
+      fireEvent.mouseLeave(button);
+      expect(button).toHaveAttribute("aria-expanded", "true");
+
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(button).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps controlled open state in sync across hover pinning and programmatic resets", async () => {
+    vi.useFakeTimers();
+    try {
+      const onOpenChange = vi.fn();
+      function ControlledHint() {
+        const [open, setOpen] = useState(false);
+        return (
+          <>
+            <InfoTip
+              open={open}
+              onOpenChange={(nextOpen, details) => {
+                onOpenChange(nextOpen, details.reason);
+                setOpen(nextOpen);
+              }}
+            >
+              <InfoTipTrigger render={<button type="button" />}>输入</InfoTipTrigger>
+              <InfoTipContent title="输入">{HINT}</InfoTipContent>
+            </InfoTip>
+            <button type="button" onClick={() => setOpen(false)}>
+              关闭
+            </button>
+            <button type="button" onClick={() => setOpen(true)}>
+              打开
+            </button>
+          </>
+        );
+      }
+
+      render(<ControlledHint />);
+      const button = trigger();
+
+      fireEvent.pointerOver(button, { pointerType: "mouse" });
+      fireEvent.mouseEnter(button);
+      expect(button).toHaveAttribute("aria-expanded", "true");
+
+      fireEvent.pointerDown(button, { pointerType: "mouse" });
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      fireEvent.click(button, { detail: 1 });
+      fireEvent.mouseLeave(button);
+      expect(button).toHaveAttribute("aria-expanded", "true");
+      expect(onOpenChange).toHaveBeenCalledTimes(1);
+      expect(onOpenChange).toHaveBeenLastCalledWith(true, "trigger-hover");
+
+      fireEvent.click(button, { detail: 1 });
+      expect(button).toHaveAttribute("aria-expanded", "false");
+      expect(onOpenChange).toHaveBeenLastCalledWith(false, "trigger-press");
+
+      fireEvent.pointerOver(button, { pointerType: "mouse" });
+      fireEvent.mouseEnter(button);
+      expect(button).toHaveAttribute("aria-expanded", "true");
+
+      fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+      expect(button).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(screen.getByRole("button", { name: "打开" }));
+      expect(button).toHaveAttribute("aria-expanded", "true");
+
+      fireEvent.click(button, { detail: 1 });
+      expect(button).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens and closes on touch taps", async () => {
     const user = userEvent.setup();
     render(<InputHint />);
 
-    await user.click(trigger());
+    await user.pointer({ keys: "[TouchA]", target: trigger() });
 
     expect(await screen.findByRole("dialog")).toHaveTextContent(HINT);
+    await user.pointer({ keys: "[TouchA]", target: trigger() });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it.each(["{Enter}", " "])("opens from the keyboard with %s", async (key) => {
@@ -59,7 +176,8 @@ describe("InfoTip", () => {
     const user = userEvent.setup();
     render(<InputHint />);
 
-    await user.click(trigger());
+    await user.tab();
+    await user.keyboard("{Enter}");
     await screen.findByRole("dialog");
     await user.keyboard("{Escape}");
 

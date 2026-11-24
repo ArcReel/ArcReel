@@ -371,29 +371,130 @@ def idle_material_maintenance(monkeypatch):
 _OFFLINE_DNS_ADDRESS = "203.0.113.10"
 
 
+def _is_localhost(host: str | bytes) -> bool:
+    return host.lower() in ("localhost", b"localhost")
+
+
+def _parse_ip(host: str | bytes) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(host.decode() if isinstance(host, bytes) else host)
+    except ValueError:
+        return None
+
+
+def _is_loopback_host(host: object) -> bool:
+    if not isinstance(host, (str, bytes)):
+        return False
+    if _is_localhost(host):
+        return True
+    ip = _parse_ip(host)
+    return ip is not None and ip.is_loopback
+
+
+def _block_outbound_network(address: object) -> None:
+    raise AssertionError(
+        f"Non-loopback network blocked for {address!r}. "
+        "Use a network test double or a loopback server. Put live external requests in tests/e2e/."
+    )
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_protocol(item: pytest.Item):
+    """Guard Python socket calls across the entire test, including fixture setup and teardown."""
+    if item.get_closest_marker("e2e") is not None:
+        return (yield)
+
+    unix_socket_family = getattr(socket, "AF_UNIX", None)
+
+    def check_destination(sock: socket.socket, address: object) -> None:
+        if sock.family == unix_socket_family:
+            return
+        if isinstance(address, tuple) and address and _is_loopback_host(address[0]):
+            return
+        _block_outbound_network(address)
+
+    def guard_connect(connect):
+        def checked_connect(sock, address, /):
+            check_destination(sock, address)
+            return connect(sock, address)
+
+        return checked_connect
+
+    sendto = socket.socket.sendto
+    getaddrinfo = socket.getaddrinfo
+    gethostbyname = socket.gethostbyname
+    getnameinfo = socket.getnameinfo
+
+    def checked_sendto(sock, data, *args):
+        if args:
+            check_destination(sock, args[-1])
+        return sendto(sock, data, *args)
+
+    def checked_getaddrinfo(host, port, *args, **kwargs):
+        if host is not None and not _is_localhost(host) and _parse_ip(host) is None:
+            _block_outbound_network(host)
+        return getaddrinfo(host, port, *args, **kwargs)
+
+    def checked_gethostbyname(host, /):
+        if not _is_localhost(host) and not isinstance(_parse_ip(host), ipaddress.IPv4Address):
+            _block_outbound_network(host)
+        return gethostbyname(host)
+
+    def guard_host_lookup(lookup):
+        def checked_lookup(host, /):
+            if not _is_loopback_host(host):
+                _block_outbound_network(host)
+            return lookup(host)
+
+        return checked_lookup
+
+    def checked_getnameinfo(address, flags, /):
+        numeric_flags = socket.NI_NUMERICHOST | socket.NI_NUMERICSERV
+        if flags & numeric_flags != numeric_flags and not (
+            isinstance(address, tuple) and address and _is_loopback_host(address[0])
+        ):
+            _block_outbound_network(address)
+        return getnameinfo(address, flags)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(socket.socket, "connect", guard_connect(socket.socket.connect))
+        patch.setattr(socket.socket, "connect_ex", guard_connect(socket.socket.connect_ex))
+        patch.setattr(socket.socket, "sendto", checked_sendto)
+        patch.setattr(socket, "getaddrinfo", checked_getaddrinfo)
+        patch.setattr(socket, "gethostbyname", checked_gethostbyname)
+        patch.setattr(socket, "gethostbyname_ex", guard_host_lookup(socket.gethostbyname_ex))
+        patch.setattr(socket, "gethostbyaddr", guard_host_lookup(socket.gethostbyaddr))
+        patch.setattr(socket, "getnameinfo", checked_getnameinfo)
+        if hasattr(socket.socket, "sendmsg"):
+            sendmsg = socket.socket.sendmsg
+
+            def checked_sendmsg(sock, buffers, ancdata=(), flags=0, address=None, /):
+                if address is not None:
+                    check_destination(sock, address)
+                return sendmsg(sock, buffers, ancdata, flags, address)
+
+            patch.setattr(socket.socket, "sendmsg", checked_sendmsg)
+        return (yield)
+
+
 @pytest.fixture(autouse=True)
-def offline_dns(monkeypatch):
+def offline_dns(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
     """事件循环的 ``getaddrinfo`` 对主机名一律回 ``_OFFLINE_DNS_ADDRESS``，不发真实 DNS 查询。
 
     产物下载入口在每次请求前解析目标主机；出站流量由 respx 在 transport 层拦截，解析这一步
     却会落到本机解析器上。IP 字面量与 ``localhost``（本地数据库、测试服务器）仍走真实解析。
     """
+    if request.node.get_closest_marker("e2e") is not None:
+        return
+
     real_getaddrinfo = asyncio.base_events.BaseEventLoop.getaddrinfo
 
     async def getaddrinfo(self, host, port, *args, **kwargs):
-        if host is None or host == "localhost" or _is_ip_literal(host):
+        if host is None or _is_localhost(host) or _parse_ip(host) is not None:
             return await real_getaddrinfo(self, host, port, *args, **kwargs)
         return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (_OFFLINE_DNS_ADDRESS, port or 0))]
 
     monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", getaddrinfo)
-
-
-def _is_ip_literal(host: str | bytes) -> bool:
-    try:
-        ipaddress.ip_address(host.decode() if isinstance(host, bytes) else host)
-    except ValueError:
-        return False
-    return True
 
 
 @pytest.fixture(scope="session", autouse=True)

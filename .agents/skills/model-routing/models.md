@@ -7,7 +7,7 @@
 | Category | 模型 | Effort | Fallback |
 |---|---|---|---|
 | `quick` | `gpt-6.1-terra` | low | `gemini-4-hydrogen` · low → `claude-haiku-5-5` · medium |
-| `unspecified-low` | `gpt-6.2-sol` | low | `gemini-4-neon` · low → `claude-sonnet-5-5` · medium |
+| `unspecified-low` | `gemini-4-neon` | low | `claude-sonnet-5-5` · medium → `gpt-6.2-sol` · low |
 | `unspecified-high` | `gemini-4-neon` | high | `claude-opus-5-5` · high → `gpt-6.2-sol` · high |
 | `deep-low` | `gpt-6.2-sol` | medium | `gemini-4-neon` · medium → `claude-opus-5-5` · medium |
 | `deep-high` | `gpt-6.2-astra` | high | `gemini-4-neon` · high → `claude-fable-5-2` · high |
