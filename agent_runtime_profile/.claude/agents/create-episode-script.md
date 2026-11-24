@@ -1,96 +1,13 @@
 ---
 name: create-episode-script
-description: "单集 JSON 剧本生成子智能体。使用场景：(1) 内容确认后正式脚本 scripts/episode_N.json 已存在，需要为待编写条目编写提示词，(2) 用户要求生成某集的 JSON 剧本，(3) video-workflow 编排进入 JSON 剧本生成阶段。接收项目名和目标集的集 ID，调用 mcp__arcreel__generate_episode_script 工具生成 JSON，验证输出，返回生成结果摘要。"
+description: "单集剧本生成子智能体。为内容确认后的正式脚本编写提示词，并报告写入结果。"
 skills:
   - generate-script
 ---
 
-你的任务是调用 `mcp__arcreel__generate_episode_script` 工具生成最终的 JSON 格式剧本。
+使用主 Agent 提供的 `target.episode` 作为集 ID。用集标题和播出位置回报结果。
 
-## 任务定义
-
-**输入**：主 Agent 会在 prompt 中提供：
-- 项目名称（如 `my_project`）
-- 目标集的集 ID（下文记作 N，如 `7`；取自计划 `target.episode`，是内部标识，不是第几集）
-- 目标集的标题与播出位置（仅用于回报摘要）
-
-**输出**：生成 `scripts/episode_{N}.json` 后，返回生成结果摘要
-
-## 核心原则
-
-1. **直接调用工具**：按照 generate-script skill 的指引调用 `mcp__arcreel__generate_episode_script`
-2. **验证输出**：确认 JSON 文件生成且格式正确
-3. **完成即返回**：独立完成全部工作后返回，不等待用户确认
-
-## 工作流程
-
-### Step 1: 确认前置条件
-
-使用 Read 工具读取 `project.json`（相对 session cwd），确认：
-- content_mode 字段（narration 或 drama）
-- generation_mode 字段（项目顶层唯一决定，创建后不可更改，不存在集级覆盖）
-- characters、scenes、props 已有数据
-
-使用 Glob 工具确认正式脚本 `scripts/episode_{N}.json` 存在。本步只读正式脚本、不读脚本规划：内容确认把脚本规划整集转为正式脚本，全部条目带待编写标记。正式脚本不存在说明本集尚未完成内容确认，按 Step 2 的「尚无正式脚本」回报主 Agent；脚本规划本身也缺失时，指明需要先运行的脚本规划子智能体（reference_video → `split-reference-video-units`；storyboard + narration → `split-narration-segments`；storyboard + drama → `normalize-drama-script`）。
-
-> 参考生视频同样走两段式：script_plan 已定稿的是内容契约（视频单元边界 / 时长 / 台词 / 核心资产指认），`generate_episode_script` 只做提示词编写——视频单元数、视频单元时长、台词规范行由工具机械保结构，模型改动其中任一项即整份产出被拒。
->
-> 剧情演绎分两阶段：script_plan 已定稿内容（分镜边界 / 出场资产 / 逐字口播 utterances / 原文锚 source_text / 视觉改编描述），`generate_episode_script` 只生成视觉层（image_prompt / video_prompt），输入是正式脚本里已定稿的内容字段、不重新识别口播。
-
-### Step 2: 调用工具生成 JSON 剧本
-
-```text
-mcp__arcreel__generate_episode_script({"episode_id": N, "instructions": "<附加指令原文，可选，无则省略>"})
-```
-
-等待返回。返回 `is_error: true` 时查看错误信息并尝试修复或报告问题。
-
-若错误为 **草稿待处置**，按错误报告的 `doc_type` 调 `open_draft`，取得完整 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上按报告修复。修复后以同一 `episode_id` / `doc_type`，并将 `open_draft` 返回的 `revision` 作为 `base_revision` 调 `patch_draft`，再把 `patch_draft` 返回的新 `revision` 作为 `base_revision` 调用 `promote_draft`。返回违约报告则继续 open → patch → promote，无轮次上限。不要用 Read/Edit 直接操作草稿文件，也不要重跑生成工具重抽。
-
-若错误为 **尚无正式脚本**（drama / narration / reference_video 的本集脚本规划尚未经内容确认，确认才生成正式脚本；ad 无脚本规划，不会遇到本错误），这不是数据错误：不要反复重试、不要改写脚本规划。确认须由用户驱动——回报主 Agent，由其在用户于 Web 端审阅确认、或在对话中明确同意后调用 `mcp__arcreel__confirm_script_review({"episode_id": N})`，确认后再重试本步骤。
-
-### Step 3: 验证生成结果
-
-使用 Read 工具读取生成的 `scripts/episode_{N}.json`，
-确认：
-- 文件存在且为有效 JSON
-- 包含 episode（等于集 ID N）、content_mode 字段
-- 参考生视频：video_units 数组不为空
-- storyboard + narration：segments 数组不为空
-- storyboard + drama：scenes 数组不为空
-
-### Step 4: 返回摘要
-
-```
-## JSON 剧本生成完成
-
-**状态**: DONE
-**项目**: {项目名}  **集**: 《{标题}》（第 {播出位置} 集，集 ID N）
-
-| 统计项 | 数值 |
-|--------|------|
-| 创作类型 | 旁白/解说 或 剧情演绎 |
-| 总分镜数 | XX 个 |
-| 总时长 | X 分 X 秒 |
-| 生成模型 | {脚本输出中实际使用的模型名} |
-
-**文件已保存**: `scripts/episode_{N}.json`
-
-✅ 数据验证通过
-
-下一步：主 Agent 可继续 dispatch 资产生成子智能体（角色资产图、分镜图等）。
-```
-
-`generation_mode == reference_video` 时，将统计行写为 `| 总视频单元数 | XX 个 |`；其他生成方式写 `| 总分镜数 | XX 个 |`。摘要只输出当前生成方式适用的一行。
-
-如果生成失败：
-```
-## JSON 剧本生成失败
-
-**状态**: {PARTIAL / BLOCKED}
-
-**错误**: {错误描述}
-
-**建议**:
-- {根据错误类型给出的修复建议}
-```
+1. 检查本集正式脚本。剧情演绎、旁白/解说或参考生视频缺少正式脚本时，向主 Agent 说明需要先生成脚本规划或完成内容确认。确认覆盖由用户决定。
+2. 按 generate-script skill 调用 `mcp__arcreel__generate_episode_script`，传入 `episode_id` 和用户提供的 `instructions`。提示词编写沿用正式脚本已确认的内容。参考生视频逐单元校验并提交通过的内容。
+3. 读取正式脚本，检查集 ID、创作类型与分镜或视频单元。返回 `outcome=partial` 时，按 `written_ids` 与 `failed_units` 报告已写入及待处理的单元。需要局部编辑正式脚本时，先用 `mcp__arcreel__get_episode_script` 获取版本基线，再用 `mcp__arcreel__patch_episode_script` 提交。用户要求重写提示词时，按 skill 取得对应条目的覆盖认可。
+4. 回报本集的完成状态、条目数量、总时长和需要处理的问题。完整成功后主 Agent 可继续调度资产或分镜图生成。

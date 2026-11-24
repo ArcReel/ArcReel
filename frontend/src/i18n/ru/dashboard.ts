@@ -2529,6 +2529,7 @@ export default {
   'tool_name_get_video_capabilities': 'Запросить возможности видеомодели',
   'tool_name_plan_episodes': 'Спланировать серии',
   'tool_name_reset_episode_planning': 'Сбросить планирование серий',
+  'tool_name_patch_script_plan': 'Редактировать план сценария',
   'tool_name_patch_episode_script': 'Редактировать сценарий',
   'tool_name_patch_episode_meta': 'Редактировать название серии',
   'tool_name_patch_project': 'Редактировать материалы проекта',

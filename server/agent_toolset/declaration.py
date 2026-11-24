@@ -125,6 +125,7 @@ class ToolDeclaration[RequestT: BaseModel, ResultT]:
     projection: Callable[[ResultT], dict[str, Any]] | None = None
     is_error: Callable[[ResultT], bool] | None = None
     images: Callable[[ResultT], Sequence[ToolImage]] | None = None
+    request_error: Callable[[ValidationError], ToolProblem] | None = None
 
     @property
     def input_schema(self) -> dict[str, Any]:
@@ -180,12 +181,14 @@ def invalid_request_problem(exc: ValidationError) -> ToolProblem:
 
 
 def _validated_request[RequestT: BaseModel](
-    request_model: type[RequestT], arguments: Mapping[str, Any]
+    request_model: type[RequestT],
+    arguments: Mapping[str, Any],
+    request_error: Callable[[ValidationError], ToolProblem] = invalid_request_problem,
 ) -> RequestT | ToolProblem:
     try:
         return request_model.model_validate(dict(arguments))
     except ValidationError as exc:
-        return invalid_request_problem(exc)
+        return request_error(exc)
 
 
 async def invoke_declaration(
@@ -196,7 +199,9 @@ async def invoke_declaration(
     services: Services,
 ) -> ToolOutcome[Any]:
     """按声明校验请求、执行迁移阻断策略并调用 handler；两宿主共用这一个入口。"""
-    request = _validated_request(declaration.request_model, arguments)
+    request = _validated_request(
+        declaration.request_model, arguments, declaration.request_error or invalid_request_problem
+    )
     if isinstance(request, ToolProblem):
         return ToolOutcome(problem=request)
     if isinstance(declaration.migration, Blocked) and (problem := await migration_gate(scope, services)) is not None:

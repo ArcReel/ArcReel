@@ -160,6 +160,13 @@ from lib.project.project_migration_guard import project_migration_failure
 from lib.project.project_migrations import migrate_project_with_verdict
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.draft_violation import DraftViolation
+from lib.script.patch_operations import (
+    PatchInsertOperation,
+    PatchMoveOperation,
+    PatchRemoveOperation,
+    PatchSplitOperation,
+    PatchUpdateOperation,
+)
 from lib.script.script_batch_edit import (
     ScriptBatchEditCommand,
     ScriptBatchEditLocation,
@@ -178,6 +185,7 @@ from lib.script.script_editor import (
     split_segment,
 )
 from lib.script.script_generator import ReferenceAuthoringFailed
+from lib.script.script_plan_patch import PatchScriptPlanRequest, ScriptPlanPatchResult
 from lib.script.script_review import (
     ScriptPlanRebuildCompletionError,
     complete_stale_script_plan_rebuild,
@@ -487,57 +495,6 @@ async def cancel_generation_batch(
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"cancel_generation_batch 失败: {exc}"))
     return ToolOutcome(value=result)
-
-
-class PatchUpdateOperation(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    op: Literal["update"]
-    id: str = Field(min_length=1, description="要修改的条目 id（segment_id / scene_id / shot_id / unit_id）")
-    fields: dict[str, Any] = Field(
-        min_length=1, description="字段路径到新值的映射；嵌套字段用点号路径，如 image_prompt.scene"
-    )
-
-
-class PatchInsertOperation(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    op: Literal["insert"]
-    after_id: str | None = Field(
-        default=None,
-        min_length=1,
-        description="新条目插在这个 id 之后；省略或为 null 时插到最前（空脚本的第一条即如此）",
-    )
-    item: dict[str, Any] = Field(
-        description="新条目的完整内容；id 由系统分配，取本集用过的最大序号之后的号，已删除条目的编号不会再发出"
-    )
-
-
-class PatchRemoveOperation(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    op: Literal["remove"]
-    id: str = Field(min_length=1, description="要删除的条目 id")
-
-
-class PatchMoveOperation(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    op: Literal["move"]
-    id: str = Field(min_length=1, description="要移动的条目 id；条目内容与已生成的媒体随条目一起移动")
-    after_id: str | None = Field(
-        default=None,
-        min_length=1,
-        description="移到这个 id 之后；省略或为 null 时移到最前",
-    )
-
-
-class PatchSplitOperation(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    op: Literal["split"]
-    id: str = Field(min_length=1, description="要拆分的条目 id；第一段沿用该 id，其余段按新增条目的规则分配新 id")
-    parts: list[dict[str, Any]] = Field(min_length=2, description="拆分后的各段完整内容，按顺序排列，至少两段")
 
 
 PatchEpisodeScriptOperation = Annotated[
@@ -2573,6 +2530,22 @@ async def patch_episode_script(
     return ToolOutcome(value=_script_patch_result(request.value, outcome.value))
 
 
+async def patch_script_plan(
+    request: ToolRequest[PatchScriptPlanRequest],
+    scope: ProjectScope,
+    _caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[ScriptPlanPatchResult]:
+    service = ScriptReviewService(services.projects, config_resolver=services.capabilities)
+    try:
+        result = await service.patch_content(scope.project_name, request.value)
+        return ToolOutcome(value=result)
+    except ScriptReviewError as exc:
+        return ToolOutcome(problem=ToolProblem(exc.code, str(exc), action="get_script_plan_content"))
+    except Exception as exc:
+        return ToolOutcome(problem=_file_problem("patch_script_plan", exc))
+
+
 ASSET_TABLES = tuple(spec.bucket_key for spec in ASSET_SPECS.values())
 MERGEABLE_ASSET_TABLES = tuple(ASSET_SPECS[asset_type].bucket_key for asset_type in MERGEABLE_ASSET_TYPES)
 PROJECT_SETTINGS = (
@@ -4010,6 +3983,7 @@ __all__ = [
     "PatchEpisodeMetaRequest",
     "PatchEpisodeScriptRequest",
     "PatchProjectRequest",
+    "PatchScriptPlanRequest",
     "PlanEpisodesRequest",
     "ProjectContent",
     "ProjectFileContent",
@@ -4024,6 +3998,7 @@ __all__ = [
     "ScriptPatchResult",
     "ScriptPlanContent",
     "ScriptPlanContentRequest",
+    "ScriptPlanPatchResult",
     "ScriptSpeechAdmission",
     "ScriptSpeechProblem",
     "Services",
@@ -4065,6 +4040,7 @@ __all__ = [
     "patch_episode_meta",
     "patch_episode_script",
     "patch_project",
+    "patch_script_plan",
     "plan_episodes",
     "promote_draft",
     "read_project_file",

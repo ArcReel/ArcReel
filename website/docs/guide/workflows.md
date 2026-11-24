@@ -298,6 +298,8 @@ flowchart LR
 
 首次生成脚本规划时，结构有效的内容会直接保存。生成回执列出需要修正的确认阻断项。可在「内容确认」中保存修改进度，解决全部阻断项后再确认。已有规划时，重新生成的内容必须通过校验才能覆盖原规划；重生成失败后，仍可继续编辑原规划。
 
+可以让 Agent 局部修改未确认的脚本规划。内嵌 Agent 和通过 MCP 接入的外部 Agent 都可用 `get_script_plan_content` 获取当前版本，再用 `patch_script_plan` 提交增量修改。修改后会返回最新的确认阻断项。已完成内容确认时，Agent 用 `patch_episode_script` 修改正式脚本。
+
 ### 阶段 1：项目目标 {#stage-project-goal}
 
 明确：
