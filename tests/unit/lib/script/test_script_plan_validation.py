@@ -241,3 +241,58 @@ def test_ledger_none_skips_coverage_even_with_a_leftover_file(tmp_path: Path):
         capabilities=[4, 8],
     )
     assert [issue.code for issue in result.blocking_issues] == ["novel_text_coverage"]
+
+
+def test_duplicate_scene_and_unit_ids_block_confirmation_before_confirm(tmp_path: Path):
+    drama_candidate = DramaNormalizedScript.model_validate(
+        {
+            "title": "第一集",
+            "scenes": [
+                {
+                    "scene_id": "E1S01",
+                    "duration_seconds": 4,
+                    "characters_in_scene": [],
+                    "scene_description": "雨夜",
+                },
+                {
+                    "scene_id": "E2S01",
+                    "duration_seconds": 4,
+                    "characters_in_scene": [],
+                    "scene_description": "清晨",
+                },
+            ],
+        }
+    ).model_dump()
+    drama_result = validate_script_plan(
+        "drama",
+        drama_candidate,
+        project={},
+        project_path=tmp_path,
+        episode=1,
+        source=EpisodePlanSource(),
+        capabilities=[4, 8],
+    )
+    assert [issue.code for issue in drama_result.blocking_issues] == ["duplicate_scene_id"]
+    assert drama_result.blocking_issues[0].params == {"ids": ["E1S01"]}
+
+    rv_project = {"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "generation_mode": "reference_video"}
+    (tmp_path / "project.json").write_text(json.dumps(rv_project), encoding="utf-8")
+    rv_candidate = ReferenceScriptPlanDraft.model_validate(
+        {
+            "units": [
+                {"unit_id": "E1U01", "duration_seconds": 4, "text": "雨夜长街。"},
+                {"unit_id": "E1U01", "duration_seconds": 4, "text": "清晨巷口。"},
+            ]
+        }
+    ).model_dump()
+    rv_result = validate_script_plan(
+        "reference_video",
+        rv_candidate,
+        project=rv_project,
+        project_path=tmp_path,
+        episode=1,
+        source=EpisodePlanSource(),
+        capabilities=None,
+    )
+    assert [issue.code for issue in rv_result.blocking_issues] == ["duplicate_unit_id"]
+    assert rv_result.blocking_issues[0].params == {"ids": ["E1U01"]}

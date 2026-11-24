@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping, Sequence
-from contextlib import nullcontext
+from collections.abc import Callable, Generator, Mapping, Sequence
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -160,6 +160,11 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: obj
         unit.pop("needs_replan", None)
 
 
+def _assert_no_plan_symlinks(path: Path) -> None:
+    if any(candidate.is_symlink() or candidate.is_junction() for candidate in (path.parent.parent, path.parent, path)):
+        raise ValueError("symbolic links are not allowed")
+
+
 class ScriptReviewService:
     """封装 script_plan→prompt_authoring 内容确认的读写。router 与测试经此操作 gate，不直接碰文件 / project.json。"""
 
@@ -269,6 +274,21 @@ class ScriptReviewService:
             "soft_violations": soft_violation_entries(validation.soft_violations),
         }
 
+    @contextmanager
+    def _locked_plan_project(
+        self, project_name: str, project: dict[str, Any], episode: int, path: Path
+    ) -> Generator[dict[str, Any]]:
+        prompt_lock = (
+            self.pm.file_lock(quarantine_path(path.parents[2], episode, QUARANTINE_KIND_PROMPT_AUTHORING))
+            if script_review.script_plan_kind(project) == "reference_video"
+            else nullcontext()
+        )
+        with prompt_lock, self.pm.file_lock(path):
+            current = self.pm.load_project(project_name)
+            if plan_capability_inputs(current) != plan_capability_inputs(project):
+                raise ScriptReviewError("conflict", "视频模型配置已变化，请重新读取规划")
+            yield current
+
     async def read_agent_content(
         self, project_name: str, episode: int, read: Callable[[Path, dict[str, Any]], ScriptPlanContent]
     ) -> ScriptPlanContent | None:
@@ -281,17 +301,8 @@ class ScriptReviewService:
             path = script_review.script_plan_path(project_path, project, episode)
             if path is None:
                 return None
-            if path.parent.is_symlink() or path.parent.parent.is_symlink():
-                raise ValueError("symbolic links are not allowed")
-            prompt_lock = (
-                self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING))
-                if script_review.script_plan_kind(project) == "reference_video"
-                else nullcontext()
-            )
-            with prompt_lock, self.pm.file_lock(path):
-                current = self.pm.load_project(project_name)
-                if plan_capability_inputs(current) != plan_capability_inputs(project):
-                    raise ScriptReviewError("conflict", "视频模型配置已变化，请重新读取规划")
+            _assert_no_plan_symlinks(path)
+            with self._locked_plan_project(project_name, project, episode, path) as current:
                 result = read(project_path, current)
                 if (
                     script_review.script_plan_kind(current) == "reference_video"
@@ -332,18 +343,9 @@ class ScriptReviewService:
         kind = script_review.script_plan_kind(project)
         if path is None or kind is None:
             raise ScriptReviewError("script_plan_not_applicable", "当前项目不使用脚本规划")
-        if any(
-            candidate.is_symlink() or candidate.is_junction() for candidate in (path.parent.parent, path.parent, path)
-        ):
-            raise ValueError("symbolic links are not allowed")
+        _assert_no_plan_symlinks(path)
         dependent = QUARANTINE_KIND_PROMPT_AUTHORING if kind == "reference_video" else None
-        prompt_lock = (
-            self.pm.file_lock(quarantine_path(project_path, episode, dependent)) if dependent else nullcontext()
-        )
-        with prompt_lock, self.pm.file_lock(path):
-            current = self.pm.load_project(project_name)
-            if plan_capability_inputs(current) != plan_capability_inputs(project):
-                raise ScriptReviewError("conflict", "视频模型配置已变化，请重新读取规划")
+        with self._locked_plan_project(project_name, project, episode, path) as current:
             self._require_episode(project_name, current, episode)
             previous, current = self._read_script_plan_migrated(
                 project_name, current, episode, path, project_path, supported
@@ -487,22 +489,12 @@ class ScriptReviewService:
         path = script_review.script_plan_path(project_path, project, episode)
         if path is None and edit is not None:
             raise ScriptReviewError("not_applicable")
-        if path is not None:
-            project = self._require_episode(project_name, project, episode)
         content: dict[str, Any] | None = None
         fingerprint: str | None = None
         diagnostics = {"blocking_issues": [], "soft_violations": []}
         if path is not None:
-            prompt_authoring_lock = (
-                self.pm.file_lock(quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING))
-                if script_review.script_plan_kind(project) == "reference_video"
-                else nullcontext()
-            )
-            with prompt_authoring_lock, self.pm.file_lock(path):
-                current = self.pm.load_project(project_name)
-                if plan_capability_inputs(current) != plan_capability_inputs(project):
-                    raise ScriptReviewError("conflict", "视频模型配置已变化，请重新读取规划")
-                project = current
+            with self._locked_plan_project(project_name, project, episode, path) as current:
+                project = self._require_episode(project_name, current, episode)
                 content, project = self._read_script_plan_migrated(
                     project_name, project, episode, path, project_path, supported_durations
                 )
@@ -679,6 +671,10 @@ class ScriptReviewService:
             if base_fingerprint is not None
             else script_review.UNCHECKED_FINGERPRINT
         )
+
+        def check_episode(current: dict[str, Any]) -> None:
+            self._require_episode(project_name, current, episode)
+
         try:
             script_review.assert_base_fingerprint(path, expected)
             _require_changed_speech_admitted(kind, previous, validated)
@@ -688,6 +684,7 @@ class ScriptReviewService:
                 path,
                 validated,
                 dependent_quarantine=QUARANTINE_KIND_PROMPT_AUTHORING if kind == "reference_video" else None,
+                project_check=check_episode,
             )
         except script_review.ScriptPlanWriteConflict as exc:
             raise ScriptReviewError("conflict", str(exc)) from exc

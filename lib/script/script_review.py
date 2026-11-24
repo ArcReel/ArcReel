@@ -51,6 +51,7 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
+    announce_draft_change,
     clear_quarantine,
     draft_owner,
     quarantine_path,
@@ -406,6 +407,7 @@ def write_formal_script_plan_locked(
     clear_dependent_quarantine: bool = True,
     basis: ArtifactBasis | None = None,
     generated_from: dict[str, Any] | None = None,
+    project_check: Callable[[dict[str, Any]], None] | None = None,
     project_update: Callable[[dict[str, Any]], None] | None = None,
 ) -> bool:
     """任一变体正式 script_plan 的**单一写盘出口**：基线比对（OCC）→ 原子写 → 内容变化时清作废的
@@ -439,8 +441,9 @@ def write_formal_script_plan_locked(
         and STALE_SCRIPT_PLAN_REVISION_FIELD in source_entry
     )
     draft_kind = script_plan_quarantine_kind(generated_from) if generated_from is not None else None
-    if draft_kind:
-        paths += (quarantine_path(project_path, episode, draft_kind),)
+    draft_path = quarantine_path(project_path, episode, draft_kind) if draft_kind else None
+    if draft_path is not None:
+        paths += (draft_path,)
     if settle_stale or project_update is not None:
         paths += (project_path / "project.json",)
 
@@ -461,11 +464,17 @@ def write_formal_script_plan_locked(
     from lib.script.planning_draft_trash import trash_planning_draft
 
     record = None
+    draft_cleared = False
     try:
         with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
+            if project_check is not None:
+                pm = ProjectManager.for_project_dir(project_path)
+                project_check(pm.load_project(project_path.name))
             atomic_write_json(path, content)
             if draft_kind:
-                clear_quarantine(project_path, episode, draft_kind, record_activity=False)
+                draft_cleared = clear_quarantine(
+                    project_path, episode, draft_kind, record_activity=False, announce=False
+                )
             if settle_stale or project_update is not None:
                 pm = ProjectManager.for_project_dir(project_path)
                 pm.update_project_locked(project_path.name, update_project)
@@ -475,6 +484,8 @@ def write_formal_script_plan_locked(
         if record is not None and quarantine is not None and quarantine.is_file():
             project_trash.purge(project_path, record.id)
         raise
+    if draft_cleared and draft_path is not None:
+        announce_draft_change(project_path, draft_path)
     return changed
 
 

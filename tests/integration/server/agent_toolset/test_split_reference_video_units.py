@@ -293,6 +293,7 @@ async def test_split_reference_video_units_happy_derives_structure(
     from server import text_generation as mod
 
     rv_source(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     captured: dict[str, Any] = {}
     text = "@[张三] 走向 @[村口]\n@[张三] 停下脚步"
     units = [rv_unit(text)]
@@ -334,12 +335,14 @@ async def test_split_reference_video_units_issues_unit_ids_after_the_highest_use
 ) -> None:
     """unit_id 由服务端按数组顺序发号，取本集用过的最大号之后：LLM 不写 id，也就不存在重复 / 错集号 / 复用可写。"""
     rv_source(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     units = [rv_unit("@[张三] 起身"), rv_unit("@[张三] 出门")]
     out = await run_rv_split(fake_ctx, monkeypatch, units)
     assert out.problem is None, out
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     assert [u["unit_id"] for u in saved["units"]] == ["E1U2", "E1U3"]
-    assert fake_ctx.pm.project_payload["episodes"][0]["item_id_high_water"] == 3
+    project = json.loads((fake_ctx.project_path / "project.json").read_text(encoding="utf-8"))
+    assert project["episodes"][0]["item_id_high_water"] == 3
 
 
 async def test_split_reference_video_units_derives_dialogue_without_reference_image(
@@ -556,6 +559,7 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
     """未引用场景的 unit 逐条指名：地点由模型自由决定，室内外交替的相邻 unit 会对不上。"""
     rv_source(fake_ctx)
     fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}
+    fake_ctx.pm.mirror_to_disk()
     out = await run_rv_split(
         fake_ctx,
         monkeypatch,
@@ -575,6 +579,7 @@ async def test_split_reference_video_units_counts_this_episodes_new_scenes_as_sc
     """只引用本集新增场景的 unit 不算未引用场景：与内容确认页把新增项叠加在资产表上的结论一致。"""
     rv_source(fake_ctx)
     fake_ctx.pm.project_payload["scenes"] = {"酒馆": {"description": "木质吧台"}}
+    fake_ctx.pm.mirror_to_disk()
     new_assets = [
         {"type": "scene", "name": "码头", "decision": "register", "reason": "原文第一次出现", "description": "夜雾"}
     ]
@@ -685,6 +690,7 @@ async def test_planning_reference_audio_limit_from_catalog(
             "video_provider_i2v": f"ark/{model}",
         }
     )
+    fake_ctx.pm.mirror_to_disk()
     fake_ctx.config_resolver = ConfigResolver(db_factory)
     capabilities = await run_declared_tool("get_video_capabilities", fake_ctx, {})
     assert capabilities.problem is None, capabilities
@@ -758,6 +764,8 @@ async def test_planning_speaker_limit_follows_unit_bucket(
     )
     if with_images:
         rv_character_sheet(fake_ctx, "张三", claimed=True)
+    else:
+        fake_ctx.pm.mirror_to_disk()
     fake_ctx.config_resolver = ConfigResolver(db_factory)
     dry = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
     assert dry.problem is None, dry

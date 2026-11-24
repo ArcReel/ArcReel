@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1753,6 +1754,20 @@ class TestErrors:
         assert exc.value.code == "episode_not_found"
         orphan = pm.get_project_path("demo") / "drafts" / "episode_99" / "script_plan_normalized_script.json"
         assert not orphan.exists()
+
+    async def test_save_rechecks_episode_after_resolving_capabilities(self, tmp_path, monkeypatch):
+        pm = _make_project(tmp_path, "drama")
+        svc = _service(pm)
+
+        async def delete_during_lookup(_project):
+            await asyncio.to_thread(pm.update_project, "demo", lambda project: project.update(episodes=[]))
+
+        monkeypatch.setattr(svc, "_resolve_supported_durations", delete_during_lookup)
+        with pytest.raises(ScriptReviewError) as exc:
+            await svc.save_content("demo", 1, _drama_script_plan())
+        assert exc.value.code == "episode_not_found"
+        path = pm.get_project_path("demo") / "drafts" / "episode_1" / "script_plan_normalized_script.json"
+        assert not path.exists()
 
     async def test_save_with_stale_fingerprint_conflicts_reference_video(self, tmp_path, video_request_facts):
         """rv 并发编辑：保存携带的基线指纹与盘上现值不一致（编辑期间另一方已保存）→ conflict、

@@ -6,7 +6,7 @@ import asyncio
 import copy
 import json
 import threading
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any
 
 import pytest
@@ -1167,6 +1167,7 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     write_drama_script_plan(fake_ctx, [drama_scene()])
     await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
     assert drama_quarantine_path(fake_ctx).exists()
+    fake_ctx.pm.mirror_to_disk()
 
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重新规范化后的描述。")]}
 
@@ -1187,32 +1188,51 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
     await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
+    fake_ctx.pm.mirror_to_disk()
 
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重新规范化后的描述。")]}
+    model_started = asyncio.Event()
+    release_model = asyncio.Event()
+
+    class PausedGenerator(FakeTextGenerator):
+        async def generate(self, *args, **kwargs):
+            model_started.set()
+            await release_model.wait()
+            return await super().generate(*args, **kwargs)
 
     use_fake_caps(fake_ctx)
-    use_text_generator(monkeypatch, FakeTextGenerator(json.dumps(regenerated, ensure_ascii=False)).create)
+    use_text_generator(monkeypatch, PausedGenerator(json.dumps(regenerated, ensure_ascii=False)).create)
     pm = ProjectManager(fake_ctx.data_root)
     target = drama_quarantine_path(fake_ctx)
+    path = drama_script_plan_path(fake_ctx)
+    before = path.read_bytes()
     attempted = asyncio.Event()
-    original_async_file_lock = ProjectManager.async_file_lock
-    async with pm.async_file_lock(target):
+    loop = asyncio.get_running_loop()
+    original_file_lock = ProjectManager.file_lock
 
-        @asynccontextmanager
-        async def observed_async_file_lock(self, path, **kwargs):
-            if path == target:
-                attempted.set()
-            async with original_async_file_lock(self, path, **kwargs):
-                yield
+    @contextmanager
+    def observed_file_lock(self, lock_path, **kwargs):
+        if lock_path == target:
+            loop.call_soon_threadsafe(attempted.set)
+        with original_file_lock(self, lock_path, **kwargs):
+            yield
 
-        monkeypatch.setattr(ProjectManager, "async_file_lock", observed_async_file_lock)
-        task = asyncio.create_task(
-            run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
-        )
-        await asyncio.wait_for(attempted.wait(), timeout=10)
-        assert not task.done(), "generation commit must wait for the draft lock"
-
-    out = await task
+    task = asyncio.create_task(
+        run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
+    )
+    try:
+        await asyncio.wait_for(model_started.wait(), timeout=10)
+        async with pm.async_file_lock(target):
+            monkeypatch.setattr(ProjectManager, "file_lock", observed_file_lock)
+            release_model.set()
+            await asyncio.wait_for(attempted.wait(), timeout=10)
+            assert not task.done()
+            assert path.read_bytes() == before
+        out = await task
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
     assert out.problem is None, out
 
 

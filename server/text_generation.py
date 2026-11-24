@@ -36,18 +36,19 @@ from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
+    plan_capability_inputs,
     planning_durations,
     require_video_request_facts,
 )
 from lib.i18n import _ as translate
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_async, run_noninterruptible_sync, run_sync_transaction
 from lib.infra.content_digest import prefixed_sha256_file
 from lib.infra.json_io import load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_str
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import ASSET_SPECS
-from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.prompts.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompts.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.script import script_review
@@ -63,6 +64,7 @@ from lib.script.draft_quarantine import (
     violation_entries,
 )
 from lib.script.draft_violation import DraftViolation
+from lib.script.item_ids import ItemIdIssuer, max_item_number, raise_item_id_high_water
 from lib.script.plan_new_assets import (
     NEW_ASSETS_FIELD,
     dedupe_new_assets,
@@ -88,7 +90,6 @@ from lib.script.script_models import (
 )
 from lib.script.script_plan_entries import ScriptPlanKind, entry_id_field, plan_variant
 from lib.script.script_plan_validation import (
-    EpisodePlanSource,
     ReferenceSplitCaps,
     ScriptPlanValidation,
     SoftViolation,
@@ -104,6 +105,7 @@ from lib.workflow.operation_admission import (
     admit_ad_script,
     admit_author_prompts,
     admit_script_plan,
+    uses_reference_unit_authoring,
 )
 from lib.workflow.workflow_state import WorkflowStateService
 from server.services.tasks.video_caps import reference_request_facts_lookup, storyboard_request_facts
@@ -256,7 +258,7 @@ def _assert_draft_revision(path: Path, expected: str | None) -> None:
         )
 
 
-_PRESERVED_PLAN = "原规划已保留，可继续编辑或调整指令后重新生成。"
+_PRESERVED_PLAN = "原规划已保留。待确认时可继续编辑，也可调整指令后重新生成。"
 
 
 def _generation_issues(issues: list[DraftViolation], baseline: str | None) -> str:
@@ -271,23 +273,6 @@ def _generation_issues(issues: list[DraftViolation], baseline: str | None) -> st
 PlanCapabilities = list[int] | ReferenceSplitCaps | VideoRequestFactsFailure | None
 
 
-def plan_capability_inputs(project: Mapping[str, Any]) -> tuple[object, ...]:
-    return tuple(
-        project.get(key)
-        for key in (
-            "content_mode",
-            "generation_mode",
-            "video_backend",
-            "video_provider_i2v",
-            "video_provider_r2v",
-            "model_settings",
-            "video_model_settings",
-            "video_generate_audio",
-            "default_duration",
-        )
-    )
-
-
 async def resolve_plan_capabilities(project: dict[str, Any], resolver: ConfigResolver | None) -> PlanCapabilities:
     try:
         if script_review.script_plan_kind(project) == "reference_video":
@@ -299,7 +284,7 @@ async def resolve_plan_capabilities(project: dict[str, Any], resolver: ConfigRes
     return None
 
 
-def _retain_ids_for_identical_plan(path: Path, content: dict[str, Any], kind: ScriptPlanKind) -> None:
+def _retain_ids_for_identical_plan(path: Path, content: dict[str, Any], kind: ScriptPlanKind) -> bool:
     key = plan_variant(kind).plan_items_key
     previous = load_json_or_none(path)
     id_field = entry_id_field(kind)
@@ -312,6 +297,13 @@ def _retain_ids_for_identical_plan(path: Path, content: dict[str, Any], kind: Sc
         same_ids = [item | {id_field: prior[id_field]} for item, prior in zip(content[key], old, strict=True)]
         if content | {key: same_ids} == previous:
             content[key][:] = same_ids
+            return True
+    return False
+
+
+def _assign_item_ids(items: Sequence[dict[str, Any]], id_field: str, item_ids: Sequence[str]) -> None:
+    for item, item_id in zip(items, item_ids, strict=True):
+        item[id_field] = item_id
 
 
 async def _commit_generated_plan(
@@ -322,19 +314,20 @@ async def _commit_generated_plan(
     kind: ScriptPlanKind,
     content: dict[str, Any],
     project: dict[str, Any],
-    source: EpisodePlanSource,
-    capabilities: PlanCapabilities,
     resolver: ConfigResolver,
     draft_baseline: str | None,
     formal_baseline: str | None,
     basis: ArtifactBasis,
     before_commit: Callable[[], None] | None = None,
 ) -> tuple[ScriptPlanValidation, str]:
-    capability_inputs = plan_capability_inputs(project)
-    if formal_baseline is not None:
-        latest = await asyncio.to_thread(projects.load_project, project_name)
-        capability_inputs = plan_capability_inputs(latest)
-        capabilities = await resolve_plan_capabilities(latest, resolver)
+    latest = await run_noninterruptible_sync(projects.load_project, project_name)
+    capability_inputs = plan_capability_inputs(latest)
+    capabilities = await run_noninterruptible_async(resolve_plan_capabilities(latest, resolver))
+    preserved = f"。{_PRESERVED_PLAN}" if formal_baseline is not None else "，请重新生成。"
+
+    def check_capabilities(current: dict[str, Any]) -> None:
+        if plan_capability_inputs(current) != capability_inputs or script_review.script_plan_kind(current) != kind:
+            raise TextGenerationError(f"视频模型配置已变化{preserved}")
 
     def commit() -> tuple[ScriptPlanValidation, str]:
         path = script_review.script_plan_path(project_path, project, episode)
@@ -359,21 +352,36 @@ async def _commit_generated_plan(
                 script_review.assert_base_fingerprint(path, formal_baseline)
             except script_review.ScriptPlanWriteConflict as exc:
                 raise TextGenerationError(f"formal_revision_conflict: {exc}。{_PRESERVED_PLAN}") from exc
-            key = plan_variant(kind).plan_items_key
+            variant = plan_variant(kind)
+            key = variant.plan_items_key
+            id_field = entry_id_field(kind)
+            current = projects.load_project(project_name)
+            check_capabilities(current)
+            validation_source = read_episode_plan_source(project_path, current, episode)
             if formal_baseline is not None:
-                current = projects.load_project(project_name)
-                if (
-                    plan_capability_inputs(current) != capability_inputs
-                    or script_review.script_plan_kind(current) != kind
-                ):
-                    raise TextGenerationError(f"视频模型配置已变化。{_PRESERVED_PLAN}")
-                validation_source = read_episode_plan_source(project_path, current, episode)
                 if validation_source.text is None and validation_source.problem is None:
                     raise TextGenerationError(f"本集缺少原文。{_PRESERVED_PLAN}")
-                _retain_ids_for_identical_plan(path, content, kind)
+                retained = _retain_ids_for_identical_plan(path, content, kind)
             else:
-                current = project
-                validation_source = source
+                retained = False
+
+            project_update = None
+            if not retained:
+                floor = pm.episode_item_id_floor(project_name, current, episode)
+                issuer = ItemIdIssuer(
+                    episode, variant.skeleton_kind, max(floor, max_item_number(plan_item_ids(path), episode))
+                )
+                _assign_item_ids(content[key], id_field, [issuer.issue() for _ in content[key]])
+
+                def record_ids(locked_project: dict[str, Any]) -> None:
+                    if pm.episode_item_id_floor(project_name, locked_project, episode) != floor:
+                        raise TextGenerationError(f"本集的条目编号已变化{preserved}")
+                    entry = find_episode(locked_project, episode)
+                    if entry is not None:
+                        raise_item_id_high_water(entry, issuer.last)
+
+                project_update = record_ids
+
             validation = validate_script_plan(
                 kind,
                 content,
@@ -398,14 +406,18 @@ async def _commit_generated_plan(
                     basis=basis,
                     dependent_quarantine=QUARANTINE_KIND_PROMPT_AUTHORING if dependent else None,
                     generated_from=project,
+                    project_check=check_capabilities,
+                    project_update=project_update,
                 )
+            except TextGenerationError:
+                raise
             except Exception as exc:
                 if formal_baseline is not None:
                     raise UnexpectedTextGenerationError(f"{exc}。{_PRESERVED_PLAN}") from exc
                 raise
             return validation, report
 
-    return await run_sync_transaction(commit)
+    return await run_noninterruptible_sync(commit)
 
 
 def plan_item_ids(path: Path) -> list[str]:
@@ -739,7 +751,7 @@ def prompt_authoring_preflight(
             raise TextGenerationError(translate("operation_admission_unavailable", episode=episode))
         require_admitted("generate_script", OperationAdmission(**operation.model_dump()), episode=episode)
         return
-    reference_authoring = content_mode != "ad" and status.project.generation_mode == "reference_video"
+    reference_authoring = uses_reference_unit_authoring(content_mode, status.project.generation_mode)
     admission = admit_author_prompts(
         formal_script=formal_present,
         pending_ids=content.pending_authoring_ids if content is not None else [],
@@ -1047,7 +1059,6 @@ async def generate_drama_script_plan(
         )
         content = await asyncio.to_thread(_parse_normalized_content, result.text, schema)
         raw_scenes = content["scenes"]
-        await reissue_plan_item_ids(projects, project_name, episode, content)
         content = with_new_assets(content, content[NEW_ASSETS_FIELD])
 
         validation, report = await _commit_generated_plan(
@@ -1058,8 +1069,6 @@ async def generate_drama_script_plan(
             "drama",
             content,
             project,
-            EpisodePlanSource(novel_text, episode_source_relpath(episode)),
-            supported_durations,
             config_resolver,
             draft_baseline,
             formal_baseline,
@@ -1317,10 +1326,7 @@ async def generate_reference_script_plan(
         flat_units = flat["units"]
         new_assets = dedupe_new_assets(flat[NEW_ASSETS_FIELD])
 
-        unit_ids = await run_sync_transaction(
-            projects.reserve_item_ids, project_name, episode, "video_units", len(flat_units)
-        )
-        raw_units = build_reference_units_from_flat(flat_units, unit_ids=unit_ids)
+        raw_units = build_reference_units_from_flat(flat_units, unit_ids=[""] * len(flat_units))
         content = with_new_assets({"units": raw_units}, new_assets)
         validation, report = await _commit_generated_plan(
             projects,
@@ -1330,8 +1336,6 @@ async def generate_reference_script_plan(
             "reference_video",
             content,
             project,
-            EpisodePlanSource(novel_text, episode_source_relpath(episode)),
-            split_caps,
             config_resolver,
             draft_baseline,
             formal_baseline,
@@ -1437,7 +1441,6 @@ async def generate_narration_script_plan(
             top_shape="{segments}",
         )
         raw_segments = content["segments"]
-        await reissue_plan_item_ids(projects, project_name, episode, content)
         content = with_new_assets(content, content[NEW_ASSETS_FIELD])
 
         validation, report = await _commit_generated_plan(
@@ -1448,8 +1451,6 @@ async def generate_narration_script_plan(
             "narration",
             content,
             project,
-            EpisodePlanSource(novel_text, episode_source_relpath(episode)),
-            supported_durations,
             config_resolver,
             draft_baseline,
             formal_baseline,

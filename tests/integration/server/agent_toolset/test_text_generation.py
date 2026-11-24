@@ -1070,6 +1070,7 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
     src = project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
+    fake_ctx.pm.mirror_to_disk()
 
     captured: dict[str, Any] = {}
 
@@ -1295,6 +1296,7 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
     source_dir = project_path / "source"
     source_dir.mkdir(parents=True)
     (source_dir / "episode_1.txt").write_text("从前有座山", encoding="utf-8")
+    fake_ctx.pm.mirror_to_disk()
 
     class _FakeGenerator:
         project_json: ClassVar[dict[str, Any]] = {}

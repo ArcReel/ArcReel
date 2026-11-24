@@ -73,6 +73,7 @@ from lib.workflow.operation_admission import (
     admit_script_plan,
     episode_source_present,
     pending_authoring_entry_ids,
+    uses_reference_unit_authoring,
     whole_source_present,
 )
 from lib.workflow.workflow_rules import workflow_rule
@@ -1679,10 +1680,12 @@ class WorkflowStateService:
             formal_script=formal_present,
             ad_inputs=ad_inputs_present(project),
         )
+        reference_unit_authoring = uses_reference_unit_authoring(mode, generation_mode)
         operations[WorkflowActionType.AUTHOR_PROMPTS] = admit_author_prompts(
             formal_script=formal_present,
             pending_ids=pending_ids,
-            draft_pending=any(draft.kind == QUARANTINE_KIND_PROMPT_AUTHORING for draft in content.drafts),
+            draft_pending=not reference_unit_authoring
+            and any(draft.kind == QUARANTINE_KIND_PROMPT_AUTHORING for draft in content.drafts),
         )
 
         episode_args = {"episode_id": number}
@@ -1692,8 +1695,15 @@ class WorkflowStateService:
                 target,
                 _action(WorkflowActionType.NONE, "the episode plan is stale; its script plan awaits a rebuild"),
             )
-        if content.drafts:
-            draft = content.drafts[0]
+        draft = next(
+            (
+                draft
+                for draft in content.drafts
+                if not reference_unit_authoring or draft.kind != QUARANTINE_KIND_PROMPT_AUTHORING
+            ),
+            None,
+        )
+        if draft is not None:
             return respond(
                 target,
                 _action(

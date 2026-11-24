@@ -77,6 +77,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
     from server import text_generation as mod
 
     rv_project(fake_ctx, generation_mode="storyboard")
+    fake_ctx.pm.mirror_to_disk()
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("张三走向村口。他停下脚步，久久凝望。", encoding="utf-8")
@@ -103,10 +104,13 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
 
 
 async def test_split_narration_segments_registers_the_frozen_default_source_basis(
-    fake_ctx: ToolHarness, monkeypatch, video_request_facts
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
     from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.artifacts.artifact_provenance import build_script_plan_basis
+    from tests.factories import make_video_request_facts
+
+    set_video_request_facts(make_video_request_facts())
 
     project = {
         **fake_ctx.pm.project_payload,
@@ -132,6 +136,7 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
             latest = {**project, "source_language": "English"}
             fake_ctx.pm.project_payload = latest
             await asyncio.to_thread(project_file.write_text, json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+            set_video_request_facts(make_video_request_facts(allowed_durations=(6, 8)))
             return type(
                 "_Result",
                 (),
@@ -150,6 +155,10 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
     result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
     assert result.problem is None, result
+    assert {issue["code"] for issue in result.value.blocking_issues} == {
+        "duration_off_tier",
+        "novel_text_coverage",
+    }
     entry = ProjectArtifactManifestAdapter(fake_ctx.project_path).get_entry(ArtifactKey.episode_script_plan(1))
     assert entry is not None
     assert entry.basis_digest == expected.digest
@@ -176,6 +185,7 @@ async def test_split_narration_uses_effective_tiers_and_issues_ids(
     from tests.factories import make_video_request_facts
 
     nr_source(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     set_video_request_facts(
         make_video_request_facts(generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(6, 8))
     )
@@ -208,6 +218,7 @@ async def test_split_narration_segments_reports_blank_novel_text(
 ) -> None:
 
     nr_source(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
     segments = [nr_segment("E1S01", 4, "张三在村口等人"), nr_segment("E1S02", 4, novel_text=" ")]
     use_text_generator(monkeypatch, nr_generator_returning(segments))
 

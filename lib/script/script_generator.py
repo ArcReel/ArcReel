@@ -51,12 +51,13 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
     VideoRoute,
     evaluate_video_request_facts,
+    plan_capability_inputs,
     planning_durations,
     reference_migration_durations,
     require_video_request_facts,
 )
 from lib.i18n import _ as translate
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_async, run_noninterruptible_sync, run_sync_transaction
 from lib.infra.content_digest import sha256_file
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import asset_name_comparison_key
@@ -1659,6 +1660,7 @@ class ScriptGenerator:
         failed_units: list[dict[str, str]] | None,
     ) -> Path:
         facts = await self._fetch_video_request_facts()
+        capability_inputs = plan_capability_inputs(self.project_json)
         units = list(targets.entries)
         path = self.project_path / "scripts" / filename
 
@@ -1691,11 +1693,24 @@ class ScriptGenerator:
         round_targets = targets
         reason = ""
         conflict = "formal_revision_conflict: 正式脚本已变化，已停止写回"
+        caps_changed = "视频模型配置已变化，已停止写回，请重新发起编写"
+
+        def require_current_capabilities(project: dict[str, Any]) -> None:
+            if plan_capability_inputs(project) != capability_inputs:
+                raise PromptAuthoringTargetError(caps_changed)
+
+        def validate_response(
+            selected: PromptAuthoringTargets, response: str
+        ) -> tuple[dict[str, dict], dict[str, dict[str, str]]]:
+            require_current_capabilities(self._load_project_json())
+            return self._reference_response_units(selected, response, facts)
+
         try:
             for attempt in range(2):
                 if await asyncio.to_thread(content_fingerprint, path) != formal_baseline:
                     reason = conflict
                     break
+                require_current_capabilities(await asyncio.to_thread(self._load_project_json))
                 prompt = self._build_reference_prompt_authoring_prompt(episode, round_targets, facts, instructions)
                 if attempt:
                     feedback = [failures[uid] for uid in round_targets.ids]
@@ -1708,16 +1723,25 @@ class ScriptGenerator:
                     ),
                     require_complete=True,
                 )
-                accepted, round_failures = await asyncio.to_thread(
-                    self._reference_response_units, round_targets, result.text, facts
+
+                if await run_noninterruptible_async(self._fetch_video_request_facts()) != facts:
+                    raise PromptAuthoringTargetError(caps_changed)
+                accepted, round_failures = await run_noninterruptible_sync(
+                    validate_response, round_targets, result.text
                 )
                 failures.update(round_failures)
-                if not accepted and await asyncio.to_thread(content_fingerprint, path) != formal_baseline:
+                if not accepted and await run_noninterruptible_sync(content_fingerprint, path) != formal_baseline:
                     reason = conflict
                     break
                 if accepted:
-                    script, formal_baseline = await run_sync_transaction(
-                        self._commit_reference_units, round_targets, accepted, filename, formal_baseline, episode
+                    script, formal_baseline = await run_noninterruptible_sync(
+                        self._commit_reference_units,
+                        round_targets,
+                        accepted,
+                        filename,
+                        formal_baseline,
+                        episode,
+                        require_current_capabilities,
                     )
                     written.update(accepted)
                     for uid in accepted:
@@ -1766,6 +1790,7 @@ class ScriptGenerator:
         filename: str,
         baseline: str | None,
         episode: int,
+        check_project: Callable[[dict[str, Any]], None],
     ) -> tuple[dict, str]:
         script = dict(targets.script)
         script["video_units"] = [accepted.get(item["unit_id"], item) for item in targets.items]
@@ -1773,7 +1798,7 @@ class ScriptGenerator:
             **(script.get("metadata") or {}),
             "generator": self.generator.model if self.generator else "unknown",
         }
-        self._save_script(script, filename, expected_fingerprint=baseline)
+        self._save_script(script, filename, expected_fingerprint=baseline, project_update=check_project)
         self._quality_probe(script, episode)
         return script, content_fingerprint_of_data(script)
 
@@ -1831,8 +1856,12 @@ class ScriptGenerator:
                 assert_dialogue_preserved(label, unit["text"], merged["text"])
                 tiers = self._unit_duration_off_tier(unit["duration_seconds"], facts=facts, generation_type=bucket)
                 if tiers is not None:
+                    allowed_tiers = sorted(set(tiers))
                     raise DraftViolation(
-                        f"{label} 时长不在当前生效档位 {sorted(set(tiers))} 内", code="duration_off_tier"
+                        f"{label} 时长不在当前生效档位 {allowed_tiers} 内",
+                        code="duration_off_tier",
+                        label=label,
+                        params={"label": label, "duration": unit["duration_seconds"], "tiers": allowed_tiers},
                     )
                 merged.pop("pending_authoring", None)
                 merged.pop("needs_replan", None)
@@ -1850,7 +1879,21 @@ class ScriptGenerator:
                     "code": exc.code,
                     "message": str(exc),
                 }
+                if exc.code == "speakers_over_limit" and not self._reference_dialogue_fits_a_bucket(unit, facts):
+                    failures[uid]["abort_reason"] = "原台词的说话人数和单元时长无法同时满足可用视频模型的要求"
         return accepted, failures
+
+    def _reference_dialogue_fits_a_bucket(self, unit: dict, facts: PlanningVideoFacts) -> bool:
+        speaker_count = len(dialogue_speakers(unit["text"]))
+        for bucket, capability in facts.by_bucket.items():
+            if not isinstance(capability, VideoRequestFacts):
+                continue
+            limit = VoiceRenderSettings.from_request_facts(capability).planning_speaker_limit
+            if (limit is None or speaker_count <= limit) and self._unit_duration_off_tier(
+                unit["duration_seconds"], facts=facts, generation_type=bucket
+            ) is None:
+                return True
+        return False
 
     def _parse_unit_texts(self, response_text: str, episode: int) -> ReferencePromptAuthoringFlatScript:
         text = strip_json_code_fences(response_text)

@@ -138,7 +138,12 @@ from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequ
 from lib.i18n import _ as i18n_message
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
-from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest, unprefixed
+from lib.infra.content_digest import (
+    OPTIONAL_PREFIXED_DIGEST_PATTERN,
+    prefixed,
+    prefixed_canonical_json_digest,
+    unprefixed,
+)
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.path_safety import safe_join
 from lib.infra.schema_guards import is_str
@@ -510,7 +515,7 @@ class PatchEpisodeScriptRequest(BaseModel):
         min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json；单集单文件，多集编辑每集一次调用"
     )
     base_revision: str = Field(
-        pattern=r"^(?:sha256-v1:)?[0-9a-f]{64}$",
+        pattern=OPTIONAL_PREFIXED_DIGEST_PATTERN,
         description="get_episode_script 返回的当前 revision；带 sha256-v1: 前缀与裸 hex 两种写法等价",
     )
     operations: list[PatchEpisodeScriptOperation] = Field(

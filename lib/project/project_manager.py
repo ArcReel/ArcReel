@@ -1335,6 +1335,16 @@ class ProjectManager:
             max_item_number((item.get(id_field) for item in items if isinstance(item, Mapping)), episode),
         )
 
+    def episode_item_id_floor(self, project_name: str, project: Mapping[str, Any], episode: int) -> int:
+        entry = find_episode(project, episode)
+        script_file = entry.get("script_file") if entry is not None else None
+        script: Mapping[str, Any] = {}
+        if isinstance(script_file, str):
+            scripts_dir = self.get_project_path(project_name) / "scripts"
+            script_path = Path(self._safe_subpath(scripts_dir, self.normalize_script_filename(script_file)))
+            script = self._load_script_or_none(script_path) or {}
+        return self.item_id_floor(project, script, episode)
+
     def reserve_item_ids(self, project_name: str, episode: int, kind: str, count: int) -> list[str]:
         """为剧本之外先占号的写入点（脚本规划草稿）发 ``count`` 个新编号，并把本集最大号推进到最后一个。
 
@@ -1344,13 +1354,7 @@ class ProjectManager:
 
         def _mutate(project: dict) -> None:
             entry = find_episode(project, episode)
-            script: Mapping[str, Any] = {}
-            script_file = entry.get("script_file") if entry is not None else None
-            if isinstance(script_file, str):
-                scripts_dir = self.get_project_path(project_name) / "scripts"
-                script_path = Path(self._safe_subpath(scripts_dir, self.normalize_script_filename(script_file)))
-                script = self._load_script_or_none(script_path) or {}
-            issuer = ItemIdIssuer(episode, kind, self.item_id_floor(project, script, episode))
+            issuer = ItemIdIssuer(episode, kind, self.episode_item_id_floor(project_name, project, episode))
             issued[:] = [issuer.issue() for _ in range(count)]
             if entry is not None and issued:
                 raise_item_id_high_water(entry, issuer.last)
