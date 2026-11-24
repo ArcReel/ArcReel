@@ -14,10 +14,11 @@ from lib.db.repositories.task_repo import TaskNotCancellableError
 from lib.edit_timeline.errors import edit_timeline_message
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_result import decode_generation_problem
+from lib.generation.generation_worker import WorkerStoppingError
 from lib.generation.task_failure import parse_failure, render_failure
 from lib.i18n import render_message
 from lib.i18n.display_names import DisplayNames
-from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
 from lib.project.project_manager import get_project_manager
 from server.i18n import DisplayNamesCatalog, Translator
 from server.services.project.episode_item_refs import with_episode_item_refs
@@ -223,14 +224,13 @@ async def cancel_task(task_id: str, _t: Translator, names: DisplayNamesCatalog):
 
 @router.post("/tasks/{task_id}/retry-download")
 async def retry_artifact_download(task_id: str, request: Request, _t: Translator, names: DisplayNamesCatalog):
-    queue = get_task_queue()
     worker = getattr(request.app.state, "generation_worker", None)
     if worker is None:
         raise BadRequestError("task_retry_download_unavailable", id=task_id)
     try:
-        poll_timeout_seconds = await worker.read_video_poll_timeout_seconds()
-        task = await queue.retry_artifact_download(task_id)
-        await worker.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds)
+        task = await worker.retry_artifact_download(task_id)
+    except WorkerStoppingError as exc:
+        raise ServiceUnavailableError("task_retry_download_unavailable", id=task_id) from exc
     except ValueError as exc:
         raise BadRequestError("task_retry_download_unavailable", id=task_id) from exc
     [task] = await _with_resource_refs([_localize_task(task, _t, names)], _t)

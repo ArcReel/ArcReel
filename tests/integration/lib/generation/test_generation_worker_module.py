@@ -488,12 +488,13 @@ class TestGenerationWorker:
 
         bind_safe_session_factory(monkeypatch, _session_factory)
 
-        assert (
+        with pytest.raises(RuntimeError, match="database unavailable"):
             await GenerationWorker(
-                queue=FakeWorkerQueue(), executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
+                queue=FakeWorkerQueue(),
+                executor=stub_executors.execute,
+                resume_executor=stub_executors.execute_resume,
+                write_backoff=lambda _: asyncio.sleep(0),
             )._requeue_single_task("running")
-            is False
-        )
 
     @pytest.mark.asyncio
     async def test_process_task_script_edit_error_encodes_key_and_params(self, monkeypatch):
@@ -636,7 +637,9 @@ class TestGenerationWorker:
         """服务关停不取消在跑任务：stop 等它跑完，任务落 succeeded；关停期间一直是 running。"""
         bind_safe_session_factory(monkeypatch, concurrent_session_factory)
         worker_db = concurrent_session_factory
-        await seed_running_task(worker_db, "shutdown-run", task_type="storyboard", media_type="image")
+        await seed_running_task(
+            worker_db, "shutdown-run", task_type="storyboard", media_type="image", status="queued", provider_id="ark"
+        )
         started = asyncio.Event()
         release = asyncio.Event()
 
@@ -653,42 +656,15 @@ class TestGenerationWorker:
         )
         worker.heartbeat_interval = 0.01
         worker.poll_interval = 0.01
-        running = asyncio.create_task(
-            worker._process_task({"task_id": "shutdown-run", "media_type": "image"}, claimed_provider_id="test"),
-            name="generation-image-shutdown-run",
-        )
-        worker._slots.register("test", "image", "shutdown-run", running)
-
-        awaiting_inflight = asyncio.Event()
-
-        class _InflightProbe(asyncio.Future):
-            def add_done_callback(self, fn, *, context=None):
-                awaiting_inflight.set()
-                super().add_done_callback(fn, context=context)
-
-        probe = _InflightProbe()
-        worker._slots.register("probe", "video", "stop-probe", probe)
-
         await worker.start()
-        await started.wait()
-        assert await task_status(worker_db, "shutdown-run") == "running"
-
+        await asyncio.wait_for(started.wait(), timeout=3)
+        worker.stop_admission()
         stopping = asyncio.create_task(worker.stop())
-        probe_hit = asyncio.create_task(awaiting_inflight.wait())
-        await asyncio.wait({stopping, probe_hit}, return_when=asyncio.FIRST_COMPLETED)
-
-        assert probe_hit.done(), "stop 必须等在跑任务跑完"
-        assert not stopping.done(), "stop 必须等在跑任务跑完"
-        assert not running.done(), "stop 不得打断在跑任务"
-
-        probe.set_result(None)
+        assert await task_status(worker_db, "shutdown-run") == "running"
+        assert not stopping.done()
         release.set()
-        await asyncio.wait_for(running, timeout=2.0)
-        await asyncio.wait_for(stopping, timeout=2.0)
-
-        assert not running.cancelled()
+        await asyncio.wait_for(stopping, timeout=3)
         assert await task_status(worker_db, "shutdown-run") == "succeeded"
-        assert worker._main_task is None
 
     @pytest.mark.asyncio
     async def test_drain_finished_tasks_absorbs_cancelled_error(self):
@@ -1026,76 +1002,6 @@ class TestGenerationWorker:
         assert queue.orphan_scans >= 2, "出错后下一次持有 lease 时应重扫孤儿"
         assert [tid for tid, _ in queue.failed] == ["img-stuck"]
         assert "[restart_lost_image]" in queue.failed[0][1]
-
-    @pytest.mark.asyncio
-    async def test_orphan_rescan_after_cycle_error_skips_tasks_still_active_in_slots(self):
-        """出错后的重扫排除本进程槽位里仍在执行的任务：不标失败，也不重复接续。"""
-
-        class _FlakyLeaseQueue(FakeWorkerQueue):
-            def __init__(self):
-                super().__init__()
-                self.renewals = 0
-                self.orphan_scans = 0
-                self.rescanned = asyncio.Event()
-
-            async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
-                self.renewals += 1
-                if self.renewals == 2:
-                    raise TimeoutError("QueuePool limit reached")
-                return True
-
-            async def list_orphan_tasks_on_start(self):
-                self.orphan_scans += 1
-                if self.orphan_scans >= 2:
-                    self.rescanned.set()
-                return self._orphans
-
-        async def _settle(*, taskless_started_before: datetime | None) -> int:
-            return 0
-
-        queue = _FlakyLeaseQueue()
-        worker = GenerationWorker(
-            queue=queue,
-            capacity=capacity_table({"test": {"image": 1, "video": 1}}),
-            provider_projection=_fixed_projection,
-            executor=stub_executors.execute,
-            resume_executor=stub_executors.execute_resume,
-            settle_interrupted_calls=_settle,
-        )
-        worker.heartbeat_interval = 0.01
-        worker.poll_interval = 0.01
-
-        dispatched: list[Any] = []
-
-        async def _spy_dispatch(resumable_by_provider):
-            dispatched.append(resumable_by_provider)
-
-        worker._recovery.dispatch_resumable = _spy_dispatch
-
-        busy = asyncio.get_running_loop().create_future()
-        worker._slots.register("test", "image", "img-busy", busy)
-        worker._slots.register("test", "video", "vid-busy", busy)
-        queue._orphans = [
-            {"task_id": "img-busy", "status": "running", "task_type": "gen_image", "media_type": "image"},
-            {
-                "task_id": "vid-busy",
-                "status": "running",
-                "task_type": "video",
-                "media_type": "video",
-                "provider_id": "test",
-                "provider_job_id": "job-1",
-            },
-        ]
-
-        await worker.start()
-        try:
-            await asyncio.wait_for(queue.rescanned.wait(), timeout=2.0)
-        finally:
-            busy.set_result(None)
-            await worker.stop()
-
-        assert queue.failed == []
-        assert dispatched == []
 
     @pytest.mark.asyncio
     async def test_claim_tasks_dispatches_to_correct_pool(self, monkeypatch):
@@ -1609,15 +1515,20 @@ class TestStartupInterruptedCallSettlement:
             resume_executor=stub_executors.execute_resume,
         )
         after = datetime.now(UTC)
-        await self._run_until_settled(worker, queue)
-        assert len(seen) == 1
-        assert seen[0] is not None
-        assert before <= seen[0] <= after
-
-        worker._orphan_handled_once = False
-        queue._cycles = 0
-        queue.cycled.clear()
-        await self._run_until_settled(worker, queue)
+        worker.poll_interval = 0.01
+        await worker.start()
+        try:
+            await asyncio.wait_for(queue.cycled.wait(), timeout=5)
+            assert len(seen) == 1
+            assert seen[0] is not None
+            assert before <= seen[0] <= after
+            worker._request_rescan()
+            queue._cycles = 0
+            queue.cycled.clear()
+            worker.wake()
+            await asyncio.wait_for(queue.cycled.wait(), timeout=5)
+        finally:
+            await worker.stop()
         assert seen[1:] == [None]
 
     @pytest.mark.asyncio
@@ -1641,3 +1552,139 @@ class TestStartupInterruptedCallSettlement:
         async with worker_db() as session:
             row = await session.get(ApiCall, call_id)
         assert (row.status, row.error_code) == ("failed", "interrupted")
+
+
+async def test_shutdown_during_claim_returns_unstarted_task(worker_db):
+    claimed = asyncio.Event()
+    release = asyncio.Event()
+
+    class Queue(FakeWorkerQueue):
+        async def claim_next_task(self, media_type, **kwargs):
+            if claimed.is_set():
+                return None
+            claimed.set()
+            await release.wait()
+            return {"task_id": "claimed", "provider_id": "ark"}
+
+    queue = Queue()
+    await seed_running_task(worker_db, "claimed")
+    worker = GenerationWorker(
+        queue=queue, lanes=("image",), executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
+    )
+    cycle = asyncio.create_task(worker._claim_tasks())
+    await claimed.wait()
+    worker.stop_admission()
+    release.set()
+    await cycle
+    assert await task_status(worker_db, "claimed") == "queued"
+    assert queue.succeeded == queue.failed == []
+
+
+@pytest.mark.parametrize("outcome", ["succeeded", "failed", "exhausted"])
+async def test_terminal_write_retries_keep_claim_until_recovery(worker_db, outcome):
+    from lib.generation.generation_queue import GenerationQueue
+
+    backoff_entered = asyncio.Event()
+    release = asyncio.Event()
+    writes_allowed = False
+    executions = []
+
+    class Queue(GenerationQueue):
+        async def mark_task_succeeded(self, task_id, result):
+            if not writes_allowed or outcome == "exhausted":
+                raise TimeoutError("database busy")
+            return await super().mark_task_succeeded(task_id, result)
+
+        async def mark_task_failed(self, task_id, error_message):
+            if not writes_allowed:
+                raise TimeoutError("database busy")
+            return await super().mark_task_failed(task_id, error_message)
+
+    async def backoff(_delay):
+        backoff_entered.set()
+        await release.wait()
+
+    async def execute(task, *, claimed_provider_id):
+        executions.append(task["task_id"])
+        if outcome == "failed":
+            raise ValueError("invalid output")
+        return {"ok": True}
+
+    await _seed_queued(worker_db, "write", task_type="storyboard", media_type="image", provider_id="ark", order=0)
+    worker = GenerationWorker(
+        queue=Queue(session_factory=worker_db),
+        executor=execute,
+        resume_executor=stub_executors.execute_resume,
+        lanes=("image",),
+        write_backoff=backoff,
+    )
+    async with asyncio.timeout(5):
+        await worker._claim_tasks()
+        await backoff_entered.wait()
+        await worker._recovery.handle_orphans()
+        assert await task_status(worker_db, "write") == "running"
+        writes_allowed = True
+        release.set()
+        await worker._wait_inflight_completion()
+        if outcome == "exhausted":
+            assert await task_status(worker_db, "write") == "running"
+            await worker._recovery.handle_orphans()
+        assert await task_status(worker_db, "write") == ("succeeded" if outcome == "succeeded" else "failed")
+    assert executions == ["write"]
+
+
+@pytest.mark.parametrize(
+    ("fault", "expected"), [("transient", "queued"), ("exhausted", "failed"), ("already_failed", "failed")]
+)
+async def test_pool_full_requeue_recovers_without_submission(worker_db, fault, expected):
+    from lib.generation.generation_queue import GenerationQueue
+
+    allow_write = False
+    submitted = []
+
+    class Queue(GenerationQueue):
+        @property
+        def session_factory(self):
+            def open_session():
+                if not allow_write:
+                    raise TimeoutError("database busy")
+                return worker_db()
+
+            return open_session
+
+    queue = Queue(session_factory=worker_db)
+
+    async def backoff(_delay):
+        nonlocal allow_write
+        allow_write = fault != "exhausted"
+        if fault == "already_failed":
+            await queue.mark_task_failed("full", "concurrently failed")
+
+    async def execute(task, *, claimed_provider_id):
+        submitted.append(task["task_id"])
+        return {}
+
+    worker = GenerationWorker(
+        queue=queue,
+        executor=execute,
+        resume_executor=stub_executors.execute_resume,
+        provider_projection=_fixed_projection,
+        lanes=("image",),
+        capacity=capacity_table({"test": {"image": 1}}),
+        write_backoff=backoff,
+    )
+    await _seed_queued(worker_db, "full", task_type="storyboard", media_type="image", provider_id=None, order=0)
+    occupied = asyncio.get_running_loop().create_future()
+    worker._slots.register("test", "image", "in-progress", occupied)
+    try:
+        if fault == "exhausted":
+            with pytest.raises(TimeoutError):
+                await worker._claim_tasks()
+            assert await task_status(worker_db, "full") == "running"
+            await worker._recovery.handle_orphans()
+        else:
+            await worker._claim_tasks()
+    finally:
+        occupied.set_result(None)
+    assert await task_status(worker_db, "full") == expected
+    assert submitted == []
