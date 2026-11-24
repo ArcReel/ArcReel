@@ -2451,6 +2451,7 @@ export default {
   'tool_name_get_video_capabilities': '查询视频模型能力',
   'tool_name_plan_episodes': '分集规划',
   'tool_name_reset_episode_planning': '重置分集规划',
+  'tool_name_patch_script_plan': '编辑脚本规划',
   'tool_name_patch_episode_script': '编辑剧本',
   'tool_name_patch_episode_meta': '编辑分集标题',
   'tool_name_patch_project': '编辑项目资产',

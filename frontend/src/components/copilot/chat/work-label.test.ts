@@ -28,6 +28,13 @@ describe("toolLabel", () => {
     expect(label("mcp__arcreel__get_episode_script", { script: "episode_3.json" }).summary).toBe("雨夜");
   });
 
+  it("summarizes script plan edits by episode and operation count", () => {
+    expect(label("mcp__arcreel__patch_script_plan", {
+      episode_id: 3,
+      operations: [{ op: "set_title" }, { op: "remove" }],
+    })).toMatchObject({ name: "编辑脚本规划", summary: "雨夜 · 2 处修改" });
+  });
+
   it("writes the episode once for item ids of the same episode and lists at most three", () => {
     expect(
       label("mcp__arcreel__generate_storyboards", { script: "episode_3.json", segment_ids: ["E3S01", "E3S02"] }).summary,

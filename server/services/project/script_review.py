@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from lib.config.resolver import ConfigResolver
 from lib.episode.episode_target_duration import project_episode_target_duration
@@ -42,9 +42,22 @@ from lib.script.draft_quarantine import (
     read_quarantine,
     violation_entries,
 )
+from lib.script.item_ids import episode_item_id_high_water, raise_item_id_high_water, stored_item_id_high_water
 from lib.script.plan_new_assets import NEW_ASSETS_FIELD, NewAssetsError, UnregisteredReferencesError, resolve_new_assets
+from lib.script.script_batch_edit import ScriptBatchEditProblem
 from lib.script.script_generator import ScriptGenerator, UnitDurationOffTier
-from lib.script.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
+from lib.script.script_models import (
+    DramaNormalizedScript,
+    NarrationScriptPlanDraft,
+    ReferenceScriptPlanDraft,
+    Utterance,
+)
+from lib.script.script_plan_patch import (
+    PatchScriptPlanRequest,
+    ScriptPlanEdit,
+    ScriptPlanPatchError,
+    ScriptPlanPatchResult,
+)
 from lib.script.script_plan_validation import read_episode_plan_source, validate_script_plan
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, admit_script_unit
 from server.services.tasks.video_caps import (
@@ -102,13 +115,27 @@ class ScriptReviewError(Exception):
         self.params: dict[str, object] = dict(params or {})
 
 
+_UTTERANCES = TypeAdapter(list[Utterance])
+
+
+def _same_speech(field: str, previous: object, candidate: object) -> bool:
+    if previous == candidate:
+        return True
+    if field != "utterances":
+        return False
+    try:
+        return _UTTERANCES.validate_python(previous) == _UTTERANCES.validate_python(candidate)
+    except ValidationError:
+        return False
+
+
 def _require_changed_speech_admitted(kind: str, previous: object, candidate: object) -> None:
     """Reject only new or edited speech content, leaving legacy mixed metadata editable."""
 
     if kind == "drama":
-        root, skeleton, id_field, speech_fields = "scenes", "scenes", "scene_id", ("utterances",)
+        root, skeleton, id_field, speech_field = "scenes", "scenes", "scene_id", "utterances"
     elif kind == "reference_video":
-        root, skeleton, id_field, speech_fields = "units", "video_units", "unit_id", ("text",)
+        root, skeleton, id_field, speech_field = "units", "video_units", "unit_id", "text"
     else:
         return
     if not isinstance(candidate, dict) or not isinstance(candidate.get(root), list):
@@ -123,9 +150,8 @@ def _require_changed_speech_admitted(kind: str, previous: object, candidate: obj
         if not isinstance(unit, dict) or not isinstance(unit.get(id_field), str):
             continue
         old = previous_by_id.get(unit[id_field])
-        speech_changed = old is None or any(old.get(field) != unit.get(field) for field in speech_fields)
-        if not speech_changed:
-            if isinstance(old, dict) and old.get("needs_replan") is True:
+        if old is not None and _same_speech(speech_field, old.get(speech_field), unit.get(speech_field)):
+            if old.get("needs_replan") is True:
                 unit["needs_replan"] = True
             continue
         admission = admit_script_unit(skeleton, unit, ignore_marker=True)
@@ -285,6 +311,144 @@ class ScriptReviewService:
                 return result.model_copy(update=diagnostics)
 
         return await run_sync_transaction(snapshot)
+
+    async def patch_content(self, project_name: str, request: PatchScriptPlanRequest) -> ScriptPlanPatchResult:
+        project = await asyncio.to_thread(self.pm.load_project, project_name)
+        supported = await self._resolve_supported_durations(project)
+        caps = await resolve_plan_capabilities(project, self.config_resolver)
+        return await run_sync_transaction(self._patch_content_sync, project_name, project, request, supported, caps)
+
+    def _patch_content_sync(
+        self,
+        project_name: str,
+        project: dict[str, Any],
+        request: PatchScriptPlanRequest,
+        supported: list[int] | None,
+        caps: PlanCapabilities,
+    ) -> ScriptPlanPatchResult:
+        episode = request.episode_id
+        project_path = self.pm.get_project_path(project_name)
+        path = script_review.script_plan_path(project_path, project, episode)
+        kind = script_review.script_plan_kind(project)
+        if path is None or kind is None:
+            raise ScriptReviewError("script_plan_not_applicable", "当前项目不使用脚本规划")
+        if any(
+            candidate.is_symlink() or candidate.is_junction() for candidate in (path.parent.parent, path.parent, path)
+        ):
+            raise ValueError("symbolic links are not allowed")
+        dependent = QUARANTINE_KIND_PROMPT_AUTHORING if kind == "reference_video" else None
+        prompt_lock = (
+            self.pm.file_lock(quarantine_path(project_path, episode, dependent)) if dependent else nullcontext()
+        )
+        with prompt_lock, self.pm.file_lock(path):
+            current = self.pm.load_project(project_name)
+            if plan_capability_inputs(current) != plan_capability_inputs(project):
+                raise ScriptReviewError("conflict", "视频模型配置已变化，请重新读取规划")
+            self._require_episode(project_name, current, episode)
+            previous, current = self._read_script_plan_migrated(
+                project_name, current, episode, path, project_path, supported
+            )
+            revision = script_review.published_revision(script_review.content_fingerprint(path))
+            try:
+                if script_review.formal_script_plan_confirmed(project_path, current, episode):
+                    raise ScriptReviewError("script_plan_confirmed", "脚本规划已确认，请编辑正式脚本")
+                if script_review.formal_script_plan_agent_owned(project_path, current, episode):
+                    raise ScriptReviewError("draft_agent_owned", "本集已有历史编辑草稿，请先处理该草稿")
+                if revision is None:
+                    raise ScriptReviewError("file_not_found", "请先使用 generate_script_plan 生成脚本规划")
+                if request.base_revision != revision:
+                    raise ScriptReviewError("revision_conflict", "脚本规划已变化，请重新读取后提交")
+                if previous is None:
+                    raise ScriptReviewError("invalid_content", "脚本规划文件不是有效的 JSON 对象")
+                high_water = episode_item_id_high_water(current, episode)
+                edit = ScriptPlanEdit(previous, kind, episode, high_water)
+                edit.apply(request.operations)
+                validated = self._validate_patch(kind, previous, edit)
+                diagnostics = self._diagnostics(project_path, current, episode, validated, caps)
+
+                def record_ids(project: dict[str, Any]) -> None:
+                    entry = script_review.find_episode(project, episode)
+                    if entry is None:
+                        raise ScriptReviewError("episode_not_found")
+                    if stored_item_id_high_water(entry) != high_water:
+                        raise ScriptReviewError("revision_conflict", "本集的条目编号已变化，请重新读取后提交")
+                    raise_item_id_high_water(entry, edit.issuer.last)
+
+                script_review.write_formal_script_plan_locked(
+                    project_path,
+                    episode,
+                    path,
+                    validated,
+                    expected_fingerprint=script_review.fingerprint_of_revision(revision),
+                    dependent_quarantine=dependent,
+                    project_update=record_ids if edit.issuer.last > high_water else None,
+                )
+            except ScriptPlanPatchError as exc:
+                problem = exc.problem
+            except ScriptReviewError as exc:
+                action = {
+                    "script_plan_confirmed": "patch_episode_script",
+                    "revision_conflict": "get_script_plan_content",
+                    "file_not_found": "generate_script_plan",
+                    "draft_agent_owned": "resolve_existing_draft",
+                }.get(exc.code, "get_script_plan_content")
+                problem = ScriptBatchEditProblem(
+                    code=exc.code,
+                    reason=str(exc),
+                    operation_index=None,
+                    unit_id=None,
+                    next_action=action,
+                )
+            except script_review.ScriptPlanWriteConflict as exc:
+                revision = script_review.published_revision(exc.actual)
+                problem = ScriptBatchEditProblem(
+                    code="revision_conflict",
+                    reason=str(exc),
+                    operation_index=None,
+                    unit_id=None,
+                    next_action="get_script_plan_content",
+                )
+            else:
+                return ScriptPlanPatchResult(
+                    success=True,
+                    episode=episode,
+                    before_revision=revision,
+                    revision=script_review.published_revision(script_review.content_fingerprint_of_data(validated)),
+                    affected_ids=tuple(edit.affected),
+                    **diagnostics,
+                )
+            return ScriptPlanPatchResult(
+                success=False,
+                episode=episode,
+                before_revision=request.base_revision,
+                revision=revision,
+                problems=(problem,),
+            )
+
+    def _validate_patch(self, kind: str, previous: dict[str, Any], edit: ScriptPlanEdit) -> dict[str, Any]:
+        try:
+            validated = self._normalize_content(kind, previous, edit.content)
+            _require_changed_speech_admitted(kind, previous, validated)
+            return validated
+        except ScriptReviewError as exc:
+            if exc.admission is not None:
+                problem = exc.admission.problems[0]
+                position = next(
+                    index
+                    for index, entry in enumerate(edit.entries)
+                    if isinstance(entry, dict) and entry.get(edit.id_field) == exc.admission.unit_id
+                )
+                location = problem.locations[0].path if problem.locations else ()
+                field = "utterances" if kind == "drama" else "text"
+                if not location:
+                    location = (field,)
+                raise edit.problem_for_content(
+                    problem.code.value, (edit.root, position, *location), problem.reason.value
+                ) from exc
+            if isinstance(exc.__cause__, ValidationError):
+                error = exc.__cause__.errors()[0]
+                raise edit.problem_for_content("invalid_content", error["loc"], error["msg"]) from exc
+            raise
 
     async def get_state(self, project_name: str, episode: int) -> dict[str, Any]:
         """返回该集内容确认状态 + 结构化中间态内容（供 web 渲染）。
@@ -507,19 +671,9 @@ class ScriptReviewService:
         content: object,
         base_fingerprint: str | None,
     ) -> dict[str, Any]:
-        kind, model = self._resolve_script_plan_model(project, episode)
+        kind, _ = self._resolve_script_plan_model(project, episode)
         self._reject_readonly_script_plan(project_name, project_path, episode)
-        try:
-            validated = model.model_validate(content).model_dump()
-        except ValidationError as exc:
-            _require_changed_speech_admitted(kind, previous, content)
-            raise ScriptReviewError("invalid_content", str(exc)) from exc
-        if kind == "drama":
-            for scene in validated["scenes"]:
-                if scene.get("needs_replan") is not True:
-                    scene.pop("needs_replan", None)
-        if not validated.get(NEW_ASSETS_FIELD):
-            validated.pop(NEW_ASSETS_FIELD, None)
+        validated = self._normalize_content(kind, previous, content)
         expected = (
             script_review.fingerprint_of_revision(base_fingerprint)
             if base_fingerprint is not None
@@ -537,6 +691,20 @@ class ScriptReviewService:
             )
         except script_review.ScriptPlanWriteConflict as exc:
             raise ScriptReviewError("conflict", str(exc)) from exc
+        return validated
+
+    def _normalize_content(self, kind: str, previous: object, content: object) -> dict[str, Any]:
+        try:
+            validated = _SCRIPT_PLAN_CONTENT_MODEL[kind].model_validate(content).model_dump()
+        except ValidationError as exc:
+            _require_changed_speech_admitted(kind, previous, content)
+            raise ScriptReviewError("invalid_content", str(exc)) from exc
+        if kind == "drama":
+            for scene in validated["scenes"]:
+                if scene.get("needs_replan") is not True:
+                    scene.pop("needs_replan", None)
+        if not validated.get(NEW_ASSETS_FIELD):
+            validated.pop(NEW_ASSETS_FIELD, None)
         return validated
 
     def _reject_readonly_script_plan(self, project_name: str, project_path: Path, episode: int) -> None:

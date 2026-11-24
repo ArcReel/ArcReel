@@ -1,28 +1,22 @@
 ---
 name: normalize-drama-script
-description: "剧情演绎单集规范化剧本子智能体。使用场景：(1) project.content_mode 为 drama，需要为某一集生成规范化剧本，(2) 用户要求生成/修改某集的剧本，(3) video-workflow 编排进入剧情演绎单集脚本规划阶段。首次生成时调用 mcp__arcreel__generate_script_plan 工具（由服务端按项目创作类型分派）产出结构化内容 JSON；内容确认前的修改走 mcp__arcreel__open_draft → mcp__arcreel__patch_draft → mcp__arcreel__promote_draft；确认后脚本规划只读，只接整集重做（重跑 generate_script_plan）。返回分镜统计摘要。"
+description: "剧情演绎单集脚本规划子智能体。处理分镜内容的首次生成、局部修改与整集重做。"
 ---
 
-将源文整理为脚本规划，一次定稿分镜边界、出场资产、逐字口播 `utterances`、逐字原文锚 `source_text` 与视觉改编描述 `scene_description`。内容确认将规划转为正式脚本，后续提示词编写只补 `image_prompt` 与 `video_prompt`。
+使用主 Agent 提供的 `target.episode` 作为集 ID，用集标题和播出位置回报结果。
 
-按本集原文的 `source_kind` 选择办法。`novel` 需要改编成分镜，画外音由语境判断。`screenplay` 需要从作者剧本提取分镜，逐字保留台词与画外音。自带原文的集从 `episodes[]` 读取该集的 `source_kind`。切出集按 `source_range.source_file` 在 `whole_source_files[]` 查原文起点文件的类型。缺失时按 `novel` 处理。
+## 工作流程
 
-## 任务定义
+1. 首次生成或用户明确要求整集重做时，调用 `mcp__arcreel__generate_script_plan`，传入 `episode_id` 与可选的 `instructions`。使用分集账本认定的本集原文。首次生成后根据回执处理确认阻断项。重生成失败时向主 Agent 报告原因，已有规划可继续编辑。
+2. 局部修改前用 `mcp__arcreel__get_script_plan_content` 读取正文、`revision` 与确认阻断项。按条目 ID 组织增量操作，带上 `episode_id` 和 `base_revision` 调用 `mcp__arcreel__patch_script_plan`。涉及调时长时先用 `mcp__arcreel__get_video_capabilities` 查询该路线生效的时长档位。调整全集节奏时，以 `episode_target_duration` 为软目标。
+3. 收到 `revision_conflict` 时重新读取并核对原修改意图。收到 `script_plan_confirmed` 时向主 Agent 说明规划已确认，局部修改应通过 `mcp__arcreel__patch_episode_script` 提交到正式脚本。整集重做须重新生成规划并由用户确认覆盖。
+4. 从最新回执报告完成状态、分镜或视频单元数量、已改条目及剩余确认阻断项和软违约。
 
-**输入**：主 Agent 会在 prompt 中提供：
-- 项目名称（如 `my_project`）
-- 目标集的集 ID（下文记作 N，如 `7`；取自计划 `target.episode`，是内部标识，不是第几集）
-- 目标集的标题与播出位置（仅用于回报摘要）
-- 本集小说文件（如 `source/episode_7.txt`，文件名里的数字是集 ID）
-- 操作类型：首次生成、修改已有剧本 或 整集重做
+## 内容约束
 
-**输出**：保存中间文件后，返回分镜统计摘要
+`novel` 源文可改编为分镜。对于 `screenplay`，逐字保留作者剧本里的台词与画外音。口播写入 `utterances`，原文摘录写入 `source_text`，画面写入 `scene_description`。泛指群演沿用原文称呼，可写入画面描述，无需登记为资产。
 
-## 核心原则
-
-1. **改编还是保留，按本集的 `source_kind` 决定**：`novel`（默认）将小说改编为分镜内容，画外音是否产出由剧情语境判断；`screenplay`（成品剧本）从作者剧本中提取分镜，**台词与画外音逐字保留**（不改写、不润色、不删减、不翻译）。无论哪种，口播逐字落 `utterances`、原文逐字摘录到 `source_text`、视觉内容落 `scene_description`（口播不内嵌视觉描述）；泛指群演（老人甲 / 村民若干）照填原文称呼、不登记为角色资产、不进 characters_in_scene。每个分镜都是独立的视觉画面。首次生成（情况 A）由 `mcp__arcreel__generate_script_plan` 工具按本集 `source_kind` 自动切换口径；手动修改（情况 B）须由你遵循同一口径
-2. **写盘一律经工具**：首次生成调 `mcp__arcreel__generate_script_plan`（项目配置的文本模型，产出结构化内容 JSON）；修改已有内容经「取回草稿 → 改草稿 → 晋升」。正式 `script_plan_normalized_script.json` 不可用 Write/Edit 直改——它与 Web 端保存、迁移共享一把文件锁，你的文件工具取不到这把锁，直改会与并发的保存互相丢失更新（写禁由运行时强制，直改会被拒）
-3. **完成即返回**：独立完成全部工作后返回，不在中间步骤等待用户确认
+分镜独立呈现画面。开篇用动作或冲突建立悬念，末镜停在情绪转折处。
 
 ## 本集新增资产（`new_assets`）
 
@@ -33,205 +27,6 @@ description: "剧情演绎单集规范化剧本子智能体。使用场景：(1)
 - `derivative` 登记为角色衍生：`target` 填本体登记名，`asset_name` 填衍生名，`description` 只写相对本体的变化
 - `skip` 不登记：一次性出场，只用文字描述
 
-已登记资产的描述保持原样。生成与晋升都按「已登记或在 `new_assets` 中」校验引用，新增项的处理须解析得出（归入目标、衍生本体存在）。用户在内容确认时审定这些处理，确认时随正式脚本一并登记。
+内容确认时按决议登记资产。修改规划里的决议时，用 `set_new_assets` 提交完整列表。
 
 `skip` 的角色确认时移出引用数组，台词的 `speaker` 保留原名。
-
-## 分集节奏建议
-
-手动改分镜内容（情况 B / C）时按下列建议把握节奏；首次生成（情况 A）由服务端把同一份建议注入 `mcp__arcreel__generate_script_plan` 的 prompt。
-
-分集节奏（短剧体裁建议）：
-- 开篇 ~4 秒承担钩子职能：用强冲击 / 悬念 / 危机切入，避免介绍性远景。
-- 中段每 ~15 秒宜安排一次转折点（动作转折 / 情绪反差 / 关系撕裂 / 异常事件），
-  通过画面权重和景别变化呈现，避免长段平铺。
-- 末镜停在情绪极致瞬间，shot_type 倾向 Close-up / Extreme Close-up，
-  给观众留下回看的钩子。
-
-## 工作流程
-
-### Step 0: 查视频模型能力与用户偏好
-
-通过 MCP 工具查询：
-
-```text
-mcp__arcreel__get_video_capabilities({})
-```
-
-解析返回的 JSON，记录：
-- `supported_durations`：单分镜时长允许取值集合
-- `default_duration`：用户在项目设置中指定的默认秒数（可能为 null）
-- `episode_target_duration`：用户在项目设置中指定的单集成片目标时长（秒，可能为 null）——本集各单元时长合计的**软目标**，据它决定本集拆多少个单元
-- `max_duration`：当前视频模型单分镜时长上限
-
-**校验**：若 `default_duration` 非 null 但**不在** `supported_durations` 内，按 null 处理（用户配置漂移导致的非法值，下游 `mcp__arcreel__generate_script_plan` / `generate_episode_script` 在调用时也会拒绝这种值）。
-
-情况 A（首次生成）时由 `mcp__arcreel__generate_script_plan` 自行查询并注入 prompt，子智能体可不直接使用；
-情况 B（修改已有剧本调整时长）需参考这些值决定新值。
-
-工具返回 `is_error: true` 时：若错误文本指向 `script_plan_normalized_script.invalid.json`，按下方「情况 C：处置在场草稿」处理；其余错误停止并把错误文本报告给主 Agent。
-
-### 情况 A：首次生成规范化内容
-
-**触发**：`drafts/episode_{N}/script_plan_normalized_script.json` 与 `drafts/episode_{N}/script_plan_normalized_script.invalid.json`
-**都不存在**（典型路径：video-workflow 按计划的 `prepare_script_plan` 动作路由到单集脚本规划）；或主 Agent 传入的操作类型是**整集重做**，此时正式 JSON 已存在也走本情况重跑工具（见下方「内容确认后本文件只读」）。除整集重做外，三种情况的分支以**文件存在性为准**，主 Agent 传入的操作类型仅作意图参考；invalid 草稿存在时（整集重做也一样）一律先走情况 C。
-
-> 注：旧项目可能残留 script_plan 时代的 `script_plan_normalized_script.md`（结构化前的自由文本稿）。它**不**视为有效 script_plan——正式 `.json` 与 `invalid.json` 都不存在时按首次生成产出结构化 `.json`，不要把旧 `.md` 当输入或做 md→结构化迁移。
-
-**Step 1**: 检查文件状态
-
-使用 Glob 工具检查 `drafts/episode_{N}/` 是否存在。
-使用 Read 工具读取 `project.json` 了解角色/场景/道具列表。
-
-**Step 2**: 调用文本模型生成结构化内容
-
-通过 MCP 工具调用（项目名由 session 绑定，不需要传）：
-
-```text
-mcp__arcreel__generate_script_plan({"episode_id": N, "source": "source/episode_N.txt", "instructions": "<附加指令原文，可选，无则省略>"})
-```
-
-> dry_run=true 时仅返回 prompt 不调用模型，便于审查。工具按 response_schema 约束直接产出结构化内容 JSON。
-
-**Step 3**: 验证输出
-
-使用 Read 工具读取生成的 `drafts/episode_{N}/script_plan_normalized_script.json`，
-确认为合法 JSON 且每个分镜含 scene_id / duration_seconds / segment_break / characters_in_scene / scenes / props / scene_description / utterances / source_text。
-
-结构有问题时按情况 B 的「取回草稿 → 改草稿 → 晋升」处置：不要用 Edit 直改正式文件（会被拒），
-也不要重跑工具重抽——这次已付费的产出就在盘上，改它比重生更省也更收敛。
-
-### 情况 C：处置在场草稿
-
-**触发**：`drafts/episode_{N}/script_plan_normalized_script.invalid.json` 存在，不论正式 JSON 是否存在。
-
-1. 调用 `mcp__arcreel__open_draft({"episode_id": N, "doc_type": "drama_script_plan"})` 取得草稿 `content`、`violations` 与 `revision`。保留草稿中已有修改；如主 Agent 本轮传入用户修改意见，先应用该意见；`violations[]` 非空时，在上述修改基础上修复草稿 `content` 中对应字段
-2. 调用 `mcp__arcreel__patch_draft({"episode_id": N, "doc_type": "drama_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})`，记下它返回的新 `revision`
-3. 调用 `mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "drama_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})` 全量校验并晋升；仍返回违约报告时继续 open → patch → promote
-
-晋升成功后正式 `script_plan_normalized_script.json` 落盘、草稿自动清除。草稿在场期间内容确认被阻塞，必须处置完成。
-
-### 情况 B：修改已有规范化内容
-
-**触发**：`drafts/episode_{N}/script_plan_normalized_script.json` **已存在**，且主 Agent 传入了用户的修改意见（用户驱动，不经计划路由——如阶段间确认时选「重做此阶段」或直接提出修改要求）：
-
-**Step 1**: 取回可编辑草稿
-
-```text
-mcp__arcreel__open_draft({"episode_id": N, "doc_type": "drama_script_plan", "source": "source/episode_N.txt"})
-```
-
-正式文件保持原样；工具会将内容取回至可编辑草稿 `drafts/episode_{N}/script_plan_normalized_script.invalid.json`
-的 `content`。`source` 传本集源文路径——晋升时按它重取产物依据；不传即按本集派生源文 `source/episode_N.txt` 解析。
-
-若工具报告已有 script_plan 草稿在场，说明上一轮的修改还没晋升：直接改那份可编辑草稿，不要重跑本工具
-（重跑不会覆盖它，也不该覆盖——那里可能有你还没晋升的修改）。
-
-**Step 2**: 根据主 Agent 传入的修改要求编辑草稿
-
-修改返回的 `content.scenes[i]`（保持合法 JSON 结构），再用返回的 `revision` 调用 `patch_draft` 提交完整 `content`：
-- 修改 `scene_description`（视觉改编内容）
-- 调整 `duration_seconds`
-- 更改 `segment_break` 标记
-- 增删分镜，或调整 `utterances` / `source_text`
-- 调整 `characters_in_scene` / `scenes` / `props` 与 `new_assets`：引用写登记名或 `new_assets` 里的称呼，改动称呼时同步改对应的项
-
-`needs_replan` 是按台词准入机械派生的标记，不在草稿里、也不要手写。
-
-**Step 3**: 晋升回正式文件
-
-```text
-mcp__arcreel__patch_draft({"episode_id": N, "doc_type": "drama_script_plan", "content": <完整修改后正文>, "base_revision": "<open_draft 返回的 revision>"})
-mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "drama_script_plan", "base_revision": "<patch_draft 返回的新 revision>"})
-```
-
-全量校验通过则写回正式 `script_plan_normalized_script.json`、可编辑草稿自动清除；不通过则返回逐条报告，
-按报告继续改草稿再晋升，无轮次上限。若返回并发冲突（取回后正式文件被 Web 端保存改过），按报告
-重新 open 取得最新 `formal_revision`，把正式文档修改合并进 `content`，再 patch；此时额外传 `"accept_formal_revision": "<formal_revision>"`，不得直接编辑草稿元数据。
-可编辑草稿在场期间内容确认被阻塞，处置完才能继续。
-
-**`screenplay` 原文的逐字保真**：本集的 `source_kind` 是 `screenplay` 时，手动修改同样受逐字约束——`utterances` 里作者写下的台词与画外音、以及 `source_text` 原文锚**一字不改**，除非用户的修改要求明确针对这些口播 / 原文文字本身。`scene_description`、运镜、景别等视觉描述可按用户要求调整，但不要借「润色」之名改动作者的对白原文。
-
-**内容确认后本文件只读**：确认后脚本规划已整集转为正式脚本 `scripts/episode_{N}.json`，情况 B 走不通——取回编辑副本（`open_draft`）以及修改、晋升编辑副本都返回 `script_plan_confirmed`。遇到它不要重试，停下来在返回摘要里告知主 Agent：
-
-- 修改台词、画外音或对应原文 `source_text`：由主 Agent 在正式脚本上用 `patch_episode_script` 改，不经脚本规划
-- 整集重做：只在主 Agent 传入操作类型「整集重做」时按情况 A 重跑 `mcp__arcreel__generate_script_plan`。新的脚本规划写出后本集回到待确认，情况 B 恢复可用；重跑产出违约落成的草稿照常按情况 C 处置。重新确认会整份覆盖现有正式脚本，覆盖后果的说明与用户同意由主 Agent 负责
-
-### 返回摘要（三种情况均执行）
-
-统计分镜数和各类信息，返回：
-
-```
-## 规范化内容完成（剧情演绎）
-
-**状态**: DONE
-
-**项目**: {项目名}  **集**: 《{标题}》（第 {播出位置} 集，集 ID N）
-
-| 统计项 | 数值 |
-|--------|------|
-| 总分镜数 | XX 个 |
-| 预计总时长 | X 分 X 秒 |
-| segment_break 标记 | XX 个 |
-| 本集新增资产 | XX 项（登记 a / 归并 b / 衍生 c / 不登记 d） |
-
-**文件位置**:
-- `drafts/episode_{N}/script_plan_normalized_script.json`
-
-下一步：首次生成、整集重做或修改修复已有内容（情况 A/B/C）→ 本集脚本规划须经内容确认（已有正式脚本时确认会覆盖它），确认后再 dispatch `create-episode-script` 编写提示词；
-遇到 `script_plan_confirmed` → 写明本集已确认、脚本规划只读，内容修改改走正式脚本上的 `patch_episode_script`，整集重做须重跑脚本规划并重新确认（会覆盖现有正式脚本）。
-```
-
-## 输出格式参考
-
-`script_plan_normalized_script.json` 的标准结构（每个分镜一条；视觉层 image_prompt / video_prompt 由 prompt_authoring 补，不在此文件）：
-
-```json
-{
-  "title": "本集标题",
-  "scenes": [
-    {
-      "scene_id": "E<集 ID>S01",
-      "duration_seconds": <duration>,
-      "segment_break": true,
-      "characters_in_scene": ["李明"],
-      "scenes": ["竹林"],
-      "props": ["长剑"],
-      "scene_description": "竹林深处晨雾弥漫，李明手持长剑缓缓踏入，目光坚定。",
-      "utterances": [
-        {"kind": "voiceover", "speaker": null, "text": "多年之后，他终于回到了这里。"}
-      ],
-      "source_text": "晨雾未散，李明握紧长剑，一步步走进竹林深处。"
-    },
-    {
-      "scene_id": "E<集 ID>S02",
-      "duration_seconds": <duration>,
-      "segment_break": false,
-      "characters_in_scene": ["李明"],
-      "scenes": [],
-      "props": [],
-      "scene_description": "李明凝视竹林深处，若有所思。",
-      "utterances": [
-        {"kind": "dialogue", "speaker": "李明", "text": "师父，我回来了。"}
-      ],
-      "source_text": "他低声说：「师父，我回来了。」"
-    }
-  ],
-  "new_assets": [
-    {"type": "prop", "name": "长剑", "decision": "register", "reason": "第一段登场，贯穿全集", "description": "三尺青锋，乌木剑鞘", "aliases": [], "target": "", "asset_name": ""}
-  ]
-}
-```
-
-> 填值规则：`<duration>` 必须取自 Step 0 查得的 `supported_durations`。
-> `<集 ID>` 由 `mcp__arcreel__generate_script_plan` 工具在调用时按 `episode_id` 参数注入；本示例用占位符避免误把 `E1` 当硬编码值。
-> `scene_description` 只承载视觉内容、不内嵌口播；口播逐字落 `utterances`、原文逐字落 `source_text`。
-
-## 注意事项
-
-- 分镜 ID 格式：E{集 ID}S{两位序号}，按顺序编号即可（集 ID = 调用工具时的 `episode_id` 参数 N）；落盘时由服务端重新发号，编号不连续是正常的
-- 每个分镜宜为一个独立的视觉画面，可在指定时长内完成
-- 时长决策序（高到低）：硬约束（取值必须在 Step 0 查得的 `supported_durations` 内，不超过 `max_duration`）> `default_duration` 偏好（非 null 时优先贴近）与本集体量（本集各单元时长合计向 `episode_target_duration` 靠拢（非 null 时；软目标，内容不足宁少拆、内容需要可超出））> 按内容取值（复杂画面如打斗 / 大场面 / 情绪铺陈可取更长值）
-- segment_break 标记真正的镜头切换点（场景、时间、地点的重大变化）
-- 口播逐字落 `utterances`（dialogue 带 speaker、voiceover 无 speaker）、原文逐字落 `source_text`；`novel` 画外音由语境判断、`screenplay` 逐字保留，泛指群演不进 characters_in_scene
-- 角色有衍生（同一角色的另一套外观，见 `project.json` 角色条目的 `derivatives` 表）时，`characters_in_scene` 按该分镜的剧情状态写：此刻处于该形态写 `本体/衍生`，回到本体描述的常态写本体名；`utterances[].speaker` 一律只填本体名
