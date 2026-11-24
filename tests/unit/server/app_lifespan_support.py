@@ -19,6 +19,9 @@ class _FakeWorker:
     async def start(self):
         self.started = True
 
+    def stop_admission(self):
+        pass
+
     async def stop(self):
         self.stopped = True
 

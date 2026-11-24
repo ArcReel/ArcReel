@@ -38,6 +38,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
             {
                 "start": AsyncMock(),
                 "stop": AsyncMock(),
+                "stop_admission": lambda self: None,
             },
         )()
         svc_mock.startup = AsyncMock()
@@ -47,6 +48,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
             (),
             {
                 "start_patrol": lambda self: None,
+                "stop_streams": lambda self: None,
                 "stop_patrol": lambda self: None,
                 "set_autonomous_turn_listener": lambda self, listener: None,
             },
@@ -57,6 +59,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
             {
                 "start": AsyncMock(),
                 "shutdown": AsyncMock(),
+                "stop_streams": lambda self: None,
                 "publish_assistant_session_resumed": lambda self, project_name, session_id: None,
             },
         )()

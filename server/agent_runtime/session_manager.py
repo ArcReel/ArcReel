@@ -55,7 +55,7 @@ from server.agent_runtime.sdk_frames import CommandLifecycle
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
 from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_runtime.usage_extraction import ModelTurnUsage, TurnUsageMeter
-from server.sse_channel import IDLE, EvictNonCriticalAndSignal, SseChannel
+from server.sse_channel import IDLE, EvictNonCriticalAndSignal, SseChannel, empty_stream
 
 logger = logging.getLogger(__name__)
 
@@ -586,6 +586,7 @@ class SessionManager:
         self.layout = DataRootLayout(self.data_root)
         self.meta_store = meta_store
         self.sessions: dict[str, ManagedSession] = {}
+        self.streams_stopped = asyncio.Event()
         self._channels: dict[str, SseChannel] = {}
         self._autonomous_turn_listener: Callable[[str, str], None] | None = None
         self._disconnecting: dict[str, asyncio.Event] = {}
@@ -2172,6 +2173,13 @@ class SessionManager:
         if not managed.resolve_pending_question(question_id, answers):
             raise ValueError("未找到待回答的问题")
 
+    def stop_streams(self) -> None:
+        self.streams_stopped.set()
+        channels = set(self._channels.values())
+        channels.update(session.channel for session in self.sessions.values())
+        for channel in channels:
+            channel.end_streams()
+
     def _session_channel(self, session_id: str) -> SseChannel:
         """取会话的广播通道，没有就登记一个新的。"""
         channel = self._channels.get(session_id)
@@ -2220,8 +2228,8 @@ class SessionManager:
           (consumers run liveness / disconnect self-checks on it).
 
         The subscription outlives the session's residency: it survives eviction
-        and keeps receiving once the session is revived. The stream ends only
-        when the subscriber queue is dropped under backpressure — stream end is
+        and keeps receiving once the session is revived. Shutdown or a queue
+        dropped under backpressure ends the stream. Stream end is
         the reconnect signal; no overflow event reaches consumers (the overflow
         sentinel is internal to :class:`SseChannel`).
 
@@ -2230,9 +2238,14 @@ class SessionManager:
         Consume as ``async with stream_messages(...) as stream: async for event
         in stream``.
         """
+        if self.streams_stopped.is_set():
+            yield empty_stream()
+            return
         channel, queue = self._subscribe(session_id)
 
         async def _iter() -> AsyncIterator[SessionStreamEvent]:
+            if self.streams_stopped.is_set():
+                return
             yield SubscriptionReady()
             async for item in channel.iterate(queue, idle_timeout=idle_timeout):
                 yield Heartbeat() if item is IDLE else LiveMessage(message=item)

@@ -685,9 +685,12 @@ class AssistantService:
         ``draft``（流式累积态 + rev 过滤门槛）、``queue``（排队消息快照）、``question``×N
         （未决问题）和当前 ``status``，之后直播 entry / delta / 排队消息变化（``queue_upsert`` /
         ``queue_remove``，立即发送重排托盘时再发一次 ``queue``）/ question / status。``status`` 只更新
-        状态、不关流；流只在客户端离开（或订阅者被溢出移除，即重连信号）时结束。
+        状态、不关流；客户端离开、订阅队列溢出或服务停机时结束。
         会话不常驻时同样建流等待，之后由发送复活的会话照常推送。
         """
+        stopped = self.session_manager.streams_stopped
+        if stopped.is_set():
+            return
         if meta is None:
             meta = await self.meta_store.get(session_id)
             if meta is None:
@@ -701,10 +704,24 @@ class AssistantService:
             ready = await anext(stream, None)
             if not isinstance(ready, SubscriptionReady):
                 return
-            for entry in await self.event_log.list_entries(session_id, project_cwd, after_seq=last_seq):
+            history = asyncio.create_task(self.event_log.list_entries(session_id, project_cwd, after_seq=last_seq))
+            stopping = asyncio.create_task(stopped.wait())
+            try:
+                await asyncio.wait((history, stopping), return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                history.cancel()
+                stopping.cancel()
+                await asyncio.gather(history, stopping, return_exceptions=True)
+            if stopped.is_set():
+                return
+            for entry in history.result():
+                if stopped.is_set():
+                    return
                 last_seq = max(last_seq, self._entry_seq(entry))
                 yield self._entry_sse_event(entry)
 
+            if stopped.is_set():
+                return
             yield self._draft_sse_event(session_id)
 
             yield self._sse_event(

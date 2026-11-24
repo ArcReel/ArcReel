@@ -6,7 +6,7 @@
 # 只跑 tests/unit 也要求每条都触发，否则报它过期。
 
 [[exemption]]
-key = "server/app.py::lifespan"
+key = "server/app.py::_running_app"
 reason = "应用生命周期本身：启动时的沙箱与 Docker 探测、日志文件处理器挂载、首次生成鉴权密码写 .env，关停时的收尾；每个进程各执行一次。"
 
 [[exemption]]

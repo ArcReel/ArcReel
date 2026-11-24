@@ -51,6 +51,7 @@ class _FakeAdapter:
 
 class _FakeEntrySessionManager:
     def __init__(self, status="running", draft_state=None, pending=None):
+        self.streams_stopped = asyncio.Event()
         self.status_value = status
         self.queue: asyncio.Queue = asyncio.Queue()
         self.draft_state = draft_state or {"draft": None, "rev": 0}
@@ -429,3 +430,34 @@ class TestEntryStreamRouter:
         with _build_client(monkeypatch, fake) as client:
             resp = client.get(f"{PREFIX}/sessions/unknown/entries")
         assert resp.status_code == 404
+
+
+async def test_shutdown_ends_blocked_history_and_late_session_stream(entry_service, monkeypatch):
+    service, _ = entry_service
+    reading = asyncio.Event()
+
+    async def read_history(*args, **kwargs):
+        reading.set()
+        await asyncio.Future()
+
+    monkeypatch.setattr(service.event_log, "list_entries", read_history)
+    async with asyncio.timeout(3):
+        async with contextlib.aclosing(service.stream_entry_events(SESSION_ID)) as stream:
+            pending = asyncio.create_task(anext(stream, None))
+            try:
+                await reading.wait()
+                service.session_manager.stop_streams()
+                assert await pending is None
+            finally:
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+        assert [event async for event in service.stream_entry_events(SESSION_ID)] == []
+
+
+async def test_shutdown_stops_session_replay_at_current_entry(entry_service):
+    service, store = entry_service
+    await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}, {"type": "assistant", "uuid": "b"}])
+    async with contextlib.aclosing(service.stream_entry_events(SESSION_ID)) as stream:
+        assert (await anext(stream)).event == "entry"
+        service.session_manager.stop_streams()
+        assert await anext(stream, None) is None

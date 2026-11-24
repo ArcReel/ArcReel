@@ -1168,3 +1168,34 @@ class TestProjectEventService:
             assert "demo" in service._channels
 
         await service.shutdown()
+
+
+async def test_shutdown_ends_first_snapshot_wait_and_late_project_stream(tmp_path):
+    pm = ProjectManager(tmp_path / "projects")
+    pm.create_project("demo")
+    reading = threading.Event()
+    release = threading.Event()
+
+    def read(project):
+        reading.set()
+        release.wait(5)
+        return read_project_state(pm, project)
+
+    service = ProjectEventService(tmp_path, read_state=read)
+
+    async def collect():
+        async with service.stream_events("demo") as stream:
+            return [item async for item in stream]
+
+    async with asyncio.timeout(3):
+        pending = asyncio.create_task(collect())
+        try:
+            assert await asyncio.to_thread(reading.wait, 2)
+            service.stop_streams()
+            assert await pending == []
+            assert await collect() == []
+        finally:
+            release.set()
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+            await service.shutdown()

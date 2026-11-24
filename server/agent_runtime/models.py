@@ -82,8 +82,8 @@ class QueuedMessage:
 SessionStreamEvent = SubscriptionReady | LiveMessage | Heartbeat
 """``SessionManager.stream_messages`` 产出的语义化事件。
 
-序列协议：SubscriptionReady（恰好一次、必为首个）→ LiveMessage / Heartbeat 交错；
-订阅队列溢出以流结束表达，流结束即重连信号，无专门事件。
+订阅建立后先发 SubscriptionReady，再交错发送 LiveMessage / Heartbeat。
+队列溢出或服务停机时以流结束通知重连，停机期间的新订阅直接结束。
 """
 
 

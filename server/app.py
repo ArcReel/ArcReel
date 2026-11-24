@@ -24,7 +24,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -130,6 +130,7 @@ from server.services.project.project_events import ProjectEventService
 from server.services.tasks.generation_context import invalidate_backend_cache
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
+from server.shutdown import ShutdownController
 
 
 def assert_no_provider_secrets_in_environ() -> None:
@@ -350,8 +351,17 @@ async def _migrate_source_encoding_on_startup(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """应用生命周期管理"""
+    shutdown = ShutdownController()
+    app.state.shutdown_controller = shutdown
+    with shutdown.capture_signals():
+        async with _running_app(app, shutdown):
+            yield
+
+
+@asynccontextmanager
+async def _running_app(app: FastAPI, shutdown: ShutdownController) -> AsyncGenerator[None]:
     assert_no_provider_secrets_in_environ()
     sandbox_enabled = check_sandbox_available()
     is_docker = detect_docker_environment() if sandbox_enabled else False
@@ -494,17 +504,22 @@ async def lifespan(app: FastAPI):
     await startup_http_client()
 
     await assistant.assistant_service.startup(in_docker=is_docker, sandbox_enabled=sandbox_enabled)
-    assistant.assistant_service.session_manager.start_patrol()
+    session_manager = assistant.assistant_service.session_manager
+    session_manager.streams_stopped = asyncio.Event()
+    session_manager.start_patrol()
 
     logger.info("启动 GenerationWorker...")
     worker = create_generation_worker()
     app.state.generation_worker = worker
+    shutdown.on_shutdown(worker.stop_admission)
+    shutdown.on_shutdown(session_manager.stop_streams)
     await worker.start()
     logger.info("GenerationWorker 已启动")
 
     logger.info("启动 ProjectEventService...")
     project_event_service = ProjectEventService(PROJECT_ROOT, data_root=layout.root)
     app.state.project_event_service = project_event_service
+    shutdown.on_shutdown(project_event_service.stop_streams)
     await project_event_service.start()
     logger.info("ProjectEventService 已启动")
     assistant.assistant_service.session_manager.set_autonomous_turn_listener(
@@ -980,9 +995,10 @@ def _main_uvicorn_args(platform_name: str = sys.platform) -> tuple[str | FastAPI
     SelectorEventLoop，内置 Agent 拉不起 Claude Code CLI，因此 Windows 不开 reload。
     """
     host, port = _resolve_listen_addr()
+    options = {"host": host, "port": port, "timeout_graceful_shutdown": 10}
     if platform_name == "win32":
-        return app, {"host": host, "port": port, "reload": False}
-    return "server.app:app", {"host": host, "port": port, "reload": True, "reload_dirs": ["server", "lib"]}
+        return app, {**options, "reload": False}
+    return "server.app:app", {**options, "reload": True, "reload_dirs": ["server", "lib"]}
 
 
 if __name__ == "__main__":
