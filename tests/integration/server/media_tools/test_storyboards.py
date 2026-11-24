@@ -57,13 +57,15 @@ async def test_generate_storyboards_happy(fake_ctx: ToolHarness) -> None:
     ["active", "chapter-break", "finished-during-probe", "finished-during-probe-missing-only", "already-available"],
 )
 async def test_generate_storyboards_previous_outside_requested_ids(
-    idle_fake_ctx: ToolHarness, monkeypatch, previous_state
+    idle_fake_ctx: ToolHarness,
+    concurrent_session_factory,
+    configure_storyboard_image_model,
+    monkeypatch,
+    previous_state,
 ) -> None:
-    async def four_image_limit(*_args):
-        return (4, "four")
-
-    monkeypatch.setattr("server.media_tools.storyboards.reference_image_limit", four_image_limit)
     ctx = idle_fake_ctx
+    model_key, model_id = await configure_storyboard_image_model(concurrent_session_factory, limit=4)
+    ctx.pm.project_payload["image_provider_i2i"] = model_key
     first = ctx.pm.script_payload["segments"][0]
     previous_assets = first["generated_assets"]
     if previous_state != "already-available":
@@ -140,7 +142,13 @@ async def test_generate_storyboards_previous_outside_requested_ids(
     problem = result.items[0].problem
     assert problem is not None
     assert problem.code == "image_reference_images_exceeded"
-    assert problem.params == {"model": "four", "limit": 4, "count": 5, "names": "E1S01", "previous_storyboard": "E1S01"}
+    assert problem.params == {
+        "model": model_id,
+        "limit": 4,
+        "count": 5,
+        "names": "E1S01",
+        "previous_storyboard": "E1S01",
+    }
     if previous_state == "finished-during-probe-missing-only":
         assert [item.unit_id for item in result.skipped] == ["E1S01"]
     assert submitted == []
