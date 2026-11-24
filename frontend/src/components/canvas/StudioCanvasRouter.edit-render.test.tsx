@@ -91,7 +91,7 @@ function makeScript(videoClip: string | null): EpisodeScript {
   };
 }
 
-function renderEditView(script: EpisodeScript) {
+function renderEditView(script: EpisodeScript, path = episodeEditViewPath(1)) {
   const projectData: ProjectData = {
     title: "Demo",
     content_mode: "narration",
@@ -106,12 +106,13 @@ function renderEditView(script: EpisodeScript) {
     currentProjectData: projectData,
     currentScripts: { "episode_1.json": script },
   });
-  const { hook, searchHook } = memoryLocation({ path: episodeEditViewPath(1) });
-  return render(
-    <Router hook={hook} searchHook={searchHook}>
+  const { hook, history } = memoryLocation({ path, record: true });
+  render(
+    <Router hook={hook}>
       <StudioCanvasRouter />
     </Router>,
   );
+  return history;
 }
 
 describe("StudioCanvasRouter edit view mounts", () => {
@@ -121,6 +122,21 @@ describe("StudioCanvasRouter edit view mounts", () => {
     useWorkflowStore.setState({ plan: null, planKey: null });
     vi.restoreAllMocks();
     stubMediaElementPlayback();
+  });
+
+  it("uses the edit timeline's time even when the URL also contains a unit", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({ timelines: [SUMMARY] });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(readout([]));
+    const history = renderEditView(
+      makeScript("videos/scene_E1S03.mp4"),
+      "/episodes/1?view=edit&unit=E1S03&tl=tl-00000001&t=2&from=agent",
+    );
+
+    await waitFor(() => expect(screen.getByTestId("edit-playback-clock")).toHaveTextContent("00:02.0"));
+    expect(screen.getByRole("tab", { name: "初剪" })).toHaveAttribute("aria-selected", "true");
+    expect(history).toEqual(["/episodes/1?view=edit&unit=E1S03&from=agent"]);
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+    expect(useAppStore.getState().playbackStart).toBeNull();
   });
 
   it("creates a timeline from the empty state without opening the assistant, then offers render", async () => {

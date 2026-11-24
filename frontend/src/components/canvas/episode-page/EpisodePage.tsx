@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "wouter";
+import { useParams, useSearchParams } from "wouter";
 
 import { useConfirmLeave } from "@/components/shared/edit-unit/LeaveGuard";
 import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
-import { EPISODE_VIEW_PARAM } from "@/app-routes";
+import { openUnitPreview } from "@/actions/open-unit-preview";
+import { EPISODE_VIEW_EDIT, EPISODE_VIEW_PARAM } from "@/app-routes";
 import { EditTimelineEmptyState } from "@/components/canvas/edit-render/EditTimelineEmptyState";
 import { RenderButton } from "@/components/canvas/edit-render/RenderButton";
 import { EpisodeSourceReview } from "@/components/canvas/EpisodeSourceReview";
@@ -20,7 +21,8 @@ import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
 import type { ProjectData } from "@/types";
 import type { EpisodeScript } from "@/types/script";
-import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
+import { LINK_TIME_PARAM, LINK_UNIT_PARAM, parseSeconds } from "@/utils/app-link";
+import { gridStoryboardEnabled, normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
 import { lazyNamed } from "@/utils/lazy-component";
 import { previewAspect } from "@/utils/preview-aspect";
 
@@ -53,6 +55,38 @@ export interface EpisodeCanvasContext {
   onViewChange: (view: EpisodeView, options?: EpisodeViewChangeOptions) => void;
 }
 
+function useEpisodeSearchParams(
+  projectName: string,
+  episode: number,
+  route: GenerationRoute,
+  hasEpisode: boolean,
+  hasScript: boolean,
+) {
+  const search = useSearchParams();
+  const [searchParams, setSearchParams] = search;
+  const { projectName: routeProject, episodeId: routeEpisode } = useParams<{ projectName?: string; episodeId?: string }>();
+  const linkForOtherEpisode =
+    (routeProject !== undefined && routeProject !== projectName) ||
+    (routeEpisode !== undefined && parseInt(routeEpisode, 10) !== episode);
+  const consumedUnitLink = useRef<URLSearchParams | null>(null);
+
+  useEffect(() => {
+    if (!hasEpisode || !hasScript || linkForOtherEpisode || consumedUnitLink.current === searchParams) return;
+    const unitId = searchParams.get(LINK_UNIT_PARAM);
+    if (!unitId || searchParams.get(EPISODE_VIEW_PARAM) === EPISODE_VIEW_EDIT) return;
+
+    consumedUnitLink.current = searchParams;
+    openUnitPreview(route, unitId, parseSeconds(searchParams.get(LINK_TIME_PARAM)));
+    setSearchParams((params) => {
+      const remaining = new URLSearchParams(params);
+      remaining.delete(LINK_UNIT_PARAM);
+      remaining.delete(LINK_TIME_PARAM);
+      return remaining;
+    }, { replace: true });
+  }, [hasEpisode, hasScript, linkForOtherEpisode, route, searchParams, setSearchParams]);
+  return search;
+}
+
 function EpisodePageContent({
   projectName,
   episode,
@@ -75,13 +109,13 @@ function EpisodePageContent({
   renderCanvas: (context: EpisodeCanvasContext) => ReactNode;
 }) {
   const { t } = useTranslation("dashboard");
-  const [searchParams, setSearchParams] = useSearchParams();
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
 
   const meta = projectData?.episodes?.find((entry) => entry.episode === episode);
   const isAd = projectData?.content_mode === "ad";
   const route = normalizeRoute(projectData?.generation_mode);
   const hasScript = Boolean(script);
+  const [searchParams, setSearchParams] = useEpisodeSearchParams(projectName, episode, route, Boolean(meta), hasScript);
   const hasDraft = hasEpisodeDraft(meta);
   const grid = gridStoryboardEnabled(projectData);
   const sourceReview = showsEpisodeSource(projectData, episode, script, demo);

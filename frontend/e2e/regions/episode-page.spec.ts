@@ -254,6 +254,21 @@ async function pageReady(page: Page) {
 
 defineRegionScenarios("集页页头", [
   {
+    name: "直接打开分镜链接后选中目标，刷新已清理的地址后不再定位",
+    path: `${EPISODE_PATH}?view=board&unit=E1S16&from=agent`,
+    api: PROGRESS_STRESS,
+    ready: pageReady,
+    act: async (page) => {
+      const shots = page.getByRole("navigation", { name: "分镜列表" });
+      const target = shots.locator('[data-shot-id="E1S16"]').locator('button[aria-current="true"]');
+      await expect(target).toBeInViewport();
+      await expect(page).toHaveURL(`${EPISODE_PATH}?view=board&from=agent`);
+      await page.reload();
+      await pageReady(page);
+      await expect(shots.locator('[data-shot-id="E1S01"]').locator('button[aria-current="true"]')).toBeVisible();
+    },
+  },
+  {
     name: "两行页头约 85px，批量按钮写明补几份，没有可补的置灰",
     path: EPISODE_PATH,
     api: STRESS,
