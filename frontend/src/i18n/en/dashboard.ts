@@ -171,6 +171,7 @@ export default {
   'about_update_available': 'A newer version is available',
   'about_up_to_date': 'You are on the latest version',
   'about_open_release': 'Open GitHub Release',
+  'about_open_docs': 'Open Documentation',
   'about_release_notes': 'Release Notes',
   'about_release_notes_empty': 'No release notes available.',
   'about_load_failed': 'Failed to load version info',

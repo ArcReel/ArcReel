@@ -4,6 +4,7 @@ export default {
   'chinese': 'Chinese',
   'english': 'English',
   'settings': 'Settings',
+  'documentation': 'Documentation',
   'logout': 'Logout',
   'cancel': 'Cancel',
   'replace': 'Replace',

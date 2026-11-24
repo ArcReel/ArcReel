@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, ChevronRight, ExternalLink, Loader2, RefreshCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { getDocsUrl } from "@/branding";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,7 @@ const ABOUT_DATE_OPTS: Intl.DateTimeFormatOptions = {
 };
 
 export function AboutSection() {
-  const { t, i18n } = useTranslation("dashboard");
+  const { t, i18n } = useTranslation(["dashboard", "common"]);
   const [data, setData] = useState<GetSystemVersionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -166,6 +167,19 @@ export function AboutSection() {
             </CollapsibleContent>
           </Collapsible>
         </div>
+      </section>
+
+      <section className="flex flex-col items-start gap-2 rounded-lg border border-border bg-card p-4">
+        <h3 className="text-sm font-medium">{t("common:documentation")}</h3>
+        <a
+          href={getDocsUrl(i18n.language)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex w-fit items-center gap-1.5 text-sm text-primary underline-offset-4 hover:underline"
+        >
+          {t("about_open_docs")}
+          <ExternalLink className="size-3.5" aria-hidden />
+        </a>
       </section>
 
       <section className="flex flex-col items-start gap-3 rounded-lg border border-border bg-card p-4">

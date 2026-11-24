@@ -1,9 +1,12 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { GlobalHeader } from "@/components/layout/GlobalHeader";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { API } from "@/api";
+import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -27,9 +30,11 @@ async function openExportScope(option: "current" | "full") {
 function renderHeader(path = "/characters") {
   const location = memoryLocation({ path, record: true });
   render(
-    <Router hook={location.hook}>
-      <GlobalHeader />
-    </Router>,
+    <TooltipProvider delay={0}>
+      <Router hook={location.hook}>
+        <GlobalHeader />
+      </Router>
+    </TooltipProvider>,
   );
   return location;
 }
@@ -54,6 +59,12 @@ describe("GlobalHeader", () => {
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
+  });
+
+  afterEach(async () => {
+    if (i18n.language !== "zh") {
+      await i18n.changeLanguage("zh");
+    }
   });
 
   it("prefers the project title over the internal project name", async () => {
@@ -231,6 +242,42 @@ describe("GlobalHeader", () => {
 
     expect(screen.getByRole("link", { name: "全局设置" })).toHaveAttribute("href", "/app/settings");
     expect(screen.getByRole("link", { name: "项目" })).toHaveAttribute("href", "/app/projects");
+  });
+
+  it("renders the documentation external link immediately to the left of global settings with tooltip", async () => {
+    const user = userEvent.setup();
+    useProjectsStore.setState({ currentProjectName: "real-project" });
+
+    renderHeader();
+
+    const docsLink = screen.getByRole("link", { name: "使用文档" });
+    const settingsLink = screen.getByRole("link", { name: "全局设置" });
+
+    expect(docsLink).toHaveAttribute("href", "https://docs.arc-reel.com/");
+    expect(docsLink).toHaveAttribute("target", "_blank");
+    expect(docsLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(docsLink.nextElementSibling).toBe(settingsLink);
+
+    await user.hover(docsLink);
+    await waitFor(() => {
+      expect(screen.getByText("使用文档")).toBeVisible();
+    });
+  });
+
+  it.each([
+    ["en", "Documentation"],
+    ["vi", "Tài liệu hướng dẫn"],
+    ["ru", "Документация"],
+  ] as const)("points the header documentation link to /en/ when UI language is %s", async (lang, label) => {
+    await i18n.changeLanguage(lang);
+    useProjectsStore.setState({ currentProjectName: "real-project" });
+
+    renderHeader();
+
+    const docsLink = screen.getByRole("link", { name: label });
+    expect(docsLink).toHaveAttribute("href", "https://docs.arc-reel.com/en/");
+    expect(docsLink).toHaveAttribute("target", "_blank");
+    expect(docsLink).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("shows an error toast when exporting fails", async () => {

@@ -176,6 +176,7 @@ export default {
   'about_update_available': 'Доступна новая версия',
   'about_up_to_date': 'У вас последняя версия',
   'about_open_release': 'Открыть GitHub Release',
+  'about_open_docs': 'Открыть документацию',
   'about_release_notes': 'Примечания к выпуску',
   'about_release_notes_empty': 'Примечаний к выпуску пока нет.',
   'about_load_failed': 'Не удалось загрузить сведения о версии',
