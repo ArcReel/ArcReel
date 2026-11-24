@@ -105,6 +105,7 @@ const STRESS: ApiOverrides = {
       ],
     },
   },
+  "GET /api/v1/tasks/active?project_name=demo": { status: 200, body: { items: RUNNING_STORYBOARDS.map(runningTask), truncated: false } },
   "GET /api/v1/tasks?page_size=200&project_name=demo": {
     status: 200,
     body: { items: RUNNING_STORYBOARDS.map(runningTask), total: RUNNING_STORYBOARDS.length, page: 1, page_size: 200 },

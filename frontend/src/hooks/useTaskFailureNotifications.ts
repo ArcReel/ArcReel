@@ -1,6 +1,7 @@
+import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, useTasksStore } from "@/stores/tasks-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { isAssetSheetBatchTask } from "@/stores/asset-sheet-batch-store";
@@ -14,7 +15,7 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     tRef.current = t;
   }, [t]);
 
-  const tasks = useTasksStore((s) => s.tasks);
+  const tasks = useTasksStore(useShallow(selectRecentTasks));
   const connected = useTasksStore((s) => s.connected);
   const projectData = useProjectsStore((s) => s.currentProjectData);
   const projectDataRef = useRef(projectData);

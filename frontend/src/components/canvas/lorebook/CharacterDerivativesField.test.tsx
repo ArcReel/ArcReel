@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +10,6 @@ import { API } from "@/api";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import type { Character, CharacterDerivative, ProjectData } from "@/types";
 import { AssetGallery } from "./AssetGallery";
 
@@ -104,7 +104,7 @@ describe("角色详情的衍生区块", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
   });
 
@@ -312,13 +312,13 @@ describe("角色详情的衍生区块", () => {
     await user.click(await screen.findByRole("menuitem", { name: "删除" }));
     const confirm = await screen.findByRole("alertdialog", { name: "删除衍生「战斗装」？" });
     act(() =>
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [makeTask({ project_name: "demo", task_type: "character", media_type: "image", resource_id: "林夕", status: "running" })],
       }),
     );
     expect(within(confirm).getByRole("button", { name: "删除" })).toBeDisabled();
 
-    act(() => useTasksStore.setState({ tasks: [] }));
+    act(() => seedTaskState({ tasks: [] }));
     await user.click(within(confirm).getByRole("button", { name: "删除" }));
     await waitFor(() => expect(API.deleteCharacterDerivative).toHaveBeenCalledWith("demo", "林夕", "战斗装"));
   });

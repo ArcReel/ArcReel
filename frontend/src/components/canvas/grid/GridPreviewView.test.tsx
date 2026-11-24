@@ -1,7 +1,7 @@
+import { seedTaskState } from "@/test/task-state";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
-import { useTasksStore } from "@/stores/tasks-store";
 import type { GridGeneration } from "@/types/grid";
 import type { TaskItem } from "@/types";
 import type { NarrationSegment } from "@/types";
@@ -85,7 +85,7 @@ function runningGridTask(): TaskItem {
 
 beforeEach(() => {
   vi.spyOn(API, "listGrids").mockResolvedValue([]);
-  useTasksStore.setState({ tasks: [], optimisticActive: new Set(), optimisticActiveScriptFile: new Set() });
+  seedTaskState({ tasks: [], optimisticMarks: new Map(), });
 });
 
 describe("GridPreviewView 的档位与批次预览", () => {
@@ -176,7 +176,7 @@ describe("GridPreviewView 的分组生成", () => {
 
   it("这一组的联合图正在生成时，「重新生成这一组」不可用", async () => {
     vi.mocked(API.listGrids).mockResolvedValue([gridFor(["SEG-1", "SEG-2", "SEG-3", "SEG-4"])]);
-    useTasksStore.setState({ tasks: [runningGridTask()] });
+    seedTaskState({ tasks: [runningGridTask()] });
     renderView(makeSegments(4), vi.fn().mockResolvedValue(undefined));
 
     expect(await screen.findByRole("button", { name: "重新生成这一组" })).toBeDisabled();

@@ -1,3 +1,4 @@
+import { selectRecentTasks } from "@/stores/tasks-store";
 import { API, derivativeResourceId } from "@/api";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
@@ -433,7 +434,7 @@ function watchPromptAuthoringNoop(projectName: string, taskIds: readonly string[
       unsubscribe();
       return;
     }
-    for (const task of state.tasks) {
+    for (const task of selectRecentTasks(state)) {
       if (!pending.has(task.task_id) || !isTerminalStatus(task.status)) continue;
       pending.delete(task.task_id);
       if (task.status === "succeeded" && task.result?.no_pending_authoring === true) {

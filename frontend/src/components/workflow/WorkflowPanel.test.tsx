@@ -1,3 +1,4 @@
+import { seedTasks } from "@/test/task-state";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { API } from "@/api";
@@ -7,7 +8,6 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { makeContent, makePlan, makeStatus, makeStep, makeTask } from "@/test/factories";
@@ -428,7 +428,7 @@ describe("WorkflowPanel 草稿", () => {
   });
 
   it("待修复草稿可以直接 AI 修复：按读到的版本提交，附加指令只随本次修复", async () => {
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
     vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
       doc_type: "drama_script_plan",
       revision: "rev-3",
@@ -522,7 +522,7 @@ describe("WorkflowPanel 编写提示词", () => {
     scenario({ next: nextAction("author_prompts"), content: { pending_authoring_ids: ["E1S02"] } });
 
   it("AI 编写直接提交全部待编写，并带上附加指令", async () => {
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
     const submit = vi
       .spyOn(API, "authorPrompts")
       .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.authorPrompts>>);
@@ -650,7 +650,7 @@ describe("WorkflowPanel 广告/短片 AI 生成脚本", () => {
   });
 
   it("下一步的 AI 生成脚本直接提交整份生成，附加指令只随本次提交", async () => {
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
     const submit = vi
       .spyOn(API, "generateAdScript")
       .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.generateAdScript>>);
@@ -1009,13 +1009,13 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
 
 describe("WorkflowPanel 刷新纪律", () => {
   beforeEach(() => {
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
   });
 
   async function advanceDebounce(ms: number) {
@@ -1034,10 +1034,10 @@ describe("WorkflowPanel 刷新纪律", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
 
     act(() => {
-      useTasksStore.getState().setTasks([makeTask({ task_id: "other-1", project_name: "another", status: "queued" })]);
+      seedTasks([makeTask({ task_id: "other-1", project_name: "another", status: "queued" })]);
     });
     act(() => {
-      useTasksStore.getState().setTasks([makeTask({ task_id: "other-1", project_name: "another", status: "succeeded" })]);
+      seedTasks([makeTask({ task_id: "other-1", project_name: "another", status: "succeeded" })]);
     });
     await settleDebounce();
 
@@ -1051,7 +1051,7 @@ describe("WorkflowPanel 刷新纪律", () => {
 
     for (const status of ["queued", "running", "succeeded"] as const) {
       act(() => {
-        useTasksStore.getState().setTasks([makeTask({ task_id: "t1", project_name: "proj", status })]);
+        seedTasks([makeTask({ task_id: "t1", project_name: "proj", status })]);
       });
     }
     expect(spy).toHaveBeenCalledTimes(1);

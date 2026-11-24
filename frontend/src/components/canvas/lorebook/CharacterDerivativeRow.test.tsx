@@ -1,9 +1,9 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { createDeferred } from "@/test/deferred";
 import { makeTask } from "@/test/factories";
 import type { CharacterDerivativeStatus, ProjectData, ProviderAssetImportResult } from "@/types";
@@ -44,7 +44,7 @@ describe("CharacterDerivativeRow", () => {
   });
 
   afterEach(() => {
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
@@ -100,9 +100,9 @@ describe("CharacterDerivativeRow", () => {
   it("drops the upload while the base look is being generated", async () => {
     const upload = vi.spyOn(API, "uploadCharacterDerivativeSheet");
     renderRow({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ project_name: "demo", task_type: "character", resource_id: "阿岚" })],
-      optimisticActive: new Set(),
+      optimisticMarks: new Map(),
     });
     const file = new File(["png"], "armor.png", { type: "image/png" });
 
@@ -172,9 +172,9 @@ describe("CharacterDerivativeRow", () => {
     const spy = vi.spyOn(API, "generateCharacterDerivative");
     vi.spyOn(API, "getAssetRegenerationImpact").mockResolvedValue({ stale: false, storyboards: 0, videos: 0, derivatives: 0 });
     renderRow({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ project_name: "demo", task_type: "character", resource_id: "阿岚" })],
-      optimisticActive: new Set(),
+      optimisticMarks: new Map(),
     });
 
     fireEvent.click(screen.getByRole("button", { name: "重新生成" }));

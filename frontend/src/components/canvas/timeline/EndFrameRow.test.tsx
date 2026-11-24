@@ -1,10 +1,10 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { type RefreshProjectResult, useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem, VideoCapabilities } from "@/types";
 import { EndFrameRow } from "./EndFrameRow";
 
@@ -101,7 +101,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   refreshProject.mockClear();
-  useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+  seedTaskState({ tasks: [], optimisticMarks: new Map() });
   useProjectsStore.setState(useProjectsStore.getInitialState(), true);
 });
 
@@ -245,7 +245,7 @@ describe("EndFrameRow 能力警告", () => {
 
   it("警告里的清除按占用态同步禁用", async () => {
     vi.spyOn(API, "getVideoCapabilities").mockResolvedValue(caps(false));
-    useTasksStore.setState({ tasks: [videoTask("running")] });
+    seedTaskState({ tasks: [videoTask("running")] });
     const { findByRole } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     const alert = await findByRole("alert");
     expect(within(alert).getByRole("button", { name: "清除尾帧" })).toBeDisabled();
@@ -265,7 +265,7 @@ describe("EndFrameRow 能力警告", () => {
 
 describe("EndFrameRow 占用态", () => {
   it("本分镜视频任务在途时兄弟控件同步禁用", async () => {
-    useTasksStore.setState({ tasks: [videoTask("running")] });
+    seedTaskState({ tasks: [videoTask("running")] });
     const { getByRole, findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
     await findByText("已设置");
 
@@ -275,7 +275,7 @@ describe("EndFrameRow 占用态", () => {
   });
 
   it("分镜任务在途不禁用尾帧控件", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [{ ...videoTask("running"), task_type: "storyboard", media_type: "image" }],
     });
     const { getByRole, findByText } = renderRow({ endFramePath: "end_frames/scene_E1S01.png" });
@@ -295,7 +295,7 @@ describe("EndFrameRow 占用态", () => {
 
     fireEvent.click(await findByRole("button", { name: /^分镜 1$/ }));
 
-    useTasksStore.setState({ tasks: [videoTask("queued")] });
+    seedTaskState({ tasks: [videoTask("queued")] });
 
     fireEvent.click(getByRole("button", { name: "设为尾帧" }));
     await waitFor(() => {

@@ -11,6 +11,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import type { ProjectChange } from "@/types";
+import { makeTask } from "@/test/factories";
 import { createDeferred } from "@/test/deferred";
 import { FakeSseStream } from "@/test/fakeSseStream";
 
@@ -287,6 +288,23 @@ describe("useProjectEventsSSE", () => {
     });
     expect(screen.getByTestId("location")).toHaveTextContent("/");
     expect(useAppStore.getState().scrollTarget).toBeNull();
+  });
+
+  it("recovers active tasks on reconnect through the shared refresh", async () => {
+    const row = makeTask({ project_name: "demo" });
+    const snapshot = vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [row], truncated: false });
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: useTasksStore.getInitialState().stats });
+    useTasksStore.getState().setRefreshScope({ projectName: "demo" });
+    const stream = mockProjectEventStream();
+    renderHarness();
+    const emit = () => stream.options?.onSnapshot?.({ project_name: "demo", fingerprint: "same" } as never);
+    act(emit);
+    expect(snapshot).not.toHaveBeenCalled();
+    await act(async () => { emit(); });
+    expect(useTasksStore.getState().activeTaskIds.has(row.task_id)).toBe(true);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    useTasksStore.getState().setRefreshScope(null);
   });
 
   it("invalidates episode draft views when a reconnect snapshot shows missed changes", () => {

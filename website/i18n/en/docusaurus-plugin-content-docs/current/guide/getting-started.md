@@ -185,7 +185,7 @@ In a Narration project, select TTS narration in Project Settings and choose the 
 
 ## 6. Monitor Tasks and Costs {#tasks-and-cost}
 
-Open Usage Records from the workspace header to see calls in progress, outcomes, usage, and reference costs. The project overview estimates costs from the current script. The provider bill gives the final charges.
+Open Usage Records from the workspace header to see calls in progress, outcomes, usage, and reference costs. If the active task list is marked incomplete, it shows only some of the queued and running tasks. The project overview estimates costs from the current script. The provider bill gives the final charges.
 
 If generation fails, expand the error and task details. When a finished video cannot be retrieved, use Retry Download if the task panel offers it. See [task states and recovery](./faq.md#task-states) for other failures.
 

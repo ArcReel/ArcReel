@@ -800,6 +800,7 @@ export default {
   'usage_close_panel': 'Закрыть панель записей расхода',
   'usage_in_progress': 'В работе',
   'usage_recently_finished': 'Недавно завершены',
+  'usage_active_incomplete': 'Показана только часть активных задач.',
   'usage_no_in_progress': 'Сейчас нет вызовов в работе.',
   'usage_no_finished': 'Завершённых вызовов пока нет.',
   'usage_popover_empty': 'У этого проекта пока нет записей расхода. Вызовы появятся здесь, когда начнётся генерация.',

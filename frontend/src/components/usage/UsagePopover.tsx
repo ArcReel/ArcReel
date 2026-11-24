@@ -7,12 +7,12 @@ import { cn } from "cn";
 import { settingsSectionPath } from "@/app-routes";
 import { useShallow } from "zustand/react/shallow";
 
-import { API, ApiRequestError } from "@/api";
+import { ApiRequestError } from "@/api";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle } from "@/components/ui/popover";
 import { useAppStore } from "@/stores/app-store";
-import { isOccupyingStatus, useTasksStore } from "@/stores/tasks-store";
+import { selectActiveTasks, useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import type { TaskItem, UsageSummary } from "@/types";
 import { voidPromise } from "@/utils/async";
@@ -115,10 +115,11 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
   const closeDetail = useUsageHeaderStore((s) => s.closeDetail);
   const refresh = useUsageHeaderStore((s) => s.refresh);
 
+  const truncated = useTasksStore((s) => s.activeTruncated);
   const activeTasks = useTasksStore(
     useShallow((s) =>
-      s.tasks.filter(
-        (task) => task.project_name === projectName && isOccupyingStatus(task.status),
+      selectActiveTasks(s).filter(
+        (task) => task.project_name === projectName,
       ),
     ),
   );
@@ -180,7 +181,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
     async (taskId: string) => {
       markRetrying(taskId, true);
       try {
-        await API.retryTaskDownload(taskId);
+        await useTasksStore.getState().retryDownload(taskId);
         await Promise.all([useTasksStore.getState().refreshTasks(), refresh()]);
       } catch (error) {
         const message =
@@ -229,6 +230,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
         </div>
       )}
 
+      {truncated && <p role="status">{t("usage_active_incomplete")}</p>}
       {empty ? (
         <p className="py-3 text-sm text-muted-foreground">{t("usage_popover_empty")}</p>
       ) : (

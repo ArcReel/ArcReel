@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
@@ -23,7 +24,7 @@ vi.mock("@/stores/tasks-store", async () => {
 
 beforeEach(() => {
   vi.mocked(useActiveResourceIds).mockImplementation(mockHolder.real);
-  useTasksStore.setState({ tasks: [], optimisticActive: new Set(), optimisticActiveScriptFile: new Set() });
+  seedTaskState({ tasks: [], optimisticMarks: new Map(), });
   useAppStore.setState(useAppStore.getInitialState(), true);
 });
 
@@ -77,7 +78,7 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
 
 describe("GridPreviewPanel regenerate", () => {
   it("marks the grid's scriptFile as optimistically active after a successful regenerate submit", async () => {
-    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid());
     vi.spyOn(API, "regenerateGrid").mockResolvedValue({ success: true, task_id: "t-1", deduped: false });
 
@@ -88,15 +89,15 @@ describe("GridPreviewPanel regenerate", () => {
 
     await waitFor(() => {
       expect(API.regenerateGrid).toHaveBeenCalledWith("demo", "grid-1");
-      const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+      const state = useTasksStore.getState();
       expect(
-        selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "demo", optimisticActiveScriptFile),
+        selectHasActiveTaskForScriptFile(state, "grid", "episode_1.json", "demo"),
       ).toBe(true);
     });
   });
 
   async function regenerateThenSwitch() {
-    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     vi.spyOn(API, "getGrid").mockImplementation((_project, id) =>
       Promise.resolve(makeGrid({ id, grid_image_path: `grids/${id}.png` })),
     );
@@ -136,7 +137,7 @@ describe("GridPreviewPanel regenerate", () => {
   });
 
   it("does not mark occupancy when the regenerate request fails", async () => {
-    useTasksStore.setState({ tasks: [], optimisticActiveScriptFile: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid());
     vi.spyOn(API, "regenerateGrid").mockRejectedValue(new Error("regen failed"));
 
@@ -148,9 +149,9 @@ describe("GridPreviewPanel regenerate", () => {
     await waitFor(() => {
       expect(API.regenerateGrid).toHaveBeenCalledWith("demo", "grid-1");
     });
-    const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+    const state = useTasksStore.getState();
     expect(
-      selectHasActiveTaskForScriptFile(tasks, "grid", "episode_1.json", "demo", optimisticActiveScriptFile),
+      selectHasActiveTaskForScriptFile(state, "grid", "episode_1.json", "demo"),
     ).toBe(false);
   });
 });
@@ -160,7 +161,7 @@ describe("GridPreviewPanel occupancy", () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(
       makeGrid({ status: "generating", grid_image_path: null }),
     );
-    useTasksStore.setState({ tasks: [], connected: true, optimisticActive: new Set() });
+    seedTaskState({ tasks: [], connected: true, optimisticMarks: new Map() });
 
     render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 
@@ -178,7 +179,7 @@ describe("GridPreviewPanel occupancy", () => {
 
     await screen.findByText("重新生成");
 
-    useTasksStore.setState({ tasks: [makeTask({ status: "running" })] });
+    seedTaskState({ tasks: [makeTask({ status: "running" })] });
 
     const regenBtn = await screen.findByText("生成中…");
     expect(regenBtn).toBeDisabled();
@@ -195,7 +196,7 @@ describe("GridPreviewPanel occupancy", () => {
     const regenBtn = await screen.findByText("重新生成");
     expect(regenBtn).toBeEnabled();
 
-    useTasksStore.setState({ tasks: [makeTask({ status: "running" })] });
+    seedTaskState({ tasks: [makeTask({ status: "running" })] });
 
     fireEvent.click(regenBtn);
 
@@ -258,7 +259,7 @@ describe("GridPreviewPanel split", () => {
 
   it("生成在途时切分按钮禁用", async () => {
     vi.spyOn(API, "getGrid").mockResolvedValue(makeGrid({ split_at: null }));
-    useTasksStore.setState({ tasks: [makeTask()], optimisticActive: new Set() });
+    seedTaskState({ tasks: [makeTask()], optimisticMarks: new Map() });
 
     render(<GridPreviewPanel projectName="demo" gridIds={["grid-1"]} />);
 

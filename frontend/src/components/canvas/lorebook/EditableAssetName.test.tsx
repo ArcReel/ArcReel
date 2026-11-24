@@ -1,10 +1,10 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API, type AssetRenameResult } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import { EditableAssetName } from "./EditableAssetName";
 
@@ -30,7 +30,7 @@ describe("EditableAssetName", () => {
   });
 
   afterEach(() => {
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
   });
 
   it("renders a plain heading without rename affordance when readOnly", () => {
@@ -158,7 +158,7 @@ describe("EditableAssetName", () => {
     rerender(<EditableAssetName projectName="demo" name="李白" assetType="character" renderTitle={title} />);
     expect(confirmButton()).toBeEnabled();
     act(() => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [makeTask({ project_name: "demo", task_type: "character", resource_id: "李白", status: "running" })],
       });
     });

@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { cn } from "cn";
 
 import { useTaskRefresh } from "@/hooks/useTaskRefresh";
-import { isActiveStatus, useTasksStore } from "@/stores/tasks-store";
+import { selectActiveTasks, useTasksStore } from "@/stores/tasks-store";
 import {
   parseUsageFilters,
   parseUsageRecordId,
@@ -87,8 +87,9 @@ export function UsageRecordsSection() {
   const openDetail = useUsageRecordsStore((s) => s.openDetail);
   const closeDetail = useUsageRecordsStore((s) => s.closeDetail);
 
+  const truncated = useTasksStore((s) => s.activeTruncated);
   const activeTasks = useTasksStore(
-    useShallow((s) => s.tasks.filter((task) => isActiveStatus(task.status))),
+    useShallow(selectActiveTasks),
   );
 
   const openedRef = useRef(false);
@@ -258,6 +259,7 @@ export function UsageRecordsSection() {
         )}
       </div>
 
+      {showInProgress && truncated && <p role="status">{t("usage_active_incomplete")}</p>}
       {filters.view === "agent" ? (
         <UsageSessionsCard
           filters={filters}

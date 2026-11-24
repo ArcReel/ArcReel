@@ -1,8 +1,8 @@
+import { seedTaskState } from "@/test/task-state";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import type { TaskItem } from "@/types";
 import { ImageEditButton } from "./ImageEditButton";
 
@@ -34,7 +34,7 @@ function makeTask(overrides: Partial<TaskItem> = {}): TaskItem {
 describe("ImageEditButton", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set(), optimisticActiveScriptFile: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map(), });
   });
 
   afterEach(() => {
@@ -60,7 +60,7 @@ describe("ImageEditButton", () => {
     const instructionField = await screen.findByLabelText("编辑指令");
     fireEvent.change(instructionField, { target: { value: "把背景改成夜晚" } });
 
-    useTasksStore.setState({ tasks: [makeTask()] });
+    seedTaskState({ tasks: [makeTask()] });
 
     fireEvent.click(screen.getByRole("button", { name: "提交编辑" }));
 
@@ -124,7 +124,7 @@ describe("ImageEditButton", () => {
     const instructionField = await screen.findByLabelText("编辑指令");
     fireEvent.change(instructionField, { target: { value: "把背景改成夜晚" } });
 
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         makeTask({
           task_id: "t-grid-1",

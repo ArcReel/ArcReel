@@ -1,9 +1,9 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API, ApiRequestError } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { createDeferred } from "@/test/deferred";
 import { makeTask } from "@/test/factories";
@@ -29,7 +29,7 @@ function itemRef(itemId: string, position: number): EpisodeItemRef {
 }
 
 function openWithTasks(tasks: TaskItem[]) {
-  useTasksStore.setState({ tasks });
+  seedTaskState({ tasks });
   useUsageHeaderStore.setState({
     projectName: HEADER_PROJECT,
     summary: makeUsageSummary(),

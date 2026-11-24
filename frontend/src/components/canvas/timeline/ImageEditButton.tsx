@@ -80,11 +80,11 @@ export function ImageEditDialog({
       useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
       return;
     }
-    const { tasks, optimisticActiveScriptFile } = useTasksStore.getState();
+    const state = useTasksStore.getState();
     if (
       resourceType === "storyboard" &&
       scriptFile &&
-      selectHasActiveTaskForScriptFile(tasks, "grid", scriptFile, projectName, optimisticActiveScriptFile)
+      selectHasActiveTaskForScriptFile(state, "grid", scriptFile, projectName)
     ) {
       useAppStore.getState().pushToast(t("image_edit_resource_busy"), "error");
       return;

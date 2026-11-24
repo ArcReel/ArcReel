@@ -1,9 +1,10 @@
+import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
-import { useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, useTasksStore } from "@/stores/tasks-store";
 import { assetNotificationTarget } from "@/utils/task-target";
 import type { TaskItem } from "@/types";
 
@@ -21,7 +22,7 @@ export function useAssetSheetBatchNotifications(projectName?: string | null): vo
   }, [t]);
 
   const batches = useAssetSheetBatchStore((s) => s.batches);
-  const tasks = useTasksStore((s) => s.tasks);
+  const tasks = useTasksStore(useShallow(selectRecentTasks));
   const [missingTasks, setMissingTasks] = useState<Record<string, TaskItem>>({});
 
   useEffect(() => {

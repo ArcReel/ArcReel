@@ -1,3 +1,4 @@
+import { seedTaskState, seedTasks } from "@/test/task-state";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,7 +7,7 @@ import { API } from "@/api";
 import * as generationActions from "@/actions/generation";
 import { ApiRequestError } from "@/api/errors";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { defaultTaskStats, useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, defaultTaskStats, useTasksStore } from "@/stores/tasks-store";
 import { createDeferred } from "@/test/deferred";
 import { makeTask } from "@/test/factories";
 import type { TaskItem } from "@/types";
@@ -50,10 +51,10 @@ async function submitAndEvictSample(task: TaskItem) {
   vi.useFakeTimers();
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "生成" }));
-    useTasksStore.getState().setTasks([task]);
+    seedTasks([task]);
   });
   await act(async () => {
-    useTasksStore.getState().setTasks([]);
+    seedTasks([]);
   });
 }
 
@@ -163,7 +164,7 @@ describe("VoiceSampleButton", () => {
       expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
     });
 
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "task-1",
@@ -214,7 +215,7 @@ describe("VoiceSampleButton", () => {
       expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
     });
 
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "task-1",
@@ -272,7 +273,7 @@ describe("VoiceSampleButton", () => {
     });
     expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
 
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "task-1",
@@ -317,7 +318,7 @@ describe("VoiceSampleButton", () => {
       expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
     });
 
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "task-1",
@@ -368,7 +369,7 @@ describe("VoiceSampleButton", () => {
     expect(screen.getByLabelText("试听文案")).toBeDisabled();
 
     resolveEnqueue!({ taskIds: ["task-1"], deduped: false });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "task-1",
@@ -562,6 +563,10 @@ describe("VoiceSampleButton", () => {
       project_name: "demo",
       status: "succeeded",
     }));
+    let running = true;
+    vi.spyOn(API, "getActiveTasks").mockImplementation(async (project) => ({
+      items: project === "demo" && running ? [task] : [], truncated: false,
+    }));
     let recent = listedBeforeEviction ? [task] : newerTasks;
     vi.spyOn(API, "listTasks").mockImplementation(async ({ projectName } = {}) => {
       const items = projectName === "demo" ? recent : [];
@@ -581,11 +586,11 @@ describe("VoiceSampleButton", () => {
     expect(lookup).toHaveBeenCalledOnce();
     lookup.mockClear();
     await act(refreshTasks);
-    expect(useTasksStore.getState().tasks).toEqual(recent);
-    expect(lookup).toHaveBeenCalledTimes(listedBeforeEviction ? 0 : 1);
+    expect(selectRecentTasks(useTasksStore.getState())).toEqual(recent);
+    expect(lookup).not.toHaveBeenCalled();
     recent = newerTasks;
     await act(refreshTasks);
-    expect(useTasksStore.getState().tasks).toEqual(newerTasks);
+    expect(selectRecentTasks(useTasksStore.getState())).toEqual(newerTasks);
     expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
     unmount();
     vi.useRealTimers();
@@ -601,18 +606,9 @@ describe("VoiceSampleButton", () => {
     render(<VoiceSampleButton {...props} />);
     const entry = screen.getByRole("button", { name: /用 TTS 生成参考音频/ });
     expect(entry).toBeDisabled();
-    expect(lookup).toHaveBeenCalledExactlyOnceWith(task.task_id, { signal: expect.any(AbortSignal) });
-
-    for (const status of [404, 500]) {
-      lookup.mockRejectedValueOnce(new ApiRequestError("查询任务失败", undefined, status));
-      await act(refreshTasks);
-      expect(entry).toBeDisabled();
-      fireEvent.click(entry);
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-      expect(generate).toHaveBeenCalledOnce();
-    }
-
-    lookup.mockResolvedValue({ ...task, status: "cancelled" });
+    expect(lookup).not.toHaveBeenCalled();
+    expect(generate).toHaveBeenCalledOnce();
+    running = false;
     await act(refreshTasks);
     expect(entry).toBeEnabled();
     await openSampleModal();
@@ -627,6 +623,7 @@ describe("VoiceSampleButton", () => {
     const lookup = createDeferred<TaskItem>();
     const list = createDeferred<Awaited<ReturnType<typeof API.listTasks>>>();
     vi.spyOn(API, "getTask").mockReturnValue(lookup.promise);
+    const snapshot = vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [task], truncated: false });
     const listTasks = vi.spyOn(API, "listTasks").mockReturnValueOnce(list.promise);
     vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
     const { refreshTasks, setRefreshScope } = useTasksStore.getState();
@@ -646,9 +643,10 @@ describe("VoiceSampleButton", () => {
     });
 
     expect(confirm).toBeEnabled();
-    expect(useTasksStore.getState().tasks[0]?.status).toBe("succeeded");
+    expect(selectRecentTasks(useTasksStore.getState())[0]?.status).toBe("succeeded");
 
     const assetTask = { ...task, task_id: "asset-task", task_type: "character" };
+    snapshot.mockResolvedValueOnce({ items: [assetTask], truncated: false });
     listTasks.mockResolvedValueOnce({
       items: [succeeded, assetTask], total: 2, page: 1, page_size: 200,
     });
@@ -680,7 +678,7 @@ describe("VoiceSampleButton", () => {
       expect(generationActions.enqueueCharacterVoiceSample).toHaveBeenCalled();
     });
 
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         {
           task_id: "task-1",
@@ -698,7 +696,7 @@ describe("VoiceSampleButton", () => {
     });
 
     await act(async () => {
-      useTasksStore.setState({ tasks: [] });
+      seedTaskState({ tasks: [] });
     });
     expect(screen.getByRole("button", { name: "确认并保存" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();

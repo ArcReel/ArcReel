@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,6 +42,7 @@ describe("UsageRecordsSection records", () => {
     useUsageRecordsStore.setState(useUsageRecordsStore.getInitialState(), true);
     useTasksStore.setState(useTasksStore.getInitialState(), true);
     vi.restoreAllMocks();
+    useTasksStore.getState().setRefreshScope({ projectName: null });
     vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
     recordsPage = EMPTY_PAGE;
     pendingPage = EMPTY_PAGE;
@@ -51,6 +53,16 @@ describe("UsageRecordsSection records", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("shows incomplete active coverage until the next complete snapshot", async () => {
+    vi.spyOn(API, "getActiveTasks").mockResolvedValueOnce({items: [], truncated: true}).mockResolvedValue({items: [], truncated: false});
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({stats: useTasksStore.getInitialState().stats});
+    renderUsageRecordsSection();
+    expect(await screen.findByText("进行中任务未完整加载。")).toBeInTheDocument();
+    await act(useTasksStore.getState().refreshTasks);
+    expect(screen.queryByText("进行中任务未完整加载。")).not.toBeInTheDocument();
   });
 
   it("renders the KPI strip from the summary response with the primary currency", async () => {
@@ -194,7 +206,7 @@ describe("UsageRecordsSection records", () => {
   });
 
   it("puts running tasks and task-less pending calls above the finished records", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         makeTask({
           task_id: "t-1",
@@ -240,7 +252,7 @@ describe("UsageRecordsSection records", () => {
   });
 
   it("keeps the in-progress block outside the time range filter", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         makeTask({
           task_id: "t-old",
@@ -258,7 +270,7 @@ describe("UsageRecordsSection records", () => {
   });
 
   it("keeps only running tasks whose model matches the model filter", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         makeTask({ task_id: "t-match", status: "running", model: "veo-3", resource_id: "E1S01", resource_ref: itemRef("S01", 1) }),
         makeTask({ task_id: "t-other", status: "running", model: "kling", resource_id: "E1S02", resource_ref: itemRef("S02", 2) }),
@@ -273,7 +285,7 @@ describe("UsageRecordsSection records", () => {
   });
 
   it("leaves local render tasks out of the in-progress block", async () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [
         makeTask({ task_id: "t-video", status: "running", resource_id: "E1S01", resource_ref: itemRef("S01", 1) }),
         makeTask({
@@ -321,7 +333,7 @@ describe("UsageRecordsSection records", () => {
     expect(vi.mocked(API.getUsageRecords).mock.calls.length).toBe(idle);
 
     await act(async () => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [makeTask({ task_id: "t-2", status: "running", resource_id: "E1S02" })],
       });
     });
@@ -334,7 +346,7 @@ describe("UsageRecordsSection records", () => {
 
   it("keeps the pending poll on schedule while more in-progress rows arrive", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ task_id: "t-a", status: "running", resource_id: "E1S01" })],
     });
     renderUsageRecordsSection();
@@ -345,7 +357,7 @@ describe("UsageRecordsSection records", () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     await act(async () => {
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [
           makeTask({ task_id: "t-a", status: "running", resource_id: "E1S01" }),
           makeTask({ task_id: "t-b", status: "queued", resource_id: "E1S02" }),
@@ -401,7 +413,7 @@ describe("UsageRecordsSection records", () => {
       pendingCalls += 1;
       return pendingCalls === 1 ? first.promise : second.promise;
     });
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ task_id: "t-poll", status: "running", resource_id: "E1S03" })],
     });
 

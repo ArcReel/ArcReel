@@ -1,3 +1,4 @@
+import { seedTaskState, seedTasks } from "@/test/task-state";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -9,7 +10,6 @@ import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import { createDeferred } from "@/test/deferred";
 import { makeTask } from "@/test/factories";
 import type { AssetSheetStatusRow, AssetSheetType, ProjectData } from "@/types";
@@ -114,7 +114,7 @@ describe("资产详情 Sheet", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
+    seedTaskState({ tasks: [], optimisticMarks: new Map() });
     useConfigStatusStore.setState({ availableMediaTypes: [] });
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
   });
@@ -162,7 +162,7 @@ describe("资产详情 Sheet", () => {
     const user = userEvent.setup();
     renderGallery();
     const sheet = await openAsset(user, "林夕");
-    act(() => useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "character_derivative", resource_id: "林夕/战斗装", status: "running" })] }));
+    act(() => seedTaskState({ tasks: [makeTask({ project_name: "demo", task_type: "character_derivative", resource_id: "林夕/战斗装", status: "running" })] }));
     expect(within(sheet).getByRole("button", { name: "重命名" })).toBeDisabled();
     expect(within(sheet).getByRole("button", { name: "重新生成资产图" })).toBeDisabled();
     expect(within(sheet).getByRole("button", { name: "上传原图", hidden: true })).toBeDisabled();
@@ -184,14 +184,14 @@ describe("资产详情 Sheet", () => {
     await user.click(within(dialog).getByRole("button", { name: "生成" }));
     await waitFor(() => expect(API.generateCharacterVoiceSample).toHaveBeenCalled());
     const succeeded = makeTask({ task_id: "sample-1", project_name: "demo", task_type: "voice_sample", resource_id: "林夕", status: "succeeded", result: { file_path: "audio/sample.wav" } });
-    act(() => useTasksStore.getState().setTasks([succeeded]));
+    act(() => seedTasks([succeeded]));
     const confirm = await within(dialog).findByRole("button", { name: "确认并保存" });
     const running = makeTask({ project_name: "demo", task_type: "character", resource_id: "林夕", status: "running" });
-    act(() => useTasksStore.getState().setTasks([succeeded, running]));
+    act(() => seedTasks([succeeded, running]));
     expect(confirm).toBeDisabled();
     await user.click(confirm);
     expect(confirmSample).not.toHaveBeenCalled();
-    act(() => useTasksStore.getState().setTasks([succeeded]));
+    act(() => seedTasks([succeeded]));
     await user.click(confirm);
     expect(within(sheet).getByRole("button", { name: "重命名", hidden: true })).toBeDisabled();
     await user.keyboard("{Escape}");
@@ -274,7 +274,7 @@ describe("资产详情 Sheet", () => {
     const confirm = await screen.findByRole("alertdialog", { name: "重新生成这张资产图？" });
     await user.click(await within(confirm).findByRole("button", { name: "重新生成" }));
     await waitFor(() => expect(API.updateCharacter).toHaveBeenCalled());
-    act(() => useTasksStore.getState().setTasks([
+    act(() => seedTasks([
       makeTask({ project_name: "demo", task_type: "character", resource_id: "林夕", status: "running" }),
     ]));
     await act(() => saving.resolve({ success: true }));
@@ -724,14 +724,14 @@ describe("资产详情 Sheet", () => {
     await user.click(within(sheet).getByRole("button", { name: "删除音频样本" }));
     const confirm = await screen.findByRole("alertdialog", { name: "删除参考音频？" });
     act(() =>
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [makeTask({ project_name: "demo", task_type: "character", media_type: "image", resource_id: "林夕", status: "running" })],
       }),
     );
     expect(within(confirm).getByRole("button", { name: "删除" })).toBeDisabled();
     expect(remove).not.toHaveBeenCalled();
 
-    act(() => useTasksStore.setState({ tasks: [] }));
+    act(() => seedTaskState({ tasks: [] }));
     await user.click(within(confirm).getByRole("button", { name: "删除" }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", "林夕"));
   });

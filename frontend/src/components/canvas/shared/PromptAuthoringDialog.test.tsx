@@ -1,10 +1,10 @@
+import { seedTasks } from "@/test/task-state";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { API, ApiRequestError } from "@/api";
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import { useTasksStore } from "@/stores/tasks-store";
 import type { EpisodeScript, PromptOverwrite } from "@/types";
 import { PromptAuthoringHost } from "./PromptAuthoringDialog";
 
@@ -25,7 +25,7 @@ function openDialog(scope: "pending" | "current" | "custom" = "pending") {
 }
 
 beforeEach(() => {
-  useTasksStore.getState().setTasks([]);
+  seedTasks([]);
   useProjectsStore.setState({ currentScripts: { "episode_1.json": SCRIPT as unknown as EpisodeScript } });
 });
 

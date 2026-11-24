@@ -37,7 +37,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
-import { isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import type { ProjectData, StoryboardBatchKind } from "@/types";
 import type { EpisodeEditOverview } from "@/types/edit-timeline";
@@ -147,7 +147,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
 
   const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
   const taskFingerprint = useTasksStore((s) =>
-    s.tasks
+    selectRecentTasks(s)
       .filter((task) => task.project_name === projectName)
       .map((task) => `${task.task_id}:${task.status}`)
       .join("|"),

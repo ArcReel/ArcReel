@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { describe, it, expect, vi, afterEach, onTestFinished, type MockInstance } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -600,12 +601,12 @@ describe("ScriptReviewGate", () => {
 
     await waitFor(() => expect(repair).toHaveBeenCalledWith("p", 1, "narration_script_plan", "rev-1", "只调整时长"));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    act(() => useTasksStore.setState({ tasks: [repairTask({ status: "running" })] }));
+    act(() => seedTaskState({ tasks: [repairTask({ status: "running" })] }));
     expect(screen.getByRole("button", { name: /修复中/ })).toBeDisabled();
     expect(get).toHaveBeenCalledTimes(1);
 
     act(() =>
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [repairTask({ status: "succeeded", result: { adopted: true, violation_count: 0 } })],
       }),
     );
@@ -632,12 +633,12 @@ describe("ScriptReviewGate", () => {
       resource_id: "episode-1-narration_script_plan",
       status: "running",
     });
-    useTasksStore.setState({ tasks: [running] });
+    seedTaskState({ tasks: [running] });
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
     await waitFor(() => expect(screen.getByRole("button", { name: /修复中/ })).toBeDisabled());
 
     act(() =>
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [{ ...running, status: "failed", error_message: "AI 修复没有完成，草稿未改动" }],
       }),
     );

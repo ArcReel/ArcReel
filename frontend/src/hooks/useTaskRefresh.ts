@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import {
-  defaultTaskStats,
   selectNeedsFastPolling,
   useTasksStore,
 } from "@/stores/tasks-store";
@@ -10,9 +9,6 @@ const FAST_POLL_INTERVAL_MS = 3000;
 const IDLE_POLL_INTERVAL_MS = 30000;
 
 export function useTaskRefresh(projectName?: string | null, enabled = true): void {
-  const setTasks = useTasksStore((s) => s.setTasks);
-  const setStats = useTasksStore((s) => s.setStats);
-  const setConnected = useTasksStore((s) => s.setConnected);
   const setRefreshScope = useTasksStore((s) => s.setRefreshScope);
   const refreshTasks = useTasksStore((s) => s.refreshTasks);
   const needsFastPolling = useTasksStore(selectNeedsFastPolling);
@@ -21,18 +17,14 @@ export function useTaskRefresh(projectName?: string | null, enabled = true): voi
   useEffect(() => {
     if (!enabled) {
       setRefreshScope(null);
-      setTasks([]);
-      setStats(defaultTaskStats);
-      setConnected(false);
       return;
     }
 
     setRefreshScope({ projectName: projectName ?? null });
     return () => {
       setRefreshScope(null);
-      setConnected(false);
     };
-  }, [projectName, enabled, setTasks, setStats, setConnected, setRefreshScope]);
+  }, [projectName, enabled, setRefreshScope]);
 
   useEffect(() => {
     if (!enabled) return;

@@ -1,3 +1,4 @@
+import { seedTaskState } from "@/test/task-state";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -410,7 +411,7 @@ describe("EpisodesView", () => {
 
     it("shows the planning progress on the header button while planning runs", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "running" })],
       });
       renderView();
@@ -428,7 +429,7 @@ describe("EpisodesView", () => {
         resource_id: "episode-planning",
         status: "running",
       });
-      useTasksStore.setState({ tasks: [running] });
+      seedTaskState({ tasks: [running] });
       renderView();
 
       const popover = await openPlanning("AI 规划中 · 67%");
@@ -440,7 +441,7 @@ describe("EpisodesView", () => {
         resource_id: "episode-planning-next",
         status: "queued",
       });
-      act(() => useTasksStore.setState({ tasks: [running, queued] }));
+      act(() => seedTaskState({ tasks: [running, queued] }));
 
       expect(stop).toHaveBeenCalledExactlyOnceWith("demo");
     });
@@ -451,7 +452,7 @@ describe("EpisodesView", () => {
         .spyOn(API, "stopEpisodePlanning")
         .mockRejectedValueOnce(new Error("网络断开"))
         .mockResolvedValueOnce({ cancelled: [], running: ["plan-1"] });
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [
           makeTask({
             task_id: "plan-1",
@@ -475,7 +476,7 @@ describe("EpisodesView", () => {
 
     it("sends a truncated custom model to its entry in settings", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [truncatedPlanning({ provider_id: "custom-7", model: "my-llm", custom_model: true })],
       });
       const { location } = renderView();
@@ -488,7 +489,7 @@ describe("EpisodesView", () => {
 
     it("links a missing text default during episode planning to Default models", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
-      useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
+      seedTaskState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
       const { location } = renderView();
       const popover = await openPlanning("AI 规划剩余内容");
       fireEvent.click(popover.getByRole("link", { name: "设置默认模型" }));
@@ -497,7 +498,7 @@ describe("EpisodesView", () => {
 
     it("asks to switch models when a built-in model is truncated", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue(VIEW);
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [truncatedPlanning({ provider_id: "gemini-aistudio", model: "gemini-pro", custom_model: false })],
       });
       renderView();
@@ -685,7 +686,7 @@ describe("EpisodesView", () => {
 
     it("shows why a replan stopped on a failed task", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: { ...REPLAN, complete: false, interrupted: "failed" } });
-      useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "provider_rate_limited", error_message: "供应商限流，请稍后重试", error_detail: "429 Too Many Requests" })] });
+      seedTaskState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "provider_rate_limited", error_message: "供应商限流，请稍后重试", error_detail: "429 Too Many Requests" })] });
       renderView();
 
       const panel = await screen.findByRole("region", { name: "新的分集方案" });
@@ -702,7 +703,7 @@ describe("EpisodesView", () => {
 
     it("links a missing text default during replanning to Default models", async () => {
       vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: { ...REPLAN, complete: false, interrupted: "failed" } });
-      useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
+      seedTaskState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_code: "text_default_model_not_set", error_params: { media_type: "text" }, error_message: "未设置文本默认模型" })] });
       const { location } = renderView();
       const panel = await screen.findByRole("region", { name: "新的分集方案" });
       expect(within(panel).getByRole("alert")).toHaveTextContent("上次规划没有完成：未设置文本默认模型");
@@ -719,7 +720,7 @@ describe("EpisodesView", () => {
       expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
 
       act(() => {
-        useTasksStore.setState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_message: null })] });
+        seedTaskState({ tasks: [makeTask({ project_name: "demo", task_type: "text_episode_plan", resource_id: "episode-planning", status: "failed", error_message: null })] });
       });
       expect(within(panel).getByRole("status")).toHaveTextContent("AI 生成出错");
       expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
@@ -729,7 +730,7 @@ describe("EpisodesView", () => {
     it("offers to register the output limit when a replan window of a custom model was truncated", async () => {
       const failed = { ...REPLAN, complete: false, interrupted: "failed" as const };
       vi.spyOn(API, "getEpisodesView").mockResolvedValue({ ...VIEW, replan: failed });
-      useTasksStore.setState({
+      seedTaskState({
         tasks: [
           makeTask({
             project_name: "demo",

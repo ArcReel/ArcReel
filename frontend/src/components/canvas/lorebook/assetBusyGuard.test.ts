@@ -1,13 +1,13 @@
+import { seedTaskState } from "@/test/task-state";
 import { afterEach, describe, expect, it } from "vitest";
-import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import { isAssetBusy } from "./assetBusyGuard";
 
 describe("isAssetBusy", () => {
-  afterEach(() => useTasksStore.setState({ tasks: [], optimisticActive: new Set() }));
+  afterEach(() => seedTaskState({ tasks: [], optimisticMarks: new Map() }));
 
   it("treats a derivative as busy while its base character is occupied", () => {
-    useTasksStore.setState({
+    seedTaskState({
       tasks: [makeTask({ project_name: "demo", task_type: "character", resource_id: "林夕", status: "running" })],
     });
 
