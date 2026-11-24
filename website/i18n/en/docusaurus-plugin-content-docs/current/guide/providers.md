@@ -267,6 +267,8 @@ Check the effective capabilities under Parameters this provider supports. To des
 
 If a gateway uses the official protocol with different paths, edit those requests under Model settings → Request URL. The edited path is appended directly to the base URL. Use only placeholders already available in that request, such as `{{ model }}` or `{{ task_id }}`. A query string replaces the original query parameters, so include any required parameters you need to keep.
 
+If the request URL shows an automatically added `/v1` in a dashed outline, hover over it or click it to see why it was added. With a keyboard, focus `/v1` and press Enter or Space to open the hint, or Escape to close it.
+
 Connection Test and generation use the edited paths. Fetch Models and Connectivity Check keep using the provider's base URL. Switching endpoints resets path changes. If a video request's path changes after submission, resuming after a restart can fail. ArcReel does not submit it a second time.
 
 ### 9.1 Three Endpoint Test Modes {#custom-endpoint-tests}
