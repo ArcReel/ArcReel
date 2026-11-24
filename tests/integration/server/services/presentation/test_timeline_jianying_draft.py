@@ -30,6 +30,7 @@ from tests.integration.server.services.presentation.timeline_render_support impo
     _append_revision,
     _install_video,
     edited_timeline,
+    mark_uploaded_video,
     narration_segment,
     setup_project,
     write_json,
@@ -494,3 +495,26 @@ async def test_omitted_narration_version_follows_the_project_narration_delivery(
 
     assert check.narration == expected
     assert (status.narration, status.status) == (expected, ArtifactStatus.CURRENT)
+
+
+async def test_reuploading_identical_video_invalidates_draft_trim_after_rematerialization(tmp_path: Path) -> None:
+    from lib.artifacts.version_manager import VersionManager
+    from server.services.presentation.presentation_read_model import PresentationReadModelService
+
+    pm, project_path = setup_project(tmp_path)
+    mark_uploaded_video(project_path, "E1S01")
+    timeline_id = await edited_timeline(pm)
+    drafts = TimelineJianyingDraftService(pm)
+    await drafts.render("demo", timeline_id, narration="with_narration")
+    reader = PresentationReadModelService(pm)
+    before = await reader.materialize_unit(
+        project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+    )
+    VersionManager(project_path).add_version(
+        "videos", "E1S01", "", source_file=project_path / "videos/scene_E1S01.mp4", source="manual_upload"
+    )
+    after = await reader.materialize_unit(
+        project_name="demo", resource_type="videos", resource_id="E1S01", variant="use_tts"
+    )
+    assert after.presentation.presentation_basis == before.presentation.presentation_basis
+    assert (await drafts.status("demo", timeline_id, narration="with_narration")).status is ArtifactStatus.STALE

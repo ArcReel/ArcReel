@@ -14,6 +14,7 @@ from tests.factories import wav_bytes
 from tests.integration.server.services.presentation.timeline_render_support import (
     CREATOR,
     edited_timeline,
+    mark_uploaded_video,
     narration_segment,
     setup_project,
     write_json,
@@ -33,16 +34,40 @@ def _rows(media: TimelinePreviewMedia) -> list[tuple[str, object, bool, list[tup
 
 
 async def test_tts_project_previews_narration_audio_and_subtitles_that_follow_it(tmp_path: Path) -> None:
-    pm, _project_path = setup_project(tmp_path)
+    pm, project_path = setup_project(tmp_path)
+    mark_uploaded_video(project_path, "E1S02")
     timeline_id = await edited_timeline(pm)
 
     media = await TimelinePreviewService(pm).media("demo", timeline_id)
 
     assert (media.timeline_id, media.revision, media.narration) == (timeline_id, 2, "with_narration")
+    versions = VersionManager(project_path)
     assert _rows(media) == [
-        ("E1S01", {"path": "audio/segment_E1S01.wav", "version": 1}, True, [("旁白一句", 0.0, 1.2)]),
-        ("E1S02", {"path": "audio/segment_E1S02.wav", "version": 1}, True, [("第二段", 0.0, 2.0)]),
+        (
+            "E1S01",
+            {"path": versions.get_versions("audio", "E1S01")["versions"][0]["file"], "version": 1},
+            True,
+            [("旁白一句", 0.0, 1.2)],
+        ),
+        (
+            "E1S02",
+            {"path": versions.get_versions("audio", "E1S02")["versions"][0]["file"], "version": 1},
+            True,
+            [("第二段", 0.0, 2.0)],
+        ),
     ]
+
+
+async def test_blocked_upload_has_no_narration_or_subtitles_in_preview(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+    mark_uploaded_video(project_path, "E1S02")
+    with pm.locked_script("demo", "episode_1.json", validate=False) as script:
+        script["segments"][1]["needs_replan"] = True
+
+    media = await TimelinePreviewService(pm).media("demo", timeline_id)
+    assert _rows(media)[1] == ("E1S02", None, False, [])
+    assert media.units[1].provider_audio
 
 
 async def test_provider_audio_switch_follows_the_current_video_version_record(tmp_path: Path) -> None:

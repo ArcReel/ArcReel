@@ -18,8 +18,15 @@ from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService
 from lib.infra.ffmpeg import ffmpeg_executable
 from lib.project.project_manager import ProjectManager
+from server.services.presentation.timeline_jianying_draft import TimelineJianyingDraftService
 from server.services.presentation.timeline_units import TimelineUnitMaterials
-from tests.integration.server.services.presentation.timeline_render_support import edited_timeline, setup_project
+from tests.integration.server.services.presentation.timeline_render_support import (
+    _install_narration,
+    edited_timeline,
+    mark_uploaded_video,
+    narration_segment,
+    setup_project,
+)
 
 _WIDTH, _HEIGHT = 1080, 1920
 _SAMPLE_RATE = 8000
@@ -77,6 +84,7 @@ async def test_narrated_final_cut_mixes_each_narration_from_its_carrying_clip_an
     tmp_path: Path,
 ) -> None:
     pm, project_path = setup_project(tmp_path)
+    mark_uploaded_video(project_path, "E1S02")
     timeline_id = await edited_timeline(pm)
     service = _service(pm)
 
@@ -108,3 +116,23 @@ async def test_a_corrupted_narration_snapshot_names_the_unit_and_version(tmp_pat
 
     assert caught.value.code == "final_cut_narration_version_corrupted"
     assert (caught.value.params["unit_id"], caught.value.params["version"]) == (unit_id, record["version"])
+
+
+@pytest.mark.parametrize("edit", ["script", "narration"])
+async def test_upload_material_edits_age_both_narrated_exports(tmp_path: Path, edit: str) -> None:
+    pm, project_path = setup_project(tmp_path)
+    mark_uploaded_video(project_path, "E1S02")
+    timeline_id = await edited_timeline(pm)
+    cuts = _service(pm)
+    drafts = TimelineJianyingDraftService(pm)
+    await cuts.render("demo", timeline_id, narration="with_narration", subtitles="burned_subtitles")
+    await drafts.render("demo", timeline_id, narration="with_narration")
+    if edit == "script":
+        with pm.locked_script("demo", "episode_1.json", validate=False) as script:
+            script["segments"][1]["novel_text"] = "新的旁白"
+    else:
+        _install_narration(project_path, narration_segment("E1S02", "第二段"), 1.4)
+    cut = await cuts.status("demo", timeline_id, narration="with_narration", subtitles="burned_subtitles")
+    draft = await drafts.status("demo", timeline_id, narration="with_narration")
+    assert cut.status is ArtifactStatus.STALE
+    assert draft.status is ArtifactStatus.STALE

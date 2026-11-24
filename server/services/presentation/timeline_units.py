@@ -67,7 +67,7 @@ def _cues(presented: MaterializedPresentation) -> tuple[UnitCue, ...]:
 
 
 def unit_material_and_basis(presented: MaterializedPresentation) -> tuple[UnitMaterial, DraftUnitBasis]:
-    """呈现模型投影成素材层与素材层指纹：有类型化来源的取呈现模型依据，手动上传的取版本号与内容摘要。"""
+    """呈现模型投影成素材层与素材层指纹：素材层指纹取自呈现模型依据。"""
     presentation = presented.presentation
     video = presentation.video
     narration = presentation.narration_audio
@@ -81,12 +81,7 @@ def unit_material_and_basis(presented: MaterializedPresentation) -> tuple[UnitMa
         narration_path=narration.media.artifact_path if narration is not None else None,
         narration_duration_us=narration.duration_microseconds if narration is not None else None,
     )
-    if presentation.presentation_basis is not None:
-        return material, DraftUnitBasis(
-            presentation.unit_id, presentation_digest=presentation.presentation_basis.digest
-        )
-    raw = presentation.video.media
-    return material, DraftUnitBasis(presentation.unit_id, manual_upload=(raw.version, raw.content_digest))
+    return material, DraftUnitBasis(presentation.unit_id, presentation_digest=presentation.presentation_basis.digest)
 
 
 class TimelineUnitMaterials:

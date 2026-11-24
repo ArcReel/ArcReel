@@ -106,14 +106,11 @@ class PresentationBundleService:
                 "presentation.json",
                 json.dumps(result.to_dict(), ensure_ascii=False, indent=2) + "\n",
             )
-            if subtitle_value is not None:
-                if subtitle_webvtt is None:
-                    raise RuntimeError("presentation subtitle projections disagree")
-                archive.writestr(
-                    "subtitles.json",
-                    json.dumps(subtitle_value, ensure_ascii=False, indent=2) + "\n",
-                )
-                archive.writestr("subtitles.vtt", subtitle_webvtt)
+            archive.writestr(
+                "subtitles.json",
+                json.dumps(subtitle_value, ensure_ascii=False, indent=2) + "\n",
+            )
+            archive.writestr("subtitles.vtt", subtitle_webvtt)
 
 
 def _selected_path(project_path: Path, relative_path: str) -> Path:

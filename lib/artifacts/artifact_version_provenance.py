@@ -15,6 +15,7 @@ from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
 from lib.artifacts.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
+from lib.artifacts.visual_artifact_provenance import build_uploaded_video_basis
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE
 from lib.project.asset_types import ASSET_SPECS, normalize_asset_name
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
@@ -31,6 +32,13 @@ class TypedMediaVersionTarget:
     script_file: str
     basis: ArtifactBasisDescriptor
     created_at: str | None
+
+
+def uploaded_video_version_basis(record: Mapping[str, Any], *, snapshot_digest: str) -> ArtifactBasis:
+    """Check an upload's optional recorded SHA-256 against its observed snapshot."""
+    if record.get("content_digest", snapshot_digest) != snapshot_digest:
+        raise ValueError("upload record digest differs from snapshot")
+    return build_uploaded_video_basis(content_digest=snapshot_digest)
 
 
 _VIDEO_VISUAL_KINDS = {
@@ -257,4 +265,5 @@ __all__ = [
     "parse_image_version_basis",
     "parse_typed_audio_settings",
     "parse_typed_media_version_target",
+    "uploaded_video_version_basis",
 ]

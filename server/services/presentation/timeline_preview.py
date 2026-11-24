@@ -21,8 +21,6 @@ from lib.edit_timeline.store import EditTimelineStore
 from lib.final_cut.basis import current_provider_audio
 from lib.jianying_draft.basis import DraftNarration, default_draft_narration, draft_unit_ids
 from lib.project.project_manager import ProjectManager
-from lib.project.resource_paths import resource_relative_path
-from lib.speech.narration_delivery import USE_TTS
 from server.services.presentation.presentation_read_model import (
     PresentationReadModelService,
     PresentationUnavailableError,
@@ -41,7 +39,7 @@ class PreviewCue(_View):
 
 
 class PreviewNarrationAudio(_View):
-    """旁白配音 current 文件的项目内路径与版本号。"""
+    """选中旁白配音快照的项目内路径与版本号。"""
 
     path: str
     version: int
@@ -88,14 +86,6 @@ def _preview_bgm(project_dir: Path, project: Mapping[str, Any], referenced: tupl
     )
 
 
-def _narration_audio(project_dir: Path, versions: VersionManager, unit_id: str) -> PreviewNarrationAudio | None:
-    version = versions.get_current_version("audio", unit_id)
-    path = resource_relative_path("audio", unit_id)
-    if version <= 0 or not (project_dir / path).is_file():
-        return None
-    return PreviewNarrationAudio(path=path, version=version)
-
-
 class TimelinePreviewService:
     def __init__(
         self,
@@ -122,18 +112,22 @@ class TimelinePreviewService:
             variant = await asyncio.to_thread(
                 unit_rendition, versions, kind=kind, item=items[unit_id], unit_id=unit_id, narration=narration
             )
-            audio = (
-                await asyncio.to_thread(_narration_audio, project_dir, versions, unit_id)
-                if variant == USE_TTS
-                else None
-            )
             try:
                 presented = await self._presentations.materialize_unit(
                     project_name=project_name, resource_type=resource_type, resource_id=unit_id, variant=variant
                 )
             except PresentationUnavailableError:
+                audio = None
+                provider_audio = await asyncio.to_thread(current_provider_audio, versions, resource_type, unit_id)
                 cues: tuple[PreviewCue, ...] = ()
             else:
+                track = presented.presentation.narration_audio
+                audio = (
+                    PreviewNarrationAudio(path=track.media.artifact_path, version=track.media.version)
+                    if track
+                    else None
+                )
+                provider_audio = presented.presentation.video.audio_enabled
                 cues = tuple(
                     PreviewCue(
                         start=microseconds_to_seconds(cue.start_microseconds),
@@ -142,7 +136,6 @@ class TimelinePreviewService:
                     )
                     for cue in presented.presentation.subtitles
                 )
-            provider_audio = await asyncio.to_thread(current_provider_audio, versions, resource_type, unit_id)
             units.append(
                 PreviewUnitMedia(
                     unit_id=unit_id,

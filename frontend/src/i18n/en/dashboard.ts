@@ -520,7 +520,6 @@ export default {
   'presentation_captions': 'Mechanical captions',
   'presentation_selection_current': 'Current version',
   'presentation_selection_history': 'Historical version',
-  'presentation_provenance_unavailable': 'Provenance unavailable',
   'presentation_currency_current': 'Up to date',
   'presentation_currency_stale': 'Older than the current content',
   'presentation_mechanical_timing': 'Mechanical timing',

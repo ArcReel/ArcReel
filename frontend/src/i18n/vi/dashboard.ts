@@ -517,7 +517,6 @@ export default {
   'presentation_captions': 'Phụ đề cơ học',
   'presentation_selection_current': 'Phiên bản hiện tại',
   'presentation_selection_history': 'Phiên bản lịch sử',
-  'presentation_provenance_unavailable': 'Không có thông tin nguồn gốc',
   'presentation_currency_current': 'Đã cập nhật',
   'presentation_currency_stale': 'Cũ hơn nội dung hiện tại',
   'presentation_mechanical_timing': 'Căn thời gian cơ học',
