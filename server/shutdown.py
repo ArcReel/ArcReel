@@ -1,6 +1,7 @@
 """Signal-driven pre-shutdown for the application lifespan."""
 
 import asyncio
+import logging
 import signal
 import threading
 from collections.abc import Callable, Generator
@@ -9,6 +10,8 @@ from types import FrameType, MethodType
 
 from uvicorn import Server
 from uvicorn.server import HANDLED_SIGNALS
+
+logger = logging.getLogger(__name__)
 
 
 class ShutdownController:
@@ -27,7 +30,10 @@ class ShutdownController:
             return
         self.requested.set()
         for callback in self._callbacks:
-            callback()
+            try:
+                callback()
+            except Exception:
+                logger.exception("预关停回调执行失败")
 
     @contextmanager
     def capture_signals(self) -> Generator[None]:

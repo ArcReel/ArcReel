@@ -75,6 +75,7 @@ MESSAGES = {
     "task_not_found": "Tác vụ '{id}' không tồn tại",
     "task_running_not_cancellable": "Tác vụ '{id}' đã bắt đầu chạy nên không thể hủy; tác vụ sẽ chạy đến khi hoàn tất và giữ lại kết quả",
     "task_retry_download_unavailable": "Tác vụ '{id}' hiện không thể thử tải lại",
+    "task_retry_download_server_stopping": "Máy chủ đang tắt. Hãy thử tải xuống lại sau khi máy chủ khởi động lại.",
     "task_fail_provider_unsupported_media": "Nhà cung cấp {provider_id} không hỗ trợ tạo {media_type}",
     "task_fail_provider_rejected": "Nhà cung cấp đã từ chối yêu cầu tạo này (HTTP {status})",
     "task_fail_dispatch_provider_requeue_failed": "Nhà cung cấp tác vụ đã đổi từ {claimed_provider_id} sang {actual_provider_id}, nhưng không thể đưa tác vụ trở lại hàng đợi để nhận khe mới; vui lòng thử lại",

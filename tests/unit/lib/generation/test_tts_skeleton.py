@@ -417,7 +417,7 @@ class TestWorkerAudioLane:
             def __init__(self):
                 self._given = False
 
-            async def claim_next_task(self, media_type, pool_full_providers=None):
+            async def claim_next_task(self, media_type, **_kwargs):
                 if media_type == "audio" and not self._given:
                     self._given = True
                     return {

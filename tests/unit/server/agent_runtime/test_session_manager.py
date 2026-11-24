@@ -669,10 +669,19 @@ class TestSessionManager:
         eviction = asyncio.create_task(session_manager.close_session(meta.id))
         try:
             await asyncio.wait_for(persisting.wait(), timeout=1)
+            waiting_for_eviction = asyncio.Event()
+            eviction_finished = session_manager._disconnecting[meta.id]
+            wait_for_eviction = eviction_finished.wait
+
+            async def observe_wait():
+                waiting_for_eviction.set()
+                return await wait_for_eviction()
+
+            monkeypatch.setattr(eviction_finished, "wait", observe_wait)
             shutdown = asyncio.create_task(session_manager.shutdown_gracefully())
             try:
-                done, _ = await asyncio.wait({shutdown}, timeout=0.01)
-                assert not done
+                await asyncio.wait_for(waiting_for_eviction.wait(), timeout=1)
+                assert not shutdown.done()
             finally:
                 release.set()
                 await asyncio.wait_for(shutdown, timeout=1)
@@ -685,9 +694,7 @@ class TestSessionManager:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("sdk_hangs", [False, True])
-    async def test_shutdown_gives_sdk_time_to_flush_before_cancelling(
-        self, session_manager, meta_store, monkeypatch, sdk_hangs
-    ):
+    async def test_shutdown_gives_sdk_time_to_flush_before_cancelling(self, tmp_path, meta_store, sdk_hangs):
         close_entered = asyncio.Event()
         flush = asyncio.Event()
         cancelled = asyncio.Event()
@@ -702,11 +709,17 @@ class TestSessionManager:
                     raise
                 return await super().__aexit__(exc_type, exc, tb)
 
+        manager = sm_mod.SessionManager(
+            project_root=tmp_path,
+            meta_store=meta_store,
+            data_root=tmp_path / "projects",
+            session_actor_shutdown_timeout=0.05 if sdk_hangs else 1.0,
+        )
         meta = await meta_store.create("demo", "sdk-slow-close")
         client = FlushingClient()
         actor = SessionActor(client_factory=lambda: client, on_message=lambda _: None)
         await actor.start()
-        session_manager.sessions[meta.id] = ManagedSession(
+        manager.sessions[meta.id] = ManagedSession(
             session_id=meta.id,
             resolved_sdk_id=meta.id,
             actor=actor,
@@ -714,8 +727,7 @@ class TestSessionManager:
             project_name="demo",
             turn_outcome="completed",
         )
-        monkeypatch.setattr(session_manager, "_session_actor_shutdown_timeout", 0.05 if sdk_hangs else 1)
-        shutdown = asyncio.create_task(session_manager.shutdown_gracefully())
+        shutdown = asyncio.create_task(manager.shutdown_gracefully())
         try:
             await asyncio.wait_for(close_entered.wait(), timeout=1)
             if not sdk_hangs:

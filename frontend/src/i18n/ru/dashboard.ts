@@ -559,6 +559,7 @@ export default {
   'cancel_this_task': 'Отменить эту задачу',
   'retry_download': 'Повторить скачивание',
   'retry_download_failed': "Не удалось начать повторное скачивание; попробуйте позже",
+  'retry_download_service_unavailable': 'Сервис временно недоступен. Повторите скачивание, когда он снова заработает.',
   'retrying_download': 'Повторная попытка…',
   'cancel_all': 'Отменить все',
   'cancel_all_queued_aria': 'Отменить все задачи в очереди',

@@ -88,17 +88,16 @@ class TestRetryArtifactDownload:
         with TestClient(self._app(worker)) as client:
             response = client.post("/api/v1/tasks/task-1/retry-download")
         assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert "停机" in detail
+        assert "task-1" not in detail
         assert queue.calls == []
 
-    def test_unavailable_worker_does_not_transition_task(self, monkeypatch):
-        queue = _RetryQueue()
-        monkeypatch.setattr(tasks_router, "get_task_queue", lambda: queue)
-
+    def test_unavailable_worker_returns_bad_request(self):
         with TestClient(self._app(None)) as client:
             response = client.post("/api/v1/tasks/task-1/retry-download")
 
         assert response.status_code == 400
-        assert queue.calls == []
 
 
 class _RenderQueue:

@@ -19,10 +19,10 @@ from lib.config.service import read_video_poll_timeout_seconds
 from lib.db.repositories.project_records import is_deleted_project_name
 from lib.generation.render_lane import RENDER_MEDIA_TYPE
 from lib.generation.task_failure import encode_failure
-from lib.generation.video_resume import VideoResumeRunner, cleanup_video_staging
-from lib.infra.async_thread import run_sync_transaction
+from lib.generation.video_result import build_video_task_result
+from lib.generation.video_resume import VideoResumeRunner, cleanup_video_staging, fail_task_of_deleted_project
+from lib.infra.async_thread import run_noninterruptible_async, run_sync_transaction
 from lib.project.project_manager import get_project_manager
-from lib.project.resource_paths import resource_relative_path
 from lib.script.reference_video.execution_checkpoint import VideoResumeState, classify_video_resume_state
 
 if TYPE_CHECKING:
@@ -61,21 +61,16 @@ def _committed_video_result(task: dict[str, Any]) -> dict[str, Any] | None:
     history = VersionManager(path).get_versions(resource_type, resource_id)
     for record in reversed(history["versions"]):
         if record.get("task_id", record.get("execution_task_id")) == task["task_id"]:
-            result = {
-                "version": record["version"],
-                "file_path": record["file"],
-                "resource_type": resource_type,
-                "resource_id": resource_id,
-                "video_uri": record.get("video_uri"),
-                "created_at": record["created_at"],
-            }
-            if record["is_current"]:
-                result["file_path"] = resource_relative_path(resource_type, resource_id)
-            else:
-                result["selected_current"] = False
-            if resource_type == "reference_videos" or record.get("warnings"):
-                result["warnings"] = record.get("warnings", [])
-            return result
+            return build_video_task_result(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                version=record["version"],
+                file_path=None if record["is_current"] else record["file"],
+                created_at=record["created_at"],
+                video_uri=record.get("video_uri"),
+                selected_current=bool(record["is_current"]),
+                warnings=record.get("warnings") or (),
+            )
     return None
 
 
@@ -144,8 +139,15 @@ class RestartRecovery:
         result = await run_sync_transaction(_committed_video_result, task)
         if result is None:
             return False
-        await self._writes.succeeded(task["task_id"], result)
-        await cleanup_video_staging(task)
+        written = await run_noninterruptible_async(
+            self._writes.succeeded(task["task_id"], result, expected_project_name=task["project_name"])
+        )
+        if written is None:
+            await fail_task_of_deleted_project(self._writes, task)
+        elif written:
+            await cleanup_video_staging(task)
+        else:
+            self._request_rescan()
         return True
 
     async def settle_interrupted_calls(self, *, taskless_started_before: datetime | None) -> None:
@@ -326,11 +328,19 @@ class RestartRecovery:
         await asyncio.gather(*sub_tasks, return_exceptions=True)
         logger.info("孤儿后台 dispatcher 完成")
 
-    def retry_artifact_download(self, task: dict[str, Any], *, poll_timeout_seconds: int) -> None:
+    def retry_artifact_download(
+        self, task: dict[str, Any], *, poll_timeout_seconds: int, lease: TaskLease | None = None
+    ) -> None:
         task["video_poll_timeout_seconds"] = poll_timeout_seconds
+        pre_acquired = {task["task_id"]: lease} if lease is not None else None
         self._track(
             asyncio.create_task(
-                self.dispatch_provider_bucket(task["provider_id"], [task], accepted_retry=True),
+                self.dispatch_provider_bucket(
+                    task["provider_id"],
+                    [task],
+                    accepted_retry=True,
+                    pre_acquired=pre_acquired,
+                ),
                 name=f"retry-download-{task['task_id']}",
             )
         )
@@ -341,6 +351,7 @@ class RestartRecovery:
         tasks: list[dict[str, Any]],
         *,
         accepted_retry: bool = False,
+        pre_acquired: dict[str, TaskLease] | None = None,
     ) -> None:
         """同 provider 桶并发跑 resume task，pending/inflight 用 phase 标志精确容量与 cancel 跟踪。
 
@@ -353,70 +364,79 @@ class RestartRecovery:
         - sem 容量在 dispatch 顶部从 CapacityTable 读一次定型：reload 期间改的容量表
           不影响本批 dispatch 的并发上限。这是已知设计选择，非 bug。
         """
-        cap = self._capacity.get(provider_id, "video")
-        if cap <= 0:
-            try:
-                await self._reload_limits()
-            except Exception:
-                logger.warning("reload_limits 兜底失败", exc_info=True)
+        remaining = dict(pre_acquired or {})
+        try:
             cap = self._capacity.get(provider_id, "video")
-        sem = asyncio.Semaphore(max(cap, 1))
-
-        async def _run_one(t: dict[str, Any]) -> None:
-            task_id = t["task_id"]
-            acquired = False
-            try:
-                await sem.acquire()
-                acquired = True
-                if (self._stop_event.is_set() and not accepted_retry) or not await self._still_running(task_id):
-                    return
-                if await self._restore_committed(t):
-                    return
-                if cap <= 0:
-                    await self._writes.failed(
-                        task_id, encode_failure("resume_unsupported_capacity_zero", provider_id=provider_id)
-                    )
-                    await self._resume.settle_unresumable_call(
-                        t, failure=f"resume unsupported: provider {provider_id} has no video capacity"
-                    )
-                    await cleanup_video_staging(t)
-                    return
-                self._slots.promote(provider_id, "video", task_id)
-                logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
-                await self._resume.run(t)
-            except asyncio.CancelledError:
+            if cap <= 0:
                 try:
-                    await asyncio.shield(self._queue.mark_task_interrupted(task_id))
-                    await asyncio.shield(self._resume.settle_unresumable_call(t, cancelled=True))
-                    await asyncio.shield(cleanup_video_staging(t))
+                    await self._reload_limits()
                 except Exception:
-                    logger.exception("resume dispatch 打断后落终态失败 task_id=%s", task_id)
-                raise
-            except Exception:
-                logger.exception("视频任务收尾失败 task_id=%s", task_id)
-                self._request_rescan()
-            finally:
-                if acquired:
-                    sem.release()
+                    logger.warning("reload_limits 兜底失败", exc_info=True)
+                cap = self._capacity.get(provider_id, "video")
+            sem = asyncio.Semaphore(max(cap, 1))
 
-        def release(lease: TaskLease, _done: asyncio.Task) -> None:
-            self._slots.release(provider_id, "video", lease.task_id)
-            lease.release()
+            async def _run_one(t: dict[str, Any]) -> None:
+                task_id = t["task_id"]
+                acquired = False
+                try:
+                    await sem.acquire()
+                    acquired = True
+                    if (self._stop_event.is_set() and not accepted_retry) or not await self._still_running(task_id):
+                        return
+                    if await self._restore_committed(t):
+                        return
+                    if self._stop_event.is_set() and not accepted_retry:
+                        return
+                    if cap <= 0:
+                        await self._writes.failed(
+                            task_id, encode_failure("resume_unsupported_capacity_zero", provider_id=provider_id)
+                        )
+                        await self._resume.settle_unresumable_call(
+                            t, failure=f"resume unsupported: provider {provider_id} has no video capacity"
+                        )
+                        await cleanup_video_staging(t)
+                        return
+                    self._slots.promote(provider_id, "video", task_id)
+                    logger.info("已派发 resume video orphan: task_id=%s provider=%s", task_id, provider_id)
+                    await self._resume.run(t)
+                except asyncio.CancelledError:
+                    try:
+                        await run_noninterruptible_async(self._queue.mark_task_interrupted(task_id))
+                        await run_noninterruptible_async(self._resume.settle_unresumable_call(t, cancelled=True))
+                        await run_noninterruptible_async(cleanup_video_staging(t))
+                    except Exception:
+                        logger.exception("resume dispatch 打断后落终态失败 task_id=%s", task_id)
+                    raise
+                except Exception:
+                    logger.exception("视频任务收尾失败 task_id=%s", task_id)
+                    self._request_rescan()
+                finally:
+                    if acquired:
+                        sem.release()
 
-        sub: list[asyncio.Task] = []
-        for t in tasks:
-            if self._stop_event.is_set() and not accepted_retry:
-                break
-            lease = (
-                await self._ownership.acquire(t["task_id"])
-                if accepted_retry
-                else self._ownership.try_acquire(t["task_id"])
-            )
-            if lease is None:
-                continue
-            sub_task = asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
-            self._slots.register(provider_id, "video", t["task_id"], sub_task, pending=True)
-            sub_task.add_done_callback(partial(release, lease))
-            sub.append(sub_task)
-        if sub:
-            await asyncio.gather(*sub, return_exceptions=True)
+            def release(lease: TaskLease, _done: asyncio.Task) -> None:
+                self._slots.release(provider_id, "video", lease.task_id)
+                lease.release()
+
+            sub: list[asyncio.Task] = []
+            for t in tasks:
+                if self._stop_event.is_set() and not accepted_retry:
+                    break
+                lease = remaining.pop(t["task_id"], None)
+                if lease is None:
+                    lease = (
+                        await self._ownership.acquire(t["task_id"])
+                        if accepted_retry
+                        else self._ownership.try_acquire(t["task_id"])
+                    )
+                if lease is None:
+                    continue
+                sub_task = asyncio.create_task(_run_one(t), name=f"resume-video-{t['task_id']}")
+                self._slots.register(provider_id, "video", t["task_id"], sub_task, pending=True)
+                sub_task.add_done_callback(partial(release, lease))
+                sub.append(sub_task)
+            if sub:
+                await asyncio.gather(*sub, return_exceptions=True)
+        finally:
+            for lease in remaining.values():
+                lease.release()

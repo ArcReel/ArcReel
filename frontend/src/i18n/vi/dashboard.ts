@@ -539,6 +539,7 @@ export default {
   'cancel_this_task': 'Hủy tác vụ này',
   'retry_download': 'Thử tải lại',
   'retry_download_failed': 'Không thể bắt đầu tải lại, vui lòng thử lại sau',
+  'retry_download_service_unavailable': 'Dịch vụ tạm thời không khả dụng. Hãy thử tải lại khi dịch vụ hoạt động trở lại.',
   'retrying_download': 'Đang thử lại…',
   'cancel_all': 'Hủy tất cả',
   'cancel_all_queued_aria': 'Hủy tất cả tác vụ đang chờ',

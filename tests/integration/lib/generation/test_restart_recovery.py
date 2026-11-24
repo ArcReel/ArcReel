@@ -564,6 +564,71 @@ class TestRestartRecovery:
         assert dispatched_count == 1, f"stop_event 后不应再 dispatch，实际 dispatched={dispatched_count}"
 
 
+async def test_shutdown_during_orphan_recheck_leaves_task_for_restart(staged_project):
+    rechecking = asyncio.Event()
+    release_recheck = asyncio.Event()
+    resumed = []
+
+    class Queue(FakeWorkerQueue):
+        async def get_task(self, task_id):
+            rechecking.set()
+            await release_recheck.wait()
+            return await super().get_task(task_id)
+
+    async def resume(task, *, job_id):
+        resumed.append(job_id)
+        return {"job_id": job_id}
+
+    queue = Queue()
+    orphan = _storyboard_orphan("orphan")
+    worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+    async with asyncio.timeout(3):
+        dispatch = asyncio.create_task(worker._recovery.dispatch_resumable({"ark": [orphan]}))
+        try:
+            await rechecking.wait()
+            worker.stop_admission()
+        finally:
+            release_recheck.set()
+            await dispatch
+    assert resumed == []
+    assert (await queue.get_task(orphan["task_id"]))["status"] == "running"
+
+
+async def test_committed_video_success_write_rechecks_project_identity(concurrent_session_factory):
+    from lib.artifacts.version_manager import VersionManager
+    from lib.db.repositories.project_records import retire_project_records
+    from lib.generation.generation_queue import GenerationQueue
+    from lib.project.project_manager import get_project_manager
+
+    worker_db = concurrent_session_factory
+    manager = get_project_manager()
+    project = manager.create_project("demo")
+    source = project / "source.mp4"
+    source.write_bytes(b"committed video")
+    VersionManager(project).add_version("videos", "E1S01", "prompt", source, task_id="orphan")
+    await seed_running_task(worker_db, "orphan")
+    resumed = []
+
+    class Queue(GenerationQueue):
+        async def mark_task_succeeded(self, task_id, result, **kwargs):
+            async with worker_db() as session:
+                await retire_project_records(session, "demo")
+                await session.commit()
+            return await super().mark_task_succeeded(task_id, result, **kwargs)
+
+    async def resume(task, *, job_id):
+        resumed.append(job_id)
+        return {}
+
+    queue = Queue(session_factory=worker_db)
+    worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+    await worker._recovery.handle_orphans()
+    await worker._recovery.wait_dispatchers()
+    row = await queue.get_task("orphan")
+    assert (row["status"], row["error_message"]) == ("failed", "[project_deleted_during_task]")
+    assert resumed == []
+
+
 class TestDispatcherFailFastAndPendingTracking:
     """dispatcher fail-fast + pending/inflight 分集合精确容量与 cancel 跟踪。"""
 
@@ -757,6 +822,7 @@ class TestDispatcherFailFastAndPendingTracking:
 async def test_accepted_retry_survives_disconnect_and_shutdown_with_another_dispatcher(
     concurrent_session_factory, staged_project, monkeypatch
 ):
+    from lib.db.models.user import User
     from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
     from lib.generation.generation_queue import GenerationQueue
     from lib.generation.generation_worker import WorkerStoppingError
@@ -766,6 +832,7 @@ async def test_accepted_retry_survives_disconnect_and_shutdown_with_another_disp
     worker_db = concurrent_session_factory
     bind_safe_session_factory(monkeypatch, worker_db)
     committed = asyncio.Event()
+    handoff_joined = asyncio.Event()
     return_from_commit = asyncio.Event()
     entered = {tid: asyncio.Event() for tid in ("old", "retry")}
     finish = {tid: asyncio.Event() for tid in entered}
@@ -774,6 +841,15 @@ async def test_accepted_retry_survives_disconnect_and_shutdown_with_another_disp
     class Queue(GenerationQueue):
         async def retry_artifact_download(self, task_id):
             row = await super().retry_artifact_download(task_id)
+            handoff = asyncio.current_task()
+            assert handoff is not None
+            add_done_callback = handoff.add_done_callback
+
+            def observe_join(callback, **kwargs):
+                add_done_callback(callback, **kwargs)
+                handoff_joined.set()
+
+            monkeypatch.setattr(handoff, "add_done_callback", observe_join)
             committed.set()
             await return_from_commit.wait()
             return row
@@ -785,6 +861,9 @@ async def test_accepted_retry_survives_disconnect_and_shutdown_with_another_disp
         await finish[tid].wait()
         return {"job_id": job_id}
 
+    async with worker_db() as session:
+        session.add_all(User(id=tid, username=tid) for tid in entered)
+        await session.commit()
     for tid in entered:
         await seed_running_task(
             worker_db,
@@ -815,6 +894,31 @@ async def test_accepted_retry_survives_disconnect_and_shutdown_with_another_disp
         call = await session.get(ApiCall, call_id)
         assert call is not None
         assert (call.status, call.error_message) == ("failed", "download failed")
+
+    pre_stop_entered = asyncio.Event()
+    pre_stop_release = asyncio.Event()
+    orig_read_timeout = GenerationWorker.__module__
+
+    async def slow_timeout() -> int:
+        pre_stop_entered.set()
+        await pre_stop_release.wait()
+        return 300
+
+    with monkeypatch.context() as mp:
+        mp.setattr(f"{orig_read_timeout}.read_video_poll_timeout_seconds", slow_timeout)
+        stopping_mid_await = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+        mid_req = asyncio.create_task(stopping_mid_await.retry_artifact_download("retry"))
+        await asyncio.wait_for(pre_stop_entered.wait(), timeout=3)
+        stopping_mid_await.stop_admission()
+        pre_stop_release.set()
+        with pytest.raises(WorkerStoppingError):
+            await asyncio.wait_for(mid_req, timeout=3)
+        await asyncio.wait_for(stopping_mid_await.stop(), timeout=3)
+    assert await task_status(worker_db, "retry") == "failed"
+    async with worker_db() as session:
+        call = await session.get(ApiCall, call_id)
+        assert call is not None
+        assert (call.status, call.error_message) == ("failed", "download failed")
     worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
     async with asyncio.timeout(5):
         await worker._recovery.handle_orphans()
@@ -828,8 +932,11 @@ async def test_accepted_retry_survives_disconnect_and_shutdown_with_another_disp
         with pytest.raises(asyncio.CancelledError):
             await request
         finish["old"].set()
-        assert not stopping.done()
-        return_from_commit.set()
+        try:
+            await handoff_joined.wait()
+            assert not stopping.done()
+        finally:
+            return_from_commit.set()
         await entered["retry"].wait()
         assert not stopping.done()
         finish["retry"].set()
@@ -839,10 +946,12 @@ async def test_accepted_retry_survives_disconnect_and_shutdown_with_another_disp
     assert await task_status(worker_db, "old") == "succeeded"
 
 
-async def test_retry_of_failure_waits_for_old_resume_to_settle(staged_project, worker_db):
+async def test_retry_of_failure_waits_for_old_resume_to_settle(staged_project, worker_db, monkeypatch):
     failed = asyncio.Event()
-    release = asyncio.Event()
+    settling = asyncio.Event()
+    release_settlement = asyncio.Event()
     retry_waiting = asyncio.Event()
+    reopened = asyncio.Event()
     task = _storyboard_orphan("finishing")
     runs = []
 
@@ -857,11 +966,10 @@ async def test_retry_of_failure_waits_for_old_resume_to_settle(staged_project, w
         async def mark_task_failed(self, task_id, error):
             self.status = "failed"
             failed.set()
-            await release.wait()
             return 1
 
         async def retry_artifact_download(self, task_id):
-            assert release.is_set()
+            reopened.set()
             self.status = "running"
             return task.copy()
 
@@ -874,16 +982,115 @@ async def test_retry_of_failure_waits_for_old_resume_to_settle(staged_project, w
     queue = Queue()
     queue._orphans = [task]
     worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+
+    async def settle_old_call(*_args, **_kwargs):
+        settling.set()
+        await release_settlement.wait()
+
+    monkeypatch.setattr(worker._resume, "settle_unresumable_call", settle_old_call)
     async with asyncio.timeout(5):
         await worker._recovery.handle_orphans()
         await failed.wait()
         request = asyncio.create_task(worker.retry_artifact_download("finishing"))
-        await retry_waiting.wait()
-        release.set()
-        await request
-        await worker.stop()
+        try:
+            await settling.wait()
+            await retry_waiting.wait()
+            assert not reopened.is_set()
+        finally:
+            release_settlement.set()
+            await request
+            await worker.stop()
     assert runs == ["job-1", "job-1"]
     assert queue.succeeded == [("finishing", {"job_id": "job-1"})]
+
+
+async def test_rejected_retry_does_not_leave_orphan_without_an_executor(staged_project, worker_db):
+    eligibility = asyncio.Event()
+    release_eligibility = asyncio.Event()
+    scanned = asyncio.Event()
+    task = _storyboard_orphan("orphan")
+
+    class Queue(FakeWorkerQueue):
+        async def list_orphan_tasks_on_start(self):
+            scanned.set()
+            return await super().list_orphan_tasks_on_start()
+
+        async def retry_artifact_download(self, task_id):
+            eligibility.set()
+            await release_eligibility.wait()
+            raise ValueError("task is already running")
+
+    queue = Queue()
+    queue._orphans = [task]
+
+    async def resume(task, *, job_id):
+        return {"job_id": job_id}
+
+    worker = GenerationWorker(queue=queue, executor=stub_executors.execute, resume_executor=resume)
+    async with asyncio.timeout(5):
+        request = asyncio.create_task(worker.retry_artifact_download("orphan"))
+        await eligibility.wait()
+        worker.wake()
+        cycle = asyncio.create_task(worker._run_cycle())
+        try:
+            await scanned.wait()
+        finally:
+            release_eligibility.set()
+            with pytest.raises(ValueError, match="already running"):
+                await request
+            await cycle
+        worker.wake()
+        await worker._run_cycle()
+        await worker._recovery.wait_dispatchers()
+    assert [task_id for task_id, _ in queue.succeeded] == ["orphan"]
+
+
+async def test_retry_reopens_call_only_after_interrupted_call_settlement(staged_project, worker_db, monkeypatch):
+    settling = asyncio.Event()
+    release_settlement = asyncio.Event()
+    retry_ready = asyncio.Event()
+    reopened = asyncio.Event()
+    task = _storyboard_orphan("retry")
+
+    class Queue(FakeWorkerQueue):
+        async def retry_artifact_download(self, task_id):
+            reopened.set()
+            return task.copy()
+
+    async def settle(**_kwargs):
+        settling.set()
+        await release_settlement.wait()
+        return 0
+
+    async def read_timeout():
+        retry_ready.set()
+        return 300
+
+    async def resume(task, *, job_id):
+        return {"job_id": job_id}
+
+    monkeypatch.setattr("lib.generation.generation_worker.read_video_poll_timeout_seconds", read_timeout)
+    queue = Queue()
+    worker = GenerationWorker(
+        queue=queue,
+        executor=stub_executors.execute,
+        resume_executor=resume,
+        settle_interrupted_calls=settle,
+    )
+    async with asyncio.timeout(5):
+        worker.wake()
+        cycle = asyncio.create_task(worker._run_cycle())
+        await settling.wait()
+        request = asyncio.create_task(worker.retry_artifact_download("retry"))
+        try:
+            await retry_ready.wait()
+            assert not reopened.is_set()
+        finally:
+            release_settlement.set()
+            await cycle
+            await request
+            await worker.stop()
+    assert [task_id for task_id, _ in queue.succeeded] == ["retry"]
 
 
 async def test_failed_recheck_waits_for_next_scan(staged_project, worker_db):

@@ -18,6 +18,9 @@ class TaskOwnership:
     def __init__(self) -> None:
         self._owners: dict[str, TaskLease] = {}
 
+    def owned_task_ids(self) -> frozenset[str]:
+        return frozenset(self._owners)
+
     def try_acquire(self, task_id: str) -> TaskLease | None:
         if task_id in self._owners:
             return None
