@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import httpx
@@ -48,6 +49,57 @@ class TestAppModule:
             assert hasattr(app.state, "generation_worker")
 
         assert worker.stopped
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failing_service", ["assistant", "worker"])
+    async def test_lifespan_drains_both_services_before_closing_shared_resources(self, monkeypatch, failing_service):
+        worker = stub_lifespan_dependencies(monkeypatch)
+        assistant_started = asyncio.Event()
+        worker_started = asyncio.Event()
+        failure_raised = asyncio.Event()
+        drained = set()
+        closed = set()
+        failure = RuntimeError(f"{failing_service} shutdown failed")
+
+        async def finish(name):
+            if name == failing_service:
+                task = asyncio.current_task()
+                assert task is not None
+                task.add_done_callback(lambda _: failure_raised.set())
+                raise failure
+            await failure_raised.wait()
+            drained.add(name)
+
+        async def shutdown_assistant():
+            assistant_started.set()
+            await worker_started.wait()
+            await finish("assistant")
+
+        async def stop_worker():
+            worker_started.set()
+            await assistant_started.wait()
+            await finish("worker")
+
+        async def close_db():
+            assert drained == {"worker", "assistant"} - {failing_service}
+            closed.add("db")
+
+        async def close_http():
+            assert drained == {"worker", "assistant"} - {failing_service}
+            closed.add("http")
+
+        monkeypatch.setattr(app_module.assistant.assistant_service, "shutdown", shutdown_assistant)
+        monkeypatch.setattr(worker, "stop", stop_worker)
+        monkeypatch.setattr(app_module, "close_db", close_db)
+        monkeypatch.setattr(app_module, "shutdown_http_client", close_http)
+
+        async with asyncio.timeout(5):
+            with pytest.raises(RuntimeError) as exc:
+                async with app_module.lifespan(app_module.app):
+                    pass
+
+        assert exc.value is failure
+        assert closed == {"db", "http"}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("auth_enabled", "expect_warning"), [("false", True), ("true", False)])

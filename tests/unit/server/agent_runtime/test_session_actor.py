@@ -330,6 +330,24 @@ async def test_disconnect_completes_even_if_interrupt_fails():
     assert client.disconnected
 
 
+async def test_disconnect_closes_client_after_interrupt_exceeds_its_budget():
+    class SlowInterruptClient(FakeSDKClient):
+        async def interrupt(self) -> None:
+            await super().interrupt()
+            await asyncio.Event().wait()
+
+    client = SlowInterruptClient()
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda _: None, disconnect_interrupt_timeout=0.01)
+    await actor.start()
+    try:
+        async with asyncio.timeout(1.0):
+            await _disconnect(actor, interrupt_first=True)
+        assert client.interrupted
+        assert client.disconnected
+    finally:
+        await actor.cancel_and_wait()
+
+
 class _ExplodingClient(FakeSDKClient):
     async def query(self, prompt, session_id: str = "default") -> None:
         self._record("query")
