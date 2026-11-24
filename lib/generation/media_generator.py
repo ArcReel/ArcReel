@@ -1055,7 +1055,11 @@ class MediaGenerator:
                 )
             else:
                 video_caps = resolve_video_capabilities(
-                    self._video_backend, service_tier=service_tier, resolution=resolution
+                    self._video_backend,
+                    service_tier=service_tier,
+                    resolution=resolution,
+                    bucket=conditions.bucket,
+                    inputs=conditions.inputs,
                 )
         except IncompatibleInputsError as exc:
             from arcreel_market_core.video_backend_contract import VideoCapabilityError

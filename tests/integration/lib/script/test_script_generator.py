@@ -12,11 +12,9 @@ from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import (
     ENDPOINT_FIXED_PLANNING_DURATIONS,
-    ExecutionVideoIdentity,
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
-    evaluate_video_request_facts,
 )
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.script.prompt_authoring_scope import select_prompt_authoring
@@ -1270,11 +1268,12 @@ async def test_planning_and_execution_read_the_same_tiers_under_one_configuratio
     sg = _sg_with_project(tmp_path, project, config_resolver=resolver)
 
     planning = await sg._fetch_video_request_facts()
-    executed = await evaluate_video_request_facts(
+    from lib.video_runtime.resolution import read_video_request_facts
+
+    executed = await read_video_request_facts(
         project,
         route=planning.require(bucket).route,
         generation_type=bucket,
-        identity=ExecutionVideoIdentity("gemini-vertex", "veo-3.1-generate-001"),
         resolver=resolver,
     )
 

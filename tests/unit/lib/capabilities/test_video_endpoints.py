@@ -212,3 +212,183 @@ def test_grok_endpoint_describes_reference_route_resolution_limit(route, slot, f
     at_1080p = channel_projection(endpoint, RequestConditions(route, "1080p", inputs=frozenset({slot})))
     assert getattr(at_720p, field) == accepted_value
     assert getattr(at_1080p, field) == blocked_value
+
+
+def test_read_side_request_facts_match_frozen_baseline():
+    from lib.backends.backend_assembly.specs import builtin_video_snapshot
+    from lib.generation.video_request_facts import snapshot_video_request_facts
+
+    cases = [c for c in _CASES if c["entry"] == "request_facts"]
+    assert cases
+    for case in cases:
+        inp = case["input"]
+        project = inp["project"]
+        bucket = inp["generation_type"]
+        provider_id, model_id = project[f"video_provider_{bucket}"].split("/", 1)
+        snapshot = builtin_video_snapshot(provider_id, model_id)
+        facts = snapshot_video_request_facts(
+            snapshot,
+            project,
+            route=inp["route"],
+            generation_type=bucket,
+            requested_audio=True,
+        )
+        assert asdict(facts) == {
+            **case["output"],
+            "supported_durations": tuple(case["output"]["supported_durations"]),
+            "allowed_durations": tuple(case["output"]["allowed_durations"]),
+            "excluded_durations": tuple(tuple(pair) for pair in case["output"]["excluded_durations"]),
+        }
+
+
+def test_kling_r2v_read_side_projection_and_facts_match_silent_protocol():
+    from lib.backends.backend_assembly.specs import builtin_video_snapshot
+    from lib.generation.video_request_facts import project_video_capabilities, snapshot_video_request_facts
+
+    snapshot = builtin_video_snapshot("kling", "kling-v3-omni")
+    project = {"generation_mode": "reference_video", "video_provider_r2v": "kling/kling-v3-omni"}
+    facts = snapshot_video_request_facts(
+        snapshot, project, route="reference_video", generation_type="r2v", requested_audio=True
+    )
+    payload = project_video_capabilities(snapshot, project, generation_type="r2v", requested_audio=True)
+
+    assert facts.generate_audio is False
+    assert facts.has_audio_track is False
+    assert facts.audio_switch_controllable is False
+    assert facts.voice_consistency == "none"
+    assert payload["generate_audio"] is False
+    assert payload["voice_consistency"] == "none"
+    assert payload["last_frame"] is False
+
+
+def test_grok_1080p_read_side_projection_matches_execution_restrictions():
+    from lib.backends.backend_assembly.specs import builtin_video_snapshot
+    from lib.generation.video_request_facts import ResolutionOverride, project_video_capabilities
+
+    snapshot = builtin_video_snapshot(
+        "grok",
+        "grok-imagine-video",
+        overrides={"last_frame": True},
+        official=False,
+    )
+    project = {"generation_mode": "storyboard"}
+
+    at_720p_i2v = project_video_capabilities(
+        snapshot, project, generation_type="i2v", requested_audio=True, resolution_override=ResolutionOverride("720p")
+    )
+    at_1080p_i2v = project_video_capabilities(
+        snapshot, project, generation_type="i2v", requested_audio=True, resolution_override=ResolutionOverride("1080p")
+    )
+    at_720p_r2v = project_video_capabilities(
+        snapshot, project, generation_type="r2v", requested_audio=True, resolution_override=ResolutionOverride("720p")
+    )
+    at_1080p_r2v = project_video_capabilities(
+        snapshot, project, generation_type="r2v", requested_audio=True, resolution_override=ResolutionOverride("1080p")
+    )
+
+    assert at_720p_i2v["last_frame"] is True
+    assert at_1080p_i2v["last_frame"] is False
+    assert at_720p_r2v["max_reference_images"] == 7
+    assert at_1080p_r2v["max_reference_images"] == 0
+
+
+def test_three_state_resolution_override_is_pure_sync_with_model_default_on_snapshot():
+    from lib.custom_provider.capabilities import custom_video_snapshot
+    from lib.generation.video_request_facts import ResolutionOverride, snapshot_video_request_facts
+
+    snapshot = custom_video_snapshot(
+        endpoint="newapi-video",
+        model_id="veo-3.1-generate-001",
+        overrides={"durations": [4, 6, 8], "duration_constraints": {"by_resolution": {"1080p": [8]}}},
+    )
+    snapshot = type(snapshot)(**{**snapshot.__dict__, "default_resolution": "720p"})
+    project = {"model_settings": {f"{snapshot.provider_id}/{snapshot.model_id}": {"resolution": "1080p"}}}
+
+    saved = snapshot_video_request_facts(
+        snapshot, project, route="storyboard", generation_type="i2v", requested_audio=True
+    )
+    auto = snapshot_video_request_facts(
+        snapshot,
+        project,
+        route="storyboard",
+        generation_type="i2v",
+        requested_audio=True,
+        resolution_override=ResolutionOverride(None),
+    )
+    explicit = snapshot_video_request_facts(
+        snapshot,
+        project,
+        route="storyboard",
+        generation_type="i2v",
+        requested_audio=True,
+        resolution_override=ResolutionOverride("1080p"),
+    )
+
+    assert saved.resolution == "1080p"
+    assert saved.allowed_durations == (8,)
+    assert auto.resolution == "720p"
+    assert auto.allowed_durations == (4, 6, 8)
+    assert explicit.resolution == "1080p"
+    assert explicit.allowed_durations == (8,)
+
+
+def test_custom_video_backend_tier_capabilities_respect_bucket_and_inputs():
+    from unittest.mock import MagicMock
+
+    from lib.custom_provider.backends import CustomVideoBackend
+    from lib.custom_provider.capabilities import custom_video_snapshot
+
+    kling_snapshot = custom_video_snapshot(endpoint="kling-video-audio", model_id="kling-v3-omni")
+    kling_backend = CustomVideoBackend(
+        provider_id="custom-1", delegate=MagicMock(), model="kling-v3-omni", snapshot=kling_snapshot
+    )
+    i2v_caps = kling_backend.video_capabilities_for_tier("default", "720p", bucket="i2v")
+    r2v_caps = kling_backend.video_capabilities_for_tier("default", "720p", bucket="r2v")
+    assert i2v_caps.audio_track_for_route("i2v") == "controllable"
+    assert r2v_caps.audio_track_for_route("r2v") == "always_off"
+
+    from lib.backends.backend_assembly.specs import builtin_video_snapshot
+
+    grok_snapshot = builtin_video_snapshot("grok", "grok-imagine-video", overrides={"last_frame": True}, official=False)
+    grok_backend = CustomVideoBackend(
+        provider_id="custom-1", delegate=MagicMock(), model="grok-imagine-video", snapshot=grok_snapshot
+    )
+    grok_720p = grok_backend.video_capabilities_for_tier(
+        "default", "720p", bucket="i2v", inputs=frozenset({"last_frame"})
+    )
+    grok_1080p = grok_backend.video_capabilities_for_tier(
+        "default", "1080p", bucket="i2v", inputs=frozenset({"last_frame"})
+    )
+    assert grok_720p.last_frame is True
+    assert grok_1080p.last_frame is False
+
+
+def test_comfyui_fixed_duration_consistent_across_projection_and_facts():
+    from lib.custom_provider.capabilities import custom_video_snapshot
+    from lib.generation.video_request_facts import (
+        ENDPOINT_FIXED_PLANNING_DURATIONS,
+        project_video_capabilities,
+        snapshot_video_request_facts,
+    )
+    from tests.factories import comfyui_endpoint_definition
+
+    spec = comfyui_endpoint_spec("ce-fixed", comfyui_endpoint_definition())
+    snapshot = custom_video_snapshot(endpoint=spec.key, model_id="wan-fixed", endpoint_spec=spec)
+    project = {"generation_mode": "storyboard"}
+
+    facts = snapshot_video_request_facts(
+        snapshot, project, route="storyboard", generation_type="i2v", requested_audio=True
+    )
+    payload = project_video_capabilities(
+        snapshot, project, generation_type="i2v", requested_audio=True, include_planning=True
+    )
+
+    assert facts.duration_endpoint_fixed is True
+    assert facts.supported_durations == ()
+    assert facts.allowed_durations == ()
+    assert payload["supported_durations"] == []
+    assert payload["max_duration"] == 0
+    assert payload["duration_endpoint_fixed"] is True
+    assert payload["duration_endpoint_fixed_reason"] == "endpoint"
+    assert payload["duration_constraints"]["allowed"] == []
+    assert payload["duration_constraints"]["planning"] == ENDPOINT_FIXED_PLANNING_DURATIONS

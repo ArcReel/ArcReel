@@ -1,28 +1,28 @@
-"""视频执行消费同源能力快照和项目偏好。读侧仍从当前配置取得请求事实（ADR 0086）。"""
+"""纯同步视频请求事实与项目级视频能力投影（ADR 0086）。
+
+只消费两份已就绪输入：单次解析产出的不可变能力快照，以及当前项目的纯字典偏好。
+不访问数据库，也不回查配置解析器。
+"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
-
-from sqlalchemy.exc import SQLAlchemyError
+from typing import Any, Literal
 
 from arcreel_catalog_core import DurationConstraints
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
-from lib.capabilities.kernel import CapabilitySnapshot, FixedDuration, RequestConditions
-from lib.catalog.errors import ModelNotInCatalogError
+from lib.capabilities.kernel import CapabilitySnapshot, FixedDuration, IncompatibleInputsError, RequestConditions
 from lib.config.resolver import (
-    ConfigResolver,
     DurationExclusionReason,
-    VideoBucketCapabilityError,
     VideoGenerationType,
-    VideoSupportedDurationsError,
     VoiceConsistency,
     apply_duration_constraints,
     caps_generation_mode,
     derive_voice_consistency,
+    duration_endpoint_fixed_reason,
+    project_episode_target_duration,
     project_resolution,
 )
 from lib.speech.character_voice import character_voice_binding
@@ -72,22 +72,8 @@ _ROUTE_FAILURE_CODES: dict[VideoRoute, dict[_FailureKind, str]] = {
 }
 
 
-@dataclass(frozen=True)
-class ConfiguredVideoIdentity:
-    """读侧身份：按当前配置解析该桶的执行模型（过桶能力闸）。"""
-
-
-@dataclass(frozen=True)
-class ExecutionVideoIdentity:
-    """执行侧身份：lane 实际构造的 backend 的规范 ``provider_id`` 与实际 ``.model``。"""
-
-    provider_id: str
-    model_id: str
-
-
-CONFIGURED_VIDEO_IDENTITY = ConfiguredVideoIdentity()
-
-VideoRequestIdentity = ConfiguredVideoIdentity | ExecutionVideoIdentity
+def route_failure_code(route: VideoRoute, kind: _FailureKind) -> str:
+    return _ROUTE_FAILURE_CODES[route][kind]
 
 
 @dataclass(frozen=True)
@@ -277,146 +263,57 @@ def audio_switch_conflict(facts: VideoRequestFacts) -> VideoRequestFactsFailure 
     return None
 
 
-async def evaluate_video_request_facts(
-    project: dict,
-    *,
-    route: VideoRoute,
-    generation_type: VideoGenerationType,
-    identity: VideoRequestIdentity,
-    resolver: ConfigResolver,
-    resolution_override: ResolutionOverride | None = None,
-    builtin_endpoint: str | None = None,
-    uses_end_frame: bool = False,
-) -> VideoRequestFacts | VideoRequestFactsFailure:
-    """对一次视频请求求值执行事实；解析不出时返回带类型的失败，不抛出、不回退。
-
-    ``resolution_override`` 只供预览未保存的分辨率（见 :class:`ResolutionOverride`）；缺省时按
-    项目已保存配置解析请求分辨率。``builtin_endpoint`` 传执行侧构造后端时选定的端点，
-    能力、音轨与音频计价按它求值；缺省时读当前配置。
-    """
-
-    codes = _ROUTE_FAILURE_CODES[route]
-    if isinstance(identity, ExecutionVideoIdentity):
-        provider_id, model_id = identity.provider_id, identity.model_id
-    else:
-        try:
-            selected = await resolver.resolve_video_backend(project, None, generation_type=generation_type)
-        except (VideoBucketCapabilityError, ModelNotInCatalogError) as exc:
-            return VideoRequestFactsFailure(exc.code, tuple(exc.params.items()))
-        except (ValueError, SQLAlchemyError):
-            return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type),))
-        provider_id, model_id = selected.provider_id, selected.model_id
-
-    try:
-        caps = await resolver.video_capabilities_for_model(
-            provider_id, model_id, project, generation_type=generation_type, builtin_endpoint=builtin_endpoint
-        )
-    except VideoSupportedDurationsError as exc:
-        return VideoRequestFactsFailure(codes[exc.kind], (("provider", exc.provider_id), ("model", exc.model_id)))
-    except (ValueError, SQLAlchemyError):
-        return VideoRequestFactsFailure(
-            codes["unavailable"],
-            (("capability", generation_type), ("provider", provider_id), ("model", model_id)),
-        )
-    capability_identity = str(caps["provider_id"]), str(caps["model"])
-    if capability_identity != (provider_id, model_id):
-        return VideoRequestFactsFailure(
-            codes["unavailable"],
-            (("capability", generation_type), ("provider", provider_id), ("model", model_id)),
-        )
-    identity_params = (("provider", provider_id), ("model", model_id))
-
-    raw_durations = caps.get("supported_durations") or []
-    if any(isinstance(d, bool) or not isinstance(d, int) or d <= 0 for d in raw_durations):
-        return VideoRequestFactsFailure(codes["invalid"], identity_params)
-    supported = tuple(sorted(set(raw_durations)))
-    endpoint_fixed = bool(caps.get("duration_endpoint_fixed"))
-    if not supported and not endpoint_fixed:
-        return VideoRequestFactsFailure(codes["missing"], identity_params)
-
-    if resolution_override is not None and resolution_override.resolution is not None:
-        resolution = resolution_override.resolution
-    else:
-        saved_settings = project if resolution_override is None else {}
-        try:
-            resolution = await resolver.resolve_resolution(saved_settings, provider_id, model_id)
-        except (ValueError, SQLAlchemyError):
-            return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
-
-    uses_reference_images = generation_type == "r2v"
-    try:
-        constraints = await resolver.video_duration_constraints(provider_id, model_id)
-    except SQLAlchemyError:
-        return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
-    durations = _request_durations(
-        supported,
-        constraints,
-        resolution,
-        uses_reference_images,
-        uses_end_frame,
-        route,
-        generation_type,
-        identity_params,
-    )
-    if isinstance(durations, VideoRequestFactsFailure):
-        return durations
-    allowed, excluded = durations
-
-    voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
-    try:
-        audio = await resolver.video_audio_facts(
-            provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
-        )
-    except SQLAlchemyError:
-        return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
-    has_audio_track = audio.has_audio_track if audio is not None else voice_consistency != "none"
-    audio_switch_controllable = audio.audio_switch_controllable if audio is not None else True
-    max_reference_images = caps.get("max_reference_images")
-    return VideoRequestFacts(
-        route=route,
-        generation_type=generation_type,
-        provider_id=provider_id,
-        model_id=model_id,
-        resolution=resolution,
-        supported_durations=supported,
-        allowed_durations=allowed,
-        excluded_durations=excluded,
-        duration_endpoint_fixed=endpoint_fixed,
-        requested_generate_audio=bool(caps.get("requested_generate_audio")),
-        generate_audio=bool(caps.get("generate_audio")) and has_audio_track,
-        has_audio_track=has_audio_track,
-        audio_switch_controllable=audio_switch_controllable,
-        max_reference_images=_optional_count(max_reference_images),
-        text_to_video=bool(caps.get("text_to_video", True)),
-        first_frame=bool(caps.get("first_frame")),
-        voice_consistency=voice_consistency,
-        max_reference_audio_count=_optional_count(caps.get("max_reference_audio_count", 0)),
-        reference_audio_per_image=bool(caps.get("reference_audio_per_image")),
-    )
+def _effective_resolution(
+    snapshot: CapabilitySnapshot,
+    project: dict | None,
+    resolution_override: ResolutionOverride | None,
+) -> str | None:
+    if resolution_override is not None:
+        return resolution_override.resolution or snapshot.default_resolution
+    saved = project_resolution(project, snapshot.provider_id, snapshot.model_id) if project is not None else None
+    return saved or snapshot.default_resolution
 
 
 def snapshot_video_request_facts(
     snapshot: CapabilitySnapshot,
-    project: dict,
+    project: dict | None,
     *,
     route: VideoRoute,
     generation_type: VideoGenerationType,
     requested_audio: bool,
-    uses_end_frame: bool,
-    service_tier: str,
+    uses_end_frame: bool = False,
+    service_tier: str = "default",
+    resolution_override: ResolutionOverride | None = None,
 ) -> VideoRequestFacts | VideoRequestFactsFailure:
     provider, model = snapshot.provider_id, snapshot.model_id
-    resolution = project_resolution(project, provider, model) or snapshot.default_resolution
-    inputs = {"reference_images"} if route == "reference_video" and generation_type == "r2v" else set()
+    resolution = _effective_resolution(snapshot, project, resolution_override)
+    inputs: set[str] = {"reference_images"} if generation_type == "r2v" else set()
     if route == "storyboard":
         inputs.add("first_frame")
     if uses_end_frame:
         inputs.add("last_frame")
-    snapshot = snapshot.for_request(RequestConditions(generation_type, resolution, service_tier, frozenset(inputs)))
-    values = snapshot.effective
     identity_params = (("provider", provider), ("model", model))
-    supported = tuple(sorted(set(values.get("durations") or ())))
-    fixed = isinstance(snapshot.duration, FixedDuration)
+    try:
+        req_snapshot = snapshot.for_request(
+            RequestConditions(generation_type, resolution, service_tier, frozenset(inputs))
+        )
+    except IncompatibleInputsError:
+        if uses_end_frame:
+            return VideoRequestFactsFailure(
+                "video_end_frame_durations_incompatible",
+                identity_params,
+                action="fix_input",
+            )
+        return VideoRequestFactsFailure(
+            _ROUTE_FAILURE_CODES[route]["unavailable"],
+            (("capability", generation_type), *identity_params),
+        )
+    values = req_snapshot.effective
+    raw_durations = values.get("durations") or ()
+    if any(isinstance(d, bool) or not isinstance(d, int) or d <= 0 for d in raw_durations):
+        return VideoRequestFactsFailure(_ROUTE_FAILURE_CODES[route]["invalid"], identity_params)
+    supported = tuple(sorted(set(raw_durations)))
+    fixed = isinstance(req_snapshot.duration, FixedDuration)
     if not supported and not fixed:
         return VideoRequestFactsFailure(_ROUTE_FAILURE_CODES[route]["missing"], identity_params)
     constraints = DurationConstraints(**values.get("duration_constraints", {}))
@@ -432,11 +329,12 @@ def snapshot_video_request_facts(
     )
     if isinstance(durations, VideoRequestFactsFailure):
         return durations
-    audio = snapshot.audio(generation_type, requested=requested_audio)
+    audio = req_snapshot.audio(generation_type, requested=requested_audio)
+    model_has_audio = req_snapshot.audio(generation_type, requested=True).output
     voice = derive_voice_consistency(
         reference_audio_mode=values["reference_audio_mode"],
         generation_mode=caps_generation_mode(project),
-        has_audio=snapshot.audio(generation_type, requested=True).output,
+        has_audio=model_has_audio,
         character_voice_binding=character_voice_binding(project),
     )
     return VideoRequestFacts(
@@ -451,15 +349,134 @@ def snapshot_video_request_facts(
         duration_endpoint_fixed=fixed,
         requested_generate_audio=requested_audio,
         generate_audio=audio.billed,
-        has_audio_track=audio.output,
+        has_audio_track=model_has_audio,
         audio_switch_controllable=audio.switch is not None,
-        max_reference_images=snapshot.reference_images.to_json(),
+        max_reference_images=req_snapshot.reference_images.to_json(),
         text_to_video=values["text_to_video"],
         first_frame=values["first_frame"],
         voice_consistency=voice,
         max_reference_audio_count=values["max_reference_audio_count"],
         reference_audio_per_image=values.get("reference_audio_per_image", False),
     )
+
+
+def duration_constraints_payload(facts: VideoRequestFacts, *, include_planning: bool = False) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "resolution": facts.resolution,
+        "uses_reference_images": facts.generation_type == "r2v",
+        "allowed": list(facts.allowed_durations),
+        "excluded": dict(facts.excluded_durations),
+    }
+    if include_planning:
+        payload["planning"] = planning_durations(facts)
+    return payload
+
+
+def end_frame_unit_durations_payload(
+    without_end_frame: VideoRequestFacts,
+    with_end_frame: VideoRequestFacts | VideoRequestFactsFailure,
+) -> dict[str, Any]:
+    return {
+        "without_end_frame": list(without_end_frame.allowed_durations),
+        "with_end_frame": list(with_end_frame.allowed_durations)
+        if isinstance(with_end_frame, VideoRequestFacts)
+        else [],
+        "excluded": dict(with_end_frame.excluded_durations),
+        "problem": None if isinstance(with_end_frame, VideoRequestFacts) else with_end_frame.problem_payload(),
+    }
+
+
+def _project_default_duration(project: dict | None) -> int | None:
+    if project is None:
+        return None
+    raw_default = project.get("default_duration")
+    if isinstance(raw_default, int) and not isinstance(raw_default, bool):
+        return raw_default
+    if isinstance(raw_default, str) and raw_default.strip().isdigit():
+        return int(raw_default.strip())
+    return None
+
+
+def _project_content_mode(project: dict | None) -> str | None:
+    if project is None:
+        return None
+    cm = project.get("content_mode")
+    return cm if isinstance(cm, str) and cm else None
+
+
+def project_video_capabilities(
+    snapshot: CapabilitySnapshot,
+    project: dict | None,
+    *,
+    generation_type: VideoGenerationType,
+    requested_audio: bool,
+    resolution_override: ResolutionOverride | None = None,
+    service_tier: str = "default",
+    route: VideoRoute | None = None,
+    include_planning: bool = False,
+) -> dict[str, Any]:
+    resolved_route: VideoRoute = route or (
+        "reference_video"
+        if generation_type == "r2v" or caps_generation_mode(project) == "reference_video"
+        else "storyboard"
+    )
+    facts = require_video_request_facts(
+        snapshot_video_request_facts(
+            snapshot,
+            project,
+            route=resolved_route,
+            generation_type=generation_type,
+            requested_audio=requested_audio,
+            uses_end_frame=False,
+            service_tier=service_tier,
+            resolution_override=resolution_override,
+        )
+    )
+    with_end_frame = snapshot_video_request_facts(
+        snapshot,
+        project,
+        route=resolved_route,
+        generation_type=generation_type,
+        requested_audio=requested_audio,
+        uses_end_frame=True,
+        service_tier=service_tier,
+        resolution_override=resolution_override,
+    )
+    ef_inputs = ({"reference_images"} if generation_type == "r2v" else {"first_frame"}) | {"last_frame"}
+    try:
+        ef_snapshot = snapshot.for_request(
+            RequestConditions(generation_type, facts.resolution, service_tier, frozenset(ef_inputs))
+        )
+        last_frame = bool(ef_snapshot.effective["last_frame"])
+    except IncompatibleInputsError:
+        last_frame = False
+
+    supported = list(facts.supported_durations)
+    fixed = facts.duration_endpoint_fixed
+    return {
+        "provider_id": facts.provider_id,
+        "model": facts.model_id,
+        "supported_durations": supported,
+        "max_duration": max(supported, default=0),
+        "max_reference_images": facts.max_reference_images,
+        "text_to_video": facts.text_to_video,
+        "first_frame": facts.first_frame,
+        "last_frame": last_frame,
+        "generate_audio": facts.generate_audio,
+        "requested_generate_audio": facts.requested_generate_audio,
+        "max_reference_audio_count": facts.max_reference_audio_count,
+        "reference_audio_per_image": facts.reference_audio_per_image,
+        "source": "custom" if facts.provider_id.startswith("custom-") else "registry",
+        "duration_endpoint_fixed": fixed,
+        "duration_endpoint_fixed_reason": duration_endpoint_fixed_reason(fixed),
+        "default_duration": _project_default_duration(project),
+        "episode_target_duration": project_episode_target_duration(project),
+        "content_mode": _project_content_mode(project),
+        "generation_mode": caps_generation_mode(project),
+        "voice_consistency": facts.voice_consistency,
+        "duration_constraints": duration_constraints_payload(facts, include_planning=include_planning),
+        "end_frame_unit_durations": end_frame_unit_durations_payload(facts, with_end_frame),
+    }
 
 
 def _request_durations(
@@ -515,13 +532,6 @@ def _request_durations(
         )
 
     return allowed, excluded
-
-
-def _optional_count(value: object) -> int | None:
-    """能力 dict 里的数量上限：``None`` 为未收录，其余按整数读（读不出时按 0，即不接受）。"""
-    if value is None:
-        return None
-    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0
 
 
 def end_frame_duration_failure(facts: VideoRequestFacts, duration: object) -> VideoRequestFactsFailure | None:

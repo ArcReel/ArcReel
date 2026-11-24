@@ -50,7 +50,7 @@ from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
 from lib.backends.video_capabilities import projected_video_capabilities
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio, resolve_video_capabilities
 from lib.billing.ledger import Ledger
-from lib.capabilities.kernel import CapabilitySnapshot, RequestConditions
+from lib.capabilities.kernel import CapabilitySnapshot, IncompatibleInputsError, RequestConditions
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
 from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend
@@ -421,10 +421,27 @@ class TrialRunManager:
             backend = await target.build_backend()
             is_video = target.media_type == "video"
             if target.snapshot is not None:
-                conditions = RequestConditions(
-                    "r2v" if assets.get("reference_images") else "i2v", parameters.resolution
+                inputs = frozenset(
+                    name
+                    for name, present in (
+                        ("first_frame", _single(assets.get("start_image")) is not None),
+                        ("last_frame", _single(assets.get("end_image")) is not None),
+                        ("reference_images", assets.get("reference_images")),
+                        ("reference_audio", assets.get("reference_audio_files")),
+                    )
+                    if present
                 )
-                video_caps = projected_video_capabilities(target.snapshot.for_request(conditions))
+                conditions = RequestConditions(
+                    "r2v" if assets.get("reference_images") else "i2v",
+                    parameters.resolution,
+                    inputs=inputs,
+                )
+                try:
+                    video_caps = projected_video_capabilities(target.snapshot.for_request(conditions))
+                except IncompatibleInputsError as exc:
+                    raise VideoCapabilityError(
+                        "video_reference_images_with_frames_unsupported", model=target.model
+                    ) from exc
             else:
                 video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
             if target.gate_capabilities:

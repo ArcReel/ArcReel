@@ -15,16 +15,15 @@ from lib.config.resolver import ConfigResolver
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation.video_request_facts import (
-    ExecutionVideoIdentity,
     VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
-    evaluate_video_request_facts,
 )
 from lib.script.reference_video.request_projection import (
     configured_reference_request_facts,
     project_reference_unit_request,
 )
+from lib.video_runtime.resolution import read_video_request_facts
 from server.services.admission import cost_estimation
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
 from tests.catalog_support import install_catalog, with_entry_changes
@@ -257,11 +256,10 @@ class TestCostEstimationService:
         assert estimate
         assert all(amount > 0 for amount in estimate.values())
 
-        executed = await evaluate_video_request_facts(
+        executed = await read_video_request_facts(
             project,
             route=generation_mode,
             generation_type="i2v",
-            identity=ExecutionVideoIdentity(provider, model),
             resolver=ConfigResolver(db_factory),
         )
         assert isinstance(executed, VideoRequestFacts)
@@ -326,13 +324,11 @@ class TestCostEstimationService:
             project, {"ep1.json": script}, project_name="bucket-resolutions"
         )
         segments = {segment["segment_id"]: segment for segment in result["episodes"][0]["segments"]}
-        for bucket, pair, resolution, allowed in (("i2v", i2v, "720p", (4, 6, 8)), ("r2v", r2v, "1080p", (8,))):
-            provider, model = pair.split("/")
-            executed = await evaluate_video_request_facts(
+        for bucket, resolution, allowed in (("i2v", "720p", (4, 6, 8)), ("r2v", "1080p", (8,))):
+            executed = await read_video_request_facts(
                 project,
                 route="reference_video",
                 generation_type=bucket,
-                identity=ExecutionVideoIdentity(provider, model),
                 resolver=resolver,
             )
             assert isinstance(executed, VideoRequestFacts)

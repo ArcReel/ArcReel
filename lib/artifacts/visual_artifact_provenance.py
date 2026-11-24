@@ -21,8 +21,8 @@ from lib.prompts.prompt_style import normalize_style_value
 from lib.prompts.prompt_utils import project_storyboard_image_prompt
 from lib.prompts.reference_image_numbering import reference_image_label
 from lib.script.grid.prompt_builder import project_grid_image_prompt
-from lib.script.reference_video.request_projection import ResolvedReferenceAsset
 from lib.script.reference_video.text_parser import render_matched_mentions, strip_speech_marks
+from lib.script.script_models import ResolvedReferenceAsset
 
 
 @dataclass(frozen=True, slots=True)

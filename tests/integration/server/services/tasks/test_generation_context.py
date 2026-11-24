@@ -40,13 +40,12 @@ from lib.db.models.config import SystemSetting
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.generation.media_generator import MediaGenerator
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
-    evaluate_video_request_facts,
 )
 from lib.project.project_manager import ProjectManager
+from lib.video_runtime.resolution import read_video_request_facts
 from server.services.tasks import generation_context
 from server.services.tasks.generation_context import (
     AudioLaneRequest,
@@ -432,11 +431,15 @@ class TestVideoLane:
             facts = ctx.video.request_facts
             assert isinstance(facts, VideoRequestFacts)
             assert facts.has_audio_track is has_audio
-            caps = await ConfigResolver(patched_session_factory).video_capabilities_for_model(
-                "kling", model_id, project, generation_type="i2v", builtin_endpoint=endpoint
+            from lib.generation.video_request_facts import project_video_capabilities
+            from server.services.tasks.video_caps import resolve_project_video_capabilities
+
+            assert ctx.generator._video_snapshot is not None
+            caps = project_video_capabilities(
+                ctx.generator._video_snapshot, project, generation_type="i2v", requested_audio=True
             )
-            current_caps = await ConfigResolver(patched_session_factory).video_capabilities_for_model(
-                "kling", model_id, project, generation_type="i2v"
+            current_caps = await resolve_project_video_capabilities(
+                project, generation_type="i2v", config_resolver=ConfigResolver(patched_session_factory)
             )
         finally:
             catalog.install_user_added_models(())
@@ -491,11 +494,10 @@ class TestVideoRequestFacts:
             "video_backend": f"{provider_id}/m-dead",
             "generation_mode": "reference_video" if route == "reference_video" else "storyboard",
         }
-        read = await evaluate_video_request_facts(
+        read = await read_video_request_facts(
             project,
             route=route,
             generation_type=bucket,
-            identity=CONFIGURED_VIDEO_IDENTITY,
             resolver=ConfigResolver(patched_session_factory),
         )
 
@@ -582,11 +584,10 @@ class TestVideoRequestFacts:
         ctx = await resolve_generation_context(
             "demo", None, project=project, video=VideoLaneRequest(generation_type=generation_type, route=route)
         )
-        read = await evaluate_video_request_facts(
+        read = await read_video_request_facts(
             project,
             route=route,
             generation_type=generation_type,
-            identity=CONFIGURED_VIDEO_IDENTITY,
             resolver=ConfigResolver(patched_session_factory),
         )
 
@@ -1203,9 +1204,7 @@ async def test_video_execution_reads_one_configuration_through_provider_submissi
     monkeypatch.setattr(catalog, "callable_model_view", view)
     for method in (
         "video_capabilities_for_model",
-        "video_audio_facts",
         "resolve_resolution",
-        "video_duration_constraints",
         "reference_payload_limits",
         "video_generate_audio",
     ):

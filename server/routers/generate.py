@@ -29,10 +29,8 @@ from lib.generation.asset_admission import AssetTarget, idle_asset_write
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFactsFailure,
     end_frame_duration_failure,
-    evaluate_video_request_facts,
 )
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
@@ -54,6 +52,7 @@ from lib.script.storyboard_sequence import (
 from lib.speech.narration_config import NarrationConfigError, require_project_tts_generation
 from lib.speech.narration_delivery import canonical_narration_text
 from lib.speech.speech_composition import SpeechMode, admit_script_unit
+from lib.video_runtime.resolution import read_video_request_facts
 from server.auth import CurrentUser
 from server.i18n import Translator
 from server.routers._validators import require_audio_switch_supported, require_video_bucket_capability
@@ -276,11 +275,10 @@ async def generate_video(
     if item.get("end_frame_image"):
         from lib.db import async_session_factory
 
-        facts = await evaluate_video_request_facts(
+        facts = await read_video_request_facts(
             project,
             route="storyboard",
             generation_type=_video_bucket,
-            identity=CONFIGURED_VIDEO_IDENTITY,
             resolver=ConfigResolver(async_session_factory),
             uses_end_frame=True,
         )

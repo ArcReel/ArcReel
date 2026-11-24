@@ -22,7 +22,6 @@ from collections.abc import AsyncGenerator, Mapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import DurationConstraints
-from arcreel_market_core.video_backend_contract import VideoAudioFacts, VideoAudioMode
 from lib.backends.backend_assembly.specs import (
     builtin_effective_generate_audio_for_model,
     builtin_video_capabilities_for_model,
@@ -314,9 +313,7 @@ def video_capability_satisfied(
     return generation_type not in unmet
 
 
-def builtin_video_audio_track(
-    provider_id: str, model_id: str, *, generation_type: VideoGenerationType, builtin_endpoint: str | None = None
-) -> str | None:
+def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_type: VideoGenerationType) -> str | None:
     """内置视频 model 在该任务类型桶上的成片音轨形态；无法解析时 None（调用方按「无信号不收紧」处理）。
 
     真相源是 backend 的 ``VideoCapabilities``——backend 是执行期真正构造请求的一方，「请求体里
@@ -334,7 +331,7 @@ def builtin_video_audio_track(
     if catalog.get_model(provider_id, model_id, media_type="video") is None:
         return None
     try:
-        caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
+        caps = builtin_video_capabilities_for_model(provider_id, model_id)
     except ValueError:
         return None
     return caps.audio_track_for_route(generation_type).value
@@ -930,85 +927,6 @@ class ConfigResolver:
                 svc, session, project, generation_type=generation_type
             )
 
-    async def video_duration_constraints(self, provider_id: str, model_id: str) -> DurationConstraints | None:
-        """视频模型的时长联动约束（模型事实）；没有约束时为 None。
-
-        内置模型取目录；自定义供应商的模型取能力覆盖 > 对应条目，对应不上条目时不加约束。ComfyUI 端点的
-        时长只从节点绑定推导，没有联动约束。模型行或端点解析不出时为 None：引用失效由能力解析报错，
-        这里不重复。
-        """
-        if not is_custom_provider(provider_id):
-            return builtin_duration_constraints(provider_id, model_id)
-        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-        from lib.custom_provider.model_facts import video_model_facts
-        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-
-        async with self._open_session() as (session, _svc):
-            try:
-                model = await CustomProviderRepository(session).get_model_by_ids(
-                    parse_provider_id(provider_id), model_id
-                )
-                if model is None:
-                    return None
-                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-            except ValueError:
-                return None
-            if endpoint_spec.endpoint_durations is not None:
-                return None
-            return video_model_facts(
-                model_id, model.capability_overrides, entry_binding=model.entry_binding
-            ).duration_constraints
-
-    async def video_audio_facts(
-        self,
-        provider_id: str,
-        model_id: str,
-        *,
-        generation_type: VideoGenerationType,
-        builtin_endpoint: str | None = None,
-    ) -> VideoAudioFacts | None:
-        """独立返回端点是否下发音轨开关与模型是否有声；无法解析身份时为 None。"""
-        if not is_custom_provider(provider_id):
-            mode = builtin_video_audio_track(
-                provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
-            )
-            if mode is None:
-                return None
-            audio = VideoAudioMode(mode)
-            return VideoAudioFacts(audio.has_audio_track, audio.audio_switch_controllable)
-        from lib.custom_provider.capabilities import (
-            synthesize_video_capabilities,
-            system_video_capabilities,
-            video_audio_facts,
-        )
-        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-
-        async with self._open_session() as (session, _svc):
-            try:
-                model = await CustomProviderRepository(session).get_model_by_ids(
-                    parse_provider_id(provider_id), model_id
-                )
-                if model is None:
-                    return None
-                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-                caps = synthesize_video_capabilities(
-                    endpoint=model.endpoint,
-                    model_id=model_id,
-                    overrides=model.capability_overrides,
-                    endpoint_spec=endpoint_spec,
-                    entry_binding=model.entry_binding,
-                )
-                channel = system_video_capabilities(
-                    endpoint=model.endpoint,
-                    model_id=model_id,
-                    endpoint_spec=endpoint_spec,
-                    entry_binding=model.entry_binding,
-                )
-            except ValueError:
-                return None
-        return video_audio_facts(channel, caps, generation_type)
-
     async def video_capabilities_for_model(
         self,
         provider_id: str,
@@ -1016,23 +934,8 @@ class ConfigResolver:
         project: dict | None = None,
         *,
         generation_type: VideoGenerationType | None = None,
-        builtin_endpoint: str | None = None,
     ) -> dict:
-        """读取指定 provider/model 的视频能力，不再二次解析 provider。
-
-        供执行层使用：调用方已通过 `resolve_video_backend(project, payload)` 解析出实际
-        要调用的 ProviderModel（含历史任务 payload 覆盖），用此变体取能力可保证 duration
-        守卫所依据的 supported_durations 与实际调用的 model 一致，避免「按项目默认 model
-        的能力去校验 payload 解析出的 model」的错配。
-
-        入参身份仍会再收敛一次（口径同 ``resolve_video_backend``），因此直接传字面配置也能
-        拿到有效身份的能力；自定义供应商无可用默认 model 时抛 ``ValueError``。
-
-        声音一致性等二维值按 ``project`` 的生成模式派生；``generation_type`` 显式给定时按该任务类型桶派生
-        逐路径的能力位（音轨形态按执行子路径分叉，见 :func:`builtin_video_audio_track`）——
-        执行层已知任务落在哪个桶，传进来才能拿到与实际请求同形的结果。
-        ``builtin_endpoint`` 为构造后端时选定的内置调用端点；缺省时读模型当前挂接的端点。
-        """
+        """读取指定 provider/model 的视频能力，不再二次解析 provider。"""
         async with self._open_session() as (session, svc):
             return await self._resolve_video_caps_for_model(
                 svc,
@@ -1041,7 +944,6 @@ class ConfigResolver:
                 model_id,
                 project,
                 generation_type=generation_type,
-                builtin_endpoint=builtin_endpoint,
             )
 
     async def video_pricing_generate_audio(
@@ -1542,7 +1444,6 @@ class ConfigResolver:
         project: dict | None,
         *,
         generation_type: VideoGenerationType | None = None,
-        builtin_endpoint: str | None = None,
     ) -> dict:
         if generation_type is None:
             generation_type = video_bucket_for_generation_mode(caps_generation_mode(project))
@@ -1606,7 +1507,7 @@ class ConfigResolver:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
             try:
-                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id, endpoint=builtin_endpoint)
+                builtin_caps = builtin_video_capabilities_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise ValueError(f"cannot resolve video capabilities for {provider_id}/{model_id}: {exc}") from exc
             max_reference_images = builtin_caps.max_reference_images
@@ -1618,9 +1519,7 @@ class ConfigResolver:
             reference_audio_per_image = builtin_caps.reference_audio_per_image
             has_audio = builtin_caps.audio_track_for_route(generation_type) != "always_off"
             try:
-                default_tier_generates_audio = builtin_effective_generate_audio_for_model(
-                    provider_id, model_id, endpoint=builtin_endpoint
-                )
+                default_tier_generates_audio = builtin_effective_generate_audio_for_model(provider_id, model_id)
             except ValueError as exc:
                 raise ValueError(
                     f"cannot resolve video pricing capabilities for {provider_id}/{model_id}: {exc}"

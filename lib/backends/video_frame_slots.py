@@ -52,6 +52,8 @@ def resolve_video_capabilities(
     *,
     service_tier: str = "default",
     resolution: str | None = None,
+    bucket: str | None = None,
+    inputs: frozenset[str] | None = None,
 ) -> VideoCapabilities:
     """解析后端在本次请求档位下的视频能力。
 
@@ -61,6 +63,16 @@ def resolve_video_capabilities(
     """
     tier_aware = getattr(backend, "video_capabilities_for_tier", None)
     if tier_aware is not None:
+        if bucket is not None or inputs is not None:
+            try:
+                return tier_aware(
+                    service_tier,
+                    resolution=resolution,
+                    bucket=bucket or "i2v",
+                    inputs=inputs or frozenset(),
+                )
+            except TypeError:
+                pass
         return tier_aware(service_tier, resolution=resolution)
     return backend.video_capabilities
 

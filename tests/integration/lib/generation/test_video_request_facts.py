@@ -10,17 +10,16 @@ from sqlalchemy import update
 from arcreel_catalog_core import DurationConstraints
 from lib.catalog import query as catalog
 from lib.catalog.query import catalog_data
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
-    ExecutionVideoIdentity,
     ResolutionOverride,
     VideoRequestFacts,
     VideoRequestFactsFailure,
-    evaluate_video_request_facts,
+    snapshot_video_request_facts,
 )
+from lib.video_runtime.resolution import VideoRuntime, read_video_request_facts
 from tests.catalog_support import install_catalog, with_entry_changes, with_entry_facts
 from tests.factories import seed_endpoint_fixed_video_model
 
@@ -62,12 +61,33 @@ async def _seed_custom_video_models(db_factory, *rows: dict) -> str:
 
 
 async def _read(resolver, project: dict, *, route="storyboard", generation_type="i2v"):
-    return await evaluate_video_request_facts(
+    return await read_video_request_facts(
         project,
         route=route,
         generation_type=generation_type,
-        identity=CONFIGURED_VIDEO_IDENTITY,
         resolver=resolver,
+    )
+
+
+async def _materialized_facts(
+    resolver: ConfigResolver,
+    project: dict,
+    provider_id: str,
+    model_id: str,
+    *,
+    route="storyboard",
+    generation_type="i2v",
+    uses_end_frame: bool = False,
+):
+    target = await VideoRuntime(resolver).materialized(ProviderModel(provider_id, model_id))
+    requested_audio = await resolver.video_generate_audio_for_project(project)
+    return snapshot_video_request_facts(
+        target.snapshot,
+        project,
+        route=route,
+        generation_type=generation_type,
+        requested_audio=requested_audio,
+        uses_end_frame=uses_end_frame,
     )
 
 
@@ -184,27 +204,22 @@ async def test_no_configured_video_model_fails_as_capability_unavailable(resolve
 
 
 @pytest.mark.parametrize("route", ["storyboard", "reference_video"])
-@pytest.mark.parametrize("execution", [False, True], ids=["configured", "execution"])
-async def test_database_query_failure_returns_unavailable_facts(resolver, db_factory, db_engine, route, execution):
+async def test_database_query_failure_returns_unavailable_facts(resolver, db_factory, db_engine, route):
     provider_id = await _seed_custom_video_models(
         db_factory, {"model_id": "m", "capability_overrides": {"durations": [5]}, "is_default": True}
     )
     async with db_engine.begin() as connection:
         await connection.run_sync(CustomProviderModel.__table__.drop)
 
-    result = await evaluate_video_request_facts(
+    result = await read_video_request_facts(
         {"video_provider_i2v": f"{provider_id}/m"},
         route=route,
         generation_type="i2v",
-        identity=ExecutionVideoIdentity(provider_id, "m") if execution else CONFIGURED_VIDEO_IDENTITY,
         resolver=resolver,
     )
 
-    params = (("capability", "i2v"),)
-    if execution:
-        params += (("provider", provider_id), ("model", "m"))
     prefix = "video" if route == "storyboard" else "reference"
-    assert result == VideoRequestFactsFailure(f"{prefix}_capability_unavailable", params)
+    assert result == VideoRequestFactsFailure(f"{prefix}_capability_unavailable", (("capability", "i2v"),))
 
 
 async def test_custom_model_without_durations_falls_back_to_name_preset(resolver, db_factory):
@@ -278,23 +293,12 @@ async def test_unavailable_execution_identity_fails_instead_of_using_the_default
         {"model_id": "m-live", "is_default": True, "capability_overrides": {"durations": [8]}},
     )
 
-    result = await evaluate_video_request_facts(
-        {},
-        route=route,
-        generation_type="i2v",
-        identity=ExecutionVideoIdentity(provider_id, "m-dead"),
-        resolver=resolver,
-    )
-
-    prefix = "video" if route == "storyboard" else "reference"
-    assert result == VideoRequestFactsFailure(
-        f"{prefix}_capability_unavailable",
-        (("capability", "i2v"), ("provider", provider_id), ("model", "m-dead")),
-    )
+    with pytest.raises(ValueError, match="custom model not found"):
+        await _materialized_facts(resolver, {}, provider_id, "m-dead", route=route, generation_type="i2v")
 
 
 @pytest.mark.parametrize(("route", "generation_type"), [("storyboard", "i2v"), ("reference_video", "r2v")])
-async def test_configured_identity_change_after_bucket_validation_fails(db_factory, route, generation_type):
+async def test_configured_identity_read_snapshot_is_single_session_consistent(db_factory, route, generation_type):
     provider_id = await _seed_custom_video_models(
         db_factory,
         {
@@ -331,11 +335,9 @@ async def test_configured_identity_change_after_bucket_validation_fails(db_facto
         generation_type=generation_type,
     )
 
-    prefix = "video" if route == "storyboard" else "reference"
-    assert result == VideoRequestFactsFailure(
-        f"{prefix}_capability_unavailable",
-        (("capability", generation_type), ("provider", provider_id), ("model", "m-selected")),
-    )
+    assert isinstance(result, VideoRequestFacts)
+    assert result.model_id == "m-selected"
+    assert result.allowed_durations == (5,)
 
 
 async def test_execution_identity_follows_the_backend_when_it_diverges_from_configuration(resolver, db_factory):
@@ -348,12 +350,8 @@ async def test_execution_identity_follows_the_backend_when_it_diverges_from_conf
     project = {"video_provider_i2v": f"{provider_id}/m-dead"}
 
     read = await _read(resolver, project)
-    executed = await evaluate_video_request_facts(
-        project,
-        route="storyboard",
-        generation_type="i2v",
-        identity=ExecutionVideoIdentity(provider_id, "m-live"),
-        resolver=resolver,
+    executed = await _materialized_facts(
+        resolver, project, provider_id, "m-live", route="storyboard", generation_type="i2v"
     )
 
     assert isinstance(read, VideoRequestFactsFailure)
@@ -384,12 +382,8 @@ async def test_read_and_execution_sides_agree_when_identities_match(resolver, pr
     read = await _read(resolver, project, route=route, generation_type=generation_type)
     assert isinstance(read, VideoRequestFacts)
 
-    executed = await evaluate_video_request_facts(
-        project,
-        route=route,
-        generation_type=generation_type,
-        identity=ExecutionVideoIdentity(read.provider_id, read.model_id),
-        resolver=resolver,
+    executed = await _materialized_facts(
+        resolver, project, read.provider_id, read.model_id, route=route, generation_type=generation_type
     )
 
     assert executed == read
@@ -407,12 +401,8 @@ async def test_reference_buckets_use_their_own_model_resolution_on_both_sides(re
         assert isinstance(read, VideoRequestFacts)
         assert read.resolution == resolution
         assert read.allowed_durations == allowed
-        executed = await evaluate_video_request_facts(
-            project,
-            route="reference_video",
-            generation_type=bucket,
-            identity=ExecutionVideoIdentity(read.provider_id, read.model_id),
-            resolver=resolver,
+        executed = await _materialized_facts(
+            resolver, project, read.provider_id, read.model_id, route="reference_video", generation_type=bucket
         )
         assert executed == read
 
@@ -432,11 +422,10 @@ async def test_resolution_override_previews_an_unsaved_resolution(
     """覆盖分辨率取代项目已保存的档位作为请求分辨率，其余求值不变。"""
     project = _with_resolution({f"video_provider_{generation_type}": VEO}, VEO, "1080p")
 
-    preview = await evaluate_video_request_facts(
+    preview = await read_video_request_facts(
         project,
         route="storyboard" if generation_type == "i2v" else "reference_video",
         generation_type=generation_type,
-        identity=CONFIGURED_VIDEO_IDENTITY,
         resolver=resolver,
         resolution_override=ResolutionOverride(override),
     )
@@ -451,22 +440,17 @@ async def test_resolution_override_previews_an_unsaved_resolution(
 async def test_resolution_override_leaves_read_and_execution_evaluations_on_the_saved_resolution(resolver):
     """预览过未保存的分辨率后，不传覆盖的读侧与执行侧仍按已保存档位求值。"""
     project = _with_resolution({"video_provider_i2v": VEO}, VEO, "1080p")
-    await evaluate_video_request_facts(
+    await read_video_request_facts(
         project,
         route="storyboard",
         generation_type="i2v",
-        identity=CONFIGURED_VIDEO_IDENTITY,
         resolver=resolver,
         resolution_override=ResolutionOverride("720p"),
     )
 
     read = await _read(resolver, project)
-    executed = await evaluate_video_request_facts(
-        project,
-        route="storyboard",
-        generation_type="i2v",
-        identity=ExecutionVideoIdentity(VEO_PROVIDER, VEO_MODEL),
-        resolver=resolver,
+    executed = await _materialized_facts(
+        resolver, project, VEO_PROVIDER, VEO_MODEL, route="storyboard", generation_type="i2v"
     )
 
     assert isinstance(read, VideoRequestFacts)
@@ -483,11 +467,10 @@ async def test_auto_resolution_override_falls_back_to_the_custom_model_default(r
     )
     pair = f"{provider_id}/m"
 
-    preview = await evaluate_video_request_facts(
+    preview = await read_video_request_facts(
         _with_resolution({"video_provider_i2v": pair}, pair, "1080p"),
         route="storyboard",
         generation_type="i2v",
-        identity=CONFIGURED_VIDEO_IDENTITY,
         resolver=resolver,
         resolution_override=ResolutionOverride(None),
     )
@@ -502,7 +485,7 @@ async def test_auto_resolution_override_falls_back_to_the_custom_model_default(r
     ("pair", "generation_type", "requested", "expected", "voice_consistency"),
     [
         (VEO, "i2v", False, (False, True, True, False), "soft"),
-        ("dashscope/wan2.7-i2v", "i2v", False, (False, False, True, False), "soft"),
+        ("dashscope/wan2.7-i2v", "i2v", False, (False, True, True, False), "soft"),
         ("kling/kling-v3-omni", "i2v", False, (False, False, True, True), "soft"),
         ("kling/kling-v3-omni", "r2v", False, (False, False, False, False), "none"),
         ("kling/kling-v3-omni", "r2v", True, (True, False, False, False), "none"),
@@ -682,11 +665,10 @@ async def test_end_frame_narrows_request_but_not_planning(resolver, monkeypatch)
     )
     project = {"video_provider_i2v": VEO}
     planning = await _read(resolver, project)
-    request = await evaluate_video_request_facts(
+    request = await read_video_request_facts(
         project,
         route="storyboard",
         generation_type="i2v",
-        identity=CONFIGURED_VIDEO_IDENTITY,
         resolver=resolver,
         uses_end_frame=True,
     )
@@ -711,11 +693,10 @@ async def test_end_frame_intersects_resolution_and_reference_constraints(resolve
             ),
         ),
     )
-    failure = await evaluate_video_request_facts(
+    failure = await read_video_request_facts(
         _with_resolution({"video_provider_r2v": VEO}, VEO, "1080p"),
         route="reference_video",
         generation_type="r2v",
-        identity=CONFIGURED_VIDEO_IDENTITY,
         resolver=resolver,
         uses_end_frame=True,
     )
@@ -734,11 +715,10 @@ async def test_custom_model_end_frame_override_replaces_entry_constraints(resolv
             "capability_overrides": {"duration_constraints": {"with_end_frame": [4, 6]}},
         },
     )
-    result = await evaluate_video_request_facts(
+    result = await read_video_request_facts(
         {"video_provider_i2v": f"{provider}/vendor/Veo-3.1-Generate-001"},
         route="storyboard",
         generation_type="i2v",
-        identity=CONFIGURED_VIDEO_IDENTITY,
         resolver=resolver,
         uses_end_frame=True,
     )

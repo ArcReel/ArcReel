@@ -45,12 +45,10 @@ from lib.episode.episode_paths import (
     episode_drafts_dir,
 )
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     VideoRequestFacts,
     VideoRequestFactsError,
     VideoRequestFactsFailure,
     VideoRoute,
-    evaluate_video_request_facts,
     plan_capability_inputs,
     planning_durations,
     reference_migration_durations,
@@ -167,6 +165,7 @@ from lib.script.script_skeleton import resolve_declared_kind, resolve_kind_items
 from lib.script.script_structure_validator import validate_script_structure
 from lib.speech.speech_composition import require_script_unit_admitted
 from lib.speech.speech_rate import project_speech_rate_override
+from lib.video_runtime.resolution import read_video_request_facts
 
 logger = logging.getLogger(__name__)
 
@@ -1124,11 +1123,10 @@ class ScriptGenerator:
             route, buckets = "storyboard", (self._storyboard_bucket,)
         by_bucket: dict[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure] = {}
         for bucket in buckets:
-            by_bucket[bucket] = await evaluate_video_request_facts(
+            by_bucket[bucket] = await read_video_request_facts(
                 self.project_json,
                 route=route,
                 generation_type=bucket,
-                identity=CONFIGURED_VIDEO_IDENTITY,
                 resolver=resolver,
             )
         return PlanningVideoFacts(by_bucket=by_bucket)

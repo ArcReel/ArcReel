@@ -36,14 +36,11 @@ from lib.custom_provider.metering import CustomPriceSource, load_custom_price_so
 from lib.db.repositories.custom_provider_repo import CustomModelPricing
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     DEFAULT_PLANNED_DURATION_SECONDS,
-    ExecutionVideoIdentity,
     VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
     end_frame_duration_failure,
-    evaluate_video_request_facts,
 )
 from lib.infra.schema_guards import is_int
 from lib.project.asset_types import ASSET_SPECS
@@ -73,6 +70,7 @@ from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import get_storyboard_items, group_scenes_by_segment_break
 from lib.speech.narration_config import USE_TTS, project_narration_delivery, project_tts_settings
 from lib.speech.speech_composition import video_unit_replan_problems
+from lib.video_runtime.resolution import read_video_facts_pair
 
 logger = logging.getLogger(__name__)
 
@@ -427,31 +425,16 @@ class CostEstimationService:
                 if isinstance(evaluated, VideoRequestFacts):
                     reference_facts[generation_type] = evaluated
         async with self._resolver.session() as r:
-            storyboard_facts = (
-                await evaluate_video_request_facts(
+            if not is_reference_video:
+                storyboard_facts, end_frame_facts = await read_video_facts_pair(
                     project_data,
                     route="storyboard",
                     generation_type="i2v",
-                    identity=CONFIGURED_VIDEO_IDENTITY,
                     resolver=r,
+                    include_end_frame=_scripts_have_end_frame(episodes_meta, scripts),
                 )
-                if not is_reference_video
-                else None
-            )
-            if not is_reference_video and _scripts_have_end_frame(episodes_meta, scripts):
-                end_frame_identity = (
-                    ExecutionVideoIdentity(storyboard_facts.provider_id, storyboard_facts.model_id)
-                    if isinstance(storyboard_facts, VideoRequestFacts)
-                    else CONFIGURED_VIDEO_IDENTITY
-                )
-                end_frame_facts = await evaluate_video_request_facts(
-                    project_data,
-                    route="storyboard",
-                    generation_type="i2v",
-                    identity=end_frame_identity,
-                    resolver=r,
-                    uses_end_frame=True,
-                )
+            else:
+                storyboard_facts = None
             try:
                 resolved_image = await r.resolve_image_backend(project_data, None, generation_type="t2i")
                 image_provider, image_model = resolved_image.provider_id, resolved_image.model_id

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from copy import copy
 from dataclasses import replace
-from typing import cast
+from typing import Literal, cast
 
 from arcreel_catalog_core import CatalogEntry, VideoFacts
 from arcreel_market_core.video_backend_contract import (
@@ -319,9 +319,16 @@ class CustomVideoBackend:
         """
         return provider_asset_roles(self._delegate)
 
-    def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
+    def video_capabilities_for_tier(
+        self,
+        service_tier: str,
+        resolution: str | None = None,
+        *,
+        bucket: Literal["i2v", "r2v"] = "i2v",
+        inputs: frozenset[str] = frozenset(),
+    ) -> VideoCapabilities:
         if self._snapshot is not None:
-            conditions = RequestConditions("i2v", resolution, service_tier)
+            conditions = RequestConditions(bucket, resolution, service_tier, inputs)
             return projected_video_capabilities(self._snapshot.for_request(conditions))
         tier_aware = getattr(self._delegate, "video_capabilities_for_tier", None)
         base = (
