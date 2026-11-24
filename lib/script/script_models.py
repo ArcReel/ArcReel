@@ -7,6 +7,8 @@ script_models.py - 剧本数据模型
 """
 
 import logging
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal, get_args
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, create_model, model_validator
@@ -763,6 +765,15 @@ class ReferenceResource(BaseModel):
 
     type: Literal["product", "character", "scene", "prop"] = Field(description="引用的资源类型")
     name: str = Field(description="商品/角色/场景/道具名称，必须在 project.json 对应 bucket 中已注册")
+
+
+@dataclass(frozen=True)
+class ResolvedReferenceAsset:
+    """一个逻辑引用展开出的图片候选；可用性由注入的资产适配器判断。"""
+
+    path: Path
+    reference: ReferenceResource
+    kind: str = "asset"
 
 
 class ReferenceVideoUnit(BaseModel):

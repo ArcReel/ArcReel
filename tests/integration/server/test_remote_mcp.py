@@ -39,7 +39,7 @@ from server.cors_config import resolve_cors_policy
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server, mount_remote_mcp
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import Services, TextGenerationResult
-from tests.factories import install_current_video, make_test_clip, make_video_request_facts, register_project_sources
+from tests.factories import install_current_video, make_test_clip, register_project_sources
 from tests.fakes import refuse_resume_execution
 from tests.integration.server.agent_tool_support import ToolHarness
 
@@ -356,12 +356,34 @@ async def test_remote_mcp_describes_selecting_uploaded_video_versions(remote_ser
 
 
 async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
-    remote_server, remote_projects: ProjectManager, set_video_request_facts
+    remote_server, remote_projects: ProjectManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    set_video_request_facts(
-        make_video_request_facts(
-            provider_id="fake", model_id="video-1", supported_durations=(4, 6), allowed_durations=(4, 6)
-        )
+    from unittest.mock import AsyncMock
+
+    from server import tool_runtime
+
+    monkeypatch.setattr(
+        tool_runtime,
+        "resolve_project_video_capabilities",
+        AsyncMock(
+            return_value={
+                "provider_id": "fake",
+                "model": "video-1",
+                "supported_durations": [4, 6],
+                "end_frame_unit_durations": {
+                    "without_end_frame": [4, 6],
+                    "with_end_frame": [4, 6],
+                    "excluded": {},
+                    "problem": None,
+                },
+                "duration_constraints": {
+                    "resolution": None,
+                    "uses_reference_images": False,
+                    "allowed": [4, 6],
+                    "excluded": {},
+                },
+            }
+        ),
     )
     app = _mounted(remote_server)
     async with (

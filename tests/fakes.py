@@ -722,6 +722,28 @@ class FakeConfigResolver:
         self.project_payloads.append(project)
         return self._resolve(generation_type)
 
+    def fake_video_read_snapshot(self, project: dict[str, Any] | None, generation_type: str | None = None) -> Any:
+        from lib.capabilities.kernel import AudioProtocol, Endpoint, resolve
+        from lib.video_runtime.resolution import VideoReadSnapshot
+
+        if project is not None:
+            self.project_payloads.append(project)
+        caps = self._resolve(generation_type)
+        durations = tuple(caps.get("supported_durations") or ())
+        endpoint = Endpoint(
+            "video",
+            slots=frozenset({"text_to_video", "first_frame", "last_frame", "reference_images"}),
+            audio=AudioProtocol.SWITCH,
+            defaults={"durations": durations},
+        )
+        snapshot = resolve(
+            endpoint,
+            facts={"durations": durations},
+            provider_id=str(caps.get("provider_id", "fake")),
+            model_id=str(caps.get("model", "fake-video")),
+        )
+        return VideoReadSnapshot(snapshot=snapshot, requested_audio=bool(caps.get("requested_generate_audio", True)))
+
     async def resolve_resolution(self, project: dict[str, Any], provider_id: str, model_id: str) -> str:
         del project, provider_id, model_id
         return self._image_resolution

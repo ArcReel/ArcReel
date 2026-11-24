@@ -7,13 +7,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import (
-    CONFIGURED_VIDEO_IDENTITY,
     ENDPOINT_FIXED_PLANNING_DURATIONS,
     VideoRequestFacts,
     VideoRequestFactsFailure,
-    evaluate_video_request_facts,
 )
 from lib.i18n.zh import errors as zh_errors
+from lib.video_runtime.resolution import read_video_request_facts
 from server.routers import projects
 from tests.factories import make_display_names, seed_endpoint_fixed_video_model
 from tests.integration.server.routers.projects_router_support import (
@@ -26,16 +25,12 @@ class TestGetVideoCapabilities:
     """GET /projects/{name}/video-capabilities"""
 
     def _patch_resolver(self, monkeypatch, side_effect=None, return_value=None):
-        """用 MagicMock 替换 ConfigResolver 类，让其 instance.video_capabilities_for_project() 返回指定行为。"""
-        from unittest.mock import AsyncMock, MagicMock
+        """替换 resolve_project_video_capabilities 以验证路由层的错误映射。"""
+        from unittest.mock import AsyncMock
 
-        resolver_instance = MagicMock()
-        if side_effect is not None:
-            resolver_instance.video_capabilities_for_project = AsyncMock(side_effect=side_effect)
-        else:
-            resolver_instance.video_capabilities_for_project = AsyncMock(return_value=return_value)
-        monkeypatch.setattr(projects, "ConfigResolver", lambda _factory: resolver_instance)
-        return resolver_instance
+        mock = AsyncMock(side_effect=side_effect) if side_effect is not None else AsyncMock(return_value=return_value)
+        monkeypatch.setattr(projects, "resolve_project_video_capabilities", mock)
+        return mock
 
     def test_malformed_video_backend_returns_400(self, tmp_path, monkeypatch):
         self._patch_resolver(monkeypatch, return_value={})
@@ -266,11 +261,10 @@ class TestDurationConstraintsMatchRequestFacts:
         saved_configuration.pop("model_settings", None)
         if effective is not None:
             saved_configuration["model_settings"] = {self.VEO: {"resolution": effective}}
-        facts = await evaluate_video_request_facts(
+        facts = await read_video_request_facts(
             saved_configuration,
             route="reference_video" if generation_type == "r2v" else "storyboard",
             generation_type=generation_type,
-            identity=CONFIGURED_VIDEO_IDENTITY,
             resolver=ConfigResolver(factory),
         )
         assert isinstance(facts, VideoRequestFacts)

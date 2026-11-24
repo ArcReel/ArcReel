@@ -132,7 +132,12 @@ def set_admission_video_request_facts(
     from server.services.admission import video_batch_admission
 
     def configure(facts: VideoRequestFacts | VideoRequestFactsFailure) -> None:
-        monkeypatch.setattr(video_batch_admission, "evaluate_video_request_facts", AsyncMock(return_value=facts))
+        monkeypatch.setattr(video_batch_admission, "read_video_request_facts", AsyncMock(return_value=facts))
+
+        async def pair(_project, *, include_end_frame=False, **_kwargs):
+            return facts, facts if include_end_frame else None
+
+        monkeypatch.setattr(video_batch_admission, "read_video_facts_pair", AsyncMock(side_effect=pair))
 
     return configure
 
@@ -149,8 +154,10 @@ def set_video_request_facts(
     传单个结果时所有桶同一份；传按任务类型桶（``"i2v"`` / ``"r2v"``）索引的映射时按桶作答，
     供两桶配置不同的消费方用例。
     """
+    from lib.generation import video_request_facts as facts_mod
     from lib.script import script_generator
     from lib.script.reference_video import request_projection
+    from lib.video_runtime import resolution as video_resolution
     from server.services.admission import cost_estimation
     from server.services.tasks import video_caps
 
@@ -161,11 +168,37 @@ def set_video_request_facts(
             async def evaluate(_project, *, generation_type, **_kwargs):
                 return by_bucket[generation_type]
 
+            async def evaluate_pair(_project, *, generation_type, include_end_frame=False, **_kwargs):
+                result = by_bucket[generation_type]
+                return result, result if include_end_frame else None
+
+            def sync_evaluate(_snapshot, _project, *, generation_type, **_kwargs):
+                return by_bucket[generation_type]
+
             fake = AsyncMock(side_effect=evaluate)
+            fake_pair = AsyncMock(side_effect=evaluate_pair)
         else:
             fake = AsyncMock(return_value=facts)
-        for consumer in (script_generator, request_projection, cost_estimation, video_caps):
-            monkeypatch.setattr(consumer, "evaluate_video_request_facts", fake)
+
+            async def evaluate_pair(_project, *, include_end_frame=False, **_kwargs):
+                return facts, facts if include_end_frame else None
+
+            def sync_evaluate(_snapshot, _project, **_kwargs):
+                return facts
+
+            fake_pair = AsyncMock(side_effect=evaluate_pair)
+        for consumer in (video_resolution, script_generator, request_projection, video_caps):
+            monkeypatch.setattr(consumer, "read_video_request_facts", fake)
+        monkeypatch.setattr(cost_estimation, "read_video_facts_pair", fake_pair)
+        monkeypatch.setattr(facts_mod, "snapshot_video_request_facts", sync_evaluate)
+        orig_read_bucket = video_resolution.VideoRuntime.read_bucket
+
+        async def _read_bucket(self, project, bucket):
+            if hasattr(self.resolver, "fake_video_read_snapshot"):
+                return self.resolver.fake_video_read_snapshot(project, bucket)
+            return await orig_read_bucket(self, project, bucket)
+
+        monkeypatch.setattr(video_resolution.VideoRuntime, "read_bucket", _read_bucket)
 
     return configure
 

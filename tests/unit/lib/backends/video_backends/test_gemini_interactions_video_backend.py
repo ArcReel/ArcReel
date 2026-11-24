@@ -326,11 +326,10 @@ class TestVertex:
         from lib.config.resolver import ConfigResolver
         from lib.config.service import ConfigService
         from lib.generation.video_request_facts import (
-            ExecutionVideoIdentity,
             VideoRequestFacts,
             end_frame_duration_failure,
-            evaluate_video_request_facts,
         )
+        from lib.video_runtime.resolution import read_video_request_facts
         from tests.catalog_support import install_catalog
 
         provider = "gemini-vertex"
@@ -398,11 +397,10 @@ class TestVertex:
             )
 
         assert isinstance(backend, VertexInteractionsVideoBackend)
-        facts = await evaluate_video_request_facts(
-            {},
+        facts = await read_video_request_facts(
+            {"video_provider_i2v": f"{provider}/{backend.model}"},
             route="storyboard",
             generation_type="i2v",
-            identity=ExecutionVideoIdentity(provider, backend.model),
             resolver=resolver,
             uses_end_frame=True,
         )

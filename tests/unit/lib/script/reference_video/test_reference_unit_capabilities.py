@@ -208,7 +208,7 @@ async def test_configured_lookup_evaluates_each_bucket_once_for_many_units(
     """读侧按桶查找在同一次请求内每桶至多求值一次：单元数不放大配置解析次数。"""
     project = _project(tmp_path, sheet_present=True)
     set_video_request_facts({"i2v": I2V_FACTS, "r2v": R2V_FACTS})
-    evaluate = cast(AsyncMock, request_projection.evaluate_video_request_facts)
+    evaluate = cast(AsyncMock, request_projection.read_video_request_facts)
     units = [
         {"unit_id": f"E1U{index}", "text": "@[阿离] 抬头。" if index % 2 else "空镜。", "duration_seconds": 8}
         for index in range(1, 9)

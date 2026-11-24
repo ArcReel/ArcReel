@@ -247,10 +247,8 @@ from server.services.project.script_review import ScriptPlanContent, ScriptRevie
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.services.tasks.episode_activity import episode_has_active_tasks
 from server.services.tasks.video_caps import (
-    annotate_end_frame_tiers,
     annotate_reference_unit_tiers,
-    capability_request_facts,
-    duration_constraints_payload,
+    resolve_project_video_capabilities,
 )
 from server.text_generation import (
     MAX_INSTRUCTIONS_LEN,
@@ -2233,20 +2231,11 @@ async def get_video_capabilities(
 ) -> ToolOutcome[dict[str, Any]]:
     try:
         project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
-        payload = await services.capabilities.video_capabilities_for_project(project)
         generation_type = video_bucket_for_generation_mode(caps_generation_mode(project))
-        request_facts = await capability_request_facts(
+        payload = await resolve_project_video_capabilities(
             project,
             generation_type=generation_type,
             config_resolver=services.capabilities,
-        )
-        payload["duration_constraints"] = duration_constraints_payload(request_facts)
-        await annotate_end_frame_tiers(
-            payload,
-            project,
-            generation_type=generation_type,
-            config_resolver=services.capabilities,
-            without_end_frame=request_facts,
         )
         await annotate_reference_unit_tiers(
             payload,

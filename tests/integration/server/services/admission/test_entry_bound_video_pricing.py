@@ -20,11 +20,10 @@ from lib.custom_provider import make_provider_id
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.video_request_facts import (
-    ExecutionVideoIdentity,
     VideoRequestCostFacts,
     VideoRequestFacts,
-    evaluate_video_request_facts,
 )
+from lib.video_runtime.resolution import read_video_request_facts
 from server.services.admission.cost_estimation import quote_video_request
 
 OPAQUE = "ep-20261103-opaque"
@@ -53,11 +52,10 @@ async def _custom_provider(db_factory, endpoint: str, models: list[dict]) -> str
 
 async def _facts(resolver: ConfigResolver, provider_id: str, model_id: str) -> VideoRequestFacts:
     project = {"generation_mode": "storyboard", "video_provider_i2v": f"{provider_id}/{model_id}"}
-    facts = await evaluate_video_request_facts(
+    facts = await read_video_request_facts(
         project,
         route="storyboard",
         generation_type="i2v",
-        identity=ExecutionVideoIdentity(provider_id, model_id),
         resolver=resolver,
     )
     assert isinstance(facts, VideoRequestFacts), facts

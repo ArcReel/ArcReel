@@ -48,7 +48,6 @@ from server.tool_runtime import (
     patch_episode_script,
     read_project_file,
 )
-from tests.factories import make_video_request_facts
 
 
 class _Projects:
@@ -152,23 +151,12 @@ async def test_workflow_plan_returns_typed_domain_outcome() -> None:
     assert outcome.value.status.target.episode == 1
 
 
-async def test_video_capabilities_returns_typed_domain_outcome(set_video_request_facts) -> None:
-    set_video_request_facts(
-        make_video_request_facts(
-            provider_id="fake", model_id="video-1", supported_durations=(4, 6), allowed_durations=(4, 6)
-        )
-    )
-    project = {"generation_mode": "storyboard", "content_mode": "drama"}
-    projects = _Projects(project)
-    outcome = await get_video_capabilities(
-        ToolRequest(None),
-        ProjectScope("demo", Path("/projects")),
-        CallerContext(user_id="u1", source="embedded"),
-        Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
-    )
+async def test_video_capabilities_returns_typed_domain_outcome(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock
 
-    assert outcome.problem is None
-    assert outcome.value == {
+    from server import tool_runtime
+
+    expected = {
         "provider_id": "fake",
         "model": "video-1",
         "supported_durations": [4, 6],
@@ -185,13 +173,31 @@ async def test_video_capabilities_returns_typed_domain_outcome(set_video_request
             "excluded": {},
         },
     }
+    monkeypatch.setattr(tool_runtime, "resolve_project_video_capabilities", AsyncMock(return_value=dict(expected)))
+    project = {"generation_mode": "storyboard", "content_mode": "drama"}
+    projects = _Projects(project)
+    outcome = await get_video_capabilities(
+        ToolRequest(None),
+        ProjectScope("demo", Path("/projects")),
+        CallerContext(user_id="u1", source="embedded"),
+        Services(projects=projects, workflow_planner=_Planner(_status()), capabilities=_Capabilities()),
+    )
+
+    assert outcome.problem is None
+    assert outcome.value == expected
     assert projects.project_loads == 1
 
 
-async def test_video_capabilities_model_not_in_catalog_guides_reselect() -> None:
-    class _RetiredCapabilities:
-        async def video_capabilities_for_project(self, project: dict, *, generation_type=None) -> dict:
-            raise ModelNotInCatalogError(provider_id="ark", model_id="old-video", media_type="video")
+async def test_video_capabilities_model_not_in_catalog_guides_reselect(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from server import tool_runtime
+
+    monkeypatch.setattr(
+        tool_runtime,
+        "resolve_project_video_capabilities",
+        AsyncMock(side_effect=ModelNotInCatalogError(provider_id="ark", model_id="old-video", media_type="video")),
+    )
 
     outcome = await get_video_capabilities(
         ToolRequest(None),
@@ -200,7 +206,7 @@ async def test_video_capabilities_model_not_in_catalog_guides_reselect() -> None
         Services(
             projects=_Projects({"generation_mode": "storyboard"}),
             workflow_planner=_Planner(_status()),
-            capabilities=_RetiredCapabilities(),
+            capabilities=_Capabilities(),
         ),
     )
 

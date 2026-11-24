@@ -7,6 +7,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import CatalogEntry
@@ -20,11 +21,12 @@ from lib.backends.providers import video_audio_always_billed
 from lib.backends.resume_guard import builtin_endpoint_guard, resume_guard_accepts
 from lib.capabilities.kernel import CapabilitySnapshot, bucket_fit
 from lib.catalog import query as catalog
-from lib.catalog.errors import ModelDiscontinuedError
+from lib.catalog.errors import ModelDiscontinuedError, ModelNotInCatalogError
 from lib.config.resolver import (
     ConfigResolver,
     NoAvailableProviderError,
     ProviderModel,
+    VideoBucketCapabilityError,
     VideoGenerationType,
     _video_bucket_capability_missing,
     _video_bucket_reference_unavailable,
@@ -40,8 +42,22 @@ from lib.custom_provider.path_overrides import effective_path_overrides, endpoin
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from lib.generation.video_request_facts import (
+    ResolutionOverride,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    VideoRoute,
+    route_failure_code,
+    snapshot_video_request_facts,
+)
 from lib.video_runtime.assembly import VideoAssemblySpec, _BuiltinVideoSpec, _Connection, _CustomVideoSpec
 from lib.video_runtime.builtin import _declarative_definition
+
+
+@dataclass(frozen=True)
+class VideoReadSnapshot:
+    snapshot: CapabilitySnapshot
+    requested_audio: bool
 
 
 @dataclass(frozen=True)
@@ -71,6 +87,12 @@ class VideoRuntime:
 
     async def bucket(self, project: dict | None, bucket: VideoGenerationType) -> VideoTarget:
         return await self._read(project=project, bucket=bucket)
+
+    async def read_bucket(self, project: dict | None, bucket: VideoGenerationType) -> VideoReadSnapshot:
+        async with self.resolver.session() as resolver:
+            snapshot = await self._read_snapshot(resolver, project=project, bucket=bucket)
+            requested_audio = await resolver.video_generate_audio_for_project(project)
+        return VideoReadSnapshot(snapshot, requested_audio)
 
     async def default(self, project: dict | None) -> VideoTarget:
         return await self._read(project=project)
@@ -128,10 +150,32 @@ class VideoRuntime:
             raise _video_bucket_capability_missing(bucket, provider, model)
         return VideoTarget(generation, guard, spec)
 
+    async def _read_snapshot(
+        self,
+        resolver: ConfigResolver,
+        *,
+        project: dict | None,
+        bucket: VideoGenerationType,
+    ) -> CapabilitySnapshot:
+        selected = await resolver.configured_video_identity(project, bucket)
+        if selected is None:
+            async with resolver._open_session() as (session, _):
+                return (await _automatic_spec(session, bucket)).snapshot
+        provider, model = selected.provider_id, selected.model_id
+        if is_custom_provider(provider):
+            async with resolver._open_session() as (session, _):
+                spec = await _custom_spec(session, selected, fallback=False, bucket=bucket, submitted=False)
+            snapshot = spec.snapshot
+        else:
+            snapshot = _builtin_video_snapshot(selected, submitted=False)[0]
+        if bucket in bucket_fit("video", snapshot):
+            raise _video_bucket_capability_missing(bucket, provider, model)
+        return snapshot
 
-async def builtin_video_spec(
-    resolver: ConfigResolver, selected: ProviderModel, *, submitted: bool, rate_limiter: Any = None
-) -> _BuiltinVideoSpec:
+
+def _builtin_video_snapshot(
+    selected: ProviderModel, *, submitted: bool
+) -> tuple[CapabilitySnapshot, Any, Any, CatalogEntry | None]:
     provider, model = selected.provider_id, selected.model_id
     view, endpoint = catalog.callable_model_view(provider, model, "video", submitted=submitted)
     builtin = get_provider_spec(provider, "video", endpoint)
@@ -144,8 +188,82 @@ async def builtin_video_spec(
         always_bill_audio=video_audio_always_billed(provider),
         description=decode_definition(definition) if definition is not None else None,
     )
-    config = await _load_builtin_config(resolver, provider, rate_limiter)
-    return _BuiltinVideoSpec(snapshot, builtin.endpoint, builtin.registry_backend, config, definition, view.entry)
+    return snapshot, builtin, definition, view.entry
+
+
+async def builtin_video_spec(
+    resolver: ConfigResolver, selected: ProviderModel, *, submitted: bool, rate_limiter: Any = None
+) -> _BuiltinVideoSpec:
+    snapshot, builtin, definition, entry = _builtin_video_snapshot(selected, submitted=submitted)
+    config = await _load_builtin_config(resolver, selected.provider_id, rate_limiter)
+    return _BuiltinVideoSpec(snapshot, builtin.endpoint, builtin.registry_backend, config, definition, entry)
+
+
+async def read_video_request_facts(
+    project: dict | None,
+    *,
+    route: VideoRoute,
+    generation_type: VideoGenerationType,
+    resolver: ConfigResolver,
+    resolution_override: ResolutionOverride | None = None,
+    uses_end_frame: bool = False,
+    service_tier: str = "default",
+) -> VideoRequestFacts | VideoRequestFactsFailure:
+    try:
+        read = await VideoRuntime(resolver).read_bucket(project, generation_type)
+    except (VideoBucketCapabilityError, ModelNotInCatalogError) as exc:
+        return VideoRequestFactsFailure(exc.code, tuple(exc.params.items()))
+    except (ValueError, SQLAlchemyError):
+        return VideoRequestFactsFailure(route_failure_code(route, "unavailable"), (("capability", generation_type),))
+    return snapshot_video_request_facts(
+        read.snapshot,
+        project,
+        route=route,
+        generation_type=generation_type,
+        requested_audio=read.requested_audio,
+        uses_end_frame=uses_end_frame,
+        service_tier=service_tier,
+        resolution_override=resolution_override,
+    )
+
+
+async def read_video_facts_pair(
+    project: dict | None,
+    *,
+    route: VideoRoute,
+    generation_type: VideoGenerationType,
+    resolver: ConfigResolver,
+    include_end_frame: bool,
+) -> tuple[VideoRequestFacts | VideoRequestFactsFailure, VideoRequestFacts | VideoRequestFactsFailure | None]:
+    """单次解析快照后同步求值无尾帧事实，以及按需同源求值带尾帧事实。"""
+    try:
+        read = await VideoRuntime(resolver).read_bucket(project, generation_type)
+    except (VideoBucketCapabilityError, ModelNotInCatalogError) as exc:
+        failure = VideoRequestFactsFailure(exc.code, tuple(exc.params.items()))
+        return failure, failure if include_end_frame else None
+    except (ValueError, SQLAlchemyError):
+        failure = VideoRequestFactsFailure(route_failure_code(route, "unavailable"), (("capability", generation_type),))
+        return failure, failure if include_end_frame else None
+    base = snapshot_video_request_facts(
+        read.snapshot,
+        project,
+        route=route,
+        generation_type=generation_type,
+        requested_audio=read.requested_audio,
+    )
+    end_frame = (
+        snapshot_video_request_facts(
+            read.snapshot,
+            project,
+            route=route,
+            generation_type=generation_type,
+            requested_audio=read.requested_audio,
+            uses_end_frame=True,
+        )
+        if include_end_frame
+        else None
+    )
+    return base, end_frame
 
 
 async def _custom_spec(

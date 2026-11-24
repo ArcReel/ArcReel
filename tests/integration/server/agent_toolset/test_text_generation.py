@@ -88,7 +88,8 @@ async def test_get_image_capabilities_reports_model_missing_from_catalog_with_pr
     assert problem["params"] == {"provider": "gemini-aistudio", "model": "retired-image"}
 
 
-async def test_get_video_capabilities_happy(fake_ctx: ToolHarness, video_request_facts) -> None:
+async def test_get_video_capabilities_happy(fake_ctx: ToolHarness, set_video_request_facts) -> None:
+    set_video_request_facts(make_video_request_facts(provider_id="fake", model_id="fake-video"))
     use_fake_caps(fake_ctx, provider_id="fake", supported_durations=[4, 6, 8])
     out = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {})
     assert out.problem is None
@@ -103,7 +104,7 @@ async def test_get_video_capabilities_resolves_by_project(fake_ctx: ToolHarness,
     rejected = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {"episode_id": 3})
     assert rejected.problem is not None
     assert rejected.problem.code == "invalid_request"
-    assert resolver.generation_type_calls == [None]
+    assert resolver.generation_type_calls == ["i2v"]
 
 
 async def test_get_video_capabilities_annotates_reference_unit_tiers(
@@ -235,11 +236,15 @@ async def test_get_video_capabilities_skips_tiers_off_episode_reference_path(
     assert "reference_unit_durations" not in payload
 
 
-async def test_get_video_capabilities_shares_rest_resolution_entry(fake_ctx: ToolHarness, video_request_facts) -> None:
-    """Agent 工具把闭包项目交给 ``ConfigResolver.video_capabilities_for_project``。
-
-    解析器不按项目名回到全局项目目录，非默认 projects_root 的会话也读取闭包里的项目。
-    """
+async def test_get_video_capabilities_shares_rest_resolution_entry(
+    fake_ctx: ToolHarness, set_video_request_facts
+) -> None:
+    """Agent 工具把闭包项目交给单次解析入口，不按项目名回到全局项目目录。"""
+    set_video_request_facts(
+        make_video_request_facts(
+            provider_id="kling", model_id="kling-v3-omni", supported_durations=(5,), allowed_durations=(5,)
+        )
+    )
     resolver = use_fake_caps(fake_ctx, provider_id="kling", model="kling-v3-omni", supported_durations=[5])
     out = await run_declared_tool(GET_VIDEO_CAPABILITIES, fake_ctx, {})
     assert out.problem is None, out
