@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY
+from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, discover_episode_files
 from lib.episode.episode_manual_split import (
     ManualSplitConfirmationRequired,
     ManualSplitError,
@@ -20,6 +20,7 @@ from lib.episode.episode_manual_split import (
     render_manual_split_impact_text,
     split_episode,
 )
+from lib.episode.episode_reset import reset_episode_planning
 from lib.i18n import _ as i18n_message
 from lib.script.script_review import STALE_SCRIPT_PLAN_REVISION_FIELD
 
@@ -504,3 +505,17 @@ def test_confirmation_text_counts_words_for_projects_counted_by_words():
     text = render_manual_split_impact_text(impact, project, i18n_message)
 
     assert text.splitlines()[0] == "两集之间有 1 词未切分的原文，合并后会并入这一集。"
+
+
+def test_cut_then_reset_preserves_padded_old_file(tmp_path: Path):
+    project_dir = _project_dir(tmp_path, [])
+    source = project_dir / "source"
+    (source / "episode_01.txt").write_bytes(b"legacy")
+
+    cut_unsplit_source(project_dir, source_file="source/a.txt", end=CH2)
+
+    assert discover_episode_files(project_dir) == {1: source / "episode_1.txt"}
+    assert _episode_text(project_dir, 1) == A[:CH2]
+    reset_episode_planning(project_dir)
+    assert not (source / "episode_1.txt").exists()
+    assert (source / "_episode_01.txt.bak").read_bytes() == b"legacy"
