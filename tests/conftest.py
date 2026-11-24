@@ -382,6 +382,15 @@ def _parse_ip(host: str | bytes) -> ipaddress.IPv4Address | ipaddress.IPv6Addres
         return None
 
 
+def _is_loopback_host(host: object) -> bool:
+    if not isinstance(host, (str, bytes)):
+        return False
+    if _is_localhost(host):
+        return True
+    ip = _parse_ip(host)
+    return ip is not None and ip.is_loopback
+
+
 def _block_outbound_network(address: object) -> None:
     raise AssertionError(
         f"Non-loopback network blocked for {address!r}. "
@@ -395,17 +404,13 @@ def pytest_runtest_protocol(item: pytest.Item):
     if item.get_closest_marker("e2e") is not None:
         return (yield)
 
+    unix_socket_family = getattr(socket, "AF_UNIX", None)
+
     def check_destination(sock: socket.socket, address: object) -> None:
-        if sock.family == socket.AF_UNIX:
+        if sock.family == unix_socket_family:
             return
-        if isinstance(address, tuple) and address:
-            host = address[0]
-            if isinstance(host, (str, bytes)):
-                if _is_localhost(host):
-                    return
-                ip = _parse_ip(host)
-                if ip is not None and ip.is_loopback:
-                    return
+        if isinstance(address, tuple) and address and _is_loopback_host(address[0]):
+            return
         _block_outbound_network(address)
 
     def guard_connect(connect):
@@ -417,6 +422,8 @@ def pytest_runtest_protocol(item: pytest.Item):
 
     sendto = socket.socket.sendto
     getaddrinfo = socket.getaddrinfo
+    gethostbyname = socket.gethostbyname
+    getnameinfo = socket.getnameinfo
 
     def checked_sendto(sock, data, *args):
         if args:
@@ -428,11 +435,36 @@ def pytest_runtest_protocol(item: pytest.Item):
             _block_outbound_network(host)
         return getaddrinfo(host, port, *args, **kwargs)
 
+    def checked_gethostbyname(host, /):
+        if not _is_localhost(host) and not isinstance(_parse_ip(host), ipaddress.IPv4Address):
+            _block_outbound_network(host)
+        return gethostbyname(host)
+
+    def guard_host_lookup(lookup):
+        def checked_lookup(host, /):
+            if not _is_loopback_host(host):
+                _block_outbound_network(host)
+            return lookup(host)
+
+        return checked_lookup
+
+    def checked_getnameinfo(address, flags, /):
+        numeric_flags = socket.NI_NUMERICHOST | socket.NI_NUMERICSERV
+        if flags & numeric_flags != numeric_flags and not (
+            isinstance(address, tuple) and address and _is_loopback_host(address[0])
+        ):
+            _block_outbound_network(address)
+        return getnameinfo(address, flags)
+
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(socket.socket, "connect", guard_connect(socket.socket.connect))
         patch.setattr(socket.socket, "connect_ex", guard_connect(socket.socket.connect_ex))
         patch.setattr(socket.socket, "sendto", checked_sendto)
         patch.setattr(socket, "getaddrinfo", checked_getaddrinfo)
+        patch.setattr(socket, "gethostbyname", checked_gethostbyname)
+        patch.setattr(socket, "gethostbyname_ex", guard_host_lookup(socket.gethostbyname_ex))
+        patch.setattr(socket, "gethostbyaddr", guard_host_lookup(socket.gethostbyaddr))
+        patch.setattr(socket, "getnameinfo", checked_getnameinfo)
         if hasattr(socket.socket, "sendmsg"):
             sendmsg = socket.socket.sendmsg
 
