@@ -230,7 +230,7 @@ After you choose a TTS model in global settings or project settings, the narrati
 
 DashScope speech has two call endpoints: "Alibaba Model Studio (TTS)" calls Qwen TTS (`qwen3-tts` and similar), and "Alibaba Model Studio (qwen-audio TTS)" calls qwen-audio TTS (the `qwen-audio-3.0-tts` and `qwen-audio-3.1-tts` series). The two endpoints do not share voices, and each qwen-audio model only accepts its own voices; see the DashScope [voice list](https://help.aliyun.com/zh/model-studio/qwen-audio-tts-voice-list) for the full set. The qwen-audio endpoint supports narration speed from 0.5 to 2.0; values outside this range are sent as the nearest bound. When you add a model, names containing `qwen-audio` are prefilled with the qwen-audio endpoint and other DashScope speech models with the Qwen TTS endpoint; you can change this in [Model settings](#model-settings).
 
-ArcReel fixes streaming size placeholders in WAV headers before saving DashScope narration audio. If the WAV cannot be repaired safely, the narration task fails without submitting another synthesis request.
+ArcReel fixes streaming size placeholders in WAV headers before saving DashScope narration audio. When inferring the audio length, ArcReel preserves recognized trailing RIFF chunks outside the audio data, including zero-length `JUNK` and `PAD ` filler chunks. If the WAV cannot be repaired safely, the narration task fails without submitting another synthesis request.
 
 Grok TTS supports narration speed from 0.7 to 1.5. Values outside this range fail before submission without incurring a charge and are not clamped to the nearest bound; adjust or clear the narration speed in settings.
 

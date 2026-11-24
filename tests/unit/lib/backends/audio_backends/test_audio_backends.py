@@ -30,6 +30,7 @@ from lib.backends.audio_backends import (
     get_registered_backends,
     register_backend,
 )
+from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 from lib.backends.audio_backends.dashscope_speech_synthesizer import (
     SPEECH_SYNTHESIZER_PATH,
     DashScopeSpeechSynthesizerBackend,
@@ -174,18 +175,16 @@ class TestDashScopeAudioBackend:
         assert result.output_path == out
 
     @pytest.mark.parametrize(
-        ("backend_type", "synth_url"),
+        ("backend_cls", "synth_url"),
         [
-            ("dashscope", _SYNTH_URL),
-            ("speech-synthesizer", f"https://dashscope.aliyuncs.com/api/v1{SPEECH_SYNTHESIZER_PATH}"),
+            (DashScopeAudioBackend, _SYNTH_URL),
+            (DashScopeSpeechSynthesizerBackend, f"https://dashscope.aliyuncs.com/api/v1{SPEECH_SYNTHESIZER_PATH}"),
         ],
+        ids=["dashscope", "speech-synthesizer"],
     )
     async def test_synthesize_persists_wav_with_accurate_frame_count(
-        self, tmp_path: Path, backend_type: str, synth_url: str
+        self, tmp_path: Path, backend_cls: type[DashScopeAudioBackend], synth_url: str
     ):
-        from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
-
-        backend = DashScopeAudioBackend if backend_type == "dashscope" else DashScopeSpeechSynthesizerBackend
         samples = b"\x01\x02\x03\x04" * 120
         buffer = BytesIO()
         with wave.open(buffer, "wb") as wav:
@@ -199,7 +198,9 @@ class TestDashScopeAudioBackend:
         with _dashscope_audio_routes(
             synth_url=synth_url, download=httpx.Response(200, content=bytes(streamed))
         ) as routes:
-            await backend(api_key="sk").synthesize(AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry"))
+            await backend_cls(api_key="sk").synthesize(
+                AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry")
+            )
 
         with wave.open(str(out), "rb") as wav:
             assert wav.getnframes() == 240
@@ -208,13 +209,24 @@ class TestDashScopeAudioBackend:
         assert out.read_bytes() == buffer.getvalue()
         assert routes.synthesize.call_count == routes.download.call_count == 1
 
-    async def test_corrupt_wav_is_rejected_before_persisting_without_retry(self, tmp_path: Path):
-        from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
-
+    @pytest.mark.parametrize(
+        ("backend_cls", "synth_url"),
+        [
+            (DashScopeAudioBackend, _SYNTH_URL),
+            (DashScopeSpeechSynthesizerBackend, f"https://dashscope.aliyuncs.com/api/v1{SPEECH_SYNTHESIZER_PATH}"),
+        ],
+        ids=["dashscope", "speech-synthesizer"],
+    )
+    async def test_corrupt_wav_is_rejected_before_persisting_without_retry(
+        self, tmp_path: Path, backend_cls: type[DashScopeAudioBackend], synth_url: str
+    ):
         out = tmp_path / "speech.wav"
         invalid_wav = httpx.Response(200, content=b"RIFF\x04\x00\x00\x00WAVE")
-        with _dashscope_audio_routes(download=invalid_wav) as routes, pytest.raises(ValueError, match="Invalid WAV"):
-            await DashScopeAudioBackend(api_key="sk").synthesize(
+        with (
+            _dashscope_audio_routes(synth_url=synth_url, download=invalid_wav) as routes,
+            pytest.raises(ValueError, match="Invalid WAV"),
+        ):
+            await backend_cls(api_key="sk").synthesize(
                 AudioSynthesisRequest(text="hi", output_path=out, voice="Cherry")
             )
 
