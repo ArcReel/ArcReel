@@ -497,7 +497,7 @@ class ManagedSession:
         await self.actor.enqueue(cmd)
         await cmd.done.wait()
         await self.actor.wait()
-        if self.status != "running":
+        if self.status == "idle":
             self.status = "closed"
 
     def add_pending_question(self, payload: dict[str, Any]) -> PendingQuestion:
@@ -589,7 +589,7 @@ class SessionManager:
         self._channels: dict[str, SseChannel] = {}
         self._autonomous_turn_listener: Callable[[str, str], None] | None = None
         self._disconnecting: dict[str, asyncio.Event] = {}
-        self._session_actor_shutdown_timeout: float = 15.0
+        self._session_actor_shutdown_timeout: float = 30.0
         self._connect_locks: dict[str, asyncio.Lock] = {}
         self._project_root_resolved = self.project_root.resolve()
         profile_override = os.getenv("ARCREEL_PROFILE_DIR", "").strip()
@@ -1794,16 +1794,16 @@ class SessionManager:
         managed = self.sessions.get(session_id)
         if managed is None:
             return
-        managed.cancel_pending_questions(reason)
-        await self._evict_one(managed)
+        await self._evict_one(managed, reason=reason)
 
-    async def _evict_one(self, managed: ManagedSession) -> None:
+    async def _evict_one(self, managed: ManagedSession, *, reason: str = "session closed") -> None:
         """Gracefully disconnect an actor, cancel as fallback, and remove from registry."""
         session_id = managed.session_id
-        if session_id in self._disconnecting:
+        if session_id in self._disconnecting or self.sessions.get(session_id) is not managed:
             return
         self._disconnecting[session_id] = asyncio.Event()
         try:
+            managed.cancel_pending_questions(reason)
             if managed._cleanup_task is not None and not managed._cleanup_task.done():
                 managed._cleanup_task.cancel()
                 with contextlib.suppress(BaseException):
@@ -1964,6 +1964,8 @@ class SessionManager:
         """Handle AskUserQuestion tool invocation within can_use_tool callback."""
         if managed is None:
             return PermissionResultAllow(updated_input=input_data)
+        if managed.session_id in self._disconnecting:
+            return PermissionResultDeny(message="session closed", interrupt=True)
 
         raw_questions = input_data.get("questions")
         questions = raw_questions if isinstance(raw_questions, list) else []
@@ -2248,17 +2250,14 @@ class SessionManager:
         return meta.status if meta else None
 
     async def shutdown_gracefully(self) -> None:
-        """Gracefully shutdown all sessions using the actor teardown path."""
+        """Drain sessions and in-progress evictions before stopping the patrol."""
+        await asyncio.gather(
+            *(self._evict_one(managed) for managed in self.sessions.values()),
+            return_exceptions=True,
+        )
+        await asyncio.gather(*(eviction.wait() for eviction in self._disconnecting.values()))
+
         patrol = getattr(self, "_patrol_task", None)
         if patrol is not None and not patrol.done():
             patrol.cancel()
-            with contextlib.suppress(BaseException):
-                await patrol
-
-        sessions = list(self.sessions.values())
-        if not sessions:
-            return
-        await asyncio.gather(
-            *[self._evict_one(s) for s in sessions],
-            return_exceptions=True,
-        )
+            await asyncio.gather(patrol, return_exceptions=True)

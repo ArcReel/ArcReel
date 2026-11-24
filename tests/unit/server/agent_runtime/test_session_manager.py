@@ -89,12 +89,17 @@ async def _cold_revival_clients(session_manager, monkeypatch):
 
     use_provider_env(monkeypatch, _fake_env)
 
-    created_clients: list[_FakeClaudeClient] = []
+    class RevivalClient(FakeSDKClient):
+        def __init__(self, options):
+            super().__init__()
+            self.options = options
+
+    created_clients: list[RevivalClient] = []
 
     def _track_client(*, options):
-        c = _FakeClaudeClient(options=options)
-        created_clients.append(c)
-        return c
+        client = RevivalClient(options)
+        created_clients.append(client)
+        return client
 
     use_sdk_client(monkeypatch, _track_client)
     with monkeypatch.context() as m:
@@ -590,7 +595,7 @@ class TestSessionManager:
         )
 
     @pytest.mark.asyncio
-    async def test_subscribe_and_shutdown(self, session_manager, meta_store):
+    async def test_subscribe_and_shutdown_releases_pending_question(self, session_manager, meta_store):
         from tests.fakes import build_managed_with_actor
 
         assert await session_manager.get_pending_questions_snapshot("missing") == []
@@ -603,6 +608,7 @@ class TestSessionManager:
             project_name="demo",
             status="running",
         )
+        managed.resolved_sdk_id = meta.id
         session_manager.sessions[meta.id] = managed
 
         channel, queue = session_manager._subscribe(meta.id)
@@ -610,9 +616,118 @@ class TestSessionManager:
         await session_manager._unsubscribe(channel, meta.id, queue)
         assert not managed.channel.has_subscribers
 
-        await session_manager.shutdown_gracefully()
-        assert client.disconnected is True
-        assert session_manager.sessions == {}
+        ask = await session_manager._build_can_use_tool_callback(meta.id)
+        question_answered = asyncio.Event()
+
+        async def waiting_interrupt():
+            await question_answered.wait()
+
+        client.interrupt = waiting_interrupt
+        async with session_manager.stream_messages(meta.id) as stream:
+            assert isinstance(await anext(stream), SubscriptionReady)
+            question = asyncio.create_task(ask("AskUserQuestion", {"questions": [{"question": "Q"}]}, None))
+            try:
+                async with asyncio.timeout(1):
+                    event = await anext(stream)
+                    assert isinstance(event, LiveMessage)
+                    assert event.message["type"] == "ask_user_question"
+                    shutdown = asyncio.create_task(session_manager.shutdown_gracefully())
+                    try:
+                        assert (await question).interrupt is True
+                        question_answered.set()
+                    finally:
+                        await shutdown
+            finally:
+                question.cancel()
+                await asyncio.gather(question, return_exceptions=True)
+
+        assert client.disconnected
+        assert await session_manager.get_pending_questions_snapshot(meta.id) == []
+        assert await session_manager.get_status(meta.id) == "interrupted"
+
+    @pytest.mark.asyncio
+    async def test_shutdown_waits_for_a_session_already_being_evicted(self, session_manager, meta_store, monkeypatch):
+        meta = await meta_store.create("demo", "sdk-evict-shutdown")
+        client = FakeSDKClient()
+        actor = SessionActor(client_factory=lambda: client, on_message=lambda _: None)
+        await actor.start()
+        session_manager.sessions[meta.id] = ManagedSession(
+            session_id=meta.id, resolved_sdk_id=meta.id, actor=actor, status="running", project_name="demo"
+        )
+
+        persisting = asyncio.Event()
+        release = asyncio.Event()
+        update_status = meta_store.update_status
+
+        async def gated_update(session_id, status):
+            persisting.set()
+            await release.wait()
+            await update_status(session_id, status)
+
+        monkeypatch.setattr(meta_store, "update_status", gated_update)
+
+        eviction = asyncio.create_task(session_manager.close_session(meta.id))
+        try:
+            await asyncio.wait_for(persisting.wait(), timeout=1)
+            shutdown = asyncio.create_task(session_manager.shutdown_gracefully())
+            try:
+                done, _ = await asyncio.wait({shutdown}, timeout=0.01)
+                assert not done
+            finally:
+                release.set()
+                await asyncio.wait_for(shutdown, timeout=1)
+        finally:
+            release.set()
+            await eviction
+
+        persisted = await meta_store.get(meta.id)
+        assert persisted.status == "interrupted"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("sdk_hangs", [False, True])
+    async def test_shutdown_gives_sdk_time_to_flush_before_cancelling(
+        self, session_manager, meta_store, monkeypatch, sdk_hangs
+    ):
+        close_entered = asyncio.Event()
+        flush = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        class FlushingClient(FakeSDKClient):
+            async def __aexit__(self, exc_type, exc, tb):
+                close_entered.set()
+                try:
+                    await flush.wait()
+                except asyncio.CancelledError:
+                    cancelled.set()
+                    raise
+                return await super().__aexit__(exc_type, exc, tb)
+
+        meta = await meta_store.create("demo", "sdk-slow-close")
+        client = FlushingClient()
+        actor = SessionActor(client_factory=lambda: client, on_message=lambda _: None)
+        await actor.start()
+        session_manager.sessions[meta.id] = ManagedSession(
+            session_id=meta.id,
+            resolved_sdk_id=meta.id,
+            actor=actor,
+            status="running",
+            project_name="demo",
+            turn_outcome="completed",
+        )
+        monkeypatch.setattr(session_manager, "_session_actor_shutdown_timeout", 0.05 if sdk_hangs else 1)
+        shutdown = asyncio.create_task(session_manager.shutdown_gracefully())
+        try:
+            await asyncio.wait_for(close_entered.wait(), timeout=1)
+            if not sdk_hangs:
+                flush.set()
+            await asyncio.wait_for(shutdown, timeout=2)
+        finally:
+            await actor.cancel_and_wait()
+
+        assert client.disconnected is not sdk_hangs
+        assert cancelled.is_set() is sdk_hangs
+        persisted = await meta_store.get(meta.id)
+        assert persisted.status == ("interrupted" if sdk_hangs else "completed")
 
     @pytest.mark.asyncio
     async def test_stream_messages_event_sequence(self, session_manager, meta_store):

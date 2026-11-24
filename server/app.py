@@ -530,22 +530,29 @@ async def lifespan(app: FastAPI):
         await stop_official_sync(catalog_sync)
         await stop_loop_stall_probe(stall_probe)
 
-    assistant.assistant_service.session_manager.set_autonomous_turn_listener(None)
-    project_event_service = getattr(app.state, "project_event_service", None)
-    if project_event_service:
+        assistant.assistant_service.session_manager.set_autonomous_turn_listener(None)
         logger.info("正在停止 ProjectEventService...")
         await project_event_service.shutdown()
         logger.info("ProjectEventService 已停止")
-    worker = getattr(app.state, "generation_worker", None)
-    if worker:
-        logger.info("正在停止 GenerationWorker...")
-        await worker.stop()
-        logger.info("GenerationWorker 已停止")
-    from lib.custom_provider.endpoint_test import shutdown_trial_runs
 
-    await shutdown_trial_runs()
-    await shutdown_http_client()
-    await close_db()
+        logger.info("正在停止 Agent 会话与 GenerationWorker...")
+        results = await asyncio.gather(
+            assistant.assistant_service.shutdown(),
+            worker.stop(),
+            return_exceptions=True,
+        )
+
+        from lib.custom_provider.endpoint_test import shutdown_trial_runs
+
+        await shutdown_trial_runs()
+        await shutdown_http_client()
+        await close_db()
+
+        errors = [result for result in results if isinstance(result, BaseException)]
+        if len(errors) == 1:
+            raise errors[0]
+        if errors:
+            raise BaseExceptionGroup("Agent session and generation worker shutdown failed", errors)
 
 
 app = FastAPI(

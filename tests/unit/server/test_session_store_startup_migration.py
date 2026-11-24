@@ -41,6 +41,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
             },
         )()
         svc_mock.startup = AsyncMock()
+        svc_mock.shutdown = AsyncMock()
         svc_mock.session_manager = type(
             "S",
             (),
