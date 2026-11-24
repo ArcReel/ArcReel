@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from lib.db.repositories.task_repo import TaskRepository
 from lib.db.repositories.usage_repo import UsageFilters, UsageRepository
 from lib.project import deleted_projects
@@ -134,23 +136,29 @@ async def test_create_reports_name_conflict_when_restore_claims_the_name_first(t
     (original_dir / "source" / "chapter.txt").write_text("old text", encoding="utf-8")
     old = await seed_project_records(file_db_factory)
 
-    renamed, finish_restore = threading.Event(), threading.Event()
-    real_restore_records = projects.restore_retired_project
+    pause_session = threading.Event()
+    restore_session_opening, finish_restore = threading.Event(), threading.Event()
 
-    async def pause_after_restore_claim(*args, **kwargs):
-        renamed.set()
-        assert await asyncio.to_thread(finish_restore.wait, 10)
-        await real_restore_records(*args, **kwargs)
+    class PausedRestoreSession(AsyncSession):
+        async def __aenter__(self):
+            if pause_session.is_set() and not restore_session_opening.is_set():
+                restore_session_opening.set()
+                assert await asyncio.to_thread(finish_restore.wait, 10)
+            return await super().__aenter__()
 
-    monkeypatch.setattr(projects, "restore_retired_project", pause_after_restore_claim)
-    with build_projects_client(monkeypatch, manager, session_factory=file_db_factory) as client:
+    session_factory = async_sessionmaker[AsyncSession](
+        file_db_factory.kw["bind"], class_=PausedRestoreSession, expire_on_commit=False
+    )
+    with build_projects_client(monkeypatch, manager, session_factory=session_factory) as client:
         assert client.delete("/api/v1/projects/demo").status_code == 200
         [entry] = client.get(DELETED).json()["projects"]
         restore_url = f"{DELETED}/{quote(entry['id'], safe='')}/restore"
         with ThreadPoolExecutor(max_workers=1) as requests:
+            pause_session.set()
             restore = requests.submit(client.post, restore_url)
             try:
-                assert renamed.wait(10)
+                assert restore_session_opening.wait(10)
+                assert original_dir.is_dir()
                 created = client.post(
                     "/api/v1/projects", json={"name": "demo", "title": "New", "generation_mode": "storyboard"}
                 )

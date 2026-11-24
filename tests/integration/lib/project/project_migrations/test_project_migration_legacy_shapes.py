@@ -282,6 +282,36 @@ def test_dangling_shared_reference_through_parent_alias_stays_unreadable(tmp_pat
     assert not (project_dir / "characters/refs/Bob.png").exists()
 
 
+@pytest.mark.parametrize("absolute", [False, True])
+def test_dangling_alias_reference_colliding_with_planned_copy_target_is_not_rebound(
+    tmp_path: Path, absolute: bool
+) -> None:
+    project_dir = write_legacy_shared_reference_project(tmp_path / "real" / "projects")
+    alias = tmp_path / "alias"
+    alias.symlink_to(project_dir.parent, target_is_directory=True)
+    aliased_project_dir = alias / project_dir.name
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    rel_reference = f"../../alias/{project_dir.name}/characters/refs/Bob.png"
+    reference = str(aliased_project_dir / rel_reference) if absolute else rel_reference
+    project["characters"]["Charlie"] = {"description": "Charlie", "reference_image": reference}
+    project["products"] = {}
+    orphan = project_dir / "characters/refs/Charlie.png"
+    orphan.write_bytes(b"charlie-orphan")
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    assert safe_resolve(aliased_project_dir, reference) is None
+
+    _migrate(aliased_project_dir)
+
+    migrated = _read_json(project_path)
+    assert migrated["characters"]["Bob"]["reference_image"] == "characters/refs/Bob.png"
+    assert (project_dir / "characters/refs/Bob.png").read_bytes() == b"image"
+    assert migrated["characters"]["Charlie"]["reference_image"] == reference
+    assert safe_resolve(aliased_project_dir, migrated["characters"]["Charlie"]["reference_image"]) is None
+    assert orphan.read_bytes() == b"charlie-orphan"
+
+
 @pytest.mark.parametrize("fail_commit", [False, True])
 def test_swapped_shared_references_keep_each_original_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_commit: bool
