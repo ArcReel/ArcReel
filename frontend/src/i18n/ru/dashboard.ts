@@ -2592,6 +2592,7 @@ export default {
   'migration_report_skipped': 'Не перенесено',
   'migration_report_skipped_hint': 'Эти файлы остаются на месте, но проект их не распознаёт, поэтому они отображаются как отсутствующие. Сгенерируйте или загрузите их снова при необходимости.',
   'migration_report_backup': 'Резервная копия: {{path}}',
+  'migration_adjustment_retired_draft_trashed': 'Старый черновик {{file}} ({{episode}}) перемещён в корзину проекта. Его можно восстановить в течение 30 дней.',
   'migration_adjustment_draft_name_conflict_resolved': 'У {{episode}} было две копии черновика плана сценария — под старым и новым названием. Новая копия сохранена, старая сохранена как резервная.',
   'migration_adjustment_duplicate_episode_entry_removed': '{{episode}} была указана в списке серий дважды. Дублирующая запись удалена; её сценарий {{file}} остаётся на месте.',
   'migration_adjustment_shared_script_binding_split': '{{episode}} и {{owner}} использовали один сценарий {{from}}. Сценарий остаётся у {{owner}}; {{episode}} теперь использует {{to}}.',

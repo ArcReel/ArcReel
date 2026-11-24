@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from lib.episode.episode_paths import DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME, epi
 from lib.infra.json_io import atomic_write_json
 from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
+from lib.project.project_migrations.runner import migrate_project_dir
 from lib.script import script_review
 from lib.script.blank_script import BlankScriptError, start_blank_script
 from lib.workflow.workflow_state import WorkflowStateService
@@ -125,6 +127,10 @@ def test_a_deleted_script_plan_comes_back_with_its_claim(tmp_path: Path) -> None
     assert _plan_claim(project_path) is None
     (record,) = project_trash.list_records(project_path)
 
+    record_dir = project_trash.trash_dir(project_path) / record.id
+    for metadata in (project_path / "project.json", record_dir / "record.json", record_dir / "snapshot/project.json"):
+        atomic_write_json(metadata, {**json.loads(metadata.read_bytes()), "schema_version": 20})
+    assert migrate_project_dir(project_path)
     result = project_trash.restore(project_path, record.id)
     assert not result.degraded
     assert plan.is_file()

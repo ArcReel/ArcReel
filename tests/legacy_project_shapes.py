@@ -1948,6 +1948,25 @@ def _write_shared_asset_project(root: Path, *, modify: Callable[[Path], object])
     return project_dir
 
 
+def write_legacy_quarantine_project(root: Path) -> Path:
+    project_dir = write_legacy_storyboard_project(root, schema_version=7)
+    project_file = project_dir / "project.json"
+    project = json.loads(project_file.read_bytes())
+    project["metadata"] = {"updated_at": "2026-02-01T12:00:00Z"}
+    _write_json(project_file, project)
+    drafts = project_dir / "drafts" / "episode_1"
+    drafts.mkdir(parents=True, exist_ok=True)
+    for name, data in {
+        "step1_normalized_script.invalid.json": b'{"owner":"agent"}',
+        "step1_segments.invalid.json": b"old name conflict",
+        "script_plan_segments.invalid.json": b"corrupt\xff",
+        "step1_reference_units.invalid.json": b'{"owner":"model"}',
+        "step2_reference_script.invalid.json": b"prompt draft",
+    }.items():
+        (drafts / name).write_bytes(data)
+    return project_dir
+
+
 LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
     "storyboard": write_legacy_storyboard_project,
     "shared-product-originals": partial(_write_shared_asset_project, modify=share_reference_files),
@@ -1971,6 +1990,7 @@ LEGACY_PROJECT_SHAPES: dict[str, Callable[[Path], Path]] = {
     "retired-flash-lite-aistudio": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-aistudio"),
     "retired-flash-lite-vertex": partial(write_legacy_retired_flash_lite_project, provider_id="gemini-vertex"),
     "retired-model-references": write_legacy_retired_model_references_project,
+    "quarantine-drafts": write_legacy_quarantine_project,
     "bare-provider": write_legacy_bare_provider_project,
     "timeline-agent-turn": write_legacy_timeline_agent_turn_project,
     "item-id-reuse": write_legacy_item_id_reuse_project,

@@ -189,6 +189,7 @@ def record_deletion(
     files: Sequence[str],
     *,
     snapshot: bool = False,
+    notify: bool = True,
     sources: Mapping[str, Path] | None = None,
     before: Mapping[str, bytes] | None = None,
 ) -> TrashRecord:
@@ -247,7 +248,8 @@ def record_deletion(
             os.replace(target, source)
         shutil.rmtree(record_dir, ignore_errors=True)
         raise
-    _notify(project_dir)
+    if notify:
+        _notify(project_dir)
     return record
 
 

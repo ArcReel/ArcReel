@@ -23,6 +23,7 @@
 | 旧模型 ID、裸供应商引用、无后继的退役模型 | [退役文本模型](../../lib/project/project_migrations/v16_to_v17_retired_text_model_ids.py)、[退役模型冻结映射](../../lib/project/project_migrations/v17_to_v18_timeline_agent_turn.py)、[裸供应商模型迁移](../../lib/project/project_migrations/v19_to_v20_bare_provider_models.py)。 |
 | 生成输入有缺口、产物缺内容指纹、时间线带 `agent_turn` | [v17→v18](../../lib/project/project_migrations/v17_to_v18_timeline_agent_turn.py)、[缺口补录](../../lib/project/project_migrations/input_gap_backfill.py)、[内容指纹补录](../../lib/project/project_migrations/content_digest_backfill.py)。 |
 | 条目删后重用编号、分镜或宫格依据仍含资产名 | [条目编号与依据迁移](../../lib/project/project_migrations/v18_to_v19_item_id_high_water.py)。 |
+| 各集遗留的隔离草稿 | [v20→v21](../../lib/project/project_migrations/v20_to_v21_retired_drafts.py) 将文件原样移入项目回收站。恢复删除记录时，暂存树保留这些文件供恢复入口取回。 |
 | 不可读的媒体、宫格或草稿、无法计算依据、导入引用未定义资产 | [规划器激活模式](../../lib/artifacts/artifact_planner.py)、[迁移报告](../../lib/project/project_migration_report.py)、[归档导入](../../server/services/project/project_archive.py)。 |
 
 ## 当前约定
