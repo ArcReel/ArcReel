@@ -148,7 +148,7 @@ The project trash is stored under `.arcreel/trash/` in the project directory. A 
 
 When you delete a whole project, it moves to **Deleted projects** on the project list page, together with its own project trash, and is kept for 30 days. Its queued tasks are cancelled. When you overwrite an existing project with an archive, the overwritten old project also goes to **Deleted projects**.
 
-In **Deleted projects** in the project list header you can restore a project as a whole, which brings it back as it was before the deletion, or delete it permanently after a second confirmation. If a new project already uses the original name, the project is restored under a new name with a suffix. Deleted projects are cleared automatically after they expire.
+In **Deleted projects** in the project list header you can restore a project as a whole, which brings it back as it was before the deletion, or delete it permanently after a second confirmation. If a new project claims the original name first, the restored project gets a suffix. This also applies while the new project is still being created. Deleted projects are cleared automatically after they expire.
 
 ## What the Agent can delete and restore {#agent}
 
