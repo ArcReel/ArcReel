@@ -48,6 +48,7 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
             (),
             {
                 "start_patrol": lambda self: None,
+                "reset_streams": lambda self: None,
                 "stop_streams": lambda self: None,
                 "stop_patrol": lambda self: None,
                 "set_autonomous_turn_listener": lambda self, listener: None,

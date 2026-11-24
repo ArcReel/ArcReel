@@ -635,9 +635,12 @@ class GenerationQueue:
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
+        owned_task_ids: frozenset[str] = frozenset(),
     ) -> dict[str, Any] | None:
         async with self._task_repo() as repo:
-            task = await repo.claim_next(media_type, pool_full_providers=pool_full_providers)
+            task = await repo.claim_next(
+                media_type, pool_full_providers=pool_full_providers, owned_task_ids=owned_task_ids
+            )
         if task:
             logger.debug("任务被领取 task_id=%s", task["task_id"])
         return task
@@ -672,14 +675,15 @@ class GenerationQueue:
         async with self._task_repo() as repo:
             await repo.persist_execution_provider_id(task_id, provider_id)
 
-    async def mark_task_succeeded(self, task_id: str, result: dict[str, Any] | None) -> int:
-        """Returns rows_affected (0 = 任务已不在 running，该写入不生效)."""
+    async def mark_task_succeeded(
+        self, task_id: str, result: dict[str, Any] | None, *, expected_project_name: str | None = None
+    ) -> int:
         async with self._task_repo() as repo:
-            affected = await repo.mark_succeeded(task_id, result)
+            affected = await repo.mark_succeeded(task_id, result, expected_project_name=expected_project_name)
         if affected > 0:
             logger.info("任务成功 task_id=%s", task_id)
         else:
-            logger.info("mark_succeeded 0 rows task_id=%s (任务已不在 running)", task_id)
+            logger.info("mark_succeeded 0 rows task_id=%s (任务不再符合写回条件)", task_id)
         return affected
 
     async def mark_task_failed(self, task_id: str, error_message: str) -> int:

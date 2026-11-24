@@ -39,6 +39,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsFailure,
 )
+from lib.generation.video_result import build_video_task_result
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
@@ -798,12 +799,11 @@ async def finalize_reference_video_unit(
 
     created_at = await run_noninterruptible_sync(_latest_created_at)
 
-    return {
-        "version": version,
-        "file_path": f"reference_videos/{resource_id}.mp4",
-        "created_at": created_at,
-        "resource_type": "reference_videos",
-        "resource_id": resource_id,
-        "video_uri": video_uri,
-        "warnings": warnings,
-    }
+    return build_video_task_result(
+        resource_type="reference_videos",
+        resource_id=resource_id,
+        version=version,
+        created_at=created_at,
+        video_uri=video_uri,
+        warnings=warnings,
+    )

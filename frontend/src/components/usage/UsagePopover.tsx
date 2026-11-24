@@ -7,7 +7,7 @@ import { cn } from "cn";
 import { settingsSectionPath } from "@/app-routes";
 import { useShallow } from "zustand/react/shallow";
 
-import { API } from "@/api";
+import { API, ApiRequestError } from "@/api";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle } from "@/components/ui/popover";
@@ -182,8 +182,12 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
       try {
         await API.retryTaskDownload(taskId);
         await Promise.all([useTasksStore.getState().refreshTasks(), refresh()]);
-      } catch {
-        useAppStore.getState().pushToast(t("retry_download_failed"), "error");
+      } catch (error) {
+        const message =
+          error instanceof ApiRequestError && error.status === 503
+            ? t("retry_download_service_unavailable")
+            : t("retry_download_failed");
+        useAppStore.getState().pushToast(message, "error");
       } finally {
         markRetrying(taskId, false);
       }

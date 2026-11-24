@@ -460,6 +460,20 @@ class MediaGenerator:
         finally:
             staged_output_path.unlink(missing_ok=True)  # hard-delete: temp -- 提交后的暂存输出
 
+    @staticmethod
+    def _attach_formal_video_metadata(
+        version_metadata: dict[str, Any],
+        *,
+        formal_output: bool,
+        task_id: str | None,
+        video_uri: str | None,
+        warnings: list[dict[str, Any]] | None,
+    ) -> None:
+        if formal_output and task_id is not None:
+            version_metadata.update(task_id=task_id, video_uri=video_uri)
+            if warnings:
+                version_metadata["warnings"] = list(warnings)
+
     async def _commit_video_output_version(
         self,
         *,
@@ -1196,10 +1210,13 @@ class MediaGenerator:
             before_formal_commit=before_formal_commit,
         )
 
-        if formal_output and task_id is not None:
-            version_metadata.update(task_id=task_id, video_uri=video_uri)
-            if warnings:
-                version_metadata["warnings"] = list(warnings)
+        self._attach_formal_video_metadata(
+            version_metadata,
+            formal_output=formal_output,
+            task_id=task_id,
+            video_uri=video_uri,
+            warnings=warnings,
+        )
         committed = await self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,
@@ -1363,10 +1380,13 @@ class MediaGenerator:
             before_formal_commit=before_formal_commit,
         )
 
-        if formal_output and task_id is not None:
-            version_metadata.update(task_id=task_id, video_uri=video_uri)
-            if warnings:
-                version_metadata["warnings"] = list(warnings)
+        self._attach_formal_video_metadata(
+            version_metadata,
+            formal_output=formal_output,
+            task_id=task_id,
+            video_uri=video_uri,
+            warnings=warnings,
+        )
         committed = await self._commit_video_output_version(
             resource_type=resource_type,
             resource_id=resource_id,

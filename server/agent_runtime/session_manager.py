@@ -574,6 +574,7 @@ class SessionManager:
         sandbox_enabled: bool = True,
         event_log_store: EventLogStore | None = None,
         sdk_id_timeout: float = 60.0,
+        session_actor_shutdown_timeout: float = 30.0,
     ):
         self.event_log_store = event_log_store or EventLogStore()
         self._sdk_id_timeout = sdk_id_timeout
@@ -590,7 +591,7 @@ class SessionManager:
         self._channels: dict[str, SseChannel] = {}
         self._autonomous_turn_listener: Callable[[str, str], None] | None = None
         self._disconnecting: dict[str, asyncio.Event] = {}
-        self._session_actor_shutdown_timeout: float = 30.0
+        self._session_actor_shutdown_timeout: float = session_actor_shutdown_timeout
         self._connect_locks: dict[str, asyncio.Lock] = {}
         self._project_root_resolved = self.project_root.resolve()
         profile_override = os.getenv("ARCREEL_PROFILE_DIR", "").strip()
@@ -2172,6 +2173,9 @@ class SessionManager:
             raise ValueError("会话未运行或无待回答问题")
         if not managed.resolve_pending_question(question_id, answers):
             raise ValueError("未找到待回答的问题")
+
+    def reset_streams(self) -> None:
+        self.streams_stopped = asyncio.Event()
 
     def stop_streams(self) -> None:
         self.streams_stopped.set()

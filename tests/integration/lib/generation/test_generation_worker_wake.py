@@ -30,7 +30,9 @@ class _WakeQueue:
         self.idle.set()
         return None
 
-    async def mark_task_succeeded(self, task_id: str, result: dict[str, Any]) -> int:
+    async def mark_task_succeeded(
+        self, task_id: str, result: dict[str, Any], *, expected_project_name: str | None = None
+    ) -> int:
         self.succeeded.append((task_id, result))
         self.completed.set()
         return 1

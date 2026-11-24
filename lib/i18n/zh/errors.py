@@ -75,6 +75,7 @@ MESSAGES = {
     "task_not_found": "任务 '{id}' 不存在",
     "task_running_not_cancellable": "任务 '{id}' 已开始执行，不可取消；它会照常跑完并保留结果",
     "task_retry_download_unavailable": "任务 '{id}' 当前不可重试下载",
+    "task_retry_download_server_stopping": "服务正在停机，请在服务重启后重试下载",
     "task_fail_provider_unsupported_media": "供应商 {provider_id} 不支持 {media_type} 生成",
     "task_fail_provider_rejected": "供应商拒绝了这次生成请求（HTTP {status}）",
     "task_fail_dispatch_provider_requeue_failed": "任务供应商从 {claimed_provider_id} 变为 {actual_provider_id}，但无法回队重新认领，请重试",

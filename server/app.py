@@ -505,7 +505,7 @@ async def _running_app(app: FastAPI, shutdown: ShutdownController) -> AsyncGener
 
     await assistant.assistant_service.startup(in_docker=is_docker, sandbox_enabled=sandbox_enabled)
     session_manager = assistant.assistant_service.session_manager
-    session_manager.streams_stopped = asyncio.Event()
+    session_manager.reset_streams()
     session_manager.start_patrol()
 
     logger.info("启动 GenerationWorker...")

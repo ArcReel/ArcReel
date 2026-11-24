@@ -230,7 +230,7 @@ async def retry_artifact_download(task_id: str, request: Request, _t: Translator
     try:
         task = await worker.retry_artifact_download(task_id)
     except WorkerStoppingError as exc:
-        raise ServiceUnavailableError("task_retry_download_unavailable", id=task_id) from exc
+        raise ServiceUnavailableError("task_retry_download_server_stopping") from exc
     except ValueError as exc:
         raise BadRequestError("task_retry_download_unavailable", id=task_id) from exc
     [task] = await _with_resource_refs([_localize_task(task, _t, names)], _t)

@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
+import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
@@ -229,5 +230,42 @@ describe("UsagePopover", () => {
     await waitFor(() =>
       expect(API.getUsageSummary).toHaveBeenCalledTimes(callsBeforeRetry + 1),
     );
+  });
+
+  it.each([
+    {
+      failure: "HTTP 503",
+      respond: () =>
+        Response.json(
+          { detail: "服务正在停机，暂不可重试下载任务 't-9'，请待服务重启后再试" },
+          { status: 503 },
+        ),
+      message: "服务暂不可用，恢复后请重试下载",
+    },
+    {
+      failure: "HTTP 400",
+      respond: () => Response.json({ detail: "任务不符合重试下载条件" }, { status: 400 }),
+      message: "重试下载没能开始，请稍后再试",
+    },
+    {
+      failure: "a network error",
+      respond: () => {
+        throw new TypeError("Failed to fetch");
+      },
+      message: "重试下载没能开始，请稍后再试",
+    },
+  ])("shows the download retry notice for $failure", async ({ respond, message }) => {
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => respond());
+
+    render(<ToastOverlay />);
+    openPopover({
+      recent: [
+        makeUsageRecord({ status: "failed", error_code: "download_failed", task_id: "t-9" }),
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "重试下载" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
 });

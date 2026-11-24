@@ -67,6 +67,7 @@ from lib.generation.video_request_facts import (
     end_frame_duration_failure,
     require_video_request_facts,
 )
+from lib.generation.video_result import build_video_task_result
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join, try_safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
@@ -1378,17 +1379,14 @@ async def finalize_video_task(
         lambda: generator.versions.get_versions("videos", resource_id)["versions"][-1]["created_at"]
     )
 
-    result: dict[str, Any] = {
-        "version": version,
-        "file_path": f"videos/scene_{resource_id}.mp4",
-        "created_at": created_at,
-        "resource_type": "videos",
-        "resource_id": resource_id,
-        "video_uri": video_uri,
-    }
-    if warnings:
-        result["warnings"] = list(warnings)
-    return result
+    return build_video_task_result(
+        resource_type="videos",
+        resource_id=resource_id,
+        version=version,
+        created_at=created_at,
+        video_uri=video_uri,
+        warnings=warnings,
+    )
 
 
 async def execute_asset_sheet_task(

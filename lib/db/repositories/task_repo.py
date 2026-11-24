@@ -456,6 +456,7 @@ class TaskRepository(BaseRepository):
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
+        owned_task_ids: frozenset[str] = frozenset(),
     ) -> dict[str, Any] | None:
         """领取下一个 queued 任务。
 
@@ -469,6 +470,9 @@ class TaskRepository(BaseRepository):
         此刻占满的 provider，它们的在跑任务结束后就会空出槽位，任务届时照常被领取，由执行
         入口按现状核对 provider，不一致时改写记录并原位回队。
 
+        ``owned_task_ids`` 排除仍由 Worker 持有的任务。回队已经提交、旧执行体尚未收到响应时，
+        任务应等旧归属释放后才允许下一次认领。
+
         采用黑名单语义而非白名单（早期实现）的原因：白名单会把"已知但未在当前
         ``_pools`` 里的 provider"任务永久过滤掉（例如自定义 provider 被禁用 / 删除），
         导致静默堆积。黑名单只排除已知池满，未知 provider 任务正常 claim 走 worker
@@ -481,6 +485,10 @@ class TaskRepository(BaseRepository):
         if pool_full_providers:
             provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
             params["providers"] = tuple(pool_full_providers)
+        ownership_filter = ""
+        if owned_task_ids:
+            ownership_filter = "AND tasks.task_id NOT IN :owned_ids"
+            params["owned_ids"] = tuple(owned_task_ids)
 
         raw_stmt = text(f"""
             SELECT tasks.task_id
@@ -490,6 +498,7 @@ class TaskRepository(BaseRepository):
             WHERE tasks.status = 'queued'
               AND tasks.media_type = :media_type
               {provider_filter}
+              {ownership_filter}
               AND (
                 tasks.dependency_task_id IS NULL
                 OR dependency.status = 'succeeded'
@@ -499,6 +508,8 @@ class TaskRepository(BaseRepository):
         """)
         if "providers" in params:
             raw_stmt = raw_stmt.bindparams(sa_bindparam("providers", expanding=True))
+        if "owned_ids" in params:
+            raw_stmt = raw_stmt.bindparams(sa_bindparam("owned_ids", expanding=True))
 
         result = await self.session.execute(raw_stmt, params)
         row = result.first()
@@ -527,17 +538,17 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
         return task_data
 
-    async def mark_succeeded(self, task_id: str, result: dict[str, Any] | None = None) -> int:
-        """SQL `WHERE status='running'` 守卫；返回受影响行数。
-
-        rows=0 表示任务已不在 running（已由别的路径落终态），该写入不生效，调用方只记录。
-        """
+    async def mark_succeeded(
+        self, task_id: str, result: dict[str, Any] | None = None, *, expected_project_name: str | None = None
+    ) -> int:
+        """任务仍在 running 且项目归属相符时写入成功，返回受影响行数。"""
         now = utc_now()
 
+        statement = update(Task).where(Task.task_id == task_id, Task.status == "running")
+        if expected_project_name is not None:
+            statement = statement.where(Task.project_name == expected_project_name)
         update_result = await self.session.execute(
-            update(Task)
-            .where(Task.task_id == task_id, Task.status == "running")
-            .values(
+            statement.values(
                 status="succeeded",
                 result_json=_json_dumps(result or {}),
                 error_message=None,

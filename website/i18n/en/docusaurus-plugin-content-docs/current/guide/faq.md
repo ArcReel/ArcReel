@@ -181,6 +181,8 @@ The task panel does not have one retry button that works for every task type. Af
 
 There is one exception: when a video was generated successfully on the provider side but could not be downloaded, the task panel offers **Retry download**. This action resumes the original provider task and only re-fetches the output. It **does not resubmit the request and is not billed again**, so use it to recover this kind of failure instead of regenerating from the generation entry point. Regenerating creates a new paid task.
 
+If the workspace reports that the service is temporarily unavailable, wait for it to come back online and select **Retry download** again.
+
 If part of a batch fails, you do not need to redo all successful content. Asset, storyboard, and full-episode video generation fill in missing items; successful results are not deleted because one item failed. After a service restart, safely recoverable video tasks with recorded upstream task IDs resume polling. Unrecoverable tasks are marked failed and wait for the user to decide whether to resubmit them.
 
 To avoid duplicate charges, ArcReel does not unconditionally requeue every running task. Check existing results and tasks in the provider console before regenerating.

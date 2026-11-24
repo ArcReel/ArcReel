@@ -230,7 +230,7 @@ class FakeWorkerQueue:
             self.claim_after_interruption.set()
         return None
 
-    async def mark_task_succeeded(self, task_id, result):
+    async def mark_task_succeeded(self, task_id, result, *, expected_project_name=None):
         self.succeeded.append((task_id, result))
         return 1
 

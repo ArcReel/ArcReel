@@ -542,6 +542,7 @@ export default {
   'cancel_this_task': 'Cancel this task',
   'retry_download': 'Retry download',
   'retry_download_failed': "Retry download couldn't start; please try again later",
+  'retry_download_service_unavailable': 'The service is temporarily unavailable. Retry the download when it is back online.',
   'retrying_download': 'Retrying…',
   'cancel_all': 'Cancel All',
   'cancel_all_queued_aria': 'Cancel all queued tasks',
