@@ -147,20 +147,46 @@ def install_current_video(project_path: Path, resource_type: str, unit_id: str, 
     return version
 
 
-def install_uploaded_video(project_path: Path, resource_type: str, unit_id: str, *, seconds: float) -> None:
-    """把一段现场合成的测试画面（带音轨）作为视频单元的手动上传版本，放到正式路径上。"""
+def install_uploaded_video(
+    project_path: Path, resource_type: str, unit_id: str, *, seconds: float, episode: int = 1
+) -> None:
+    """把一段现场合成的测试画面（带音轨）作为视频单元的手动上传版本，放到正式路径并登记脚本指针与产物清单。"""
+    import json
+
+    from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifest, ProjectArtifactManifestAdapter
     from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+    from lib.artifacts.visual_artifact_provenance import build_uploaded_video_basis
+    from lib.infra.content_digest import sha256_file
     from lib.project.resource_paths import resource_relative_path
+    from lib.script.script_editor import resolve_items
 
     staged = project_path / f".{unit_id}.upload.mp4"
     make_test_clip(staged, size="160x90", fps=30, seconds=seconds, tone=True)
+    relative_path = resource_relative_path(resource_type, unit_id)
+    current_file = project_path / relative_path
     VersionManager(project_path).commit_staged_version(
         resource_type,
         unit_id,
         "",
         staged_file=staged,
-        current_file=project_path / resource_relative_path(resource_type, unit_id),
+        current_file=current_file,
         source=MANUAL_UPLOAD_VERSION_SOURCE,
+    )
+    script_path = project_path / "scripts" / f"episode_{episode}.json"
+    if script_path.is_file():
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        items, id_field, _kind = resolve_items(script)
+        for item in items:
+            if isinstance(item, dict) and str(item.get(id_field)) == unit_id:
+                assets = item.setdefault("generated_assets", {})
+                if isinstance(assets, dict):
+                    assets["video_clip"] = relative_path
+                script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+                break
+    ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
+        ArtifactKey.episode_video(episode, unit_id),
+        artifact_path=relative_path,
+        basis=build_uploaded_video_basis(content_digest=sha256_file(current_file)),
     )
 
 

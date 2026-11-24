@@ -16,10 +16,11 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.artifact_version_provenance import (
     TypedMediaVersionTarget,
     is_typed_media_resource,
+    is_uploaded_video_version,
     parse_typed_media_version_target,
     uploaded_video_version_basis,
 )
-from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from lib.artifacts.version_manager import VersionManager
 from lib.infra.api_errors import NotFoundError
 from lib.infra.content_digest import sha256_file
 from lib.project.project_manager import ProjectManager, resolve_episode_script_binding
@@ -34,10 +35,6 @@ _TYPED_MEDIA_ARTIFACT_KEYS: dict[str, Callable[[int, str], ArtifactKey]] = {
 }
 
 
-def _is_uploaded_video(resource_type: str, record: Mapping[str, Any]) -> bool:
-    return resource_type in {"videos", "reference_videos"} and record.get("source") == MANUAL_UPLOAD_VERSION_SOURCE
-
-
 def is_typed_media_restore_resource(resource_type: str) -> bool:
     return is_typed_media_resource(resource_type)
 
@@ -45,7 +42,7 @@ def is_typed_media_restore_resource(resource_type: str) -> bool:
 def is_typed_media_version_restorable(resource_type: str, record: Mapping[str, Any]) -> bool:
     """Whether the version has a supported restore source."""
 
-    if not is_typed_media_restore_resource(resource_type) or _is_uploaded_video(resource_type, record):
+    if not is_typed_media_restore_resource(resource_type) or is_uploaded_video_version(resource_type, record):
         return True
     try:
         parse_typed_media_version_record(resource_type, record)
@@ -84,7 +81,7 @@ def get_typed_media_restore_target(
     )
     if record is None:
         raise NotFoundError("version_not_found", version=version)
-    if _is_uploaded_video(resource_type, record):
+    if is_uploaded_video_version(resource_type, record):
         episode, script_file = resolve_video_unit_owner(
             project_manager,
             project_name=project_name,
@@ -143,7 +140,7 @@ def restore_typed_media_version(
         def _register(record: dict[str, Any]) -> None:
             """Use the installed bytes after VersionManager has admitted the snapshot."""
 
-            if _is_uploaded_video(resource_type, record) != isinstance(resolved, UploadedVideoRestoreTarget):
+            if is_uploaded_video_version(resource_type, record) != isinstance(resolved, UploadedVideoRestoreTarget):
                 raise ValueError("version source changed during restore")
             if isinstance(resolved, UploadedVideoRestoreTarget):
                 basis = ArtifactBasisDescriptor.from_basis(

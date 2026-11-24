@@ -347,7 +347,7 @@ describe("VersionTimeMachine", () => {
     expect(presentation).not.toHaveBeenCalled();
   });
 
-  it("previews manual-upload history with the selected presentation", async () => {
+  it("previews and restores manual-upload history with the selected presentation", async () => {
     vi.spyOn(API, "getVersions").mockResolvedValue({
       resource_type: "videos",
       resource_id: "E1S01",
@@ -359,13 +359,14 @@ describe("VersionTimeMachine", () => {
           created_at: "2026-02-01T00:00:00Z",
           file_size: 10,
           is_current: false,
-          restorable: false,
+          restorable: true,
           presentation_available: true,
           source: "manual_upload",
           file_url: "/api/v1/files/demo/versions/videos/E1S01_v1.mp4",
         },
       ],
     });
+    const restore = vi.spyOn(API, "restoreVersion").mockResolvedValue({ success: true });
     const presentation = vi.spyOn(API, "getPresentation").mockResolvedValue({
       schema_version: 1,
       provenance: "verified",
@@ -427,7 +428,10 @@ describe("VersionTimeMachine", () => {
       expect.objectContaining({ videoVersion: 1 }),
     );
     expect(screen.queryByText("来源不可用")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /切换到此版本/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /切换到此版本/ }));
+    await waitFor(() => {
+      expect(restore).toHaveBeenCalledWith("demo", "videos", "E1S01", 1);
+    });
   });
 
   it("disables version restore while the resource is busy (image_edit in flight)", async () => {

@@ -17,9 +17,11 @@ SELECT_VIDEO_VERSION = ToolDeclaration(
         "不收费、不重新生成，也不需要创作者确认。"
         "两种用途：① 首轮审阅后，某单元的另一候选版本更好，改用它；"
         "② 重新生成后验收，新版本不如旧版，改回旧版本。"
+        "支持切回手动上传的视频版本，还原时会校验历史快照。"
         "unit_id 在分镜图生视频为分镜 ID，在参考生视频为 unit_id。"
         "视频单元不存在返回 video_unit_not_found；版本号不存在返回 version_not_found，"
-        "params.available_versions 列出该单元现有版本；缺完整取证描述的版本（如手动上传）返回 request_invalid。"
+        "params.available_versions 列出该单元现有版本。"
+        "缺少完整还原依据的生成版本返回 request_invalid。"
         "成功返回 current_version 与 file_path。"
     ),
     request_model=SelectVideoVersionRequest,

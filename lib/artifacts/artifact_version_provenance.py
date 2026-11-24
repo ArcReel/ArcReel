@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE
 from lib.artifacts.video_artifact_facts import VIDEO_ARTIFACT_RESTORE_BLOCKER_FIELD, VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_uploaded_video_basis
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE
@@ -63,6 +64,11 @@ _IMAGE_VISUAL_KINDS: dict[str, frozenset[str]] = {
     ),
     "grids": frozenset({"artifact-visual/grid-composite"}),
 }
+
+
+def is_uploaded_video_version(resource_type: str, record: Mapping[str, Any]) -> bool:
+    """Whether a version record represents a manually uploaded video artifact."""
+    return resource_type in _VIDEO_VISUAL_KINDS and record.get("source") == MANUAL_UPLOAD_VERSION_SOURCE
 
 
 def is_typed_media_resource(resource_type: str) -> bool:
@@ -262,6 +268,7 @@ __all__ = [
     "VIDEO_CURRENCY_DURATION_FIELD",
     "TypedMediaVersionTarget",
     "is_typed_media_resource",
+    "is_uploaded_video_version",
     "parse_image_version_basis",
     "parse_typed_audio_settings",
     "parse_typed_media_version_target",

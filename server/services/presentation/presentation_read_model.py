@@ -15,7 +15,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifacts.artifact_version_provenance import uploaded_video_version_basis
+from lib.artifacts.artifact_version_provenance import is_uploaded_video_version, uploaded_video_version_basis
 from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
 from lib.generation.generation_admission import generation_admission_lock
 from lib.infra.async_thread import run_sync_transaction
@@ -227,7 +227,7 @@ class PresentationReadModelService:
         )
         provider_audio_enabled = (
             True
-            if selected_video.record.get("source") == "manual_upload"
+            if is_uploaded_video_version(resource_type, selected_video.record)
             else selected_video.record.get("execution_generate_audio")
         )
         if not isinstance(provider_audio_enabled, bool):
@@ -604,7 +604,7 @@ class PresentationReadModelService:
     ) -> MediaCurrency:
         if selected.target is None:
             raise PresentationUnavailableError("video currency requires typed presentation provenance")
-        if selected.record.get("source") == "manual_upload":
+        if is_uploaded_video_version(resource_type, selected.record):
             return "current"
         current = build_current_video_artifact_basis(
             project_path=project_path,
@@ -800,7 +800,7 @@ def _presentation_restore_target(
     resource_type: str,
     record: Mapping[str, Any],
 ) -> TypedMediaRestoreTarget | None:
-    if resource_type in {"videos", "reference_videos"} and record.get("source") == "manual_upload":
+    if is_uploaded_video_version(resource_type, record):
         return None
     return parse_typed_media_version_record(resource_type, record)
 

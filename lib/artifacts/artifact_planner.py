@@ -34,7 +34,11 @@ from lib.artifacts.artifact_provenance import (
     build_script_plan_basis,
     decode_script_plan_source,
 )
-from lib.artifacts.artifact_version_provenance import parse_typed_media_version_target, uploaded_video_version_basis
+from lib.artifacts.artifact_version_provenance import (
+    is_uploaded_video_version,
+    parse_typed_media_version_target,
+    uploaded_video_version_basis,
+)
 from lib.artifacts.generation_input import (
     ImageGenerationInput,
     InputRefused,
@@ -1126,7 +1130,7 @@ class TargetStatePlanner:
             self._skip(key, artifact_path, "version history has no selected version")
             return
         record = selected[0]
-        if resource_type != "audio" and record.get("source") == "manual_upload":
+        if is_uploaded_video_version(resource_type, record):
             if self.manifest_snapshot is None:
                 uploaded = self._selected_upload_digest(resource, resource_type, artifact_path)
             elif selected_manual_upload_snapshot(resource, resource_type) is not None:
@@ -1743,7 +1747,7 @@ class TargetStatePlanner:
             ):
                 return None
             embedded_basis = ArtifactBasisDescriptor.from_dict(raw.get("basis"))
-            if resource_type != "audio" and record.get("source") == "manual_upload":
+            if is_uploaded_video_version(resource_type, record):
                 expected_basis = ArtifactBasisDescriptor.from_basis(
                     uploaded_video_version_basis(record, snapshot_digest=unprefixed(content_digest))
                 )
