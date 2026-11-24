@@ -72,7 +72,7 @@ class TestOpenAIImageBackend:
 
             backend = OpenAIImageBackend(api_key="test-key")
             assert backend.name == PROVIDER_OPENAI
-            assert backend.model == "gpt-image-2"
+            assert backend.model == "gpt-image-2.6-flare"
 
     def test_custom_model(self):
         with captured_openai_clients():
@@ -109,13 +109,13 @@ class TestOpenAIImageBackend:
             result = await backend.generate(request)
 
         assert result.provider == PROVIDER_OPENAI
-        assert result.model == "gpt-image-2"
+        assert result.model == "gpt-image-2.6-flare"
         assert result.image_path == output_path
         assert output_path.read_bytes() == b"fake-png-data"
 
         mock_client.images.generate.assert_awaited_once()
         call_kwargs = mock_client.images.generate.call_args[1]
-        assert call_kwargs["model"] == "gpt-image-2"
+        assert call_kwargs["model"] == "gpt-image-2.6-flare"
         assert call_kwargs["size"] == "1008x1792"
         assert call_kwargs["quality"] == "medium"
         assert "response_format" not in call_kwargs

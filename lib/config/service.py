@@ -16,7 +16,7 @@ from lib.config.repository import ProviderConfigRepository, SystemSettingReposit
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.infra.schema_guards import is_int
 
-DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
+DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3.8-flash"
 DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
 _DEFAULT_NARRATION_VOICE = "Cherry"
 MIN_VIDEO_POLL_TIMEOUT_SECONDS = 60

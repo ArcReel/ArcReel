@@ -303,13 +303,14 @@ class TestVertex:
 
             credentials.refresh.side_effect = refresh
             backend = VertexInteractionsVideoBackend(
-                credentials_path=str(credentials_file), rate_limiter=_NoopRateLimiter(), video_model=MODEL
+                credentials_path=str(credentials_file), rate_limiter=_NoopRateLimiter()
             )
             with capture_http() as router:
                 create = router.post(VERTEX_INTERACTIONS).respond(200, json=_completed())
                 result = await backend.generate(request)
 
         assert create.calls.last.request.headers["authorization"] == "Bearer fresh-token"
+        assert request_json(create.calls.last.request)["model"] == "gemini-omni-1.2-flash"
         assert request.output_path.read_bytes() == MP4_BYTES
         assert result.generate_audio is True
 

@@ -63,6 +63,7 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
     """
 
     audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
+    default_model: ClassVar[str] = "gemini-omni-1.2-flash"
 
     @classmethod
     def video_capabilities_for_model(cls, model: str, entry: CatalogEntry | None = None) -> VideoCapabilities:

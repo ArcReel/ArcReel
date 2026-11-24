@@ -64,6 +64,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
 
     audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
     default_backend_type: ClassVar[str] = "aistudio"
+    default_model: ClassVar[str] = GEMINI_DEFAULT_VIDEO_MODEL
 
     def __init__(
         self,
@@ -89,7 +90,7 @@ class GeminiVideoBackend(EntryBoundCapabilities, ProviderJobIdPersistenceMixin):
         self._transport_layer = transport_layer
         self._http_options: _types.HttpOptions | _types.HttpOptionsDict | None = None
 
-        self._video_model = video_model or GEMINI_DEFAULT_VIDEO_MODEL
+        self._video_model = video_model or self.default_model
 
         if self._backend_type == "vertex":
             import json as json_module

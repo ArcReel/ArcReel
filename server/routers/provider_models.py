@@ -93,7 +93,7 @@ ModelFlag = Literal["discontinued", "retiring", "unpriced", "modified"]
 
 
 class LifecycleResponse(BaseModel):
-    """供应商模型所对应条目在今天的生命周期（UTC 日期）：状态、关停日期与官方后继（「模型厂商/官方模型名」）。
+    """供应商模型所对应条目在今天的生命周期（UTC 日期）：状态、关停日期与推荐替代模型（「模型厂商/官方模型名」）。
 
     对应不上条目的模型为 ``available``，两个日期字段为 ``null``。
     """

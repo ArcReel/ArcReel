@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-image-2"
+DEFAULT_MODEL = "gpt-image-2.6-flare"
 _MAX_REFERENCE_IMAGES = 16
 ImageBackendMode = Literal["both", "generations_only", "edits_only"]
 
