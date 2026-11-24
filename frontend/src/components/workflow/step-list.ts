@@ -700,7 +700,7 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
       const draft = content.drafts.find((d) => d.kind === action.args.draft_kind) ?? content.drafts[0];
       const docType = draft ? draftDocType(draft) : null;
       if (!draft || !docType) return { ...base, detail: t("workflow:next_detail_resolve_draft_unknown") };
-      const surface: EpisodeSurface = draft.kind === PROMPT_AUTHORING_DRAFT_KIND ? "prompt_authoring_draft" : "script_plan";
+      const isScriptPlanDraft = draft.kind !== PROMPT_AUTHORING_DRAFT_KIND;
       if (draft.needs_repair) {
         return {
           ...base,
@@ -712,9 +712,14 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
             { key: "ai-repair", label: t("dashboard:draft_ai_repair"), kind: "ai", intent: { type: "repair_draft", docType } },
           ],
           alternatives: [
-            { key: "edit-draft", label: t("workflow:act_edit_draft"), kind: "nav", intent: { type: "show_surface", surface } },
-            ...(surface === "script_plan"
+            ...(isScriptPlanDraft
               ? [
+                  {
+                    key: "edit-draft",
+                    label: t("workflow:act_edit_draft"),
+                    kind: "nav",
+                    intent: { type: "show_surface", surface: "script_plan" },
+                  } satisfies StepAct,
                   {
                     key: "regenerate",
                     label: t("dashboard:script_plan_regenerate_open"),

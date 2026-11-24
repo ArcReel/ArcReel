@@ -1,19 +1,8 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Bot, Loader2, Sparkles } from "lucide-react";
-import { API, ApiRequestError } from "@/api";
+import { Bot, Sparkles } from "lucide-react";
+import { API } from "@/api";
 import { enqueuePromptAuthoring, promptAuthoringResourceId } from "@/actions/generation";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogBody,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -44,12 +33,7 @@ import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef"
 import { useProjectsStore } from "@/stores/projects-store";
 import { promptAuthoringEntries, type PromptAuthoringEntry } from "./prompt-authoring-entries";
 import { promptAuthoringHandoffText } from "./prompt-authoring-handoff";
-
-function readPromptOverwrite(err: unknown): PromptOverwrite | null {
-  if (!(err instanceof ApiRequestError) || err.status !== 409) return null;
-  const diagnostic = err.diagnostic as { prompt_overwrite?: PromptOverwrite } | undefined;
-  return diagnostic?.prompt_overwrite ?? null;
-}
+import { PromptOverwriteDialog, readPromptOverwrite } from "./PromptOverwriteDialog";
 
 interface HostProps {
   projectName: string;
@@ -319,36 +303,13 @@ export function PromptAuthoringDialog({
         </DialogContent>
       </Dialog>
 
-      <AlertDialog
-        open={overwrite !== null}
-        onOpenChange={(next) => {
-          if (!next && !submitting) setOverwrite(null);
-        }}
-      >
-        <AlertDialogContent size="lg">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("prompt_authoring_overwrite_title")}</AlertDialogTitle>
-          </AlertDialogHeader>
-          <AlertDialogBody tabIndex={0} role="region" aria-label={t("prompt_authoring_overwrite_title")}>
-            <AlertDialogDescription>
-              <span className="whitespace-pre-line wrap-break-word">
-                {overwrite ? itemIdsAsPositionsInText(overwrite.text, scripts, t) : null}
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogBody>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={submitting}>{t("common:cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={submitting}
-              onClick={() => void submit(overwrite?.revision ?? null)}
-            >
-              {submitting ? <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" /> : null}
-              {t("prompt_authoring_ai_rewrite")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <PromptOverwriteDialog
+        overwrite={overwrite}
+        text={overwrite ? itemIdsAsPositionsInText(overwrite.text, scripts, t) : null}
+        submitting={submitting}
+        onConfirm={(revision) => void submit(revision)}
+        onClose={() => setOverwrite(null)}
+      />
     </>
   );
 }

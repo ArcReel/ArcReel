@@ -255,4 +255,45 @@ describe("useTaskFailureNotifications", () => {
       });
     });
   });
+
+  it("pushes a warning notification pointing to the first failed unit when prompt authoring partially completes", async () => {
+    seedTaskState({
+      tasks: [
+        task({
+          task_id: "pa-1",
+          task_type: "text_episode_script",
+          resource_id: "episode-1",
+          status: "running",
+        }),
+      ],
+    });
+    render(<Harness project="demo" />);
+    act(() => {
+      seedTaskState({
+        tasks: [
+          task({
+            task_id: "pa-1",
+            task_type: "text_episode_script",
+            resource_id: "episode-1",
+            status: "succeeded",
+            result: {
+              message: "部分完成",
+              outcome: "partial",
+              written_ids: ["E1U1"],
+              failed_units: [{ unit_id: "E1U2", code: "missing_unit", message: "模型漏返单元" }],
+            },
+          }),
+        ],
+      });
+    });
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    const note = useAppStore.getState().workspaceNotifications[0];
+    expect(note.tone).toBe("warning");
+    expect(note.text).toBe("「E1」提示词编写部分完成：已写回 1 个单元，1 个单元未写回");
+    expect(note.target).toEqual({
+      type: "reference_unit",
+      id: "E1U2",
+      route: "/episodes/1",
+    });
+  });
 });

@@ -87,7 +87,6 @@ const API: ApiOverrides = {
     body: { ...project, project: { ...project.project, generation_mode: "reference_video" } },
   },
   [`GET ${UNITS_API}`]: unitsResponse(UNITS),
-  "GET /api/v1/projects/demo/episodes/1/drafts": { status: 200, body: { episode: 1, drafts: [] } },
   [`POST ${UNITS_API}/E1U2/move`]: { status: 200, body: { units: movedUnits("E1U2", null) } },
 };
 

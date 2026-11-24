@@ -115,6 +115,11 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
                     <span className="flex items-center gap-1.5">
                       <ItemPositionBadge position={positionById.get(u.unit_id) ?? null} kind="unit" active={selected} />
                       <UnitStatusBadge status={resolveUnitStatus(u, statusMap)} />
+                      {u.pending_authoring === true && (
+                        <span className="rounded-sm bg-warn/15 px-1.5 py-0.5 text-xs font-medium text-warn">
+                          {t("prompt_authoring_entry_pending")}
+                        </span>
+                      )}
                       <span className="flex-1" />
                       <span className="font-mono text-xs tabular-nums text-muted-foreground">
                         {t("reference_editor_unit_meta", { duration: u.duration_seconds })}

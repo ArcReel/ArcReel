@@ -6,6 +6,11 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { suppressedAssetSheetTaskIds, useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
 import { buildTaskFailureTarget, describeTaskFailure } from "@/utils/task-target";
+import { episodeDisplayName } from "@/utils/episode-display";
+import {
+  episodeNumberFromTaskResource,
+  parseReferenceAuthoringPartial,
+} from "@/components/canvas/reference/prompt-authoring-partial";
 import type { TaskStatus } from "@/types";
 
 export function useTaskFailureNotifications(projectName?: string | null): void {
@@ -49,6 +54,33 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
       const notify = isNew && !suppressed.has(tk.task_id);
       if (notify && tk.status === "succeeded" && tk.result?.target_deleted === true) {
         useAppStore.getState().pushNotification(tRef.current("task_target_deleted"), "warning");
+      }
+      if (notify && tk.status === "succeeded") {
+        const partial = parseReferenceAuthoringPartial(tk);
+        if (partial) {
+          const episodeNum = episodeNumberFromTaskResource(tk.resource_id);
+          const episodeName =
+            episodeNum !== null
+              ? episodeDisplayName(projectDataRef.current?.episodes ?? [], episodeNum, tRef.current)
+              : tk.resource_id;
+          useAppStore.getState().pushNotification(
+            tRef.current("prompt_authoring_partial_notification", {
+              episode: episodeName,
+              writtenCount: partial.writtenIds.length,
+              failedCount: partial.failedUnits.length,
+            }),
+            "warning",
+            episodeNum !== null
+              ? {
+                  target: {
+                    type: "reference_unit",
+                    id: partial.failedUnits[0].unit_id,
+                    route: `/episodes/${episodeNum}`,
+                  },
+                }
+              : undefined,
+          );
+        }
       }
       if (notify && tk.status === "failed") {
         const text = describeTaskFailure(
