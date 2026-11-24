@@ -1098,4 +1098,30 @@ describe("WorkflowPanel 刷新纪律", () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   });
+
+  it("掉出最近列表的活跃任务结束后仍触发计划刷新", async () => {
+    const evicted = makeTask({ task_id: "evicted-1", project_name: "proj", status: "running" });
+    const history = Array.from({ length: 200 }, (_, i) =>
+      makeTask({ task_id: `h-${i}`, project_name: "proj", status: "succeeded" }),
+    );
+    const active = vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [evicted], truncated: false });
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: history, total: 201, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+    const { setRefreshScope, refreshTasks } = useTasksStore.getState();
+    setRefreshScope({ projectName: "proj" });
+    try {
+      await refreshTasks();
+      const spy = mockPlan(makePlan());
+      render(<WorkflowPanel projectName="proj" episode={1} />);
+      await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+
+      active.mockResolvedValue({ items: [], truncated: false });
+      await act(refreshTasks);
+      await settleDebounce();
+
+      await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    } finally {
+      act(() => setRefreshScope(null));
+    }
+  });
 });

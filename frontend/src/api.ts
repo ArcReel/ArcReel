@@ -2543,9 +2543,12 @@ class API {
     return task;
   }
 
-  static getActiveTasks(projectName: string | null): Promise<{ items: TaskItem[]; truncated: boolean }> {
+  static getActiveTasks(
+    projectName: string | null,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<{ items: TaskItem[]; truncated: boolean }> {
     const query = projectName ? "?" + new URLSearchParams({ project_name: projectName }).toString() : "";
-    return this.request(`/tasks/active${query}`);
+    return this.request(`/tasks/active${query}`, { signal: options.signal });
   }
 
   static lookupTasks(taskIds: string[], projectName: string | null, signal: AbortSignal): Promise<{ items: TaskItem[]; missing_ids: string[] }> {
@@ -2555,7 +2558,8 @@ class API {
   }
 
   static async listTasks(
-    filters: TaskListFilters = {}
+    filters: TaskListFilters = {},
+    options: { signal?: AbortSignal } = {},
   ): Promise<{ items: TaskItem[]; total: number; page: number; page_size: number }> {
     const params = new URLSearchParams();
     if (filters.projectName) params.append("project_name", filters.projectName);
@@ -2565,7 +2569,7 @@ class API {
     if (filters.page) params.append("page", String(filters.page));
     if (filters.pageSize) params.append("page_size", String(filters.pageSize));
     const query = params.toString();
-    return this.request(`/tasks${query ? "?" + query : ""}`);
+    return this.request(`/tasks${query ? "?" + query : ""}`, { signal: options.signal });
   }
 
   static async listProjectTasks(
@@ -2585,12 +2589,13 @@ class API {
   }
 
   static async getTaskStats(
-    projectName: string | null = null
+    projectName: string | null = null,
+    options: { signal?: AbortSignal } = {},
   ): Promise<{ stats: TaskStats }> {
     const params = new URLSearchParams();
     if (projectName) params.append("project_name", projectName);
     const query = params.toString();
-    return this.request(`/tasks/stats${query ? "?" + query : ""}`);
+    return this.request(`/tasks/stats${query ? "?" + query : ""}`, { signal: options.signal });
   }
 
 

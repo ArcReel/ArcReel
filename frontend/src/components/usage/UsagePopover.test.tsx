@@ -214,6 +214,63 @@ describe("UsagePopover", () => {
     expect(useAppStore.getState().usagePanelOpen).toBe(false);
   });
 
+  it.each([false, true])("hides a resumed download with history request failure=%s", async (historyFails) => {
+    const failedRecord = makeUsageRecord({
+      status: "failed",
+      error_code: "download_failed",
+      task_id: "t-retry",
+    });
+    const failedTask = makeTask({
+      task_id: "t-retry",
+      project_name: HEADER_PROJECT,
+      status: "failed",
+      updated_at: "2026-11-24T08:00:00.123400Z",
+    });
+    const runningTask = {
+      ...failedTask,
+      status: "running" as const,
+      updated_at: "2026-11-24T08:00:00.123401Z",
+    };
+    let task = failedTask;
+    vi.spyOn(API, "getActiveTasks").mockImplementation(async () => ({
+      items: task.status === "running" ? [task] : [],
+      truncated: false,
+    }));
+    vi.spyOn(API, "listTasks").mockImplementation(async () => ({
+      items: task.status === "succeeded" ? [] : [task], total: 1, page: 1, page_size: 200,
+    }));
+    vi.spyOn(API, "lookupTasks").mockImplementation(async () => ({ items: [task], missing_ids: [] }));
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: useTasksStore.getInitialState().stats });
+    vi.mocked(API.getUsageRecords).mockImplementation(async (query) => {
+      if (historyFails && task.status !== "failed" && query?.statuses?.includes("failed")) {
+        throw new Error("history unavailable");
+      }
+      const items = task.status === "failed" && query?.statuses?.includes("failed") ? [failedRecord] : [];
+      return { items, next_cursor: null, total: items.length };
+    });
+    useTasksStore.getState().setRefreshScope({ projectName: HEADER_PROJECT });
+    await act(useTasksStore.getState().refreshTasks);
+    openPopover({});
+
+    expect(await screen.findByRole("button", { name: "重试下载" })).toBeInTheDocument();
+
+    task = runningTask;
+    await act(useTasksStore.getState().refreshTasks);
+
+    expect(within(screen.getByRole("region", { name: "进行中" })).getByText("生成中…")).toBeInTheDocument();
+    const finished = within(screen.getByRole("region", { name: "最近已结束" }));
+    await waitFor(() => {
+      expect(finished.queryByText("失败")).not.toBeInTheDocument();
+      expect(finished.queryByRole("button", { name: "重试下载" })).not.toBeInTheDocument();
+    });
+    expect(useUsageHeaderStore.getState().loadFailed).toBe(historyFails);
+
+    task = { ...runningTask, status: "succeeded", updated_at: "2026-11-24T08:00:00.123402Z" };
+    await act(useTasksStore.getState().refreshTasks);
+    expect(finished.queryByText("失败")).not.toBeInTheDocument();
+    expect(finished.queryByRole("button", { name: "重试下载" })).not.toBeInTheDocument();
+  });
+
   it("retries a failed download through the tasks API and refetches the records", async () => {
     const failedRecord = makeUsageRecord({
       id: 8,

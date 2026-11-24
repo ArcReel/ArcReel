@@ -34,13 +34,12 @@ import {
   usageRecordToView,
 } from "./usage-record-view";
 import type { UsageRecordView } from "./usage-record-view";
+import { DOWNLOAD_FAILED_CODE, useRefreshResumedDownloads } from "./use-refresh-resumed-downloads";
 import { useTaskCancellation } from "./use-task-cancellation";
 
 interface UsagePopoverProps {
   projectName: string;
 }
-
-const DOWNLOAD_FAILED_CODE = "download_failed";
 
 function KpiCell({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
@@ -135,6 +134,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
     ),
   );
   const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(new Set());
+  const resumedRecordIds = useRefreshResumedDownloads(open ? recent : [], refresh, retryingIds);
 
   const dismissCancellation = cancellation.dismiss;
   useEffect(() => {
@@ -160,7 +160,10 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
     }));
   }, [activeTasks, pendingRecords]);
 
-  const finishedRows = useMemo(() => recent.map(usageRecordToView), [recent]);
+  const finishedRows = useMemo(() => {
+    const resumed = new Set(resumedRecordIds);
+    return recent.filter((record) => !resumed.has(record.id)).map(usageRecordToView);
+  }, [recent, resumedRecordIds]);
 
   const empty =
     summary !== null &&
@@ -230,7 +233,7 @@ export function UsagePopover({ projectName }: UsagePopoverProps) {
         </div>
       )}
 
-      {truncated && <p role="status">{t("usage_active_incomplete")}</p>}
+      {truncated && <p role="status" className="text-sm text-warn">{t("usage_active_incomplete")}</p>}
       {empty ? (
         <p className="py-3 text-sm text-muted-foreground">{t("usage_popover_empty")}</p>
       ) : (

@@ -271,24 +271,24 @@ type PageTarget =
   | (PageSlot & { view: "agent"; query: UsageSessionsQuery });
 
 export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
-  const recordQuery = (filters: UsageRecordsFilters, cursor: string | null): UsageRecordsQuery => ({
+  const recordQuery = (filters: UsageRecordsFilters, cursor: string | null, since: string | undefined): UsageRecordsQuery => ({
     projectName: filters.project ?? undefined,
     providers: filters.provider ? [filters.provider] : undefined,
     models: filters.model ? [filters.model] : undefined,
     mediaTypes: filters.mediaType ? [filters.mediaType] : undefined,
     segmentIds: filters.segment ? [filters.segment] : undefined,
     statuses: statusesFor(filters.status),
-    since: rangeSince(filters.range, new Date()),
+    since,
     limit: USAGE_PAGE_SIZE,
     cursor: cursor ?? undefined,
     view: viewParam(filters),
   });
 
-  const sessionQuery = (filters: UsageRecordsFilters, cursor: string | null): UsageSessionsQuery => ({
+  const sessionQuery = (filters: UsageRecordsFilters, cursor: string | null, since: string | undefined): UsageSessionsQuery => ({
     projectName: filters.project ?? undefined,
     providers: filters.provider ? [filters.provider] : undefined,
     models: filters.model ? [filters.model] : undefined,
-    since: rangeSince(filters.range, new Date()),
+    since,
     limit: USAGE_PAGE_SIZE,
     cursor: cursor ?? undefined,
   });
@@ -305,13 +305,13 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
     }
   };
   const scheduleSummary = createRefreshCoordinator(runSummary);
-  const fetchSummary = (filters: UsageRecordsFilters) => {
+  const fetchSummary = (filters: UsageRecordsFilters, since = rangeSince(filters.range, new Date())) => {
     const query: UsageSummaryQuery = {
       projectName: filters.project ?? undefined,
       provider: filters.provider ?? undefined,
       model: filters.model ?? undefined,
       mediaType: filters.mediaType ?? undefined,
-      since: rangeSince(filters.range, new Date()),
+      since,
       tz: browserTimeZone(),
       view: viewParam(filters),
     };
@@ -344,18 +344,28 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
     }
   };
   const schedulePage = createRefreshCoordinator(runPage);
+  let pendingPage: { target: PageTarget } | null = null;
+  const requestPage = (target: PageTarget) => {
+    const request = { target };
+    pendingPage = request;
+    const { view, query, pageIndex } = target;
+    const key = JSON.stringify({ view, query, pageIndex });
+    return schedulePage(key, target).finally(() => {
+      if (pendingPage === request) pendingPage = null;
+    });
+  };
   const fetchPage = (
     filters: UsageRecordsFilters,
     cursor: string | null,
     pageIndex: number,
     cursors: (string | null)[],
+    since = rangeSince(filters.range, new Date()),
   ) => {
     const target: PageTarget =
       filters.view === "agent"
-        ? { view: "agent", query: sessionQuery(filters, cursor), pageIndex, cursors }
-        : { view: "generation", query: recordQuery(filters, cursor), pageIndex, cursors };
-    const key = JSON.stringify({ view: target.view, query: target.query, pageIndex });
-    return schedulePage(key, target);
+        ? { view: "agent", query: sessionQuery(filters, cursor, since), pageIndex, cursors }
+        : { view: "generation", query: recordQuery(filters, cursor, since), pageIndex, cursors };
+    return requestPage(target);
   };
 
   const runPending = async (query: UsageRecordsQuery, signal: AbortSignal) => {
@@ -406,10 +416,17 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
     },
 
     refresh: async () => {
-      const filters = get().filters;
+      const { filters, cursors, pageIndex } = get();
+      const since = rangeSince(filters.range, new Date());
+      const target = pendingPage?.target;
+      const refreshPage = target === undefined
+        ? fetchPage(filters, cursors[pageIndex] ?? null, pageIndex, cursors, since)
+        : target.query.since === since
+          ? requestPage(target)
+          : fetchPage(filters, null, 0, [null], since);
       await Promise.all([
-        fetchSummary(filters),
-        fetchPage(filters, get().cursors[get().pageIndex] ?? null, get().pageIndex, get().cursors),
+        fetchSummary(filters, since),
+        refreshPage,
         filters.view === "agent" ? Promise.resolve() : fetchPending(filters),
       ]);
     },

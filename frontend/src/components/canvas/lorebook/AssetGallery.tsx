@@ -11,6 +11,7 @@ import { useAppStore } from "@/stores/app-store";
 import type { AssetSheetType, WorkspaceFocusTarget } from "@/types";
 import { errMsg } from "@/utils/async";
 import { AssetBrowseCard } from "./AssetBrowseCard";
+import { hasActiveAssetName } from "./assetBusyGuard";
 import { AssetEditorSheet, type AssetEditorTarget } from "./AssetEditorSheet";
 import { AssetImageViewer } from "./AssetImageViewer";
 import { AssetSheetBatchControls } from "./AssetSheetBatchControls";
@@ -153,7 +154,7 @@ export function AssetGallery<T extends GalleryAssetSource>({
           <ul aria-label={title} className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
             {shown.map(({ asset }) => {
               const row = statusByName.get(asset.name);
-              const generating = generatingNames?.has(asset.name) ?? false;
+              const generating = hasActiveAssetName(generatingNames, asset.name);
               return (
                 <li key={asset.name} className="flex min-w-0">
                   <AssetBrowseCard

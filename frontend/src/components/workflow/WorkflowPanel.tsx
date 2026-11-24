@@ -37,7 +37,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
-import { selectRecentTasks, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
+import { selectProjectTaskFingerprint, isResourceBusy, useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import type { ProjectData, StoryboardBatchKind } from "@/types";
 import type { EpisodeEditOverview } from "@/types/edit-timeline";
@@ -146,12 +146,7 @@ export function WorkflowPanel({ projectName, episode, onViewUnit, onRegenerate, 
   const ledger = useEpisodeLedger();
 
   const snapshotRevision = useProjectsStore((s) => s.projectSnapshotRevisions[projectName] ?? 0);
-  const taskFingerprint = useTasksStore((s) =>
-    selectRecentTasks(s)
-      .filter((task) => task.project_name === projectName)
-      .map((task) => `${task.task_id}:${task.status}`)
-      .join("|"),
-  );
+  const taskFingerprint = useTasksStore((s) => selectProjectTaskFingerprint(s, projectName));
   const settledTaskFingerprint = useDebouncedValue(taskFingerprint, PLAN_REFRESH_DEBOUNCE_MS);
 
   useEffect(() => {

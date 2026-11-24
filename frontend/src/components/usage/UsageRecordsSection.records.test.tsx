@@ -205,6 +205,85 @@ describe("UsageRecordsSection records", () => {
     expect(await screen.findByText("21～40 / 73")).toBeInTheDocument();
   });
 
+  it("removes a failed download when the same task resumes in another tab", async () => {
+    const target = itemRef("S06", 6);
+    const failedTask = makeTask({
+      task_id: "t-retry",
+      project_name: "星海列车",
+      status: "failed",
+      media_type: "video",
+      task_type: "video",
+      resource_id: "E1S06",
+      resource_ref: target,
+      updated_at: "2026-11-24T08:00:00.123400Z",
+    });
+    const runningTask = {
+      ...failedTask,
+      status: "running" as const,
+      updated_at: "2026-11-24T08:00:00.123401Z",
+    };
+    let task = failedTask;
+    vi.spyOn(API, "getActiveTasks").mockImplementation(async () => ({
+      items: task.status === "running" ? [task] : [],
+      truncated: false,
+    }));
+    vi.spyOn(API, "listTasks").mockImplementation(async () => ({
+      items: [task], total: 1, page: 1, page_size: 200,
+    }));
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: useTasksStore.getInitialState().stats });
+    recordsPage = {
+      items: [makeUsageRecord({
+        task_id: failedTask.task_id,
+        status: "failed",
+        error_code: "download_failed",
+        segment_ref: target,
+      })],
+      next_cursor: null,
+      total: 1,
+    };
+    renderUsageRecordsSection();
+
+    expect(await screen.findByText("下载失败")).toBeInTheDocument();
+
+    task = runningTask;
+    recordsPage = EMPTY_PAGE;
+    await act(useTasksStore.getState().refreshTasks);
+
+    expect(screen.getByText("待解析")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("下载失败")).not.toBeInTheDocument());
+    expect(screen.getAllByRole("img", { name: "分镜 6" })).toHaveLength(1);
+  });
+
+  it("keeps the requested page when a download resumes during pagination", async () => {
+    const failed = makeUsageRecord({
+      task_id: "t-retry",
+      status: "failed",
+      error_code: "download_failed",
+      segment_ref: itemRef("S06", 6),
+    });
+    recordsPage = { items: [failed], next_cursor: "cursor-2", total: 73 };
+    const nextPage = createDeferred<UsageRecordPage>();
+    vi.mocked(API.getUsageRecords).mockImplementation(async (query) => {
+      if (query?.cursor === "cursor-2") return nextPage.promise;
+      return isPendingQuery(query) ? pendingPage : recordsPage;
+    });
+    renderUsageRecordsSection();
+    expect(await screen.findByText("下载失败")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "下一页" }));
+    act(() => seedTaskState({
+      tasks: [makeTask({ task_id: "t-retry", status: "running", media_type: "video" })],
+    }));
+    await act(async () => nextPage.resolve({
+      items: [makeUsageRecord({ segment_ref: itemRef("S12", 12) })],
+      next_cursor: null,
+      total: 73,
+    }));
+
+    expect(await screen.findByText("21～21 / 73")).toBeInTheDocument();
+    expect(await rowOfItem("分镜 12")).toBeInTheDocument();
+  });
+
   it("puts running tasks and task-less pending calls above the finished records", async () => {
     seedTaskState({
       tasks: [

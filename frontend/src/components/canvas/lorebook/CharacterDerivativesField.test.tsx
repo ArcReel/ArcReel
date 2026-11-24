@@ -378,6 +378,8 @@ describe("角色详情的衍生区块", () => {
     expect(submit).toBeDisabled();
     expect(rename).not.toHaveBeenCalled();
     expect(useAppStore.getState().toast?.text).toBe("生成或编辑进行中，暂无法修改衍生");
+
+    expect(within(form.closest("li") as HTMLElement).getByRole("button", { name: "生成中…" })).toBeDisabled();
   });
 
   it("drops the row's unsaved appearance change together with the derivative it deletes", async () => {

@@ -48,7 +48,42 @@ beforeEach(() => {
   });
 });
 
-describe("useAssetSheetBatchNotifications", () => {
+describe("AssetSheetBatchNotifications", () => {
+  it("suppresses a failed evicted member settled via lookup when it later re-enters the recent list", async () => {
+    const owner = makeTask({ ...OWNER, status: "running" });
+    const derivative = makeTask({ ...DERIVATIVE, status: "running" });
+    const history = Array.from({ length: 200 }, (_, index) => makeTask({
+      task_id: `history-${index}`, project_name: "demo", status: "succeeded",
+    }));
+    const active = vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [owner, derivative], truncated: false });
+    const recent = vi.spyOn(API, "listTasks").mockResolvedValue({ items: history, total: 202, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+    const lookup = vi.spyOn(API, "lookupTasks").mockResolvedValue({ items: [], missing_ids: [] });
+    const { refreshTasks } = useTasksStore.getState();
+
+    render(<TaskFailureListener projectName="demo" />);
+    await act(refreshTasks);
+
+    const failedOwner = { ...owner, status: "failed" as const, error_message: "单张生成失败", updated_at: "2026-07-16T00:01:00Z" };
+    const succeededDerivative = { ...derivative, status: "succeeded" as const, updated_at: "2026-07-16T00:01:00Z" };
+    active.mockResolvedValue({ items: [], truncated: false });
+    lookup.mockResolvedValue({ items: [failedOwner, succeededDerivative], missing_ids: [] });
+    await act(refreshTasks);
+
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(1);
+    expect(useAppStore.getState().workspaceNotifications[0]?.text).toContain("1 张已生成，1 张失败");
+    expect(suppressedAssetSheetTaskIds("demo")).toEqual(new Set([owner.task_id]));
+
+    recent.mockResolvedValue({ items: [failedOwner, ...history.slice(0, 199)], total: 202, page: 1, page_size: 200 });
+    await act(refreshTasks);
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(1);
+    expect(suppressedAssetSheetTaskIds("demo")).toEqual(new Set([owner.task_id]));
+
+    recent.mockResolvedValue({ items: history, total: 200, page: 1, page_size: 200 });
+    await act(refreshTasks);
+    expect(suppressedAssetSheetTaskIds("demo").size).toBe(0);
+  });
+
   it("restores an unfinished batch on return and reports evicted, failed and missing members once", async () => {
     const owner = makeTask({ ...OWNER, status: "running" });
     const derivative = makeTask({ ...DERIVATIVE, status: "queued" });

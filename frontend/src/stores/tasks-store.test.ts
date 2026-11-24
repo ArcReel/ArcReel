@@ -165,7 +165,7 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
 
     await useTasksStore.getState().refreshTasks();
 
-    expect(listSpy).toHaveBeenCalledWith({ projectName: "proj", pageSize: 200 });
+    expect(listSpy).toHaveBeenCalledWith({ projectName: "proj", pageSize: 200 }, { signal: expect.any(AbortSignal) });
     expect(selectRecentTasks(useTasksStore.getState())).toHaveLength(1);
     expect(useTasksStore.getState().connected).toBe(true);
   });
@@ -176,7 +176,7 @@ describe("refreshTasks（多入口共享刷新的在途合并）", () => {
 
     await useTasksStore.getState().refreshTasks();
 
-    expect(listSpy).toHaveBeenCalledWith({ projectName: undefined, pageSize: 200 });
+    expect(listSpy).toHaveBeenCalledWith({ projectName: undefined, pageSize: 200 }, { signal: expect.any(AbortSignal) });
   });
 
   it("轮询看到参考生视频任务转成功时失效单元缓存，且不重复失效", async () => {
@@ -347,6 +347,62 @@ describe("active snapshot reconciliation", () => {
     vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
   });
 
+  it("releases a stalled snapshot refresh and lets the next refresh reconnect", async () => {
+    await state().refreshTasks();
+    expect(state().connected).toBe(true);
+    vi.mocked(API.getActiveTasks).mockImplementationOnce((_project, options) =>
+      new Promise((_resolve, reject) => options?.signal?.addEventListener("abort", () => reject(options.signal?.reason))),
+    );
+
+    vi.useFakeTimers();
+    try {
+      const pending = state().refreshTasks();
+      await vi.runOnlyPendingTimersAsync();
+      expect(state().connected).toBe(false);
+      await pending;
+      vi.mocked(API.getActiveTasks).mockResolvedValueOnce(active([row]));
+      await state().refreshTasks();
+      expect(state().connected).toBe(true);
+      expect(busy()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["listTasks", "getTaskStats"] as const)("settles retained tasks when %s fails", async (request) => {
+    const release = state().retainTask("proj", row.task_id);
+    vi.mocked(API[request]).mockRejectedValueOnce(new Error("unavailable"));
+    vi.spyOn(API, "lookupTasks").mockResolvedValue({
+      items: [{ ...row, status: "succeeded" }],
+      missing_ids: [],
+    });
+
+    await state().refreshTasks();
+
+    expect(state().connected).toBe(false);
+    expect(state().tracked.get(row.task_id)?.status).toBe("resolved");
+    expect(state().rowsById.get(row.task_id)?.status).toBe("succeeded");
+    release();
+  });
+
+  it.each(["reference_video", "tts"] as const)("invalidates units when an off-page %s submission succeeds", async (type) => {
+    const initialRevision = useAppStore.getState().referenceVideoUnitsRevision;
+    await state().refreshTasks();
+    const submission = state().beginOptimisticActive("proj", type, row.resource_id, type);
+    submission.settle([row.task_id]);
+    vi.spyOn(API, "lookupTasks").mockResolvedValue({
+      items: [{ ...row, task_type: type, status: "succeeded" }],
+      missing_ids: [],
+    });
+
+    await state().refreshTasks();
+
+    expect(isResourceBusy(type, "proj", row.resource_id)).toBe(false);
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(initialRevision + 1);
+    await state().refreshTasks();
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(initialRevision + 1);
+  });
+
   it("accepts a retry within the same millisecond and ignores the older failure in recent history", async () => {
     const failed = { ...row, status: "failed" as const, updated_at: "2026-07-16T08:00:00.100001+08:00" };
     vi.mocked(API.listTasks).mockResolvedValue(page([failed]));
@@ -370,27 +426,28 @@ describe("active snapshot reconciliation", () => {
   });
 
   it("hands a script mark to a missing member and a live member, retaining the latter to completion", async () => {
+    const scriptFile = "scripts/episode.json";
+    const grid = { ...row, task_type: "grid", script_file: scriptFile };
     const leaseA = state().retainTask("proj", "A");
     const release = state().retainTask("proj", "B");
     const releaseSecond = state().retainTask("proj", "B");
-    state().beginOptimisticActiveForScriptFile("proj", "grid", "scripts/episode.json").settle(["A", "B"]);
+    state().beginOptimisticActiveForScriptFile("proj", "grid", scriptFile).settle(["A", "B"]);
     expect(isScriptFileBusy("grid", "episode.json", "proj")).toBe(true);
     const lookup = vi.spyOn(API, "lookupTasks").mockRejectedValueOnce(new Error("unavailable"))
-      .mockResolvedValueOnce({ items: [row], missing_ids: ["A"] })
-      .mockResolvedValueOnce({ items: [{ ...row, status: "succeeded" }], missing_ids: [] });
+      .mockResolvedValueOnce({ items: [grid], missing_ids: ["A"] })
+      .mockResolvedValueOnce({ items: [{ ...grid, status: "succeeded" }], missing_ids: [] });
     await state().refreshTasks();
     expect(state().tracked.get("A")?.status).toBe("pending");
     expect(isScriptFileBusy("grid", "episode.json", "proj")).toBe(true);
     await state().refreshTasks();
-    expect(isScriptFileBusy("grid", "episode.json", "proj")).toBe(false);
+    expect(isScriptFileBusy("grid", "episode.json", "proj")).toBe(true);
     expect(state().tracked.get("A")?.status).toBe("missing");
-    expect(busy()).toBe(true);
     releaseSecond();
     expect(state().tracked.get("B")?.retainCount).toBe(1);
     await state().refreshTasks();
     expect(lookup.mock.calls.at(-1)?.[0]).toEqual(["B"]);
     expect(state().tracked.get("B")?.status).toBe("resolved");
-    expect(busy()).toBe(false);
+    expect(isScriptFileBusy("grid", "episode.json", "proj")).toBe(false);
     release();
     leaseA();
   });
@@ -475,6 +532,7 @@ describe("active snapshot reconciliation", () => {
   });
 
   it("merges the cancelled and skipped rows even when a stale active response follows", async () => {
+    const initialRevision = useAppStore.getState().referenceVideoUnitsRevision;
     const other = { ...row, task_id: "C", status: "queued" as const };
     vi.mocked(API.listTasks).mockResolvedValue(page([other, row]));
     vi.mocked(API.getActiveTasks).mockResolvedValue(active([other, row]));
@@ -490,6 +548,7 @@ describe("active snapshot reconciliation", () => {
     await pending;
     expect(selectRecentTasks(state()).map((t) => t.status)).toEqual(["cancelled", "succeeded"]);
     expect(busy()).toBe(false);
+    expect(useAppStore.getState().referenceVideoUnitsRevision).toBe(initialRevision + 1);
   });
 });
 

@@ -12,6 +12,27 @@ function derivativeParts(id: string) {
   return [normalizeAssetName(owner), normalizeAssetName(derivative)] as const;
 }
 
+export function hasActiveAssetName(activeIds: ReadonlySet<string> | undefined, name: string): boolean {
+  if (!activeIds || activeIds.size === 0) return false;
+  if (activeIds.has(name)) return true;
+  const target = normalizeAssetName(name);
+  for (const id of activeIds) {
+    if (normalizeAssetName(id) === target) return true;
+  }
+  return false;
+}
+
+export function hasActiveDerivativeId(activeIds: ReadonlySet<string> | undefined, resourceId: string): boolean {
+  if (!activeIds || activeIds.size === 0) return false;
+  if (activeIds.has(resourceId)) return true;
+  const [owner, derivative] = derivativeParts(resourceId);
+  for (const id of activeIds) {
+    const [activeOwner, activeDerivative] = derivativeParts(id);
+    if (activeOwner === owner && activeDerivative === derivative) return true;
+  }
+  return false;
+}
+
 function selectAssetBusy(
   state: TaskState,
   dimension: AssetDimension,
