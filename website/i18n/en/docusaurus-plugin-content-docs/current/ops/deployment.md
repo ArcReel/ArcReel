@@ -349,6 +349,7 @@ When a parent directory of the project or temporary archive extraction directory
 **Review migration results**
 
 - The project message about items adjusted during the upgrade opens a read-only migration report. “Adjusted” lists structural changes and kept copies. “Could not import” lists files preserved in place but left unregistered. Archive imports with these adjustments prompt for confirmation before completing. Cancel to discard that import.
+- When upgrading to project schema v21 or importing an older ZIP, ArcReel moves retired drafts to the project trash on this instance and lists them under “Adjusted”. You can restore the original files within 30 days. If the original path is occupied, the restored file gets a new name. ZIP exports omit trash records.
 - After upgrading from an older release, check the global and project default models. ArcReel preserves the previously used models when it can reconstruct the choices. Select a model in Settings if the old choice could not be recovered. When importing an old project ZIP, ArcReel uses the recommendations at import time to fill in old selections. Check the project settings after import.
 - Project-level migration backups sit beside the modified files and end in `.bak.v<starting-version>-<timestamp>`. Copies kept to resolve conflicts end in `.kept.v<starting-version>-<timestamp>`. Project-level backups cover the files involved in the migration. Use the full pre-upgrade backup to restore the entire instance.
 

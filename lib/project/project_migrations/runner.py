@@ -64,6 +64,7 @@ from lib.project.project_migrations.v17_to_v18_timeline_agent_turn import (
 )
 from lib.project.project_migrations.v18_to_v19_item_id_high_water import migrate_v18_to_v19
 from lib.project.project_migrations.v19_to_v20_bare_provider_models import BareProviderModels, migrate_v19_to_v20
+from lib.project.project_migrations.v20_to_v21_retired_drafts import migrate_v20_to_v21
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -166,6 +167,7 @@ def migrate_project_dir(
     *,
     recorded_episode_ids: RecordedEpisodeIds | None = None,
     bare_provider_models: BareProviderModels | None = None,
+    restoring_snapshot: bool = False,
 ) -> bool:
     """将单个项目目录逐级升级到 CURRENT_SCHEMA_VERSION，返回是否实际迁移。
 
@@ -214,6 +216,8 @@ def migrate_project_dir(
                 step_outcome = migrate_v6_to_v7(project_dir, record=adjusted)
             elif migrator is migrate_v19_to_v20:
                 step_outcome = migrate_v19_to_v20(project_dir, bare_provider_models=bare_provider_models)
+            elif migrator is migrate_v20_to_v21:
+                step_outcome = migrate_v20_to_v21(project_dir, record=adjusted, restoring_snapshot=restoring_snapshot)
             else:
                 step_outcome = migrator(project_dir)
             if step_outcome is not None:
@@ -417,3 +421,4 @@ MIGRATORS[16] = migrate_v16_to_v17
 MIGRATORS[17] = migrate_v17_to_v18
 MIGRATORS[18] = migrate_v18_to_v19
 MIGRATORS[19] = migrate_v19_to_v20
+MIGRATORS[20] = migrate_v20_to_v21
