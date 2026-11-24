@@ -318,8 +318,12 @@ async def test_sync_rebuilds_cached_image_model_facts_and_builtin_video_entry(re
         image = await generation_context._get_or_create_image_backend(
             make_provider_id(relay_project), {"model": "relay-image"}, resolver
         )
-        video, _ = await generation_context._get_or_create_video_backend(
-            "grok", {"model": "grok-imagine-video"}, resolver
+        from lib.config.resolver import ProviderModel
+        from lib.video_runtime.resolution import VideoRuntime
+
+        runtime = VideoRuntime(resolver, capture_generation=generation_context._backend_cache.generation)
+        video = await generation_context._video_backend_for(
+            await runtime.materialized(ProviderModel("grok", "grok-imagine-video"))
         )
         return image, video
 

@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource
     from lib.backends.audio_backends.base import AudioBackend
     from lib.backends.image_backends.base import ImageBackend
+    from lib.capabilities.kernel import CapabilitySnapshot
     from lib.config.resolver import ConfigResolver
     from lib.references.reference_compression import CompressedRef, PayloadLimits, ReferenceSpec
 
@@ -279,6 +280,8 @@ class MediaGenerator:
         image_provider_id: str | None = None,
         video_provider_id: str | None = None,
         audio_provider_id: str | None = None,
+        video_snapshot: "CapabilitySnapshot | None" = None,
+        video_limits: tuple[int, int] | None = None,
     ):
         """
         初始化 MediaGenerator
@@ -310,6 +313,8 @@ class MediaGenerator:
         self._config = config_resolver
         self._user_id = user_id
         self._image_provider_id = image_provider_id
+        self._video_snapshot = video_snapshot
+        self._video_limits = video_limits
         self._video_provider_id = video_provider_id
         self._audio_provider_id = audio_provider_id
         self.versions = VersionManager(project_path)
@@ -596,6 +601,8 @@ class MediaGenerator:
         """
         from lib.references.reference_compression import PayloadLimits
 
+        if provider_id == self._video_provider_id and self._video_limits is not None:
+            return PayloadLimits(total_max_bytes=self._video_limits[0], single_max_bytes=self._video_limits[1])
         if self._config is None:
             return PayloadLimits()
         total, single = await self._config.reference_payload_limits(provider_id)
@@ -1017,19 +1024,43 @@ class MediaGenerator:
             resolve_first_frame_aspect_ratio,
             resolve_video_capabilities,
         )
-        from lib.capabilities.kernel import RequestConditions
+        from lib.capabilities.kernel import IncompatibleInputsError, RequestConditions
         from lib.custom_provider import is_custom_provider
 
         service_tier = version_metadata.get("service_tier", "default")
-        if self._video_provider_id is not None and not is_custom_provider(self._video_provider_id):
-            conditions = RequestConditions("r2v" if reference_images else "i2v", resolution, service_tier)
-            video_caps = builtin_request_video_capabilities(
-                self._video_backend, self._video_provider_id, model_name, conditions
+        slot_plan = plan_frame_slots(
+            start_image=start_image,
+            end_image=end_image,
+            reference_images=reference_images,
+        )
+        inputs = frozenset(
+            name
+            for name, present in (
+                ("first_frame", slot_plan.start_index is not None),
+                ("last_frame", end_image),
+                ("reference_images", reference_images),
+                ("reference_audio", reference_audio_files),
             )
-        else:
-            video_caps = resolve_video_capabilities(
-                self._video_backend, service_tier=service_tier, resolution=resolution
-            )
+            if present
+        )
+        conditions = RequestConditions("r2v" if reference_images else "i2v", resolution, service_tier, inputs)
+        try:
+            if self._video_snapshot is not None:
+                from lib.backends.video_capabilities import projected_video_capabilities
+
+                video_caps = projected_video_capabilities(self._video_snapshot.for_request(conditions))
+            elif self._video_provider_id is not None and not is_custom_provider(self._video_provider_id):
+                video_caps = builtin_request_video_capabilities(
+                    self._video_backend, self._video_provider_id, model_name, conditions
+                )
+            else:
+                video_caps = resolve_video_capabilities(
+                    self._video_backend, service_tier=service_tier, resolution=resolution
+                )
+        except IncompatibleInputsError as exc:
+            from arcreel_market_core.video_backend_contract import VideoCapabilityError
+
+            raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=model_name) from exc
         reference_audio_total_seconds = (
             await probe_reference_audio_total_seconds(reference_audio_files)
             if reference_audio_files and video_caps.max_reference_audio_total_seconds is not None
@@ -1037,11 +1068,6 @@ class MediaGenerator:
         )
         asset_uris = _aligned_reference_asset_uris(
             self._video_backend, reference_images, reference_image_asset_uris, model=model_name
-        )
-        slot_plan = plan_frame_slots(
-            start_image=start_image,
-            end_image=end_image,
-            reference_images=reference_images,
         )
         if asset_uris is not None and slot_plan.reference_start_index is not None:
             for offset, uri in enumerate(asset_uris):
@@ -1065,13 +1091,14 @@ class MediaGenerator:
             has_first_frame=slot_plan.start_index is not None,
         )
 
-        if self._config is not None:
-            configured_generate_audio = await self._config.video_generate_audio(self.project_name)
+        if "generate_audio" in version_metadata:
+            effective_generate_audio = version_metadata["generate_audio"]
+        elif self._config is not None:
+            effective_generate_audio = await self._config.video_generate_audio(self.project_name)
         else:
             from lib.config.resolver import ConfigResolver
 
-            configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
-        effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
+            effective_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
 
         staged_output_path, backend_output_path = await run_sync_transaction(
             self._prepare_video_output,
@@ -1288,13 +1315,7 @@ class MediaGenerator:
 
         api_call_id = await self.ledger.pending_call_id_for_task(task_id) if task_id is not None else None
 
-        if self._config is not None:
-            configured_generate_audio = await self._config.video_generate_audio(self.project_name)
-        else:
-            from lib.config.resolver import ConfigResolver
-
-            configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
-        effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
+        effective_generate_audio = version_metadata.get("generate_audio", True)
 
         staged_output_path, backend_output_path = await run_sync_transaction(
             self._prepare_video_output,

@@ -53,7 +53,6 @@ from lib.backends.video_capabilities import (
 )
 from lib.billing.metering import Usage
 from lib.capabilities.kernel import AudioProtocol, Endpoint
-from lib.catalog import query as catalog
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
@@ -419,7 +418,7 @@ class AgnesVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, Provi
         return payload
 
     def _normalize_v25_resolution(self, resolution: str | None) -> str:
-        facts = entry_video_facts(self._catalog_entry or catalog.find_entry(self._model, media_type="video"))
+        facts = entry_video_facts(self._request_entry(self._model))
         allowed = (
             {r.upper(): r.upper() for r in facts.resolutions if r.upper() in _V25_RESOLUTIONS}
             if facts.resolutions

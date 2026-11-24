@@ -95,6 +95,10 @@ def _freeze(value: Any) -> Any:
     raise ValueError(f"invalid capability value: {type(value).__name__}")
 
 
+class IncompatibleInputsError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class RequestConditions:
     bucket: Route
@@ -402,7 +406,7 @@ def resolve(
     primary, reference = endpoint.audio, endpoint.protocol("r2v")
     if request:
         if any(group <= request.inputs for group in endpoint.exclusive_inputs):
-            raise ValueError("incompatible input combination")
+            raise IncompatibleInputsError("incompatible input combination")
         for path in endpoint.paths:
             if path.matches(request):
                 slots = slots - path.disabled_slots

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from lib.db.models.custom_provider import CustomProviderModel
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -243,14 +243,13 @@ def video_bucket_for_generation_mode(generation_mode: str | None) -> VideoGenera
     return VIDEO_BUCKET_BY_GENERATION_MODE.get(generation_mode, _DEFAULT_VIDEO_BUCKET)
 
 
-def _payload_video_pinned_pair(
+def payload_video_pinned_pair(
     payload: dict, generation_type: VideoGenerationType | None
 ) -> tuple[VideoGenerationType, tuple[str, str]] | None:
     """读请求 payload 里显式的视频执行身份（桶键 ``video_provider_<generation_type>``），连同命中的桶一并返回。
 
     值是 ``ProviderModel.pair_key`` 形态的复合值。正常队列执行会先移除 enqueue payload
-    中的这类旧键，再按当前配置求值；已提交视频的 resume executor 则根据 immutable
-    checkpoint 构造恰好一个桶键，用它重建原 backend。``generation_type`` 未声明时按固定桶序
+    中的这类旧键，再按当前配置求值。``generation_type`` 未声明时按固定桶序
     扫两个桶键——至多命中一个，桶序不产生歧义。
 
     provider 不可信（见 ``_trusted_payload_provider``）不在此丢弃：视频侧身份可用性由
@@ -424,7 +423,13 @@ def _safe_dict(value: object, *, field: str) -> dict:
     return {}
 
 
-def _resolution_from_project(project: dict, provider_id: str, model_id: str) -> str | None:
+def reference_limits_from_config(cfg: Mapping[str, str | None]) -> tuple[int, int]:
+    total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
+    single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
+    return total, single
+
+
+def project_resolution(project: dict, provider_id: str, model_id: str) -> str | None:
     """project.model_settings（``provider/model`` 复合 key）> legacy video_model_settings > None。
 
     逐层用 ``_safe_dict`` 防御非 dict 中间层（见 ``_safe_dict`` docstring）；叶子值同样按
@@ -664,6 +669,18 @@ async def _load_project_snapshot(project_name: str | None) -> dict | None:
     return await asyncio.to_thread(lambda: get_project_manager().load_project(project_name))
 
 
+class _SnapshotConfigService(ConfigService):
+    _settings: dict[str, str] | None = None
+
+    async def get_all_settings(self) -> dict[str, str]:
+        if self._settings is None:
+            self._settings = await super().get_all_settings()
+        return self._settings
+
+    async def get_setting(self, key: str, default: str = "") -> str:
+        return (await self.get_all_settings()).get(key, default)
+
+
 class ConfigResolver:
     """运行时配置解析器。
 
@@ -680,24 +697,31 @@ class ConfigResolver:
         session_factory: async_sessionmaker,
         *,
         _bound_session: AsyncSession | None = None,
+        _snapshot_settings: bool = False,
     ) -> None:
         self._session_factory = session_factory
         self._bound_session = _bound_session
+        self._bound_service = (
+            _SnapshotConfigService(_bound_session) if _bound_session is not None and _snapshot_settings else None
+        )
 
     @asynccontextmanager
-    async def session(self) -> AsyncGenerator[ConfigResolver]:
+    async def session(self, *, snapshot_settings: bool = False) -> AsyncGenerator[ConfigResolver]:
         """打开共享 session，返回绑定到该 session 的 ConfigResolver。"""
         if self._bound_session is not None:
-            yield self
+            if snapshot_settings and self._bound_service is None:
+                yield ConfigResolver(self._session_factory, _bound_session=self._bound_session, _snapshot_settings=True)
+            else:
+                yield self
         else:
             async with self._session_factory() as sess:
-                yield ConfigResolver(self._session_factory, _bound_session=sess)
+                yield ConfigResolver(self._session_factory, _bound_session=sess, _snapshot_settings=snapshot_settings)
 
     @asynccontextmanager
     async def _open_session(self) -> AsyncGenerator[tuple[AsyncSession, ConfigService]]:
         """获取 (session, ConfigService)，优先复用 bound session。"""
         if self._bound_session is not None:
-            yield self._bound_session, ConfigService(self._bound_session)
+            yield self._bound_session, self._bound_service or ConfigService(self._bound_session)
         else:
             async with self._session_factory() as session:
                 yield session, ConfigService(session)
@@ -800,7 +824,7 @@ class ConfigResolver:
         dict、无副作用；自定义供应商默认（``CustomProviderModel.resolution``）需 DB，故本方法
         整体为 async 并在同一 session 内完成。
         """
-        from_project = _resolution_from_project(project, provider_id, model_id)
+        from_project = project_resolution(project, provider_id, model_id)
         if from_project:
             return from_project
         if not provider_id or not model_id or not is_custom_provider(provider_id):
@@ -1290,14 +1314,14 @@ class ConfigResolver:
         """payload 优先解析视频 ProviderModel；无 payload 时按 ``generation_type`` 走桶骨架或不定桶骨架。
 
         payload 层只认已物化的任务类型桶键（``video_provider_<generation_type>`` 复合值，见
-        ``_payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
+        ``payload_video_pinned_pair``）：原样返回、不过能力闸，只过身份可用性
         （``_ensure_video_identity_resolvable``），悬空即报错。锁定形态不丢弃不可信供应商——
         供应商已下线时回退等于换供应商执行。各层语义见 ``resolve_video_backend`` docstring。
 
         ``submitted_job`` 只作用于锁定身份：续跑的身份来自提交时冻结的检查点，没有锁定身份时说明调用方不是续跑，
         直接报错，不让豁免落到按当前配置解析出的身份上。
         """
-        pinned = _payload_video_pinned_pair(payload, generation_type) if payload else None
+        pinned = payload_video_pinned_pair(payload, generation_type) if payload else None
         if pinned is not None:
             pinned_generation_type, pair = pinned
             selected = ProviderModel(*pair)
@@ -1705,9 +1729,7 @@ class ConfigResolver:
             cfg = await self._resolve_provider_config(svc, session, provider_id)
         except ValueError:
             return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
-        total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
-        single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
-        return total, single
+        return reference_limits_from_config(cfg)
 
     async def _resolve_all_provider_configs(
         self,
