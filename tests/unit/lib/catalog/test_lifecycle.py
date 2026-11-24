@@ -120,6 +120,7 @@ class TestCrossingTheShutdownDate:
             catalog.require_callable("acme", "img-gone", "image")
         assert excinfo.value.params["shutdown_date"] == "2026-01-31"
         assert excinfo.value.params["successor"] == "acme/img-pro"
+        assert "the recommended replacement is acme/img-pro" in str(excinfo.value)
         with pytest.raises(ModelNotInCatalogError) as excinfo:
             catalog.require_callable("acme", "img-unknown", "image")
         assert excinfo.value.code == "model_not_in_provider_catalog"

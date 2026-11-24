@@ -111,6 +111,7 @@ def test_caps_and_defaults():
     backend = OpenRouterImageBackend(base_url=_BASE_URL)
     assert backend.capabilities == {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
     assert backend.name == PROVIDER_OPENROUTER
+    assert backend.model == "openai/gpt-image-2.6-flare"
 
 
 def _limit(model: str, *catalog: dict, status: int = 200) -> int:

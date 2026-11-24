@@ -39,7 +39,7 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "qwen-image-2.0"
+DEFAULT_MODEL = "qwen-image-2.1-pro"
 
 _IMAGE_ENDPOINT = "/services/aigc/multimodal-generation/generation"
 

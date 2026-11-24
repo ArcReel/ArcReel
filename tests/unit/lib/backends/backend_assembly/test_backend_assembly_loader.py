@@ -117,7 +117,7 @@ class TestAssembleBuiltinEndToEnd:
         )
 
     async def test_discontinued_model_is_rejected_with_its_successor(self, db_factory, monkeypatch):
-        """调用已下线的内置模型：报错带下线日期与官方后继，不构造 backend。"""
+        """调用已下线的内置模型：报错带下线日期与推荐替代模型，不构造 backend。"""
         install_catalog(
             monkeypatch,
             with_entry_changes(

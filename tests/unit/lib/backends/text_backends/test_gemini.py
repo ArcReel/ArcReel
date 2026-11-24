@@ -37,7 +37,7 @@ class TestProperties:
 
     def test_default_model(self, mock_genai):
         b = GeminiTextBackend(api_key="k")
-        assert b.model == "gemini-3-flash-preview"
+        assert b.model == "gemini-3.8-flash"
 
     def test_custom_model(self, mock_genai):
         b = GeminiTextBackend(api_key="k", model="custom")
@@ -405,7 +405,7 @@ class TestStructuredFallback:
 
         assert gc.call_count == 3
         assert exc_info.value.provider == "gemini"
-        assert exc_info.value.model == "gemini-3-flash-preview"
+        assert exc_info.value.model == "gemini-3.8-flash"
         assert exc_info.value.reason == "prompt 注入降级 2 次尝试后输出仍不合规（1 处字段不符（<root>））"
 
     async def test_fallback_logs_raw_model_output(self, backend, caplog):

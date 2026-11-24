@@ -639,7 +639,7 @@ describe("MediaModelSection – 引用处的下线提示", () => {
       .mockResolvedValue(CONFIG as unknown as Awaited<ReturnType<typeof API.updateSystemConfig>>);
     render(<MediaModelSection />);
 
-    const notices = await screen.findAllByText("即将下线（2026-11-24），官方建议改用 Veo 4");
+    const notices = await screen.findAllByText("即将下线（2026-11-24），推荐替代模型为 Veo 4");
     expect(notices).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "切换到 Veo 4" })).toHaveLength(1);
 
@@ -684,7 +684,7 @@ describe("MediaModelSection – 引用处的下线提示", () => {
     render(<MediaModelSection />);
 
     expect(
-      await screen.findByText("已下线（2026-10-22），无法继续生成，官方建议改用 Veo 4"),
+      await screen.findByText("已下线（2026-10-22），无法继续生成，推荐替代模型为 Veo 4"),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "切换到 Veo 4" }));
     await user.click(screen.getByRole("button", { name: "保存" }));
@@ -723,7 +723,7 @@ describe("MediaModelSection – 引用处的下线提示", () => {
     render(<MediaModelSection />);
 
     expect(
-      await screen.findByText("已下线（2026-10-22），无法继续生成，官方建议改用 Nano Banana 2"),
+      await screen.findByText("已下线（2026-10-22），无法继续生成，推荐替代模型为 Nano Banana 2"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /切换到/ })).not.toBeInTheDocument();
   });

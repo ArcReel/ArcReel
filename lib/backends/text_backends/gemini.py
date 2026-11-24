@@ -29,7 +29,7 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-3-flash-preview"
+DEFAULT_MODEL = "gemini-3.8-flash"
 
 _SUBSCHEMA_MAP_KEYS = frozenset({"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"})
 _INSTANCE_KEYWORDS = frozenset({"const", "enum", "default", "examples"})

@@ -56,7 +56,7 @@ class ArkImageBackend:
     SIZE_MAP: ClassVar[dict[str, str]] = _SEEDREAM_2K_SIZE_MAP
     DEFAULT_SIZE = "2K"
 
-    DEFAULT_MODEL = "doubao-seedream-5-0-pro-260628"
+    DEFAULT_MODEL = "doubao-seedream-5-5-261028"
 
     def __init__(
         self,

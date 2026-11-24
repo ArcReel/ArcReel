@@ -332,7 +332,7 @@ NoticeStatus = Literal["retiring", "discontinued", "unavailable"]
 
 
 class LifecycleNotice(BaseModel):
-    """引用处的下线提示：状态、关停日期、官方后继，以及每个引用位置可一键切换的目标。"""
+    """引用处的下线提示：状态、关停日期、推荐替代模型，以及每个引用位置可一键切换的目标。"""
 
     status: NoticeStatus
     shutdown_date: date | None

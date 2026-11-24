@@ -64,7 +64,7 @@ from lib.infra.retry import with_retry_async
 logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "openai/gpt-image-2"
+DEFAULT_MODEL = "openai/gpt-image-2.6-flare"
 _MAX_REFERENCE_IMAGES = 16
 
 IMAGES_PATH = "/images"
