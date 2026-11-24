@@ -177,7 +177,7 @@ For Storyboard to Video, write visual prompts for a few shots and produce their 
 
 Generate a clip for one storyboard or video unit first. Storyboard to Video uses the selected storyboard image as the starting frame. Reference to Video uses images and other references from the script. Review motion, duration, and audio before submitting the remaining clips. See [Generation Routes](./workflows.md#video-production-routes) for grids and reference selection.
 
-Links to storyboards or video units in Agent replies can be opened in a new tab or pasted into the address bar. The episode page selects the linked unit when it loads. If the link includes a timestamp, the preview seeks to that point.
+Links to storyboards or video units in Agent replies can be opened in a new tab or pasted into the address bar. When the episode page loads, it selects the linked unit and scrolls it into view. If the link includes a timestamp, the preview seeks to that point.
 
 ### 5.6 Narration and TTS {#narration-and-tts}
 

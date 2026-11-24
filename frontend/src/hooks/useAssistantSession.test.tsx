@@ -744,6 +744,37 @@ describe("useAssistantSession", () => {
     });
   });
 
+  it("clears pendingQuestion and answeringQuestion on project switch while an answer is in flight", async () => {
+    mockIdleSession();
+    const answer = createDeferred<Awaited<ReturnType<typeof API.answerAssistantQuestion>>>();
+    vi.spyOn(API, "answerAssistantQuestion").mockReturnValue(answer.promise);
+    const { result, rerender } = renderHook(({ project }) => useAssistantSession(project), {
+      initialProps: { project: "demo" as string | null },
+    });
+    await waitFor(() => expect(openStreamSpy).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      useAssistantStore.getState().setPendingQuestion(makePendingQuestion("q-1"));
+    });
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.answerQuestion("q-1", {});
+    });
+    expect(useAssistantStore.getState().answeringQuestion).toBe(true);
+
+    rerender({ project: null });
+    expect(useAssistantStore.getState().pendingQuestion).toBeNull();
+    expect(useAssistantStore.getState().answeringQuestion).toBe(false);
+
+    await act(async () => {
+      answer.reject(new Error("old answer failed"));
+      await pending;
+    });
+    expect(useAssistantStore.getState().pendingQuestion).toBeNull();
+    expect(useAssistantStore.getState().answeringQuestion).toBe(false);
+    expect(useAssistantStore.getState().error).toBeNull();
+  });
+
   it("clears pendingQuestion when creating or switching sessions", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [
@@ -2652,6 +2683,42 @@ describe("useAssistantSession", () => {
 
     expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
     expect(vi.mocked(API.listAssistantEntries).mock.calls.length).toBeGreaterThan(entriesCallsBefore);
+  });
+
+  it("leaves a session deleted in the background if the user switched into it before deletion finished", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "idle"), makeSession("session-2", "idle")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockImplementation(async (_projectName, sessionId) => ({
+      session: makeSession(sessionId, "idle"),
+    }));
+    vi.spyOn(API, "listAssistantEntries").mockImplementation(async (_projectName, sessionId) =>
+      makeEntriesResponse({ session_id: sessionId, entries: [userEntry(0, sessionId)] }),
+    );
+    const deleteDeferred = createDeferred<{ success: boolean }>();
+    vi.spyOn(API, "deleteAssistantSession").mockReturnValue(deleteDeferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+
+    let deleting!: Promise<boolean>;
+    act(() => {
+      deleting = result.current.deleteSession("session-2");
+    });
+    await act(async () => {
+      await result.current.switchSession("session-2");
+    });
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
+
+    await act(async () => {
+      deleteDeferred.resolve({ success: true });
+      expect(await deleting).toBe(true);
+    });
+
+    expect(useAssistantStore.getState().sessions.map((s) => s.id)).toEqual(["session-1"]);
+    expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
   });
 
   it("marks a rewrite startup failure by origin so the card does not replay the composer", async () => {

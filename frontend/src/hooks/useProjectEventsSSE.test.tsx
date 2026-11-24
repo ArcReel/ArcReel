@@ -448,17 +448,19 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(API.getProject).toHaveBeenCalledTimes(2);
+      expect(useProjectsStore.getState().currentProjectData?.title).toBe("Recovered");
     });
+    expect(API.getProject).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("location")).toHaveTextContent("/");
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });
 
   it("stays silent and clears stale focus when refresh is cancelled with a non-null focus target", async () => {
-    const refreshSpy = vi
-      .spyOn(useProjectsStore.getState(), "refreshProject")
-      .mockResolvedValueOnce("cancelled")
-      .mockResolvedValueOnce("success");
+    const d1 = createDeferred<GetProjectResult>();
+    const getProjectSpy = vi
+      .spyOn(API, "getProject")
+      .mockReturnValueOnce(d1.promise)
+      .mockResolvedValueOnce(makeGetProjectResult("Recovered"));
     const stream = mockProjectEventStream();
 
     renderHarness("/");
@@ -482,10 +484,13 @@ describe("useProjectEventsSSE", () => {
       });
     });
 
-    await waitFor(() => {
-      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    expect(getProjectSpy).toHaveBeenCalledTimes(1);
+    act(() => {
+      useProjectsStore.getState().setCurrentProject("other", null);
     });
     await act(async () => {
+      d1.reject(new DOMException("aborted", "AbortError"));
+      await Promise.resolve();
       await Promise.resolve();
     });
     expect(useAppStore.getState().toast).toBeNull();
@@ -494,6 +499,7 @@ describe("useProjectEventsSSE", () => {
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
 
     act(() => {
+      useProjectsStore.getState().setCurrentProject("demo", null);
       stream.options?.onSnapshot?.({
         project_name: "demo",
         fingerprint: "fp-after-cancel",
@@ -502,8 +508,9 @@ describe("useProjectEventsSSE", () => {
     });
 
     await waitFor(() => {
-      expect(refreshSpy).toHaveBeenCalledTimes(2);
+      expect(useProjectsStore.getState().currentProjectData?.title).toBe("Recovered");
     });
+    expect(getProjectSpy).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("location")).toHaveTextContent("/");
     expect(useAppStore.getState().scrollTarget).toBeNull();
   });

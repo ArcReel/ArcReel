@@ -772,6 +772,9 @@ export function ReferenceVideoCanvas({
 
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
+  const workbenchRef = useRef<HTMLDivElement>(null);
+  const [unitToReveal, setUnitToReveal] = useState<{ id: string } | null>(null);
+  const revealedUnit = useRef<typeof unitToReveal>(null);
   useEffect(() => {
     if (scrollTarget?.type !== "reference_unit") return;
     const requestId = scrollTarget.request_id;
@@ -782,6 +785,7 @@ export function ReferenceVideoCanvas({
       const focusUnit = () => {
         onViewChange("board", { replace: true });
         select(unitId);
+        setUnitToReveal({ id: unitId });
         if (openPreview) setStackTab("preview");
       };
       if (view === "board" && unitId === selectedUnitId) focusUnit();
@@ -798,6 +802,16 @@ export function ReferenceVideoCanvas({
     const timer = setTimeout(() => clearScrollTarget(requestId), remaining);
     return () => clearTimeout(timer);
   }, [scrollTarget, units, loading, view, selectedUnitId, select, clearScrollTarget, onViewChange, confirmLeave, t]);
+
+  useLayoutEffect(() => {
+    if (view !== "board" || !unitToReveal || revealedUnit.current === unitToReveal) return;
+    const rows = workbenchRef.current?.querySelectorAll<HTMLButtonElement>('[data-reference-unit][aria-current="true"]');
+    const row = Array.from(rows ?? []).find(
+      (button) => button.dataset.referenceUnit === unitToReveal.id && button.getClientRects().length > 0,
+    );
+    revealedUnit.current = unitToReveal;
+    row?.scrollIntoView({ block: "nearest" });
+  }, [view, unitToReveal]);
 
   const [listSheetOpen, setListSheetOpen] = useState(false);
 
@@ -1147,7 +1161,7 @@ export function ReferenceVideoCanvas({
           </div>
         </div>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-[3.5rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] @4xl/canvas:grid-cols-[3.5rem_minmax(0,1fr)_20rem] @6xl/canvas:grid-cols-[20rem_minmax(0,1fr)_20rem] @7xl/canvas:grid-cols-[20rem_minmax(0,1fr)_22.5rem]">
+        <div ref={workbenchRef} className="grid min-h-0 flex-1 grid-cols-[3.5rem_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] @4xl/canvas:grid-cols-[3.5rem_minmax(0,1fr)_20rem] @6xl/canvas:grid-cols-[20rem_minmax(0,1fr)_20rem] @7xl/canvas:grid-cols-[20rem_minmax(0,1fr)_22.5rem]">
           <div className="col-start-1 row-start-1 row-end-3 flex min-h-0 @6xl/canvas:hidden">
             <UnitRail
               units={units}
