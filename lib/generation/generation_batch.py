@@ -70,6 +70,7 @@ class GenerationBatchRequestSnapshot(BaseModel):
     selection: GenerationSelectionMode
     requested: list[GenerationBatchRequestedItem] = Field(default_factory=list)
     skipped: list[GenerationSkippedItem] = Field(default_factory=list)
+    enqueue_problems: dict[str, GenerationProblem] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _ids_are_unique(self) -> GenerationBatchRequestSnapshot:
@@ -226,6 +227,18 @@ def _failure_artifact_report(
     return artifact_key, artifact_path, artifact_status
 
 
+def _not_queued_problem(
+    requested: GenerationBatchRequestedItem,
+    snapshot: GenerationBatchRequestSnapshot,
+    tasks: Mapping[str, dict[str, Any]],
+) -> GenerationProblem:
+    return snapshot.enqueue_problems.get(requested.unit_id) or dependency_failure_problem(
+        enqueue_problem(None),
+        requested.depends_on,
+        dependency_not_queued=requested.depends_on not in tasks,
+    )
+
+
 def _terminal_result(
     operation: str,
     snapshot: GenerationBatchRequestSnapshot,
@@ -254,11 +267,7 @@ def _terminal_result(
                     artifact_status=artifact_status,
                     state=GenerationItemState.FAILED,
                     task_state=GenerationTaskState.NOT_QUEUED,
-                    problem=dependency_failure_problem(
-                        enqueue_problem(None),
-                        requested.depends_on,
-                        dependency_not_queued=requested.depends_on not in tasks,
-                    ),
+                    problem=_not_queued_problem(requested, snapshot, tasks),
                 )
             )
             continue
@@ -394,11 +403,7 @@ def build_generation_batch_read_model(
                 GenerationBatchMember(
                     unit_id=unit_id,
                     status="failed",
-                    problem=dependency_failure_problem(
-                        enqueue_problem(None),
-                        requested.depends_on,
-                        dependency_not_queued=requested.depends_on not in tasks,
-                    ),
+                    problem=_not_queued_problem(requested, snapshot, tasks),
                     admission=requested.admission,
                 )
             )

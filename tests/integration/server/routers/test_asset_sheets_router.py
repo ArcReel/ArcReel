@@ -20,7 +20,7 @@ from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
 from server.routers import asset_sheets
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
-from tests.fakes import use_project_manager
+from tests.fakes import use_generation_queue, use_project_manager
 
 PROJECT = "demo"
 
@@ -75,7 +75,7 @@ async def sheet_client(
     )
 
     use_project_manager(monkeypatch, sheet_projects)
-    monkeypatch.setattr(asset_sheets, "get_generation_queue", lambda: queue)
+    use_generation_queue(monkeypatch, queue)
     monkeypatch.setattr(asset_sheets, "async_session_factory", session_factory)
     app = FastAPI()
     register_error_handlers(app)

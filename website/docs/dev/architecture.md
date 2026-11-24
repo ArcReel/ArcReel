@@ -91,6 +91,8 @@ flowchart TB
 
 项目资产写入与生成入队共用资产准入锁。上传、供应商素材导入、版本恢复或资产身份变更遇到冲突时，API 返回 HTTP 409，错误码为 `asset_resource_busy`。等待占用目标的任务结束后可重试。角色资产图与参考音频分别检查各自的占用。资产合并同时检查被并方和保留方。仅修改文本、重复提交相同字段值、确认声音通知、追加商品原图和 `dry_run` 预览可在生成期间执行。
 
+同批生成的资产图中同时存在忙碌项与空闲项时，忙碌项返回 `asset_resource_busy`，同批空闲项仍可入队。Agent 查询批次时会读到相同的忙碌原因。应用全局资产到项目时，供应商素材关联复制失败会回滚整批应用，产物清单也保留原状。
+
 任务标识用于串联执行结果与费用记录。续跑视频任务时，会依据提交时锁定的调用上下文查询原任务，避免重复提交和二次扣费。参见 [ADR 0055](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0055-generation-route-locked-at-creation.md) 与[供应商规范](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/providers.md)。
 
 ### 供应商抽象 {#provider-abstraction}

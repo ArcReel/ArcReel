@@ -101,6 +101,7 @@ from lib.project.asset_types import (
     record_asset_aliases,
     rekey_equivalent_entries,
     resolve_asset_key,
+    resolve_asset_type,
     validate_asset_name,
 )
 from lib.project.project_change_hints import emit_project_change_hint
@@ -2812,15 +2813,10 @@ class ProjectManager:
             ),
         )
 
-    _BUCKET_TO_ASSET_TYPE: ClassVar[dict[str, str]] = {spec.bucket_key: t for t, spec in ASSET_SPECS.items()}
-
     @classmethod
     def _resolve_asset_type(cls, table: str) -> str:
         """bucket_key → 资产类型；未知表名抛 ValueError（message 列出合法取值）。"""
-        asset_type = cls._BUCKET_TO_ASSET_TYPE.get(table)
-        if asset_type is None:
-            raise ValueError(f"未知资产表: {table!r}，须是 {sorted(cls._BUCKET_TO_ASSET_TYPE)} 之一")
-        return asset_type
+        return resolve_asset_type(table)
 
     _LEGACY_ASSET_FIELDS = frozenset({"type", "importance"})
 

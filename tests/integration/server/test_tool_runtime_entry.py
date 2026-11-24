@@ -440,8 +440,15 @@ async def test_reset_episode_planning_settles_write_before_propagating_cancellat
     assert finished.is_set()
 
 
-async def test_rename_asset_settles_write_before_propagating_cancellation(tmp_path: Path, monkeypatch) -> None:
-    services = _services(tmp_path)
+async def test_rename_asset_settles_write_before_propagating_cancellation(
+    tmp_path: Path, db_factory, monkeypatch
+) -> None:
+    services = Services(
+        projects=ProjectManager(tmp_path / "projects"),
+        workflow_planner=_Unused(),
+        capabilities=_Unused(),
+        sessions=db_factory,
+    )
     services.projects.create_project("demo")
     services.projects.create_project_metadata("demo", "Demo")
     scope = ProjectScope(project_name="demo", data_root=services.projects.data_root)
@@ -449,11 +456,13 @@ async def test_rename_asset_settles_write_before_propagating_cancellation(tmp_pa
     release = threading.Event()
     finished = threading.Event()
 
-    def blocking_rename(_project: str, table: str, old_name: str, new_name: str) -> AssetRenameReport:
+    def blocking_rename(
+        _project: str, table: str, old_name: str, new_name: str, *, dry_run: bool = False
+    ) -> AssetRenameReport:
         started.set()
         release.wait()
         finished.set()
-        return AssetRenameReport(table, old_name, new_name, 0, 0, 0, False)
+        return AssetRenameReport(table, old_name, new_name, 0, 0, 0, dry_run)
 
     monkeypatch.setattr(services.projects, "rename_asset", blocking_rename)
     task = asyncio.create_task(

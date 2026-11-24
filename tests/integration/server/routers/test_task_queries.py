@@ -155,6 +155,26 @@ async def test_lookup_matches_detail_localization_and_applies_project_scope(task
     assert scoped_result.json() == {"items": [detail], "missing_ids": ["other-0", "absent"]}
 
 
+async def test_active_snapshot_and_lookup_respect_repository_visibility_scope(task_client, db_factory, monkeypatch):
+    await seed_tasks(db_factory, "visible", 1, status="running")
+    await seed_tasks(db_factory, "hidden", 1, status="running")
+
+    class VisibleOnlyTaskRepository(TaskRepository):
+        def _scope_query(self, stmt, model):
+            return stmt.where(Task.task_id == "visible-0")
+
+    monkeypatch.setattr("lib.generation.generation_queue.TaskRepository", VisibleOnlyTaskRepository)
+
+    snapshot = await task_client.get(f"{TASKS}/active")
+    assert snapshot.status_code == 200
+    assert [row["task_id"] for row in snapshot.json()["items"]] == ["visible-0"]
+
+    lookup = await task_client.post(f"{TASKS}/lookup", json={"task_ids": ["visible-0", "hidden-0"]})
+    assert lookup.status_code == 200
+    assert [row["task_id"] for row in lookup.json()["items"]] == ["visible-0"]
+    assert lookup.json()["missing_ids"] == ["hidden-0"]
+
+
 async def test_lookup_limits_distinct_ids(task_client):
     ids = [str(index) for index in range(200)]
     at_limit = await task_client.post(f"{TASKS}/lookup", json={"task_ids": [*ids, ids[0]]})

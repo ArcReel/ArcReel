@@ -1534,9 +1534,13 @@ def test_local_failure_codes_match_the_frontend_contract():
     assert sorted(ingest.LOCAL_FAILURE_CODES) == json.loads(_LOCAL_FAILURES_CONTRACT.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("is_derivative", [False, True], ids=["asset-sheet", "derivative-sheet"])
+@pytest.mark.parametrize(
+    ("is_derivative", "enqueue_during_download"),
+    [(False, False), (True, False), (False, True)],
+    ids=["asset-sheet", "derivative-sheet", "enqueued-during-download"],
+)
 async def test_provider_image_import_preserves_the_busy_target(
-    api, sessions, project, public_dns, derivative, is_derivative
+    api, sessions, project, public_dns, derivative, is_derivative, enqueue_during_download
 ):
     account_id = await _configure(sessions, object_storage=False)
     original = solid_png_bytes((80, 30, 10), size=(400, 400))
@@ -1550,15 +1554,23 @@ async def test_provider_image_import_preserves_the_busy_target(
         sheet = project.get_project_path("demo") / "characters" / "Alice.png"
     before = sheet.read_bytes(), history(api), project.load_project("demo")
     queue = GenerationQueue(project_manager=project, session_factory=sessions)
-    await queue.enqueue_task(
-        project_name="demo", task_type="character", resource_id="Alice", media_type="image", provider_id="test"
-    )
+
+    async def enqueue_conflict() -> None:
+        await queue.enqueue_task(
+            project_name="demo", task_type="character", resource_id="Alice", media_type="image", provider_id="test"
+        )
+
+    if not enqueue_during_download:
+        await enqueue_conflict()
+
+    async def download_asset(_request: httpx.Request) -> httpx.Response:
+        if enqueue_during_download:
+            await enqueue_conflict()
+        return httpx.Response(200, content=solid_png_bytes((10, 40, 80), size=(400, 400)))
 
     with capture_http() as router:
         router.post(VOLC_HOST).mock(side_effect=ControlPlane(asset_status=[_active_image()]))
-        router.get(ASSET_URL).mock(
-            return_value=httpx.Response(200, content=solid_png_bytes((10, 40, 80), size=(400, 400)))
-        )
+        router.get(ASSET_URL).mock(side_effect=download_asset)
         response = await asyncio.to_thread(import_image, api, account_id)
 
     assert response.status_code == 409, response.text

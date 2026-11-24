@@ -32,7 +32,13 @@ from lib.db import async_session_factory
 from lib.db.models.asset import Asset, AssetDerivative
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.repositories.asset_repo import AssetRepository
-from lib.generation.asset_admission import AssetResourceBusy, AssetTarget, asset_admission_locks, require_asset_idle
+from lib.generation.asset_admission import (
+    AssetResourceBusy,
+    AssetTarget,
+    asset_admission_locks,
+    check_asset_write,
+    idle_asset_write,
+)
 from lib.infra.api_errors import NotFoundError
 from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_async, run_sync_transaction
 from lib.material.formal_objects import formal_commit
@@ -423,9 +429,7 @@ async def from_project(
         raise HTTPException(status_code=400, detail=_t("asset_invalid_type"))
 
     target = AssetTarget(req.resource_type, req.resource_id, "image")
-    async with asset_admission_locks(req.project_name, target):
-        async with async_session_factory() as session:
-            await require_asset_idle(session, req.project_name, target)
+    async with idle_asset_write(req.project_name, target, session_factory=async_session_factory):
         return await _export_locked(req, _t)
 
 
@@ -1003,10 +1007,6 @@ async def apply_to_project(
         class AllOverwriteTargetsBusy(Exception):
             pass
 
-        async def _require_overwrite_target_idle(asset_type: str, name: str) -> None:
-            async with async_session_factory() as session:
-                await require_asset_idle(session, req.target_project, AssetTarget(asset_type, name, "whole_asset"))
-
         def _apply_all(data: dict) -> None:
             applied_plans: list[dict] = []
             for plan in plans:
@@ -1030,7 +1030,13 @@ async def apply_to_project(
                         raise ProjectAssetNameConflictError(name_, existing, a_.type)
                     else:
                         try:
-                            bridge.run(_require_overwrite_target_idle(a_.type, existing.name))
+                            bridge.run(
+                                check_asset_write(
+                                    req.target_project,
+                                    AssetTarget(a_.type, existing.name, "whole_asset"),
+                                    session_factory=async_session_factory,
+                                )
+                            )
                         except AssetResourceBusy:
                             failed.append(
                                 {
@@ -1142,7 +1148,11 @@ async def apply_to_project(
             copied_links: list[int] = []
 
             async def _record_links(targets: list[tuple[str, str, LinkHolder]]) -> None:
+                link_ids: list[int] = []
                 async with async_session_factory() as session:
+                    connection = await session.connection()
+                    if connection.dialect.name == "sqlite":
+                        await connection.exec_driver_sql("BEGIN IMMEDIATE")
                     for source_holder, source_content_id, holder in targets:
                         copies = await copy_usable_links(
                             session,
@@ -1151,8 +1161,9 @@ async def apply_to_project(
                             target=holder,
                         )
                         await session.flush()
-                        copied_links.extend(link.id for link in copies)
+                        link_ids.extend(link.id for link in copies)
                     await session.commit()
+                    copied_links.extend(link_ids)
 
             def _copy_links_to_applied_versions() -> None:
                 manager = VersionManager(project_dir)
@@ -1172,8 +1183,8 @@ async def apply_to_project(
                     bridge.run(_record_links(targets))
 
             def _after_versions_committed() -> None:
-                _register_imported_sheet_claims()
                 _copy_links_to_applied_versions()
+                _register_imported_sheet_claims()
 
             def _select_imported_sheets(_project_file: Path) -> None:
                 commits = [commit for plan in plans for commit in plan["installed_sheets"]]

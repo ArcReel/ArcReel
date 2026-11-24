@@ -28,7 +28,7 @@ from server.services.project.workflow_planner import WorkflowPlanner
 from server.services.tasks import generation_tasks, reference_video_tasks
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolRequest
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import bind_session_factory, use_project_manager
+from tests.fakes import bind_session_factory, use_generation_queue, use_project_manager
 
 _STORYBOARD = "storyboards/scene_E1S01.png"
 _VIDEO = "videos/scene_E1S01.mp4"
@@ -231,7 +231,7 @@ async def test_episode_asset_batch_keeps_uploaded_storyboard_while_generating_it
     queue = GenerationQueue(session_factory=session_factory, project_manager=pm)
     await queue.acquire_or_renew_worker_lease(name="default", owner_id="worker-a", ttl_seconds=60)
     use_project_manager(monkeypatch, pm)
-    monkeypatch.setattr(asset_sheets, "get_generation_queue", lambda: queue)
+    use_generation_queue(monkeypatch, queue)
 
     response = await asset_sheets.submit_asset_sheet_batch_route(
         "demo",

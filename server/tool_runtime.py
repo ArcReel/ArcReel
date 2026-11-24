@@ -117,6 +117,7 @@ from lib.generation.generation_queue_client import (
     TaskSpec,
     WorkerOfflineError,
     enqueue_task_only,
+    save_generation_batch_enqueue_problems,
     submit_generation_batch,
     wait_for_task,
 )
@@ -412,6 +413,14 @@ async def submit_media_generation(
             )
         else:
             successes, failures = [], []
+        await save_generation_batch_enqueue_problems(
+            services.queue,
+            project_name=scope.project_name,
+            batch_id=batch_id,
+            requested=requested,
+            failures=failures,
+            user_id=caller.user_id,
+        )
         settled = await services.queue.get_generation_batch(
             project_name=scope.project_name,
             batch_id=batch_id,
