@@ -104,6 +104,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
                   )}
                   <button
                     type="button"
+                    data-reference-unit={u.unit_id}
                     data-testid={`unit-row-${u.unit_id}`}
                     aria-current={selected || undefined}
                     onClick={() => onSelect(u.unit_id)}

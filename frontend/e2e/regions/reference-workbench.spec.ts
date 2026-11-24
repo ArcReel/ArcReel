@@ -18,7 +18,7 @@ const unitId = (n: number) => `E1U${n}`;
 const LONG_LINE =
   "@[林夕] 推开旧城茶馆二楼临街的雕花木窗，雨后的石板路泛着青光，巡夜人提着那盏蒙着油纸的旧马灯从箭楼下慢慢走过，灯影在湿漉漉的墙面上晃来晃去。";
 
-const UNITS = Array.from({ length: 14 }, (_, i) => ({
+const LONG_UNIT_LIST = Array.from({ length: 24 }, (_, i) => ({
   unit_id: unitId(i + 1),
   text: [
     `镜头 ${i + 1}：${LONG_LINE}`,
@@ -29,6 +29,7 @@ const UNITS = Array.from({ length: 14 }, (_, i) => ({
   note: null,
   ...(i === 0 ? { needs_replan: true } : {}),
 }));
+const UNITS = LONG_UNIT_LIST.slice(0, 14);
 
 function capability(id: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -48,8 +49,8 @@ function capability(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-const CAPABILITIES = Object.fromEntries(
-  UNITS.map((unit, i) => [
+function unitsResponse(units: typeof UNITS) {
+  const unitCapabilities = Object.fromEntries(units.map((unit, i) => [
     unit.unit_id,
     i === 0
       ? capability(unit.unit_id, {
@@ -68,8 +69,9 @@ const CAPABILITIES = Object.fromEntries(
           ],
         })
       : capability(unit.unit_id),
-  ]),
-);
+  ]));
+  return { status: 200, body: { units, unit_capabilities: unitCapabilities } };
+}
 
 function movedUnits(id: string, afterId: string | null) {
   const rest = UNITS.filter((unit) => unit.unit_id !== id);
@@ -84,7 +86,7 @@ const API: ApiOverrides = {
     status: 200,
     body: { ...project, project: { ...project.project, generation_mode: "reference_video" } },
   },
-  [`GET ${UNITS_API}`]: { status: 200, body: { units: UNITS, unit_capabilities: CAPABILITIES } },
+  [`GET ${UNITS_API}`]: unitsResponse(UNITS),
   "GET /api/v1/projects/demo/episodes/1/drafts": { status: 200, body: { episode: 1, drafts: [] } },
   [`POST ${UNITS_API}/E1U2/move`]: { status: 200, body: { units: movedUnits("E1U2", null) } },
 };
@@ -120,6 +122,19 @@ async function expectHeightFloors(page: Page) {
 }
 
 defineRegionScenarios("参考视频工作台", [
+  ...["", "&t=2.5"].map((time) => ({
+    name: `直接打开视频单元链接后，目标单元进入列表视口（${time ? "带时间点" : "无时间点"}）`,
+    path: `${UNITS_PATH}&unit=E1U24${time}&from=agent`,
+    api: { ...API, [`GET ${UNITS_API}`]: unitsResponse(LONG_UNIT_LIST) },
+    ready: async (page: Page) => {
+      await expect(page).toHaveURL(`${UNITS_PATH}&from=agent`);
+    },
+    act: async (page: Page) => {
+      const selected = page.getByRole("list", { name: "视频单元" }).locator('button[aria-current="true"]');
+      await expect(selected).toHaveAccessibleName(/视频单元 24/);
+      await expect(selected).toBeInViewport({ ratio: 1 });
+    },
+  })),
   {
     name: "单元列表、文稿编辑器与竖屏预览，选中单元带重新规划与参考图分裂提示",
     path: UNITS_PATH,

@@ -85,8 +85,9 @@ export function useAssistantSession(projectName: string | null) {
     sessionAbort.current = null;
     deferredResumeRef.current = null;
     streamStatusCursorRef.current = null;
+    clearPendingQuestion();
     store.getState().setSending(false);
-  }, [store]);
+  }, [clearPendingQuestion, store]);
 
   const sessionOperation = useCallback(() => {
     const generation = sessionGeneration.current;
@@ -444,7 +445,7 @@ export function useAssistantSession(projectName: string | null) {
               signal: operation.signal,
             }).catch(() => null);
             if (!operation.isCurrent(sessionId)) return false;
-            if (gap) store.getState().setEntries(gap.entries);
+            if (gap) store.getState().setEntries(gap.entries ?? []);
           }
           if (result.entry.seq === lastEntrySeq(store.getState().entries) + 1) {
             store.getState().appendEntry(result.entry);
@@ -708,11 +709,11 @@ export function useAssistantSession(projectName: string | null) {
     const projectSignal = projectAbortRef.current?.signal;
     try {
       await API.deleteAssistantSession(projectName, sessionId);
-      if (projectSignal?.aborted) return true;
+      if (projectSignal?.aborted || projectAbortOwnerRef.current !== projectName) return true;
       const sessions = store.getState().sessions.filter((s) => s.id !== sessionId);
       writeSessions(sessions);
 
-      if (operation.isCurrent(sessionId)) {
+      if (store.getState().currentSessionId === sessionId) {
         if (sessions.length > 0) {
           await switchSession(sessions[0].id);
         } else {
