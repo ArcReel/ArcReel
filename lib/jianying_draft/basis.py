@@ -115,11 +115,16 @@ def build_jianying_draft_basis(
         "aspect_ratio": aspect_ratio,
         "units": {unit.unit_id: unit.to_input() for unit in units},
     }
-    trimmed_versions = {
-        clip.unit_id: video_versions.get(clip.unit_id) for clip in revision.content.clips if clip.trim is not None
-    }
-    if trimmed_versions:
-        inputs["trim_video_versions"] = trimmed_versions
+    active_unit_ids = {unit.unit_id for unit in units}
+    invalidated_trims = [
+        clip.id
+        for clip in revision.content.clips
+        if clip.unit_id in active_unit_ids
+        and clip.trim is not None
+        and video_versions.get(clip.unit_id) != clip.trim.basis_version
+    ]
+    if invalidated_trims:
+        inputs["invalidated_trims"] = invalidated_trims
     if revision.content.bgm:
         inputs["bgm"] = bgm_sources_input(revision.content.bgm, bgm_sources or {})
     return ArtifactBasis.build(JIANYING_DRAFT_BASIS_KIND, kind_version=JIANYING_DRAFT_BASIS_VERSION, inputs=inputs)

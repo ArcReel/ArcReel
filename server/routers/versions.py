@@ -376,10 +376,11 @@ async def restore_resource_version(
     """版本还原的实现。资源 id 带层级（角色衍生）的路由不能走单段路径参数，共用此函数。"""
     try:
         if is_typed_media_restore_resource(resource_type):
+            vm = await asyncio.to_thread(get_version_manager, project_name)
             with project_change_source("webui"):
                 return await restore_typed_media_resource(
                     project_manager=get_project_manager(),
-                    versions=get_version_manager(project_name),
+                    versions=vm,
                     project_name=project_name,
                     resource_type=resource_type,
                     resource_id=resource_id,

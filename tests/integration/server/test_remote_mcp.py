@@ -334,6 +334,27 @@ async def test_remote_mcp_rejects_non_api_key_bearer_tokens(remote_server, token
     assert response.status_code == 401
 
 
+async def test_remote_mcp_describes_selecting_uploaded_video_versions(remote_server) -> None:
+    app = _mounted(remote_server)
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        tools = await session.list_tools()
+
+    description = next(tool.description for tool in tools.tools if tool.name == "select_video_version")
+    assert description is not None
+    assert "支持切回手动上传的视频版本" in description
+    assert "缺少完整还原依据的生成版本返回 request_invalid" in description
+
+
 async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     remote_server, remote_projects: ProjectManager, set_video_request_facts
 ) -> None:

@@ -1583,7 +1583,6 @@ def uploaded_video_history(tmp_path, monkeypatch, request):
     assert add_typed_video_version(directory, resource_type, unit_id, content=b"generated") == 2
 
     use_project_manager(monkeypatch, pm)
-    monkeypatch.setattr(versions, "get_version_manager", lambda _: vm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(versions.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
