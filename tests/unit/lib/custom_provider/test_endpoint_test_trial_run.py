@@ -33,7 +33,6 @@ from lib.custom_provider.endpoint_test import (
     TrialRunStatus,
     TrialRunTarget,
     declarative_target,
-    model_ref_target,
     provider_from_base_url,
 )
 from lib.db.models.api_call import ApiCall
@@ -589,7 +588,14 @@ class TestBuiltinUserAddedOverrides:
                     provider="ark",
                 )
 
-            return replace(model_ref_target("ark", PARAMETERS.model, resolver=None), build_backend=build)
+            from lib.backends.backend_assembly.specs import builtin_video_snapshot
+
+            return TrialRunTarget(
+                "ark",
+                PARAMETERS.model,
+                build_backend=build,
+                snapshot=builtin_video_snapshot("ark", PARAMETERS.model, endpoint="ark-seedance-2"),
+            )
 
         yield install
         catalog.install_user_added_models(())

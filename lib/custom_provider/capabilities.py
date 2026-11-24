@@ -45,6 +45,7 @@ from lib.custom_provider.model_facts import ALL_MODEL_FACT_OVERRIDE_KEYS, MODEL_
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from arcreel_catalog_core import CatalogEntry
     from lib.custom_provider.endpoints import EndpointSpec
 
 
@@ -136,10 +137,29 @@ def custom_video_snapshot(
 
     spec = endpoint_spec or get_endpoint_spec(endpoint)
     entry = None if spec.kind == COMFYUI_KIND else model_entry(model_id, "video", entry_binding)
+    return custom_video_snapshot_from_entry(spec, model_id, entry, overrides)
+
+
+def custom_video_snapshot_from_entry(
+    spec: EndpointSpec,
+    model_id: str,
+    entry: CatalogEntry | None,
+    overrides: object,
+    *,
+    provider_id: str = "",
+    default_resolution: str | None = None,
+) -> CapabilitySnapshot:
     facts = entry_video_facts(entry)
     if entry is None and spec.kind != COMFYUI_KIND:
         facts = replace(facts, durations=tuple(infer_supported_durations(model_id)))
-    return resolve_video_model(spec.video_description(model_id, entry), facts, overrides, model_id=model_id)
+    return resolve_video_model(
+        spec.video_description(model_id, entry),
+        facts,
+        overrides,
+        model_id=model_id,
+        provider_id=provider_id,
+        default_resolution=default_resolution,
+    )
 
 
 def two_sided_video_capabilities(

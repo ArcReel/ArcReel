@@ -19,6 +19,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from types import EllipsisType
 from typing import ClassVar
 
 import httpx
@@ -188,10 +189,6 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
         self._transport_layer = transport_layer
-        self._video_capabilities = self.video_capabilities_for_model(self._model)
-
-    def _on_catalog_entry_changed(self) -> None:
-        self._video_capabilities = self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     @property
     def name(self) -> str:
@@ -202,14 +199,18 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
         return self._model
 
     @classmethod
-    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | EllipsisType | None = ...) -> Endpoint:
+        if entry is None:
+            profile = _match_profile_key(model)
+        else:
+            profile = _profile_key_for_model(model, None if isinstance(entry, EllipsisType) else entry)
         return Endpoint(
             "video",
             frozenset({"text_to_video", "first_frame", "last_frame", "reference_images", "reference_audio"}),
             audio=audio_protocol(cls.endpoint.audio_track),
             defaults={
                 "reference_audio_per_image": cls.endpoint.reference_audio_per_image,
-                "max_prompt_chars": _MODEL_PROFILES.get(_profile_key_for_model(model, entry) or ""),
+                "max_prompt_chars": _MODEL_PROFILES.get(profile or ""),
             },
         )
 
@@ -309,7 +310,7 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
         }
 
     def _build_media(self, request: VideoGenerationRequest) -> list[dict]:
-        caps = request.video_capabilities or self._video_capabilities
+        caps = request.video_capabilities or self.video_capabilities
         media: list[dict] = []
         if request.start_image and not caps.first_frame:
             raise VideoCapabilityError("video_first_frame_unsupported", provider=self.name, model=self._model)
@@ -364,7 +365,7 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
         audio_files = list(request.reference_audio_files or [])
         if not audio_files:
             return []
-        if (request.video_capabilities or self._video_capabilities).reference_audio_mode == ReferenceAudioMode.NONE:
+        if (request.video_capabilities or self.video_capabilities).reference_audio_mode == ReferenceAudioMode.NONE:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         uris: list[str] = []
         unreadable: list[str] = []
@@ -405,7 +406,7 @@ class DashScopeVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, P
         audio_files = list(request.reference_audio_files or [])
         if not audio_files:
             return
-        if (request.video_capabilities or self._video_capabilities).reference_audio_mode == ReferenceAudioMode.NONE:
+        if (request.video_capabilities or self.video_capabilities).reference_audio_mode == ReferenceAudioMode.NONE:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
 
         targets = request.reference_audio_targets

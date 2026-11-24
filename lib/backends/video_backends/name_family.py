@@ -56,11 +56,7 @@ class EntryBoundCapabilities:
         """返回按 ``entry`` 认定请求形态的副本；客户端、凭证与模型等其余状态与本实例共用，不就地改写。"""
         clone = copy.copy(self)
         clone._catalog_entry = entry
-        clone._on_catalog_entry_changed()
         return clone
-
-    def _on_catalog_entry_changed(self) -> None:
-        """构造时按模型名算好的派生状态在这里按新条目重算；没有这类状态时不用覆盖。"""
 
 
 def catalog_entry_of(backend: object) -> CatalogEntry | None:

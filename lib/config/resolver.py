@@ -28,6 +28,7 @@ from lib.backends.backend_assembly.specs import (
     builtin_video_capabilities_for_model,
 )
 from lib.backends.input_limits import InputLimit
+from lib.backends.providers import video_audio_always_billed
 from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 from lib.capabilities.kernel import video_bucket_unmet
 from lib.catalog import query as catalog
@@ -367,20 +368,6 @@ _AUTO_RESOLVE_PURPOSE_KEYS: dict[AutoResolvePurpose, _LayeredBackendKeys] = {
     "r2v": _VIDEO_LAYERED_KEYS["r2v"],
     "text": _TEXT_LAYERED_KEYS[TextTaskTier.COMPLEX],
 }
-
-
-_VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS = frozenset({"gemini-aistudio"})
-
-
-def _video_audio_always_billed(provider_id: str) -> bool:
-    """该 provider 是否无视请求值恒按含音档出账。
-
-    AI Studio 的 Veo 请求不下发 ``generate_audio``（该开关仅存在于 Vertex 定价页，AI Studio
-    定价页无 audio-off 档），``GeminiVideoBackend`` 结算时对 ``backend_type != "vertex"`` 强制
-    True；这是 provider 级出账规则，registry 名 ``gemini`` 同时映射 aistudio / vertex，故按
-    provider_id 而非 backend 静态接口判定。
-    """
-    return provider_id in _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS
 
 
 VoiceConsistency = Literal["native", "soft", "none"]
@@ -1055,7 +1042,7 @@ class ConfigResolver:
                 model_id,
                 exc,
             )
-            if _video_audio_always_billed(provider_id):
+            if video_audio_always_billed(provider_id):
                 return True
             async with self._open_session() as (_session, svc):
                 return await self._resolve_video_generate_audio_from_project(svc, project)
@@ -1169,6 +1156,19 @@ class ConfigResolver:
         完整形态；项目层只写了内置供应商的报错，不按目录推荐补模型（docs/adr/0099）。payload 层与运行时身份收敛
         （如视频自定义供应商的有效身份收敛）不属于骨架，由各媒体的调用方在骨架外处理。
         """
+        pair = await self._configured_backend_pair(svc, project, keys)
+        if pair is not None:
+            return pair
+        return await self._auto_resolve_backend(svc, session, keys.media_type, keys.generation_type)
+
+    async def _configured_backend_pair(
+        self,
+        svc: ConfigService,
+        project: dict | None,
+        keys: _LayeredBackendKeys,
+        *,
+        require_fallback_allowed: bool = False,
+    ) -> tuple[str, str] | None:
         if project:
             for project_key in (keys.project_bucket_key, keys.project_default_key):
                 if project_key is None:
@@ -1192,7 +1192,11 @@ class ConfigResolver:
             if "/" in raw:
                 provider_id, model_id = raw.split("/", 1)
                 return provider_id, model_id
-        return await self._auto_resolve_backend(svc, session, keys.media_type, keys.generation_type)
+        if require_fallback_allowed:
+            from lib.config.recommended_models import FROZEN_SETTING_KEY
+
+            self._require_auto_fallback(settings.get(FROZEN_SETTING_KEY, ""), keys.media_type)
+        return None
 
     async def _resolve_image_provider_model(
         self,
@@ -1264,6 +1268,14 @@ class ConfigResolver:
                 provider_id=selected.provider_id,
                 model_id=selected.model_id,
             )
+
+    async def configured_video_identity(
+        self, project: dict | None, bucket: VideoGenerationType | None
+    ) -> ProviderModel | None:
+        keys = _VIDEO_LAYERED_KEYS[bucket] if bucket else _VIDEO_DEFAULT_LAYERED_KEYS
+        async with self._open_session() as (_, svc):
+            pair = await self._configured_backend_pair(svc, project, keys, require_fallback_allowed=True)
+            return ProviderModel(*pair) if pair else None
 
     async def _resolve_video_provider_model(
         self,
@@ -1604,7 +1616,7 @@ class ConfigResolver:
         requested_generate_audio = await self._resolve_video_generate_audio_from_project(svc, project)
         generate_audio = (
             True
-            if _video_audio_always_billed(provider_id)
+            if video_audio_always_billed(provider_id)
             else requested_generate_audio and default_tier_generates_audio
         )
 
@@ -1784,6 +1796,16 @@ class ConfigResolver:
                 resolved[purpose] = None
         return resolved
 
+    @staticmethod
+    def _require_auto_fallback(marker: str, media_type: str) -> None:
+        from lib.config.recommended_models import auto_fallback_allowed
+
+        if not auto_fallback_allowed(marker, media_type):
+            raise NoAvailableProviderError(
+                f"没有设置 {media_type} 默认模型。请在「全局设置 → 默认模型」中选择。",
+                media_type=media_type,
+            )
+
     async def _auto_resolve_backend(
         self,
         svc: ConfigService,
@@ -1804,16 +1826,12 @@ class ConfigResolver:
         一个（各供应商各设默认是常态，与「同一供应商同桶两个默认」不同）。
         """
 
-        from lib.config.recommended_models import FROZEN_SETTING_KEY, auto_fallback_allowed
+        from lib.config.recommended_models import FROZEN_SETTING_KEY
         from lib.custom_provider import make_provider_id
         from lib.custom_provider.default_models import callable_models, filter_by_bucket
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
-        if not auto_fallback_allowed(await svc.get_setting(FROZEN_SETTING_KEY, ""), media_type):
-            raise NoAvailableProviderError(
-                f"没有设置 {media_type} 默认模型。请在「全局设置 → 默认模型」中选择。",
-                media_type=media_type,
-            )
+        self._require_auto_fallback(await svc.get_setting(FROZEN_SETTING_KEY, ""), media_type)
         repo = CustomProviderRepository(session)
         custom_models = await repo.list_enabled_models_by_media_type(media_type)
         defaults = callable_models([model for model in custom_models if model.is_default], media_type)

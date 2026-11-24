@@ -130,12 +130,14 @@ name = "lib.config / lib.backends.*_backends / lib.custom_provider / lib.market 
 type = "layers"
 layers = [
     "market",
+    "video_runtime",
     "custom_provider",
     "backends.image_backends : backends.video_backends : backends.audio_backends : backends.text_backends",
     "config",
 ]
 containers = ["lib"]
 ignore_imports = [
+    "lib.backends.backend_assembly.specs -> lib.video_runtime.builtin",
     "lib.config.resolver -> lib.custom_provider",
     "lib.config.resolver -> lib.custom_provider.capabilities",
     "lib.config.resolver -> lib.custom_provider.default_models",
@@ -147,7 +149,6 @@ ignore_imports = [
     "lib.backends.backend_assembly.specs -> lib.backends.video_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.backends.text_backends.registry",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
-    "lib.backends.backend_assembly.specs -> lib.custom_provider.declarative_backend",
     "lib.project.project_manager -> lib.backends.text_backends.base",
     "lib.backends.text_generator -> lib.backends.text_backends.base",
     "lib.backends.text_generator -> lib.backends.text_backends.factory",
@@ -197,7 +198,7 @@ name = "纯能力内核不依赖配置、装配、调用通道、数据库或网
 type = "forbidden"
 source_modules = ["lib.capabilities"]
 forbidden_modules = [
-    "lib.backends", "lib.config", "lib.db", "lib.generation", "lib.custom_provider", "server",
+    "lib.video_runtime", "lib.backends", "lib.config", "lib.db", "lib.generation", "lib.custom_provider", "server",
     "sqlalchemy", "httpx", "requests", "aiohttp",
 ]
 
