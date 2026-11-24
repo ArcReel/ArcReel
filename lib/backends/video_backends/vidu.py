@@ -232,8 +232,8 @@ class ViduVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities):
                 frozenset({"first_frame", "reference_images"}),
                 frozenset({"last_frame", "reference_images"}),
             ),
-            defaults={"max_prompt_chars": profile.declared_prompt_limit},
             limits={
+                "max_prompt_chars": profile.declared_prompt_limit,
                 "max_reference_images": profile.max_reference_images,
                 "max_reference_audio_count": profile.max_reference_audio,
             },

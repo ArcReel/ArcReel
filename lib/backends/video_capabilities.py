@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import fields
 from typing import TYPE_CHECKING
 
 from arcreel_catalog_core import VideoFacts
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoAudioMode, VideoCapabilities
 from lib.backends.input_limits import InputLimit
+from lib.backends.providers import PROVIDER_KLING
 from lib.capabilities.kernel import AudioProtocol, CapabilitySnapshot, Endpoint, RequestConditions, resolve
 
 if TYPE_CHECKING:
@@ -86,6 +88,11 @@ def resolve_video_model(
         "with_reference_images": constraints.with_reference_images,
         "with_end_frame": constraints.with_end_frame,
     }
+    legacy_primary_always_on = (
+        provider_id == PROVIDER_KLING
+        and isinstance(overrides, Mapping)
+        and overrides.get("audio_track") == VideoAudioMode.ALWAYS_ON
+    )
     return resolve(
         endpoint,
         facts=values,
@@ -95,6 +102,7 @@ def resolve_video_model(
         request=request,
         official=official,
         always_bill_audio=provider_id == "gemini-aistudio",
+        legacy_primary_always_on=legacy_primary_always_on,
     )
 
 

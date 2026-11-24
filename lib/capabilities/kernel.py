@@ -296,6 +296,7 @@ class CapabilitySnapshot:
     provider_id: str
     model_id: str
     always_bill_audio: bool
+    legacy_primary_always_on: bool
 
     @property
     def media(self) -> Media:
@@ -322,6 +323,7 @@ class CapabilitySnapshot:
             provider_id=self.provider_id,
             model_id=self.model_id,
             always_bill_audio=self.always_bill_audio,
+            legacy_primary_always_on=self.legacy_primary_always_on,
         )
 
     def __post_init__(self):
@@ -331,6 +333,8 @@ class CapabilitySnapshot:
 
     def audio(self, route: Route, *, requested: bool, base: bool = False) -> AudioDecision:
         protocol = self.reference_protocol if route == "r2v" else self.primary_protocol
+        if route == "i2v" and not base and self.legacy_primary_always_on:
+            protocol = AudioProtocol.NO_SWITCH
         values = self.base if base else self.effective
         has_audio = values.get("has_audio_track", True)
         if route == "r2v":
@@ -381,6 +385,7 @@ def resolve(
     provider_id: str = "",
     model_id: str = "",
     always_bill_audio: bool = False,
+    legacy_primary_always_on: bool = False,
 ) -> CapabilitySnapshot:
     allowed_facts = OVERRIDE_KEYS[endpoint.media]
     if endpoint.media == "image":
@@ -409,11 +414,15 @@ def resolve(
     if request is None:
         slots |= endpoint.context_free_disabled_slots.intersection(applied)
     values = _compose(endpoint, facts, applied, slots)
+    legacy_primary_always_on = (
+        legacy_primary_always_on and endpoint.audio == AudioProtocol.SWITCH and applied.get("has_audio_track") is True
+    )
     for projection in (base, values):
         if endpoint.media == "video":
             primary_has_audio = projection.get("has_audio_track", True)
             reference_has_audio = projection.get("reference_route_has_audio_track", primary_has_audio)
-            projection["has_audio_track"] = primary != AudioProtocol.SILENT and primary_has_audio
+            primary_available = primary != AudioProtocol.SILENT or (projection is values and legacy_primary_always_on)
+            projection["has_audio_track"] = primary_available and primary_has_audio
             projection["reference_route_has_audio_track"] = reference != AudioProtocol.SILENT and reference_has_audio
             if projection.get("max_reference_audio_count") == 0:
                 projection["reference_audio_mode"] = "none"
@@ -442,4 +451,5 @@ def resolve(
         provider_id=provider_id,
         model_id=model_id,
         always_bill_audio=always_bill_audio,
+        legacy_primary_always_on=legacy_primary_always_on,
     )

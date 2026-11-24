@@ -102,6 +102,8 @@ Select a model in the provider details to open Provider settings and Model info.
 
 The interface shows the parameters in effect. This usually means the range supported by both the catalog and the call endpoint, with the smaller limit for any count. "Not recorded" means ArcReel has no data for that limit.
 
+If the call endpoint requires silent output for a generation mode, its audio track setting shows a read-only "Always silent" value. One example is Kling v3 Omni when generating video from multiple subject reference images.
+
 If there is no matching catalog entry and you use the default provider parameters, the call endpoint determines whether a video model accepts text or a first frame and how many reference images it accepts. Last frames and reference audio are disabled by default. For an image model, the endpoint determines whether text-to-image and image-to-image are available. Quality options require a matching catalog entry. An image model with a reference image limit of zero cannot be used for image-to-image. For ComfyUI, [workflow node bindings](./comfyui.md#bindings) determine the capabilities.
 
 You can enable or disable officially listed provider models. Official data maintains their provider parameters. For a custom provider model or a model you added to a built-in provider, you can change the endpoint and supported parameters. Switching endpoints clears parameter and request path changes for the old endpoint. Save and then check the new endpoint. When you change a custom provider model ID, ArcReel updates saved global and project references. Check the existing selections after changing the ID of a manually added model under a built-in provider.

@@ -605,8 +605,8 @@ def _view(key: str, indexed: _IndexedModel, *, min_app_version_satisfied: bool =
     )
 
 
-def provider_model_view(provider_id: str, model_id: str) -> ProviderModelView | None:
-    indexed = _indexed_model(provider_id, model_id, None)
+def provider_model_view(provider_id: str, model_id: str, media_type: str | None = None) -> ProviderModelView | None:
+    indexed = _indexed_model(provider_id, model_id, media_type)
     return _view(model_id, indexed) if indexed is not None else None
 
 

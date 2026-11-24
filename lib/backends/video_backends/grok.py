@@ -22,7 +22,7 @@ from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import EntryBoundCapabilities
 from lib.backends.video_capabilities import VideoEndpointCapabilities
 from lib.billing.metering import Usage
-from lib.capabilities.kernel import AudioProtocol, Endpoint
+from lib.capabilities.kernel import AudioProtocol, Endpoint, PathRestriction
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 _REFERENCE_ROUTE_MAX_RESOLUTION = "720p"
+_REFERENCE_ROUTE_BLOCKED_RESOLUTION = "1080p"
 
 
 class GrokVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities):
@@ -66,6 +67,14 @@ class GrokVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities):
             exclusive_inputs=()
             if cls.mixed_frames_and_references
             else (frozenset({"first_frame", "reference_images"}),),
+            paths=tuple(
+                PathRestriction(
+                    resolutions=frozenset({_REFERENCE_ROUTE_BLOCKED_RESOLUTION}),
+                    required_inputs=frozenset({slot}),
+                    disabled_slots=frozenset({slot}),
+                )
+                for slot in ("last_frame", "reference_images")
+            ),
         )
 
     @property
@@ -134,7 +143,7 @@ class GrokVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities):
     def _check_reference_route_resolution(self, request: VideoGenerationRequest) -> None:
         """参考生视频路径超出 720p 上限时在付费调用前拒绝，不交给供应商报错或静默降档。"""
         resolution = (request.resolution or "").strip().lower()
-        if resolution != "1080p":
+        if resolution != _REFERENCE_ROUTE_BLOCKED_RESOLUTION:
             return
         if request.reference_images or request.end_image:
             raise VideoCapabilityError(

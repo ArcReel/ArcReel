@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -36,6 +37,7 @@ from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.video_backends.gemini import GeminiVideoBackend, write_atomically
 from lib.backends.video_backends.metering import video_usage
 from lib.billing.metering import Usage
+from lib.capabilities.kernel import Endpoint
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.logging_utils import format_kwargs_for_log
 
@@ -64,6 +66,16 @@ class GeminiInteractionsVideoBackend(GeminiVideoBackend):
 
     audio_track: ClassVar[VideoAudioMode] = VideoAudioMode.ALWAYS_ON
     default_model: ClassVar[str] = "gemini-omni-1.2-flash"
+
+    @classmethod
+    def describe_video_endpoint(cls, model: str, entry: CatalogEntry | None = None) -> Endpoint:
+        return replace(
+            super().describe_video_endpoint(model, entry),
+            exclusive_inputs=(
+                frozenset({"first_frame", "reference_images"}),
+                frozenset({"last_frame", "reference_images"}),
+            ),
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:
