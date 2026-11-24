@@ -5,6 +5,7 @@ export default {
   'chinese': 'Tiếng Trung',
   'english': 'Tiếng Anh',
   'settings': 'Cài đặt',
+  'documentation': 'Tài liệu hướng dẫn',
   'logout': 'Đăng xuất',
   'cancel': 'Hủy',
   'replace': 'Thay thế',

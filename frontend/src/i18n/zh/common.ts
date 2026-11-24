@@ -5,6 +5,7 @@ export default {
   'chinese': '中文',
   'english': '英文',
   'settings': '设置',
+  'documentation': '使用文档',
   'logout': '登出',
   'cancel': '取消',
   'replace': '替换',

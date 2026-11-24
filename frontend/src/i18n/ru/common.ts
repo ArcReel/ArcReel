@@ -5,6 +5,7 @@ export default {
   'chinese': 'Китайский',
   'english': 'Английский',
   'settings': 'Настройки',
+  'documentation': 'Документация',
   'logout': 'Выйти',
   'cancel': 'Отмена',
   'replace': 'Заменить',

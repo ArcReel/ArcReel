@@ -172,6 +172,7 @@ export default {
   'about_update_available': 'Có phiên bản mới hơn',
   'about_up_to_date': 'Bạn đang dùng phiên bản mới nhất',
   'about_open_release': 'Mở bản phát hành GitHub',
+  'about_open_docs': 'Mở tài liệu hướng dẫn',
   'about_release_notes': 'Ghi chú phát hành',
   'about_release_notes_empty': 'Không có ghi chú phát hành.',
   'about_load_failed': 'Tải thông tin phiên bản thất bại',

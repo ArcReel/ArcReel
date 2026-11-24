@@ -172,6 +172,7 @@ export default {
   'about_update_available': '发现新版本',
   'about_up_to_date': '当前已是最新版本',
   'about_open_release': '打开 GitHub Release',
+  'about_open_docs': '打开使用文档',
   'about_release_notes': '发布说明',
   'about_release_notes_empty': '暂无可展示的发布说明。',
   'about_load_failed': '加载版本信息失败',
