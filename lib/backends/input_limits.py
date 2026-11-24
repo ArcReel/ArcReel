@@ -9,7 +9,7 @@
 ``0`` 只表示「上限为 0」，不表示「不裁剪」。上限为 0 与不支持都不接受这类输入：候选不列、执行时拒绝，
 编排层不把它们裁成 0 张后静默改走别的路径。
 
-本模块只依赖标准库，图片与视频的能力求值共用，候选、执行时的校验、编排层的数量检查与设置页都读同一个求值结果。
+图片与视频的能力求值共用，候选、执行时的校验、编排层的数量检查与设置页都读同一个求值结果。
 """
 
 from __future__ import annotations
@@ -17,9 +17,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
+
+from lib.capabilities.limits import InputLimit as InputLimit
+from lib.capabilities.limits import LimitState as LimitState
 
 _reference_sources: ContextVar[Mapping[Path, Path] | None] = ContextVar("reference_image_sources", default=None)
 
@@ -42,75 +43,6 @@ def excess_image_names(limit: int, count: int, paths: Iterable[str | Path] = ())
     """供应商请求没有资产名时优先报告文件名，否则给出从 1 开始的图片序号。"""
     names = [reference_image_name(Path(path)) for path in paths]
     return ", ".join(names[i] if i < len(names) and names[i] else f"#{i + 1}" for i in range(limit, count))
-
-
-class LimitState(StrEnum):
-    UNSUPPORTED = "unsupported"
-    UNRECORDED = "unrecorded"
-    BOUNDED = "bounded"
-
-
-@dataclass(frozen=True)
-class InputLimit[N: (int, float)]:
-    """一类输入的生效上限。``maximum`` 只在 ``BOUNDED`` 时有值。"""
-
-    state: LimitState
-    maximum: N | None = None
-
-    def __post_init__(self) -> None:
-        if (self.state == LimitState.BOUNDED) != (self.maximum is not None):
-            raise ValueError(f"InputLimit {self.state} with maximum={self.maximum!r}")
-        if self.maximum is not None and self.maximum < 0:
-            raise ValueError(f"InputLimit maximum must be non-negative: {self.maximum!r}")
-
-    @classmethod
-    def unsupported(cls) -> InputLimit[N]:
-        return cls(LimitState.UNSUPPORTED)
-
-    @classmethod
-    def unrecorded(cls) -> InputLimit[N]:
-        return cls(LimitState.UNRECORDED)
-
-    @classmethod
-    def at_most(cls, maximum: N) -> InputLimit[N]:
-        return cls(LimitState.BOUNDED, maximum)
-
-    @classmethod
-    def from_json(cls, value: N | None) -> InputLimit[N]:
-        """:meth:`to_json` 的逆：``None`` 为未收录，其余为上限（``0`` 即不接受）。
-
-        读已按接口形状存下的生效值（如视频能力 ``VideoCapabilities`` 的参考图与参考音频上限）时用它，
-        不支持与上限为 0 在这一形状里同为 ``0``，读回后的判定（候选、执行时的校验、编排层的数量检查）相同。
-        """
-        return cls.unrecorded() if value is None else cls.at_most(value)
-
-    @property
-    def accepts_input(self) -> bool:
-        """能不能带上这类输入：未收录，或上限大于 0。"""
-        if self.state == LimitState.UNRECORDED:
-            return True
-        return self.maximum is not None and self.maximum > 0
-
-    def clamp_bound(self) -> N | None:
-        """编排层裁剪用的上限：正数上限原样给出；``None`` 表示不裁剪。
-
-        不接受这类输入时同样不裁剪：输入原样交给执行时的校验拒绝，不裁成 0 张后静默改走别的路径。
-        """
-        if self.state == LimitState.BOUNDED and self.maximum is not None and self.maximum > 0:
-            return self.maximum
-        return None
-
-    def to_json(self) -> N | int | None:
-        """接口与界面上的形状：未收录为 ``None``，不接受（上限为 0 或不支持）为 ``0``，其余为上限。
-
-        不支持与上限为 0 在界面上同显「不接受」；输入路径本身是否走得通由对应的维度表达（图片的图生图、
-        视频的参考生视频）。
-        """
-        if self.state == LimitState.UNRECORDED:
-            return None
-        if self.state == LimitState.UNSUPPORTED:
-            return 0
-        return self.maximum
 
 
 def effective_input_limit[N: (int, float)](

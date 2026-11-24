@@ -194,6 +194,21 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "纯能力内核不依赖配置、装配、调用通道、数据库或网络"
+type = "forbidden"
+source_modules = ["lib.capabilities"]
+forbidden_modules = [
+    "lib.backends", "lib.config", "lib.db", "lib.generation", "lib.custom_provider", "server",
+    "sqlalchemy", "httpx", "requests", "aiohttp",
+]
+
+[[tool.importlinter.contracts]]
+name = "市场核心不依赖目录核心"
+type = "forbidden"
+source_modules = ["arcreel_market_core"]
+forbidden_modules = ["arcreel_catalog_core"]
+
+[[tool.importlinter.contracts]]
 name = "arcreel_market_core 不依赖主仓"
 type = "forbidden"
 source_modules = ["arcreel_market_core"]
