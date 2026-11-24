@@ -8,6 +8,7 @@ import { useAssistantStore } from "@/stores/assistant-store";
 import { useEpisodeSurfaceStore } from "@/stores/episode-surface-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useScriptPlanStore } from "@/stores/script-plan-store";
+import { defaultTaskStats, useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { makeContent, makePlan, makeStatus, makeStep, makeTask } from "@/test/factories";
@@ -833,6 +834,39 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
     const note = within(row).getByText("已提交给供应商，重试可能再次计费。").parentElement as HTMLElement;
     expect(within(note).getAllByRole("img").map((badge) => badge.getAttribute("aria-label"))).toEqual(["分镜 2", "分镜 3"]);
     expect(within(row).getByText("下一步：等待生成完成")).toBeInTheDocument();
+  });
+
+  it("仍在运行的任务掉出最近列表后显示当前状态和耗时", async () => {
+    const task = makeTask({
+      task_id: "evicted-video", project_name: "proj", task_type: "video", status: "running",
+      started_at: "2026-03-01T00:00:00Z",
+    });
+    const history = Array.from({ length: 200 }, (_, index) => makeTask({
+      task_id: `workflow-history-${index}`, project_name: "proj", status: "succeeded",
+    }));
+    vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [task], truncated: false });
+    vi.spyOn(API, "listTasks").mockResolvedValue({ items: history, total: 201, page: 1, page_size: 200 });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+
+    const { setRefreshScope, refreshTasks } = useTasksStore.getState();
+    setRefreshScope({ projectName: "proj" });
+    await refreshTasks();
+    try {
+      await renderExpanded(scenario({
+        next: nextAction("wait_for_task", { args: {} }),
+        steps: [makeStep({
+          id: "video",
+          state: "active",
+          tasks: [{ unit_id: "E1S01", task_id: task.task_id, task_type: "video", status: "queued" }],
+        })],
+      }));
+
+      const row = within(screen.getByTestId("workflow-row-videos"));
+      expect(row.getByText("视频 · 生成中")).toBeInTheDocument();
+      expect(row.getByLabelText(/已运行/)).toBeInTheDocument();
+    } finally {
+      act(() => setRefreshScope(null));
+    }
   });
 
   it("脚本结构的问题只在正式脚本行陈述一次，并标出是哪个单元", async () => {

@@ -337,6 +337,7 @@ export default {
   'voice_sample_confirm': 'Подтвердить и сохранить',
   'voice_sample_confirming': 'Сохранение…',
   'voice_sample_task_failed': 'Не удалось сгенерировать, попробуйте ещё раз',
+  'voice_sample_task_missing': 'Образец голоса больше недоступен. Создайте новый.',
   'voice_sample_task_submitted_toast': 'Задача генерации образца голоса для «{{name}}» отправлена',
   'voice_sample_resource_busy': 'Этот персонаж занят другой задачей, попробуйте позже',
 

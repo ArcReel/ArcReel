@@ -18,32 +18,13 @@ import { NarrationVoiceInput } from "@/components/shared/NarrationVoiceInput";
 import { Textarea } from "@/components/ui/textarea";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
-import { selectRecentTasks, useTasksStore } from "@/stores/tasks-store";
-import { isTerminalStatus, type TaskItem } from "@/types";
+import { useTasksStore } from "@/stores/tasks-store";
+import { isTerminalStatus } from "@/types";
 import { isAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
 import { useTrackWrite } from "./useAssetWrites";
 import { errMsg } from "@/utils/async";
 
 const VOICE_SAMPLE_TEXT_MAX_LENGTH = 200;
-const VOICE_SAMPLE_TASK_POLL_MS = 2000;
-const VOICE_SAMPLE_LOOKUP_TIMEOUT_MS = 10_000;
-
-async function lookupVoiceSampleTask(taskId: string, signal: AbortSignal): Promise<TaskItem | null> {
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  signal.addEventListener("abort", abort, { once: true });
-  const aborted = new Promise<null>((resolve) => {
-    controller.signal.addEventListener("abort", () => resolve(null), { once: true });
-  });
-  const deadline = setTimeout(abort, VOICE_SAMPLE_LOOKUP_TIMEOUT_MS);
-  try {
-    const task = await Promise.race([API.getTask(taskId, { signal: controller.signal }).catch(() => null), aborted]);
-    return controller.signal.aborted ? null : task;
-  } finally {
-    clearTimeout(deadline);
-    signal.removeEventListener("abort", abort);
-  }
-}
 
 interface VoiceOption {
   id: string;
@@ -82,57 +63,18 @@ export function VoiceSampleButton({
 
   const audioConfigured = useConfigStatusStore((s) => s.availableMediaTypes.includes("audio"));
 
-  const liveTask = useTasksStore((s) => (taskId ? selectRecentTasks(s).find((item) => item.task_id === taskId) : undefined));
-
-  const [settledTask, setSettledTask] = useState<TaskItem | null>(null);
-  useEffect(() => {
-    if (!open || taskId === null) return;
-    const controller = new AbortController();
-    const release = useTasksStore.getState().retainTask(projectName, taskId);
-    const captureTerminalTask = (tasks: TaskItem[]) => {
-      if (controller.signal.aborted) return;
-      const found = tasks.find((item) => item.task_id === taskId);
-      if (found && isTerminalStatus(found.status)) setSettledTask(found);
-    };
-    const unsubscribe = useTasksStore.subscribe((state) => captureTerminalTask(selectRecentTasks(state)));
-    void Promise.resolve().then(() => captureTerminalTask(selectRecentTasks(useTasksStore.getState())));
-    return () => {
-      controller.abort();
-      unsubscribe();
-      release();
-    };
-  }, [open, projectName, taskId]);
-  const task = settledTask?.task_id === taskId ? settledTask : liveTask;
+  const scope = useTasksStore((s) => s.refreshScope);
+  const task = useTasksStore((s) => taskId === null ? undefined : s.rowsById.get(taskId));
+  const missing = useTasksStore((s) => taskId !== null && s.tracked.get(taskId)?.status === "missing");
 
   useEffect(() => {
-    if (!open || taskId === null || task !== undefined) return;
-    const controller = new AbortController();
-    let pending = false;
-    const poll = async () => {
-      if (pending) return;
-      pending = true;
-      const current = await lookupVoiceSampleTask(taskId, controller.signal);
-      pending = false;
-      if (controller.signal.aborted) return;
-      if (current && isTerminalStatus(current.status)) {
-        clearInterval(timer);
-        setSettledTask(current);
-        useTasksStore.getState().settleVoiceSample(current);
-      }
-    };
-    const timer = setInterval(() => void poll(), VOICE_SAMPLE_TASK_POLL_MS);
-    void poll();
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
-  }, [open, taskId, task]);
+    if (!open || taskId === null || !scope || (scope.projectName !== null && scope.projectName !== projectName)) return;
+    return useTasksStore.getState().retainTask(projectName, taskId);
+  }, [open, projectName, scope, taskId]);
 
-  const generating =
-    localSubmitting ||
-    (taskId != null && (task == null || task.status === "queued" || task.status === "running"));
-  const failed = task?.status === "failed";
-  const succeeded = task?.status === "succeeded";
+  const generating = localSubmitting || (taskId !== null && !missing && (!task || !isTerminalStatus(task.status)));
+  const failed = !missing && task?.status === "failed";
+  const succeeded = !missing && task?.status === "succeeded";
   const previewFilePath =
     succeeded && task?.result && typeof task.result.file_path === "string" ? task.result.file_path : null;
   const previewUrl = previewFilePath ? API.getFileUrl(projectName, previewFilePath, taskId) : null;
@@ -168,7 +110,6 @@ export function VoiceSampleButton({
     setText(t("voice_sample_text_default"));
     setSelectedVoice("");
     setTaskId(null);
-    setSettledTask(null);
     setIsPreviewPlaying(false);
     setVoicesLoading(true);
     setOpen(true);
@@ -206,7 +147,6 @@ export function VoiceSampleButton({
     }
     setLocalSubmitting(true);
     setTaskId(null);
-    setSettledTask(null);
     setIsPreviewPlaying(false);
     try {
       const res = await enqueueCharacterVoiceSample(projectName, characterName, trimmed, voice);
@@ -299,9 +239,9 @@ export function VoiceSampleButton({
                   <p className="text-xs text-muted-foreground">{t("voice_sample_text_hint")}</p>
                 </div>
 
-                {failed && (
+                {(missing || failed) && (
                   <p role="alert" className="text-sm text-destructive">
-                    {task?.error_message ?? t("voice_sample_task_failed")}
+                    {missing ? t("voice_sample_task_missing") : task?.error_message ?? t("voice_sample_task_failed")}
                   </p>
                 )}
 
@@ -351,7 +291,7 @@ export function VoiceSampleButton({
               )}
               {generating
                 ? t("voice_sample_generating")
-                : succeeded || failed
+                : succeeded || failed || missing
                   ? t("voice_sample_regenerate")
                   : t("voice_sample_generate")}
             </Button>

@@ -2,18 +2,12 @@ import { seedTaskState } from "@/test/task-state";
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
-import { useAssetSheetBatchNotifications } from "@/hooks/useAssetSheetBatchNotifications";
-import { useTaskFailureNotifications } from "@/hooks/useTaskFailureNotifications";
+import { TaskFailureListener } from "@/components/layout/TaskFailureListener";
+import { defaultTaskStats, useTasksStore } from "@/stores/tasks-store";
 import { useAppStore } from "@/stores/app-store";
-import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
+import { suppressedAssetSheetTaskIds, useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
 import { makeTask } from "@/test/factories";
 import type { AssetSheetBatchMember } from "@/types";
-
-function Harness() {
-  useTaskFailureNotifications("demo");
-  useAssetSheetBatchNotifications("demo");
-  return null;
-}
 
 function member(overrides: Partial<AssetSheetBatchMember>): AssetSheetBatchMember {
   return {
@@ -37,11 +31,15 @@ const DERIVATIVE = {
   resource_id: "Alice/战损",
 } as const;
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  useTasksStore.getState().setRefreshScope(null);
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
   useAppStore.setState(useAppStore.getInitialState(), true);
-  useAssetSheetBatchStore.setState({ batches: {}, trackedTaskIds: new Set() });
+  useAssetSheetBatchStore.setState(useAssetSheetBatchStore.getInitialState(), true);
+  useTasksStore.getState().setRefreshScope({ projectName: "demo" });
   seedTaskState({ tasks: [], connected: true });
   useAssetSheetBatchStore.getState().track({
     batchId: "b1",
@@ -51,27 +49,64 @@ beforeEach(() => {
 });
 
 describe("useAssetSheetBatchNotifications", () => {
-  it("includes a member outside the paginated task list in the batch result", async () => {
-    seedTaskState({ tasks: [makeTask({ ...OWNER, status: "succeeded" })] });
-    vi.spyOn(API, "getTask").mockResolvedValue(
-      makeTask({ ...DERIVATIVE, status: "failed", error_code: "cascade_blocked_dependency" }),
-    );
+  it("restores an unfinished batch on return and reports evicted, failed and missing members once", async () => {
+    const owner = makeTask({ ...OWNER, status: "running" });
+    const derivative = makeTask({ ...DERIVATIVE, status: "queued" });
+    const third = member({ unit_id: "scene/庭院", asset_type: "scene", name: "庭院", task_id: "t3" });
+    const batch = useAssetSheetBatchStore.getState().batches.b1!;
+    useAssetSheetBatchStore.getState().track({ ...batch, members: [...batch.members, third] });
 
-    render(<Harness />);
+    const recent = vi.spyOn(API, "listTasks");
+    const history = Array.from({ length: 199 }, (_, index) => makeTask({
+      task_id: `history-${index}`, project_name: "demo", status: "succeeded",
+    }));
+    recent.mockResolvedValue({ items: [owner, derivative], total: 2, page: 1, page_size: 200 });
+    vi.spyOn(API, "getActiveTasks").mockResolvedValue({ items: [], truncated: false });
+    vi.spyOn(API, "getTaskStats").mockResolvedValue({ stats: defaultTaskStats });
+    const lookup = vi.spyOn(API, "lookupTasks").mockResolvedValue({ items: [], missing_ids: [] });
+    const { refreshTasks, setRefreshScope } = useTasksStore.getState();
+    const { rerender } = render(<TaskFailureListener projectName="demo" />);
+    await act(refreshTasks);
 
-    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
-    const [notification] = useAppStore.getState().workspaceNotifications;
-    expect(notification.tone).toBe("error");
-    expect(notification.text).toContain("1 张已生成，1 张失败");
-    expect(notification.target).toMatchObject({ type: "character", id: "Alice" });
+    act(() => setRefreshScope({ projectName: "other" }));
+    rerender(<TaskFailureListener projectName="other" />);
+    expect(useTasksStore.getState().tracked.has(owner.task_id)).toBe(false);
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
+
+    act(() => setRefreshScope({ projectName: "demo" }));
+    rerender(<TaskFailureListener projectName="demo" />);
+    await act(refreshTasks);
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
+
+    const finishedOwner = { ...owner, status: "failed" as const, error_message: "单张生成失败" };
+    recent.mockResolvedValue({ items: [finishedOwner, ...history], total: 202, page: 1, page_size: 200 });
+    lookup.mockResolvedValue({
+      items: [{ ...derivative, status: "succeeded" }],
+      missing_ids: ["t3"],
+    });
+    await act(refreshTasks);
+    await act(refreshTasks);
+
+    const notifications = useAppStore.getState().workspaceNotifications;
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      tone: "error",
+      target: { type: "character", id: "Alice" },
+    });
+    expect(notifications[0]?.text).toContain("1 张已生成，1 张失败，1 张结果不可用");
     expect(useAssetSheetBatchStore.getState().batches).toEqual({});
+    expect(useTasksStore.getState().tracked.size).toBe(0);
+    expect(suppressedAssetSheetTaskIds("demo")).toEqual(new Set([owner.task_id]));
+    recent.mockResolvedValue({ items: history, total: 199, page: 1, page_size: 200 });
+    await act(refreshTasks);
+    expect(suppressedAssetSheetTaskIds("demo").size).toBe(0);
   });
 
   it("sums up a failed batch in one locatable notification instead of one per task", async () => {
     seedTaskState({
       tasks: [makeTask({ ...OWNER, status: "running" }), makeTask({ ...DERIVATIVE, status: "queued" })],
     });
-    render(<Harness />);
+    render(<TaskFailureListener projectName="demo" />);
 
     act(() => {
       seedTaskState({
@@ -95,7 +130,7 @@ describe("useAssetSheetBatchNotifications", () => {
     seedTaskState({
       tasks: [makeTask({ ...OWNER, status: "succeeded" }), makeTask({ ...DERIVATIVE, status: "running" })],
     });
-    render(<Harness />);
+    render(<TaskFailureListener projectName="demo" />);
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
 
     act(() => {
@@ -115,7 +150,7 @@ describe("useAssetSheetBatchNotifications", () => {
     seedTaskState({
       tasks: [makeTask({ ...OWNER, status: "running" }), makeTask({ ...DERIVATIVE, status: "running" })],
     });
-    render(<Harness />);
+    render(<TaskFailureListener projectName="demo" />);
 
     act(() => {
       seedTaskState({
@@ -134,7 +169,7 @@ describe("useAssetSheetBatchNotifications", () => {
   });
 
   it.each([true, false])("reports submission failures alongside queued members: queued=%s", async (queued) => {
-    useAssetSheetBatchStore.setState({ batches: {}, trackedTaskIds: new Set() });
+    useAssetSheetBatchStore.setState(useAssetSheetBatchStore.getInitialState(), true);
     useAssetSheetBatchStore.getState().track({
       batchId: "submission-failed",
       projectName: "demo",
@@ -144,7 +179,7 @@ describe("useAssetSheetBatchNotifications", () => {
       ],
     });
     if (queued) seedTaskState({ tasks: [makeTask({ ...OWNER, status: "running" })] });
-    render(<Harness />);
+    render(<TaskFailureListener projectName="demo" />);
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(queued ? 0 : 1);
     if (queued) {
       act(() => seedTaskState({ tasks: [makeTask({ ...OWNER, status: "succeeded" })] }));

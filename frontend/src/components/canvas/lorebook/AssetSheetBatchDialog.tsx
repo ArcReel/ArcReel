@@ -14,7 +14,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAppStore } from "@/stores/app-store";
-import { useAssetSheetBatchStore } from "@/stores/asset-sheet-batch-store";
 import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import type { AssetSheetBatchPreview, AssetSheetBatchScope, AssetSheetRef, AssetSheetType } from "@/types";
@@ -72,11 +71,7 @@ export function AssetSheetBatchDialog({
   const handleConfirm = async () => {
     setSubmitting(true);
     try {
-      const submitted = await enqueueAssetSheetBatch(projectName, scope);
-      const members = submitted.members.filter((member) => member.status !== "blocked");
-      if (members.length > 0) {
-        useAssetSheetBatchStore.getState().track({ batchId: submitted.batch_id, projectName, members });
-      }
+      await enqueueAssetSheetBatch(projectName, scope);
       onClose();
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
