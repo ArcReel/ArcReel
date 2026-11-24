@@ -350,7 +350,7 @@ def migrate_v6_to_v7(project_dir: Path, *, record: list[MigrationAdjustment] | N
     换过编号的记录在对应剧本写盘后立即追加进 ``record``：之后一步失败时，已转换的剧本重跑时发现
     不了换号，要靠未完成的报告带到重试。
     """
-    project_dir = Path(project_dir)
+    project_dir = Path(project_dir).resolve()
     project_file = project_dir / "project.json"
     if not project_file.is_file():
         return

@@ -138,6 +138,7 @@ def _write_enveloped_archive(project_dir: Path, archive_path: Path) -> None:
         *(pytest.param(shape, False, id=shape) for shape in LEGACY_PROJECT_SHAPES),
         pytest.param("crossed-script-bindings", True, id="crossed-script-bindings-root-alias"),
         pytest.param("shared-item-id", True, id="shared-item-id-root-alias"),
+        pytest.param("ad-duplicate-ids", True, id="ad-duplicate-ids-root-alias"),
     ],
 )
 @pytest.mark.parametrize("entry_point", ["in_place", "archive_import"])
@@ -151,6 +152,8 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
     if shape == "shared-item-id":
         for index, field in cleared:
             assert expected.pop(f"episodes[2].segments[{index}].generated_assets.{field}") is not None
+    if shape == "ad-duplicate-ids":
+        assert expected.pop("episodes[1].video_units[1].generated_assets.video_clip") is not None
     if shape == "missing-original-occupied-target":
         location = "characters[Bob].reference_image"
         assert expected[location] is None
@@ -175,11 +178,20 @@ def test_legacy_media_fields_preserve_readable_bytes_and_unreadable_state(
         _write_enveloped_archive(project_dir, archive_path)
         target = ProjectManager(tmp_path / "imported")
         service = ProjectArchiveService(target)
-        if shape == "missing-character-original":
+        if shape in {"missing-character-original", "dangling-alias-reference"}:
+            if shape == "missing-character-original":
+                key, field, reference = (
+                    "val_path_missing",
+                    "characters[张三].reference_image",
+                    "characters/refs/张三.png",
+                )
+            else:
+                key, field = "val_path_traversal", "characters[Bob].reference_image"
+                reference = _read_json(project_dir / "project.json")["characters"]["Bob"]["reference_image"]
             with pytest.raises(ProjectArchiveValidationError) as rejected:
                 service.import_project_archive(archive_path, confirm_report=True)
             assert [(error.key, error.params) for error in rejected.value.errors] == [
-                ("val_path_missing", {"field": "characters[张三].reference_image", "path": "characters/refs/张三.png"})
+                (key, {"field": field, "path": reference})
             ]
             return
         try:

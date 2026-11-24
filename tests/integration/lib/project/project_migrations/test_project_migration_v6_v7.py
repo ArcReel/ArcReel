@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.infra.path_safety import PathTraversalError
 from lib.project.project_migration_report import MigrationAdjustment
 from lib.project.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
 from lib.script.reference_video.text_parser import extract_mentions
@@ -335,6 +336,25 @@ def test_a_duplicate_legacy_unit_id_is_renumbered_and_its_media_stays_with_the_f
     assert [(item.code, item.episode, item.params) for item in adjustments] == [
         ("item_id_reassigned", 1, {"from": "E1U1", "to": "E1U2"})
     ]
+
+
+def test_parent_alias_does_not_allow_an_outside_script(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    alias = tmp_path / "alias"
+    alias.symlink_to(project_dir.parent, target_is_directory=True)
+    outside = tmp_path / "outside.json"
+    _write_json(outside, _script(units=[]))
+    original = outside.read_bytes()
+    project_file = project_dir / "project.json"
+    project = _read_json(project_file)
+    project["episodes"][0]["script_file"] = "../outside.json"
+    _write_json(project_file, project)
+
+    with pytest.raises(PathTraversalError):
+        migrate_v6_to_v7(alias / project_dir.name)
+
+    assert _read_json(project_file)["schema_version"] == 6
+    assert outside.read_bytes() == original
 
 
 def test_a_duplicate_shot_id_keeps_the_later_shot_in_a_unit_of_its_own(tmp_path: Path) -> None:
