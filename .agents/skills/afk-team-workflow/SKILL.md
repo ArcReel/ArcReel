@@ -31,7 +31,7 @@ disable-model-invocation: true
 
 ## 2. 执行 task graph
 
-用当前环境的原生团队能力委派。任务消息附对应角色契约的绝对路径、契约列出的全部输入和必要背景，文件与 worktree 一律用绝对路径。换人前先确认前任已停止。
+用当前环境的原生团队能力委派。任务消息附对应角色契约的绝对路径、契约列出的全部输入和必要背景，文件与 worktree 一律用绝对路径；角色复用与 worktree 创建以本流程和各角色契约为准。改派或接力前先确认原 agent 已停止。
 
 各 stage 严格串行，前一个合并后下一个才从最新 `origin/main` 开始。每个 stage 依次经过集成、集成审查、PR 三个阶段，远端 stage branch 在每个阶段只有一个写者：
 
@@ -52,7 +52,7 @@ stage branch 的历史形状固定为：每个 issue 一个 commit，其后至�
 
 ### 集成审查
 
-全部 issues 集成后，由 stage-reviewer 按 [stage-reviewer.md](references/stage-reviewer.md) 审查整个 stage diff 并交付 **green HEAD**。
+全部 issues 集成后，由 stage-reviewer 按 [stage-reviewer.md](references/stage-reviewer.md) 审查整个 stage diff 并交付 **green HEAD**；委派消息中明确授权其按 `code-review` 启动双轴并行子代理。
 
 ### PR
 
