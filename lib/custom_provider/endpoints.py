@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol
@@ -133,6 +133,14 @@ class ProviderConnection(Protocol):
     def base_url(self) -> str: ...
     @property
     def api_key(self) -> str: ...
+
+
+@dataclass(frozen=True)
+class ProviderConnectionSnapshot:
+    id: int | None
+    provider_id: str
+    base_url: str
+    api_key: str = field(repr=False)
 
 
 class BackendBuilder(Protocol):

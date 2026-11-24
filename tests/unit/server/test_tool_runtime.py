@@ -87,10 +87,7 @@ class _Planner:
 
 
 class _Capabilities:
-    async def video_capabilities_for_project(self, project: dict, *, generation_type=None) -> dict:
-        assert project["generation_mode"] == "storyboard"
-        assert generation_type is None
-        return {"provider_id": "fake", "model": "video-1", "supported_durations": [4, 6]}
+    pass
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -173,7 +170,7 @@ async def test_video_capabilities_returns_typed_domain_outcome(monkeypatch: pyte
             "excluded": {},
         },
     }
-    monkeypatch.setattr(tool_runtime, "resolve_project_video_capabilities", AsyncMock(return_value=dict(expected)))
+    monkeypatch.setattr(tool_runtime, "resolve_agent_video_capabilities", AsyncMock(return_value=dict(expected)))
     project = {"generation_mode": "storyboard", "content_mode": "drama"}
     projects = _Projects(project)
     outcome = await get_video_capabilities(
@@ -195,7 +192,7 @@ async def test_video_capabilities_model_not_in_catalog_guides_reselect(monkeypat
 
     monkeypatch.setattr(
         tool_runtime,
-        "resolve_project_video_capabilities",
+        "resolve_agent_video_capabilities",
         AsyncMock(side_effect=ModelNotInCatalogError(provider_id="ark", model_id="old-video", media_type="video")),
     )
 

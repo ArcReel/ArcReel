@@ -25,6 +25,13 @@ def build_legacy_video(
     return build_builtin_video(config, model, provider_id, registry, definition)
 
 
+def builtin_declarative_credentials(config: LoadedConfig) -> tuple[str, str]:
+    credentials = config.credentials
+    default_base_url = config.provider_meta.default_base_url if config.provider_meta else None
+    base_url = credentials.get("base_url") or default_base_url or MINIMAX_BASE_URL
+    return base_url, resolve_minimax_api_key(credentials.get("api_key"))
+
+
 def build_builtin_video(
     config: LoadedConfig, model: str | None, provider_id: str, registry: str, definition: Mapping[str, Any] | None
 ) -> VideoBackend:
@@ -36,9 +43,10 @@ def build_builtin_video(
     default_base_url = config.provider_meta.default_base_url if config.provider_meta else None
     base_url = credentials.get("base_url") or default_base_url
     if definition is not None:
+        decl_base_url, decl_api_key = builtin_declarative_credentials(config)
         return DeclarativeVideoBackend(
-            api_key=resolve_minimax_api_key(api_key),
-            base_url=base_url or MINIMAX_BASE_URL,
+            api_key=decl_api_key,
+            base_url=decl_base_url,
             model=model or "MiniMax-H3",
             definition=definition,
             provider=provider_id,
@@ -77,7 +85,7 @@ def build_builtin_video(
     return video_backends.create_backend(registry, **kwargs)
 
 
-def _declarative_definition(spec: ProviderSpec) -> Mapping[str, Any] | None:
+def declarative_definition(spec: ProviderSpec) -> Mapping[str, Any] | None:
     """经随版声明式定义调用的端点的定义；Python backend 实现的端点为 ``None``。"""
     if spec.registry_backend != "declarative":
         return None
@@ -101,7 +109,7 @@ def builtin_video_metered_usage(
     if spec.registry_backend == "declarative":
         from lib.custom_provider.declarative_backend import declarative_video_usage
 
-        definition = _declarative_definition(spec)
+        definition = declarative_definition(spec)
         if definition is None:
             raise ValueError(f"builtin declarative definition missing for {provider_id}/{model_id}")
         return declarative_video_usage(definition, request, result)

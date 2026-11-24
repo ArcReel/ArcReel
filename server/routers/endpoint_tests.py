@@ -38,7 +38,6 @@ from arcreel_market_core.endpoint_definition import AssetData, DefinitionDiagnos
 from arcreel_market_core.video_backend_contract import VideoCapabilityError
 from lib.backends.backend_assembly import assemble_backend
 from lib.backends.image_errors import ImageCapabilityError
-from lib.backends.minimax_shared import MINIMAX_BASE_URL, resolve_minimax_api_key
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta
@@ -78,6 +77,7 @@ from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
 from lib.video_runtime.assembly import VideoAssemblySpec, assemble_video
+from lib.video_runtime.builtin import builtin_declarative_credentials
 from lib.video_runtime.resolution import builtin_video_spec, custom_video_spec
 from server.i18n import DisplayNamesCatalog, Translator
 
@@ -547,10 +547,8 @@ async def _model_ref_target(
         credentials = None
         if builtin.definition is not None:
             definition = _accepted_definition(dict(builtin.definition), _t, mode=EndpointTestMode.TRIAL_RUN)
-            credentials = EndpointTestCredentials(
-                base_url=config.get("base_url") or MINIMAX_BASE_URL,
-                api_key=resolve_minimax_api_key(config.get("api_key")),
-            )
+            decl_base_url, decl_api_key = builtin_declarative_credentials(builtin.config)
+            credentials = EndpointTestCredentials(base_url=decl_base_url, api_key=decl_api_key)
         return video_target(builtin, definition, builtin.entry), credentials, definition, NO_PATH_OVERRIDES
     provider = await _custom_provider(model_ref.provider_id, session)
     model = await CustomProviderRepository(session).get_model_by_ids(provider.id, model_ref.model_id)
@@ -575,9 +573,9 @@ async def _model_ref_target(
         definition = _accepted_definition(dict(endpoint_spec.definition), _t, mode=EndpointTestMode.TRIAL_RUN)
     credentials = EndpointTestCredentials(base_url=provider.base_url, api_key=provider.api_key)
     if endpoint_spec.media_type == "video":
-        entry = model_entry(model.model_id, "video", model.entry_binding)
+        entry = None if endpoint_spec.kind == "comfyui" else model_entry(model.model_id, "video", model.entry_binding)
         spec = custom_video_spec(provider, model, endpoint_spec, entry)
-        return video_target(spec, definition, entry), credentials, definition, spec.paths
+        return video_target(spec, definition, spec.entry), credentials, definition, spec.paths
 
     async def build_image():
         return await assemble_backend(

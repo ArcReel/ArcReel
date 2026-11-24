@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -431,13 +432,8 @@ class TestVideoLane:
             facts = ctx.video.request_facts
             assert isinstance(facts, VideoRequestFacts)
             assert facts.has_audio_track is has_audio
-            from lib.generation.video_request_facts import project_video_capabilities
             from server.services.tasks.video_caps import resolve_project_video_capabilities
 
-            assert ctx.generator._video_snapshot is not None
-            caps = project_video_capabilities(
-                ctx.generator._video_snapshot, project, generation_type="i2v", requested_audio=True
-            )
             current_caps = await resolve_project_video_capabilities(
                 project, generation_type="i2v", config_resolver=ConfigResolver(patched_session_factory)
             )
@@ -448,8 +444,7 @@ class TestVideoLane:
         assert backends[0].video_capabilities.audio_track.value == ("controllable" if has_audio else "always_off")
         assert facts.audio_switch_controllable is has_audio
         assert facts.generate_audio is has_audio
-        assert caps["generate_audio"] is has_audio
-        assert facts.voice_consistency == caps["voice_consistency"] == ("soft" if has_audio else "none")
+        assert facts.voice_consistency == ("soft" if has_audio else "none")
         assert current_caps["generate_audio"] is not has_audio
 
     async def test_submitted_job_requires_a_pinned_identity(self, patched_session_factory, project_env, fake_assemble):
@@ -901,15 +896,24 @@ class TestBackendCache:
             ).video
 
         stale = asyncio.create_task(execute())
-        await entered.wait()
-        async with patched_session_factory() as session:
-            await ConfigService(session).set_provider_config(provider, "api_key", "new")
-            await session.commit()
-        generation_context.invalidate_backend_cache()
+        entered_task = asyncio.create_task(entered.wait())
         try:
+            done, _ = await asyncio.wait({entered_task, stale}, return_when=asyncio.FIRST_COMPLETED)
+            if stale in done:
+                stale.result()
+                raise AssertionError("stale request finished before reading the config")
+            async with patched_session_factory() as session:
+                await ConfigService(session).set_provider_config(provider, "api_key", "new")
+                await session.commit()
+            generation_context.invalidate_backend_cache()
             first, second = await asyncio.gather(execute(), execute())
         finally:
             release.set()
+            entered_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await entered_task
+            if not stale.done():
+                await asyncio.gather(stale, return_exceptions=True)
         old = await stale
         assert first.backend_name == second.backend_name == "new"
         assert old.backend_name != "new"

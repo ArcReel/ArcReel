@@ -13,13 +13,13 @@ from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.video_backends.name_family import EntryBoundCapabilities
 from lib.capabilities.kernel import CapabilitySnapshot
 from lib.custom_provider.backends import CustomVideoBackend
-from lib.custom_provider.endpoints import BackendBuilder
+from lib.custom_provider.endpoints import BackendBuilder, ProviderConnectionSnapshot
 from lib.custom_provider.path_overrides import PathOverrides
 from lib.video_runtime.builtin import build_builtin_video
 
 
 @dataclass(frozen=True)
-class _BuiltinVideoSpec:
+class BuiltinVideoSpec:
     snapshot: CapabilitySnapshot
     endpoint: str
     registry_backend: str
@@ -29,30 +29,22 @@ class _BuiltinVideoSpec:
 
 
 @dataclass(frozen=True)
-class _Connection:
-    id: int
-    provider_id: str
-    base_url: str
-    api_key: str = field(repr=False)
-
-
-@dataclass(frozen=True)
-class _CustomVideoSpec:
+class CustomVideoSpec:
     snapshot: CapabilitySnapshot
     endpoint: str
     definition: Mapping[str, Any] | None
     build_backend: BackendBuilder = field(compare=False, repr=False)
-    connection: _Connection
+    connection: ProviderConnectionSnapshot
     paths: PathOverrides
     entry: CatalogEntry | None
 
 
-type VideoAssemblySpec = _BuiltinVideoSpec | _CustomVideoSpec
+type VideoAssemblySpec = BuiltinVideoSpec | CustomVideoSpec
 
 
 def _build_video(spec: VideoAssemblySpec) -> VideoBackend:
     model = spec.snapshot.model_id
-    if isinstance(spec, _CustomVideoSpec):
+    if isinstance(spec, CustomVideoSpec):
         backend = spec.build_backend(spec.connection, model, spec.paths)
         if not isinstance(backend, CustomVideoBackend):
             raise ValueError(f"expected video endpoint: {spec.endpoint}")

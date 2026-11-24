@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsFailure,
     audio_switch_conflict,
-    project_video_capabilities,
+    project_video_capabilities_with_facts,
 )
 from lib.project.project_manager import ProjectManager
 from lib.script.reference_video.request_projection import (
@@ -58,17 +58,17 @@ async def storyboard_request_facts(
     )
 
 
-async def resolve_project_video_capabilities(
+async def resolve_project_video_capabilities_and_facts(
     project: dict | None,
     *,
     generation_type: VideoGenerationType,
     config_resolver: ConfigResolver,
     resolution_override: ResolutionOverride | None = None,
     include_planning: bool = False,
-) -> dict[str, Any]:
-    """单次解析视频能力快照并同步投影项目级能力、时长档位与尾帧档位。"""
+) -> tuple[dict[str, Any], VideoRequestFacts]:
+    """单次解析视频能力快照并同步投影项目级能力、时长档位、尾帧档位与主桶事实。"""
     read = await VideoRuntime(config_resolver).read_bucket(project, generation_type)
-    return project_video_capabilities(
+    return project_video_capabilities_with_facts(
         read.snapshot,
         project,
         generation_type=generation_type,
@@ -78,11 +78,63 @@ async def resolve_project_video_capabilities(
     )
 
 
+async def resolve_project_video_capabilities(
+    project: dict | None,
+    *,
+    generation_type: VideoGenerationType,
+    config_resolver: ConfigResolver,
+    resolution_override: ResolutionOverride | None = None,
+    include_planning: bool = False,
+) -> dict[str, Any]:
+    """单次解析视频能力快照并同步投影项目级能力、时长档位与尾帧档位。"""
+    payload, _ = await resolve_project_video_capabilities_and_facts(
+        project,
+        generation_type=generation_type,
+        config_resolver=config_resolver,
+        resolution_override=resolution_override,
+        include_planning=include_planning,
+    )
+    return payload
+
+
+async def resolve_agent_video_capabilities(
+    project: dict,
+    *,
+    config_resolver: ConfigResolver,
+    projects: ProjectManager,
+    project_name: str,
+) -> dict[str, Any]:
+    """在单次设置快照会话内投影项目视频能力并标注参考生视频分桶档位，复用已解析主桶事实。"""
+    generation_type = video_bucket_for_generation_mode(caps_generation_mode(project))
+    async with config_resolver.session(snapshot_settings=True) as resolver:
+        payload, facts = await resolve_project_video_capabilities_and_facts(
+            project,
+            generation_type=generation_type,
+            config_resolver=resolver,
+        )
+        await annotate_reference_unit_tiers(
+            payload,
+            project,
+            config_resolver=resolver,
+            projects=projects,
+            project_name=project_name,
+            initial_facts={generation_type: facts},
+        )
+    return payload
+
+
 def reference_request_facts_lookup(
-    project: dict, config_resolver: ConfigResolver | None = None
+    project: dict,
+    config_resolver: ConfigResolver | None = None,
+    *,
+    initial_facts: Mapping[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure] | None = None,
 ) -> ReferenceRequestFactsLookup:
     """读侧按桶的视频请求事实查找；同一次请求内共用一份，每个桶至多求值一次。"""
-    return configured_reference_request_facts(project, config_resolver or ConfigResolver(async_session_factory))
+    return configured_reference_request_facts(
+        project,
+        config_resolver or ConfigResolver(async_session_factory),
+        initial_facts=initial_facts,
+    )
 
 
 async def reference_unit_capabilities(
@@ -138,6 +190,7 @@ async def annotate_reference_unit_tiers(
     config_resolver: ConfigResolver | None,
     projects: ProjectManager,
     project_name: str,
+    initial_facts: Mapping[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure] | None = None,
 ) -> None:
     """Add effective duration tiers only for episode reference-video units.
 
@@ -152,13 +205,15 @@ async def annotate_reference_unit_tiers(
     durations = [int(d) for d in payload.get("supported_durations") or []]
     if not durations and not payload.get("duration_endpoint_fixed"):
         return
-    request_facts = reference_request_facts_lookup(project, config_resolver)
+    request_facts = reference_request_facts_lookup(project, config_resolver, initial_facts=initial_facts)
     with_ref_facts = await request_facts("r2v")
     without_ref_facts = await request_facts("i2v")
-    units = await asyncio.to_thread(reference_script_units, projects, project_name, project)
+    project_path, units = await asyncio.to_thread(
+        lambda: (projects.get_project_path(project_name), reference_script_units(projects, project_name, project))
+    )
     unit_capabilities = await reference_unit_capabilities(
         project,
-        projects.get_project_path(project_name),
+        project_path,
         units,
         request_facts=request_facts,
     )
