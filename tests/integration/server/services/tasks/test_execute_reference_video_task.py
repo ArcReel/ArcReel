@@ -130,7 +130,6 @@ def _wire_context(
             backend_model=backend_model,
             resolution=resolution,
             request_facts=request_facts,
-            requested_generate_audio_fallback=requested_generate_audio,
         )
 
     async def _fake_resolve(*_args, **kwargs):
@@ -1629,8 +1628,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
             yield _Call()
 
-    real_gen = object.__new__(MediaGenerator)
-    real_gen.project_path = proj_dir
+    real_gen = MediaGenerator(proj_dir)
     real_gen.project_name = "demo"
     real_gen._rate_limiter = None
     real_gen._image_backend = None

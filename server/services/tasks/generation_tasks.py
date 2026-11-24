@@ -1015,6 +1015,7 @@ async def execute_video_task(
         raise ValueError("current script unit is missing video_prompt")
     requested_visual_prompt = copy.deepcopy(prompt)
     execution_payload = without_video_execution_identity(payload) if task_id is not None else payload
+    service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
     ctx = await resolve_generation_context(
         project_name,
         execution_payload,
@@ -1024,6 +1025,7 @@ async def execute_video_task(
             generation_type=video_bucket_for_generation_mode(project.get("generation_mode")),
             route="storyboard",
             uses_end_frame=bool(item.get("end_frame_image")),
+            service_tier=service_tier,
         ),
     )
     generator = ctx.generator
@@ -1091,7 +1093,6 @@ async def execute_video_task(
         if content_mode == "drama"
         else None,
     )
-    service_tier = payload.get("video_provider_settings", {}).get("service_tier", "default")
 
     duration_seconds = (
         item.get("duration_seconds")

@@ -157,8 +157,7 @@ class _FakeLedger:
 
 
 def _build_generator(tmp_path: Path) -> MediaGenerator:
-    gen = object.__new__(MediaGenerator)
-    gen.project_path = tmp_path / "projects" / "demo"
+    gen = MediaGenerator(tmp_path / "projects" / "demo")
     gen.project_path.mkdir(parents=True, exist_ok=True)
     write_generation_targets(gen.project_path, segments=("E1S01",), video_units=("E1U1",))
     gen.project_name = "demo"

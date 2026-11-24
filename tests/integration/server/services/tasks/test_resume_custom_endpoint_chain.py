@@ -591,7 +591,7 @@ async def _seed_relay_model(session_factory, *, endpoint: str, model_id: str) ->
         return make_provider_id(provider.id)
 
 
-async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_project: Path, session_factory):
+async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_project: Path, session_factory, monkeypatch):
     """升级前经 ``ark-seedance`` 提交的任务：模型行已回填为协议等价的 ``ark-seedance-2``，续跑照常取回结果、不重新提交。"""
     provider_id = await _seed_relay_model(session_factory, endpoint="ark-seedance-2", model_id=SEEDANCE_MODEL)
     await _seed_running_video_task(
@@ -605,6 +605,16 @@ async def test_seedance_job_submitted_before_endpoint_split_resumes(chain_projec
             model_id=SEEDANCE_MODEL,
         ),
     )
+
+    def unexpected_preference(*args, **kwargs):
+        raise AssertionError("resume must only consume the submitted checkpoint")
+
+    project_file = chain_project / "project.json"
+    project = json.loads(project_file.read_text())
+    project_file.write_text(json.dumps({**project, "video_generate_audio": False, "default_duration": 17}))
+    monkeypatch.setattr(generation_context, "snapshot_video_request_facts", unexpected_preference)
+    for method in ("resolve_resolution", "video_generate_audio", "video_generate_audio_for_project"):
+        monkeypatch.setattr(f"lib.config.resolver.ConfigResolver.{method}", unexpected_preference)
 
     with capture_http() as router:
         submit = router.post("https://ark-relay.test/api/v3/contents/generations/tasks")

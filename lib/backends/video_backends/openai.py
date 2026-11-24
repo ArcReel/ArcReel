@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from types import EllipsisType
 
 from openai import AsyncOpenAI
 
@@ -88,7 +89,9 @@ def _video_error_message(video: object) -> str:
     return "unknown"
 
 
-def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entry: CatalogEntry | None = None) -> str:
+def _resolve_size(
+    model: str, resolution: str | None, aspect_ratio: str, *, entry: CatalogEntry | EllipsisType | None
+) -> str:
     """按条目上的分辨率与端点合法尺寸吸附，比例优先；未收录时只受端点约束。"""
     aw, ah = parse_aspect_ratio(aspect_ratio)
     target = aw / ah
@@ -96,7 +99,9 @@ def _resolve_size(model: str, resolution: str | None, aspect_ratio: str, *, entr
     from lib.backends.video_capabilities import entry_video_facts
     from lib.catalog import query as catalog
 
-    facts = entry_video_facts(entry or catalog.find_entry(model, media_type="video"))
+    facts = entry_video_facts(
+        catalog.find_entry(model, media_type="video") if isinstance(entry, EllipsisType) else entry
+    )
     ceiling = max(
         (resolution_to_short_edge(r, tier_map=VIDEO_TIER_SHORT_EDGE) for r in facts.resolutions), default=1080
     )
@@ -167,6 +172,10 @@ class OpenAIVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, Prov
         return self.video_capabilities_for_model(self._model, self._catalog_entry)
 
     @property
+    def catalog_entry(self) -> CatalogEntry | None:
+        return self._request_entry(self._model)
+
+    @property
     def _request_base_url(self) -> str:
         """本实例请求实际发往的域名，取自 SDK client 的公开属性（SDK 会补尾斜杠，此处去掉）。"""
         return str(self._client.base_url).rstrip("/")
@@ -189,7 +198,7 @@ class OpenAIVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, Prov
         request: VideoGenerationRequest,
         result: VideoGenerationResult | None = None,
         *,
-        entry: CatalogEntry | None = None,
+        entry: CatalogEntry | EllipsisType | None = ...,
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
@@ -240,7 +249,7 @@ class OpenAIVideoBackend(VideoEndpointCapabilities, EntryBoundCapabilities, Prov
             self._model,
             request.resolution,
             request.aspect_ratio,
-            entry=self._catalog_entry,
+            entry=self.catalog_entry,
         )
 
         refs = await asyncio.to_thread(_encode_input_references, request, self._model)

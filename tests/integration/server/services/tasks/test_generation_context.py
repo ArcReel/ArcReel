@@ -16,9 +16,8 @@ from typing import cast
 
 import pytest
 from PIL import Image
-from sqlalchemy import update
 
-from arcreel_market_core.video_backend_contract import VideoCapabilities
+from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model, get_provider_spec
@@ -54,6 +53,7 @@ from server.services.tasks.generation_context import (
     GenerationContext,
     ImageLaneRequest,
     ImageLaneResult,
+    SubmittedVideoLaneRequest,
     VideoLaneRequest,
     VideoLaneResult,
     resolve_generation_context,
@@ -62,6 +62,19 @@ from tests.catalog_support import install_catalog, set_catalog_today, with_entry
 from tests.factories import make_video_request_facts
 from tests.fakes import bind_session_factory, use_backend_assembler, use_project_manager
 from tests.http_capture import capture_http, only_request, request_form_fields, request_json
+
+
+def use_video_assembler(monkeypatch, assemble):
+    async def assemble_spec(spec):
+        return await assemble(
+            provider_id=spec.snapshot.provider_id,
+            model_id=spec.snapshot.model_id,
+            media_type="video",
+            builtin_endpoint=spec.endpoint,
+            resolver=None,
+        )
+
+    monkeypatch.setattr(generation_context, "assemble_video", assemble_spec)
 
 
 def _registry_video_model(provider_id: str) -> str:
@@ -135,6 +148,7 @@ def fake_assemble(monkeypatch):
         return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
     use_backend_assembler(monkeypatch, _assemble)
+    use_video_assembler(monkeypatch, _assemble)
     return calls
 
 
@@ -302,30 +316,15 @@ class TestVideoLane:
         assert isinstance(ctx.video.request_facts, VideoRequestFacts)
         assert ctx.video.request_facts.resolution == "480p"
 
-    async def test_lane_without_a_route_evaluates_no_capabilities(
-        self, patched_session_factory, project_env, monkeypatch
+    async def test_lane_without_a_route_returns_only_the_resolved_identity(
+        self, patched_session_factory, project_env, fake_assemble
     ):
-        """续跑这类不声明路线的 lane 只交付身份：registry 之外的 model 也照常构造，不求值能力。"""
-
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            return _FakeBackend(name=provider_id, model="mystery-model")
-
-        use_backend_assembler(monkeypatch, _assemble)
         video_model = _registry_video_model("ark")
         ctx = await resolve_generation_context(
             "demo", None, project={"video_backend": f"ark/{video_model}"}, video=VideoLaneRequest()
         )
-        assert ctx.video.backend_model == "mystery-model"
+        assert ctx.video.backend_model == video_model
+        assert ctx.video.resolution is None
         assert ctx.video.request_facts is None
 
     async def test_requested_generate_audio_follows_project_override(
@@ -337,39 +336,10 @@ class TestVideoLane:
             "demo",
             None,
             project={"video_backend": f"ark/{video_model}", "video_generate_audio": False},
-            video=VideoLaneRequest(),
-        )
-        assert ctx.video.requested_generate_audio is False
-
-    async def test_capability_failure_does_not_supply_audio_fallback(
-        self, patched_session_factory, project_env, monkeypatch
-    ):
-        """声明路线的事实失败由执行器阻断，音频开关没有独立降级值。"""
-
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            return _FakeBackend(name=provider_id, model="mystery-model")
-
-        use_backend_assembler(monkeypatch, _assemble)
-        video_model = _registry_video_model("ark")
-        ctx = await resolve_generation_context(
-            "demo",
-            None,
-            project={"video_backend": f"ark/{video_model}", "video_generate_audio": False},
             video=VideoLaneRequest(route="storyboard"),
         )
-        assert isinstance(ctx.video.request_facts, VideoRequestFactsFailure)
-        with pytest.raises(VideoRequestFactsError):
-            _ = ctx.video.requested_generate_audio
+        assert isinstance(ctx.video.request_facts, VideoRequestFacts)
+        assert ctx.video.request_facts.requested_generate_audio is False
 
     async def test_payload_overrides_project(self, patched_session_factory, project_env, fake_assemble):
         """payload > project：显式的请求身份（如 checkpoint 回放）决定实际解析身份。"""
@@ -410,7 +380,7 @@ class TestVideoLane:
             )
             return _FakeBackend(name=provider_id, model=model_id)
 
-        use_backend_assembler(monkeypatch, _assemble)
+        use_video_assembler(monkeypatch, _assemble)
         try:
             ctx = await resolve_generation_context(
                 "demo", None, project={"video_backend": f"ark/{model_id}"}, video=VideoLaneRequest()
@@ -453,7 +423,7 @@ class TestVideoLane:
             install_endpoint(changed_endpoint)
             return backend
 
-        use_backend_assembler(monkeypatch, _assemble)
+        use_video_assembler(monkeypatch, _assemble)
         project = {"video_backend": f"kling/{model_id}", "video_generate_audio": True}
         try:
             ctx = await resolve_generation_context(
@@ -482,37 +452,19 @@ class TestVideoLane:
     async def test_submitted_job_requires_a_pinned_identity(self, patched_session_factory, project_env, fake_assemble):
         """续跑的下线豁免只给提交时锁定的身份：没有锁定身份时不按当前配置解析，直接报错，也不构造 backend。"""
         ark_model = _registry_video_model("ark")
-        with pytest.raises(ValueError, match="锁定提交时的执行身份"):
+        with pytest.raises(ValueError, match="locked video provider and model"):
             await resolve_generation_context(
                 "demo",
                 None,
                 project={"video_provider_i2v": f"ark/{ark_model}"},
-                video=VideoLaneRequest(generation_type="i2v", submitted_job=True),
+                video=SubmittedVideoLaneRequest(ProviderModel("ark", ""), None, "job"),
             )
         assert fake_assemble == []
 
 
 class TestActualIdentityQueries:
-    async def test_custom_model_fallback_queries_by_actual_model(
-        self, patched_session_factory, project_env, monkeypatch
-    ):
-        """未声明路线的不定桶 lane 按默认启用模型解析分辨率。"""
+    async def test_unbucketed_custom_model_falls_back_to_enabled_default(self, patched_session_factory, project_env):
         provider_id = await _seed_custom_video_provider(patched_session_factory)
-
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            return _FakeBackend(name=provider_id, model="m-live")
-
-        use_backend_assembler(monkeypatch, _assemble)
         ctx = await resolve_generation_context(
             "demo",
             None,
@@ -522,7 +474,7 @@ class TestActualIdentityQueries:
 
         assert ctx.video.provider_model == ProviderModel(provider_id, "m-live")
         assert ctx.video.backend_model == "m-live"
-        assert ctx.video.resolution == "540p"
+        assert ctx.video.resolution is None
         assert ctx.video.request_facts is None
 
 
@@ -560,24 +512,10 @@ class TestVideoRequestFacts:
 
     @pytest.mark.parametrize("route", ["storyboard", "reference_video"])
     async def test_unreadable_audio_settings_preserve_the_facts_failure(
-        self, patched_session_factory, project_env, monkeypatch, db_engine, route
+        self, patched_session_factory, project_env, fake_assemble, db_engine, route
     ):
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            async with db_engine.begin() as connection:
-                await connection.run_sync(SystemSetting.__table__.drop)
-            return _FakeBackend(name=provider_id, model=model_id)
-
-        use_backend_assembler(monkeypatch, _assemble)
+        async with db_engine.begin() as connection:
+            await connection.run_sync(SystemSetting.__table__.drop)
         model_id = _registry_video_model("ark")
 
         ctx = await resolve_generation_context(
@@ -657,75 +595,6 @@ class TestVideoRequestFacts:
         assert read.allowed_durations == allowed
         assert ctx.video.request_facts == read
 
-    async def test_lane_facts_follow_the_backend_that_was_actually_built(
-        self, patched_session_factory, project_env, monkeypatch
-    ):
-        provider_id = await _seed_custom_video_provider(patched_session_factory)
-
-        async with patched_session_factory() as session:
-            await session.execute(
-                update(CustomProviderModel)
-                .where(CustomProviderModel.model_id == "m-dead")
-                .values(is_enabled=True, capability_overrides={"durations": [5]})
-            )
-            await session.commit()
-
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            return _FakeBackend(name=provider_id, model="m-live")
-
-        use_backend_assembler(monkeypatch, _assemble)
-        ctx = await resolve_generation_context(
-            "demo",
-            None,
-            project={"video_backend": f"{provider_id}/m-dead"},
-            video=VideoLaneRequest(route="storyboard"),
-        )
-
-        facts = ctx.video.request_facts
-        assert isinstance(facts, VideoRequestFacts)
-        assert (facts.provider_id, facts.model_id, facts.generation_type) == (provider_id, "m-live", "i2v")
-        assert facts.resolution == "540p"
-        assert facts.allowed_durations == (4, 6, 8)
-
-    async def test_unresolvable_facts_are_carried_as_a_failure_not_raised(
-        self, patched_session_factory, project_env, monkeypatch
-    ):
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            return _FakeBackend(name=provider_id, model="mystery-model")
-
-        use_backend_assembler(monkeypatch, _assemble)
-        ctx = await resolve_generation_context(
-            "demo",
-            None,
-            project={"video_backend": f"ark/{_registry_video_model('ark')}"},
-            video=VideoLaneRequest(generation_type="i2v", route="storyboard"),
-        )
-
-        assert ctx.video.request_facts == VideoRequestFactsFailure(
-            "video_capability_unavailable",
-            (("capability", "i2v"), ("provider", "ark"), ("model", "mystery-model")),
-        )
-
 
 class TestAudioLane:
     async def test_backend_follows_project_tts_snapshot(self, patched_session_factory, project_env, fake_assemble):
@@ -786,6 +655,7 @@ class TestAtomicFailure:
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
         use_backend_assembler(monkeypatch, _assemble)
+        use_video_assembler(monkeypatch, _assemble)
         video_model = _registry_video_model("ark")
         with pytest.raises(ValueError, match="video backend 构造失败"):
             await resolve_generation_context(
@@ -993,137 +863,67 @@ class TestBackendCache:
 
         assert built_with == ["ark-seedream-3", "ark-seedream-4"]
 
-    async def test_invalidate_during_construction_discards_instance(self, monkeypatch):
-        """构造中途（assemble_backend await 挂起期间）触发 invalidate：完成的实例不写回缓存。"""
-        entered = asyncio.Event()
-        release = asyncio.Event()
-        built: list[_FakeBackend] = []
+    async def test_invalidation_during_config_read_never_replaces_new_generation(
+        self, patched_session_factory, project_env, monkeypatch
+    ):
+        provider = "ark"
+        model = _registry_video_model(provider)
+        project = {"video_backend": f"{provider}/{model}"}
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = ConfigResolver.provider_config_with_credential
+        reads = 0
 
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
-            built.append(backend)
-            if len(built) == 1:
+        async def read(resolver, provider_id):
+            nonlocal reads
+            config, credential = await original(resolver, provider_id)
+            reads += 1
+            if reads == 1:
                 entered.set()
                 await release.wait()
-            return backend
+            return config, credential
 
-        use_backend_assembler(monkeypatch, _assemble)
-        resolver = cast(ConfigResolver, None)
+        monkeypatch.setattr(ConfigResolver, "provider_config_with_credential", read)
+        built = []
 
-        task = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
+        async def assemble(spec):
+            key = spec.config.credentials.get("api_key")
+            built.append(key)
+            return _FakeBackend(name=key or "original", model=model)
+
+        monkeypatch.setattr(generation_context, "assemble_video", assemble)
+
+        async def execute():
+            return (
+                await resolve_generation_context(
+                    "demo", None, project=project, video=VideoLaneRequest(route="storyboard")
+                )
+            ).video
+
+        stale = asyncio.create_task(execute())
         await entered.wait()
+        async with patched_session_factory() as session:
+            await ConfigService(session).set_provider_config(provider, "api_key", "new")
+            await session.commit()
         generation_context.invalidate_backend_cache()
-        release.set()
-        stale, _ = await task
-
-        fresh, _ = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
-        assert len(built) == 2, "缓存中不得残留失效期间构造的实例，后续访问须重新构造"
-        assert stale is built[0]
-        assert fresh is built[1]
-        assert fresh is not stale
-
-    async def test_concurrent_same_key_constructs_once(self, monkeypatch):
-        """同 key 并发两次 get_or_create：只构造一次，两调用方拿到同一实例。"""
-        entered = asyncio.Event()
-        release = asyncio.Event()
-        construct_count = 0
-
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            nonlocal construct_count
-            construct_count += 1
-            entered.set()
-            await release.wait()
-            return _FakeBackend(name=provider_id, model=model_id or "default-model")
-
-        use_backend_assembler(monkeypatch, _assemble)
-        resolver = cast(ConfigResolver, None)
-
-        t1 = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
-        t2 = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
-        await entered.wait()
+        try:
+            first, second = await asyncio.gather(execute(), execute())
+        finally:
+            release.set()
+        old = await stale
+        assert first.backend_name == second.backend_name == "new"
+        assert old.backend_name != "new"
+        assert (await execute()).backend_name == "new"
+        assert built.count("new") == 1
+        assert len(built) == 2
+        async with patched_session_factory() as session:
+            await ConfigService(session).set_provider_config(provider, "api_key", "third")
+            await session.commit()
+        assert (await execute()).backend_name == "third"
+        assert reads == 5
         for _ in range(3):
-            await asyncio.sleep(0)
-        release.set()
-        (b1, _), (b2, _) = await asyncio.gather(t1, t2)
-
-        assert construct_count == 1, "同 key 并发 miss 须 single-flight，只构造一次"
-        assert b1 is b2
-
-    async def test_follower_queued_before_invalidate_discards_instance(self, monkeypatch):
-        """失效边界前已排队等锁的旧代际请求（follower）：跨越失效后拿到锁，仍不得写回缓存。
-
-        leader 持锁构造中途被打断（已有测试覆盖）之外的第三种交错：follower 在 leader 构造期间、
-        invalidate() 之前就已进入 get_or_create 并排队等锁，只有在 invalidate() 之后才轮到它拿锁。
-        它的调用参数（factory 闭包）仍是失效前的旧配置，因此即使拿锁时看到的是新代数，也必须按
-        「进入时（等锁前）捕获的旧代数」判定为过期，不写回缓存——否则旧配置构造的 backend 会被
-        误标为新代际有效实例，污染后续同 key 请求。
-        """
-        entered = asyncio.Event()
-        release = asyncio.Event()
-        built: list[_FakeBackend] = []
-
-        async def _assemble(
-            *,
-            provider_id,
-            media_type,
-            model_id,
-            resolver,
-            rate_limiter=None,
-            generation_type=None,
-            submitted_job=False,
-            builtin_endpoint=None,
-        ):
-            backend = _FakeBackend(name=provider_id, model=model_id or "default-model")
-            built.append(backend)
-            if len(built) == 1:
-                entered.set()
-                await release.wait()
-            return backend
-
-        use_backend_assembler(monkeypatch, _assemble)
-        resolver = cast(ConfigResolver, None)
-
-        leader = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
-        await entered.wait()
-
-        follower = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
-        for _ in range(3):
-            await asyncio.sleep(0)
-
-        generation_context.invalidate_backend_cache()
-        release.set()
-        stale, _ = await leader
-        stale_from_follower, _ = await follower
-
-        assert stale is built[0]
-        assert stale_from_follower is built[1]
-        assert stale is not stale_from_follower
-
-        fresh, _ = await generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver)
-        assert len(built) == 3, "leader 与 follower 的旧代际实例均不得写回，后续访问须重新构造"
-        assert fresh is built[2]
-        assert fresh is not stale
-        assert fresh is not stale_from_follower
+            generation_context.invalidate_backend_cache()
+            assert not generation_context._backend_cache._locks
+            await execute()
 
 
 class TestValueObjectAssembly:
@@ -1358,3 +1158,122 @@ class TestImageQuality:
         ctx = await resolve_generation_context("demo", None, project=project, image=ImageLaneRequest())
 
         assert ctx.image.quality is None
+
+
+async def test_video_execution_reads_one_configuration_through_provider_submission(
+    patched_session_factory, project_env, tmp_path, monkeypatch
+):
+    from unittest.mock import AsyncMock, Mock
+
+    async with patched_session_factory() as session:
+        await ConfigService(session).set_provider_config("grok", "api_key", "local")
+        await ConfigService(session).set_setting("default_video_backend", "grok/grok-imagine-video")
+        await ConfigService(session).set_setting("video_generate_audio", "false")
+        await session.commit()
+
+    model = "grok-imagine-video"
+    asset = tmp_path / "frame.png"
+    Image.new("RGB", (64, 64)).save(asset)
+    client = Mock()
+    client.video.generate = AsyncMock(return_value=Mock(url="https://local.test/video.mp4", duration=5))
+    monkeypatch.setattr("xai_sdk.AsyncClient", lambda **kwargs: client)
+
+    configs, views = [], []
+    global_settings = AsyncMock(side_effect=ConfigService.get_all_settings)
+
+    async def settings(service):
+        return await global_settings(service)
+
+    monkeypatch.setattr(ConfigService, "get_all_settings", settings)
+    read_config = ConfigService.get_provider_config
+    read_view = catalog.callable_model_view
+
+    async def config(service, provider):
+        configs.append(provider)
+        return await read_config(service, provider)
+
+    def view(provider, model, *args, **kwargs):
+        views.append((provider, model))
+        return read_view(provider, model, *args, **kwargs)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("execution queried an already resolved video capability or preference")
+
+    monkeypatch.setattr(ConfigService, "get_provider_config", config)
+    monkeypatch.setattr(catalog, "callable_model_view", view)
+    for method in (
+        "video_capabilities_for_model",
+        "video_audio_facts",
+        "resolve_resolution",
+        "video_duration_constraints",
+        "reference_payload_limits",
+        "video_generate_audio",
+    ):
+        monkeypatch.setattr(ConfigResolver, method, unexpected)
+    monkeypatch.setattr("lib.backends.backend_assembly.specs.builtin_request_video_capabilities", unexpected)
+    project = {
+        "model_settings": {f"grok/{model}": {"resolution": "720p"}},
+    }
+    ctx = await resolve_generation_context("demo", None, project=project, video=VideoLaneRequest(route="storyboard"))
+    facts = ctx.video.request_facts
+    assert isinstance(facts, VideoRequestFacts)
+    assert facts.resolution == "720p"
+    assert not facts.requested_generate_audio
+    with capture_http() as http:
+        http.get("https://local.test/video.mp4").respond(content=b"finished")
+        path, *_ = await ctx.generator.generate_video_async(
+            "p",
+            "videos",
+            "E1S01",
+            start_image=asset,
+            duration_seconds=5,
+            resolution=facts.resolution,
+            generate_audio=facts.requested_generate_audio,
+        )
+    assert path.read_bytes() == b"finished"
+    sent = client.video.generate.await_args.kwargs
+    assert sent["resolution"] == "720p"
+    assert sent["generate_audio"] is False
+    assert configs == ["grok"]
+    assert views == [("grok", model)]
+    global_settings.assert_awaited_once()
+
+    with pytest.raises(VideoCapabilityError, match="video_reference_images_with_frames_unsupported"):
+        await ctx.generator.generate_video_async("p", "videos", "E1S02", start_image=asset, reference_images=[asset])
+    with pytest.raises(VideoCapabilityError, match="video_reference_images_unsupported"):
+        await ctx.generator.generate_video_async("p", "videos", "E1S02", resolution="1080p", reference_images=[asset])
+    client.video.generate.assert_awaited_once()
+
+
+@pytest.mark.parametrize(("provider", "endpoint"), [("openai", "openai-video"), ("agnes", "agnes-video-2-5")])
+async def test_unlisted_model_keeps_frozen_entry_through_video_submission(
+    patched_session_factory, project_env, monkeypatch, provider, endpoint
+):
+    import httpx
+    from openai import BadRequestError
+
+    model = "unlisted-video"
+    catalog.install_user_added_models(
+        (catalog.UserAddedModel(provider, model, "video", endpoint=endpoint, fallback_durations=(4,)),)
+    )
+    try:
+        async with patched_session_factory.begin() as session:
+            await ConfigService(session).set_provider_config(provider, "api_key", "local")
+        ctx = await resolve_generation_context(
+            "demo", None, project={"video_backend": f"{provider}/{model}"}, video=VideoLaneRequest(route="storyboard")
+        )
+        assert isinstance(ctx.video.request_facts, VideoRequestFacts)
+
+        def unexpected(*args, **kwargs):
+            pytest.fail("provider adapter queried a frozen missing catalog entry")
+
+        monkeypatch.setattr(catalog, "find_entry", unexpected)
+        with capture_http() as http:
+            submit = http.post(path="/v1/videos").respond(400, json={"error": {"message": "mock rejection"}})
+            with pytest.raises((httpx.HTTPStatusError, BadRequestError)):
+                await ctx.generator.generate_video_async(
+                    "prompt", "videos", "E1S01", duration_seconds=4, generate_audio=True
+                )
+            assert submit.call_count == 1
+    finally:
+        catalog.install_user_added_models(())

@@ -28,6 +28,7 @@ from lib.config.resolver import (
     VideoGenerationType,
     _video_bucket_capability_missing,
     _video_bucket_reference_unavailable,
+    reference_limits_from_config,
 )
 from lib.custom_provider import is_custom_provider, make_provider_id, parse_provider_id
 from lib.custom_provider.capabilities import custom_video_snapshot_from_entry
@@ -52,6 +53,12 @@ class VideoTarget:
     @property
     def snapshot(self) -> CapabilitySnapshot:
         return self.spec.snapshot
+
+    @property
+    def reference_payload_limits(self) -> tuple[int, int] | None:
+        if isinstance(self.spec, _BuiltinVideoSpec):
+            return reference_limits_from_config(self.spec.config.credentials)
+        return None
 
 
 class VideoRuntime:

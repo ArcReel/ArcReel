@@ -1,17 +1,4 @@
-"""视频请求事实：一次视频生成请求的执行事实，每次请求只求值一次（``docs/adr/0086``）。
-
-求值维度是「项目 × 路线 × 任务类型桶 × 身份来源」。读侧（报价、预检、界面、Agent）以当前配置
-解析出的执行模型为身份，执行侧以 lane 实际构造的 backend 身份为准（``docs/adr/0049`` ③）；除身份
-来源外两侧求值完全相同，消费方直接读取求值结果中的分辨率、档位与音轨。
-
-- 分辨率未设置即不下发：请求分辨率就是时长联动约束所用的分辨率，没有兜底档位。
-- 收窄严格：约束收成空集是失败，不回退到未收窄的全集。
-- 失败只带类型（问题码、参数与修复指引），不降级、不回退，由消费方按阶段处理。
-
-本模块是路线中立层：不依赖参考生视频子包，也不依赖服务端（``pyproject.toml`` import-linter 契约）；
-不在模块级绑定数据库 session，调用方注入 resolver——执行期传入 GenerationContext 已绑定 session
-的那一个。
-"""
+"""视频执行消费同源能力快照和项目偏好。读侧仍从当前配置取得请求事实（ADR 0086）。"""
 
 from __future__ import annotations
 
@@ -22,7 +9,9 @@ from typing import Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from arcreel_catalog_core import DurationConstraints
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+from lib.capabilities.kernel import CapabilitySnapshot, FixedDuration, RequestConditions
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
     ConfigResolver,
@@ -32,7 +21,11 @@ from lib.config.resolver import (
     VideoSupportedDurationsError,
     VoiceConsistency,
     apply_duration_constraints,
+    caps_generation_mode,
+    derive_voice_consistency,
+    project_resolution,
 )
+from lib.speech.character_voice import character_voice_binding
 
 VideoRoute = Literal["storyboard", "reference_video"]
 
@@ -355,6 +348,131 @@ async def evaluate_video_request_facts(
         constraints = await resolver.video_duration_constraints(provider_id, model_id)
     except SQLAlchemyError:
         return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
+    durations = _request_durations(
+        supported,
+        constraints,
+        resolution,
+        uses_reference_images,
+        uses_end_frame,
+        route,
+        generation_type,
+        identity_params,
+    )
+    if isinstance(durations, VideoRequestFactsFailure):
+        return durations
+    allowed, excluded = durations
+
+    voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
+    try:
+        audio = await resolver.video_audio_facts(
+            provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
+        )
+    except SQLAlchemyError:
+        return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
+    has_audio_track = audio.has_audio_track if audio is not None else voice_consistency != "none"
+    audio_switch_controllable = audio.audio_switch_controllable if audio is not None else True
+    max_reference_images = caps.get("max_reference_images")
+    return VideoRequestFacts(
+        route=route,
+        generation_type=generation_type,
+        provider_id=provider_id,
+        model_id=model_id,
+        resolution=resolution,
+        supported_durations=supported,
+        allowed_durations=allowed,
+        excluded_durations=excluded,
+        duration_endpoint_fixed=endpoint_fixed,
+        requested_generate_audio=bool(caps.get("requested_generate_audio")),
+        generate_audio=bool(caps.get("generate_audio")) and has_audio_track,
+        has_audio_track=has_audio_track,
+        audio_switch_controllable=audio_switch_controllable,
+        max_reference_images=_optional_count(max_reference_images),
+        text_to_video=bool(caps.get("text_to_video", True)),
+        first_frame=bool(caps.get("first_frame")),
+        voice_consistency=voice_consistency,
+        max_reference_audio_count=_optional_count(caps.get("max_reference_audio_count", 0)),
+        reference_audio_per_image=bool(caps.get("reference_audio_per_image")),
+    )
+
+
+def snapshot_video_request_facts(
+    snapshot: CapabilitySnapshot,
+    project: dict,
+    *,
+    route: VideoRoute,
+    generation_type: VideoGenerationType,
+    requested_audio: bool,
+    uses_end_frame: bool,
+    service_tier: str,
+) -> VideoRequestFacts | VideoRequestFactsFailure:
+    provider, model = snapshot.provider_id, snapshot.model_id
+    resolution = project_resolution(project, provider, model) or snapshot.default_resolution
+    inputs = {"reference_images"} if route == "reference_video" and generation_type == "r2v" else set()
+    if route == "storyboard":
+        inputs.add("first_frame")
+    if uses_end_frame:
+        inputs.add("last_frame")
+    snapshot = snapshot.for_request(RequestConditions(generation_type, resolution, service_tier, frozenset(inputs)))
+    values = snapshot.effective
+    identity_params = (("provider", provider), ("model", model))
+    supported = tuple(sorted(set(values.get("durations") or ())))
+    fixed = isinstance(snapshot.duration, FixedDuration)
+    if not supported and not fixed:
+        return VideoRequestFactsFailure(_ROUTE_FAILURE_CODES[route]["missing"], identity_params)
+    constraints = DurationConstraints(**values.get("duration_constraints", {}))
+    durations = _request_durations(
+        supported,
+        constraints,
+        resolution,
+        "reference_images" in inputs,
+        uses_end_frame,
+        route,
+        generation_type,
+        identity_params,
+    )
+    if isinstance(durations, VideoRequestFactsFailure):
+        return durations
+    audio = snapshot.audio(generation_type, requested=requested_audio)
+    voice = derive_voice_consistency(
+        reference_audio_mode=values["reference_audio_mode"],
+        generation_mode=caps_generation_mode(project),
+        has_audio=snapshot.audio(generation_type, requested=True).output,
+        character_voice_binding=character_voice_binding(project),
+    )
+    return VideoRequestFacts(
+        route=route,
+        generation_type=generation_type,
+        provider_id=provider,
+        model_id=model,
+        resolution=resolution,
+        supported_durations=supported,
+        allowed_durations=durations[0],
+        excluded_durations=durations[1],
+        duration_endpoint_fixed=fixed,
+        requested_generate_audio=requested_audio,
+        generate_audio=audio.billed,
+        has_audio_track=audio.output,
+        audio_switch_controllable=audio.switch is not None,
+        max_reference_images=snapshot.reference_images.to_json(),
+        text_to_video=values["text_to_video"],
+        first_frame=values["first_frame"],
+        voice_consistency=voice,
+        max_reference_audio_count=values["max_reference_audio_count"],
+        reference_audio_per_image=values.get("reference_audio_per_image", False),
+    )
+
+
+def _request_durations(
+    supported: tuple[int, ...],
+    constraints: DurationConstraints | None,
+    resolution: str | None,
+    uses_reference_images: bool,
+    uses_end_frame: bool,
+    route: VideoRoute,
+    generation_type: VideoGenerationType,
+    identity_params: tuple[tuple[str, str], ...],
+):
+    codes = _ROUTE_FAILURE_CODES[route]
     allowed = tuple(
         apply_duration_constraints(
             list(supported),
@@ -396,37 +514,7 @@ async def evaluate_video_request_facts(
             excluded_durations=excluded,
         )
 
-    voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
-    try:
-        audio = await resolver.video_audio_facts(
-            provider_id, model_id, generation_type=generation_type, builtin_endpoint=builtin_endpoint
-        )
-    except SQLAlchemyError:
-        return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
-    has_audio_track = audio.has_audio_track if audio is not None else voice_consistency != "none"
-    audio_switch_controllable = audio.audio_switch_controllable if audio is not None else True
-    max_reference_images = caps.get("max_reference_images")
-    return VideoRequestFacts(
-        route=route,
-        generation_type=generation_type,
-        provider_id=provider_id,
-        model_id=model_id,
-        resolution=resolution,
-        supported_durations=supported,
-        allowed_durations=allowed,
-        excluded_durations=excluded,
-        duration_endpoint_fixed=endpoint_fixed,
-        requested_generate_audio=bool(caps.get("requested_generate_audio")),
-        generate_audio=bool(caps.get("generate_audio")) and has_audio_track,
-        has_audio_track=has_audio_track,
-        audio_switch_controllable=audio_switch_controllable,
-        max_reference_images=_optional_count(max_reference_images),
-        text_to_video=bool(caps.get("text_to_video", True)),
-        first_frame=bool(caps.get("first_frame")),
-        voice_consistency=voice_consistency,
-        max_reference_audio_count=_optional_count(caps.get("max_reference_audio_count", 0)),
-        reference_audio_per_image=bool(caps.get("reference_audio_per_image")),
-    )
+    return allowed, excluded
 
 
 def _optional_count(value: object) -> int | None:
