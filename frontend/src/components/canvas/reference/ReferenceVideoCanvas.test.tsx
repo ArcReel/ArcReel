@@ -1090,7 +1090,6 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      quarantine: null,
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
@@ -1126,7 +1125,6 @@ describe("ReferenceVideoCanvas", () => {
       status: "pending_review",
       fingerprint: "fp",
       confirmed_at: null,
-      quarantine: null,
       supported_durations: null,
       duration_tiers: null,
       episode_target_duration: null,
@@ -2304,16 +2302,6 @@ describe("ReferenceVideoCanvas", () => {
       batch: { batch_id: "b-retry", members: [{ unit_id: "episode-1", task_id: "t-retry", deduped: false }] },
     } as unknown as Awaited<ReturnType<typeof API.authorPrompts>>;
 
-    function watchDraftApis() {
-      return [
-        vi.spyOn(API, "listEpisodeDrafts"),
-        vi.spyOn(API, "getEpisodeDraft"),
-        vi.spyOn(API, "saveEpisodeDraft"),
-        vi.spyOn(API, "repairEpisodeDraft"),
-        vi.spyOn(API, "discardEpisodeDraft"),
-      ];
-    }
-
     async function loadPersistedTasks(tasks: ReturnType<typeof makeTask>[]) {
       vi.spyOn(API, "getActiveTasks").mockResolvedValue({
         items: tasks.filter((item) => item.status === "queued" || item.status === "running"),
@@ -2338,7 +2326,6 @@ describe("ReferenceVideoCanvas", () => {
     });
 
     it("加载、重进页面读回持久 partial 任务与重试全程零 /drafts 请求，默认补缺失败单元保持待编写并支持一键重试、编辑与交 Agent", async () => {
-      const draftSpies = watchDraftApis();
       const writtenUnit: ReferenceVideoUnit = { ...mkUnit("E1U1", "已补全的镜头一提示词"), pending_authoring: false };
       const failedUnit: ReferenceVideoUnit = { ...mkUnit("E1U2", "原始大纲占位"), pending_authoring: true };
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
@@ -2427,11 +2414,9 @@ describe("ReferenceVideoCanvas", () => {
         "视频单元 2 台词被改动",
       );
 
-      for (const spy of draftSpies) expect(spy).not.toHaveBeenCalled();
     });
 
     it("显式重写部分失败时保留已编写旧正文与已编写状态，点名重试需重新确认覆盖范围后才携带 revision 重试", async () => {
-      const draftSpies = watchDraftApis();
       const rewrittenUnit: ReferenceVideoUnit = { ...mkUnit("E1U1", "重写后的镜头一"), pending_authoring: false };
       const keptUnit: ReferenceVideoUnit = { ...mkUnit("E1U2", "旧的已编写正文不可丢失"), pending_authoring: false };
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
@@ -2519,7 +2504,6 @@ describe("ReferenceVideoCanvas", () => {
       );
       await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
 
-      for (const spy of draftSpies) expect(spy).not.toHaveBeenCalled();
     });
 
     it("后续提示词编写完成（outcome=complete）后自动收起旧的部分完成提示", async () => {

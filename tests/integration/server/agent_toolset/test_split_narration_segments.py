@@ -15,9 +15,17 @@ from tests.integration.server.agent_tool_support import (
     nr_segment,
     nr_source,
     run_declared_tool,
-    rv_project,
     said,
 )
+
+
+def rv_project(fake_ctx: ToolHarness, generation_mode: str = "reference_video") -> None:
+    fake_ctx.pm.project_payload["content_mode"] = "narration"
+    fake_ctx.pm.project_payload["generation_mode"] = generation_mode
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
 async def test_split_narration_segments_dry_run(fake_ctx: ToolHarness, video_request_facts) -> None:

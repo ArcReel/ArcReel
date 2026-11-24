@@ -64,7 +64,6 @@ const CHANGE_PRIORITY: Record<string, number> = {
   "product:updated": 4.8,
   "episode:created": 5,
   "episode:updated": 6,
-  "draft:created": 6.5,
   storyboard_ready: 7,
   video_ready: 8,
   grid_ready: 9,
@@ -109,7 +108,6 @@ const PANE_ROUTES: Record<ProjectChangePane, (focus: ProjectChangeFocus) => stri
     typeof focus.episode === "number" ? `/${WORKSPACE_ROUTE_EPISODES}/${focus.episode}` : null,
 };
 
-const DRAFT_DOC_KINDS = ["script_plan"] as const;
 
 function buildNotificationTarget(change: ProjectChange): WorkspaceNotificationTarget | null {
   const focus = change.focus;
@@ -267,10 +265,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         if (previousFingerprint && previousFingerprint !== payload.fingerprint) {
           const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
           invalidateEntities(
-            episodes.flatMap(({ episode }) => [
-              buildEntityRevisionKey("script_plan", `episode_${episode}`),
-              ...DRAFT_DOC_KINDS.map((kind) => buildEntityRevisionKey("draft", `episode_${episode}_${kind}`)),
-            ]),
+            episodes.map(({ episode }) => buildEntityRevisionKey("script_plan", `episode_${episode}`)),
           );
           void refreshProject();
         }
@@ -321,24 +316,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         if (taskChanges.some((c) => c.action === "task_succeeded" && SCRIPT_PLAN_TASK_TYPES.has(c.task_type ?? ""))) {
           const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
           invalidationKeys.push(
-            ...episodes.flatMap(({ episode }) => [
-              buildEntityRevisionKey("script_plan", `episode_${episode}`),
-              buildEntityRevisionKey("draft", `episode_${episode}_script_plan`),
-            ]),
-          );
-        }
-        if (
-          taskChanges.some(
-            (c) =>
-              (c.action === "task_succeeded" || c.action === "task_failed" || c.action === "task_cancelled") &&
-              c.task_type === "text_draft_repair",
-          )
-        ) {
-          const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
-          invalidationKeys.push(
-            ...episodes.flatMap(({ episode }) =>
-              DRAFT_DOC_KINDS.map((kind) => buildEntityRevisionKey("draft", `episode_${episode}_${kind}`)),
-            ),
+            ...episodes.map(({ episode }) => buildEntityRevisionKey("script_plan", `episode_${episode}`)),
           );
         }
         if (invalidationKeys.length > 0) {
@@ -354,38 +332,19 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           [];
 
         if (notifyChanges) {
-          let draftHandled = false;
-          for (const change of entityChanges) {
-            if (
-              change.entity_type === "draft" &&
-              change.action === "created" &&
-              !change.entity_id.endsWith("_prompt_authoring") &&
-              typeof change.episode === "number" &&
-              !isWorkspaceEditing(hasUnsavedChanges)
-            ) {
-              startTransition(() => {
-                setLocation(`/episodes/${change.episode}`);
-              });
-              draftHandled = true;
-              break;
-            }
-          }
+          const nextFocusTarget =
+            groupedChanges
+              .map((group) => {
+                const target = getPrimaryGroupTarget(group);
+                if (!target) {
+                  return null;
+                }
+                workspaceNotifications.push({ group, target });
+                return target;
+              })
+              .find(Boolean) ?? null;
 
-          if (!draftHandled) {
-            const nextFocusTarget =
-              groupedChanges
-                .map((group) => {
-                  const target = getPrimaryGroupTarget(group);
-                  if (!target) {
-                    return null;
-                  }
-                  workspaceNotifications.push({ group, target });
-                  return target;
-                })
-                .find(Boolean) ?? null;
-
-            queuedFocusRef.current = isWorkspaceEditing(hasUnsavedChanges) ? null : nextFocusTarget;
-          }
+          queuedFocusRef.current = isWorkspaceEditing(hasUnsavedChanges) ? null : nextFocusTarget;
         }
 
         if (taskChanges.length > 0) {

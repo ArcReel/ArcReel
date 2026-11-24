@@ -224,6 +224,32 @@ def locate_violations_by_id(violations: Iterable[DraftViolation], item_ids: Sequ
             violation.item_index = positions[violation.item_id]
 
 
+def violation_entries(violations: Sequence[DraftViolation]) -> list[dict[str, Any]]:
+    """违约异常 → 落盘 / 呈现用的结构化条目（违约类 + 定位前缀 + 消息 + 可选行号与条目定位）。"""
+    entries: list[dict[str, Any]] = []
+    for violation in violations:
+        entry: dict[str, Any] = {
+            "code": violation.code,
+            "label": violation.label,
+            "message": str(violation),
+            "line": violation.line,
+        }
+        if violation.locations:
+            entry["locations"] = list(violation.locations)
+        if violation.reason is not None:
+            entry["reason"] = violation.reason
+        if violation.action is not None:
+            entry["action"] = violation.action
+        if violation.item_index is not None:
+            entry["item_index"] = violation.item_index
+        if violation.item_id is not None:
+            entry["item_id"] = violation.item_id
+        if violation.params is not None:
+            entry["params"] = violation.params
+        entries.append(entry)
+    return entries
+
+
 def render_violation_report(violations: Sequence[DraftViolation]) -> str:
     """把违约条目渲染成逐条编号的报告文本（一行一条，带违约类标注）。"""
     lines: list[str] = []
@@ -243,5 +269,6 @@ __all__ = [
     "locate_violations",
     "locate_violations_by_id",
     "render_violation_report",
+    "violation_entries",
     "violation_items",
 ]

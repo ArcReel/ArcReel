@@ -52,9 +52,7 @@ function ScriptPlanDialog({ request, savedInstructions, onClose }: DialogProps) 
   const lossText =
     replaces === "pending_plan"
       ? t("script_plan_replace_pending_warning")
-      : replaces === "draft"
-        ? t("script_plan_replace_draft_warning")
-        : null;
+      : null;
   const [instructions, setInstructions] = useState(savedInstructions);
   const { submitting, submit, handOff } = useScriptPlanSubmit(projectName, episode, lossText !== null);
 

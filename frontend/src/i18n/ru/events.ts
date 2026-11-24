@@ -26,8 +26,6 @@ export default {
   "label.script_plan": 'План сценария серии «{{episode_name}}»',
   "label.draft_normalized_script": 'Нормализованный сценарий серии «{{episode_name}}»',
   "label.draft_segment_splitting": 'Разбиение серии «{{episode_name}}» на сегменты',
-  "label.draft_script_plan": 'Черновик плана сценария серии «{{episode_name}}»',
-  "label.draft_prompt_authoring": 'Черновик составления промптов серии «{{episode_name}}»',
 
   "entity.project": 'проекты',
   "entity.character": 'персонажи',

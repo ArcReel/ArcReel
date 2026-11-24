@@ -26,6 +26,4 @@ MESSAGES = {
     "event_label_script_plan": "План сценария серии (id={episode})",
     "event_label_draft_normalized_script": "Нормализованный сценарий серии (id={episode})",
     "event_label_draft_segment_splitting": "Разбиение серии на сегменты (id={episode})",
-    "event_label_draft_script_plan": "Черновик плана сценария серии (id={episode})",
-    "event_label_draft_prompt_authoring": "Черновик составления промптов серии (id={episode})",
 }

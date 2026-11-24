@@ -273,24 +273,6 @@ def test_write_near_formal_script_plan_allowed(policy: AgentAccessPolicy, tool: 
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
-@pytest.mark.parametrize(
-    "relative",
-    [
-        "drafts/episode_1/script_plan_reference_units.invalid.json",
-        "drafts/episode_1/script_plan_normalized_script.invalid.json",
-        "drafts/episode_1/script_plan_segments.invalid.json",
-        "drafts/episode_1/prompt_authoring_reference_script.invalid.json",
-    ],
-)
-def test_write_revisioned_draft_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
-    assert reason
-    assert "patch_draft" in reason
-
-
-@pytest.mark.parametrize("tool", ["Write", "Edit"])
 def test_write_protected_scripts_dir_itself_denied(policy: AgentAccessPolicy, tool: str) -> None:
     """`scripts/` 目录路径本身（不带 trailing sep）也该拒：defense-in-depth，
     不依赖 OS 兜底 Agent 把目录名当文件路径的 typo。"""

@@ -410,14 +410,10 @@ async def test_prompt_preview_reports_the_full_migration_problem(tmp_path: Path)
     assert blocked.problem.params["details"][0]["file"] == "scripts/episode_1.json"
 
 
-_ABSENT_REVISION = "sha256-v1:" + "0" * 64
-_DRAFT = {"episode_id": 1, "doc_type": "drama_script_plan"}
-
-
 async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_path: Path, monkeypatch) -> None:
     """声明入口的裁决必须取自会话的项目根：会话可能绑定另一个 projects_root，同名项目不是同一个项目。"""
 
-    from server.agent_toolset.script_authoring import DISCARD_DRAFT
+    from server.agent_toolset.script_authoring import CONFIRM_SCRIPT_REVIEW
     from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
     session_root = tmp_path / "session"
@@ -440,9 +436,7 @@ async def test_mcp_guard_reads_the_session_projects_root_not_the_global_one(tmp_
         ran = True
         return ToolOutcome(value={})
 
-    result = await run_declared_tool(
-        replace(DISCARD_DRAFT, handler=_handler), ctx, {**_DRAFT, "base_revision": _ABSENT_REVISION}
-    )
+    result = await run_declared_tool(replace(CONFIRM_SCRIPT_REVIEW, handler=_handler), ctx, {"episode_id": 1})
 
     assert ran is True
     assert result.problem is None

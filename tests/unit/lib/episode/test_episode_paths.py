@@ -80,10 +80,6 @@ def test_script_plan_path_follows_reference_video_across_content_modes(tmp_path)
         assert script_review.script_plan_path(tmp_path, project, 1) == (
             episode_paths.episode_drafts_dir(tmp_path, 1) / episode_paths.REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
         )
-        assert script_review.script_plan_quarantine_path(tmp_path, project, 1) == (
-            episode_paths.episode_drafts_dir(tmp_path, 1)
-            / episode_paths.REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME
-        )
 
     assert script_review.script_plan_path(tmp_path, {"content_mode": "narration", "episodes": [{"episode": 1}]}, 1) == (
         episode_paths.episode_drafts_dir(tmp_path, 1) / episode_paths.script_plan_filename("narration")

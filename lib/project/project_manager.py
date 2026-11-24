@@ -109,7 +109,6 @@ from lib.project.project_schema import parse_project_schema_version
 from lib.project.script_entry_cleanup import trash_entries
 from lib.project.task_project_claim import ensure_task_project_claim
 from lib.references.reference_catalog import derivative_reference
-from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.item_ids import (
     ItemIdIssuer,
     episode_item_id_high_water,
@@ -2833,7 +2832,6 @@ class ProjectManager:
         {
             *SCRIPT_PLAN_FILENAMES.values(),
             REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
-            *QUARANTINE_FILENAMES,
         }
     )
 
@@ -3418,10 +3416,9 @@ class ProjectManager:
                 if not changes.total:
                     continue
                 changed_drafts.append((path, payload, fingerprint))
-                category = "draft" if path.name in QUARANTINE_FILENAMES else "script_plan"
                 tally(
                     self.filename_episode(path.parent.name),
-                    **{category: changes.names},
+                    script_plan=changes.names,
                     speaker=changes.speakers,
                     prompt_text=changes.mentions,
                 )

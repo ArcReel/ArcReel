@@ -398,126 +398,6 @@ describe("WorkflowPanel 剪辑", () => {
   });
 });
 
-describe("WorkflowPanel 草稿", () => {
-  const repairDraft = { kind: "drama_script_plan", path: "drafts/episode_1.json", needs_repair: true };
-
-  it("待修复草稿：交给 Agent 时带上违约清单，或者手动修改 / 丢弃草稿", async () => {
-    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
-      doc_type: "drama_script_plan",
-      revision: "rev-1",
-      editable_by: "user",
-      content: {},
-      violations: [{ item_id: "E1S01", message: "时长不在档位内" }],
-      soft_violations: [],
-      formal_exists: false,
-      episode: 1,
-      item_ids: null,
-    } as unknown as Awaited<ReturnType<typeof API.getEpisodeDraft>>);
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "drama_script_plan", needs_repair: true } }),
-        content: { drafts: [repairDraft], formal_script: "absent", script_item_count: null },
-      }),
-    );
-    const plan = screen.getByTestId("workflow-row-plan");
-    expect(within(plan).getByText("待修复草稿")).toBeInTheDocument();
-    const next = within(plan).getByTestId("workflow-next-step");
-    expect(within(next).getByRole("button", { name: "手动修改" })).toBeInTheDocument();
-
-    fireEvent.click(within(next).getByRole("button", { name: "交给 Agent" }));
-    await waitFor(() => expect(useAssistantStore.getState().input).toContain("时长不在档位内"));
-  });
-
-  it("待修复草稿可以直接 AI 修复：按读到的版本提交，附加指令只随本次修复", async () => {
-    seedTasks([]);
-    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
-      doc_type: "drama_script_plan",
-      revision: "rev-3",
-      editable_by: "user",
-      content: {},
-      violations: [{ item_id: "E1S01", message: "时长不在档位内" }],
-      soft_violations: [],
-      formal_exists: false,
-      episode: 1,
-      item_ids: null,
-    } as unknown as Awaited<ReturnType<typeof API.getEpisodeDraft>>);
-    const repair = vi
-      .spyOn(API, "repairEpisodeDraft")
-      .mockResolvedValue({ batch: { members: [] } } as unknown as Awaited<ReturnType<typeof API.repairEpisodeDraft>>);
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "drama_script_plan", needs_repair: true } }),
-        content: { drafts: [repairDraft], formal_script: "absent", script_item_count: null },
-      }),
-    );
-    const next = screen.getByTestId("workflow-next-step");
-    fireEvent.change(within(next).getByRole("textbox"), { target: { value: "只调整时长" } });
-    fireEvent.click(within(next).getByRole("button", { name: "AI 修复" }));
-
-    await waitFor(() => expect(repair).toHaveBeenCalledWith("proj", 1, "drama_script_plan", "rev-3", "只调整时长"));
-  });
-
-  it("脚本规划的待修复草稿可以重新规划，打开的弹窗先说明会替换草稿", async () => {
-    useScriptPlanStore.getState().close();
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "drama_script_plan", needs_repair: true } }),
-        content: { drafts: [repairDraft], formal_script: "absent", script_item_count: null },
-      }),
-    );
-    fireEvent.click(within(screen.getByTestId("workflow-next-step")).getByRole("button", { name: "重新规划" }));
-    expect(useScriptPlanStore.getState().request).toEqual({ projectName: "proj", episode: 1, replaces: "draft" });
-  });
-
-  it("丢弃草稿先确认，写明会回到哪份内容，确认后按读到的版本丢弃", async () => {
-    vi.spyOn(API, "getEpisodeDraft").mockResolvedValue({
-      doc_type: "drama_script_plan",
-      revision: "rev-7",
-      editable_by: "user",
-      content: {},
-      violations: [],
-      soft_violations: [],
-      formal_exists: false,
-      episode: 1,
-      item_ids: null,
-    } as unknown as Awaited<ReturnType<typeof API.getEpisodeDraft>>);
-    const discard = vi
-      .spyOn(API, "discardEpisodeDraft")
-      .mockResolvedValue({ episode: 1, doc_type: "drama_script_plan", discarded: true });
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "drama_script_plan", needs_repair: true } }),
-        content: { drafts: [repairDraft], formal_script: "absent", script_item_count: null },
-      }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "丢弃草稿" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "丢弃这份草稿？" });
-    expect(within(dialog).getByText(/本集回到未规划状态/)).toBeInTheDocument();
-    expect(discard).not.toHaveBeenCalled();
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "丢弃草稿" }));
-    await waitFor(() => expect(discard).toHaveBeenCalledWith("proj", 1, "drama_script_plan", "rev-7"));
-  });
-
-  it("Agent 的可编辑草稿：交给 Agent 完成，或者丢弃这份修改", async () => {
-    await renderExpanded(
-      scenario({
-        next: nextAction("resolve_draft", { args: { episode_id: 1, draft_kind: "narration_script_plan", needs_repair: false } }),
-        content: {
-          drafts: [{ kind: "narration_script_plan", path: "drafts/episode_1.json", needs_repair: false }],
-          formal_script: "absent",
-          script_item_count: null,
-        },
-        status: { project: { content_mode: "narration", generation_mode: "storyboard", grid_storyboard: false } },
-      }),
-    );
-    const next = screen.getByTestId("workflow-next-step");
-    expect(within(next).getByRole("button", { name: "交给 Agent 完成" })).toBeInTheDocument();
-    expect(within(next).getByRole("button", { name: "丢弃这份修改" })).toBeInTheDocument();
-    expect(within(next).queryByRole("button", { name: "手动修改" })).not.toBeInTheDocument();
-  });
-});
-
 describe("WorkflowPanel 编写提示词", () => {
   const plan = () =>
     scenario({ next: nextAction("author_prompts"), content: { pending_authoring_ids: ["E1S02"] } });
@@ -634,12 +514,6 @@ describe("WorkflowPanel 补充集原文", () => {
 
   it("没有原文但已有规划时，原文行不给补充集原文", async () => {
     await renderExpanded(sourceless({}, "current"));
-    expect(within(screen.getByTestId("workflow-row-source")).queryByRole("button", { name: "补充集原文" })).not.toBeInTheDocument();
-  });
-
-  it("没有原文但有草稿时，原文行不给补充集原文", async () => {
-    const draft = { kind: "drama_script_plan", path: "drafts/episode_1.json", needs_repair: true };
-    await renderExpanded(sourceless({ drafts: [draft] }, "missing"));
     expect(within(screen.getByTestId("workflow-row-source")).queryByRole("button", { name: "补充集原文" })).not.toBeInTheDocument();
   });
 });

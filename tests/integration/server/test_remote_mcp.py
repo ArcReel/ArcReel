@@ -28,7 +28,6 @@ from lib.project.project_migration_failure import (
     record_migration_failure,
 )
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.script.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_quarantine
 from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
 from lib.workflow.workflow_state import WorkflowStatus
 from server.agent_toolset.declaration import invoke_declaration
@@ -443,7 +442,6 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "list_project_files",
         "read_project_file",
     }
-    drafts = {"open_draft", "patch_draft", "promote_draft", "discard_draft"}
     text_and_script = {
         "generate_episode_script",
         "generate_script_plan",
@@ -461,6 +459,10 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "split_segment",
         "open_script_plan_for_edit",
         "validate_and_promote_draft",
+        "open_draft",
+        "patch_draft",
+        "promote_draft",
+        "discard_draft",
         "get_episode_script_revision",
         "generate_video_episode",
         "generate_video_scene",
@@ -469,11 +471,10 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
     }
     listed = {tool.name: tool for tool in tools.tools}
     assert set(listed) == set(ARCREEL_MCP_TOOL_IDS)
-    assert migrated | readers | drafts | text_and_script | batches <= listed.keys()
+    assert migrated | readers | text_and_script | batches <= listed.keys()
     assert retired.isdisjoint(listed)
     assert all(
-        "project" in listed[name].inputSchema["required"]
-        for name in migrated | readers | drafts | text_and_script | batches
+        "project" in listed[name].inputSchema["required"] for name in migrated | readers | text_and_script | batches
     )
     patch_schema = listed["patch_episode_script"].inputSchema
     operations_schema = patch_schema["properties"]["operations"]
@@ -1127,84 +1128,6 @@ async def test_text_task_is_shared_by_remote_and_embedded_hosts_and_running_memb
     finally:
         release.set()
         await worker.stop()
-
-
-async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, remote_projects) -> None:
-    (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        args = {
-            "project": "demo",
-            "episode_id": 1,
-            "doc_type": "drama_script_plan",
-            "source": "source/episode_1.txt",
-        }
-        opened = await session.call_tool("open_draft", args)
-        (remote_projects.get_project_path("demo") / "drafts/episode_1/script_plan_normalized_script.json").unlink()
-        patched = await session.call_tool(
-            "patch_draft",
-            {
-                **args,
-                "content": opened.structuredContent["draft"]["content"],
-                "base_revision": opened.structuredContent["draft"]["revision"],
-                "accept_formal_revision": None,
-                "source": None,
-            },
-        )
-
-    draft = read_quarantine(remote_projects.get_project_path("demo"), 1, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
-    assert not patched.isError
-    assert draft is not None
-    assert draft.meta["base_fingerprint"] is None
-    assert draft.meta["source"] is None
-
-
-@pytest.mark.usefixtures("video_request_facts")
-async def test_remote_mcp_draft_errors_name_only_project_relative_paths(remote_server, remote_projects) -> None:
-    """违约报告会原样回给远程 Agent：只指名项目内相对路径，不带服务端目录（含解析符号链接后的写法）。"""
-    (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
-    project_dir = remote_projects.get_project_path("demo")
-    app = _mounted(remote_server)
-    async with (
-        remote_server.session_manager.run(),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://localhost",
-            headers={"Authorization": "Bearer arc-valid"},
-            follow_redirects=True,
-        ) as client,
-        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
-        ClientSession(read, write) as session,
-    ):
-        await session.initialize()
-        args = {"project": "demo", "episode_id": 1, "doc_type": "drama_script_plan"}
-        opened = await session.call_tool("open_draft", {**args, "source": "source/episode_1.txt"})
-        patched = await session.call_tool(
-            "patch_draft",
-            {**args, "content": {"scenes": [{}]}, "base_revision": opened.structuredContent["draft"]["revision"]},
-        )
-        promoted = await session.call_tool(
-            "promote_draft", {**args, "base_revision": patched.structuredContent["draft"]["revision"]}
-        )
-
-    assert promoted.isError
-    message = json.dumps(promoted.structuredContent, ensure_ascii=False) + "".join(
-        block.text for block in promoted.content if isinstance(block, TextContent)
-    )
-    assert "drafts/episode_1/script_plan_normalized_script.invalid.json" in message
-    assert str(project_dir) not in message
-    assert str(project_dir.resolve()) not in message
 
 
 def _plant_migration_failure(project_dir: Path, origin: str) -> None:

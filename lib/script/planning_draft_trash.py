@@ -1,4 +1,4 @@
-"""规划草稿进出项目回收站：未确认的正式脚本规划与待修复、可编辑草稿的删除成为一条带结构快照的删除记录。
+"""规划草稿进出项目回收站：未确认的正式脚本规划的删除成为一条带结构快照的删除记录。
 
 恢复时所属的集必须还在。原路径空闲就回原位，脚本规划的产物登记取自删除前（迁移后）的清单一并补录；原路径已有
 文件时换成「<原名> (n)」加回，作为未引用文件、不带登记。
@@ -12,16 +12,13 @@ from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.artifacts.artifact_registration import register_artifact_entries_atomically
-from lib.artifacts.formal_write import project_metadata_lock
 from lib.infra.api_errors import ConflictError
 from lib.project import project_trash
-from lib.project.project_activity import record_project_activity
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_manager import ProjectManager, find_episode
 from lib.project.trash_restore import Landing, Restoration
-from lib.script.draft_quarantine import quarantine_path
 
-__all__ = ["PLANNING_DRAFT_KIND", "discard_quarantine", "take_planning_draft", "trash_planning_draft"]
+__all__ = ["PLANNING_DRAFT_KIND", "take_planning_draft", "trash_planning_draft"]
 
 PLANNING_DRAFT_KIND = "planning_draft"
 
@@ -34,19 +31,6 @@ def trash_planning_draft(project_dir: Path, episode: int, path: Path) -> project
     return project_trash.record_deletion(
         project_dir, {"kind": PLANNING_DRAFT_KIND, "path": rel, "episode": episode}, [rel], snapshot=True
     )
-
-
-def discard_quarantine(project_path: Path, episode: int, kind: str) -> bool:
-    """丢弃草稿（创作者或 Agent 放弃它）：移进项目回收站，返回是否真的有草稿；有时推进项目活动。
-
-    调用方持有草稿锁、不持项目锁。
-    """
-    with project_metadata_lock(project_path):
-        record = trash_planning_draft(project_path, episode, quarantine_path(project_path, episode, kind))
-    if record is None:
-        return False
-    record_project_activity(project_path)
-    return True
 
 
 def take_planning_draft(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:

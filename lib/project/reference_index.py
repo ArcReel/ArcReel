@@ -48,7 +48,6 @@ from lib.episode.episode_sources import (
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, normalize_asset_name
 from lib.project.project_migrations.backups import is_versioned_backup_name
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, END_FRAME_RESOURCE_TYPE
-from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.script_models import get_generated_assets
 
 __all__ = ["FileOwner", "FileReference", "FileRole", "ReferenceIndex", "is_infrastructure_path"]
@@ -124,7 +123,6 @@ _ASSET_RESOURCE_TYPES = frozenset({*_ASSET_TYPE_BY_BUCKET, CHARACTER_DERIVATIVE_
 _EPISODE_DRAFT_FILENAMES = tuple(
     dict.fromkeys(
         (
-            *QUARANTINE_FILENAMES,
             *(name for mode in SCRIPT_PLAN_FILENAMES for name in script_plan_read_candidates(mode)),
             REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
             REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,

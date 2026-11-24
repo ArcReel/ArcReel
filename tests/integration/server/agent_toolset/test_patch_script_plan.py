@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -12,16 +13,40 @@ from server.services.project.script_review import ScriptReviewError, ScriptRevie
 from tests.factories import make_video_request_facts
 from tests.fakes import use_artifact_registration
 from tests.integration.server.agent_tool_support import (
+    _RV_NOVEL,
     ToolHarness,
     drama_scene,
     nr_segment,
     run_declared_tool,
-    rv_saved_unit,
     rv_script_plan_path,
-    write_drama_script_plan,
-    write_nr_script_plan,
-    write_rv_script_plan,
 )
+
+
+def write_rv_script_plan(fake_ctx: ToolHarness, units: list[dict]) -> None:
+    path = rv_script_plan_path(fake_ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"units": units}, ensure_ascii=False), encoding="utf-8")
+
+
+def rv_saved_unit(text: str, *, unit_id: str = "E1U01", duration: int = 8) -> dict:
+    return {
+        "unit_id": unit_id,
+        "text": text,
+        "duration_seconds": duration,
+        "source_text": _RV_NOVEL,
+    }
+
+
+def write_drama_script_plan(fake_ctx: ToolHarness, scenes: list[dict]) -> None:
+    path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_normalized_script.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"title": "第一集", "scenes": scenes}, ensure_ascii=False), encoding="utf-8")
+
+
+def write_nr_script_plan(fake_ctx: ToolHarness, segments: list[dict]) -> None:
+    path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"segments": segments}, ensure_ascii=False), encoding="utf-8")
 
 
 async def test_patch_plan_uses_revision_from_agent_read(tmp_path: Path, video_request_facts):

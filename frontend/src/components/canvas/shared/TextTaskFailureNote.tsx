@@ -16,7 +16,6 @@ import { latestEpisodeTextTaskFailure, type EpisodeTextTaskKind } from "./text-t
 const FAILURE_KEYS: Record<EpisodeTextTaskKind, string> = {
   text_script_plan: "script_plan_failed",
   text_episode_script: "prompt_authoring_failed",
-  text_draft_repair: "draft_repair_failed",
 };
 
 export function TextTaskFailureNote({

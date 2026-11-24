@@ -37,7 +37,6 @@
     "supported_durations": null,
     "episode_target_duration": null,
     "script_overwrite": null,
-    "duration_tiers": null,
-    "quarantine": null
+    "duration_tiers": null
   }
 }

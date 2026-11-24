@@ -30,6 +30,4 @@ MESSAGES = {
     "event_label_script_plan": "集（id={episode}）的脚本规划",
     "event_label_draft_normalized_script": "集（id={episode}）的规范化脚本",
     "event_label_draft_segment_splitting": "集（id={episode}）的分镜拆分",
-    "event_label_draft_script_plan": "集（id={episode}）的脚本规划草稿",
-    "event_label_draft_prompt_authoring": "集（id={episode}）的提示词编写草稿",
 }

@@ -1,7 +1,7 @@
 import { taskResourceKind } from "@/stores/tasks-store";
 import type { TaskItem } from "@/types";
 
-export type EpisodeTextTaskKind = "text_script_plan" | "text_episode_script" | "text_draft_repair";
+export type EpisodeTextTaskKind = "text_script_plan" | "text_episode_script";
 
 export interface EpisodeTextTaskFailure {
   kind: EpisodeTextTaskKind;
@@ -12,7 +12,6 @@ function episodeTextTaskKind(task: TaskItem, episode: number): EpisodeTextTaskKi
   const kind = taskResourceKind(task);
   const slot = `episode-${episode}`;
   if (kind === "text_script_plan" || kind === "text_episode_script") return task.resource_id === slot ? kind : null;
-  if (kind === "text_draft_repair") return task.resource_id.startsWith(`${slot}-`) ? kind : null;
   return null;
 }
 

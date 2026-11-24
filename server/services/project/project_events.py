@@ -26,13 +26,11 @@ from lib.project.project_change_hints import (
     register_project_change_listener,
 )
 from lib.project.project_manager import ProjectManager
-from lib.script.draft_quarantine import DOC_TYPE_TO_QUARANTINE_KIND, quarantine_filename
 from server.services.project.project_state_projection import (
     ProjectSnapshot,
     ProjectState,
     build_snapshot,
     diff_snapshots,
-    draft_state_key,
     script_plan_state_key,
 )
 from server.sse_channel import IDLE, DropSubscriber, SseChannel, empty_stream
@@ -63,15 +61,6 @@ def _episode_draft_dirs(project_path: Path) -> list[tuple[int, Path]]:
             continue
         dirs.append((int(suffix), episode_dir))
     return dirs
-
-
-def _draft_paths(project_path: Path) -> list[tuple[str, Path]]:
-    """可能在场的草稿文件（状态键 → 路径）；各集各来源都列出，文件是否存在由调用方判定。"""
-    return [
-        (draft_state_key(episode, kind), episode_dir / quarantine_filename(kind))
-        for episode, episode_dir in _episode_draft_dirs(project_path)
-        for kind in DOC_TYPE_TO_QUARANTINE_KIND.values()
-    ]
 
 
 def _script_plan_paths(project_path: Path) -> list[tuple[str, Path]]:
@@ -110,7 +99,6 @@ def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
     return ProjectState(
         project=project,
         scripts=scripts,
-        drafts=_read_file_digests(_draft_paths(project_path)),
         script_plans=_read_file_digests(_script_plan_paths(project_path)),
     )
 
@@ -137,7 +125,6 @@ def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputSt
     scripts_dir = project_path / "scripts"
     if scripts_dir.exists():
         candidates.extend((f"scripts/{path.name}", path) for path in sorted(scripts_dir.glob("*.json")))
-    candidates.extend((f"drafts:{key}", path) for key, path in _draft_paths(project_path))
     candidates.extend((f"script_plans:{key}", path) for key, path in _script_plan_paths(project_path))
     stamp: list[tuple[str, FileIdentity]] = []
     for label, path in candidates:

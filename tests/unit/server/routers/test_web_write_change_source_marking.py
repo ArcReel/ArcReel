@@ -38,7 +38,6 @@ _EXEMPT: dict[str, str] = {
     "asset_sheets:submit_asset_sheet_batch_route": _TASK,
     "edit_timelines:export_jianying_draft": _TASK,
     "edit_timelines:render_final_cut": _TASK,
-    "episode_drafts:repair_episode_draft": _TASK,
     "episode_planning:continue_replan": _TASK,
     "episode_planning:plan_episodes_to_end": _TASK,
     "episode_planning:start_replan": _TASK,

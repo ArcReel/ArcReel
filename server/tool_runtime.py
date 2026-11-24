@@ -38,12 +38,8 @@ from lib.db.repositories.task_repo import TaskNotCancellableError
 from lib.episode.episode_ids import describe_episode_for_agent, episode_position
 from lib.episode.episode_ledger import is_derived_episode_name, normalize_source_text
 from lib.episode.episode_paths import (
-    DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
-    NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
-    REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
     REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
-    REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
     SCRIPT_PLAN_FILENAMES,
     SCRIPT_PLAN_LEGACY_FILENAMES,
     episode_source_path,
@@ -162,7 +158,6 @@ from lib.project.project_migration_failure import (
 from lib.project.project_migration_guard import project_migration_failure
 from lib.project.project_migrations import migrate_project_with_verdict
 from lib.project.source_revision import SourceScope, compute_source_revision
-from lib.script.draft_violation import DraftViolation
 from lib.script.patch_operations import (
     PatchInsertOperation,
     PatchMoveOperation,
@@ -216,25 +211,11 @@ from lib.workflow.workflow_plan import (
     EPISODE_PLANNING_NEXT_SLOT,
     EPISODE_PLANNING_SLOT,
     EPISODE_PLANNING_SLOTS,
-    TEXT_DRAFT_REPAIR_TASK_TYPE,
     WorkflowPlan,
     WorkflowPlanRequest,
-    draft_repair_resource_id,
 )
 from lib.workflow.workflow_state import WorkflowRequestError, planning_docs
-from server.draft_repair import DraftRepair
-from server.draft_workflow import (
-    EPISODE_ID_DESCRIPTION,
-    DiscardDraftRequest,
-    DraftContext,
-    DraftDocType,
-    DraftLocator,
-    DraftWorkflow,
-    DraftWorkflowError,
-    PatchDraftRequest,
-    PositiveEpisode,
-    PromoteDraftRequest,
-)
+from server.episode_params import EPISODE_ID_DESCRIPTION, PositiveEpisode
 from server.services.admission.image_references import project_image_lane
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
 from server.services.admission.video_batch_admission import generation_action_for
@@ -249,7 +230,6 @@ from server.text_generation import (
     MAX_INSTRUCTIONS_LEN,
     SCOPE_REMOVED_MESSAGE,
     AdScriptRejectedError,
-    DraftQuarantinedError,
     OperationNotAdmittedError,
     PromptAuthoringInputError,
     PromptOverwriteRequiredError,
@@ -701,8 +681,6 @@ async def _run_text_generation(
         )
     except UnexpectedTextGenerationError as exc:
         return ToolOutcome(problem=_unexpected_text_failure_problem(str(exc), exc))
-    except DraftQuarantinedError as exc:
-        return ToolOutcome(problem=_draft_generation_problem(str(exc), exc.count))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except NoAvailableProviderError as exc:
@@ -713,19 +691,11 @@ async def _run_text_generation(
         return ToolOutcome(problem=_unexpected_text_failure_problem(f"{operation} 失败: {exc}", exc))
 
 
-def _draft_generation_problem(detail: str, count: int) -> ToolProblem:
-    return ToolProblem("draft_generation_invalid", detail, action=GenerationAction.FIX_INPUT, params={"count": count})
-
-
 def _unexpected_text_failure_problem(detail: str, cause: BaseException) -> ToolProblem:
     """生成中的意外异常：供应商真正拒绝了内容或输入时归为拒绝（修改输入），其余按任务失败重试，与图片任务一致。"""
     if is_database_failure(cause):
         logging.getLogger(__name__).error("文本生成数据库异常", exc_info=cause)
         return ToolProblem("internal_server_error", "internal_server_error", action=GenerationAction.RETRY)
-    if isinstance(cause, DraftViolation) and cause.code == "quarantined" and cause.params is not None:
-        count = cause.params.get("count")
-        if type(count) is int:
-            return _draft_generation_problem(detail, count)
     if is_provider_refusal(cause):
         return ToolProblem("generation_refused", detail)
     return ToolProblem(GenerationProblemCode.TASK_FAILED.value, detail, action=GenerationAction.RETRY)
@@ -833,8 +803,6 @@ async def _submit_text_task(
         result = task.get("result") or {}
         if task_type == _TEXT_EPISODE_PLAN:
             return ToolOutcome(value=PlanEpisodesResult.model_validate(result))
-        if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
-            return ToolOutcome(value=DraftRepairResult.model_validate(result))
         if task_type == _TEXT_EPISODE_SCRIPT and "outcome" in result:
             return ToolOutcome(value=ReferenceAuthoringResult(**result))
         return ToolOutcome(value=TextGenerationResult(**result))
@@ -1160,10 +1128,6 @@ _SCRIPT_PLAN_BUSINESS_FILENAMES = frozenset(
         *(name for names in SCRIPT_PLAN_LEGACY_FILENAMES.values() for name in names),
         REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
         REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
-        DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
-        NARRATION_SCRIPT_PLAN_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
-        REFERENCE_VIDEO_PROMPT_AUTHORING_QUARANTINE_FILENAME,
     }
 )
 
@@ -1491,200 +1455,6 @@ async def read_project_file(
         return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=path, content=content))
     except Exception as exc:
         return ToolOutcome(problem=_file_problem("read_project_file", exc))
-
-
-def _draft_workflow(scope: ProjectScope, services: Services) -> DraftWorkflow:
-    return DraftWorkflow(
-        DraftContext(
-            project_name=scope.project_name,
-            data_root=scope.data_root,
-            pm=services.projects,
-            config_resolver=services.capabilities,
-        )
-    )
-
-
-async def _run_draft(
-    call: Awaitable[dict[str, Any]], *, notice_as_problem: bool = False
-) -> ToolOutcome[dict[str, Any]]:
-    """``notice_as_problem`` 为真时，带文案 key 的草稿错误以该 key 为问题码、按修改输入呈现（任务失败原因用）。"""
-    try:
-        return ToolOutcome(value=await call)
-    except DraftWorkflowError as exc:
-        if exc.failure is not None:
-            return ToolOutcome(problem=video_facts_problem(exc.failure, exc.detail))
-        if notice_as_problem and exc.notice_key is not None:
-            return ToolOutcome(
-                problem=ToolProblem(
-                    exc.notice_key, exc.detail, action=GenerationAction.FIX_INPUT, params=dict(exc.notice_params)
-                )
-            )
-        return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
-    except TextOutputTruncatedError as exc:
-        return ToolOutcome(problem=truncation_problem(exc))
-    except NoAvailableProviderError as exc:
-        return ToolOutcome(problem=no_available_provider_problem(exc))
-    except ModelNotInCatalogError as exc:
-        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
-    except Exception as exc:
-        return ToolOutcome(problem=ToolProblem("internal_error", str(exc)))
-
-
-async def open_draft(
-    request: ToolRequest[DraftLocator],
-    scope: ProjectScope,
-    _caller: CallerContext,
-    services: Services,
-) -> ToolOutcome[dict[str, Any]]:
-    locator = request.value
-    return await _run_draft(_draft_workflow(scope, services).open(locator.episode_id, locator.doc_type, locator.source))
-
-
-async def patch_draft(
-    request: ToolRequest[PatchDraftRequest],
-    scope: ProjectScope,
-    _caller: CallerContext,
-    services: Services,
-) -> ToolOutcome[dict[str, Any]]:
-    patch = request.value
-    return await _run_draft(
-        _draft_workflow(scope, services).patch(
-            patch.episode_id,
-            patch.doc_type,
-            patch.content,
-            patch.base_revision,
-            accept_formal_revision=patch.accept_formal_revision,
-            accepts_formal_revision="accept_formal_revision" in patch.model_fields_set,
-            source=patch.source,
-            updates_source="source" in patch.model_fields_set,
-        )
-    )
-
-
-async def promote_draft(
-    request: ToolRequest[PromoteDraftRequest],
-    scope: ProjectScope,
-    _caller: CallerContext,
-    services: Services,
-) -> ToolOutcome[dict[str, Any]]:
-    promotion = request.value
-    return await _run_draft(
-        _draft_workflow(scope, services).promote(
-            promotion.episode_id,
-            promotion.doc_type,
-            promotion.base_revision,
-        )
-    )
-
-
-async def discard_draft(
-    request: ToolRequest[DiscardDraftRequest],
-    scope: ProjectScope,
-    _caller: CallerContext,
-    services: Services,
-) -> ToolOutcome[dict[str, Any]]:
-    discard = request.value
-    return await _run_draft(
-        _draft_workflow(scope, services).discard(discard.episode_id, discard.doc_type, discard.base_revision)
-    )
-
-
-class RepairDraftRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
-    doc_type: DraftDocType = Field(description="待修复草稿对应的文档，取值同 open_draft")
-    base_revision: str = Field(
-        description="读取草稿时拿到的 revision；带 sha256-v1: 前缀与裸 hex 两种写法等价；修复写回前按它校验草稿未被改动"
-    )
-    instructions: _TextInstructions | SkipJsonSchema[None] = None
-
-
-class DraftRepairResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    message: str
-    episode_id: int
-    doc_type: str
-    adopted: bool = Field(description="违约已清零、草稿已采用为正式内容")
-    violation_count: int = Field(description="未采用时草稿里剩余的违约数；采用时为 0")
-
-
-async def repair_draft(
-    request: ToolRequest[RepairDraftRequest],
-    scope: ProjectScope,
-    caller: CallerContext,
-    services: Services,
-) -> ToolOutcome[Any]:
-    """AI 修复待修复草稿：预检通过后以排队文本任务提交，修完照常重判，违约清零即采用。"""
-    value = request.value
-    try:
-        await _draft_repair(scope, services).check(value.episode_id, value.doc_type, value.base_revision)
-    except DraftWorkflowError as exc:
-        return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
-    except Exception as exc:
-        return ToolOutcome(problem=_unexpected("repair_draft", exc))
-    return await _submit_text_task(
-        task_type=TEXT_DRAFT_REPAIR_TASK_TYPE,
-        operation="repair_draft",
-        unit_id=draft_repair_resource_id(value.episode_id, value.doc_type),
-        payload=value.model_dump(mode="json"),
-        scope=scope,
-        caller=caller,
-        services=services,
-    )
-
-
-_DRAFT_REPAIR_FAILURE_KEYS: dict[str, str] = {
-    "draft_not_found": "draft_not_found",
-    "invalid_request": "draft_doc_type_not_applicable",
-    "doc_type_not_applicable": "draft_doc_type_not_applicable",
-    "revision_conflict": "draft_revision_conflict",
-    "formal_revision_conflict": "draft_formal_revision_conflict",
-    "draft_agent_owned": "draft_agent_owned",
-    "script_plan_confirmed": "script_review_script_plan_confirmed",
-    "draft_repair_failed": "draft_repair_failed",
-}
-
-
-def _draft_repair(scope: ProjectScope, services: Services) -> DraftRepair:
-    return DraftRepair(_draft_workflow(scope, services).ctx)
-
-
-async def _execute_draft_repair(
-    request: RepairDraftRequest, scope: ProjectScope, services: Services
-) -> ToolOutcome[DraftRepairResult]:
-    outcome = await _run_draft(
-        _draft_repair(scope, services).repair(
-            request.episode_id, request.doc_type, request.base_revision, request.instructions
-        ),
-        notice_as_problem=True,
-    )
-    if outcome.problem is not None and outcome.problem.action is not None:
-        return ToolOutcome(problem=outcome.problem)
-    if outcome.problem is not None:
-        key = _DRAFT_REPAIR_FAILURE_KEYS.get(outcome.problem.code, "draft_save_failed")
-        params = {"episode": request.episode_id} if key == "draft_not_found" else None
-        return ToolOutcome(problem=ToolProblem(key, outcome.problem.detail, params=params))
-    saved = outcome.value or {}
-    adopted = bool(saved.get("adopted"))
-    draft = saved.get("draft")
-    violations = draft.get("violations") if isinstance(draft, dict) else None
-    count = 0 if adopted else len(violations) if isinstance(violations, list) else 0
-    message = (
-        f"✅ AI 修复后违约已清零，集（id={request.episode_id}）{request.doc_type} 草稿已采用为正式内容"
-        if adopted
-        else f"AI 修复已写回集（id={request.episode_id}）{request.doc_type} 草稿，仍有 {count} 条违约待处理"
-    )
-    return ToolOutcome(
-        value=DraftRepairResult(
-            message=message,
-            episode_id=request.episode_id,
-            doc_type=request.doc_type,
-            adopted=adopted,
-            violation_count=count,
-        )
-    )
 
 
 class CreateProjectToolRequest(BaseModel):
@@ -3356,9 +3126,7 @@ async def execute_queued_text_task(
         scope = ProjectScope(project_name=str(task["project_name"]), data_root=DataRootLayout.current().root)
         services = services or Services.defaults(await asyncio.to_thread(ProjectManager, scope.data_root))
     task_type = task["task_type"]
-    if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
-        outcome = await _execute_draft_repair(RepairDraftRequest.model_validate(payload), scope, services)
-    elif task_type == _TEXT_EPISODE_PLAN and isinstance(payload.get("replan"), str):
+    if task_type == _TEXT_EPISODE_PLAN and isinstance(payload.get("replan"), str):
         outcome = await _execute_replan_window(
             str(payload["replan"]),
             payload.get("instructions"),
@@ -3951,8 +3719,6 @@ __all__ = [
     "CompleteScriptPlanRebuildRequest",
     "ConfirmScriptReviewRequest",
     "CreateProjectToolRequest",
-    "DiscardDraftRequest",
-    "DraftLocator",
     "EditSourceTextRequest",
     "EpisodeScriptContent",
     "EpisodeScriptRequest",
@@ -3961,7 +3727,6 @@ __all__ = [
     "GenerationBatchToolRequest",
     "MergeAssetRequest",
     "NoArguments",
-    "PatchDraftRequest",
     "PatchEpisodeMetaRequest",
     "PatchEpisodeScriptRequest",
     "PatchProjectRequest",
@@ -3973,7 +3738,6 @@ __all__ = [
     "ProjectFileRequest",
     "ProjectFilesContent",
     "ProjectScope",
-    "PromoteDraftRequest",
     "PromptPreviewRequest",
     "RenameAssetRequest",
     "ResetEpisodePlanningRequest",
@@ -4000,7 +3764,6 @@ __all__ = [
     "complete_script_plan_rebuild",
     "confirm_script_review",
     "create_project",
-    "discard_draft",
     "edit_source_text",
     "generate_episode_script",
     "generate_script_plan",
@@ -4017,14 +3780,11 @@ __all__ = [
     "list_projects",
     "list_source_files",
     "merge_asset",
-    "open_draft",
-    "patch_draft",
     "patch_episode_meta",
     "patch_episode_script",
     "patch_project",
     "patch_script_plan",
     "plan_episodes",
-    "promote_draft",
     "read_project_file",
     "rename_asset",
     "reset_episode_planning",

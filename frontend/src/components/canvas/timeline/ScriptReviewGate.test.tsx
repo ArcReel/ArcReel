@@ -53,7 +53,6 @@ function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewSta
     confirmed_at: null,
     blocking_issues: [],
     soft_violations: [],
-    quarantine: null,
     supported_durations: null,
     duration_tiers: null,
     episode_target_duration: null,
@@ -100,7 +99,6 @@ function narrationState(overrides: Partial<ScriptReviewState> = {}): ScriptRevie
     confirmed_at: null,
     blocking_issues: [],
     soft_violations: [],
-    quarantine: null,
     supported_durations: null,
     duration_tiers: null,
     episode_target_duration: null,
@@ -469,13 +467,7 @@ describe("ScriptReviewGate", () => {
     expect(screen.getByRole("img", { name: "分镜 1" })).toBeInTheDocument();
   });
 
-  it("renders item-level and episode-level blocking issues plus soft violations, refreshes on intermediate saves, unlocks confirm when cleared, and never calls /drafts", async () => {
-    const listDrafts = vi.spyOn(API, "listEpisodeDrafts");
-    const getDraft = vi.spyOn(API, "getEpisodeDraft");
-    const saveDraft = vi.spyOn(API, "saveEpisodeDraft");
-    const repairDraft = vi.spyOn(API, "repairEpisodeDraft");
-    const discardDraft = vi.spyOn(API, "discardEpisodeDraft");
-
+  it("renders item-level and episode-level blocking issues plus soft violations, refreshes on intermediate saves, unlocks confirm when cleared", async () => {
     const initialSegment = { ...NARRATION_SEGMENT, novel_text: "" };
     const initial = narrationState({
       content: { segments: [initialSegment] },
@@ -486,15 +478,6 @@ describe("ScriptReviewGate", () => {
       soft_violations: [
         { code: "long_text", params: {}, item_index: 0, item_id: "E1S01", message: "E1S01 的原文偏长" },
       ],
-      quarantine: {
-        doc_type: "narration_script_plan",
-        revision: "legacy-rev",
-        editable_by: "agent",
-        content: null,
-        violations: [],
-        soft_violations: [],
-        formal_exists: true,
-      },
     });
     const afterIntermediateSave = narrationState({
       fingerprint: "fp2",
@@ -571,11 +554,6 @@ describe("ScriptReviewGate", () => {
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
     expect(await screen.findByRole("button", { name: "已确认" })).toBeDisabled();
 
-    expect(listDrafts).not.toHaveBeenCalled();
-    expect(getDraft).not.toHaveBeenCalled();
-    expect(saveDraft).not.toHaveBeenCalled();
-    expect(repairDraft).not.toHaveBeenCalled();
-    expect(discardDraft).not.toHaveBeenCalled();
   });
 
   it("shows episode-level blocking issues clearly for an empty drama plan and prefills patch_script_plan for the Agent", async () => {

@@ -180,42 +180,6 @@ export interface DraftSoftViolation {
   message: string;
 }
 
-export type DraftDocType =
-  | "drama_script_plan"
-  | "narration_script_plan"
-  | "reference_script_plan"
-  | "reference_prompt_authoring";
-
-export type DraftOwner = "user" | "agent";
-
-export interface ScriptReviewQuarantine {
-  doc_type: DraftDocType;
-  revision: string | null;
-  editable_by: DraftOwner;
-  content: Record<string, unknown> | null;
-  violations: ScriptReviewViolation[];
-  soft_violations: DraftSoftViolation[];
-  formal_exists: boolean;
-}
-
-export interface EpisodeDraftView extends ScriptReviewQuarantine {
-  episode: number;
-  item_ids: string[] | null;
-}
-
-export interface EpisodeDraftSummary {
-  doc_type: DraftDocType;
-  editable_by: DraftOwner;
-  violation_count: number;
-}
-
-export interface SaveEpisodeDraftResult {
-  episode: number;
-  doc_type: DraftDocType;
-  adopted: boolean;
-  draft: EpisodeDraftView | null;
-}
-
 
 export interface ReferenceUnitPromptPreview extends RenderedPromptPreview {
   references: { type: AssetKind; name: string; path: string }[];

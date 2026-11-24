@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable, Collection, Mapping, Sequence
-from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -18,7 +17,6 @@ from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
 )
 from lib.artifacts.artifact_provenance import ScriptPlanPromptVariant, build_script_plan_request
-from lib.artifacts.formal_write import formal_write_transaction
 from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextOutputTruncatedError, TextTaskType
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
@@ -42,7 +40,6 @@ from lib.generation.video_request_facts import (
 )
 from lib.i18n import _ as translate
 from lib.infra.async_thread import run_noninterruptible_async, run_noninterruptible_sync, run_sync_transaction
-from lib.infra.content_digest import prefixed_sha256_file
 from lib.infra.json_io import load_json_or_none
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.schema_guards import is_int, is_str
@@ -52,18 +49,7 @@ from lib.project.project_manager import ProjectManager, find_episode, is_referen
 from lib.prompts.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompts.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.script import script_review
-from lib.script.draft_quarantine import (
-    PROMOTE_TOOL_NAME,
-    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-    QUARANTINE_KIND_PROMPT_AUTHORING,
-    QUARANTINE_KIND_SCRIPT_PLAN,
-    clear_quarantine,
-    quarantine_path,
-    read_quarantine,
-    violation_entries,
-)
-from lib.script.draft_violation import DraftViolation
+from lib.script.draft_violation import DraftViolation, violation_entries
 from lib.script.item_ids import ItemIdIssuer, max_item_number, raise_item_id_high_water
 from lib.script.plan_new_assets import (
     NEW_ASSETS_FIELD,
@@ -169,14 +155,6 @@ class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
 
 
-class DraftQuarantinedError(TextGenerationError):
-    """违约产出已存为待修复草稿；消息保持 Agent 报告原文，计数供任务摘要使用。"""
-
-    def __init__(self, report: str, count: int) -> None:
-        super().__init__(report)
-        self.count = count
-
-
 class UnexpectedTextGenerationError(TextGenerationError):
     """生成过程中的意外失败，原异常在 ``__cause__``：调用方据此区分供应商拒绝与可重试的任务失败。"""
 
@@ -236,28 +214,6 @@ class ScriptOverwriteRequiredError(TextGenerationError):
         self.overwrite = overwrite
 
 
-def _draft_file_revision(path: Path) -> str | None:
-    try:
-        return prefixed_sha256_file(path)
-    except FileNotFoundError:
-        return None
-
-
-def _generation_baselines(
-    draft_path: Path,
-    formal_path: Path,
-) -> tuple[str | None, str | None]:
-    return _draft_file_revision(draft_path), script_review.content_fingerprint(formal_path)
-
-
-def _assert_draft_revision(path: Path, expected: str | None) -> None:
-    actual = _draft_file_revision(path)
-    if actual != expected:
-        raise TextGenerationError(
-            f"draft_revision_conflict: draft changed during generation; expected {expected}, actual {actual}。{_PRESERVED_PLAN}"
-        )
-
-
 _PRESERVED_PLAN = "原规划已保留。待确认时可继续编辑，也可调整指令后重新生成。"
 
 
@@ -315,7 +271,6 @@ async def _commit_generated_plan(
     content: dict[str, Any],
     project: dict[str, Any],
     resolver: ConfigResolver,
-    draft_baseline: str | None,
     formal_baseline: str | None,
     basis: ArtifactBasis,
     before_commit: Callable[[], None] | None = None,
@@ -331,23 +286,11 @@ async def _commit_generated_plan(
 
     def commit() -> tuple[ScriptPlanValidation, str]:
         path = script_review.script_plan_path(project_path, project, episode)
-        draft = script_review.script_plan_quarantine_path(project_path, project, episode)
         assert path is not None
-        assert draft is not None
         pm = ProjectManager.for_project_dir(project_path)
-        dependent = (
-            quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-            if kind == "reference_video"
-            else None
-        )
         if before_commit:
             before_commit()
-        with (
-            pm.file_lock(draft),
-            pm.file_lock(dependent) if dependent else nullcontext(),
-            script_review.formal_script_plan_lock(project_path, episode, path),
-        ):
-            _assert_draft_revision(draft, draft_baseline)
+        with script_review.formal_script_plan_lock(project_path, episode, path):
             try:
                 script_review.assert_base_fingerprint(path, formal_baseline)
             except script_review.ScriptPlanWriteConflict as exc:
@@ -404,7 +347,6 @@ async def _commit_generated_plan(
                     content,
                     expected_fingerprint=formal_baseline,
                     basis=basis,
-                    dependent_quarantine=QUARANTINE_KIND_PROMPT_AUTHORING if dependent else None,
                     generated_from=project,
                     project_check=check_capabilities,
                     project_update=project_update,
@@ -466,31 +408,6 @@ async def reissue_plan_item_ids(
     issued = await run_sync_transaction(projects.reserve_item_ids, project_name, episode, kind, len(fresh))
     for item, item_id in zip(fresh, issued, strict=True):
         item[id_field] = item_id
-
-
-def commit_single_script_plan(
-    project_path: Path,
-    episode: int,
-    script_plan_path: Path,
-    kind: str,
-    content: dict[str, Any],
-    expected_fingerprint: Any,
-    basis: ArtifactBasis | None,
-) -> None:
-    draft_path = quarantine_path(project_path, episode, kind)
-    with (
-        script_review.formal_script_plan_lock(project_path, episode, script_plan_path),
-        formal_write_transaction(script_plan_path, draft_path),
-    ):
-        script_review.write_formal_script_plan_locked(
-            project_path,
-            episode,
-            script_plan_path,
-            content,
-            expected_fingerprint=expected_fingerprint,
-            basis=basis,
-        )
-        clear_quarantine(project_path, episode, kind)
 
 
 def _instructions(value: Any) -> str | None:
@@ -620,16 +537,10 @@ def load_script_plan_source_with_basis(
     project: dict[str, Any],
     episode: int,
     expected_variant: ScriptPlanPromptVariant,
-    *,
-    legacy_draft: bool = False,
 ) -> tuple[str, dict[str, object], ArtifactBasis]:
     """Freeze the exact source text and project semantics consumed by a script_plan request."""
 
-    novel_text = (
-        load_novel_source(project_path, source, episode=episode)
-        if legacy_draft
-        else _canonical_plan_source(project_path, project, episode, source)
-    )
+    novel_text = _canonical_plan_source(project_path, project, episode, source)
     prompt_inputs, basis = build_script_plan_request(
         novel_text,
         episode=episode,
@@ -666,19 +577,6 @@ def require_admitted(
     """准入不成立时拒绝：理由码与制作状态同源，文案只作转述；``detail`` 补充入口自己知道的处置方式。"""
     if not admission.admitted:
         raise OperationNotAdmittedError(operation, admission, _refusal_text(admission.reason, episode, detail))
-
-
-def _prompt_authoring_draft_action(project_path: Path, episode: int) -> str:
-    """提示词编写草稿在场时的处置方式：按草稿是否可读、是否带违约定位分别给出。"""
-    path = quarantine_path(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-    draft = read_quarantine(project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-    if draft is None:
-        action = translate("operation_draft_repair_envelope", tool=PROMOTE_TOOL_NAME)
-    elif draft.violations:
-        action = translate("operation_draft_repair_violations", tool=PROMOTE_TOOL_NAME)
-    else:
-        action = translate("operation_draft_finish", tool=PROMOTE_TOOL_NAME)
-    return translate("operation_draft_action", path=path.relative_to(project_path).as_posix(), action=action)
 
 
 def _ad_overwrite_error(
@@ -755,17 +653,12 @@ def prompt_authoring_preflight(
     admission = admit_author_prompts(
         formal_script=formal_present,
         pending_ids=content.pending_authoring_ids if content is not None else [],
-        draft_pending=not reference_authoring
-        and content is not None
-        and any(draft.kind == QUARANTINE_KIND_PROMPT_AUTHORING for draft in content.drafts),
         explicit_ids=entry_ids,
     )
     if reference_authoring and admission.reason is AdmissionReason.NO_PENDING_AUTHORING:
         return
     detail = ""
-    if admission.reason is AdmissionReason.PROMPT_AUTHORING_DRAFT_PENDING:
-        detail = _prompt_authoring_draft_action(project_path, episode)
-    elif admission.reason is AdmissionReason.NO_PENDING_AUTHORING:
+    if admission.reason is AdmissionReason.NO_PENDING_AUTHORING:
         redo = translate("operation_redo_ad" if content_mode == "ad" else "operation_redo_episode")
         detail = f"{translate('operation_rewrite_hint')}{redo}"
     require_admitted("author_prompts", admission, episode=episode, detail=detail)
@@ -1036,15 +929,8 @@ async def generate_drama_script_plan(
                 f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}\n\nPrompt 长度: {len(prompt)} 字符"
             )
 
-        draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
         script_plan_path = episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["drama"]
-        draft_locks = await asyncio.to_thread(ProjectManager.for_project_dir, project_path)
-        async with draft_locks.async_file_lock(draft_path):
-            draft_baseline, formal_baseline = await asyncio.to_thread(
-                _generation_baselines,
-                draft_path,
-                script_plan_path,
-            )
+        formal_baseline = await asyncio.to_thread(script_review.content_fingerprint, script_plan_path)
         schema = build_drama_script_plan_model(supported_durations)
         generator = await TextGenerator.create(
             TextTaskType.SCRIPT, project_name=project_name, purpose=CallPurpose.SCRIPT_GENERATION
@@ -1070,7 +956,6 @@ async def generate_drama_script_plan(
             content,
             project,
             config_resolver,
-            draft_baseline,
             formal_baseline,
             script_plan_basis,
         )
@@ -1178,7 +1063,6 @@ def soft_violation_entries(soft_violations: list[SoftViolation]) -> list[dict[st
     ]
 
 
-SOFT_VIOLATION_NOTE_QUARANTINED = "非违约、无需为此重改，草稿仍在场"
 SOFT_VIOLATION_NOTE_COMMITTED = "产物已落盘"
 
 
@@ -1299,15 +1183,8 @@ async def generate_reference_script_plan(
                 f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}\n\nPrompt 长度: {len(prompt)} 字符"
             )
 
-        draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
         formal_script_plan_path = script_review.official_reference_script_plan_path(project_path, episode)
-        draft_locks = await asyncio.to_thread(ProjectManager.for_project_dir, project_path)
-        async with draft_locks.async_file_lock(draft_path):
-            draft_baseline, formal_baseline = await asyncio.to_thread(
-                _generation_baselines,
-                draft_path,
-                formal_script_plan_path,
-            )
+        formal_baseline = await asyncio.to_thread(script_review.content_fingerprint, formal_script_plan_path)
         schema = build_reference_units_script_plan_model(split_caps.durations)
         generator = await TextGenerator.create(
             TextTaskType.SCRIPT, project_name=project_name, purpose=CallPurpose.SCRIPT_GENERATION
@@ -1337,7 +1214,6 @@ async def generate_reference_script_plan(
             content,
             project,
             config_resolver,
-            draft_baseline,
             formal_baseline,
             script_plan_basis,
             before_commit,
@@ -1412,15 +1288,8 @@ async def generate_narration_script_plan(
                 f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}\n\nPrompt 长度: {len(prompt)} 字符"
             )
 
-        draft_path = quarantine_path(project_path, episode, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
         script_plan_path = narration_script_plan_path(project_path, episode)
-        draft_locks = await asyncio.to_thread(ProjectManager.for_project_dir, project_path)
-        async with draft_locks.async_file_lock(draft_path):
-            draft_baseline, formal_baseline = await asyncio.to_thread(
-                _generation_baselines,
-                draft_path,
-                script_plan_path,
-            )
+        formal_baseline = await asyncio.to_thread(script_review.content_fingerprint, script_plan_path)
         schema = build_narration_script_plan_model(supported_durations)
         generator = await TextGenerator.create(
             TextTaskType.SCRIPT, project_name=project_name, purpose=CallPurpose.SCRIPT_GENERATION
@@ -1452,7 +1321,6 @@ async def generate_narration_script_plan(
             content,
             project,
             config_resolver,
-            draft_baseline,
             formal_baseline,
             script_plan_basis,
         )

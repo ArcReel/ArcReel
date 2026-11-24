@@ -12,7 +12,6 @@ import json
 import logging
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -72,23 +71,6 @@ from lib.prompts.prompt_builders_script import (
     build_drama_prompt,
     build_narration_prompt,
     render_drama_content_for_prompt_authoring,
-)
-from lib.script.draft_quarantine import (
-    PROMOTE_TOOL_NAME,
-    QUARANTINE_KIND_DRAMA_SCRIPT_PLAN,
-    QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
-    QUARANTINE_KIND_PROMPT_AUTHORING,
-    QUARANTINE_KIND_SCRIPT_PLAN,
-    clear_quarantine,
-    quarantine_and_report,
-    quarantine_path,
-    read_quarantine,
-)
-from lib.script.draft_violation import (
-    SCHEMA_ERROR_PARAM,
-    locate_violations,
-    locate_violations_by_id,
-    schema_violations,
 )
 from lib.script.item_excerpt import find_item
 from lib.script.item_ids import item_id_number
@@ -169,13 +151,6 @@ from lib.video_runtime.resolution import read_video_request_facts
 
 logger = logging.getLogger(__name__)
 
-
-class _UnsetExpectedFingerprint:
-    pass
-
-
-_UNSET_EXPECTED_FINGERPRINT = _UnsetExpectedFingerprint()
-
 _DURATION_ADAPTER = TypeAdapter(int)
 _DRAMA_DEFAULT_DURATION = DramaSceneContent.model_fields["duration_seconds"].default
 
@@ -229,13 +204,6 @@ class PromptAuthoringUnitRejected(ValueError):
         super().__init__(message)
         self.code = code
         self.params = params
-
-
-_FORMAL_UNIT_PROMOTION_KEYS: dict[str, str] = {
-    "prompt_authoring_dialogue_overload": "draft_formal_unit_dialogue_overload",
-    "prompt_authoring_duration_off_tier": "draft_formal_unit_duration_off_tier",
-    "prompt_authoring_unit_invalid": "draft_formal_unit_invalid",
-}
 
 
 class UnitDurationOffTier(ValueError):
@@ -1275,12 +1243,6 @@ class ScriptGenerator:
         """
         drafts_path = episode_drafts_dir(self.project_path, episode)
         script_plan_json = drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME
-        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
-        if quarantine.exists():
-            raise ValueError(
-                f"集（id={episode}）有待修复草稿（{quarantine}），脚本规划转换已中止；"
-                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
-            )
         if not script_plan_json.exists():
             legacy_md = drafts_path / REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME
             if legacy_md.exists():
@@ -1294,8 +1256,7 @@ class ScriptGenerator:
             )
 
         pm = ProjectManager.for_project_dir(self.project_path)
-        prompt_authoring_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        with pm.file_lock(prompt_authoring_path), pm.file_lock(script_plan_json):
+        with pm.file_lock(script_plan_json):
             try:
                 raw = json.loads(script_plan_json.read_text(encoding="utf-8"))
             except json.JSONDecodeError as e:
@@ -1349,12 +1310,6 @@ class ScriptGenerator:
         仅存在结构化前的旧 ``script_plan_segments.md`` 时给明确的「重跑拆分」报错——不写
         md→json 迁移器（旧 md 产于结构化中间态引入前、不含手工编辑）。
         """
-        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
-        if quarantine.exists():
-            raise ValueError(
-                f"集（id={episode}） script_plan 有草稿待处置（{quarantine}），脚本规划转换已中止；"
-                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
-            )
         drafts_path = episode_drafts_dir(self.project_path, episode)
         narration_json = SCRIPT_PLAN_FILENAMES["narration"]
         script_plan_json = drafts_path / narration_json
@@ -1418,12 +1373,6 @@ class ScriptGenerator:
         须在此 fail-fast，否则坏 script_plan 会被当成空剧本静默落盘、scene_id 撞键拖到产物文件名 / 资产键才暴露，
         或在 render/merge 阶段抛内部异常而非明确的 script_plan 校验错误。
         """
-        quarantine = quarantine_path(self.project_path, episode, QUARANTINE_KIND_DRAMA_SCRIPT_PLAN)
-        if quarantine.exists():
-            raise ValueError(
-                f"集（id={episode}）有待修复草稿（{quarantine}），脚本规划转换已中止；"
-                f"请先修改该草稿并经 {PROMOTE_TOOL_NAME} 晋升为正式 script_plan"
-            )
         raw = self._load_script_plan(episode)
         try:
             data = json.loads(raw)
@@ -1536,44 +1485,6 @@ class ScriptGenerator:
             "tiers": " / ".join(str(tier) for tier in exc.tiers),
         }
         return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_duration_off_tier", params=params)
-
-    def _formal_unit_promotion_violation(
-        self, targets: PromptAuthoringTargets, exc: DraftViolation | UnitDurationOffTier
-    ) -> DraftViolation:
-        """晋升前正式剧本单元没过预判时的违约：仍是 ``DraftViolation``（晋升照常报 ``draft_invalid``），按界面位置称呼单元。
-
-        问题码与参数沿用编写入口的同一份预判结果（``_unit_rejection`` / ``_duration_rejection``），换成草稿
-        晋升的文案 key：呈现层按 ``code`` 与 ``params`` 本地化。消息面向 Agent，同样按「视频单元 N」称呼，
-        不带内部单元 ID。违约定位不到正式剧本里的单元时原样保留消息。
-        """
-        rejection = (
-            self._duration_rejection(targets, exc)
-            if isinstance(exc, UnitDurationOffTier)
-            else self._unit_rejection(targets, exc)
-        )
-        if rejection is None:
-            return (
-                exc
-                if isinstance(exc, DraftViolation)
-                else DraftViolation(
-                    str(exc),
-                    code="duration_off_tier",
-                    params={"label": f"unit {exc.unit_id}", "duration": exc.duration_seconds, "tiers": exc.tiers},
-                )
-            )
-        params = {key: value for key, value in rejection.params.items() if key != "unit_id"}
-        unit_id = str(rejection.params["unit_id"])
-        code = _FORMAL_UNIT_PROMOTION_KEYS[rejection.code]
-        message = translate(code, **params)
-        if isinstance(exc, DraftViolation) and rejection.code == "prompt_authoring_unit_invalid":
-            label = f"视频单元 {params['position']}"
-            reasons = [
-                f"{label}{str(item)[len(item.label) :]}"
-                for item in violation_items(exc)
-                if item.item_id == unit_id and item.label and str(item).startswith(item.label)
-            ]
-            message += "".join(f"\n   - {reason}" for reason in reasons if unit_id not in reason)
-        return DraftViolation(message, code=code, params=params, item_id=unit_id)
 
     def _assert_reference_unit_text_valid(self, units: list[dict], *, max_refs: int | None) -> None:
         """按机器产物的严格口径预判正式脚本各 unit 正文，违约时把定位与出路指回时间线。
@@ -1908,56 +1819,6 @@ class ScriptGenerator:
         except ValidationError as e:
             raise ValueError(f"prompt_authoring 提示词编写结构校验失败: {e}") from e
 
-    def _merge_reference_visual(
-        self,
-        units: list[dict],
-        response_text: str,
-        episode: int,
-        *,
-        max_refs: int | None,
-    ) -> list[dict]:
-        """参考路径提示词编写合并：LLM 只出引用语法正文，按位写回待编写单元，其余字段原样保留。
-
-        保结构 diff 在此落地——unit 数与顺序、台词规范行逐字都以单元现有正文为准，提示词编写
-        只允许把画面描述写详细。任一项被改动即 fail-loud（``DraftViolation``），不静默接受：
-        台词配不上画面时正确的出路是在时间线上改单元正文，而不是让提示词编写自行改词。
-
-        逐 unit 的违约收齐后一次抛出（``DraftViolations``），供调用方把整份产出连同报告落到
-        待修复草稿——单条抛出会让 Agent 每修一个 unit 就要重跑一次付费的展开。
-        """
-        flat = self._parse_unit_texts(response_text, episode)
-        if len(flat.units) != len(units):
-            raise DraftViolation(
-                f"prompt_authoring 产出的 unit 数（{len(flat.units)}）与待编写单元数（{len(units)}）不一致；"
-                "prompt_authoring 只做提示词编写，不得合并、拆分或增删 unit",
-                code="unit_count_changed",
-                params={"actual": len(flat.units), "expected": len(units)},
-            )
-
-        authored: list[dict] = []
-        violations: list[DraftViolation] = []
-        for index, (unit, flat_unit) in enumerate(zip(units, flat.units, strict=True)):
-            label = f"unit {unit['unit_id']}"
-            try:
-                validate_unit_text(
-                    label,
-                    flat_unit.text,
-                    self.project_json,
-                    max_refs=max_refs,
-                    tolerated_speakers=dialogue_speakers(str(unit.get("text") or "")),
-                )
-                assert_dialogue_preserved(label, str(unit.get("text") or ""), flat_unit.text)
-            except DraftViolation as exc:
-                items = violation_items(exc)
-                locate_violations(items, item_index=index, item_id=str(unit["unit_id"]))
-                violations.extend(items)
-                continue
-            authored.append({**unit, "text": flat_unit.text})
-
-        if violations:
-            raise DraftViolations(violations)
-        return authored
-
     async def _author_ad_reference_units(
         self,
         episode: int,
@@ -2051,167 +1912,6 @@ class ScriptGenerator:
             **self._ad_prompt_common(episode, instructions),
             units=[item for item in targets.items if isinstance(item, dict)],
             target_ids=targets.ids,
-        )
-
-    def _promote_reference_prompt_authoring_draft_sync(
-        self,
-        episode: int,
-        facts: PlanningVideoFacts,
-        output_filename: str | None = None,
-        *,
-        expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
-        _prompt_authoring_lock_held: bool = False,
-    ) -> Path:
-        draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        pm = ProjectManager.for_project_dir(self.project_path)
-        prompt_authoring_lock = nullcontext() if _prompt_authoring_lock_held else pm.file_lock(draft_path)
-        with prompt_authoring_lock:
-            return self._promote_reference_prompt_authoring_draft_locked_sync(
-                episode,
-                facts,
-                output_filename,
-                expected_fingerprint=expected_fingerprint,
-            )
-
-    def _promote_reference_prompt_authoring_draft_locked_sync(
-        self,
-        episode: int,
-        facts: PlanningVideoFacts,
-        output_filename: str | None = None,
-        *,
-        expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
-    ) -> Path:
-        draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        if draft is None:
-            draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-            raise FileNotFoundError(
-                f"集（id={episode}）没有可晋升的 prompt_authoring 待修复草稿"
-                f"（{draft_path.relative_to(self.project_path).as_posix()} 缺失或内容不是合法信封）"
-            )
-
-        filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
-        raw_unit_ids = draft.meta.get("unit_ids")
-        unit_ids = (
-            [unit_id for unit_id in raw_unit_ids if isinstance(unit_id, str)]
-            if isinstance(raw_unit_ids, list)
-            else None
-        )
-        targets = self._load_prompt_authoring_targets(episode, filename, unit_ids, rewrite=True)
-        if targets is None:
-            raise FileNotFoundError(f"集（id={episode}）尚无正式脚本，无法晋升 prompt_authoring 待修复草稿")
-        if unit_ids is None:
-            targets = replace(targets, entries=tuple(item for item in targets.items if isinstance(item, dict)))
-        units = list(targets.entries)
-        try:
-            self._assert_reference_units_authorable(units, facts=facts)
-        except (DraftViolation, UnitDurationOffTier) as exc:
-            raise self._formal_unit_promotion_violation(targets, exc) from exc
-        max_refs = self._resolve_max_refs(facts)
-        try:
-            authored = self._merge_reference_visual(units, json.dumps(draft.content), episode, max_refs=max_refs)
-            if unit_ids is None:
-                changed = [
-                    (unit, merged)
-                    for unit, merged in zip(units, authored, strict=True)
-                    if merged["text"] != unit.get("text")
-                ]
-                targets = replace(targets, entries=tuple(unit for unit, _ in changed))
-                authored = [merged for _, merged in changed]
-            script_data = self._authored_script(
-                episode, targets, authored, reference_unit_durations=self._unit_durations(targets), facts=facts
-            )
-        except DraftViolation as exc:
-            violations = violation_items(exc)
-            locate_violations_by_id(violations, [str(unit.get("unit_id")) for unit in units])
-            raise DraftViolation(
-                quarantine_and_report(
-                    self.project_path,
-                    episode,
-                    QUARANTINE_KIND_PROMPT_AUTHORING,
-                    content=draft.content,
-                    violations=violations,
-                    meta=draft.meta,
-                ),
-                code="quarantined",
-            ) from exc
-        except ValueError as exc:
-            violations = (
-                schema_violations(exc.__cause__, draft.content, "units")
-                if isinstance(exc.__cause__, ValidationError)
-                else [
-                    DraftViolation(
-                        f"待修复草稿的 content 不符合 prompt_authoring 产出结构：{exc}",
-                        code="schema_invalid",
-                        params={
-                            "path": "content",
-                            "detail": "prompt_authoring",
-                            SCHEMA_ERROR_PARAM: {"type": "prompt_authoring_unreadable"},
-                        },
-                    )
-                ]
-            )
-            for violation in violations:
-                if violation.item_index is not None and violation.item_index < len(units):
-                    violation.item_id = str(units[violation.item_index]["unit_id"])
-            raise DraftViolation(
-                quarantine_and_report(
-                    self.project_path,
-                    episode,
-                    QUARANTINE_KIND_PROMPT_AUTHORING,
-                    content=draft.content,
-                    violations=violations,
-                    meta=draft.meta,
-                ),
-                code="quarantined",
-            ) from exc
-
-        pm = ProjectManager.for_project_dir(self.project_path)
-        if isinstance(expected_fingerprint, _UnsetExpectedFingerprint):
-            if "base_fingerprint" not in draft.meta:
-                raise DraftViolation(
-                    "reference prompt_authoring 草稿缺少生成时的正式剧本基线 base_fingerprint；无法安全晋升",
-                    code="formal_revision_missing",
-                    params={},
-                )
-            resolved_expected_fingerprint = cast(str | None, draft.meta["base_fingerprint"])
-        else:
-            resolved_expected_fingerprint = expected_fingerprint
-        output_path = pm.save_script(
-            self.project_path.name,
-            script_data,
-            filename,
-            validate=True,
-            expected_fingerprint=resolved_expected_fingerprint,
-        )
-        clear_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
-        self._quality_probe(script_data, episode)
-        return output_path
-
-    async def promote_reference_prompt_authoring_draft(
-        self,
-        episode: int,
-        output_filename: str | None = None,
-        *,
-        expected_fingerprint: str | _UnsetExpectedFingerprint | None = _UNSET_EXPECTED_FINGERPRINT,
-        _prompt_authoring_lock_held: bool = False,
-    ) -> Path:
-        """按产出时那套校验器全量重判 prompt_authoring 待修复草稿，通过则晋升为正式剧本并清除草稿。
-
-        重判用的是 ``_merge_reference_visual`` 本身，不是它的简化副本：晋升口径与产出口径必须
-        同一份代码，否则「晋升时放行、下次生成时被拒」这类分叉会重新出现。草稿对应的单元从正式剧本
-        重读——草稿在场期间用户可能在时间线上改过单元，保结构 diff 要对着现值判。
-
-        仍有违约时刷新草稿里的报告快照后抛出（``DraftViolation``），草稿留在原地供继续修改；
-        无收敛轮次上限。
-        """
-        facts = await self._fetch_video_request_facts()
-        return await run_sync_transaction(
-            self._promote_reference_prompt_authoring_draft_sync,
-            episode,
-            facts,
-            output_filename,
-            expected_fingerprint=expected_fingerprint,
-            _prompt_authoring_lock_held=_prompt_authoring_lock_held,
         )
 
     def _parse_response(self, response_text: str, episode: int) -> dict:

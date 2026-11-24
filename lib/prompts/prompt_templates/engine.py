@@ -67,7 +67,7 @@ class UserActionTrigger(_Trigger):
     """用户在界面上的一次操作直接触发渲染；``name`` 是操作名，``agent_session`` 指发起或恢复 Agent 会话。"""
 
     kind: Literal["user_action"]
-    name: Literal["source_overview", "style_analysis", "style_selection", "agent_session", "draft_repair"]
+    name: Literal["source_overview", "style_analysis", "style_selection", "agent_session"]
 
 
 class GenerationTaskTrigger(_Trigger):
