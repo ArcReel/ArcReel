@@ -670,6 +670,7 @@ async def execute_reference_video_task(
                     else None,
                     commit_formal_output=artifact_committer,
                     visual_basis_digest=visual_basis_digest,
+                    billed_audio=request_facts.generate_audio,
                     generate_audio=request_facts.requested_generate_audio,
                     poll_timeout_seconds=poll_timeout_seconds,
                     warnings=warnings,

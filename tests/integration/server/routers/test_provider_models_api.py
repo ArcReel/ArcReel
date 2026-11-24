@@ -1447,3 +1447,72 @@ async def test_single_save_validates_overrides_with_newly_bound_model_facts(mode
     assert saved.status_code == 200, saved.text
     effective = models_client.get(url).json()["capabilities"]["effective"]
     assert (effective["reference_audio_mode"], effective["max_reference_audio_count"]) == ("direct", 2)
+
+
+async def test_silent_dashscope_model_from_settings_to_billed_request(models_client, db_factory, tmp_path):
+    from dataclasses import replace
+
+    import httpx
+
+    from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+    from lib.backends.video_backends.registry import backend_metered_usage
+    from lib.billing.ledger import Ledger
+    from lib.config.resolver import ConfigResolver
+    from lib.db.models.api_call import ApiCall
+    from lib.generation.video_request_facts import VideoRequestCostFacts, VideoRequestFacts, audio_switch_conflict
+    from lib.video_runtime.resolution import read_video_request_facts
+    from server.services.admission.cost_estimation import quote_video_request
+    from tests.factories import image_bytes
+    from tests.http_capture import only_request, request_json
+
+    model = "relay-wan"
+    base = "/api/v1/providers/dashscope/models"
+    response = models_client.post(
+        base,
+        json={
+            "model_id": model,
+            "media_type": "video",
+            "endpoint": "dashscope-video",
+            "entry_binding": "google/veo-3.1-fast-generate-001",
+        },
+    )
+    assert response.status_code == 201, response.text
+    url = f"{base}/{model}"
+    assert models_client.patch(url, json={"capability_overrides": {"audio_track": "controllable"}}).status_code == 422
+    saved = models_client.patch(url, json={"capability_overrides": {"has_audio_track": False}})
+    assert saved.status_code == 200, saved.text
+    assert models_client.get(url).json()["capabilities"]["effective"]["has_audio_track"] is False
+    project = {"video_provider_i2v": f"dashscope/{model}", "video_generate_audio": False}
+    facts = await read_video_request_facts(
+        project, route="storyboard", generation_type="i2v", resolver=ConfigResolver(db_factory)
+    )
+    assert isinstance(facts, VideoRequestFacts)
+    assert audio_switch_conflict(facts) is None
+    cost = VideoRequestCostFacts(facts, 8, "16:9", has_first_frame=True)
+    quote = await quote_video_request(cost, db_factory)
+    assert quote is not None
+    assert quote.amount == pytest.approx(0.64)
+    first = tmp_path / "first.png"
+    first.write_bytes(image_bytes())
+    request = replace(cost.provider_request(), start_image=first, output_path=tmp_path / "clip.mp4")
+    backend = DashScopeVideoBackend(api_key="test", model=model)
+    ledger = Ledger(session_factory=db_factory)
+    async with ledger.record(project_name="demo", model=model, provider="dashscope", call_type="video") as call:
+        with capture_http(assert_all_called=True) as http:
+            submit = http.post(url__regex=r".*/video-synthesis$").mock(
+                return_value=httpx.Response(200, json={"output": {"task_id": "job"}})
+            )
+            http.get(url__regex=r".*/tasks/job$").mock(
+                return_value=httpx.Response(
+                    200, json={"output": {"task_status": "SUCCEEDED", "video_url": "https://cdn.test/video.mp4"}}
+                )
+            )
+            http.get("https://cdn.test/video.mp4").mock(return_value=httpx.Response(200, content=b"local-video"))
+            result = await backend.generate(request)
+            assert "audio" not in request_json(only_request(submit))["parameters"]
+        call.success(result, usage=backend_metered_usage(backend, request, result))
+    async with db_factory() as session:
+        row = await session.get(ApiCall, call.call_id)
+        assert row is not None
+        assert row.generate_audio is False
+        assert row.cost_amount == pytest.approx(quote.amount)

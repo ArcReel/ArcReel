@@ -36,7 +36,6 @@ from lib.backends.video_frame_slots import VideoCapabilityProbe, resolve_video_c
 from lib.capabilities.kernel import CapabilitySnapshot, Endpoint, RequestConditions
 from lib.catalog import query as catalog
 from lib.video_runtime.builtin import build_legacy_video
-from lib.video_runtime.builtin import builtin_video_metered_usage as builtin_video_metered_usage
 
 if TYPE_CHECKING:
     from arcreel_catalog_core import CatalogEntry

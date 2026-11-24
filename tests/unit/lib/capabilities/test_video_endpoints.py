@@ -81,6 +81,8 @@ def test_kling_multi_image_protocol_cannot_be_overridden_to_have_sound():
 def test_fixed_workflow_keeps_its_duration_reason_across_model_and_settings(frames, fps, reason):
     from lib.capabilities.kernel import FixedDuration
     from lib.custom_provider.capabilities import custom_video_snapshot
+    from lib.custom_provider.comfyui.request_builder import build_workflow
+    from lib.generation.video_request_facts import planning_durations, project_video_capabilities_with_facts
     from tests.factories import comfyui_endpoint_definition
 
     definition = comfyui_endpoint_definition()
@@ -107,6 +109,14 @@ def test_fixed_workflow_keeps_its_duration_reason_across_model_and_settings(fram
     assert model.effective["durations"] == ()
     assert view.effective["durations"] == []
     assert "durations" not in view.editable
+    payload, facts = project_video_capabilities_with_facts(model, {}, generation_type="i2v", requested_audio=True)
+    assert payload["supported_durations"] == payload["duration_constraints"]["allowed"] == []
+    assert payload["duration_endpoint_fixed"] is True
+    assert payload["duration_endpoint_fixed_reason"] == "endpoint"
+    assert planning_durations(facts) == [4, 8]
+    built = build_workflow(definition, prompt="p", aspect_ratio="16:9", duration_seconds=8)
+    assert built.frames is None
+    assert built.workflow["5"]["inputs"].get("frames") == frames
 
 
 def test_kling_keeps_tail_override_for_pro_and_applies_request_protocol():
@@ -257,7 +267,7 @@ def test_read_side_request_facts_match_frozen_baseline():
             generation_type=bucket,
             requested_audio=True,
         )
-        assert asdict(facts) == {
+        assert {key: getattr(facts, key) for key in case["output"]} == {
             **case["output"],
             "supported_durations": tuple(case["output"]["supported_durations"]),
             "allowed_durations": tuple(case["output"]["allowed_durations"]),

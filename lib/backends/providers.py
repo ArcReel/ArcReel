@@ -81,12 +81,9 @@ def require_provider_pair(kind: str, backend: object | None, provider_id: str | 
 _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS = frozenset({"gemini-aistudio"})
 
 
-def video_audio_always_billed(provider_id: str) -> bool:
+def video_audio_always_billed(provider_id: str | None) -> bool:
     """该 provider 是否无视请求值恒按含音档出账。
 
-    AI Studio 的 Veo 请求不下发 ``generate_audio``（该开关仅存在于 Vertex 定价页，AI Studio
-    定价页无 audio-off 档），``GeminiVideoBackend`` 结算时对 ``backend_type != "vertex"`` 强制
-    True；这是 provider 级出账规则，registry 名 ``gemini`` 同时映射 aistudio / vertex，故按
-    provider_id 而非 backend 静态接口判定。
+    AI Studio 与 Vertex 共用 Veo 通道，但只有 AI Studio 恒按有声档计费。
     """
-    return provider_id in _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS
+    return provider_id is not None and provider_id in _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS

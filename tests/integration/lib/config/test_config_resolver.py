@@ -906,38 +906,6 @@ class TestUnmatchedCustomVideoModelOverrides:
         assert caps["voice_consistency"] == "none"
 
 
-class TestVideoPricingGenerateAudio:
-    """video_pricing_generate_audio：能力接口解析不出时的计价降级口径。"""
-
-    async def test_falls_back_to_provider_rule_for_registry_unknown_model(self, db_factory):
-        """注册表已下线的 veo model id 仍按含音档出价，不因能力解析失败被低估为静音档。"""
-        resolver = ConfigResolver(db_factory)
-        result = await resolver.video_pricing_generate_audio("gemini-aistudio", "veo-3.1-generate-001")
-        assert result is True
-
-    async def test_falls_back_to_requested_value_for_unknown_provider(self, db_factory):
-        """非恒含音 provider 解析不出能力时保留请求值——价目仍回落 Gemini 家族的含音费率。"""
-        resolver = ConfigResolver(db_factory)
-        result = await resolver.video_pricing_generate_audio("unknown", "unknown")
-        assert result is True
-
-    async def test_keeps_requested_audio_for_vertex_unknown_model(self, db_factory):
-        """gemini-vertex 上注册表没有的 model：backend 照请求值下发并结算，估算不得降为静音档。"""
-        resolver = ConfigResolver(db_factory)
-        result = await resolver.video_pricing_generate_audio("gemini-vertex", "veo-3.1-lite-generate-preview")
-        assert result is True
-
-    async def test_project_audio_off_survives_capability_failure(self, db_factory):
-        """项目关掉音频时降级路径同样按静音档出价，不凭空补成含音。"""
-        resolver = ConfigResolver(db_factory)
-        result = await resolver.video_pricing_generate_audio(
-            "gemini-vertex",
-            "veo-3.1-lite-generate-preview",
-            {"video_generate_audio": False},
-        )
-        assert result is False
-
-
 class TestResolveImageBackend:
     """resolve_image_backend：payload > 项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。"""
 

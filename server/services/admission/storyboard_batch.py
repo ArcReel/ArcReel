@@ -56,7 +56,12 @@ from lib.generation.generation_result import (
     GenerationTargetState,
     select_generation_targets,
 )
-from lib.generation.video_request_facts import VideoRequestCostFacts, VideoRequestFacts, VideoRequestFactsFailure
+from lib.generation.video_request_facts import (
+    VideoRequestCostFacts,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    end_frame_duration_failure,
+)
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.schema_guards import is_int
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
@@ -467,7 +472,7 @@ class StoryboardVideoBatchPlan:
     skips: tuple[BatchSkip, ...]
     specs: tuple[TaskSpec, ...]
     admission: BatchAdmission
-    video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None
+    facts_by_unit: Mapping[str, VideoRequestFacts | VideoRequestFactsFailure | None]
     durations: Mapping[str, int | None] = field(default_factory=dict)
     video_aspect_ratio: str = "16:9"
 
@@ -580,10 +585,16 @@ async def load_storyboard_video_batch_plan(
         return skips, candidates, specs, refused
 
     skips, candidates, specs, refused = await asyncio.to_thread(_build_specs)
-    facts = (
-        (video_request_facts or await storyboard_video_request_facts(loaded.project, config_resolver))
+    items_by_id = {str(storyboard_item_id(item, id_field)): item for item in candidates}
+    facts, end_frame_facts = (
+        await storyboard_video_request_facts(
+            loaded.project,
+            config_resolver,
+            has_end_frame=any(items_by_id[spec.resource_id].get("end_frame_image") for spec in specs),
+            base=video_request_facts,
+        )
         if specs
-        else None
+        else (None, None)
     )
     admission = await admit_storyboard_video_request(
         project_name=project_name,
@@ -599,8 +610,8 @@ async def load_storyboard_video_batch_plan(
         queue=queue,
         config_resolver=config_resolver,
         video_request_facts=facts,
+        end_frame_facts=end_frame_facts,
     )
-    items_by_id = {str(storyboard_item_id(item, id_field)): item for item in candidates}
     durations: dict[str, int | None] = {}
     for spec in specs:
         duration = items_by_id[spec.resource_id].get("duration_seconds")
@@ -612,7 +623,10 @@ async def load_storyboard_video_batch_plan(
         skips=tuple(skips),
         specs=tuple(specs),
         admission=admission,
-        video_request_facts=facts,
+        facts_by_unit={
+            spec.resource_id: end_frame_facts if items_by_id[spec.resource_id].get("end_frame_image") else facts
+            for spec in specs
+        },
         durations=durations,
         video_aspect_ratio=resolve_video_aspect_ratio(loaded.project),
     )
@@ -626,21 +640,19 @@ async def estimate_storyboard_video_batch_cost(
     请求事实不成立、目标没写计划秒数、读库失败或价目表算不出价的目标，都计入未定价。
     """
 
-    facts = plan.video_request_facts
-    if not plan.specs:
-        return BatchCostEstimate(total={}, unpriced_count=0)
-    durations = list(plan.durations.values())
-    if not isinstance(facts, VideoRequestFacts):
-        return BatchCostEstimate(total={}, unpriced_count=len(durations))
+    facts = next((f for f in plan.facts_by_unit.values() if isinstance(f, VideoRequestFacts)), None)
+    if facts is None:
+        return BatchCostEstimate(total={}, unpriced_count=len(plan.durations))
     try:
         async with session_factory() as session:
             source = await load_video_price_source(session, facts.provider_id, facts.model_id)
     except SQLAlchemyError:
-        return BatchCostEstimate(total={}, unpriced_count=len(durations))
+        return BatchCostEstimate(total={}, unpriced_count=len(plan.durations))
     total: dict[str, float] = {}
     unpriced = 0
-    for duration in durations:
-        if duration is None:
+    for unit_id, duration in plan.durations.items():
+        facts = plan.facts_by_unit[unit_id]
+        if duration is None or not isinstance(facts, VideoRequestFacts) or end_frame_duration_failure(facts, duration):
             unpriced += 1
             continue
         try:

@@ -237,24 +237,6 @@ def native_duration(definition: Mapping[str, Any]) -> int | None:
     return seconds
 
 
-def keeps_its_own_frame_count(definition: Mapping[str, Any]) -> bool:
-    """帧数入口都写着自己的帧数（字面值 > 1），而这些值凑不出一档原生时长。
-
-    这种图对外的声明正是「时长不由 ArcReel 驱动」——``endpoint_durations`` 为空、界面只读禁用、
-    规划层借一个默认秒数过关。填值层因此也不该按那个借来的时长改写帧数：81 帧 @ 24fps 换算成
-    4 秒会被写成 97 帧，一边说不驱动一边把片长改掉。两处对同一件事要给同一个答案。
-
-    ``length`` 还是 1 这类占位值不算「自己的帧数」：那种图没有片长可保，帧数照常由请求驱动。
-    """
-    bindings: Mapping[str, Any] = definition["bindings"]
-    workflow: Mapping[str, Any] = definition["workflow"]
-    targets = targets_of(bindings.get("frames"))
-    if not targets:
-        return False
-    literals = [value for target in targets if (value := int_literal_of(workflow, target)) is not None and value > 1]
-    return len(literals) == len(targets) and native_duration(definition) is None
-
-
 def default_supported_durations(definition: Mapping[str, Any]) -> list[int]:
     """ComfyUI 视频模型行的 ``supported_durations`` 默认集：只含这份 workflow 的原生时长。
 

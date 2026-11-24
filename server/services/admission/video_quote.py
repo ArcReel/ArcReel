@@ -21,7 +21,12 @@ from lib.generation.batch_admission import (
     UnitAdmissionTicket,
 )
 from lib.generation.generation_result import GenerationProblem
-from lib.generation.video_request_facts import VideoRequestCostFacts, VideoRequestFacts, VideoRequestFactsFailure
+from lib.generation.video_request_facts import (
+    VideoRequestCostFacts,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    end_frame_duration_failure,
+)
 from server.services.admission.cost_estimation import quote_video_request
 
 
@@ -236,7 +241,7 @@ def quote_sheet(
 
 
 async def quote_storyboard_video_units(
-    facts: VideoRequestFacts | VideoRequestFactsFailure | None,
+    facts_by_unit: Mapping[str, VideoRequestFacts | VideoRequestFactsFailure | None],
     durations: Mapping[str, object],
     *,
     aspect_ratio: str,
@@ -249,8 +254,9 @@ async def quote_storyboard_video_units(
 
     costs: dict[str, dict[str, object] | None] = {}
     for unit_id, value in durations.items():
+        facts = facts_by_unit[unit_id]
         duration = _positive_seconds(value)
-        if not isinstance(facts, VideoRequestFacts) or duration is None:
+        if not isinstance(facts, VideoRequestFacts) or duration is None or end_frame_duration_failure(facts, duration):
             costs[unit_id] = None
             continue
         quote = await quote_video_request(

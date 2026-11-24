@@ -7,7 +7,6 @@ import pytest
 from sqlalchemy import update
 
 from arcreel_market_core.video_backend_contract import VideoGenerationRequest, VideoGenerationResult
-from lib.backends.backend_assembly.specs import builtin_video_metered_usage
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.video_backends.ark import Seedance2VideoBackend
 from lib.catalog import query as catalog
@@ -23,6 +22,7 @@ from lib.script.reference_video.request_projection import (
     configured_reference_request_facts,
     project_reference_unit_request,
 )
+from lib.video_runtime.builtin import builtin_video_metered_usage
 from lib.video_runtime.resolution import read_video_request_facts
 from server.services.admission import cost_estimation
 from server.services.admission.cost_estimation import CostEstimationService, quote_video_request
@@ -455,7 +455,7 @@ class TestCostEstimationService:
     @pytest.mark.parametrize(
         ("has_audio_track", "controllable", "requested", "expected"),
         [
-            (True, False, False, True),
+            (True, False, False, False),
             (True, True, False, False),
             (False, False, True, True),
             (True, True, True, True),
@@ -1951,15 +1951,15 @@ class TestCostEstimationService:
         assert result["models"]["image"]["provider"] == "unknown"
         assert result["models"]["image"]["model"] == "unknown"
 
-    async def test_cost_estimation_does_not_hide_unexpected_resolution_error(self, db_factory, monkeypatch):
+    async def test_cost_estimation_does_not_hide_unexpected_identity_error(self, db_factory, monkeypatch):
         """意外的程序错误应暴露，而不是作为能力不可用生成伪报价。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
-        async def _raise(self, project, provider_id, model_id):
+        async def _raise(self, project, payload, *, generation_type):
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(ConfigResolver, "resolve_resolution", _raise)
+        monkeypatch.setattr(ConfigResolver, "resolve_video_backend", _raise)
 
         project_data = {
             "title": "Test",

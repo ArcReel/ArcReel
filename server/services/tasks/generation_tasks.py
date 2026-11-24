@@ -1291,6 +1291,7 @@ async def execute_video_task(
                 seed=seed,
                 service_tier=service_tier,
                 visual_basis_digest=visual_basis_digest,
+                billed_audio=request_facts.generate_audio,
                 generate_audio=requested_generate_audio,
                 poll_timeout_seconds=poll_timeout_seconds,
                 warnings=warnings,

@@ -343,6 +343,7 @@ class VideoGenerationRequest:
 
     service_tier: str = "default"
     seed: int | None = None
+    billed_audio: bool | None = None
 
 
 @dataclass

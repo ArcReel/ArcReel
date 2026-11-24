@@ -27,7 +27,10 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from PIL import Image
 
 if TYPE_CHECKING:
-    from arcreel_market_core.video_backend_contract import VideoAudioMode, VideoGenerationResult
+    from arcreel_market_core.video_backend_contract import (
+        VideoAudioMode,
+        VideoGenerationResult,
+    )
     from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource
     from lib.backends.audio_backends.base import AudioBackend
     from lib.backends.image_backends.base import ImageBackend
@@ -38,6 +41,7 @@ if TYPE_CHECKING:
 from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.backends.gemini_shared import RateLimiter
 from lib.backends.providers import CallPurpose, CallType, require_provider_pair
+from lib.backends.video_capabilities import billed_audio_for_request
 from lib.billing.ledger import Ledger
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
@@ -965,6 +969,7 @@ class MediaGenerator:
         commit_formal_output: Callable[[Path, Path, int, Mapping[str, Any]], PaidVersionCommit] | None = None,
         warnings: list[dict[str, Any]] | None = None,
         reference_sources: Mapping[str, Path] | None = None,
+        billed_audio: bool | None = None,
         **version_metadata,
     ) -> tuple[Path, int, Any, str | None]:
         """
@@ -1111,6 +1116,10 @@ class MediaGenerator:
         if before_formal_commit is not None and staged_output_path is None:
             raise ValueError("before_formal_commit requires formal video output")
 
+        if billed_audio is None:
+            billed_audio = billed_audio_for_request(
+                self._video_provider_id, video_caps, conditions.bucket, effective_generate_audio
+            )
         video_ref = None
         video_uri: str | None = None
         async with (
@@ -1123,7 +1132,7 @@ class MediaGenerator:
                 resolution=resolution,
                 duration_seconds=duration_int,
                 aspect_ratio=aspect_ratio,
-                generate_audio=effective_generate_audio,
+                generate_audio=effective_generate_audio if billed_audio is None else billed_audio,
                 provider=cast(str, self._video_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("video", resource_type, resource_id),
@@ -1199,6 +1208,7 @@ class MediaGenerator:
                     service_tier=version_metadata.get("service_tier", "default"),
                     seed=version_metadata.get("seed"),
                     video_capabilities=video_caps,
+                    billed_audio=billed_audio,
                 )
                 sent_request[:] = [request]
                 return video_backend.generate(request)
@@ -1335,6 +1345,7 @@ class MediaGenerator:
         )
         from lib.backends.video_backends.registry import backend_metered_usage
 
+        checkpoint_caps = VideoCapabilities(audio_track=audio_track) if audio_track is not None else None
         request = VideoGenerationRequest(
             prompt=prompt,
             output_path=backend_output_path,
@@ -1353,7 +1364,10 @@ class MediaGenerator:
             service_tier=version_metadata.get("service_tier", "default"),
             seed=version_metadata.get("seed"),
             submitted_base_url=submitted_base_url,
-            video_capabilities=VideoCapabilities(audio_track=audio_track) if audio_track is not None else None,
+            billed_audio=billed_audio_for_request(
+                self._video_provider_id, checkpoint_caps, "i2v", effective_generate_audio
+            ),
+            video_capabilities=checkpoint_caps,
         )
 
         try:

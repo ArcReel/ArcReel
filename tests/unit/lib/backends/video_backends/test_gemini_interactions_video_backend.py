@@ -321,7 +321,6 @@ class TestVertex:
 
         from arcreel_catalog_core import BuiltinProviderModel, parse_entry
         from lib.backends.backend_assembly import assemble_backend
-        from lib.backends.backend_assembly.specs import builtin_video_metered_usage
         from lib.catalog import query as catalog
         from lib.config.resolver import ConfigResolver
         from lib.config.service import ConfigService
@@ -329,6 +328,7 @@ class TestVertex:
             VideoRequestFacts,
             end_frame_duration_failure,
         )
+        from lib.video_runtime.builtin import builtin_video_metered_usage
         from lib.video_runtime.resolution import read_video_request_facts
         from tests.catalog_support import install_catalog
 
