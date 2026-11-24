@@ -221,7 +221,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         pushNotification(tRef.current("project_sync_failed", { message: errMsg(err) }), "warning"),
     });
     if (queuedFocusRef.current === focusSnapshot) {
-      flushQueuedFocus();
+      if (result === "success") {
+        flushQueuedFocus();
+      } else {
+        queuedFocusRef.current = null;
+      }
     }
     return result;
   }, [flushQueuedFocus, projectName, pushNotification]);

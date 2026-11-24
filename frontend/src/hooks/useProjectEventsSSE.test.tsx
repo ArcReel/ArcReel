@@ -401,6 +401,195 @@ describe("useProjectEventsSSE", () => {
     expect(useAppStore.getState().workspaceNotifications.map((n) => n.text).join("\n")).not.toContain("已删除");
   });
 
+  it("does not navigate or scroll and clears stale focus when refresh fails with a non-null focus target", async () => {
+    vi.spyOn(API, "getProject")
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockResolvedValueOnce(makeGetProjectResult("Recovered"));
+    const stream = mockProjectEventStream();
+
+    renderHarness("/");
+    act(() => {
+      stream.options?.onChanges?.({
+        project_name: "demo",
+        batch_id: "batch-fail-focus",
+        fingerprint: "fp-fail-focus",
+        generated_at: "2026-03-01T00:00:00Z",
+        source: "filesystem",
+        changes: [
+          {
+            entity_type: "character",
+            action: "created",
+            entity_id: "hero",
+            label: "角色「hero」",
+            focus: { pane: "characters", anchor_type: "character", anchor_id: "hero" },
+            important: true,
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.tone).toBe("warning");
+    });
+    expect(useAppStore.getState().toast?.text).toContain("network down");
+    expect(screen.getByTestId("location")).toHaveTextContent("/");
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(1);
+    expect(useAppStore.getState().workspaceNotifications[0]).toEqual(
+      expect.objectContaining({ tone: "warning", target: null }),
+    );
+
+    act(() => {
+      stream.options?.onSnapshot?.({
+        project_name: "demo",
+        fingerprint: "fp-recovered",
+        generated_at: "2026-03-01T00:00:01Z",
+      });
+    });
+
+    await waitFor(() => {
+      expect(API.getProject).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent("/");
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+  });
+
+  it("stays silent and clears stale focus when refresh is cancelled with a non-null focus target", async () => {
+    const refreshSpy = vi
+      .spyOn(useProjectsStore.getState(), "refreshProject")
+      .mockResolvedValueOnce("cancelled")
+      .mockResolvedValueOnce("success");
+    const stream = mockProjectEventStream();
+
+    renderHarness("/");
+    act(() => {
+      stream.options?.onChanges?.({
+        project_name: "demo",
+        batch_id: "batch-cancel-focus",
+        fingerprint: "fp-cancel-focus",
+        generated_at: "2026-03-01T00:00:00Z",
+        source: "filesystem",
+        changes: [
+          {
+            entity_type: "character",
+            action: "created",
+            entity_id: "hero",
+            label: "角色「hero」",
+            focus: { pane: "characters", anchor_type: "character", anchor_id: "hero" },
+            important: true,
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(useAppStore.getState().toast).toBeNull();
+    expect(screen.getByTestId("location")).toHaveTextContent("/");
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
+
+    act(() => {
+      stream.options?.onSnapshot?.({
+        project_name: "demo",
+        fingerprint: "fp-after-cancel",
+        generated_at: "2026-03-01T00:00:01Z",
+      });
+    });
+
+    await waitFor(() => {
+      expect(refreshSpy).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent("/");
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+  });
+
+  it("preserves a newer queued focus target when an earlier in-flight refresh fails", async () => {
+    const stream = mockProjectEventStream();
+    const d1 = createDeferred<GetProjectResult>();
+    const d2 = createDeferred<GetProjectResult>();
+    const getProjectSpy = vi
+      .spyOn(API, "getProject")
+      .mockReturnValueOnce(d1.promise)
+      .mockReturnValueOnce(d2.promise);
+
+    renderHarness("/");
+
+    act(() => {
+      stream.options?.onChanges?.({
+        project_name: "demo",
+        batch_id: "batch-fail-1",
+        fingerprint: "fp-fail-1",
+        generated_at: "2026-03-01T00:00:00Z",
+        source: "filesystem",
+        changes: [
+          {
+            entity_type: "character",
+            action: "created",
+            entity_id: "hero",
+            label: "角色「hero」",
+            focus: { pane: "characters", anchor_type: "character", anchor_id: "hero" },
+            important: true,
+          },
+        ],
+      });
+    });
+    expect(getProjectSpy).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      stream.options?.onChanges?.({
+        project_name: "demo",
+        batch_id: "batch-ok-2",
+        fingerprint: "fp-ok-2",
+        generated_at: "2026-03-01T00:00:01Z",
+        source: "filesystem",
+        changes: [
+          {
+            entity_type: "scene",
+            action: "updated",
+            entity_id: "酒馆",
+            label: "场景「酒馆」",
+            focus: { pane: "scenes", anchor_type: "scene", anchor_id: "酒馆" },
+            important: true,
+          },
+        ],
+      });
+    });
+    expect(getProjectSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      d1.reject(new Error("first batch failed"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.tone).toBe("warning");
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent("/");
+    expect(useAppStore.getState().scrollTarget).toBeNull();
+
+    await act(async () => {
+      d2.resolve(makeGetProjectResult("R2"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/scenes");
+    });
+    expect(useAppStore.getState().scrollTarget).toEqual(
+      expect.objectContaining({
+        type: "scene",
+        id: "酒馆",
+        route: "/scenes",
+      }),
+    );
+    expect(getProjectSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("shows a toast without navigation for generation completion batches", async () => {
     const stream = mockProjectEventStream();
 
