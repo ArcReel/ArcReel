@@ -240,8 +240,9 @@ class TestGenerate:
         from lib.script.script_models import (
             AdReferenceFlatScript,
             ReferencePromptAuthoringFlatScript,
-            build_drama_normalized_script_model,
+            build_drama_script_plan_model,
             build_episode_script_model,
+            build_narration_script_plan_model,
             build_reference_units_script_plan_model,
         )
 
@@ -252,8 +253,10 @@ class TestGenerate:
         ]
         schemas += [
             AdReferenceFlatScript,
-            build_drama_normalized_script_model([4, 6, 8]),
-            build_drama_normalized_script_model([8]),
+            build_drama_script_plan_model([4, 6, 8]),
+            build_drama_script_plan_model([8]),
+            build_narration_script_plan_model([4, 6, 8]),
+            build_narration_script_plan_model([8]),
             build_reference_units_script_plan_model([4, 6, 8]),
             build_reference_units_script_plan_model([8]),
             ReferencePromptAuthoringFlatScript,

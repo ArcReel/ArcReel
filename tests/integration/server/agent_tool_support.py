@@ -432,6 +432,7 @@ def nr_generator_returning(
         async def generate(self, _request, project_name=None):
             if captured is not None:
                 captured["generate_project_name"] = project_name
+                captured["response_schema"] = _request.response_schema
 
             class _R:
                 text = json.dumps(

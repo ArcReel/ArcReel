@@ -445,6 +445,8 @@ MESSAGES = {
     "val_market_cli_generate_written": "Đã ghi {path} ({count} mục)",
     "val_market_cli_generate_failed": "Không tạo được chỉ mục: {count} vấn đề",
     "draft_violation_source_text_empty": "{label}: source_text trống. Sao chép đoạn văn gốc cho đơn vị video này.",
+    "draft_violation_empty_script_plan": "Kế hoạch kịch bản đang trống. Hãy thêm ít nhất một mục trước khi xác nhận.",
+    "draft_violation_episode_source_unavailable": "Không thể đọc nguyên văn tập tại {path}, hoặc tệp đang trống. Hãy khôi phục nguyên văn tập trước khi xác nhận.",
     "draft_violation_source_text_not_verbatim": "{label}: source_text không khớp nguyên văn: {excerpt}. Sao chép nguyên văn, không viết lại hoặc dịch.",
     "draft_violation_fullwidth_braces": "{label}: có dấu ngoặc nhọn toàn chiều rộng trong {excerpt}. Dùng ngoặc nhọn ASCII cho thoại và lời ngoài hình.",
     "draft_violation_malformed_mention": "{label}: tham chiếu tài sản sai định dạng {excerpt}. Dùng `@[tên tài sản]` với tên không trống và đủ cặp ngoặc.",

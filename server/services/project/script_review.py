@@ -45,12 +45,13 @@ from lib.script.draft_quarantine import (
 from lib.script.plan_new_assets import NEW_ASSETS_FIELD, NewAssetsError, UnregisteredReferencesError, resolve_new_assets
 from lib.script.script_generator import ScriptGenerator, UnitDurationOffTier
 from lib.script.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
+from lib.script.script_plan_validation import reference_soft_violations
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, admit_script_unit
 from server.services.tasks.video_caps import (
     reference_request_facts_lookup,
     reference_unit_capabilities,
 )
-from server.text_generation import fetch_reference_split_caps, reference_soft_violations, soft_violation_entries
+from server.text_generation import fetch_reference_split_caps, soft_violation_entries
 
 logger = logging.getLogger(__name__)
 

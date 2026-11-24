@@ -59,19 +59,21 @@ from lib.script.script_generator import ScriptGenerator
 from lib.script.script_models import (
     NarrationScriptPlanDraft,
     build_drama_normalized_script_model,
-    build_reference_units_script_plan_model,
+    build_reference_quarantine_plan_model,
+)
+from lib.script.script_plan_validation import (
+    SoftViolation,
+    collect_drama_violations,
+    collect_narration_violations,
+    collect_reference_flat_violations,
+    coverage_source_scope,
+    reference_soft_violations,
 )
 from lib.speech.speech_composition import admit_script_unit
 from server.text_generation import (
     SOFT_VIOLATION_NOTE_QUARANTINED,
-    ReferenceSplitCaps,
-    SoftViolation,
     build_reference_units_from_flat,
-    collect_drama_violations,
-    collect_narration_violations,
-    collect_reference_flat_violations,
     commit_single_script_plan,
-    coverage_source_scope,
     drama_script_plan_result_text,
     fetch_reference_split_caps,
     fetch_storyboard_durations,
@@ -81,7 +83,6 @@ from server.text_generation import (
     narration_script_plan_result_text,
     plan_item_ids,
     reference_result_text,
-    reference_soft_violations,
     reissue_plan_item_ids,
     render_soft_violation_lines,
     render_soft_violation_section,
@@ -218,7 +219,6 @@ class ReferenceDraftRevalidation(NamedTuple):
 
     violations: list[DraftViolation]
     flat_units: list[dict[str, Any]]
-    caps: ReferenceSplitCaps
     schema_failed: bool
     basis: ArtifactBasis | None
     soft_violations: list[SoftViolation]
@@ -266,7 +266,7 @@ async def revalidate_reference_script_plan_draft(
     split_caps = await fetch_reference_split_caps(project, config_resolver=config_resolver)
 
     raw_units = draft.content.get("units")
-    schema = build_reference_units_script_plan_model(split_caps.durations)
+    schema = build_reference_quarantine_plan_model(split_caps.durations)
     violations: list[DraftViolation] = []
     flat_units: list[dict[str, Any]] = []
     new_assets: list[dict[str, Any]] = []
@@ -295,7 +295,7 @@ async def revalidate_reference_script_plan_draft(
             new_assets = dedupe_new_assets(flat[NEW_ASSETS_FIELD])
     if violations:
         return ReferenceDraftRevalidation(
-            violations, [], split_caps, schema_failed=True, basis=script_plan_basis, soft_violations=[], new_assets=[]
+            violations, [], schema_failed=True, basis=script_plan_basis, soft_violations=[], new_assets=[]
         )
 
     source_language = project.get("source_language")
@@ -319,7 +319,6 @@ async def revalidate_reference_script_plan_draft(
     return ReferenceDraftRevalidation(
         violations,
         flat_units,
-        split_caps,
         schema_failed=False,
         basis=script_plan_basis,
         soft_violations=soft_violations,
@@ -453,7 +452,7 @@ async def _promote_reference_script_plan(
         raise DraftWorkflowError.video_facts(exc.failure) from exc
     except ValueError as exc:
         raise DraftWorkflowError("draft_invalid", f"❌ {exc}") from exc
-    violations, flat_units, split_caps = revalidation.violations, revalidation.flat_units, revalidation.caps
+    violations, flat_units = revalidation.violations, revalidation.flat_units
     if revalidation.schema_failed:
         report = await run_sync_transaction(
             _rewrite_invalid_draft,
@@ -485,13 +484,7 @@ async def _promote_reference_script_plan(
         unit_ids += await run_sync_transaction(
             ctx.pm.reserve_item_ids, ctx.project_name, episode, "video_units", len(flat_units) - len(unit_ids)
         )
-    units = build_reference_units_from_flat(
-        flat_units,
-        planning_project(project, revalidation.new_assets),
-        episode=episode,
-        max_refs=split_caps.max_refs,
-        unit_ids=unit_ids,
-    )
+    units = build_reference_units_from_flat(flat_units, unit_ids=unit_ids)
     expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
     try:
         await run_sync_transaction(

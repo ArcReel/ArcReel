@@ -432,6 +432,8 @@ MESSAGES = {
     "val_market_cli_generate_failed": "Не удалось сгенерировать индекс; найдено проблем: {count}",
     "arch_provider_asset_links_not_restored": "Проект импортирован, но {count} ссылок на библиотеку материалов сохранить не удалось; при генерации эти изображения отправляются как изображения. При необходимости загрузите их заново или выберите из библиотеки материалов",
     "draft_violation_source_text_empty": "{label}: source_text пуст. Скопируйте исходный фрагмент для этой видеоединицы.",
+    "draft_violation_empty_script_plan": "План сценария пуст. Добавьте хотя бы один элемент перед подтверждением.",
+    "draft_violation_episode_source_unavailable": "Исходный текст эпизода {path} недоступен или пуст. Восстановите его перед подтверждением.",
     "draft_violation_source_text_not_verbatim": "{label}: source_text не совпадает с оригиналом: {excerpt}. Скопируйте текст без пересказа и перевода.",
     "draft_violation_fullwidth_braces": "{label}: полноширинные скобки в {excerpt}. Используйте фигурные скобки ASCII для реплик и закадрового голоса.",
     "draft_violation_malformed_mention": "{label}: неверная ссылка на ресурс {excerpt}. Используйте `@[имя ресурса]` с непустым именем и парными скобками.",

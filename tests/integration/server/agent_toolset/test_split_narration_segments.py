@@ -27,7 +27,7 @@ async def test_split_narration_segments_dry_run(fake_ctx: ToolHarness, video_req
     assert out.problem is None, out
     prompt_text = said(out)
     assert "DRY RUN" in prompt_text
-    assert "E1S" in prompt_text
+    assert "**segment_id**" not in prompt_text
     assert "张三" in prompt_text
     assert "4" in prompt_text
     assert "# 附加指令" not in prompt_text
@@ -159,7 +159,7 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
 async def test_split_narration_segments_rejects_out_of_enum_duration(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """静态分镜 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
+    """模型输出在结构化解析时即拒绝越档时长。"""
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 5)]
@@ -167,22 +167,41 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
-    assert "不在模型档位" in said(out)
+    assert "literal_error" in said(out)
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 
-async def test_split_narration_segments_rejects_duplicate_segment_ids(
-    fake_ctx: ToolHarness, monkeypatch, video_request_facts
+async def test_split_narration_uses_effective_tiers_and_issues_ids(
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
 ) -> None:
+    from tests.factories import make_video_request_facts
 
     nr_source(fake_ctx)
-    segments = [nr_segment("E1S01", 4), nr_segment("E1S01", 6)]
-    use_text_generator(monkeypatch, nr_generator_returning(segments))
+    set_video_request_facts(
+        make_video_request_facts(generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(6, 8))
+    )
+    segments = [
+        nr_segment("duplicate", 6, "张三"),
+        nr_segment("duplicate", 8, "在村口"),
+        nr_segment("ignored", "6", "等人"),
+    ]
+    segments[-1].pop("segment_id")
+    captured: dict[str, Any] = {}
+    use_text_generator(monkeypatch, nr_generator_returning(segments, captured))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
-    assert out.problem is not None
-    assert "segment_id 重复" in said(out)
-    assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
+
+    assert out.problem is None, out
+    schema = captured["response_schema"].model_json_schema()
+    array = schema["properties"]["segments"]
+    assert array["minItems"] == 1
+    fields = schema["$defs"][array["items"]["$ref"].split("/")[-1]]["properties"]
+    assert fields["duration_seconds"]["enum"] == [6, 8]
+    assert "segment_id" not in fields
+    path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert [segment["segment_id"] for segment in saved["segments"]] == ["E1S02", "E1S03", "E1S04"]
+    assert [segment["duration_seconds"] for segment in saved["segments"]] == [6, 8, 6]
 
 
 async def test_split_narration_segments_rejects_blank_novel_text(
@@ -197,7 +216,7 @@ async def test_split_narration_segments_rejects_blank_novel_text(
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
     assert "novel_text 为空白" in said(out)
-    assert "E1S02" in said(out)
+    assert "E1S03" in said(out)
     assert not (fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json").exists()
 
 

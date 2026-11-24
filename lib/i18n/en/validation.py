@@ -437,6 +437,8 @@ MESSAGES = {
     "val_market_cli_generate_written": "Wrote {path} ({count} entries)",
     "val_market_cli_generate_failed": "Cannot generate the index: {count} issue(s)",
     "draft_violation_source_text_empty": "{label}: source_text is empty. Copy the original passage used by this video unit.",
+    "draft_violation_empty_script_plan": "The script plan is empty. Add at least one entry before confirming.",
+    "draft_violation_episode_source_unavailable": "The episode source {path} is unreadable or empty. Restore the episode source before confirming.",
     "draft_violation_source_text_not_verbatim": "{label}: source_text is not a verbatim passage: {excerpt}. Copy the original without rewriting or translating.",
     "draft_violation_fullwidth_braces": "{label}: full-width braces in {excerpt}. Use ASCII braces for dialogue and voiceover.",
     "draft_violation_malformed_mention": "{label}: malformed asset reference {excerpt}. Use `@[asset name]` with a nonempty name and paired brackets.",
