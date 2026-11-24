@@ -17,8 +17,8 @@ from lib.infra.data_root_layout import DataRootLayout
 _POLL_SECONDS = 0.05
 
 
-def _lock_path(*, project_name: str, resource_id: str) -> Path:
-    digest = canonical_json_digest([project_name, resource_id])
+def _lock_path(*key: str) -> Path:
+    digest = canonical_json_digest(list(key))
     root = DataRootLayout.current().generation_admission_locks_dir
     root.mkdir(parents=True, exist_ok=True)
     return root / f"{digest}.lock"
@@ -38,10 +38,16 @@ async def generation_admission_lock(
     already exited.
     """
 
+    async with admission_file_lock(project_name, resource_id):
+        yield
+
+
+@asynccontextmanager
+async def admission_file_lock(*key: str) -> AsyncGenerator[None]:
     handles: list[BinaryIO] = []
 
     def _open_lock_file() -> BinaryIO:
-        handle = _lock_path(project_name=project_name, resource_id=resource_id).open("a+b")
+        handle = _lock_path(*key).open("a+b")
         handles.append(handle)
         return handle
 
@@ -78,7 +84,7 @@ def generation_admission_lock_sync(
 ) -> Generator[None]:
     """Synchronous guard; non-blocking callers receive ``AlreadyLocked`` on contention."""
 
-    path = _lock_path(project_name=project_name, resource_id=resource_id)
+    path = _lock_path(project_name, resource_id)
     handle = path.open("a+b")
     acquired = False
     try:

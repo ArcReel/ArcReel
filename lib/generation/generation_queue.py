@@ -19,6 +19,7 @@ from lib.catalog.errors import ModelNotInCatalogError
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.task_repo import TaskNotCancellableError, TaskRepository
+from lib.generation.asset_admission import asset_admission_locks, asset_task_target, require_asset_idle
 from lib.generation.generation_admission import generation_admission_lock
 from lib.generation.generation_batch import (
     GenerationBatchBlockedItem,
@@ -447,6 +448,21 @@ class GenerationQueue:
             ):
                 raise ActiveTaskRequestConflict(resource_id=resource_id, existing_task_id=existing_task_id)
 
+        if task_type == "image_edit" and resource_type is None:
+            resource_type = (payload or {}).get("resource_type")
+        asset = asset_task_target(task_type, resource_type, resource_id)
+
+        async def _guard_asset(session, new_task_id: str) -> None:
+            assert asset is not None
+            await require_asset_idle(
+                session,
+                project_name,
+                asset,
+                new_task_id=new_task_id,
+                batch_id=batch_id,
+                parent_task_id=dependency_task_id if task_type == DERIVATIVE_TASK_TYPE else None,
+            )
+
         async def _enqueue() -> dict[str, Any]:
             async with self._task_repo() as repo:
                 return await repo.enqueue(
@@ -466,10 +482,15 @@ class GenerationQueue:
                     batch_id=batch_id,
                     batch_unit_id=batch_unit_id,
                     batch_unit_ids=batch_unit_ids,
+                    new_task_guard=_guard_asset if asset is not None else None,
                     dedupe_guard=_guard_deduped,
                 )
 
-        if task_type in {"tts", "video", "reference_video"} and script_file:
+        if asset is not None:
+            async with asset_admission_locks(project_name, asset):
+                await asyncio.to_thread(asset.require_host, project_name, self._project_manager)
+                result = await _enqueue()
+        elif task_type in {"tts", "video", "reference_video"} and script_file:
             async with generation_admission_lock(
                 project_name=project_name,
                 script_file=script_file,

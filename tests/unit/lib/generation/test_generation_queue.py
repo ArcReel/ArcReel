@@ -3,7 +3,6 @@
 import asyncio
 import json
 
-import portalocker
 import pytest
 import time_machine
 
@@ -15,7 +14,7 @@ from lib.generation.generation_queue import (
     reference_projection_for_queued_task,
 )
 from lib.generation.task_failure import encode_failure
-from tests.fakes import use_project_manager
+from tests.fakes import observe_file_lock_contention, use_project_manager
 
 
 @pytest.fixture
@@ -35,17 +34,7 @@ class TestGenerationQueue:
 
         monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "app-data"))
         reset_for_tests()
-        lock_contended = asyncio.Event()
-        lock = portalocker.lock
-
-        def observe_lock_attempt(handle, flags):
-            try:
-                lock(handle, flags)
-            except portalocker.AlreadyLocked:
-                lock_contended.set()
-                raise
-
-        monkeypatch.setattr(portalocker, "lock", observe_lock_attempt)
+        lock_contended = observe_file_lock_contention(monkeypatch)
         async with (
             asyncio.TaskGroup() as tasks,
             generation_admission_lock(
