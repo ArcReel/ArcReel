@@ -872,9 +872,11 @@ def _plan_reference_copy(
     if field_name == "reference_audio" and PurePosixPath(rel).parent != target_dir:
         return None
     source = _copy_source(work.project_dir, rel)
-    if source is not None and try_safe_join(work.project_dir, value.replace("\\", "/")) != source:
-        return None
     if source is None and collided is None:
+        return None
+    if try_safe_join(work.project_dir, value.replace("\\", "/")) != (
+        source if source is not None else try_safe_join(work.project_dir, rel)
+    ):
         return None
     content: bytes | None = None
     if source is not None:
